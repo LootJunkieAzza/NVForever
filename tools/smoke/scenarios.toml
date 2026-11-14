@@ -27436,3 +27436,22 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+
+[[scenario]]
+name = "player-script-sequence-pose-release-owned"
+source = "[design: player-script-sequence-pose-aid.md] Optional actual post-propagation first/third rig observation using two externally authored owned KFs and a declared numeric manifest. NOT RUN; no native or pixel comparison."
+areas = ["scripts", "player"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/player_sequence_pose_aid.rs", "engine/nvforever/src/script_sequences.rs", "engine/nvf-assets/src/anim_blend.rs", "crates/fnv-game/src/nvse_anim.rs"]
+requires = ["NVF_PLAY_TEST_SEQUENCE_POSE"]
+env = { NVF_PLAY_TEST_CONSOLE = '11:ToggleFirstPerson 1;player.ActivateAnim "qa\sequence2395\owned_underlying.kf" 0 1 1 1 0;player.ActivateAnim "qa\sequence2395\owned_underlying.kf" 1 1 1 1 0;11.5:close;16:player.ActivateAnim "qa\sequence2395\owned_pose.kf" 1 3 1 1 0;16.5:close;20:player.DeactivateAnim "qa\sequence2395\owned_pose.kf" 0.5;20.1:close' }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-head-bob", "--no-weapon-sway", "--no-weapon-lower"]
+run_seconds = 25
+expect = [
+  { text = "sequence pose aid: PASS phase=before", count = 1, label = "both real rigs carry the declared underlying pose before the high layer" },
+  { text = "sequence pose aid: PASS phase=active-quarter", count = 1, label = "first rig applies the actual quarter-phase sample while third remains unchanged" },
+  { text = "sequence pose aid: PASS phase=active-three-quarter", count = 1, label = "second actual phase changes first local and propagated world transforms" },
+  { text = "sequence pose aid: PASS phase=fade", count = 1, label = "actual stopped request fades toward the retained underlying layer" },
+  { text = "sequence pose aid: PASS phase=released", count = 1, label = "request and high tag retire and the underlying pose remains" },
+  { text = "sequence pose aid: FAIL", count = 0, label = "manifest, rig identity and numeric observations stay valid" },
+]

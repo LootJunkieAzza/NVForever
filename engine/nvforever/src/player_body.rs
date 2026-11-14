@@ -973,6 +973,9 @@ impl PlayerBody {
     }
 }
 
+#[path = "player_sequence_pose_aid.rs"]
+mod sequence_pose_aid;
+
 pub struct PlayerBodyPlugin {
     /// `--first-person-body`.
     pub first_person_body: bool,
@@ -997,6 +1000,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::script_sequences::PlayerSequences>()
             .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+            .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
     }
 }
@@ -3184,3 +3188,6 @@ mod tests {
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
+
+#[cfg(test)]
+mod sequence_consumer_tests;
