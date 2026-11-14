@@ -74,7 +74,7 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
     section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
-    section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
+    section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "physics-rate", "ui-scale"]),
     section(
         "Display",
         Some("Interface"),
@@ -307,9 +307,9 @@ mod tests {
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
-    /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
-    /// registers with.
-    const KNOWN: [(&str, &str); 109] = [
+    /// FSR library row, #2242's upscaling counter row, #2317's Generated frames row and the
+    /// Physics rate row), by the group it registers with.
+    const KNOWN: [(&str, &str); 110] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -378,6 +378,7 @@ mod tests {
         ("fps-counter-upscaling", "Display"),
         ("display-sync", "Display"),
         ("frame-cap", "Display"),
+        ("physics-rate", "Display"),
         ("object-distance", "Display"),
         ("actor-distance", "Display"),
         ("item-distance", "Display"),

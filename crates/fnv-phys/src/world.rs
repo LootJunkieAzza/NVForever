@@ -53,6 +53,14 @@ impl Default for PhysParams {
 /// the bare surface.
 pub const TERRAIN_SHELL: f32 = 3.5;
 
+/// `NVF_PHYS_INDOOR_PREDICTION=0` (a test aid for comparing, read once): the contact
+/// prediction distance stays raised by [`TERRAIN_SHELL`] with no terrain too, as before
+/// 2026-11-13 (`PhysWorld::new`, `PhysWorld::fit_prediction`).
+fn raised_prediction_always() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PHYS_INDOOR_PREDICTION").is_ok_and(|v| v == "0"))
+}
+
 /// Where [`Owner::encode_segment`] puts the segment in `user_data` (above the owner's
 /// 104 bits).
 const SEGMENT_SHIFT: u32 = 104;
@@ -188,6 +196,10 @@ pub struct Stats {
     /// differ run to run).
     #[serde(skip)]
     pub solver_us: [u64; 6],
+    /// Bodies and colliders rapier disabled so far for state that went NaN or infinite,
+    /// each counted once (`crate::quarantine`).
+    pub quarantined_bodies: usize,
+    pub quarantined_colliders: usize,
 }
 
 /// State of one body, for readback (e.g. dynamic clutter positions).
@@ -390,6 +402,9 @@ pub struct RefreshStats {
     pub repair_sleep: u64,
     /// Bodies struck since the last step, summed over the refreshes (woken again).
     pub repair_struck: u64,
+    /// Bodies whose islands the refreshes put right after the detection
+    /// (`crate::islands`): woken with their island, or a fixed body's type told again.
+    pub repair_islands: u64,
 }
 
 pub struct PhysWorld {
@@ -432,7 +447,7 @@ pub struct PhysWorld {
     /// Diagnostics only ([`PhysWorld::refresh_stats`]).
     refresh_stats: RefreshStats,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
-    new_bodies: Vec<RigidBodyHandle>,
+    pub(crate) new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
     /// [`PhysWorld::update_queries`]).
@@ -440,7 +455,9 @@ pub struct PhysWorld {
     /// Dynamic bodies added asleep ([`PreparedRef::asleep`]) whose contacts have not been
     /// found yet (see [`PhysWorld::update_queries`]).
     pending_sleep: Vec<RigidBodyHandle>,
-    steps: u64,
+    pub(crate) steps: u64,
+    /// Game seconds stepped: each step's `dt` summed ([`PhysWorld::stepped_secs`]).
+    stepped_secs: f64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
     /// The body held by the player's grab (`crate::grab`), driven before every step.
@@ -452,6 +469,12 @@ pub struct PhysWorld {
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
+    /// The moving bodies' poses before the last step, for drawing between steps
+    /// (`crate::drawn`).
+    pub(crate) before: crate::drawn::Before,
+    /// Bodies and colliders rapier disabled for state that went NaN or infinite
+    /// (`crate::quarantine`).
+    pub(crate) quarantined: crate::quarantine::Quarantined,
 }
 
 impl PhysWorld {
@@ -465,9 +488,20 @@ impl PhysWorld {
         // default 0.02 m, 1.4 units) never fell asleep and crept along the ground at about
         // 10 units a second [observed: the terrain's 3.5-unit skin under Goodsprings'
         // motorcycles and crates; a skin of 1.4 rested, 2 crept; test
-        // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
-        // distance of the default plus the skin rests them (asleep within 2 s).
-        w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        // `clutter_on_the_terrain_shell_falls_asleep`]. rapier keeps at most four points of
+        // a contact, the deepest and then those spread farthest from it among the points
+        // whose distance, skins not taken off, is within the prediction distance
+        // [documented: rapier3d 0.36.1 `reduce_manifold_naive`]: on a skin wider than the
+        // prediction distance only the deepest point is left. A prediction distance of the
+        // default plus the skin rests them (asleep within 2 s). It is raised only while the
+        // world holds terrain (`fit_prediction`): indoors it let points of a surface a unit
+        // or two below the one a body lies on (a shelf board's lower edge) displace the
+        // points it lies on, and clutter trembled and stayed awake (test
+        // `a_book_over_a_lower_lip_falls_asleep_indoors`).
+        // rapier's own until terrain is added, unless the test aid asks for the raised one.
+        if raised_prediction_always() {
+            w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        }
         #[cfg(feature = "solver-timers")]
         w.physics_pipeline.counters.enable();
         PhysWorld {
@@ -493,11 +527,14 @@ impl PhysWorld {
             struck: Vec::new(),
             pending_sleep: Vec::new(),
             steps: 0,
+            stepped_secs: 0.0,
             water: Default::default(),
             grip: None,
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
             solver_ms: [0.0; 6],
+            before: Default::default(),
+            quarantined: Default::default(),
         }
     }
 
@@ -515,14 +552,28 @@ impl PhysWorld {
         let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode()).contact_skin(TERRAIN_SHELL * self.k);
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
+        self.fit_prediction();
         self.mark_dirty(DirtyBy::Bodies);
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
         self.w.remove_collider(h);
+        self.fit_prediction();
         self.mark_dirty(DirtyBy::Bodies);
         true
+    }
+
+    /// rapier's own contact prediction distance while the world holds no terrain, raised
+    /// by the terrain's shell while it does (see `PhysWorld::new`). With
+    /// `NVF_PHYS_INDOOR_PREDICTION=0` it stays raised.
+    fn fit_prediction(&mut self) {
+        if raised_prediction_always() {
+            return;
+        }
+        let own = IntegrationParameters::default().normalized_prediction_distance;
+        let raised = if self.terrain.is_empty() { 0.0 } else { TERRAIN_SHELL * self.k };
+        self.w.integration_parameters.normalized_prediction_distance = own + raised;
     }
 
     /// Add the collision objects of a placed reference: one body per object, placed at
@@ -700,6 +751,7 @@ impl PhysWorld {
             }
         }
         self.w.remove_body(b);
+        self.before.forget(b);
         self.mark_dirty(DirtyBy::Bodies);
     }
 
@@ -728,6 +780,7 @@ impl PhysWorld {
             return true;
         }
         body.set_position(p, true);
+        self.before.forget(b);
         self.mark_dirty(DirtyBy::Transform);
         true
     }
@@ -766,7 +819,8 @@ impl PhysWorld {
 
     /// Push dynamic bodies within `radius` of `center` away from it (an explosion's force,
     /// combat C7) [design: the EXPL force read as a speed change in game units per second
-    /// at the centre, falling linearly to 0 at the radius]. Returns how many moved.
+    /// at the centre, falling linearly to 0 at the radius]. A settling ragdoll it strikes
+    /// stops settling (`PhysWorld::settle_ragdoll`). Returns how many moved.
     pub fn push_dynamic(&mut self, center: [f32; 3], radius: f32, speed: f32) -> usize {
         let k = self.k;
         let c = vec3(center) * k;
@@ -776,6 +830,7 @@ impl PhysWorld {
             self.rouse_ragdoll(id);
         }
         let mut n = 0;
+        let mut struck_ragdolls = Vec::new();
         for (h, b) in self.w.bodies.iter_mut() {
             if !b.is_dynamic() {
                 continue;
@@ -791,7 +846,11 @@ impl PhysWorld {
             b.apply_impulse(dir * (dv * m), true);
             // A query before the next step must not lose the wake-up (`update_queries`).
             self.struck.push(h);
+            struck_ragdolls.extend(self.ragdoll_of.get(&h).map(|o| o.0));
             n += 1;
+        }
+        for id in struck_ragdolls {
+            self.unsettle_ragdoll(id);
         }
         n
     }
@@ -894,6 +953,39 @@ impl PhysWorld {
         bodies.iter().filter_map(|&b| self.w.bodies.get(b)).flat_map(|b| b.colliders().iter()).find_map(|c| self.materials.get(c)?.first().copied())
     }
 
+    /// The lowest point of a reference's colliders with their contact shells, game units:
+    /// how low it reaches against what it rests on (its shape's lowest point less its own
+    /// shell). `None` without colliders.
+    pub fn ref_lowest_z(&self, form_id: u32) -> Option<f32> {
+        let k = self.k;
+        let colliders = self.refs.get(&form_id)?.iter().filter_map(|&b| self.w.bodies.get(b)).flat_map(|b| b.colliders().iter().copied());
+        colliders.filter_map(|c| Some(self.w.colliders.get(c)?.compute_aabb().mins.z / k - self.shell_of(c))).reduce(f32::min)
+    }
+
+    /// Lift every body of a reference by `dz` game units, as a placement (a teleport: each
+    /// body wakes, and the next query sees it there). How many bodies moved.
+    pub fn lift_ref(&mut self, form_id: u32, dz: f32) -> usize {
+        let Some(bodies) = self.refs.get(&form_id).cloned() else { return 0 };
+        let by = Vector::Z * dz * self.k;
+        let mut moved = 0;
+        for b in bodies {
+            let Some(body) = self.w.bodies.get_mut(b) else { continue };
+            let mut moved_to = *body.position();
+            moved_to.translation += by;
+            body.set_position(moved_to, true);
+            for &c in body.colliders() {
+                if let Some(co) = self.w.colliders.get_mut(c) {
+                    let mut cp = *co.position();
+                    cp.translation += by;
+                    co.set_position(cp);
+                }
+            }
+            self.body_placed(b);
+            moved += 1;
+        }
+        moved
+    }
+
     /// Current state of each body of a reference, in object order.
     pub fn ref_bodies(&self, form_id: u32) -> Vec<BodyState> {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()
@@ -937,6 +1029,8 @@ impl PhysWorld {
     /// the step ([`PhysWorld::update_queries`]).
     pub(crate) fn body_placed(&mut self, h: RigidBodyHandle) {
         self.struck.push(h);
+        // Drawn where it was put, not on the way there (`crate::drawn`).
+        self.before.forget(h);
         self.mark_dirty(DirtyBy::Transform);
     }
 
@@ -956,6 +1050,9 @@ impl PhysWorld {
             self.drive_grip();
             self.buoy();
         }
+        // The poses the coming step starts from, for drawing between steps (`crate::drawn`):
+        // read only by the drawing.
+        self.keep_poses_before();
         {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
@@ -963,6 +1060,10 @@ impl PhysWorld {
             for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
                 *a += t.time_ms();
             }
+        }
+        // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
+        if !self.w.quarantine().is_empty() {
+            self.handle_quarantine();
         }
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
@@ -973,10 +1074,19 @@ impl PhysWorld {
         self.new_bodies.clear();
         self.struck.clear();
         self.steps += 1;
+        self.stepped_secs += f64::from(self.params.dt);
     }
 
     pub fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// Game seconds the world has stepped: every step's `dt` summed, so a step made short
+    /// by a slowed clock counts for what it was. The time base for anything that judges
+    /// how long physics has had (a body settling, a corpse calming): not the frames' time,
+    /// which also runs while no step is taken, nor the steps times the step now.
+    pub fn stepped_secs(&self) -> f64 {
+        self.stepped_secs
     }
 
     /// Change the fixed step, seconds (`PhysParams::dt`): the next [`PhysWorld::step`] and
@@ -1047,6 +1157,11 @@ impl PhysWorld {
                     b.set_angvel(spin, true);
                 }
             }
+            // Any other change the detection took from rapier's islands: a sleeping corpse
+            // struck (`push_ragdoll`) was left awake in its sleeping set, and later
+            // crashed rapier (`crate::islands`).
+            let repaired = self.repair_islands();
+            self.refresh_stats.repair_islands += repaired as u64;
             self.dirty = false;
         }
     }
@@ -1130,7 +1245,9 @@ impl PhysWorld {
             }
         }
         for (_, c) in self.w.colliders.iter() {
-            *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
+            // A hull with large faces (`crate::hull`) counts as the hull it is.
+            let t = if c.shape().as_shape::<crate::hull::Hull>().is_some() { ShapeType::ConvexPolyhedron } else { c.shape().shape_type() };
+            *s.colliders.entry(shape_name(t)).or_default() += 1;
         }
         s.bodies_awake = self.w.islands.num_active_bodies();
         for pair in self.w.narrow_phase.contact_pairs().filter(|p| p.has_any_active_contact()) {
@@ -1141,6 +1258,7 @@ impl PhysWorld {
             }
         }
         s.joints = self.w.impulse_joints.len();
+        (s.quarantined_bodies, s.quarantined_colliders) = self.quarantined.counts();
         s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
         s
     }
@@ -1188,11 +1306,14 @@ impl PhysWorld {
             struck: self.struck.clone(),
             pending_sleep: self.pending_sleep.clone(),
             steps: self.steps,
+            stepped_secs: self.stepped_secs,
             water: self.water.clone(),
             grip: self.grip.clone(),
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
             solver_ms: self.solver_ms,
+            before: self.before.clone(),
+            quarantined: self.quarantined.clone(),
         }
     }
 
@@ -1241,30 +1362,64 @@ fn shape_name(t: ShapeType) -> String {
 }
 
 pub(crate) fn body_state(b: &RigidBody, k: f32) -> BodyState {
-    let p = b.position();
+    body_state_at(b, b.position(), k)
+}
+
+/// [`body_state`] with the body at `p` (`crate::drawn`).
+pub(crate) fn body_state_at(b: &RigidBody, p: &Pose, k: f32) -> BodyState {
     let m = rapier3d::math::Matrix::from_quat(p.rotation).transpose().to_cols_array();
     BodyState { translation: arr3(p.translation / k), rotation: m, linvel: arr3(b.linvel() / k), sleeping: b.is_sleeping() }
 }
 
 /// Runs a variable frame time as whole fixed steps; the remainder carries over.
+///
+/// The remainder is kept in `f64`: each frame adds its time and each step takes `dt` off,
+/// and in `f32` the sum's rounding (about 2e-9 s at a step's size) would build up over
+/// hours of frames [design]. [`Stepper::alpha`] is the one place the share of a step
+/// that the remainder stands for is worked out: everything drawn between the last two
+/// steps blends by it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Stepper {
-    pub accumulated: f32,
+    /// Game time towards the next step, seconds.
+    pub accumulated: f64,
 }
 
 impl Stepper {
-    /// How many fixed steps `elapsed` seconds call for (at most `params.max_substeps`).
+    /// How many fixed steps `elapsed` seconds call for (at most `params.max_substeps`;
+    /// the time beyond is dropped, leaving at most one step's).
     pub fn advance(&mut self, params: &PhysParams, elapsed: f32) -> u32 {
-        self.accumulated += elapsed.max(0.0);
+        let dt = f64::from(params.dt);
+        self.accumulated += f64::from(elapsed.max(0.0));
         let mut n = 0;
-        while self.accumulated >= params.dt && n < params.max_substeps {
-            self.accumulated -= params.dt;
+        while self.accumulated >= dt && n < params.max_substeps {
+            self.accumulated -= dt;
             n += 1;
         }
         if n == params.max_substeps {
-            self.accumulated = self.accumulated.min(params.dt);
+            self.accumulated = self.accumulated.min(dt);
         }
         n
+    }
+
+    /// How far the remainder is into the next step of `dt` seconds, 0 to 1: what is
+    /// drawn between the last two steps sits this share of the way to the last one.
+    pub fn alpha(&self, dt: f32) -> f32 {
+        if dt > 0.0 {
+            (self.accumulated / f64::from(dt)).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// The step changes from `from` to `to` seconds (another rate, or a clock that runs
+    /// slow): the remainder keeps its share of a step, so [`Stepper::alpha`], and with it
+    /// everything drawn between steps, does not jump. The game time it stands for changes
+    /// by less than one step's [design: a jump on screen would show; a fraction of a step
+    /// of game time, once, does not].
+    pub fn rescale(&mut self, from: f32, to: f32) {
+        if from > 0.0 && to > 0.0 && from.is_finite() && to.is_finite() {
+            self.accumulated = (self.accumulated * f64::from(to) / f64::from(from)).min(f64::from(to));
+        }
     }
 }
 

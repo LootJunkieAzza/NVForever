@@ -726,8 +726,11 @@ fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece
             continue;
         }
         let Some(s) = phys.world.gore_state(p.id) else { continue };
-        t.translation = Vec3::from(s.translation);
-        t.rotation = Quat::from_mat3(&Mat3::from_cols_array(&s.rotation).transpose());
+        // Drawn between the last two physics steps (`fnv_phys::drawn`); measured where the
+        // step put it.
+        let d = phys.world.drawn_gore_state(p.id, phys.draw_alpha()).unwrap_or(s);
+        t.translation = Vec3::from(d.translation);
+        t.rotation = Quat::from_mat3(&Mat3::from_cols_array(&d.rotation).transpose());
         let still = s.sleeping || Vec3::from(s.linvel).length() < 1.0;
         if p.settled || !still {
             continue;
@@ -735,7 +738,7 @@ fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece
         p.settled = true;
         let Some(corpse) = phys.world.ragdoll_center(p.actor) else { continue };
         let entry = gore.landed.entry(p.actor).or_default();
-        entry.1.push(t.translation.distance(Vec3::from(corpse)));
+        entry.1.push(Vec3::from(s.translation).distance(Vec3::from(corpse)));
         if entry.1.len() as u32 >= entry.0 {
             let mut d = std::mem::take(&mut entry.1);
             d.sort_by(f32::total_cmp);

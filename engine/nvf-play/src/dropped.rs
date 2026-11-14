@@ -10,7 +10,9 @@
 //!   streaming drops the cell or a door reloads everything, and comes back with the cell.
 //!   Its mesh entities carry `RefVisual(id)`, so the crosshair's render-bounds fallback
 //!   finds it like a placed item. A taken one (`RefState::deleted`) is despawned; one
-//!   that moved (falling, settling, pushed) follows the simulation's pose. Markers and
+//!   that moved (falling, settling, pushed) follows the simulation's pose; while its body
+//!   moves it is drawn between the last two physics steps instead
+//!   (`crate::phys::PhysState::drawn_ref_pose`), as smoothly as the frame rate allows. Markers and
 //!   bases of a type placed references are not drawn for (PlaceAtMe of an explosion) draw
 //!   nothing ([`draws_model`]).
 //! - Physics (`crate::phys`): its model's collision objects, dynamic when the model says
@@ -228,6 +230,7 @@ fn sync_drawn(
     mut drawn: ResMut<Drawn>,
     mut models: ModelCtx,
     mut not_drawn: Local<BTreeSet<(FormId, u8)>>,
+    phys: Option<Res<crate::phys::PhysState>>,
 ) {
     let loaded: HashMap<RenderCell, (Entity, Vec3)> = cells.iter().map(|(e, c, t)| (*c, (e, t.translation))).collect();
     // Drawn under a cell entity that is gone (render streaming, door travel: the root
@@ -260,6 +263,15 @@ fn sync_drawn(
             *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-*origin) * w.affine()));
         }
         r.at = w;
+    }
+    // Falling, rolling or carried: drawn between the last two physics steps every frame
+    // while its body moves, and once more where it came to rest (`PhysState::between`);
+    // the simulation keeps the stepped pose.
+    for &id in phys.as_deref().map_or(&[][..], |p| &p.between.redraw) {
+        let Some(r) = drawn.0.get(&id) else { continue };
+        let (Ok(mut t), Some((_, origin))) = (transforms.get_mut(r.root), loaded.get(&r.at.cell)) else { continue };
+        let at = phys.as_deref().and_then(|p| p.drawn_ref_pose(id)).map_or_else(|| r.at.affine(), |(pos, rot)| crate::moved::ref_affine_matrix(pos, &rot, 1.0));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-*origin) * at));
     }
     for id in p.spawn {
         let w = wanted[&id];

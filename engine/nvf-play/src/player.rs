@@ -656,6 +656,10 @@ impl Default for ReloadPace {
 /// Modify Run Speed perks, a reload, Speed Mult and body armour.
 type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>, Option<Res<'w, StatSpeed>>);
 
+/// Turbo's clock for the player, and where the steps' cost is measured: `--log-frame-times`'
+/// counts and the physics rate's guard (`crate::phys_load::Meter`).
+type Meters<'w> = (Option<Res<'w, crate::script::PlayerTimeScale>>, Option<ResMut<'w, crate::phys_load::PhysLoad>>, Option<ResMut<'w, crate::phys_rate::PhysRate>>);
+
 /// The player's Speed Mult and body armour's factor on its movement, walking, running
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
@@ -1114,18 +1118,22 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace, perk_pace, reload_pace, stat_pace): Paces,
-    (turbo, mut load): (Option<Res<crate::script::PlayerTimeScale>>, Option<ResMut<crate::phys_load::PhysLoad>>),
+    (turbo, mut load, mut rate): Meters,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
 ) {
     if *state.get() != PlayState::Playing {
-        phys.stepper = default();
+        // No time reaches the stepper while not playing, so nothing steps; its remainder is
+        // kept, and with it the share of a step everything is drawn at (`draw_alpha`), so
+        // nothing drawn between steps shifts when a menu opens or closes. (Zeroed, it drew
+        // every actor, corpse and moved clutter at its pose before the last step under a
+        // menu, and a frame later back where it was.)
         return;
     }
-    // Measuring (`--log-frame-times`): the frame's and each step's time and counts, into
-    // `PhysLoad` (nothing is timed without it).
-    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut());
+    // Measuring: the frame's time, always, for the physics rate's guard (`PhysRate`); with
+    // `--log-frame-times` each step's time and the counts too, into `PhysLoad`.
+    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut(), rate.as_deref_mut());
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked
@@ -1191,8 +1199,8 @@ fn step(
             player.placed = None;
         }
         p.player_lift.reset();
-        let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
-        player.feet = lerp3(p.prev_feet, c.feet, alpha);
+        let feet = c.feet;
+        player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
         return;
     }
     // A frame with no player character or waiting for a cell is not a played frame for
@@ -1202,9 +1210,9 @@ fn step(
         return;
     };
     if !phys.ready_at(feet) {
-        // Walked into a cell that is not loaded yet: wait for it.
+        // Walked into a cell that is not loaded yet: wait for it. The frames' time does
+        // not reach the stepper; its remainder, and the drawn blend, stay as they were.
         meter.skip();
-        phys.stepper = default();
         status.waiting_frames += 1;
         return;
     }
@@ -1294,8 +1302,8 @@ fn step(
         }
         if let Some(b) = blocks.as_deref_mut() {
             use crate::blocking::{clip, Block, Push, PLAYER};
-            b.player_held = b.player_held.saturating_sub(1);
-            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held == 0;
+            b.player_held = (b.player_held - dt).max(0.0);
+            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held <= dt * 0.5;
             let placed = b.list.len();
             let mut all = std::mem::take(&mut b.list);
             all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
@@ -1358,7 +1366,7 @@ fn step(
         if want > 1e-4 {
             let got = ((c.feet[0] - p.prev_feet[0]) * pushed[0] + (c.feet[1] - p.prev_feet[1]) * pushed[1]) / want;
             if let Some(b) = blocks.as_deref_mut().filter(|_| got < crate::blocking::HELD_SHARE * want) {
-                b.player_held = crate::blocking::HELD_STEPS;
+                b.player_held = crate::blocking::HELD_SECS;
             }
         }
         drop(move_span);
@@ -1379,8 +1387,8 @@ fn step(
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
-    let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
-    player.feet = lerp3(p.prev_feet, c.feet, alpha);
+    let feet = c.feet;
+    player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
     if n > 0 {
         // Where the bodies are drawn after the steps (the drawn ground under each).
         p.update_drawn_sinks();
@@ -1567,6 +1575,39 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
+
+    /// A menu, a conversation or a loading screen keeps the share of a step everything is
+    /// drawn at: nothing drawn between steps shifts when one opens or closes.
+    #[test]
+    fn the_drawn_blend_holds_while_not_playing() {
+        for state in [PlayState::Menu, PlayState::Dialogue, PlayState::Loading] {
+            let mut app = App::new();
+            let player = Player { heading: 0.0, pitch: 0.0, eye_height: 120.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None };
+            app.insert_resource(State::new(state))
+                .insert_resource(crate::script_draw::tests::play_over(&[]))
+                .insert_resource(SPEEDS)
+                .insert_resource(player)
+                .insert_resource(PhysState::default())
+                .init_resource::<Time>()
+                .init_resource::<MoveIntent>()
+                .init_resource::<Status>()
+                .init_resource::<crate::furniture::PlayerSeat>()
+                .init_resource::<NoClip>()
+                .init_resource::<Lunge>()
+                .add_message::<crate::rumble::Landed>()
+                .add_message::<crate::falls::Fell>()
+                .add_systems(Update, step);
+            let dt = app.world().resource::<PhysState>().world.params.dt;
+            app.world_mut().resource_mut::<PhysState>().stepper.accumulated = f64::from(dt) * 0.4;
+            let before = app.world().resource::<PhysState>().draw_alpha();
+            for _ in 0..3 {
+                app.update();
+            }
+            let p = app.world().resource::<PhysState>();
+            assert_eq!(p.draw_alpha(), before, "{state:?}");
+            assert!((before - 0.4).abs() < 1e-5);
+        }
+    }
 
     /// #2201: at the default Vertical Sensitivity (1) the mouse and the right stick turn the
     /// view exactly as before; another value changes the pitch only.

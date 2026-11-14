@@ -1125,7 +1125,7 @@ mod tests {
             material: None,
             wind: false,
         };
-        let body = RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: Iso::IDENTITY, unit: 7.0 };
+        let body = RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: Iso::IDENTITY, unit: 7.0, inertia: None };
         let ragdoll = std::sync::Arc::new(Ragdoll { bodies: vec![body], joints: vec![], problems: vec![] });
         let mut app = app(sim());
         mesh(&mut app, ACHR_REF, [0.0; 3]);

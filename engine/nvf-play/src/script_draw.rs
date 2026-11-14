@@ -19,7 +19,6 @@
 //! world.rs's (`WorldData::enabled`) [coordination: one shared function would keep the
 //! two from drifting; docs/design/layer5-play.md].
 
-use crate::moved::ref_affine;
 use crate::phys::PhysState;
 use crate::script::ScriptState;
 use crate::sim::SimState;
@@ -159,14 +158,17 @@ type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transf
 /// Move the roots of the references physics moved this frame
 /// (`PhysState::settle_placed`), a script's Rotate turned or SetScale resized
 /// (`Game::turned`), or the console moved (`crate::RefRepose`, which still names what the
-/// tick cleared from `turned`), to the simulation's pose and scale.
+/// tick cleared from `turned`), to the simulation's pose and scale; a body moving under
+/// physics is drawn between the last two steps instead (`crate::moved::drawn_affine`).
 fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, mut repose: MessageReader<crate::RefRepose>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
     let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
-    for id in phys.moved_now.iter().copied().chain(turned).chain(repose.read().map(|m| m.form_id)) {
+    // Clutter drawn between physics steps too (`PhysState::between`), every frame while it
+    // moves and once after.
+    let moving = phys.moved_now.iter().chain(&phys.between.redraw).copied();
+    for id in moving.chain(turned).chain(repose.read().map(|m| m.form_id)) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
-        let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
-        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, sim.ref_scale(id))));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * crate::moved::drawn_affine(&sim, &phys, id, p)));
     }
 }
 
