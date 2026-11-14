@@ -4083,6 +4083,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "bloatfly-holds-distance"
+source = "issue #2351 (engine/nvforever/src/combat_tactics.rs back_off_band; docs/design/combat-ai.md §12.6): a short-reach gun's step back ends short of where it stops closing in. A bloatfly (Bloatfly1HP: Max Range 250, Min Range 100) stops 225 units from its target; it stepped back from any target within 256 to 320 and closed in again beyond 225, back and forth for the whole fight. Now it holds and fires, and steps back only from a target within its Min Range"
+note = "a bloatfly (CrBloatFly 0x0009189C, the first created reference 0xFF000000) placed at the god-mode player in Goodsprings at 3 s, moved 600 units away at 4 s and set on the player at 4.5 s; the player stands still for the rest of the 25 s run, so on main every stop at 225 was followed by a step back (each logged once as it begins). Its distance is in its `opens fire on` line; the steps back are counted by their log lines"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/body_weapons.rs", "crates/fnv-combat/src/body_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrBloatFly:1,4:moveto:0xFF000000:player:600:0:0,4.5:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'npc combat: Bloatfly( \S+)? opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
+  { re = 'npc combat: Bloatfly( \S+)? steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
+]
+
+[[scenario]]
 name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
