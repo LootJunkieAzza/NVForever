@@ -280,6 +280,7 @@ session.
 | missing asset | the first failure of each path |
 | save trouble | a save that fails to write, or a load that falls back (#1360) |
 | audio | the device lost or a voice file missing for a spoken line |
+| soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
 
 The detectors' thresholds are constants in `reports/anomaly.rs` [our choice] and can be
 tuned from the server's `/v1/config` without a new build.

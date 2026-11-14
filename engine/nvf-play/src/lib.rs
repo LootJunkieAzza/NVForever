@@ -75,6 +75,7 @@ pub mod location_markers;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
+pub mod softlock;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;
@@ -382,6 +383,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins(softlock::SoftlockPlugin)
             .add_plugins(sup_screen::SupScreenPlugin)
             .add_plugins(sup_shots::SupShotsPlugin)
             .add_plugins(tiles::TilesPlugin)

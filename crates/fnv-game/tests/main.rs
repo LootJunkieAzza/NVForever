@@ -82,6 +82,7 @@ mod script_stack;
 mod showoff3;
 mod showoff4;
 mod showoff5;
+mod softlock;
 mod step_budget;
 mod sup1;
 mod sup4;
