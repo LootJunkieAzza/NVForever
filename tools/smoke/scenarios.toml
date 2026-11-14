@@ -1457,6 +1457,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-virus-purge-timer"
+source = "issue #2455: a trigger's OnTrigger runs once per actor inside it each frame, and only the first run of a frame gets the frame's GetSecondsPassed (Game::trigger_again; GECK wiki GetSecondsPassed, the time since the script last ran): Hidden Valley's virus purge (HVHuntingVirusTrigger 0015A15B, SCPT 0015A154, Begin OnTrigger with no actor) counts VirusTimer down from 20 s with Ibsen and two scribes in the room, says Ibsen's 10-seconds line (topic 0015A129, INFO 0015A145) when it is under 10 and the failure line (topic 0015A126, INFO 0015A141) at 0; a message box or menu holds the countdown (nvf-play script.rs runs no trigger block while the game is paused)"
+note = "Hidden Valley bunker L2 from the new-game state: the player stands in the trigger box (x 3762-5042, y -2183 to -784) with Ibsen and the two scribes; the console makes the Brotherhood and the player neutral at 0.2 s (SetEnemy 0001D3FE 0001B2A4 1 1, as the bunker's scripts do) and starts the purge at 3 s as INFO 0015A14F's end script does (VirusTimer 20, HuntingVirus 2) and no terminal is fixed, so it fails. --no-messages keeps the start-up message boxes away, so the aids' clock and the game's run together. The getstage lines at 11 s and 21 s only mark the time: before the fix (four runs a frame, and the start-up message boxes draining the timer while the game stood still) both lines came 3 and 6 s after the start, before the first mark"
+areas = ["scripts", "triggers"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/script.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "0.2:setenemy 0001D3FE 0001B2A4 1 1;0.5:close;3:set 0015A15B.virustimer to 20;set 000E327C.huntingvirus to 2;3.3:close;11:getstage 0015D79D;11.3:close;21:getstage 000E327C;21.3:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=4400,-1400,15560", "--no-voice", "--no-messages"]
+run_seconds = 35
+order = [[
+  { re = 'NVF_PLAY_TEST_CONSOLE: set 0015A15B\.virustimer to 20', label = "the purge starts at 3 s" },
+  { re = 'NVF_PLAY_TEST_CONSOLE: getstage 0015D79D', label = "the 11 s mark" },
+  { re = 'HVScribeIbsenREF says 0x0015A145', label = "Ibsen's 10-seconds line comes after 10 s of the 20" },
+  { re = 'NVF_PLAY_TEST_CONSOLE: getstage 000E327C', label = "the 21 s mark" },
+  { re = 'HVScribeIbsenREF says 0x0015A141', label = "the purge fails only after its 20 s" },
+]]
+
+[[scenario]]
 name = "hv-veronica-intercom"
 source = "issue #2451: a Dialogue package whose target is a talking activator is carried out (fnv_ai goal.rs talk, carry.rs talk_start: Game::start_actor_conversation); the activator says its talking actor's lines and Goodbye lines that link on go on (fnv-game dialogue.rs next_conversation_line): Veronica's FollowersVeronicaForceGreetIntercom walks her to HVIntercomREF and she and Ramos (through it) say HVVeronicaEnter 0015B6D1, 0015B6D2, 0015B6D3 (its end script opens the bunker's inner door) and 0015B6D4"
 note = "HiddenValleyBunker1 from the new-game state: the console makes the Brotherhood and the player neutral (SetEnemy 0001D3FE 0001B2A4 1 1) and moves VeronicaREF to the player, then at 3 s does what VHiddenValleyVeronicaEnterTrigger's OnTriggerEnter (SCPT 0015B6D5) does for a hired Veronica: makes Ramos the intercom's talking actor, sets her bIntercomConversationActive and re-evaluates her package (hiring her properly from the new-game state takes her companion quest's whole set-up)"
@@ -23214,6 +23231,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "nellis-artillery-holds-fire-accepted"
+source = "issue #2449 (owner): the Boomers' artillery kept shelling the player after Pearl took them in. NellisArtilleryScript's OnTriggerEnter passes over the player while VMS15 (Volare!) is running or done, and its OnTriggerLeave then passes over the player too, so a player counted in before VMS15 started is never counted out. In v0.7.0 a chosen Goodbye line closed the conversation at once and Pearl's line 0x001050FD (whose end script sets VMS15 stage 20) finished in the world some 40 s later, after the player could be back in the field; since #2157 the line holds the player until it is said"
+note = "the player starts at the Nellis fast-travel marker, outside the artillery's triggers; the console sets VMS15 stage 20 (Pearl's line) and puts the player inside NellisArtilleryActivatorREF (0x000FF806, as nellis-artillery-fires does); god mode. No shell may come"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "8:setstage 000FF5DF 20;8.3:getquestrunning 000FF5DF;8.6:player.setpos x 28955;player.setpos y 121500;player.setpos z 6000;9:close" }
+args = ["--world", "WastelandNV", "--pos=34322,125976,4400", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'console: GetQuestRunning >> 1\.00', label = "Volare! runs (the stage Pearl's line sets)" },
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "the player is in the artillery's trigger" },
+]]
+expect = [
+  { re = 'script: ArtillerySoundMarkerREF moved to', max = 0, label = "the barrage does not start for a player the Boomers took in" },
+  { re = 'combat: explosion NellisArtilleryExplosion at', max = 0, label = "no shell lands" },
+]
+
+[[scenario]]
+name = "nellis-artillery-leave-by-travel"
+source = "issue #2449 (owner): the Boomers' artillery kept shelling the player after they took the player in. NellisArtilleryScript counts the actors in its field in (OnTriggerEnter) and out (OnTriggerLeave); a player who fast-travelled out of the field got no OnTriggerLeave (the trigger's cell unloaded), stayed counted, and once Volare! runs the script no longer counts the player in or out, so the barrage never stopped. The player now leaves a trigger whose cell unloads with an OnTriggerLeave (engine/nvf-play/src/script_trigger.rs leave_reported)"
+note = "the player starts inside NellisArtilleryActivatorREF (0x000FF806) under fire, god mode; the console moves the player 90,000 units west (the field's cells unload), sets VMS15 stage 20 (Pearl's line), then puts the player back in the field"
+areas = ["scripts", "combat"]
+paths = ["engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "14:player.setpos x -60000;player.setpos y 121500;player.setpos z 12000;14.5:close;20:setstage 000FF5DF 20;20.5:player.setpos x 28955;player.setpos y 121500;player.setpos z 6000;21:close" }
+args = ["--world", "WastelandNV", "--pos=28955,121500,6000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "the player is in the artillery's trigger" },
+  { re = 'combat: explosion NellisArtilleryExplosion at', label = "shells land around the player" },
+  { text = "script: player left trigger NellisArtilleryActivatorREF", label = "travelling away (the field's cells unload) runs the trigger's OnTriggerLeave: the script counts the player out" },
+  { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "back in the field once Volare! runs" },
+]]
+
+[[scenario]]
 name = "script-move-dynamic-clutter"
 source = "issue #1311: SetPos on a reference whose collision is one dynamic body (clutter, dropped or placed items) snapped back at once, the settle write-back copying the body's old pose over the move; console moves were never seen (the tick cleared Game::turned first)"
 note = "A bottle (0x0010A1F6) placed by the console at the player in Goodsprings, moved sideways 3 s later to x = -68150 with SetPos; GetPos x half a second and two seconds later reads the new x"
@@ -27674,4 +27725,46 @@ expect = [
   { re = 'clutter pose: 0x000ED565 \S*skeletonmale50scasual\.nif drawn in its stored pose, enabled at run time \(16 bodies\)', count = 1, label = "drawn in its stored pose, logged once" },
   { re = 'phys: 0x000ED565 \S*skeletonmale50scasual\.nif: collision posed from XRGD \(16 bodies\)', label = "its collision lies with the drawing" },
   { re = 'clutter pose: \S*skeletonmale50scasual\.nif: its XRGD does not fit', count = 0, label = "its XRGD fits its model" },
+]
+
+[[scenario]]
+name = "orris-escort-thugs"
+source = "issue #2433 (crates/fnv-game/src/combat.rs Game::harmless_hit; engine/nvf-play/src/combat.rs): G.I. Blues' staged ambush. Orris's Use Weapon packages VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, and each thug falls only in its OnHit block for Orris (SCPT 0x00118A77), which sets his shootingthugsstate on to the next package. A harmless shot ran no OnHit, so he fired once at the first thug, his Once Per Day package was over, and he stood for good (the owner's soft lock)"
+note = "the player in FreesideWorld by Orris's detour; G.I. Blues at stage 10, Orris put beside the player at 3 s and hired by his line 0x00115C2C at 4 s (200 caps given: the thugs go to their first markers), his detourstage set to 1 at 5 s (the warning conversation skipped); the player is put beside him every 3 s from 9 s. His detour trigger sends the thugs to the alley, the ambush trigger knocks the fourth thug down and he says Leave them to me"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "0000000F:200", NVF_PLAY_TEST_SCRIPT = "2:start:VMS19,2.5:stage:VMS19:10,3:moveto:VFSOrrisREF:player:150:0:0,4:info:0x00115C2C:VFSOrrisREF,5:var:VFSOrrisREF:detourstage:1,9:walk:VFSOrrisREF,12:walk:VFSOrrisREF,15:walk:VFSOrrisREF,18:walk:VFSOrrisREF,21:walk:VFSOrrisREF,24:walk:VFSOrrisREF,27:walk:VFSOrrisREF,30:walk:VFSOrrisREF,33:walk:VFSOrrisREF,36:walk:VFSOrrisREF,39:walk:VFSOrrisREF,42:walk:VFSOrrisREF,45:walk:VFSOrrisREF,48:walk:VFSOrrisREF,51:walk:VFSOrrisREF,54:walk:VFSOrrisREF,57:walk:VFSOrrisREF,60:walk:VFSOrrisREF,63:walk:VFSOrrisREF,66:walk:VFSOrrisREF,69:walk:VFSOrrisREF,72:walk:VFSOrrisREF,75:walk:VFSOrrisREF,78:walk:VFSOrrisREF,81:walk:VFSOrrisREF,84:walk:VFSOrrisREF,87:walk:VFSOrrisREF" }
+args = ["--play", "--world", "FreesideWorld", "--pos=1700,-7000,1030", "--heading", "200", "--hour", "14", "--no-voice", "--no-messages", "--npc-packages", "all,VFSOrrisREF"]
+run_seconds = 100
+order = [[
+  { text = "VFSOrrisREF: package VFSOrrisDetour02Package", label = "his detour trigger sends him on, running (Speed Mult 150)" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug01Package", label = "at the ambush he takes up the first shot" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9A: its hit blocks ran, no damage", label = "the shot runs the first thug's OnHit: he falls" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug02Package", label = "the second thug next" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9B: its hit blocks ran, no damage" },
+  { text = "VFSOrrisREF: package VFSOrrisShootThug03Package", label = "and the third" },
+  { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A99: its hit blocks ran, no damage" },
+  { text = "VFSOrrisREF: package VFSOrrisAfterCombatDialogPackage", label = "the third thug's OnHit adds his after-fight talk" },
+  { text = "VFSOrrisREF: package VFSOrrisDetour03Package", label = "its end script sends him on to the south gate" },
+  { text = "script: VFSOrrisREF says 0x00118A71", label = "where he ends the escort (his line's end script)" },
+]]
+
+[[scenario]]
+name = "chauncey-steam-room"
+source = "issue #2445 (crates/fnv-game/src/game.rs Game::run_far_frame; crates/fnv-ai/src/process.rs low_update, carry.rs pass_time): Beyond the Beef's informant. Chauncey (VMS18ChaunceyREF) patrols the Ultra-Luxe casino on a Must Complete package; only his own GameMode block (SCPT 0x0011689F: not in the player's cell, not in the bathhouse, 15 to 18 h, the player has the Matchbook) warps him to the bathhouse and re-evaluates his package, and it runs only while he is in a cell the player is not in. Our scripts ran in the loaded cells alone, so he never came (objective 40 stalled)"
+note = "the player starts in the casino at 14:12 (Chauncey becomes a resident), VMS18 with objective 40 and the Matchbook note at 2-3 s, goes to the bathhouse at 8 s, stands in the steam room at 10 s and waits 3 hours at 16 s; the hour from 15:17 runs Chauncey's script; he walks to the steam room and the player talks to him at 85 s"
+areas = ["ai", "scripts", "wait"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:start:VMS18,2.5:objective:VMS18:40", NVF_PLAY_TEST_CONSOLE = "3:player.addnote 00112015;3.3:close;8:coc ULBath;8.3:close", NVF_PLAY_TEST_GOTO = "10:540:1650:1210", NVF_PLAY_TEST_WAIT = "16:open,17:hours=3,18:accept", NVF_PLAY_TEST_TALK = "85:VMS18ChaunceyREF=leave" }
+args = ["--play", "--cell", "ULCasino", "--hour", "14.2", "--no-voice", "--no-messages", "--npc-packages", "all,VMS18ChaunceyREF"]
+run_seconds = 100
+order = [[
+  { re = 'ai \[15:\d\d\] VMS18ChaunceyREF: package VMS18ChaunceyTravelToSteamRoom', label = "in the waited hour from 15:00 his script re-evaluates his package: he sets off for the steam room" },
+  { text = "script: VMS18ChaunceyREF moved to Some(0x0010CDA6)", label = "his script's MoveToMarkerWithFade puts him in the bathhouse" },
+  { re = 'VMS18ChaunceyREF: walks to \(601, 1836, 1235\) in ULBath', label = "and he walks to the steam room" },
+  { re = 'dialogue: conversation with VMS18ChaunceyREF started', label = "the player talks to him there" },
+  { text = "script: VMS18 objective 40 completed", label = "his greeting completes the meeting" },
+]]
+expect = [
+  { re = 'far script summary: (?P<n>\d+) GameMode runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
 ]

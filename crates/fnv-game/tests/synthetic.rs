@@ -611,6 +611,34 @@ fn get_seconds_passed_counts_frames_in_a_trigger_script_without_game_mode() {
 }
 
 #[test]
+fn get_seconds_passed_counts_a_trigger_frame_once_however_many_runs_it_has() {
+    // Two references inside a trigger: its OnTrigger runs twice a frame, and only the
+    // first run gets the frame's time (`Game::trigger_again`; Hidden Valley's virus
+    // purge, issue #2455, ran out several times too fast).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let t = FormId(TRIG_REF);
+    let run = |g: &mut Game| assert!(g.ref_event(t, fnv_game::game::event::ON_TRIGGER, Some(Value::Ref(FormId::PLAYER_REF.0)), Some(FormId::PLAYER_REF)));
+    let inside_twice = |g: &mut Game| {
+        g.trigger_frame(t);
+        run(g);
+        g.trigger_again(t);
+        run(g);
+    };
+    inside_twice(&mut g);
+    let first = g.time;
+    for _ in 0..60 {
+        g.frames(1);
+        inside_twice(&mut g);
+    }
+    let elapsed = g.time - first;
+    let Value::Num(sum) = g.var(InstKey::Ref { reference: t }, 1) else { panic!("fSum is not a number") };
+    assert!(elapsed > 0.5, "{elapsed}");
+    assert!((sum - elapsed).abs() <= 2.0 / 64.0, "sum {sum}, elapsed {elapsed}");
+}
+
+#[test]
 fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     let f = fixture();
     let mut g = game(&f);

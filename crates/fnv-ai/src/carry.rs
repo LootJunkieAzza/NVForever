@@ -1366,6 +1366,14 @@ impl Ai {
     /// original's actors do while the player waits.]
     pub fn pass_time(&mut self, game: &mut Game, nav: &NavGraph, seconds: f32, step: f32) -> usize {
         let step = step.max(1e-3);
+        // The actors processed out of the loaded cells run their scripts once in the
+        // hour, as at a low-process update (`Game::run_far_frame`) [design: the loaded
+        // cells' scripts wait for the game to go on; issue #2445, Chauncey's warp to the
+        // bathhouse at 15 h had to come while the player waited there].
+        let far: Vec<FormId> = self.low.iter().filter(|(_, owed)| owed.is_some()).map(|(a, _)| *a).collect();
+        for a in far {
+            self.process_stats.far_scripts += usize::from(game.run_far_frame(a));
+        }
         let mut walked: std::collections::BTreeSet<FormId> = Default::default();
         let (mut left, mut still) = (seconds, 0);
         // Two updates running with nobody on its way end it: one may only have set an

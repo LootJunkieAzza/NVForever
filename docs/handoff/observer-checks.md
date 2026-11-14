@@ -2063,6 +2063,38 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      view, and about how far? Also whether the weather's own cloud layer 3
      (`NVCloudlight.dds`, ONAM speed 0) stands still there.
 
+## Added 2026-11-14 (harmless Use Weapon hits, #2433)
+
+134. **Does a Do No Damage hit run the target's OnHit block?** (P1; #2433,
+     use-weapon.md §3.) Ours since #2433: yes, OnHit and OnHitWith run with the shooter as
+     attacker, and nothing else happens (no Health, limb or fatigue damage, no hit line)
+     [hypothesis from the data: G.I. Blues' thugs fall only in their OnHit block for
+     Orris (SCPT 0x00118A77), and his three Use Weapon packages VFSOrrisShootThug01-03Package
+     are Always Hit and Do No Damage, so the staged ambush goes on only if such a hit runs
+     it]. To check: hire Orris and follow him into the ambush; record each thug's Health
+     and fatigue before and after his shot, how many shots he fires at each, and whether he
+     raises the revolver to aim first. Also whether a hit the target was not meant to take
+     (another actor in the line of fire) runs that actor's OnHit too.
+
+## Added 2026-11-14 (scripts of actors out of the loaded cells, #2445)
+
+135. **Do the scripts of actors out of the loaded cells run, and how often?** (P1; #2445,
+     `fnv_ai::process`.) Ours since #2445: an actor the AI processes out of the loaded
+     cells (the cell buffer, interiors behind the loaded cells' doors, farther away) runs
+     its GameMode block at each of its low-process updates (about every 18 s, or 120 s
+     beyond the cell buffer) and once in each hour of a wait, when that block tests
+     "not in the player's cell" (eight object scripts in FalloutNV.esm); the others run
+     in the loaded cells only [hypothesis from the data:
+     Beyond the Beef's Chauncey (SCPT 0x0011689F) warps to the bathhouse and re-evaluates
+     his package only in a GameMode block that tests "not in the player's cell", and his
+     casino patrol is Must Complete, so nothing else moves him]. To check: with the
+     Matchbook note and objective 40 shown, wait in the steam room from 14:00 (by the
+     Wait menu, and once in real time) and record when Chauncey appears (GetPos, his
+     cell) and whether he fades in at VMS18ChaunceyBathhouseWarpMarkerREF. A second job:
+     an actor with a script that counts GameMode runs (a variable bumped each run, read
+     with GetScriptVariable) in a cell the player left, read after 1, 5 and 30 real
+     minutes, in the cell buffer and beyond it.
+
 ## Added 2026-11-14 (blasts on corpses, #2346)
 
 136. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
@@ -2077,6 +2109,34 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      Record how often a limb explodes or is severed and how many parts go per blast. The
      answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
      blasts; it goes into dismemberment.md §4.
+
+## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
+
+137. **Does the barrage stop for a player standing in the field when Volare! starts?**
+     (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
+     OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
+     once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
+     stage 20, set by the end script of Pearl's Goodbye line 0x001050FD
+     (VFreeformNellisNellisPearlTopic010) [observed]. So a player counted in before stage 20
+     and still inside when it is set should be shelled on and on [hypothesis]. To check, on
+     a save before Pearl's talk: stand in the field (trigger 0x0015A378) with `tgm`, then
+     `setstage VMS15 20` from the console; walk out and back. Does the shelling stop, at
+     once, on leaving, or never? And does a save and load inside the field reset it?
+     Also, before Pearl: fast travel out of the field while shelled and back. Does the
+     trigger run its OnTriggerLeave for a player who travels away (ours does since #2449,
+     engine/nvf-play/src/script_trigger.rs `leave_reported`, [design]): does the barrage
+     start afresh on the return, or never stop?
+
+## Added 2026-11-14 (OnTrigger timing, #2455)
+
+138. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
+     runs once per reference inside each frame, only the first run of a frame gets the
+     frame's GetSecondsPassed, and no trigger block runs under a menu or message box
+     [hypothesis]. To check: start Ibsen's purge (or set HVHuntingVirusTriggerREF's
+     VirusTimer to 20 and VDialogueHiddenValley's HuntingVirus to 2) with Ibsen and the
+     two scribes in the room and record VirusTimer every frame; then again with a
+     message box open for 5 s (ShowMessage) in the middle: does VirusTimer move while the
+     box is up, and does Ibsen's 10-seconds line come 10 s of game time after the start?
 
 ## Added 2026-11-14 (Goodbye lines between NPCs, #2451)
 

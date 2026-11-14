@@ -4125,6 +4125,23 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The trigger runs its OnTrigger block again in the same frame, for one more actor
+    /// inside it ([`Game::trigger_frame`] before the first): GetSecondsPassed in that run
+    /// is 0, the time since the script last ran [documented: GECK wiki
+    /// GetSecondsPassed, "the time since the script last ran"; hypothesis: that the
+    /// original runs a trigger's OnTrigger once per reference inside, as we do]. Without
+    /// it every run got the whole frame's time: Hidden Valley's virus purge
+    /// (HVHuntingVirusTrigger, SCPT 0x0015A154, `Begin OnTrigger` with no actor) counts
+    /// its 20 s down by GetSecondsPassed on each run, and with the scribes in the room it
+    /// ran out several times too fast (issue #2455).
+    pub fn trigger_again(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
+    }
+
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
     /// order. Only the player's inventory runs per-frame item scripts here [observed: a
     /// jar of pistol powder's GameMode ran in the player's inventory by the frame after
@@ -4848,6 +4865,41 @@ impl<'a> Game<'a> {
     /// enabled (`functions::objects::set_critical_stage`).
     pub fn culled(&self, r: FormId) -> bool {
         self.extra.get(&r).is_some_and(|e| crate::functions::objects::critical_stage_culls(e.critical_stage))
+    }
+
+    /// One run of the GameMode block of `actor`, an actor out of the loaded cells that the
+    /// AI processes now and then (`fnv_ai::process`: its low-process update, an hour of a
+    /// wait): its script goes on where it is. Returns whether the block ran. Not for an
+    /// actor in a loaded cell (the frame's own run has it), a deleted one, or one whose
+    /// script has no GameMode block that tests "not in the player's cell"
+    /// ([`crate::data::Compiled::tests_away_from_player`]): the other scripts stay as they
+    /// were, run in the loaded cells only. GetSecondsPassed in it gives the time since its
+    /// last run, as for any per-frame run ([`Game::mark_run`]).
+    ///
+    /// [hypothesis from the data, observer check 135: the original runs the scripts of
+    /// actors it processes out of the loaded cells. Beyond the Beef's informant Chauncey
+    /// (SCPT 0x0011689F) leaves his Must Complete patrol of the casino only through his
+    /// own GameMode block, "not in the player's cell, not in the bathhouse, 15 to 18 h,
+    /// the player has the Matchbook" → MoveToMarkerWithFade to the bathhouse and
+    /// EvaluatePackage; it can only run while he is in a cell the player is not in
+    /// (issue #2445). Narrowed to such scripts [design, #2493 review]: of FalloutNV.esm's
+    /// object scripts only eight have a GameMode branch for "not in the player's cell"
+    /// (Chauncey's, ED-E's, the Hidden Valley scribe's and Watkins's, the Vault 22 spore
+    /// carriers', TecMineHostage, an SDO handler), where 16 object scripts call MoveTo in
+    /// a GameMode block beside other cell or distance tests [observed: `fnvtool script
+    /// decompile`, 2026-11-14].]
+    pub fn run_far_frame(&mut self, actor: FormId) -> bool {
+        if self.cell_of(actor).is_none_or(|c| self.loaded_cells.contains(&c)) || self.world.peek(actor).is_some_and(|s| s.deleted()) {
+            return false;
+        }
+        let Some(script) = self.ref_script(actor) else { return false };
+        if !self.data.script(script).is_some_and(|u| u.tests_away_from_player()) {
+            return false;
+        }
+        let key = InstKey::Ref { reference: actor };
+        self.mark_run(key, Some(script));
+        self.run_event(key, script, event::GAME_MODE, None, RunCtx { self_ref: Some(actor), ..Default::default() });
+        true
     }
 
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
