@@ -2175,9 +2175,20 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
      or beside the ground's step, and does anything play for the run rustle?
 
+## Added 2026-11-14 (Ranger Station Charlie's door and tripwire, #2420)
+
+143. **What does a sprung tripwire look like after a cell load, and does it fire again?**
+     (P3; #2420, activators.md §5.) In RSCharlieNVDESTROYED (after the station's trigger
+     has enabled CharlieEnableParentREF 0x00126F4E), walk through the tripwire 0x00084246
+     behind the left door (OffDoorSmR02a 0x000CD068), leave the cell and come back. Is the
+     wire shown sprung or whole, does it fire its shotgun (0x00084247) again, and does
+     anything explode on a second pass (the bottle-cap mine 0x0008424C, the frag mines
+     0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
+     once.
+
 ## Added 2026-11-12 (the player's marker on the compass)
 
-141. **How does the compass show the custom map marker?** (P3; hud.md §11.) NVForever
+151. **How does the compass show the custom map marker?** (P3; hud.md §11.) NVForever
     marks it only in the player's own interior or worldspace, holds it at the band's
     end when it is off the band (as a quest target), and draws it over the quest marks
     [hypothesis]. Place a marker on the Local Map 20 m behind the player, close the
@@ -2187,7 +2198,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-13 (companions on the World Map)
 
-142. **From how far does the World Map name a companion?** (P3; `pipboy::data::map_companions`.)
+152. **From how far does the World Map name a companion?** (P3; `pipboy::data::map_companions`.)
     NVForever writes a teammate's name where it stands on the World Map, in font 2, only
     4096 units (a cell) or more from the player, and not while it is knocked out
     [documented: Stewie's Tweaks' readme says there is a minimum distance, font 2 and no
@@ -2198,7 +2209,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-13 (weapon poisons)
 
-143. **How do weapon poisons work?** (P3; `fnv_game::weapon_poison`.) NVForever puts a poison
+153. **How do weapon poisons work?** (P3; `fnv_game::weapon_poison`.) NVForever puts a poison
     (an aid item whose effects are all Hostile and Detrimental [documented: GECK wiki
     Ingestible]) on a Melee Weapons or Unarmed weapon in hand for 5 landed hits, the same
     poison used twice to confirm [hypothesis: which weapons, how many hits; the question
@@ -2206,7 +2217,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
     Bleak Venom: note the prompt's words and buttons. Then hit a target and count the hits
     until the poison's effect stops coming (watch its Health or the Pip-Boy's weapon
     card). Try it with a pistol in hand too: refused (sPoisonNoWeaponMessage) or not?
-144. **Where does the grenade indicator stand?** (P3; `nvf_play::grenade_indicator`.) The menu
+154. **Where does the grenade indicator stand?** (P3; `nvf_play::grenade_indicator`.) The menu
     files give its picture (`template_explosive_indicator`, an arc with a point) and an
     empty `Explosive_positioning_rect` the game's code moves [documented]. NVForever puts
     it on the grenade upright while the grenade is in view, else on the view's edge
@@ -2214,32 +2225,32 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
     [hypothesis: all of it]. Throw a frag grenade near your feet, then one behind you, and
     take a frame of each: where is the mark, is it turned, does it show for one landing
     far off, and does it show for your own grenade?
-145. **What does the idle vanity camera do?** (P3; `nvf_play::vanity`.) The master sets
+155. **What does the idle vanity camera do?** (P3; `nvf_play::vanity`.) The master sets
     `fVanityModeAutoDelay` to 120 [observed]; NVForever takes it as the seconds without
     input before the camera circles the player, turning 0.15 rad/s, ended by any input
     with the view left in third person [hypothesis: all of it]. Stand still in first
     person for two minutes: does the camera circle, how fast (time a full turn), which way,
     at what distance and height, does mouse motion alone end it, and is the view first or
     third person afterwards?
-146. **When does the low-health heartbeat play?** (P3; `nvf_play::heartbeat`.) The master has
+156. **When does the low-health heartbeat play?** (P3; `nvf_play::heartbeat`.) The master has
     two looping heartbeats, `UIHealthHeartbeatALP` and `UIHealthHeartbeatBLP` [observed].
     NVForever plays A while the player's health is under 25 % [hypothesis: the threshold,
     and that B is not used]. Take damage down slowly (falls): at what health share does
     a heartbeat start, does a second, faster one take over lower down, and does it stop
     the moment health rises past the line?
-147. **Does the Pip-Boy mark the loaded ammo?** (P3; `nvf_play::menu::model`, `Row::loaded`.)
+157. **Does the Pip-Boy mark the loaded ammo?** (P3; `nvf_play::menu::model`, `Row::loaded`.)
     NVForever now gives the ammo the equipped weapon loads the equipped square in the
     Pip-Boy's ammo list [hypothesis: as the original; Stewie's Tweaks' bContainersShowEquippedAmmo
     speaks of "equipped ammos" in containers]. With a 10mm pistol in hand, open the
     Pip-Boy's AMMO list: does 10mm Round have the filled square, and does it move to JHP
     after switching ammo?
-148. **Which need messages show when?** (P3; `fnv_game::needs`.) FalloutNV.esm holds
+158. **Which need messages show when?** (P3; `fnv_game::needs`.) FalloutNV.esm holds
     sDehydrationIncrease / Decrease / NotSick and the same three for Sleep Deprivation
     [observed]. NVForever shows Increase when the stage goes up (from none too), Decrease
     when it goes down to another stage, NotSick when it leaves the last [hypothesis]; hunger
     and radiation say nothing (no such settings). In Hardcore, let dehydration rise past a
     stage and drink back down: which lines show, and is there one for hunger or rads?
-149. **How does a border region stop the player?** (P3; `fnv_game::borders`,
+159. **How does a border region stop the player?** (P3; `fnv_game::borders`,
     `nvf_play::borders`.) NVForever reads REGN header flag 0x40 (Border Region
     [documented: GECK wiki form flags]) as the area the player is kept inside, puts a
     player who steps out back where they last stood inside and shows

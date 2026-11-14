@@ -1138,7 +1138,7 @@ impl MenuModel {
                     l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
                 }
                 // The ammo loaded now carries the equipped mark [hypothesis: as the original's
-                // Pip-Boy shows it; observer check 147], in a container's player column under
+                // Pip-Boy shows it; observer check 157], in a container's player column under
                 // the player's tweak [design: docs/design/tweaks.md].
                 let mark_ammo = side == Side::Player && (self.mode == Mode::Inventory || (matches!(self.mode, Mode::Container(_)) && self.ammo_mark_in_containers));
                 if let (true, Some(a)) = (mark_ammo, self.current_ammo) {

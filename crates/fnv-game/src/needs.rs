@@ -276,7 +276,7 @@ impl Game<'_> {
             // [observed: FalloutNV.esm sDehydrationIncrease / Decrease / NotSick,
             // sSleepDeprevationIncrease / Decrease / NotSick; hypothesis: which change says
             // which, and that hunger and radiation say nothing (no such settings); observer
-            // check 148]. The player's Disable Needs Messages tweak keeps them off
+            // check 158]. The player's Disable Needs Messages tweak keeps them off
             // [design: docs/design/tweaks.md].
             let pos = |s: Option<FormId>| s.and_then(|s| stages.iter().position(|x| x.stage == s));
             let change = need_change(pos(held), pos(want.map(|s| s.stage)));
@@ -315,7 +315,7 @@ const NEED_NOTE_SECONDS: f32 = 3.0;
 
 /// The setting's last word for a need's stage moving from place `from` to `to` among its
 /// stages (`None`: no stage): `Increase` going up, `Decrease` going down to another stage,
-/// `NotSick` leaving the last; nothing when it stays [hypothesis, observer check 148].
+/// `NotSick` leaving the last; nothing when it stays [hypothesis, observer check 158].
 pub fn need_change(from: Option<usize>, to: Option<usize>) -> Option<&'static str> {
     match (from, to) {
         (None, Some(_)) => Some("Increase"),

@@ -77,6 +77,16 @@ pub struct Targeted {
     pub empty: bool,
 }
 
+impl Targeted {
+    /// Whether the crosshair shows it: its prompt is drawn and the crosshair takes its
+    /// "something to use" picture. Not for a living hostile actor ([`Action::Hostile`]),
+    /// which stays the target only so that E does nothing and the HUD knows who is aimed
+    /// at (issue #2536).
+    pub fn prompted(&self) -> bool {
+        self.action != Action::Hostile
+    }
+}
+
 /// A reference to activate as the player would, as soon as play resumes, whatever is
 /// under the crosshair: a lock just picked or forced (`crate::lockpick`; playtest list 5
 /// item 64).
@@ -385,7 +395,9 @@ const REVIVE_NEEDS_STIMPAK: &str = "You need a Stimpak to revive them.";
 
 /// What E does to a living or dead actor (playtest list 4, item 19): a dead one is
 /// searched (combat C5); one hostile to the player (it would attack the player, or is
-/// fighting the player) shows only its name; a creature is talked to only when it has a
+/// fighting the player) shows no prompt at all ([`Action::Hostile`], issue #2536: players
+/// saw the name come up each time the crosshair crossed an enemy in a fight, which the
+/// original does not do [observed: the player's report; not captured]); a creature is talked to only when it has a
 /// greeting it can say now ([`fnv_game::Game::has_greeting`]), else shows only its name;
 /// any other NPC is talked to [hypothesis: the game offers Talk on creatures that have
 /// dialogue, such as Rex and ED-E, and not on animals; an NPC without a line keeps the
@@ -420,7 +432,7 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
     if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
-        return Action::Name;
+        return Action::Hostile;
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
@@ -682,8 +694,8 @@ pub(crate) fn activate(
     }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19).
-    if t.action == Action::Name {
-        info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
+    if matches!(t.action, Action::Name | Action::Hostile) {
+        info!("activate 0x{:08X} {}: nothing to do ({})", t.form_id, t.name, if t.action == Action::Hostile { "hostile" } else { "name only" });
         return;
     }
     if t.action == Action::Steal {

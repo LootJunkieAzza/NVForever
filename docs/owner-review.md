@@ -218,7 +218,7 @@ the spec it links to.
 66. **A grenade indicator on the HUD (#1891).** NVForever had none; it now draws the
     menu files' own explosive indicator for every live grenade whose blast would reach
     you, on the grenade or on the view's edge pointing at it, for everyone. Where the
-    original puts it is a guess (observer check 144). The Tweaks tab's Hide Grenade
+    original puts it is a guess (observer check 154). The Tweaks tab's Hide Grenade
     Indicator turns it off. (`engine/nvf-play/src/grenade_indicator.rs`)
 67. **An idle vanity camera (#1891).** After 120 s with no input (the master's
     `fVanityModeAutoDelay`), the camera goes to third person and slowly circles you (a
@@ -227,10 +227,10 @@ the spec it links to.
     First Person puts a first-person view back. (`engine/nvf-play/src/vanity.rs`)
 68. **A heartbeat at low health (#1891).** Under a quarter of your health, the master's
     `UIHealthHeartbeatALP` loops until you heal, for everyone. The threshold is ours (no
-    setting names one); observer check 146 asks the original's. The Tweaks tab's
+    setting names one); observer check 156 asks the original's. The Tweaks tab's
     Heartbeat Fades lets it fade. (`engine/nvf-play/src/heartbeat.rs`)
 69. **Loaded ammo marked (#1891).** The Pip-Boy's ammo list now gives the ammo your weapon
-    loads the equipped square, for everyone (observer check 147); the Tweaks tab's
+    loads the equipped square, for everyone (observer check 157); the Tweaks tab's
     Containers Show Equipped Ammo shows it in containers too. Terminals also fade out as
     they close now (the menu file's 0.25 s). (`menu/model.rs`, `terminal.rs`)
 70. **Critical-hit corner message (#1891).** A critical by the player now shows "Critical
@@ -243,12 +243,12 @@ the spec it links to.
     the Place adds the name. (`engine/nvf-play/src/marker_added.rs`)
 72. **Hardcore need messages (#1891).** In Hardcore, a dehydration or sleep stage changing
     now shows the masters' own line ("Your dehydration level has increased." and the
-    rest), for everyone; which change says which is our reading (observer check 148). The
+    rest), for everyone; which change says which is our reading (observer check 158). The
     Tweaks tab can turn each off. (`crates/fnv-game/src/needs.rs`)
 73. **World borders (#1891).** A region flagged Border Region now keeps the player inside
     its areas: step past and you are put back with the masters' "You cannot proceed in
     that direction" line in the corner. No master flags a region of a played worldspace,
-    so only plugins meet it; how the original stops you is a guess (observer check 149).
+    so only plugins meet it; how the original stops you is a guess (observer check 159).
     The Tweaks tab's World Borders: Warning Only keeps the line without the stop.
     (`crates/fnv-game/src/borders.rs`, `engine/nvf-play/src/borders.rs`)
 58. **Followers come in once you stop (#2122).** A follower on its way now stops 150
@@ -495,6 +495,17 @@ the spec it links to.
     (item 5, second part) is not built yet.
     ([pickpocket §5](spec-notes/pickpocket.md))
 
+72. **A sprung trap stays sprung when drawn again (#2420).** Ranger Station Charlie's
+    door and tripwire come in with an enable parent the station's trigger script turns
+    on. The door was drawn without its door animation, so it looked shut while it was
+    open and its collision had swung away; it now opens and closes as a door. The
+    tripwire went off once only, but each cell load drew it armed again: its script asks
+    an "Open" sequence its model does not have, and that was what it showed. Ours now
+    forgets a group the model lacks and shows the one before (the sprung wire). We did
+    not see the wire fire twice or a mine re-arm in our runs; if you still see fresh
+    explosions on a second pass, note where you stand (the frag mines at the entrance
+    and the bottle-cap mine behind the door are separate placed mines). Observer check
+    143. ([doors §2](spec-notes/doors.md), [activators §5](spec-notes/activators.md))
 61. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
     weapon away now bite their nails, smoke and so on, by the idle tree's factions and
     chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace

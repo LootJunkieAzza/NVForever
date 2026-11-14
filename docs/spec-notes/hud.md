@@ -1534,5 +1534,5 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   grenade whose explosion radius + 64 reaches the player's feet (the rule actors use to
   get away, combat-ai.md §17.7), the nearest 8; on the grenade upright while it is in
   view, else on the view's edge 90 pixels in, turned so the point faces it
-  [hypothesis: all of the placing; observer check 144]. Not the player's own grenade in
+  [hypothesis: all of the placing; observer check 154]. Not the player's own grenade in
   its first 0.5 s. The Tweaks tab's three grenade-indicator switches (tweaks.md).

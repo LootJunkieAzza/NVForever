@@ -225,7 +225,11 @@ pub fn drive(
         }
         let Some((r, asked)) = st.waiting.remove(&rig.form_id) else {
             let Some((group, name)) = game.anims.asked(FormId(rig.form_id)).map(|(g, n)| (g, n.to_string())) else { continue };
-            let Some(i) = rig.find(&name) else { continue };
+            let Some(i) = rig.find(&name) else {
+                // A group its model lacks (an older save's): not what it shows (#2420).
+                game.anims.not_in_model(FormId(rig.form_id), &name);
+                continue;
+            };
             let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
             let from = if once { StartAt::End } else { StartAt::Start };
             start(&mut commands, root, &mut rig, group, i, from, mats.map(|m| m.into_inner()));
@@ -302,6 +306,10 @@ pub fn drive(
                 info!("playgroup: {who} plays {group}: its model has no sequence of that name");
             }
             game.anims.set_playing(r.on, None);
+            // Not what it shows when drawn again (#2420).
+            if let Some(n) = r.name.as_deref() {
+                game.anims.not_in_model(r.on, n);
+            }
             continue;
         };
         let desc = rig.clip(i).map(describe).unwrap_or_default();

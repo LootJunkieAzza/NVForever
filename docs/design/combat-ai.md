@@ -1084,12 +1084,17 @@ Confidence page) is not built (§11, "Avoiding threats out of combat").
 ### 13.3 Talk on creatures and hostile actors (`nvf_play::activate`, item 19)
 
 The prompt on a living actor (`activate::actor_action`): one hostile to the player (it
-would attack the player, or it is fighting the player) shows only its name; a creature
-shows Talk only when it has a GREETING line it can say now (`Game::has_greeting`), else
-only its name; other NPCs show Talk [hypothesis: the game offers Talk on creatures with
-dialogue, Rex and ED-E, and not on animals; not captured]. A name-only target does
-nothing on E (`activate 0x… …: nothing to do (name only)`). The reticle draws the name
-alone, without the key and the action line.
+would attack the player, or it is fighting the player) shows no prompt at all
+(`Action::Hostile`, `Targeted::prompted`; issue #2536) [observed: a player's report that
+the original shows none over radscorpions and hostile humans, where NVForever wrote the
+name each time the crosshair crossed one; not captured]. Until #2536 it showed its name.
+It stays the target, so E does nothing (`activate 0x… …: nothing to do (hostile)`), and
+the crosshair keeps its plain picture. A creature shows Talk only when it has a GREETING
+line it can say now (`Game::has_greeting`), else only its name; other NPCs show Talk
+[hypothesis: the game offers Talk on creatures with dialogue, Rex and ED-E, and not on
+animals; not captured]. A name-only target does nothing on E (`activate 0x… …: nothing
+to do (name only)`). The reticle draws the name alone, without the key and the action
+line.
 
 ### 13.4 Data from the template (`fnv_game::templates`, item 20)
 

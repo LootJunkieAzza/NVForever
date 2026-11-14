@@ -13,7 +13,7 @@
 //!   lobbed, with an explosion, in flight or at rest) within its explosion's radius plus
 //!   [`REACH_MARGIN`] of the player's feet; not the player's own within its first
 //!   [`OWN_GRACE`] seconds (it leaves the hand).
-//! - **Where** [hypothesis: the game's code moves the positioning rect; observer check 144]:
+//! - **Where** [hypothesis: the game's code moves the positioning rect; observer check 154]:
 //!   with the grenade in view, the rect is on the grenade's place on the screen and the
 //!   picture upright (the ring over it, its point up). Out of view or behind the camera,
 //!   the rect is on the view's edge, [`EDGE_INSET`] in, the way the grenade lies from the
