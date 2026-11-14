@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (the Boomers' barrage after Pearl, #2449)
 
-129. **Does the barrage stop for a player standing in the field when Volare! starts?**
+137. **Does the barrage stop for a player standing in the field when Volare! starts?**
      (P3; #2449.) NellisArtilleryScript (SCPT 0x000FF29C) counts the player in on
      OnTriggerEnter and out on OnTriggerLeave, but passes over the player in both blocks
      once VMS15 runs or is done [observed: the record's source text]; VMS15 starts with
