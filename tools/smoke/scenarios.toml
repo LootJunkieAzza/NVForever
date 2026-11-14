@@ -27440,10 +27440,10 @@ forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say
 [[scenario]]
 name = "strip-entry-calm"
 source = "issue #2456: entering the Strip by the north gate starts the scripted scene VStripSS3 (VFSVegasDoorSCRIPT sets VStreetSS3.bstarts and starts the quest): its four NCR troopers (VStripSS3Girl01/02REF, VStripSS3Watcher01/02REF) are enabled 2,900 units from the player. They are also in ArmorVCaesarsLegionFaction, so a Legionary's murder made them attack the player on sight, and House's messenger Securitron and the street Securitrons joined, for good; a murder no longer makes the player an enemy of a faction whose members fight each other (Game::faction_is_one_side, crates/fnv-game/src/crime.rs)"
-note = "the scene is started from the console at 4 s as the gate door's script starts it; at 12 s the player walks up to 1,300 units from it (at the gate, 2,900 units off, the troopers do not see the player at noon); nobody may fight the player or alarm others about the player over the 45 s"
+note = "the scene is started from the console at 4 s as the gate door's script starts it; at 12 s the player stands 500 units south of it (at the gate, 2,900 units off, the troopers do not see the player at noon); nobody may fight the player or alarm others about the player over the 45 s"
 areas = ["crime", "combat-groups", "detection"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set VStreetSS3.bstarts to 1;startquest VStreetSS3;setquestdelay VStreetSS3 0.1;4.3:close", NVF_PLAY_TEST_GOTO = "12:-350:4700:1030" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set VStreetSS3.bstarts to 1;startquest VStreetSS3;setquestdelay VStreetSS3 0.1;4.3:close", NVF_PLAY_TEST_GOTO = "12:-420:5250:1030" }
 args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 45
 order = [[
