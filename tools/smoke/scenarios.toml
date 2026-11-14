@@ -13871,6 +13871,23 @@ expect = [
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
 
 [[scenario]]
+name = "blast-ragdoll-corpse"
+source = "#2346: a blast never reached a corpse whose ragdoll had been built (its hit volume is dropped then, and blasts asked only the volumes); blasts now reach it by its ragdoll's bounds and bodies (engine/nvf-play/src/combat.rs view, blast_targets_near; PhysWorld::ragdoll_bounds) [design]"
+note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); his ragdoll settles; at 15 s a frag grenade's explosion is placed at his corpse. A placed explosion has no source weapon, so the corpse line gives that reason instead of a roll (the source-weapon gate is left as it is until observer check 128)"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvf-play/src/hitvol.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=EnduranceCondition", NVF_PLAY_TEST_CONSOLE = "15:GSChetRef.PlaceAtMe GrenadeFragExplosion 1;15.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 19
+order = [[
+  { re = 'combat: .* 0x00104C79 killed', label = "the hit aid kills Chet" },
+  { re = 'ragdoll: actor 00104C79 at rest at ', label = "his ragdoll settles (its hit volume is gone)" },
+  { re = 'combat: explosion GrenadeFragExplosion at ', label = "the placed explosion goes off" },
+  { re = 'combat: blast GrenadeFragExplosion on 0x00104C79 at \d+', label = "the blast catches the settled corpse" },
+  { re = 'combat: blast GrenadeFragExplosion on corpse 0x00104C79: no dismemberment roll \(no source weapon\)', label = "and says why no part is rolled for" },
+]]
+
+[[scenario]]
 name = "b3-killing-blow"
 source = "#1588: Easy Pete is shot once and lives, then KillActor with no cause: GetKillingBlowLimb and GetCauseofDeath read -1 after the death, not the earlier shot's (docs/spec-notes/dismemberment.md §5)"
 note = "the shot must land and leave him alive, or the two -1 would prove nothing; Pete is 65 Health [observed: this run on main, combat: hit ... health 55/65]"

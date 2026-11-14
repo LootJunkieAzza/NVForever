@@ -1982,3 +1982,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (blasts on corpses, #2346)
+
+128. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
+     dismemberment.md §4.2.) NVForever now lets a blast reach a corpse whose ragdoll has been
+     built and judges the one part facing it by the weapon's On Hit; a mine (every base-game
+     mine is No Dismember/Explode, dismemberment.md §2.1) or a placed explosion (no source
+     weapon) rolls nothing [design]. To check: kill an actor, let it settle, set off a frag
+     mine and then a frag grenade next to it, without and with Bloody Mess, several times each.
+     Record how often a limb explodes or is severed and how many parts go per blast. The
+     answer fits the mine source-weapon gate (`nvf_play::mines`) and the On Hit rule for
+     blasts; it goes into dismemberment.md §4.
