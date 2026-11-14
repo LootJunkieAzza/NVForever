@@ -45,6 +45,7 @@ untimed = [
   "NVF_PLAY_AIDS_FROM_SCRIPTS", "NVF_PLAY_TEST_HELD_GRENADE",
   "NVF_PLAY_TEST_SANDBOX_INTERRUPT",
   "NVF_PLAY_TEST_MELEE_KNOCKBACK",
+  "NVF_PLAY_TEST_RAGDOLL_FAIL",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -4083,6 +4084,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "bloatfly-holds-distance"
+source = "issue #2351 (engine/nvforever/src/combat_tactics.rs back_off_band; docs/design/combat-ai.md §12.6): a short-reach gun's step back ends short of where it stops closing in. A bloatfly (Bloatfly1HP: Max Range 250, Min Range 100) stops 225 units from its target; it stepped back from any target within 256 to 320 and closed in again beyond 225, back and forth for the whole fight. Now it holds and fires, and steps back only from a target within its Min Range"
+note = "a bloatfly (CrBloatFly 0x0009189C, the first created reference 0xFF000000) created at 3 s at a Joshua tree about 580 units from the god-mode player (TreeJoshBNV 0x00122CCA, as npc-burst-fire places its sentry bot) and set on the player at 6 s; the coyotes (VERGSCoyote1-6REF) are disabled first, so it fights the player alone (in the first run two of them helped the player and killed it before it fired). The player stands still for the rest of the 25 s run, so on main every stop at 225 was followed by a step back (each logged once as it begins). A created reference has no Editor ID: the combat log names it by its base's Editor ID or by its FormID, then its FormID (`combat_tactics::who`). Its distance is in its `opens fire on` line; the steps back are counted by their log lines"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/body_weapons.rs", "crates/fnv-combat/src/body_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:0x00122CCA:PlaceAtMe:CrBloatFly:1,6:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
+]
+
+[[scenario]]
 name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
@@ -4625,6 +4640,24 @@ expect = [
 order = [["terminal 0x0014B0A7 plays Open before its screen", "terminal: open 0x0014B0A7", "terminal 0x0014B0A7 closes"]]
 
 [[scenario]]
+name = "terminal-from-message-box"
+source = "#2459: EastPumpStationTerminal's script (SCPT 0x000E8FA3) shows EastPumpStationTermMsg on activation and its GameMode block answers the button \"Activate the terminal.\" (2) with a bare Activate. An answered box closes after that frame's scripts (ScriptState::answer, Runtime::finish_answer), the player is back in the world in the next frame (hold_player), and only there does the GameMode block read the button: the terminal's screen opens. A box closed before the frame's scripts instead lets the block run while the box still holds PlayState::Menu, and the request is dropped (the quest pilot's own answer did that, #2365)"
+note = "East Pump Station (interior 1EEastPumpStation 000E8F6F), the terminal REFR 000FAA48 (base EastPumpStationTerminal 000E8FA2, not locked) [observed: FalloutNV.esm, fnvtool world refs / script decompile]. Activated at 6 s by the script aid, as the player's own activation; at 8 s the real key 2 picks the second button drawn (script_hud.rs menu_keys, the path of a click too): the record's button 2, since \"Repair the network connection.\" is hidden below Science 50; the terminal left at 12 s. Used by the quest Hard Luck Blues (VES34Vault)"
+areas = ["terminal", "scripts"]
+paths = ["engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/script_hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:activate:0x000FAA48", NVF_PLAY_TEST_KEYS = "8:2", NVF_PLAY_TEST_TERMINAL = "12:exit" }
+args = ["--play", "--cell", "1EEastPumpStation", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'script: message EastPumpStationTermMsg .*buttons', label = "the terminal's script shows its box" },
+  { re = 'script: menu \d+ \(message EastPumpStationTermMsg\) answered \(button 2\)', label = "\"Activate the terminal.\" answered" },
+  { text = "script: terminal 000FAA48 opens (a script's Activate)", label = "the script's Activate, once the box has closed" },
+  { text = "terminal: open 0x000FAA48 EastPumpStationTerminal: its menu", label = "the terminal's screen opens" },
+  { text = "terminal: closed (Esc)", label = "and is left" },
+]]
+forbid = [{ text = "terminal: request for 000FAA48 ignored", label = "the request is not dropped" }]
+
+[[scenario]]
 name = "hacking"
 manual = "[design] In hacking.png, compare 10x10 medians on glass right of the dump and below the header, and inside an attempt block, against docs/spec-notes/hacking.md §2: glass R 16-23 / G 38-52 / B 15-32; blocks near (61, 253, 152) and solid (not crossed by the scanlines), without a glare wash. Retain faint texture, dark corners (about 8, 11, 5) and the monitor's top-right streak near (100, 125, 95); use the per-constant tuning recipes in §7 and check text outside the streak stays no higher than (88, 255, 160), that the text has soft edges and the scanlines cross glass and text, and that the password prompt line's green above the glass, per character, is near the original's (§2; the words differ, so compare per character). In flat mode (no monitor model, so no glare) check its own targets instead: glass middle near (12, 38, 20) and blocks near (54, 252, 150) (screen.rs tests), with the same texture."
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
@@ -5126,6 +5159,23 @@ expect = [
   { re = "death poses: \\d+ actor frames held without sampling \\((?P<n>\\d+) at the clip's end\\)", range = [100, 1000000000], label = "death poses: at least 100 actor frames in all held at the clip's end without sampling (a sum over all dead actors; says nothing of which)" },
   { re = "death poses: .*\\), (?P<n>\\d+) more at the clip's end sampled", range = [1, 1000000000], label = "death poses: at least one actor frame in all sampled at the clip's end (a sum; not one per corpse)" },
 ]
+
+[[scenario]]
+name = "ragdoll-fail-laid-out"
+source = "#2347: a fresh corpse whose ragdoll failed to build kept the last frame of its clip and stood (a legionary killed running, Nipton); it is now shown dead as an actor without a ragdoll: its death pose from its first frame, or laid on its back (engine/nvforever/src/ragdoll.rs unbuilt) [design]"
+note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); NVF_PLAY_TEST_RAGDOLL_FAIL refuses his ragdoll build as if it had failed, standing in for ragdoll data that breaks the build (none in the data is known to). The issue's Nipton dynamite scene needs a build that really fails, so this aid stands in for it"
+areas = ["combat"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_RAGDOLL_FAIL = "00104C79", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=EnduranceCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ragdoll_fail_before.png,12:ragdoll_fail_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+order = [[
+  { re = 'combat: .* 0x00104C79 killed', label = "the hit aid kills Chet" },
+  { re = 'ragdoll: actor 00104C79: not built \(refused by the test aid NVF_PLAY_TEST_RAGDOLL_FAIL\)$', label = "the aid refuses his ragdoll build" },
+  { re = 'ragdoll: actor 00104C79: not built; shown dead without it: (its death pose, from its first frame|laid on its back)$', label = "and he is shown dead as one without a ragdoll" },
+]]
+forbid = [{ re = 'ragdoll: actor 00104C79 at rest', label = "no ragdoll of his is in the world" }]
+manual = "ragdoll_fail_after.png: Chet lies on the floor (his death pose's end, or on his back), not standing"
 
 [[scenario]]
 name = "corpse-respawn"
@@ -8110,6 +8160,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "marker-no-xrds-walk"
+source = "issue #2338: a map marker without XRDS (Coyote Den 0x00154A69) is found by walking up to it, within iMapMarkerRevealDistance (1000 by default; docs/spec-notes/pipboy.md section 5.3)"
+note = "The start is 1750 units south-west of the marker on flat ground (heights 7944-7984 along the line, fnvtool world land), facing it (heading 45). The start-up message boxes (the DLC packs' items added) are closed after 0.05 s each, and the keys go down at 14 s, after them: on the first run (SCRIPT_MENUS 1, keys at 8 s) the boxes opened one after another and the player hardly moved. Running at about 344 units/s for 5 s (about 1720 units) the player crosses 1000 units from the marker about 2 s after the keys go down and stops near it. Nothing is found before the keys go down (the order)."
+areas = ["map", "hud"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/compass.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_MOVE = "14:1:0,19:0:0" }
+args = ["--play", "--world", "WastelandNV", "--pos=-30141,-78629,8000", "--heading", "45", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'test aid: movement keys forward 1 right 0', label = "the player runs towards Coyote Den" },
+  { re = 'compass: discovered Coyote Den \(.*\+10 XP', count = 1, label = "Coyote Den (no XRDS) is found on the way, 10 XP" },
+]
+order = [["test aid: movement keys forward 1 right 0", "compass: discovered Coyote Den"]]
+
+[[scenario]]
 name = "seated-save-write"
 source = "issue #1573: after loading a save made while seated the player stands and GetSitting reads 0; the first half: sit (Goodsprings bench 0010634A), GetSitting reads 3, save (seated-save-load reads this save, so run them together)"
 areas = ["save", "furniture"]
@@ -9331,7 +9396,7 @@ expect = [
 name = "cave-skeletons"
 source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
 args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9349,7 +9414,7 @@ expect = [
 name = "posed-clutter-torso"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a skeleton torso copied with the whole clothed skeleton's 15-entry XRGD poses from its first five entries, and a single body with more entries than it holds is refused and logged once per model"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "BisonSteve02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -9362,7 +9427,7 @@ expect = [
 name = "posed-clutter-container-skeleton"
 source = "issue #1400 (docs/spec-notes/dead-on-spawn.md §5.2): a whole clothed skeleton placed as a CONT (container) poses from its XRGD now that CONT is a posable type"
 areas = ["world", "ragdoll", "physics"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
+paths = ["engine/nvf-play/src/clutter_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs"]
 args = ["--cell", "NVDLC01Vault", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -13378,6 +13443,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "water-drink-idle"
+source = "#2349 (docs/spec-notes/idles.md section 16): drinking from placeable water plays the idle tree's ActivateIdles > ActWaterSource idle: 1stPersonActWater on the first-person rig in first person, 3rdPersonActWater on the body in third; it holds nothing"
+note = "drink-sink's sink in Doc Mitchell's house (0x00103E58) drunk from at 6 s in first person, the view switched at 9 s, drunk from again at 12 s in third person. The view must not be driven (an activation's idle does not hold the player)"
+areas = ["activation", "idles"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/furniture.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "6:activate:0x00103E58,12:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONTROL = "9:view" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'activate idle: .* activating 0x00103E58: 1stPersonActWater by ActivateIdles > ActWaterSource > 1stPersonActWater', label = "first person: the tree gives the first-person drinking idle" },
+  { re = 'idle: the player plays 1stPersonActWater .* on the first-person rig \(Activate\)', label = "it plays on the first-person rig" },
+  { re = 'activate idle: .* activating 0x00103E58: 3rdPersonActWater by ActivateIdles > ActWaterSource > 3rdPersonActWater', label = "third person: the third-person drinking idle" },
+  { re = 'idle: the player plays 3rdPersonActWater .* on the third-person rig \(Activate\)', label = "it plays on the body" },
+  { re = 'player view: driven by an idle', count = 0, label = "the drink holds neither the view nor movement" },
+]
+
+[[scenario]]
 name = "interior-clip"
 source = "ESM audit group 7 (docs/spec-notes/world.md §6 Interior clip distance): indoors the camera's far plane is the cell's fog clip distance; Doc Mitchell's house stores one"
 areas = ["sky", "world"]
@@ -16312,6 +16394,27 @@ commands = [["script", "sweep", "{data}", "{masters}", "--schema", "schemas/fnv"
 # there; a rise fails this run.
 expect_file = "expected/script-sweep.toml"
 manual = "a rise: run the command with --detail and compare the causes with main's; a drop: write the new summary into expected/script-sweep.toml"
+
+[[scenario]]
+name = "quest-sweep"
+kind = "tool"
+source = "docs/design/quest-sweep.md (issue #2365 item 5): the static soft-lock sweep over the ten masters (fnvtool quest sweep): conversations with no way out, controls taken by one script and given back by another, stages only hard-to-reach things set, keyless doors only scripts open; the known cases Ramos (#2453), Hardin (#2309) and REPCONN's door are among the hits"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnvtool/src/quest_sweep.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/quest.rs", "crates/fnv-game/src/package.rs", "crates/fnv-script/src/decode.rs", "crates/fnv-script/src/unit.rs"]
+commands = [["quest", "sweep", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+expect = [
+  # The counts on main 2026-11-14 (docs/handoff/quest-sweep-2026-11-14.md): a change says why.
+  { json = "summary.conversation_traps", schema = "fnv.quest.sweep/1", equals = 0, label = "no conversation of the ten masters without a way out" },
+  { json = "summary.goodbye_less_top_levels", schema = "fnv.quest.sweep/1", equals = 9, label = "9 actors with no Goodbye shown open to them" },
+  { json = "summary.control_verdicts.waits", schema = "fnv.quest.sweep/1", equals = 89, label = "89 control holds released only behind a package, line, trigger or timer" },
+  { json = "summary.control_verdicts.unreleased", schema = "fnv.quest.sweep/1", equals = 22, label = "22 control holds with no release found" },
+  { json = "summary.controls_waiting_beyond_a_timer", schema = "fnv.quest.sweep/1", equals = 23, label = "23 of them wait on more than a fade's timer" },
+  { json = "summary.stages_hard_to_reach", schema = "fnv.quest.sweep/1", equals = 14, label = "14 stages only hard-to-reach things set" },
+  { json = "summary.doors.opened_by_script", schema = "fnv.quest.sweep/1", equals = 72, label = "72 keyless Requires Key doors only scripts open" },
+  { json = "controls.*.by.line", schema = "fnv.quest.sweep/1", equals = "0x000A3CE0", label = "Ramos' line (#2453) holds the controls" },
+  { json = "controls.*.releases.*.by.line", schema = "fnv.quest.sweep/1", equals = "0x001633C0", label = "Hardin's training (#2309) is released by the package's line" },
+  { json = "doors.*.opened_by.*.line", schema = "fnv.quest.sweep/1", equals = "0x000CD87E", label = "REPCONMidToTopDoor opened by INFO 0x000CD87E" },
+]
 
 [[scenario]]
 name = "mq-old-world-blues"
@@ -22531,6 +22634,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-sandstorm-scroll"
+source = "#2450 (docs/spec-notes/activators.md §6.1): the Hidden Valley dust storm (HVSandStormNight, effects/nv/nvsandstormnight.nif) scrolls all 18 of its dust sheets: SpecialIdle's texture scroll names NVSandstorm01:0 only, the other 17 list the same NiTexturingProperty and move with it"
+note = "HVDustStorm forced at the owner's spot in Hidden Valley (-5,-2) at 22:00; the console enables the storm references 0x000E18D7 and 0x000E18D9 (initially disabled, enabled by VHiddenValleyDustStormQuestScript in a playthrough); a frame at 14 s in target/smoke"
+areas = ["activators", "effects"]
+paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "4:000E18D7.enable;000E18D9.enable;4.3:close", NVF_PLAY_TEST_SHOTS = "14:hv_sandstorm.png" }
+args = ["--cell", "HiddenValley", "--pos=-17863,-4814,6498", "--heading", "200", "--play", "--hour", "22", "--weather", "HVDustStorm", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'nvsandstormnight[.]nif: shapes sharing a driven texturing property move their texture with it: NVSandstorm02:0, .*NVSandstorm18:0', label = "the storm's other 17 dust sheets scroll with NVSandstorm01:0" },
+  { re = 'test aid: screenshot .*hv_sandstorm[.]png', label = "the frame is saved" },
+]
+
+[[scenario]]
 name = "victor-talk-glow"
 source = "#1081 (docs/spec-notes/lipsync.md §6.1): a Securitron's Talking sequence (talking.kf) plays while it says a line, its time from the line's .lip, so Victor's chest light ##VoiceBox_talk:0 (nvsecuritronvoicebox.nif), dark under his idle, lights and flickers with his words"
 note = "Goodsprings' Victor (GSVictorRef 0x001073E8; VictorREF 0x00103DFE is not drawn yet at the start) is put 200 units in front of the player at 3 s, the player faces him at 5 s and talks to him at 7 s (his greeting is voiced); frames at 9 to 9.4 s (lit while he speaks, flickering) and at 21 s, faced again after his lines (dark under the idle) in target/smoke"
@@ -22880,6 +22997,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "hour-jump-unseen-placed"
+source = "issue #2353: a script's write that moves GameHour more than an hour (VCG01 stage 200's set GameHour to 8 on a new game) has everybody choose its package at once and puts the residents out of sight where their new package has them; those in view walk there (Core::after_hour_jump, fnv_ai Ai::hour_jumped; docs/spec-notes/packages.md §9)"
+note = "Goodsprings at 06:00 by Easy Pete's porch; at 3 s he is moved to his bed 00176ACE in GSHouseInterior03 (behind a door of the loaded cells, out of sight), where EasyPeteSleepPackage keeps him. At 20 s the console sets GameHour to 8, a script's write as VCG01 stage 200's: EasyPeteChairPackage8x4 is chosen at once and he is put on his porch chair 0010634A without walking out of the house. Before #2353 he chose at his next periodic turn and walked out from the bed (the issue's Easy Pete out of place). The aids cannot drive the new game's opening into Doc Mitchell's last line, so the console stands in for the quest stage"
+areas = ["ai", "residents", "clock"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_CONSOLE = "20:set GameHour to 8;20.5:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "6", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'the clock was set from 06:\d\d to 08:00 by a script: packages chosen again; 1 of \d+ residents out of sight put', label = "the jump is taken: one resident out of sight is put" },
+  { re = 'EasyPeteRef: put at its package.s place after the clock was set \(EasyPeteChairPackage8x4\): .* in WastelandNV, from .* in GSHouseInterior03', label = "Easy Pete is put at his porch chair from his bed" },
+  { re = 'furniture: 00104C80 is (back )?on 0010634A', label = "drawn on his porch chair" },
+]]
+expect = [
+  { text = "EasyPeteRef: used door", count = 0, label = "he walks through no door in sight" },
+]
+
+[[scenario]]
 name = "pause-mods-page"
 source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
 note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. With no mod registered with MCM its script stops at its 'No MCM Mods' check, so its window stays shut (pause-mods-page-jam opens it); pause_mods.png shows the page"
@@ -22961,6 +23096,20 @@ run_seconds = 16
 expect = [
   { re = 'combat: 1 shots .*, 1 world hits', label = "one shot, which strikes the world" },
   { text = "impacts by material: dirt 1 (0 on collision without a material)", label = "it passes the collision marker and strikes the dirt behind it" },
+]
+
+[[scenario]]
+name = "shot-passes-transparent-mesh"
+source = "issue #2340: a mesh body on the plain Transparent layer (3) stopped every shot; the original lets projectiles through it [documented: GECK wiki Collision layer, TRANSPARENT]. layers::shot_ignores now holds Transparent (crates/fnv-phys/src/layers.rs; combat-rules.md, The world)"
+note = "WastelandNV: the road gate door 0x0008D5B8 (CLFenceGateRoad01, -4576, -30616, 6819, not rotated) has its chain link CLFenceGateRoad01Link on layer 3 east of the gate leaves (model x 45..246, 13..224 high, material metal); the player stands 150 units south of it at x -4420, faces north, looks 10 degrees down and fires the 9mm pistol (no Pass Through Small Transparent) once at 12 s: the shot crosses the link about 30 units above its bottom edge and lands on the ground about 485 units beyond it. Before the change it stopped on the link: a metal impact"
+areas = ["combat", "physics"]
+paths = ["crates/fnv-phys/src/layers.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_LOOK = "9:0:-10", NVF_PLAY_TEST_CONTROL = "8:weapon,12:fire,12.2:fire" }
+args = ["--world", "WastelandNV", "--pos=-4420,-30766,6900", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'combat: 1 shots .*, 1 world hits', label = "one shot, which strikes the world" },
+  { re = 'impacts by material: (?!metal )[a-z_]+ 1 \(', label = "it passes the layer-3 chain link (metal) and strikes the ground beyond it" },
 ]
 
 [[scenario]]
@@ -27453,3 +27602,55 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+[[scenario]]
+name = "freeside-fort-residents-door"
+source = "issue #2434 (engine/nvforever/src/residents.rs newly_loaded): the Old Mormon Fort (FreesideFortWorld) lies on the grid squares of Freeside's north side (FreesideNorthWorld) it is entered from; its residents join on the first entry, are drawn and see the player. With the squares remembered by grid alone (before #2239) none joined: 0 drawn, no Follower detected"
+note = "the player beside the fort's door (0x00133966) in FreesideNorthWorld at noon; the aid activates the door at 8 s"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "8:activate:0x00133966" }
+args = ["--play", "--world", "FreesideNorthWorld", "--pos=6450,3550,1013", "--heading", "135", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all"]
+run_seconds = 40
+expect = [
+  { re = 'render: worldspace 0012D94D -> 0012D94E \(FreesideFortWorld\)', label = "the door takes the player into the fort" },
+  { re = 'detection: VFSFollowers(Guard|Doctor)\d [0-9A-F]{8} → the player', min = 3, label = "the Followers' guards and doctors are there and look at the player (2026-11-14: 5; 0 without the fix)" },
+  { re = 'detection: VFSJulieFarkas 00115C5F → the player', label = "Julie Farkas is there" },
+  { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the fort's residents are drawn (2026-11-14: 14; 0 without the fix)" },
+]
+
+[[scenario]]
+name = "freeside-north-residents-door"
+source = "issue #2432 (engine/nvforever/src/residents.rs newly_loaded): the owner's way to G.I. Blues' north gate, from Goodsprings by fast travel to the Strip North Gate (FreesideWorld), into the King's School of Impersonation and out, then through the bus door (0x0012BDD0) to Freeside's north side (FreesideNorthWorld), which lies on the same grid squares. Orris and the King's bodyguard at the gate are drawn and see the player on the first arrival; with the squares remembered by grid alone (before #2239) they were not until the player had been somewhere else (0 residents drawn)"
+note = "fast travel as fast-travel-primm does it (ShowMap 6 s, Pip-Boy 12-18 s), the King's School door at 32 s; VMS19 started at 36 s and the King's line 0x00113630 (stage 10, the gambler talking to Orris disabled) at 37 s; out at 42 s, the bus door at 52 s, the player put by the north gate at 64 s"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0015EC3F:1,32:activate:0x0011150F,36:start:VMS19,37:info:0x00113630,42:activate:0x0010E09D,52:activate:0x0012BDD0", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0015EC3F,18:key=use", NVF_PLAY_TEST_GOTO = "64:7700:6500:1040" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--npc-packages", "all"]
+run_seconds = 90
+order = [[
+  { re = 'render: worldspace 000DA726 -> 0010BEEA \(FreesideWorld\)', label = "the fast travel arrives in Freeside" },
+  { text = "script: VFSGamblerTalkingToOrrisREF disabled", label = "the King's line sets G.I. Blues going" },
+  { re = 'render: worldspace 0010BEEA -> 0012D94D \(FreesideNorthWorld\)', label = "the bus door takes the player to the north side" },
+  { re = 'detection: VFSOrris 00115C60 → the player', label = "Orris is there and sees the player" },
+]]
+expect = [
+  { re = 'detection: VFSKingBodyguardNorth 0013EF08 → the player', label = "the King's bodyguard beside him too" },
+  { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the north side's residents are drawn (2026-11-14: 17; 0 without the fix)" },
+]
+
+[[scenario]]
+name = "wild-wasteland-fridge-skeleton"
+source = "issue #2339 (docs/spec-notes/dead-on-spawn.md §5.3): the Wild Wasteland refrigerator skeleton 0x000ED565 (MSTT Skeleton50sCasualMale, XRGD) hangs on WildWastelandEnabler 0x000ED563, which starts disabled, so render streaming leaves it to script_draw; enabled the way the trait's script does (0x000ED563.enable 1), it is drawn in its stored pose like a skeleton enabled from the start, its collision posed with it; a frame in target/smoke (wild_wasteland_fridge_skeleton.png)"
+note = "the player stands about 220 units east of the skeleton and the open fridge 0x000ED566, looking west and down; the enabler is enabled from the console at 8 s, the frame taken at 12 s"
+areas = ["world", "scripts", "ragdoll", "physics"]
+paths = ["engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/clutter_pose.rs", "crates/fnv-world/src/xrgd.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:000ED563.enable 1;8.3:close", NVF_PLAY_TEST_SHOTS = "12:wild_wasteland_fridge_skeleton.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-62000,-10520,7150", "--heading", "270", "--pitch", "-20", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'reference 0x000ED565 drawn \(enabled at run time\): \S*skeletonmale50scasual\.nif', label = "the enabler's child is drawn by script_draw" },
+  { re = 'clutter pose: 0x000ED565 \S*skeletonmale50scasual\.nif drawn in its stored pose, enabled at run time \(16 bodies\)', count = 1, label = "drawn in its stored pose, logged once" },
+  { re = 'phys: 0x000ED565 \S*skeletonmale50scasual\.nif: collision posed from XRGD \(16 bodies\)', label = "its collision lies with the drawing" },
+  { re = 'clutter pose: \S*skeletonmale50scasual\.nif: its XRGD does not fit', count = 0, label = "its XRGD fits its model" },
+]
