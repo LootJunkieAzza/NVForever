@@ -2354,17 +2354,31 @@ threshold or sits in its gap until a jump.
   before the step-up was tried.
 - **Fix** (`fnv_phys::character::on_crest`, `step_up_move`) [design]: the shape the
   step-up puts down may also rest on a **crest**: the contact it came down on holds it up
-  (its normal points up), lies at most `step_height` above the feet the step started from,
-  and 2 units beyond it along the motion the surface falls away by more than 2 (steeper
-  than 45°) or is walkable and no higher than the edge. A lip with no top, the top edge of
-  a thin board and a ramp's upper end count; a steep slope does not (it goes on rising
-  beyond the contact, and across it sideways the surface stays about as high and is not
-  walkable), nor a thin wall higher than `step_height` (the test
-  `a_thin_wall_higher_than_a_step_still_blocks`). An edge met by the cone's face (off the
+  (its normal points up), lies at most `step_height` above the walkable surface the
+  character last stood on at the start of a step (`Character::support_z`: its feet less
+  the gap kept from it; perched on an edge the support under the cone is not walkable, so
+  feet that earlier step-ups raised onto the edge do not raise the limit), and 2 units
+  beyond it along the motion the surface falls away by more than 2 (steeper than 45°) or
+  is walkable and no higher than the edge. A lip with no top, the top edge of a thin board
+  and a ramp's upper end count; a steep slope does not (it goes on rising beyond the
+  contact, and across it sideways the surface stays about as high and is not walkable),
+  nor a thin wall higher than `step_height`. Measured from the feet instead, a slow
+  approach to a 25-unit thin wall first perched 2-4 above the ground through the walkable
+  top 19 ahead (the ground beyond the wall) and then climbed it (review of the first
+  version of this fix; test `thin_walls_are_stepped_over_up_to_the_step_height`, walls of
+  24, 25, 26 and 28 at 30, 115.5 and 344 units/s). An edge met by the cone's face (off the
   flat tip by more than 0.5) that is a crest counts even when the shape comes down up to 2
   lower than it was held: crossing the gap onto a ramp's end it sinks a little. A step the
   wedge rule stopped is tried by the step-up too. The cone stays (§6.4.1's fence-edge fit),
-  as do the step height (24) and the other rules of §6.9.
+  as do the step height (24) and the other rules of §6.9. All of this applies to actors
+  and creatures as well: they walk with the same controller (`plan_move`) and
+  `npc_params` keeps the step height of 24 (§6.8, §6.8.1).
+- **Actors' slope limit** [observed: the test above on main and on this branch]: with
+  `npc_params`' slope limit of 60°, above the cone face's 57.7°, rapier's controller itself
+  walks an actor up a thin edge as far as its cone reaches, before and without the
+  step-up: a person-sized actor (radius 22, cone 29.7 high) walks over thin walls of 24 to
+  28, a small creature (radius 10, cone 10.7 high) over 24 to 26 but not 28. Not changed
+  here; it is not the step-up's (an open question for actors' thin walls).
 - **Checked** [observed: `fnvtool phys walk`, `CharacterParams::default()`, 5 offsets
   across the door (−15 to +15) × 3 headings (−10°, 0, +10°), 6 s at walk (115.5) and run
   (344) from the floor]:
@@ -2378,13 +2392,17 @@ threshold or sits in its gap until a jump.
   | 0x00137E77 with the ramp, run | 2/15 out | 15/15 | 15.3-17.7 (straight 17.5) |
 
   The peaks lie within the original's 9-16 at 0x001070C1 and up to 1.7 above it at the
-  ramp. Unchanged: the parity lab's ten `L4.phys.walk.*` scripts and the `diag_fence_edge`
+  ramp. With `npc_params` for a person (slope limit 60°) all 66 walks got out before and
+  after, the same peaks; for a creature drawn 30 tall (radius 10, `step_width` 10) 56 of
+  66 before and 65 after (the one left ran along the inside wall past the door at 10°). Unchanged: the parity lab's ten `L4.phys.walk.*` scripts and the `diag_fence_edge`
   / `diag_fence_low` drops give byte-identical traces before and after; the camper's door
   steps (§6.9) from x −53760 end at the same place, and from 5 starts further east the
   player now steps over the corner of the floor mattress `BedMattress01FloorL` 0x0010771B
   (13.6 high) inside the camper instead of stopping at it. Tests
-  `character_walks_out_over_a_threshold_lip` (fails before the fix) and
-  `a_thin_wall_higher_than_a_step_still_blocks`; smoke scenario `caravan-door-walk-out`.
+  `character_walks_out_over_a_threshold_lip` (fails before the fix; the player's, an
+  actor's and two small creatures' parameters) and
+  `thin_walls_are_stepped_over_up_to_the_step_height`; smoke scenario
+  `caravan-door-walk-out`.
 
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 

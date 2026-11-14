@@ -228,6 +228,11 @@ pub struct Character {
     pub passes_characters: bool,
     /// Steps climbed by [`step_up_move`] (a count for reports).
     pub stepped: u32,
+    /// Height of the walkable surface the character last stood on at the start of a step
+    /// (its feet less the gap kept from it), `None` after a placement: [`on_crest`] climbs
+    /// edges up to `step_height` above it, not above feet that earlier step-ups raised
+    /// onto an edge (perched there, the support under the cone is not walkable).
+    support_z: Option<f32>,
     /// Hold this character where it is while it is stuck ([`Held`]): a step whose sweep
     /// ran out of the controller's sweeps without moving it is not swept again for the
     /// next [`STUCK_RETRY`] − 1 steps. Off by default (the player, the tools' probes);
@@ -386,6 +391,7 @@ impl PhysWorld {
             ground_gap: None,
             passes_characters: false,
             stepped: 0,
+            support_z: None,
             hold_when_stuck: false,
             held: None,
             held_steps: 0,
@@ -413,6 +419,7 @@ impl PhysWorld {
         c.walked_off_z = None;
         c.air_top_z = None;
         c.held = None;
+        c.support_z = None;
         let center = c.center(self.k);
         self.w.bodies[c.body].set_translation(center, true);
         // A body that had gone to sleep (a character not moved for a while) stayed where
@@ -564,6 +571,9 @@ impl PhysWorld {
         }
         c.ground_gap = support.map(|(_, toi, n)| (toi - c.gap / n.z.max(walkable)).max(0.0));
         let on_walkable = support.is_some_and(|(_, toi, n)| n.z >= walkable && toi <= c.gap / n.z + SUPPORT_MARGIN);
+        if on_walkable {
+            c.support_z = Some(c.feet[2] - c.gap);
+        }
 
         let key = input.velocity;
         // Horizontal velocity this step: the keys' on the ground (after a landing, its
@@ -1017,13 +1027,15 @@ const STEP_PROBE: f32 = 19.0;
 /// climbs only onto a walkable top: straight down from the axis, or from `STEP_PROBE`
 /// ahead of it (the cone resting on the edge, the tip short of the top), a walkable
 /// surface within a few units of where the feet came down; or onto a crest no higher
-/// than `step_height` above the feet ([`on_crest`]: a threshold's lip with no top, a
+/// than `step_height` above the walkable surface the character last stood on
+/// ([`on_crest`]: a threshold's lip with no top, a
 /// ramp's upper end beyond a gap, which the original walks over without a jump [observed:
 /// capture of the original, 2026-11-14, physics.md §6.9.2]); a steep slope rising less
 /// than a step per frame is not climbed so [hypothesis: the original climbs such ledges
 /// without a jump, the owner's playtest; its step height is not measured]. A step the
 /// wedge rule stopped ([`wedged`]) is tried too: a door jamb and the lip beside it wedged
-/// the character in the doorway's corner.
+/// the character in the doorway's corner. Actors and creatures walk with the same rules
+/// (`plan_move`).
 /// Returns the translation (rapier units) and the contacts.
 #[allow(clippy::too_many_arguments)]
 fn step_up_move(
@@ -1084,8 +1096,10 @@ fn step_up_move(
 /// bottom meets such an edge with its own steep face, so the contact is not a walkable
 /// top and the step's other checks find none (the floor under the axis lies more than
 /// [`STEP_TOP_BELOW`] under the perched feet, beyond the edge is a gap). It counts when
-/// the contact `down` holds the shape up, lies at most `step_height` above the feet the
-/// step started from (a higher edge stays a wall, however thin), and just beyond it along
+/// the contact `down` holds the shape up, lies at most `step_height` above the walkable
+/// surface the character last stood on ([`Character::support_z`], or the step's start
+/// less its gap when lower: a higher edge stays a wall, however thin, also after earlier
+/// step-ups perched the cone on it), and just beyond it along
 /// `dir` the surface falls away more steeply than the slope limit or is walkable and no
 /// higher than the edge: a steep slope continues upwards beyond its contact, and across
 /// one sideways the surface stays about as high and is not walkable, so neither counts
@@ -1093,8 +1107,9 @@ fn step_up_move(
 fn on_crest(q: &rapier3d::pipeline::QueryPipeline, c: &Character, pos: &Pose, down: &ShapeCastHit, dir: Vector, k: f32) -> bool {
     let p = &c.params;
     let edge = down.witness1;
-    let start_feet = pos.translation.z / k - p.height / 2.0;
-    if down.normal1.z <= 0.0 || edge.z / k > start_feet + p.step_height {
+    let start = pos.translation.z / k - p.height / 2.0 - c.gap;
+    let base = c.support_z.map_or(start, |z| z.min(start));
+    if down.normal1.z <= 0.0 || edge.z / k > base + p.step_height + CREST_EPS {
         return false;
     }
     let beyond = Vector::new(edge.x, edge.y, edge.z + p.step_height * k) + dir * (CREST_PROBE * k);
@@ -1118,6 +1133,9 @@ const CREST_DROP: f32 = 2.0;
 /// How much higher than the edge a walkable surface beyond it may lie and still count as
 /// the edge's own top (a rounding allowance), game units [design].
 const CREST_LEVEL: f32 = 0.25;
+/// Rounding allowance on the crest's height limit, game units [design: an edge exactly
+/// `step_height` high is taken].
+const CREST_EPS: f32 = 0.01;
 /// How far off the flat tip a crest's contact must lie, and how much lower than it was held
 /// before the shape may come down onto it, game units [design: the shape crossing a
 /// threshold's gap onto a ramp's end sank 0.56 (the test

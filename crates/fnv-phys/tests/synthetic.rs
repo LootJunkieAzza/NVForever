@@ -452,46 +452,86 @@ fn caravan_door(lip: f32, ramp: bool) -> PhysWorld {
     w
 }
 
+/// The character parameter sets that walk through doors: the player's, an actor's
+/// (`nvf-play` `npc_params`: the player's with a 60-degree slope limit) and two small
+/// creatures' (`npc_params` for actors drawn 30 and 60 tall: as tall as drawn, radius
+/// 0.17 of the height but at least 10, `step_width` at most the radius).
+fn door_walkers() -> Vec<(&'static str, CharacterParams)> {
+    let player = CharacterParams::default();
+    let npc = CharacterParams { max_slope_deg: 60.0, ..player };
+    let small = |height: f32| {
+        let radius = (0.17 * height).clamp(10.0, npc.radius);
+        CharacterParams { radius, height, step_width: npc.step_width.min(radius), ..npc }
+    };
+    vec![("player", player), ("npc", npc), ("creature 30", small(30.0)), ("creature 60", small(60.0))]
+}
+
 #[test]
 fn character_walks_out_over_a_threshold_lip() {
     // Issue #2494: walking out of a caravan the cone bottom rests on the lip's edge, which
     // has no top, and the step-up found no walkable top to climb onto (the floor under the
     // axis more than 4 below the perched feet, the gap or the ramp ahead), so the player
-    // stood on the threshold until a jump.
-    for ramp in [false, true] {
-        for speed in [115.5f32, 344.0] {
-            // Straight out, and 10 degrees off into the door jamb's corner with the lip.
-            for (y, deg) in [(0.0f32, 0.0f32), (10.0, 10.0), (-10.0, -10.0)] {
-                let mut w = caravan_door(10.3, ramp);
-                let mut c = w.add_character(1, CharacterParams::default(), [0.0, y, 51.0]);
-                settle(&mut w, &mut c, 30);
-                let (s, co) = deg.to_radians().sin_cos();
-                let steps = walk(&mut w, &mut c, [speed * co, speed * s], 360);
-                let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
-                assert!(c.feet[0] > 200.0 && c.feet[2] < 10.0, "ramp {ramp}, speed {speed}, {deg} degrees: {:?}, peak {peak}", c.feet);
-                // Over the lip (or onto the ramp's upper end, 18 above the floor), not
-                // lifted above it.
-                let top = if ramp { 18.0 } else { 10.3 };
-                assert!(peak < 50.0 + top + 2.0, "ramp {ramp}, speed {speed}, {deg} degrees: peak {peak}");
+    // stood on the threshold until a jump. Actors and creatures walk with the same
+    // controller.
+    for (who, p) in door_walkers() {
+        for ramp in [false, true] {
+            for speed in [115.5f32, 344.0] {
+                // Straight out, and 10 degrees off into the door jamb's corner with the lip.
+                for (y, deg) in [(0.0f32, 0.0f32), (10.0, 10.0), (-10.0, -10.0)] {
+                    let mut w = caravan_door(10.3, ramp);
+                    let mut c = w.add_character(1, p, [0.0, y, 51.0]);
+                    settle(&mut w, &mut c, 30);
+                    let (s, co) = deg.to_radians().sin_cos();
+                    let steps = walk(&mut w, &mut c, [speed * co, speed * s], 360);
+                    let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+                    let case = format!("{who}, ramp {ramp}, speed {speed}, {deg} degrees");
+                    assert!(c.feet[0] > 200.0 && c.feet[2] < 10.0, "{case}: {:?}, peak {peak}", c.feet);
+                    // Over the lip (or onto the ramp's upper end, 18 above the floor), not
+                    // lifted above it.
+                    let top = if ramp { 18.0 } else { 10.3 };
+                    assert!(peak < 50.0 + top + 2.0, "{case}: peak {peak}");
+                }
             }
         }
     }
 }
 
 #[test]
-fn a_thin_wall_higher_than_a_step_still_blocks() {
-    // The crest rule of the step-up (issue #2494) climbs an edge with no top only up to
-    // `step_height` above the feet: a zero-thickness wall 30 high stays a wall.
-    let p = CharacterParams::default();
-    for speed in [115.5f32, 344.0] {
-        let mut w = caravan_door(30.0, false);
-        let mut c = w.add_character(1, p, [0.0, 0.0, 51.0]);
-        settle(&mut w, &mut c, 30);
-        let steps = walk(&mut w, &mut c, [speed, 0.0], 240);
-        let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
-        // The cone may rest on the wall's edge low on its face, as before (the floor under
-        // the axis is then a walkable top within reach), never climb it.
-        assert!(c.feet[0] < 100.0 && peak < 50.0 + 6.0, "speed {speed}: {:?}, peak {peak}", c.feet);
+fn thin_walls_are_stepped_over_up_to_the_step_height() {
+    // The crest rule of the step-up (issue #2494) climbs an edge with no top up to
+    // `step_height` (24) above the walkable surface the character stood on: a
+    // zero-thickness wall 24 high is stepped over; 25, 26 and 28 stay walls, also when a
+    // slow approach first perches the cone low on the wall's edge (the ground beyond then
+    // counts as a walkable top 19 ahead) and later steps start from those raised feet.
+    for (who, p) in door_walkers() {
+        for height in [24.0f32, 25.0, 26.0, 28.0] {
+            for speed in [30.0f32, 115.5, 344.0] {
+                let mut w = ground();
+                let vertices = vec![[100.0, -200.0, 0.0], [100.0, 200.0, 0.0], [100.0, 200.0, height], [100.0, -200.0, height]];
+                w.add_ref(&at(1, [0.0, 0.0, 0.0]), &[object(Shape::TriMesh { vertices, triangles: vec![[0, 1, 2], [0, 2, 3]], materials: vec![0; 2] }, Motion::Static)]);
+                let mut c = w.add_character(1, p, [40.0, 0.0, 1.0]);
+                settle(&mut w, &mut c, 30);
+                let steps = walk(&mut w, &mut c, [speed, 0.0], 360);
+                let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+                let case = format!("{who}, wall {height}, speed {speed}");
+                // Actors with a slope limit above the cone face's 57.7 degrees (60) walk up
+                // a thin edge as far as the cone reaches by rapier's own slope climb, as on
+                // main before the crest rule: 25 and 26 for all of them, 28 for the person
+                // (the cone of radius 22 rises 29.7; a radius-10 one 10.7, then the side is
+                // a wall). That is not the step-up's, so only what it decides is checked.
+                let blocks = match who {
+                    "player" => height > p.step_height,
+                    "npc" => false,
+                    _ => height >= 28.0,
+                };
+                if height <= p.step_height {
+                    assert!(c.feet[0] > 130.0, "{case}: stepped over, {:?}, peak {peak}", c.feet);
+                } else if blocks {
+                    // The cone may rest low on the wall's edge, never climb it.
+                    assert!(c.feet[0] < 100.0 && peak < TERRAIN_SHELL + 8.0, "{case}: {:?}, peak {peak}", c.feet);
+                }
+            }
+        }
     }
 }
 
