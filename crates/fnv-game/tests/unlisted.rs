@@ -318,6 +318,10 @@ SetFunctionValue 1");
     assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 3.0);
     q(&mut g, "let aList := ar_Map \"w\"::4\nAuxStringMapArraySetFromArray \"*m2\" aList 0");
     assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m2\""), 1.0);
+    // An array value is left out (its id would not survive a reload).
+    q(&mut g, "let aList := ar_Map \"b\"::1\nlet aList[\"a\"] := ar_List 1 2\nAuxStringMapArraySetFromArray \"*m3\" aList");
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetSize \"*m3\""), 1.0);
+    assert_eq!(n(&mut g, "AuxStringMapArrayGetValueType \"*m3\" \"a\""), 0.0);
 }
 
 #[test]

@@ -806,7 +806,13 @@ impl Vm<'_, '_> {
                     None => false,
                 };
                 let pairs: Vec<(String, XVal)> = match self.store()?.array(id) {
-                    Some(a) => a.entries.iter().filter_map(|(k, v)| if let XKey::Str(s) = k { Some((s.clone(), v.clone())) } else { None }).collect(),
+                    // An array value is left out: the maps are saved, and an array id would
+                    // point at nothing after a reload [decision, as RefMapArraySetValue].
+                    Some(a) => a.entries.iter().filter_map(|(k, v)| match (k, v) {
+                        (_, XVal::Array(_)) => None,
+                        (XKey::Str(s), _) => Some((s.clone(), v.clone())),
+                        _ => None,
+                    }).collect(),
                     None => Vec::new(),
                 };
                 let s = stores(self.store()?, &name);

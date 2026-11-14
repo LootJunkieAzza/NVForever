@@ -2,7 +2,8 @@
 //! file under the game folder, read whole into a cache or changed on disk, by top-level
 //! key. Files a mod writes go to NVForever's own layer, never the game folder
 //! (`crate::mod_files`, install-layout.md). Behaviour from probes in the original (sets
-//! json1 and json2 of the session's runs; every comment cites the spec note's rows).
+//! json1, json2 and json2r0-r5 of tools/capture/unlisted_rest_probes.py, run 2026-11-13;
+//! every comment cites the spec note's rows).
 
 use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};

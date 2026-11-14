@@ -162,8 +162,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- kNVSE (§7) ----
         // The actor's current animation file for sequence type 0, else "" [observed:
-        // knv2.pathbytype.0 Doc's mtidle.kf, the player's
-        // first-person idle; types 1-3 ""; hypothesis: type 0 is the body's clip].
+        // knv1.pathbytype.0 and knv2.pathbytype.0 Doc's mtidle.kf, knv1.pathbytype.player.0
+        // the player's first-person idle; types 1-3 ""; hypothesis: type 0 is the body's clip].
         "getanimpathbysequencetype" => {
             let Some(a) = subject else { return Some(Err("GetAnimPathBySequenceType: no actor".into())) };
             let t = args.first().and_then(|v| if let XVal::Num(n) = v { Some(*n) } else { None }).unwrap_or(0.0);
@@ -259,8 +259,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // The answers the original gave (§8), with what each is not known to change.
         "getactorcoverstate" | "getweapadditionalfloat" | "hudbarsetforcehide" => XVal::Num(-1.0),
         "getextraaccuracypenaltymult" | "setextraaccuracypenaltymult" | "removeextraaccuracypenaltymult" | "getcamerashotpath"
-        | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride"
-        | "setcasinodecktexture" => XVal::Num(1.0),
+        | "setcamerashotpath" | "setmusictypepath" | "setmedialocationcontrolleroverride" | "clearmedialocationcontrolleroverride" => XVal::Num(1.0),
+        // Not probed: 1 as JohnnyGuitar's other setters answered, and GetCasinoDeckTexture
+        // keeps reading the casino's own deck [hypothesis, §8].
+        "setcasinodecktexture" => XVal::Num(1.0),
         // `to from`: NPC base `to` takes `from`'s look for the session, every reference
         // of it [documented: CopyFaceGenFrom, the reference form; the name's "Base" and
         // ShowOff's `to from` order, hypothesis]: race, sex, face, skin tone, hair, eyes

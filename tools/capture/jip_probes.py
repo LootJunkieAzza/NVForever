@@ -5,6 +5,7 @@
   jip_probes.py collect OUT.jsonl [--set S] [-o golden]  capture output -> fnv.ext.probes/1
   jip_probes.py compare GOLDEN.json                the golden against the expectations here
   jip_probes.py steps [--dir DIR]                  every set's job into tools/capture/jip-probes/
+  jip_probes.py shapes [--dir DIR]                 the #2326 argument-shape run (shp00.steps.json, ...)
 
 Each probe is a function script that nvf_capture compiles inside the running game and
 whose result it records (docs/spec-notes/xnvse-capture.md §4–§5): JIP is loaded in the
@@ -9337,6 +9338,13 @@ REST1_PROBES = (
 SETS.update({"rest1": REST1_PROBES})  # unlisted commands, the rest, batch 1 (#2326)
 WRITING_SETS |= {"rest1"}
 
+# Batches 2-5 of #2326 (SUP's JSON commands, kNVSE, the small families, JIP) and the jobs
+# that ran their risky rows one per launch: tools/capture/unlisted_rest_probes.py.
+import unlisted_rest_probes as _urp  # noqa: E402
+
+SETS.update(_urp.SETS)
+WRITING_SETS |= _urp.WRITING
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"
@@ -9407,6 +9415,8 @@ def main(argv=None):
     k.add_argument("golden")
     st = sub.add_parser("steps")
     st.add_argument("--dir", default=STEPS_DIR)
+    sh = sub.add_parser("shapes", help="the compile-only argument-shape run of #2326 as jobs of 150 steps")
+    sh.add_argument("--dir", default=".")
     a = ap.parse_args(argv)
     if a.cmd == "steps":
         os.makedirs(a.dir, exist_ok=True)
@@ -9414,6 +9424,10 @@ def main(argv=None):
             with open(os.path.join(a.dir, f"{job_name(name)}.steps.json"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(steps_text(name))
         print(json.dumps({"dir": a.dir, "sets": list(SETS)}))
+        return 0
+    if a.cmd == "shapes":
+        os.makedirs(a.dir, exist_ok=True)
+        print(json.dumps({"jobs": _urp.shape_jobs(a.dir, cs.STEPS_FORMAT)}))
         return 0
     if a.cmd == "job":
         a.out = a.out or f"{job_name(a.set)}.steps.json"

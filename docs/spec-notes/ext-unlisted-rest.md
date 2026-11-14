@@ -22,7 +22,9 @@ VM, `crates/fnv-script/src/vm/jip.rs`. Catalogue rows come from `PAGELESS` in
 ## 1. Sources
 
 - **Names, opcodes and plugins**: nvse.log of the original game (xNVSE 6.4.9), read the
-  same way as `ext-unlisted-commands.md` §1. The opcodes of every command the catalogue
+  same way as `ext-unlisted-commands.md` §1. The plugins, by their nvse.log load lines:
+  JIP LN 57.30, ShowOff 184, SUP 855, kNVSE 37, JohnnyGuitar 528, One111 120, ITR 20203
+  (no DLL is newer than 2026-11-10, so these are the versions of the 2026-11-13 runs). The opcodes of every command the catalogue
   gained in #2318 and here are added to `schemas/script/command_opcodes.json` from those
   log lines. That file still lacks the other commands of the plugins that were not
   installed when it was recorded (ShowOff, kNVSE, SUP, One111, ITR); that is a follow-up.
@@ -30,7 +32,9 @@ VM, `crates/fnv-script/src/vm/jip.rs`. Catalogue rows come from `PAGELESS` in
   argument patterns (none; one to nine zeros; quoted strings; a ref variable; mixes; a bare
   `X`) inside `if 0 … endif`, so the game compiled each call and ran none [observed: the
   sandbox's stock game, save nvfairport, 2026-11-13]. The run was split into jobs of 150
-  calls (one of 4,715 hung the game before its first frame). How to read the results:
+  calls (one of 4,715 hung the game before its first frame). The generator is
+  `jip_probes.py shapes` (`unlisted_rest_probes.shape_steps`: the 205 names and the 23
+  patterns); the results stay private like the goldens. How to read the results:
   - A command that compiles with every pattern takes no arguments; the compiler then
     ignores extra words.
   - A command with parameters refuses extra words, which gives exact counts.
@@ -38,9 +42,16 @@ VM, `crates/fnv-script/src/vm/jip.rs`. Catalogue rows come from `PAGELESS` in
     `0 | "a" | rP | X`. A number or form parameter shows as `0 | rP`.
 
   These are [observed] for the counts and [hypothesis] for the kinds.
-- **Behaviour**: probe sets in `tools/capture/jip_probes.py` (`rest1` here), run unattended
-  by nvf_capture v10 in the Blue Moon sandbox's stock game, save nvfairport. Rows are cited
-  as `rest1.label`; the goldens are private.
+- **Behaviour**: probe sets in `tools/capture/jip_probes.py`, run unattended by nvf_capture
+  v10 in the Blue Moon sandbox's stock game, save nvfairport, on 2026-11-13: `rest1` there,
+  and `json1`, `json2`, `knv1`-`knv3`, `rest4`, `rest5` with the reruns of their risky rows
+  (`json2r0`-`r5`, `knv2r0`-`r2`, `rest4r0`-`r5`, `rest5r00`-`r11`, one row per launch) in
+  `tools/capture/unlisted_rest_probes.py`. Each has its job file in
+  `tools/capture/jip-probes/` and a lab scenario `L5.ext.<set>` (parity-lab/scenarios/
+  layer5_ext.json), save for knv2r0 and knv2r1, which stopped the game before any row. Rows
+  are cited as `set.label`; the goldens are private. A "crash" below is a launch that ended
+  before its last row: json1 after 37 of 52 rows, knv1 after 60 of 64, json2r0 and json2r1
+  after the file was cached, knv2r0 and knv2r1 at once.
 - **Not read**: no plugin DLL or source, and no nv-rs.
 
 ## 2. Network services, tests, logs, an address: neutral answers (batch 1)
@@ -216,7 +227,12 @@ original's answer and changes nothing.
   saved"]. ScriptedNVR2's Script Runner file calls it 1,436 times at the game restart.
 - **GetCasinoDeckTexture** `casino index` (JohnnyGuitar): the deck's back texture, the
   casino's ICO2 entries in order (`terminals\NV_PlayingCards\DeckB\cardB_Back.dds` for the
-  Atomic Wrangler).
+  Atomic Wrangler) [observed: rest4.casinodeck.0]. **SetCasinoDeckTexture** was not probed:
+  NVForever answers 1, as JohnnyGuitar's other setters did, and changes nothing, so
+  GetCasinoDeckTexture keeps reading the casino's own deck [hypothesis].
+- **GetSwitchNodeIndex** `node [flag]` (JohnnyGuitar): 0 for Doc's `Bip01 Head`, not a
+  switch node [observed: rest4.switchnode]. NVForever answers 0 [hypothesis: the index of
+  a switch node's shown child, 0 for any other node].
 
 **Constant answers** (each [observed] for the inputs probed; their meaning is open):
 

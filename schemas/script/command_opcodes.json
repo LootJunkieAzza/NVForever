@@ -1,6 +1,6 @@
 {
  "format": "fnv.script.opcodes/1",
- "source": "observed: GetCommandOpcode run on every catalogue name and alias in the original game (xNVSE 6.4.9, JIP LN 57.30, JohnnyGuitar 528), 2026-10-27; it agrees with every vanilla opcode the catalogue records (455 of 455). Names that gave 0 (functions of plugins not installed, or no such command) are left out. The commands with no wiki page the catalogue gained in #2318 and #2326 are added from the original's nvse.log RegisterCommand lines (same versions, 2026-11-13).",
+ "source": "observed: GetCommandOpcode run on every catalogue name and alias in the original game (xNVSE 6.4.9, JIP LN 57.30, JohnnyGuitar 528), 2026-10-27; it agrees with every vanilla opcode the catalogue records (455 of 455). Names that gave 0 (functions of plugins not installed, or no such command) are left out. The commands with no wiki page the catalogue gained in #2318 and #2326 are added from the original's nvse.log RegisterCommand lines (2026-11-13: xNVSE 6.4.9, JIP LN 57.30, JohnnyGuitar 528, ShowOff 184, SUP 855, kNVSE 37, One111 120, ITR 20203, by the log's plugin load lines).",
  "opcodes": {
   "Abs": 4641,
   "Activate": 4109,
