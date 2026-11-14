@@ -1714,6 +1714,91 @@ fn spellings_the_extender_registers_are_names_too() {
     assert!(t.unnumbered.contains_key("getedid") || t.by_name("getedid").is_some());
 }
 
+// ---------------------------------------------------------------- mods of the High and Dry list
+// The same for the owner's 232-plugin High and Dry list (#2275).
+
+#[test]
+fn a_box_after_a_comma_is_an_argument() {
+    // [observed: Famine.esp, `Call Fn, &rRef, 0, 0, 0, 0`: five arguments, the first boxed.]
+    let (_, p) = mod_ok("ref r
+begin GameMode
+Call TestQuest, &r, 0, 0
+end");
+    assert_eq!(call_args(&p, "Call"), Some(4));
+    let json = serde_json::to_string(body(&p)).unwrap();
+    assert!(json.contains("\"box\""), "{json}");
+}
+
+#[test]
+fn braces_around_an_argument_are_the_argument() {
+    // [observed: Animated Ingestibles.esp, `call Fn {(BuildRef 0 n)}` and `call Fn {Q.v}`.]
+    let (_, p) = mod_ok("begin GameMode
+call TestQuest {(GetSelf)}
+call TestQuest {TestQuest.bDone}
+end");
+    assert_eq!(body(&p).len(), 2);
+    assert_eq!(call_args(&p, "Call"), Some(2));
+}
+
+#[test]
+fn an_operand_meeting_a_whole_expression_in_parentheses_is_dropped() {
+    // [observed: MrShersh Functional Backpack.esp, `("…" + $sv ".nif")` ends at the variable.]
+    let (c, _) = mod_ok("string_var s
+begin GameMode
+AttachModel Player 2 (\"a\" + $s \".nif\")
+end");
+    assert_eq!(warnings(&c, "rest_of_parentheses_dropped"), [".nif"]);
+}
+
+#[test]
+fn get_refs_in_cell_takes_six_arguments() {
+    // [observed: JAM Misc Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45`.]
+    let (_, p) = mod_ok("array_var a
+begin GameMode
+a = Player.GetRefsInCell (Player.GPC) 28 2 0 2000 45
+end");
+    assert_eq!(call_args(&p, "GetRefsInCell"), Some(6));
+}
+
+#[test]
+fn a_set_lines_parentheses_do_not_end_a_call() {
+    // [observed: Animated Ingestibles.esp, `set t to 1 + (getVariable ("b" + $i)) Quest`:
+    // GetVariable takes the quest after the `)`.]
+    let (_, p) = mod_ok("short i
+short t
+begin GameMode
+set t to 1 + (GetVariable (\"bDo\" + $i)) TestQuest
+end");
+    assert_eq!(call_args(&p, "GetVariable"), Some(2));
+}
+
+#[test]
+fn an_nvsescript_unit_compiles_through_the_first_grammar() {
+    // [observed: WeaponModCraftInfo.esp's four units, `name X;` and `fn (int i) { … }`,
+    // ship with bytes the extender's second compiler wrote; documented: NVSEScript.]
+    let src = "name Handler;
+
+fn (int iMenuId) {
+    TestQuest.bDone = iMenuId;
+    if (!TestQuest.bDone) {
+        return;
+    }
+    Print(\"menu ${iMenuId}\");
+}
+";
+    let (c, p) = mod_ok(src);
+    assert_eq!(c.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["iMenuId"]);
+    assert_eq!(p.blocks.len(), 1);
+    // A diagnostic names the source's line.
+    let (c, _) = mod_source("name Bad;
+
+fn () {
+    NoSuchVar.x = 1;
+}
+");
+    assert_eq!(c.errors().next().map(|d| d.line), Some(4), "{:?}", c.diags);
+}
+
 /// Inside an expression an NVSE-aware function's argument stops at a comparison, which
 /// applies to the call's result [observed: Party Banter 2.esm ships `if eval Ar_HasKey
 /// aConvo, "Conditions" == 1` with bytes that compare the call with 1, #2275]; a range or

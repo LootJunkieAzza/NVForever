@@ -409,10 +409,81 @@ script decompile`]. "Mod source" below means the engine's compile (`Seed::unknow
   (LifeAfterDeath, Another Millenia, Party Banter, WeaponModMod, Immersive Fast Travel
   Encounters) and MCM Extender's Script Runner file, all toward the shipped reading.
 
+The owner's 232-plugin High and Dry list (smoke scenario `modlist-high-dry`) added:
+
+- A `&` after a comma boxes the argument: `Call Fn, &rRef, 0` passes the boxed reference
+  [documented: NVSE Expressions, unary `&`; observed: Famine.esp's bytes hold the variable
+  and the box operator].
+- `{expr}` not followed by `=>` is the expression: `call Fn {(BuildRef 0 n)}` and `call Fn
+  {Quest.var}` pass the value as one argument [observed: Animated Ingestibles.esp].
+- Inside parentheses an operand that meets the whole expression without an operator is
+  dropped with the rest before the `)`: `("…" + $sv ".nif")` is `"…" + $sv` [observed:
+  MrShersh Functional Backpack.esp].
+- `GetRefsInCell` takes a sixth argument, which its page does not list [observed: JAM Misc
+  Tweaks.esp, `GetRefsInCell (Player.GPC) 28 2 0 2000 45` compiled with all six; what it
+  does is not known, and the VM does not read it]. The VM reads the fifth, `maxDistance`,
+  for GetRefs and GetRefsInCell: references farther than it are left out [documented:
+  their pages], measured from the calling reference, else the player [hypothesis: as
+  CallPerRef's distance, documented, ext-jg6.md]; it was ignored before.
+- On a `set` line the editor drops parentheses (§3), so a call the `)` closes before it has
+  all its arguments takes the ones after it: `set t to 1 + (GetVariable (…)) Quest` reads
+  the quest's variable [observed: Animated Ingestibles.esp].
+
 Left with their bytes, as the source cannot be compiled to them: five result scripts whose
 classic `if` has a surplus argument (`GetObjectiveDisplayed Q 30 1 && …`), which stop the
 script in the original as in the VM (observer-checks.md check 32); and three units whose
-source names forms renamed or replaced since their bytes were written.
+source names forms renamed or replaced since their bytes were written. On High
+and Dry the same five result scripts (shared with Blue Moon) and four more:
+three whose source names references renamed since their bytes were written
+(RG_PrimmPlayerHome.esm's `RGGeneratorPower` is `RGGeneratorPowerREF` in its own records,
+ICE.esp's `rActorRef` is declared nowhere), and Leveled DLC Delay.esm, whose
+`WeapNVDLC00Faderator` is a record each DLC master defines, which the list's "Fixed ESM's
+Remastered" masters rename `WeapNVDLC01Faderator` and so on, so no master of this load
+order has the name; its bytes name DeadMoney.esm's record by FormID.
+
+### 8.2 NVSEScript, the extender's second language
+
+xNVSE 6.3.6 added a second compiler for a C-like language [documented: NVSEScript; Lambda;
+User Defined Function]. A unit whose first statement is `name X;` is in it. The compiler
+(`compile/nvsescript.rs`) reads it and writes the same unit in the first grammar, which
+§1–§8 build; each line it writes keeps the number of the source line it came from, so
+diagnostics name the source's lines. What it reads, all [documented: NVSEScript] unless
+tagged:
+
+- `name X;` → `scn X`; declarations at the root → the script's variables (`string` →
+  `string_var`, `array` → `array_var`, `double` → `float`). A value given there is dropped
+  with a warning (`nvsescript_initializer_dropped`) [hypothesis: the second compiler runs
+  it at the script's first run]. Every variable, in any block, is the script's.
+- `fn (int a) { … }` at the root is the unit's user-defined function (`begin function
+  {a}`) [documented: Lambda's `name OnKeyDownUDF;` example]; `GameMode { … }` and
+  `OnEquip::Player { … }` are event blocks.
+- Statements end in `;`. `x = e`, `x += e`, `x++` → `let`; any other expression → `eval`.
+  `F(a, b)` → `(F a, b)`, each argument parenthesised when it is not one word or literal;
+  a variable called (`rCallback(10)`) → `Call` [documented: Lambda].
+- `if (c) {…} else if (c) {…} else {…}` → `if eval`/`elseif eval`/`else`/`endif`;
+  `while (c)` → `while … loop`; `for (init; cond; inc)` → the init, a `while` on the
+  condition, the body and the increment, and `continue` runs the increment first;
+  `for (array a in e)` → `foreach`; `for ([T v] in e)` and `for ([T k, T v] in e)` take
+  the iterator's `value`, or `key` and `value`, with `_` for one not wanted [documented:
+  NVSEScript; ForEach]. One variable takes the value [documented for arrays; the page
+  gives a map's key there; decision: the value until a map case is met].
+- `match (e) { a -> {…} _ -> {…} }` → an `if eval (e == a)` chain [decision: the subject
+  is read again for each arm].
+- `return e;` → `SetFunctionValue e` and `return` [documented: User Defined Function].
+- `[a, b]` → `Ar_List`, `{k::v}` → `Ar_Map` [documented: Array/Map literals]; `"…${e}…"`
+  → a sum of the pieces with `$(e)`; a `;`, `"` or line break in a string is written as
+  `AsciiToChar` of its code (a `;` would start a comment in the first grammar, §1).
+  `
+`, `	`, `\"` are the C escapes [hypothesis: the page shows none; the mod lists'
+  scripts write `
+`].
+- `fn (params) { … }` and `fn (params) -> e` in an expression are lambdas [documented:
+  Lambda]. `x++` inside an expression gives the new value [hypothesis].
+- The variable list the second compiler writes holds its own iterators and renames block
+  locals `__temp_<name>_<n>`, and types them 2 string, 3 array, 4 ref (the schema's SLSD
+  enumeration) [observed: WeaponModCraftInfo.esp]. The reader takes those types as
+  `string_var`, `array_var` and ref; compiled from source, a declared type wins over the
+  seeded slot's, at the same index.
 
 ## 9. Values in the VM (tasks B1, B3, B7, B8)
 

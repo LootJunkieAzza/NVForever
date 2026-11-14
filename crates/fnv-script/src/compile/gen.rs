@@ -150,6 +150,13 @@ pub(super) struct Gen<'a> {
     /// Compiling a line that is a call on its own (not `let`, `if eval` or any other
     /// expression).
     call_line: bool,
+    /// Compiling a vanilla `set` line read with the extender's grammar.
+    set_line: bool,
+    /// A variable declared with another type than its seeded slot's takes the declared
+    /// one, at the same index: for a unit written in NVSEScript, whose variable list the
+    /// extender's second compiler writes with its own iterators and renamed locals
+    /// (`__temp_<name>_<n>`) [observed: WeaponModCraftInfo.esp, #2275].
+    pub(super) declared_types_win: bool,
     /// The block-form lambdas taken out of the source: parameter names and their lines
     /// (`__lambda<i>` stands in their place).
     lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
@@ -231,6 +238,8 @@ impl<'a> Gen<'a> {
             in_arg_any: false,
             in_paren: false,
             call_line: false,
+            set_line: false,
+            declared_types_win: false,
             lambdas: Vec::new(),
             lambda_seq: 0,
         }
@@ -443,6 +452,12 @@ impl<'a> Gen<'a> {
         // takes that type, at the same index.
         if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
             if matches!(v.ty, VarType::FloatOrRef | VarType::Int) && matches!(ty, DeclType::String | DeclType::Array) {
+                v.ty = vt;
+                return;
+            }
+        }
+        if self.declared_types_win {
+            if let Some(v) = self.vars.iter_mut().find(|v| v.name.eq_ignore_ascii_case(name)) {
                 v.ty = vt;
                 return;
             }
@@ -1018,7 +1033,10 @@ impl<'a> Gen<'a> {
                 _ => None,
             };
             if let Some(m) = mapped {
-                return self.statement_inner(&m);
+                self.set_line = matches!(kw, Kw::Set { .. });
+                self.statement_inner(&m);
+                self.set_line = false;
+                return;
             }
         }
         self.statement_inner(kw)
