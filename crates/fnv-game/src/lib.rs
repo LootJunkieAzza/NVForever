@@ -82,6 +82,9 @@ pub mod game;
 pub mod idles;
 pub mod intro;
 pub mod jip_events;
+mod jip_provenance;
+#[cfg(test)]
+mod handler_diagnostics_tests;
 pub mod nvse;
 pub mod nvse_ttw;
 pub mod delayed;
