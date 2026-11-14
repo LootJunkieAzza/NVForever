@@ -268,6 +268,12 @@ and off in every menu, in dialogue and behind loading screens (§10 for dialogue
 not say which menus hide it. [documented, §2] While a script holds the player's
 movement (the opening at Doc Mitchell's) both corner pieces are hidden, the compass,
 condition and ammo with them, being parts of the same two rectangles [hypothesis].
+The full Pip-Boy hides the HUD too, from the moment it starts to come up until it is
+fully down, and holds the corner and quest messages, which wait. This also covers co-op,
+where it opens live and the game stays `Playing` (`hud::pipboy_hides_hud`; logged
+`hud: hidden under the Pip-Boy`) [hypothesis: as the paused menu does; observer-checks.md
+121; parity item 203b, a guest's open Pip-Boy with HP, AP, the compass and an objective
+drawn over it]. The glance (G), NVForever's own, keeps the HUD [design].
 
 Without the game's archives the brackets are plain lines, the ticks plain blocks and
 the compass the eight directions' letters in Bevy's font.

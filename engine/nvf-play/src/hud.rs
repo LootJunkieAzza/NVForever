@@ -264,12 +264,28 @@ pub struct HudView {
     /// the compass, the crosshair and its prompt, the corner and quest notices (they wait)
     /// [owner 2026-11-12 via parity, ship 14: "an end view is a cutscene-style shot"].
     pub end_view: bool,
+    /// The full Pip-Boy is up (`pipboy_hides_hud`), which hides the HUD's meters and
+    /// compass and holds the corner and quest notices (they wait) as a paused menu does.
+    pub pipboy_up: bool,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false, end_view: false }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false, end_view: false, pipboy_up: false }
     }
+}
+
+/// Whether the full Pip-Boy keeps the HUD off the screen: from coming up to gone down,
+/// not while it only warms up unseen. Paused, the Pip-Boy leaves `PlayState::Playing` and
+/// the HUD goes with it; in co-op it opens live (`crate::menu::LiveMenu`) and the state
+/// stays `Playing`, so it is asked here, as the crosshair asks it
+/// (`crate::reticle::pipboy_hides_crosshair`). [hypothesis: the original hides its HUD
+/// meters and quest messages while the Pip-Boy menu is open, as NVForever's paused
+/// Pip-Boy does; observer-checks.md "HUD under the Pip-Boy"; parity item 203b 2026-11-14:
+/// HP, AP, the compass and a quest objective drew over a co-op guest's open Pip-Boy.]
+/// The glance (G) is NVForever's own and keeps the HUD [design].
+pub fn pipboy_hides_hud(full: Option<&crate::pipboy::PipBoy>) -> bool {
+    full.is_some_and(|p| p.phase != crate::pipboy::Phase::Down)
 }
 
 /// The sneak word at the top middle while the player sneaks (§9).
@@ -497,6 +513,9 @@ pub(crate) fn label_places(font: &Font) -> [(f32, f32); 4] {
 
 /// Read what the HUD shows. Health and action points come from the script runtime's
 /// actor values; until it runs they read full.
+/// The views over the world that hide the HUD: VATS, the weapon wheel, the full Pip-Boy.
+type MenusUp<'w> = (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>, Option<Res<'w, crate::pipboy::PipBoy>>);
+
 #[allow(clippy::too_many_arguments)]
 fn gather(
     state: Res<State<PlayState>>,
@@ -507,7 +526,7 @@ fn gather(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
-    (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
+    (vats, wheel, pipboy): MenusUp,
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     arm: Option<Res<crate::armwrestle_coop::ArmSeat>>,
@@ -541,7 +560,12 @@ fn gather(
     if end_view != view.end_view {
         info!("hud: {}", if end_view { "hidden: the match's end view has the view" } else { "back after the match's end view" });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view, kill_cam: killcam, end_view, ..view.clone() };
+    // Nor under the full Pip-Boy, also where it opens live (co-op) [item 203b].
+    let pipboy_up = pipboy_hides_hud(pipboy.as_deref());
+    if pipboy_up != view.pipboy_up {
+        info!("hud: {}", if pipboy_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
+    }
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view && !pipboy_up, kill_cam: killcam, end_view, pipboy_up, ..view.clone() };
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
@@ -1151,6 +1175,34 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_full_pipboy_up_while_playing_hides_the_hud() {
+        use crate::pipboy::{Phase, PipBoy};
+        use bevy::ecs::system::RunSystemOnce;
+        assert!(!pipboy_hides_hud(None));
+        let mut full = PipBoy::default();
+        assert!(!pipboy_hides_hud(Some(&full)), "down");
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            full.phase = phase;
+            assert!(pipboy_hides_hud(Some(&full)), "{phase:?}");
+        }
+        // The co-op Pip-Boy opens live: the state stays Playing, and the HUD still goes.
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin).insert_state(PlayState::Playing).insert_resource(SimState::over_placed([])).init_resource::<HudView>();
+        app.update();
+        let shown = |app: &mut App| {
+            app.world_mut().run_system_once(gather).unwrap();
+            let v = app.world().resource::<HudView>();
+            (v.shown, v.pipboy_up)
+        };
+        assert_eq!(shown(&mut app), (true, false), "playing, no Pip-Boy");
+        app.world_mut().insert_resource(PipBoy::default());
+        app.world_mut().resource_mut::<PipBoy>().phase = Phase::Up;
+        assert_eq!(shown(&mut app), (false, true), "the Pip-Boy up while playing");
+        app.world_mut().resource_mut::<PipBoy>().phase = Phase::Down;
+        assert_eq!(shown(&mut app), (true, false), "put away");
+    }
 
     #[test]
     fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
