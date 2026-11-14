@@ -440,6 +440,19 @@ pub struct PlayerIdles {
     pub held: Option<Held>,
 }
 
+/// Movement camera overlays animate the view without owning position; other
+/// sections retain the scene hold (docs/spec-notes/movement-camera-holds.md).
+fn camera_idle_holds(section: u8) -> bool {
+    section != 1 // IDLE Animation Group Section: Movement (fnv_actor::idle::SECTIONS).
+}
+
+impl PlayerIdles {
+    pub fn holds_camera(&self) -> bool {
+        self.first.playing().is_some_and(|p| p.holds)
+            || self.first.shown().any(|(p, weight)| weight > 0.0 && p.holds)
+    }
+}
+
 /// The player as an idle that turns the view found them. While such idles play, the
 /// first-person rig stands at `feet` with that heading, the character is held there
 /// (`nvf_play::furniture::PlayerSeat`), and only the view's own turning since then is
@@ -1316,10 +1329,16 @@ pub fn drive(
                 // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
                 // applies) [design, #2349: whether the original holds the player is
                 // observer check 131; documented: `_1stperson\skeleton.nif`].
-                if first && pi.held.is_none() && source != IdleSource::Activate {
+                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.data.idles.get(&idle).map_or(0, |d| d.section));
+                if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 let started = if first { &mut pi.first } else { &mut pi.third }.start_file(idle.0, source, owner, clip, play, file);
+                if first {
+                    if let Some(current) = pi.first.cur.as_mut() {
+                        current.holds = holds;
+                    }
+                }
                 match source {
                     IdleSource::Fidget => st.stats.player_fidgets += 1,
                     IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
@@ -1949,5 +1968,66 @@ mod tests {
         // Where it was held (the opening's bed marker), or no placement: stays held there.
         assert_eq!(h.moved(Some([2036.4, 1946.0, 7608.7]), 1.0, 0.1), None);
         assert_eq!(h.moved(None, 1.0, 0.1), None);
+    }
+
+    #[test]
+    fn a_movement_camera_overlay_does_not_hold_the_player() {
+        // Owned camera-track fixture: a camera track alone is not a position lock.
+        use fnv_nif::anim::{Channel, TransformTrack};
+        let clip = Arc::new(Clip {
+            name: "OwnedMovement".into(), start: 0.0, stop: 0.7, frequency: 1.0, cycle_type: 0,
+            tracks: vec![(CAMERA_NODE.into(), Arc::new(TransformTrack {
+                translation: Channel::Static(Some([0.0, 0.0, 70.0])),
+                rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None,
+            }))], priorities: vec![50], skipped: 0, accum_root: None,
+            text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(),
+            free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
+        });
+        let mut p = PlayerIdles::default();
+        p.first.start(1, IdleSource::Script, None, clip.clone(), play(0.7, 0.0, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(1);
+        p.first.advance(2.0);
+        assert!(p.first.playing().is_some(), "the movement overlay keeps looping");
+        assert!(!p.holds_camera(), "walking must remain under physics control");
+        // A scene using the same track still holds position; repeated requests do
+        // not turn its hold off, and fading it out eventually releases it.
+        p.first.start(2, IdleSource::Script, None, clip.clone(), play(1.0, 0.3, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(7);
+        assert!(p.holds_camera(), "a new cinematic holds even at zero fade-in weight");
+        p.first.advance(0.1);
+        assert!(p.holds_camera());
+        p.first.start(2, IdleSource::Script, None, clip.clone(), play(1.0, 0.0, None));
+        assert!(p.holds_camera());
+        p.first.advance(0.1);
+        p.first.check_owner(|_| None); // The next frame clears the request's fresh flag.
+        p.first.start(3, IdleSource::Script, None, clip, play(0.7, 0.3, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(1);
+        assert!(p.holds_camera(), "the outgoing scene still contributes during its fade");
+        p.first.advance(0.5);
+        assert!(!p.holds_camera());
+    }
+
+    #[test]
+    fn only_the_movement_section_releases_a_camera_position_hold() {
+        assert!(!camera_idle_holds(1));
+        for section in [0, 2, 3, 4, 5, 6, 7, 20, 21, 63, 255] {
+            assert!(camera_idle_holds(section), "section {section} keeps its existing hold");
+        }
+    }
+
+    #[test]
+    fn third_person_idles_do_not_acquire_a_camera_hold() {
+        let mut p = PlayerIdles::default();
+        assert!(!p.holds_camera());
+        let clip = Arc::new(Clip {
+            name: "OwnedThirdPerson".into(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0,
+            tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None,
+            text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(),
+            free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
+        });
+        p.third.start(1, IdleSource::Script, None, clip, play(1.0, 0.0, None));
+        p.third.cur.as_mut().unwrap().holds = true;
+        assert!(p.third.playing().is_some());
+        assert!(!p.holds_camera());
     }
 }
