@@ -5851,6 +5851,9 @@ impl<'a> Game<'a> {
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
         g.player = s.player.clone();
+        // A murder before #2456 could make the player an enemy of a faction that is no
+        // side (`crate::crime`).
+        g.drop_no_side_enemies();
         // The world does not save the level it rolls at.
         g.sync_player_level();
         g.form_lists = s.form_lists.clone();

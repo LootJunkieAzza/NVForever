@@ -55,6 +55,18 @@ const SHOP_DOOR: u32 = 0x860;
 /// Two teleport doors into the shop: the first flagged No Alarm (XTEL), the second not.
 const QUIET_DOOR_REF: u32 = 0x340;
 const LOUD_DOOR_REF: u32 = 0x341;
+/// #2456: two sides, enemies by the republic's record, and a tag faction (Hidden, Track
+/// Crime, naming only itself) that holds people of both, as FalloutNV.esm's
+/// ArmorVCaesarsLegionFaction holds Legionaries and four NCR troopers.
+const LEGION: u32 = 0x903;
+const REPUBLIC: u32 = 0x904;
+const TAG: u32 = 0x905;
+const LEGIONARY: u32 = 0x83A;
+const LEGIONARY_REF: u32 = 0x327;
+const DECANUS: u32 = 0x83B;
+const DECANUS_REF: u32 = 0x328;
+const TROOPER: u32 = 0x83C;
+const TROOPER_REF: u32 = 0x329;
 
 const GET_ACTOR_CRIME_PLAYER_ENEMY: u16 = 0x11CB;
 const GET_MINOR_CRIME_COUNT: u16 = 0x1074;
@@ -145,6 +157,10 @@ fn plugin_bytes() -> Vec<u8> {
         // Evil (first byte, bit 1) and Track Crime.
         record(b"FACT", 0, GANG, &[sub(b"EDID", z("Gang")), sub(b"DATA", vec![2, 1, 0, 0]), wmi1(REP_GANG)]),
         record(b"FACT", 0, MARKET, &[sub(b"EDID", z("Market")), sub(b"DATA", vec![0, 1, 0, 0]), wmi1(REP_TOWN)]),
+        record(b"FACT", 0, LEGION, &[sub(b"EDID", z("Legion")), sub(b"DATA", vec![0, 1, 0, 0])]),
+        // XNAM: faction, modifier, reaction (1 Enemy, 3 Friend).
+        record(b"FACT", 0, REPUBLIC, &[sub(b"EDID", z("Republic")), sub(b"DATA", vec![0, 1, 0, 0]), sub(b"XNAM", [LEGION.to_le_bytes(), 0i32.to_le_bytes(), 1u32.to_le_bytes()].concat())]),
+        record(b"FACT", 0, TAG, &[sub(b"EDID", z("LegionTag")), sub(b"DATA", vec![1, 1, 0, 0]), sub(b"XNAM", [TAG.to_le_bytes(), 0i32.to_le_bytes(), 3u32.to_le_bytes()].concat())]),
     ]
     .concat();
     let npcs = [
@@ -160,6 +176,10 @@ fn plugin_bytes() -> Vec<u8> {
         // Template flag 0x04: Use Factions [schema `gameplay.json`].
         record(b"NPC_", 0, HEIR, &[sub(b"EDID", z("Heir")), acbs_templated(0.0, 0x04), snam(GANG), sub(b"TPLT", SHOPKEEPER.to_le_bytes().to_vec()), aidt(0)]),
         record(b"NPC_", 0, EXILE, &[sub(b"EDID", z("Exile")), acbs(0.0), snam_at_rank(TOWN, -1), aidt(0)]),
+        record(b"NPC_", 0, LEGIONARY, &[sub(b"EDID", z("Legionary")), acbs(0.0), snam(LEGION), snam(TAG), aidt(0)]),
+        record(b"NPC_", 0, DECANUS, &[sub(b"EDID", z("Decanus")), acbs(0.0), snam(LEGION), snam(TAG), aidt(0)]),
+        // Aggressive (1): attacks enemies on sight.
+        record(b"NPC_", 0, TROOPER, &[sub(b"EDID", z("Trooper")), acbs(0.0), snam(REPUBLIC), snam(TAG), aidt(1)]),
     ]
     .concat();
     let misc = record(b"MISC", 0, TRINKET, &[sub(b"EDID", z("Trinket")), sub(b"DATA", [5i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
@@ -176,6 +196,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
         placed(b"ACHR", BOSS_REF, BOSS, vec![]),
         placed(b"ACHR", SAINT_REF, SAINT, vec![]),
+        placed(b"ACHR", LEGIONARY_REF, LEGIONARY, vec![]),
+        placed(b"ACHR", DECANUS_REF, DECANUS, vec![]),
+        placed(b"ACHR", TROOPER_REF, TROOPER, vec![]),
         placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
         placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
         placed(b"REFR", HEIR_TRINKET_REF, TRINKET, vec![sub(b"XOWN", HEIR.to_le_bytes().to_vec())]),
@@ -377,6 +400,38 @@ fn a_reference_counts_towards_the_factions_it_is_in_now() {
     g.extra.entry(FormId(STRANGER_REF)).or_default().factions.insert(FormId(GANG), 0);
     assert_eq!(reputations_of(&g, FormId(STRANGER_REF)), vec![FormId(REP_GANG)]);
     assert!(reputations_of(&g, FormId(STRANGER)).is_empty());
+}
+
+/// #2456: a Legionary murdered before a fellow Legionary makes the player an enemy of the
+/// Legion, but not of the tag faction both are in, which also holds a trooper of the
+/// Legion's enemy: the trooper does not turn on the player for it.
+#[test]
+fn a_murder_makes_no_enemy_of_a_faction_that_is_no_side() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.faction_is_one_side(FormId(LEGION)));
+    assert!(g.faction_is_one_side(FormId(TOWN)));
+    assert!(!g.faction_is_one_side(FormId(TAG)), "its members' factions are enemies");
+    assert!(!g.would_attack(FormId(TROOPER_REF), FormId::PLAYER_REF));
+    sees(&mut g, DECANUS_REF);
+    g.crimes.take_notes();
+    assert!(g.kill(FormId(LEGIONARY_REF), Some(FormId::PLAYER_REF)));
+    let notes = g.crimes.take_notes();
+    assert!(notes.iter().any(|n| matches!(n, Note::Crime { kind: Kind::Murder, hostile, .. } if hostile == &vec![FormId(DECANUS_REF)])));
+    assert!(g.player.enemy_of.contains(&FormId(LEGION)));
+    assert!(!g.player.enemy_of.contains(&FormId(TAG)));
+    assert!(!notes.iter().any(|n| matches!(n, Note::FactionEnemy { faction } if *faction == FormId(TAG))));
+    assert!(g.would_attack(FormId(DECANUS_REF), FormId::PLAYER_REF));
+    assert!(!g.would_attack(FormId(TROOPER_REF), FormId::PLAYER_REF), "the trooper is not one of the Legion's people");
+    // A save from before the fix holding the tag: dropped on load.
+    g.player.enemy_of.insert(FormId(TAG));
+    assert!(g.would_attack(FormId(TROOPER_REF), FormId::PLAYER_REF));
+    let snap = g.snapshot();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut back = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &snap).unwrap();
+    assert!(back.player.enemy_of.contains(&FormId(LEGION)));
+    assert!(!back.player.enemy_of.contains(&FormId(TAG)));
+    assert!(!back.would_attack(FormId(TROOPER_REF), FormId::PLAYER_REF));
 }
 
 #[test]
