@@ -106,6 +106,8 @@ Temporary cloned-projectile getter/setter identity is being qualified separately
 
 TempCloneForm omitted-caller-base handling has an initial source candidate; scene admission and current-port execution remain pending ([clone caller](spec-notes/clone-calling-reference.md)).
 
+INI sibling paths within Data are being qualified for existing Config-relative readers and caches; physical containment and complete configuration consumers remain separate ([INI paths](spec-notes/local-ini-sibling-paths.md)).
+
 ## 6. Gameplay (Layer 6)
 
 | System | State | Specifics | Notes |

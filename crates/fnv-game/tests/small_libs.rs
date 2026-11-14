@@ -147,6 +147,8 @@ fn files() {
         ).unwrap();
         std::fs::write(dir.join("NVSE/Plugins/nvse_stewie_tweaks.ini"), "[Tweaks]\r\nbJumpWhileAiming=1\r\n[Cookable Grenades]\r\nsSoundName=\"WPNGrenadeBeep\"\r\n").unwrap();
         std::fs::write(dir.join("Config/vheyes-nvse/QueuedCommand.txt"), "SetGlobalTimeMultiplier 2\r\n").unwrap();
+        std::fs::write(dir.join("NVSE/Plugins/OwnedSibling.ini"), "[Main]\r\nValue=17\r\n").unwrap();
+        std::fs::write(dir.join("Config/OwnedLocal.ini"), "[Main]\r\nValue=41\r\n").unwrap();
     });
     set_roots(Roots {
         read: vec![dir],
@@ -552,4 +554,20 @@ fn cached_ini_file_quotes_are_removed_without_changing_default_or_cached_values(
     q(&mut g, "SetINIString \"Template:Warm\" \"%qReloaded%q\" \"OwnedWarmQuotes.ini\"");
     q(&mut g, "ReloadIniCache \"OwnedWarmQuotes.ini\"");
     assert_eq!(q(&mut g, "SetFunctionValue (GetINIString_Cached \"Template:Warm\" \"OwnedWarmQuotes.ini\")"), XVal::Str("Reloaded".into()));
+}
+
+#[test]
+fn ini_sibling_paths_read_owned_files_and_share_session_cache_values() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "../NVSE/Plugins/OwnedSibling.ini")"#), n(17.0));
+    q(&mut g, r#"SetINIFloat "Main:Value" 23 "../NVSE/Plugins/OwnedSibling.ini""#);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat_Cached "Main:Value" "../NVSE/Plugins/Group/../OwnedSibling.ini" -7)"#), n(23.0));
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "Group/../OwnedLocal.ini")"#), n(41.0));
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "/OwnedLocal.ini")"#), n(0.0), "a rooted name must not alias a valid Config file");
+    q(&mut g, r#"SetINIFloat "Main:Value" 99 "../../OwnedEscape.ini""#);
+    assert_eq!(q(&mut g, r#"SetFunctionValue (GetINIFloat "Main:Value" "../../OwnedEscape.ini")"#), n(0.0));
+    let original = std::env::temp_dir().join(format!("nvf-small-libs-{}", std::process::id())).join("NVSE/Plugins/OwnedSibling.ini");
+    assert_eq!(std::fs::read_to_string(original).unwrap(), "[Main]\r\nValue=17\r\n", "without a write root, the session write leaves the owned original unchanged");
 }
