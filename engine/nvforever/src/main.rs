@@ -175,6 +175,7 @@ mod setup;
 mod shadow_probe;
 mod shadow_thin;
 mod shafts;
+mod bokeh;
 mod imagespace;
 mod imposters;
 mod distant_lights;

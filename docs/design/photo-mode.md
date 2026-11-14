@@ -44,7 +44,13 @@ description. This page is the summary.
   Everything is drawn by nvforever's image-space grade, so the photo is graded as the
   screen is. Brightness, contrast and saturation multiply the grade. Warmth, vignette,
   grain and the letterbox are a pass at the end of the grade shader. The depth of field
-  uses the game's own depth-of-field blur. Motion blur is off while photo mode is open.
+  is a lens blur of its own (owner, 2026-11-14: bokeh; `engine/nvforever/src/bokeh.rs`):
+  each point is drawn as a disc as large as its circle of confusion through a thin lens
+  focused at Focus and opened to Blur, near-white points spread as round bright discs,
+  and a blurred background never spreads over a sharp subject in front of it (a blurred
+  foreground does spread over what is behind). It runs only while photo mode is open with
+  Blur above Off; gameplay's depth of field (VATS, conversations, the modifiers) is the
+  game's Gaussian one as before. Motion blur is off while photo mode is open.
   The panel can be hidden for a clean view. Every option resets when photo mode closes.
   Focus distances show in metres at 1.428 cm a unit [hypothesis: the Creation Kit wiki's
   figure for Bethesda's games of this engine family].

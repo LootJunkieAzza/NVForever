@@ -18,7 +18,8 @@
 //! Depth of field (image-modifiers.md §8): the modifiers' and the engine's own (VATS
 //! focused on the mark, aiming down the sights by the game settings), the strongest, mixed
 //! into the blur passes by each point's depth; logged as "depth of field: …" when it
-//! changes.
+//! changes. Photo mode's, while its Blur is up, is a lens blur instead (`crate::bokeh`:
+//! discs sized by each point's circle of confusion, three passes of their own).
 //!
 //! Motion blur (image-modifiers.md §9): the modifiers' strongest, or the iron sights'
 //! setting, smears each point along its own motion on the screen over a short exposure,
@@ -100,6 +101,9 @@ pub struct ImageSpaceGrade {
     /// Photo mode's look (`nvf_play::photo_mode::PhotoLook`): warmth (-1 cool to 1 warm),
     /// vignette (0 to 1), film grain (0 to 1), letterbox aspect (width over height, 0 none).
     pub photo: Vec4,
+    /// Photo mode's lens blur (`crate::bokeh`): the aperture (0 off, to 1), the focus
+    /// (game units along the view), the largest disc (a part of the screen height).
+    pub bokeh: Vec4,
 }
 
 /// VATS mode's grade for the interface's colour `rgb` (the settings page's HUD colour):
@@ -139,6 +143,7 @@ impl Default for ImageSpaceGrade {
             motion: Vec4::ZERO,
             reproject: Mat4::IDENTITY,
             photo: Vec4::ZERO,
+            bokeh: Vec4::ZERO,
         }
     }
 }
@@ -425,6 +430,11 @@ fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_ble
     [vats, sights, talk].into_iter().flatten().reduce(|a, b| if b.0.strength > a.0.strength { b } else { a })
 }
 
+/// The log line's text for photo mode's lens blur (rounded as [`dof_text`]).
+fn bokeh_text(aperture: f32, focus: f32) -> String {
+    format!("lens blur (bokeh), aperture {aperture:.2}, focus {:.0}, discs up to {:.1}% of the screen height (photo mode)", (focus / 10.0).round() * 10.0, aperture * crate::bokeh::MAX_COC * 100.0)
+}
+
 /// The log line's text for a depth of field (rounded, so a fade logs a few lines).
 fn dof_text(d: &Dof, focus: f32, source: &str) -> String {
     if d.strength == 0.0 {
@@ -627,11 +637,17 @@ fn update_grade(
             (dof, focus, source) = (d, f, name.to_string());
         }
     }
-    // Photo mode's own depth of field, while its Blur is up, wins over every other.
-    if let Some(p) = photo.as_deref().and_then(|p| p.depth_of_field()) {
-        (dof, focus, source) = (Dof { strength: p.strength, distance: p.sharp, range: p.full, use_target: true, flags: 0 }, p.focus, "photo mode".to_string());
+    // Photo mode's own depth of field, while its Blur is up, wins over every other: its
+    // lens blur (`crate::bokeh`), in place of the Gaussian one.
+    let photo_dof = photo.as_deref().and_then(|p| p.depth_of_field());
+    if photo_dof.is_some() {
+        (dof, focus) = (Dof::default(), -1.0);
     }
-    let text = dof_text(&dof, focus, &source);
+    let bokeh = photo_dof.map_or(Vec4::ZERO, |p| Vec4::new(p.strength, p.focus, crate::bokeh::MAX_COC, 0.0));
+    let text = match photo_dof {
+        Some(p) => bokeh_text(p.strength, p.focus),
+        None => dof_text(&dof, focus, &source),
+    };
     if text != mods.dof_shown {
         info!("depth of field: {text}");
         mods.dof_shown = text;
@@ -685,6 +701,7 @@ fn update_grade(
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
         reproject: Mat4::IDENTITY,
         photo: Vec4::from_array(photo.as_deref().map_or([0.0; 4], |p| p.finish())),
+        bokeh,
     };
     // A 3D scope's lens: a neutral grade with only the lens's modifiers on it.
     let lens = match &world {
@@ -759,13 +776,17 @@ pub(crate) struct BlurPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     base: RenderPipelineDescriptor,
-    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 3]>,
+    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; BLUR_ENTRIES.len()]>,
 }
 
 /// The blur pipelines of a view, whether its depth is multisampled, and the picture's
 /// format they were built for.
 #[derive(Component)]
-pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool, TextureFormat);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; BLUR_ENTRIES.len()], bool, TextureFormat);
+
+/// The blur shader's passes, in the order they run: the motion blur, photo mode's lens
+/// blur (`crate::bokeh`), then the modifiers' blur across and down.
+const BLUR_ENTRIES: [&str; 6] = ["motion_blur", "bokeh_prefilter", "bokeh", "bokeh_fill", "blur_across", "blur_down"];
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -797,7 +818,7 @@ fn prepare_blur(
         let ids = match pipelines.by_format.get(&(format, multi)) {
             Some(ids) => *ids,
             None => {
-                let ids = ["motion_blur", "blur_across", "blur_down"].map(|entry| {
+                let ids = BLUR_ENTRIES.map(|entry| {
                     let mut d = pipelines.base.clone();
                     d.layout = vec![pipelines.layouts[multi as usize].clone()];
                     if let Some(f) = d.fragment.as_mut() {
@@ -817,9 +838,9 @@ fn prepare_blur(
     }
 }
 
-/// Smear the picture by its motion while a motion blur is on, then blur it across and
-/// down while a modifier blurs or a depth of field is on (a view without a depth prepass
-/// is not blurred).
+/// Smear the picture by its motion while a motion blur is on, draw photo mode's lens blur
+/// while its Blur is up, then blur it across and down while a modifier blurs or a depth of
+/// field is on (a view without a depth prepass is not blurred).
 pub(crate) fn blur_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds, &ViewPrepassTextures)>,
     pipelines: Res<BlurPipelines>,
@@ -829,16 +850,22 @@ pub(crate) fn blur_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
-    let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
-    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
+    let (smear, bokeh, blur) = (grade.motion.x > 0.0, grade.bokeh.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
+    if !(smear || bokeh || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
     let Some(depth) = prepass.depth_only_view() else { return };
-    let (Some(motion), Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1]), cache.get_render_pipeline(ids.0[2])) else { return };
+    let wanted = [smear, bokeh, bokeh, bokeh, blur, blur];
+    let mut passes = Vec::with_capacity(wanted.len());
+    for (id, on) in ids.0.iter().zip(wanted) {
+        if on {
+            let Some(p) = cache.get_render_pipeline(*id) else { return };
+            passes.push(p);
+        }
+    }
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);
-    let passes = [(motion, smear), (across, blur), (down, blur)];
-    for pipeline in passes.into_iter().filter(|p| p.1).map(|p| p.0) {
+    for pipeline in passes {
         let post = target.post_process_write();
         let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone(), depth)));
         let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
@@ -857,7 +884,7 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
+    use super::{black_over, bokeh_text, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
     use bevy::prelude::*;
 
     /// What `update_grade` writes this frame: the screen's own blur and what stays sharp.
@@ -1020,6 +1047,11 @@ mod tests {
         assert_eq!(motion_frames(1.0, 0.0, 1.0, 0.0), 0.0);
         assert_eq!(motion_frames(1.0, 0.016, 1000.0, 0.0), 0.0);
         assert_eq!(motion_frames(1.0, 0.016, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn photo_modes_lens_blur_line() {
+        assert_eq!(bokeh_text(0.35, 1996.0), "lens blur (bokeh), aperture 0.35, focus 2000, discs up to 0.6% of the screen height (photo mode)");
     }
 
     #[test]
