@@ -5996,6 +5996,43 @@ fn effect_from(effects: &[ActiveEffect], id: u32, from: usize) -> Option<usize> 
     effects[from..].iter().position(|e| e.id == id).map(|i| from + i).or_else(|| effects[..from].iter().position(|e| e.id == id))
 }
 
+/// Bound diagnostic text before escaping; never print private path-shaped inputs.
+fn call_context_text(text: &str, scalars: usize) -> String {
+    if text.contains(['\\', '/', ':']) {
+        return "<path-like text>".into();
+    }
+    text.chars().take(scalars).flat_map(char::escape_default).collect()
+}
+
+#[cfg(test)]
+mod call_context_tests {
+    use super::call_context_text;
+    #[test]
+    fn text_is_bounded_escaped_and_private_paths_are_redacted() {
+        assert_eq!(call_context_text("a\nb\0c", 4), "a\\nb\\u{0}");
+        let unicode = "\u{1f980}".repeat(1000);
+        let bounded = call_context_text(&unicode, 3);
+        assert_eq!(bounded, "\\u{1f980}".repeat(3));
+        assert!(bounded.len() <= 30);
+        for path in ["X:\\redacted\\file.txt", "/redacted/file.txt", "relative\\redacted.txt"] {
+            assert_eq!(call_context_text(path, 192), "<path-like text>");
+        }
+        // These public instance keys contain only numeric IDs, not source text.
+        use super::{FormId, InstKey};
+        for key in [
+            InstKey::Ref { reference: FormId(1) },
+            InstKey::Quest { quest: FormId(2) },
+            InstKey::Item { holder: FormId(3), item: FormId(4) },
+            InstKey::Effect { id: 5 },
+            InstKey::Challenge { challenge: FormId(6) },
+        ] {
+            let text = format!("{key:?}");
+            assert!(text.len() < 128);
+            assert!(!text.contains(['/', '\\']));
+        }
+    }
+}
+
 /// The host the VM runs against for one script run.
 struct Exec<'g, 'a> {
     game: &'g mut Game<'a>,
@@ -6009,6 +6046,26 @@ impl Exec<'_, '_> {
         match self.locals {
             Locals::Instance(k) => Some(k),
             Locals::Temp(_) => None,
+        }
+    }
+
+    /// Shallow metadata only: no receiver reevaluation or recursive IR formatting.
+    fn no_reference_receiver<'s>(&'s self, call: &fnv_script::ir::XCall) -> (&'static str, Option<u16>, Option<u32>, Option<&'s str>) {
+        use fnv_script::ir::XExpr;
+        match call.on.as_deref() {
+            Some(XExpr::Var { var, .. }) => match var.var {
+                VarSlot::Local { index, .. } if var.on.is_none() =>
+                    ("local", None, Some(u32::from(index)), self.unit.unit.var(u32::from(index)).map(|v|v.name.as_str())),
+                VarSlot::Local { index, .. } => ("remote_local", var.on.map(|r|r.0), Some(u32::from(index)), None),
+                VarSlot::Global { global } => ("global", Some(global.0), None, None),
+            },
+            Some(XExpr::Ref { r }) => match self.unit.unit.slot(*r) {
+                Some(RefSlot::Local(index)) => ("reference_local", Some(r.0), Some(index), self.unit.unit.var(index).map(|v|v.name.as_str())),
+                _ => ("reference_slot", Some(r.0), None, None),
+            },
+            Some(XExpr::Call { .. }) => ("call", None, None, None),
+            Some(_) => ("computed", None, None, None),
+            None => ("implicit", None, None, None),
         }
     }
 
@@ -6180,6 +6237,26 @@ impl Host for Exec<'_, '_> {
             in_condition: false,
         };
         Ok(self.game.call_function(&ctx, args))
+    }
+
+    fn no_reference_call(&mut self, name: &str, on: Option<Value>, call: &fnv_script::ir::XCall) {
+        let (shape, reference_slot, local_index, variable) = self.no_reference_receiver(call);
+        let (receiver_kind, receiver_form, receiver_number_bits) = match on {
+            Some(Value::Ref(id)) => ("ref", Some(id), None),
+            Some(Value::Num(number)) => ("number", None, Some(number.to_bits())),
+            None => ("implicit", None, None),
+        };
+        let opcode = match &call.func { fnv_script::ir::FuncId::Opcode(code) => Some(*code), _ => None };
+        tracing::warn!(target: "fnv_game::call_context",
+            frame = self.game.frame, unit = %call_context_text(self.unit.shared_key(), 192),
+            plugin = %call_context_text(&self.unit.unit.plugin, 96), command = %call_context_text(name, 64),
+            opcode = ?opcode, receiver_kind, receiver_form = ?receiver_form, receiver_number_bits = ?receiver_number_bits,
+            receiver_shape = shape, reference_slot = ?reference_slot, local_index = ?local_index,
+            variable = %variable.map(|v|call_context_text(v, 96)).unwrap_or_default(), argument_count = call.args.len(),
+            quest = ?self.ctx.quest.map(|f|f.0), self_reference = ?self.ctx.self_ref.map(|f|f.0), action_reference = ?self.ctx.action_ref.map(|f|f.0),
+            instance = ?self.inst_key(), udf_caller_script = ?self.game.udf.last().and_then(|frame|frame.caller).map(|f|f.0),
+            source_location = "unavailable: decoded IR has no source spans", registrar = "unavailable",
+            "script null-reference call context");
     }
 
     fn skipped(&mut self, what: &VmError) {
