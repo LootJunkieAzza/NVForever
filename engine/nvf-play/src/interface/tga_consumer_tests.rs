@@ -94,24 +94,17 @@ fn corrupt_dds_and_recognizable_invalid_tga_remain_failures_without_image_assets
     let bad_tga = tga(10, 1, 1, 32, 32, &[129, 1, 2, 3, 4]);
     let unknown = vec![0; 18];
     let decoder = nvf_assets::texture::dds_image;
-    let expected = decoder(&bad_dds, true, true).err().expect("corrupt DDS");
+    let expected = decoder(&bad_dds, true, true).expect_err("corrupt DDS");
     assert_eq!(
-        decode_texture(&bad_dds, true, decoder)
-            .err()
-            .expect("DDS stays failed"),
+        decode_texture(&bad_dds, true, decoder).expect_err("DDS stays failed"),
         expected
     );
     assert!(decode_texture(&bad_tga, true, decoder)
-        .err()
-        .expect("TGA stays failed")
+        .expect_err("TGA stays failed")
         .starts_with("TGA UI image:"));
-    let original_unknown = decoder(&unknown, true, true)
-        .err()
-        .expect("unknown original error");
+    let original_unknown = decoder(&unknown, true, true).expect_err("unknown original error");
     assert_eq!(
-        decode_texture(&unknown, true, decoder)
-            .err()
-            .expect("unknown stays failed"),
+        decode_texture(&unknown, true, decoder).expect_err("unknown stays failed"),
         original_unknown
     );
     let files = OwnedFiles::new(&[
@@ -153,13 +146,10 @@ fn original_dds_compression_mips_bc_errors_and_font_decoder_are_preserved() {
     );
     assert_eq!(top.texture_descriptor.mip_level_count, 1);
     assert_eq!(top.data.as_deref(), Some(block.as_slice()));
-    let old_error = nvf_assets::texture::dds_image(&bytes, true, false)
-        .err()
-        .expect("unsupported BC");
+    let old_error =
+        nvf_assets::texture::dds_image(&bytes, true, false).expect_err("unsupported BC");
     assert_eq!(
-        decode_texture(&bytes, false, nvf_assets::texture::dds_image)
-            .err()
-            .expect("same BC refusal"),
+        decode_texture(&bytes, false, nvf_assets::texture::dds_image).expect_err("same BC refusal"),
         old_error
     );
     let files = OwnedFiles::new(&[("owned_bc.dds", bytes)]);

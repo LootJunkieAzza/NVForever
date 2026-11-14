@@ -120,8 +120,10 @@ fn truecolor24_is_opaque_and_rle_packets_cover_exactly_the_remaining_pixels() {
     .unwrap();
     assert_eq!(decoded.rgba.len(), 129 * 4);
     assert!(decoded.rgba[..128 * 4]
-        .chunks_exact(4)
-        .all(|p| p == &[3, 2, 1, 4]));
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|p| *p == [3, 2, 1, 4]));
     assert_eq!(&decoded.rgba[128 * 4..], &[7, 6, 5, 8]);
     let raw_packet = [vec![127], [1, 2, 3, 4].repeat(128)].concat();
     assert_eq!(
