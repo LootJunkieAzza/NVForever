@@ -843,9 +843,20 @@ pub struct PlayerState {
     pub challenges: BTreeMap<FormId, ChallengeState>,
     #[serde(skip_serializing_if = "FastTravel::is_default", default)]
     pub fast_travel: FastTravel,
-    /// Factions the player is an enemy of after a crime (SetPCEnemyOfFaction).
+    /// Factions the player is an enemy of (GetPCEnemyOfFaction): those a script made so
+    /// ([`Self::enemy_of_script`]) and those a crime did ([`Self::enemy_of_crimes`])
+    /// (`crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub enemy_of: BTreeSet<FormId>,
+    /// For each faction a crime made the player an enemy of: GameDaysPassed at the last
+    /// such crime. The flag ends iCoolDownTimerSetting game days after it
+    /// (`Game::expire_crimes`). Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub enemy_of_crimes: BTreeMap<FormId, f64>,
+    /// Factions a script made the player an enemy of (SetPCEnemyOfFaction 1): kept until
+    /// a script clears them [design].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub enemy_of_script: BTreeSet<FormId>,
     /// SetInCharGen.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub in_chargen: bool,
@@ -908,6 +919,11 @@ pub struct PlayerState {
     /// them (GetActorCrimePlayerEnemy; `crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub crime_enemies: BTreeSet<FormId>,
+    /// For each of [`Self::crime_enemies`]: GameDaysPassed at the last crime that made it
+    /// one. It ends iCoolDownTimerSetting game days after it (`Game::expire_crimes`).
+    /// Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub crime_enemy_since: BTreeMap<FormId, f64>,
 }
 
 /// A jump of the clock a script made ([`Game::hour_jump`]): GameHour before the first
@@ -1300,6 +1316,9 @@ pub struct Game<'a> {
     /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
     /// the engine's console takes them each frame.
     pub console_out: Vec<String>,
+    /// Test aid: what scripts asked about plugins and read, each question once
+    /// (`crate::plugin_questions`); `None`, the default: not kept.
+    pub plugin_questions: Option<crate::plugin_questions::Questions>,
     /// SetNthEffectTraitNumeric's changes: (form, entry, trait) -> value, the session's.
     pub(crate) effect_overrides: std::collections::HashMap<(FormId, usize, usize), f64>,
     /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
@@ -2318,6 +2337,8 @@ impl<'a> Game<'a> {
         // A new game: nothing rolled again yet, every pick seeded by its reference.
         let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
+        // JIP LN's write for JIP Companions Command & Control's MCM page (`crate::jip_ccc`).
+        crate::jip_ccc::write_globals(&data.load_order, &mut world);
         Game {
             data,
             ext: Default::default(),
@@ -2350,6 +2371,7 @@ impl<'a> Game<'a> {
             playable_overrides: std::collections::HashMap::new(),
             player_magazine: None,
             console_out: Vec::new(),
+            plugin_questions: None,
             effect_overrides: std::collections::HashMap::new(),
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
@@ -3006,7 +3028,11 @@ impl<'a> Game<'a> {
     /// with the compiler's warnings. The console's lines and the Script Runner's files
     /// (`crate::script_runner`).
     pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
-        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
+        // The console's line strictly; a mod's file as a mod's text (`compile_mod_runtime`).
+        let c = match sig {
+            "CONS" => fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self }),
+            _ => fnv_script::compile::compile_mod_runtime(src, &self.data.table, &GameEnv { g: self }),
+        };
         if let Some(e) = c.errors().next() {
             // The console's own line needs no number.
             return Err(match sig {
@@ -3152,7 +3178,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what: format!("{what}: no compiled-script ID left") });
             return None;
         }
-        let c = fnv_script::compile::compile_runtime(&src, &self.data.table, &GameEnv { g: self });
+        let c = fnv_script::compile::compile_mod_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
@@ -3277,6 +3303,18 @@ impl<'a> Game<'a> {
                     if let Err(e) = vm.run(&body) {
                         result = Err(e.to_string());
                     }
+                }
+            }
+        }
+        // A lambda made by a run with no instance keeps what it wrote in that run's
+        // variables, for its next call and for the maker's run (`Exec::call_function`)
+        // [documented: Lambda, its variables are its maker's; observed: the High and Dry
+        // session's repro, `({x} => c += x)` called in its maker's query left `c` 1, #2275].
+        if id >= LAMBDA_BASE {
+            if let Locals::Temp(m) = &ex.locals {
+                let m = m.clone();
+                if let Some(d) = ex.game.lambdas.get_mut((id - LAMBDA_BASE) as usize).filter(|d| d.inst.is_none()) {
+                    d.captured = Some(m);
                 }
             }
         }
@@ -4238,6 +4276,21 @@ impl<'a> Game<'a> {
         let before = self.page_menu.replace(code);
         self.side_blocks(code);
         self.page_menu = before;
+    }
+
+    /// The page standing in for the original's menu `code` opened or closed (the pause
+    /// menu's Mods page for the start menu, 1013): JIP's menu-open or menu-close handlers
+    /// for that code run, with `MenuMode <code>` true, and the open menu is left as it is
+    /// [documented: SetOnMenuOpenEventHandler, the handler gets the menu ID; hypothesis:
+    /// the original's pause menu is its start menu, 1013, whose opening MCM Extender's
+    /// handler waits for to add its JSON menus to MCM's list (its OnPauseMenuOpen.gek);
+    /// observed: the Begin Again list 2026-11-13, MCM listed none of the 23 it loaded].
+    /// How many handlers ran.
+    pub fn page_menu_event(&mut self, code: u16, open: bool) -> usize {
+        let before = self.page_menu.replace(code);
+        let ran = self.jip_event(if open { "menuopen" } else { "menuclose" }, None, vec![fnv_script::vm::XVal::Num(f64::from(code))]);
+        self.page_menu = before;
+        ran
     }
 
     /// A function asks the running script to stop as `Return` does (RemoveMe).
@@ -6117,6 +6170,8 @@ impl<'a> Game<'a> {
         for r in &s.fading_out {
             let _ = g.world.set_enabled(*r, false);
         }
+        // Crime enmities an older save holds undated start their cooldown now (#2467).
+        g.date_crimes();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
@@ -6217,6 +6272,13 @@ impl Exec<'_, '_> {
     fn remote(&mut self, r: RefIndex) -> Result<(InstKey, FormId), String> {
         let f = self.ref_value(r)?.as_form().ok_or_else(|| format!("reference slot {} is empty", r.0))?;
         self.game.instance_of(FormId(f)).ok_or_else(|| format!("{} runs no script", self.game.data.name(FormId(f))))
+    }
+
+    /// The running unit's plugin in lower case (a Script Runner file by its path); None
+    /// for the console and a query.
+    fn unit_plugin(&self) -> Option<String> {
+        let p = &self.unit.unit.plugin;
+        (!matches!(p.as_str(), "query" | "console")).then(|| p.to_ascii_lowercase())
     }
 }
 
@@ -6383,6 +6445,12 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::Skipped { unit, what: what.to_string() });
     }
 
+    fn skipped_in(&mut self, stmt: &fnv_script::ir::Stmt) {
+        let d = fnv_script::decompile::Decompiler { unit: &self.unit.unit, table: &self.game.data.table, names: &fnv_script::decompile::NoNames };
+        let line = d.head(stmt);
+        self.game.emit(EventKind::SkippedAt { unit: self.unit.key(), line });
+    }
+
     fn take_return(&mut self) -> bool {
         std::mem::take(&mut self.game.stop_run)
     }
@@ -6401,6 +6469,16 @@ impl Host for Exec<'_, '_> {
         let unit = self.unit.key();
         self.game.console_out.push(format!("Script error in {unit}: {text}"));
         self.game.emit(EventKind::ScriptError { unit, error: text.to_string() });
+    }
+
+    fn plugin_asked(&mut self, function: &str, name: &str, answer: f64) {
+        if self.game.plugin_questions.is_none() {
+            return;
+        }
+        let (unit, plugin) = (self.unit.key(), self.unit_plugin().unwrap_or_default());
+        if let Some(q) = self.game.plugin_questions.as_mut() {
+            q.record(function, name, answer, unit, plugin);
+        }
     }
 
     fn box_callback(&mut self, func: fnv_script::vm::XVal) {
@@ -6482,7 +6560,29 @@ impl Host for Exec<'_, '_> {
             _ => None,
         };
         let ctx = self.ctx;
-        self.game.run_function(f, on, args, caller, ctx)
+        // A lambda this run made, called in it, runs on this run's variables and leaves
+        // them as it wrote them (`Game::run_function_here`).
+        let mine = match (f, &self.locals) {
+            (fnv_script::vm::XVal::Ref(id), Locals::Temp(m)) if *id >= LAMBDA_BASE => {
+                let i = (*id - LAMBDA_BASE) as usize;
+                let unit = self.unit as *const Compiled;
+                match self.game.lambdas.get_mut(i) {
+                    Some(d) if d.inst.is_none() && d.unit.is_some_and(|u| std::ptr::eq(u, unit)) => {
+                        d.captured = Some(m.clone());
+                        Some(i)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let r = self.game.run_function(f, on, args, caller, ctx);
+        if let (Some(i), Locals::Temp(m)) = (mine, &mut self.locals) {
+            if let Some(c) = self.game.lambdas.get(i).and_then(|d| d.captured.clone()) {
+                *m = c;
+            }
+        }
+        r
     }
 
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
@@ -6557,10 +6657,17 @@ impl Host for Exec<'_, '_> {
         self.game.body_part_text(FormId(form), part, "BPTN").or_else(|| self.game.data.body_part_name(FormId(form), part))
     }
 
+    /// The plugin whose private auxiliary variables a script uses: None for a script
+    /// compiled at run time, the console's, a query's, a Script Runner file's and
+    /// CompileScript's, which all share one set [hypothesis: they have no plugin of their
+    /// own; observed: MCM Extender's Script Runner file writes `*MCMExt_ModName` and its
+    /// CompileScript'd OnPauseMenuOpen.gek reads it back to list its menus, Begin Again
+    /// list 2026-11-13].
     fn calling_plugin(&mut self) -> Option<String> {
         let p = &self.unit.unit.plugin;
         // Diagnostic runtime unit names are not load-order plugin identities.
         let runtime = matches!(p.as_str(), "query" | "console" | "CompileScript")
+            || p.starts_with("ScriptRunner\\")
             || matches!(&self.unit.unit.owner, fnv_script::UnitOwner::Other { sig, .. } if sig == "SR");
         (!runtime).then(|| p.to_ascii_lowercase())
     }
@@ -6605,9 +6712,16 @@ impl Host for Exec<'_, '_> {
         let ctx = self.ctx;
         // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef
         // reads the calling script.
-        self.game.other.plugin = self.calling_plugin().unwrap_or_default();
+        self.game.other.plugin = self.unit_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
-        crate::nvse::call(self.game, &ctx, name, on, args)
+        let out = crate::nvse::call(self.game, &ctx, name, on, args);
+        // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.
+        if self.game.plugin_questions.is_some() && crate::plugin_questions::FUNCTIONS.contains(&name) {
+            if let (Some(Ok(fnv_script::vm::XVal::Num(answer))), Some(fnv_script::vm::XVal::Str(asked))) = (&out, args.first()) {
+                self.plugin_asked(name, asked, *answer);
+            }
+        }
+        out
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
