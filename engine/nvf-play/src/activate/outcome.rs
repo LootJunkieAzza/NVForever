@@ -40,9 +40,12 @@ pub enum Action {
     Drink,
     /// A placed explosive (PGRE).
     Disarm,
-    /// An actor the player cannot talk to: a hostile one, or a creature with nothing to
-    /// say. The prompt shows only its name and E does nothing (`crate::activate`).
+    /// A creature with nothing to say, not hostile to the player. The prompt shows only
+    /// its name and E does nothing (`crate::activate`).
     Name,
+    /// A living actor hostile to the player: no prompt is drawn, the crosshair stays the
+    /// plain one and E does nothing (issue #2536; `Targeted::prompted`).
+    Hostile,
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
@@ -95,7 +98,7 @@ impl Action {
             // [hypothesis: the original's word; activators.md §9]
             Action::Drink => "Drink".into(),
             Action::Disarm => "Disarm".into(),
-            Action::Name => String::new(),
+            Action::Name | Action::Hostile => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
         }

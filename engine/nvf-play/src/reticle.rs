@@ -161,7 +161,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible) {
+        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }
@@ -592,7 +592,7 @@ fn draw(
         return;
     }
     let locks = locks.as_deref().copied().unwrap_or_default();
-    let aimed = target.0.is_some();
+    let aimed = target.0.as_ref().is_some_and(Targeted::prompted);
     let foe = hostile.is_some_and(|h| h.0);
     let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
     // The arrows' tips on the cone's edge, moving there a share of the way each frame.
@@ -658,7 +658,7 @@ fn draw(
         }
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && t.prompted() && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -773,6 +773,18 @@ mod tests {
         let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
         assert!(under_bar(&t, 0x1234));
         assert!(!under_bar(&t, 0x5678));
+    }
+
+    /// Issue #2536: a living hostile under the crosshair is a target with no prompt (and
+    /// no word for E); a peaceful creature with nothing to say keeps its name.
+    #[test]
+    fn a_hostile_actor_has_no_prompt() {
+        let of = |action| Targeted { form_id: 0x1234, name: "Radscorpion".into(), action, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
+        assert!(!of(Action::Hostile).prompted());
+        assert_eq!(Action::Hostile.label(), "");
+        for shown in [Action::Name, Action::Talk, Action::Steal, Action::Search] {
+            assert!(of(shown.clone()).prompted(), "{shown:?}");
+        }
     }
 
     #[test]

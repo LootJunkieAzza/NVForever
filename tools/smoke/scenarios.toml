@@ -7554,7 +7554,7 @@ expect = [
 
 [[scenario]]
 name = "creature-names"
-source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
+source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature is the target by its name with no prompt drawn (issue #2536), a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/sim.rs", "crates/fnv-game/src/templates.rs"]
@@ -7562,10 +7562,13 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
-  { re = 'target 0x00157B3[DE] Gecko \(\) ', label = "a living gecko: 'Gecko', name only" },
+  { re = 'target 0x00157B3[DE] Gecko \(\) ', label = "a living gecko: the target as 'Gecko', with no action" },
   { re = 'menu: open Container\(.*\) "Gecko"', label = "the dead gecko's loot menu titled 'Gecko'" },
 ]]
-forbid = [{ re = 'VSpawnTier2GeckoMed \(', label = "the template actor's Editor ID as the name" }]
+forbid = [
+  { re = 'VSpawnTier2GeckoMed \(', label = "the template actor's Editor ID as the name" },
+  { text = 'reticle: prompt "" on "Gecko"', label = "a prompt drawn over the living, hostile gecko (#2536)" },
+]
 
 [[scenario]]
 name = "challenge-kill"
