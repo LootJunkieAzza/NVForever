@@ -187,17 +187,21 @@ fn spawn(mut commands: Commands) {
             ));
         });
 }
+type HandleFilter = (With<Handle>, Without<Hint>);
+
 fn visual(
-    options: Res<Options>,
-    drawer: Res<Drawer>,
-    safe: Res<SafeBottom>,
-    state: Res<super::TouchState>,
-    layout: Res<super::Layout>,
+    (options, drawer, safe, state, layout): (
+        Res<Options>,
+        Res<Drawer>,
+        Res<SafeBottom>,
+        Res<super::TouchState>,
+        Res<super::Layout>,
+    ),
     capture: Option<Res<nvf_play::bindings::KeyboardCapture>>,
     bindings: Option<Res<nvf_play::bindings::Bindings>>,
     pads: Query<&Gamepad>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut handle_nodes: Query<(&mut Node, &mut Visibility), (With<Handle>, Without<Hint>)>,
+    mut handle_nodes: Query<(&mut Node, &mut Visibility), HandleFilter>,
     mut hints: Query<&mut Visibility, (With<Hint>, Without<Handle>)>,
 ) {
     let Ok(window) = windows.single() else { return };

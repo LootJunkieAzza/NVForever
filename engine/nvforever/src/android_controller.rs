@@ -168,6 +168,7 @@ struct Queue {
     overflow: bool,
 }
 impl Queue {
+    #[cfg(target_os = "android")]
     fn invalidate(&mut self) {
         self.invalidate_with(Sample::Reset);
     }

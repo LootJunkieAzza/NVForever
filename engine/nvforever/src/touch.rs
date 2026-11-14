@@ -817,13 +817,11 @@ fn labels(mut commands: Commands) {
 }
 #[allow(clippy::type_complexity)]
 fn show_labels(
-    state: Res<TouchState>,
-    layout: Res<Layout>,
+    (state, layout, practice): (Res<TouchState>, Res<Layout>, Res<practice::Practice>),
     control: Option<Res<nvf_play::control::PlayerControl>>,
     window: Query<&Window, With<PrimaryWindow>>,
     bindings: Option<Res<Bindings>>,
     pads: Query<&Gamepad>,
-    practice: Res<practice::Practice>,
     mut visuals: Query<(
         &TouchVisual,
         &mut Node,

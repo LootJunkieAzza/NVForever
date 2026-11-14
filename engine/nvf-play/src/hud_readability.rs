@@ -199,8 +199,10 @@ mod tests {
             let value = 0.75 + i as f32 * 0.05;
             assert!((of_part(as_part(value)) - value).abs() < 0.001);
         }
-        let mut sizes = HudReadability::default();
-        sizes.health = 1.5;
+        let mut sizes = HudReadability {
+            health: 1.5,
+            ..default()
+        };
         assert_eq!(sizes.scale(Part::Compass), 1.0);
         assert_eq!(sizes.scale(Part::ActionPoints), 1.0);
         sizes.health = 1.0;
