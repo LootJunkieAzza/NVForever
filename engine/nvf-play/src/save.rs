@@ -371,7 +371,7 @@ impl Plugin for SavePlugin {
         let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, switches: "", get, set, slider: None };
         crate::settings::add_setting(
             app,
-            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player); fast travel has its own switch.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
+            setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving you); fast travel has its own row.", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
         );
         crate::settings::add_setting(
             app,
@@ -387,7 +387,7 @@ impl Plugin for SavePlugin {
         );
         crate::settings::add_setting(
             app,
-            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot, as quests do at their milestones; SystemSave to the system slot; ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
+            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot (quest milestones), SystemSave to the system slot, ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
         );
     }
 }

@@ -852,7 +852,7 @@ const WAITING_PAD: &str = "Press a button...";
 const DEVICE_ROW: &str = "Input Device";
 // [design, #2200] NVForever's own label and help, translated by `tr`.
 const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
-const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button or a stick or trigger past its dead zone selects Controller; a key or mouse click selects Keyboard and Mouse. First release the current device's buttons and centre its sticks/triggers, then press again to switch on a later frame. Only the switching press is ignored; later holds/repeats and all releases work. Mouse motion does not switch. Off: choose Input Device manually. Saved in [Controls] of NVForever.ini.";
+const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button, stick or trigger selects Controller; a key or mouse click selects Keyboard and Mouse (mouse motion does not). Off: choose Input Device yourself.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
 /// The Controls tab's row after the controls (`bInvertYValues`).
@@ -916,6 +916,11 @@ const NOTE_BOTTOM: f32 = 900.0;
 /// The note's room under the window, in lines: two for a row's note and one for what it
 /// stands for or a choice's reason (#2377) [design]; never more are drawn.
 const NOTE_LINES: usize = 3;
+/// A row's own note keeps to this many of the note's lines, the last of [`NOTE_LINES`] left
+/// for what it stands for or a choice's reason [design: #2377].
+const NOTE_ROW_LINES: usize = 2;
+/// The rows a stand-in's note names before "and N more" ([`note_of`]) [design: #2377].
+const STAND_IN_NAMES: usize = 3;
 /// The top of "Report a bug" at the bottom left ([`report_entry`]), over the version's line:
 /// the window and its note end above it, so the note never runs into it where the list
 /// starts near the view's left edge [design: #2377].
@@ -1433,7 +1438,7 @@ impl Plugin for PausePlugin {
                 key: "menu-pause",
                 group: GROUP_MENUS,
                 label: "Freeze the picture in dialogue and menus",
-                note: "On: while a conversation, the inventory, a container or a message box is open, animations, wind, water and sky stand still, as in the original. Off: only game logic waits and the world lives on. This menu always holds everything.",
+                note: "On: animations, wind, water and sky stand still in conversations and menus, as in the original. Off: only game logic waits. This menu holds everything.",
                 switches: "--menu-pause",
                 get: |w| *w.resource::<MenuPause>() == MenuPause::Original,
                 set: |w, on| *w.resource_mut::<MenuPause>() = if on { MenuPause::Original } else { MenuPause::Living },
@@ -1867,7 +1872,7 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
 
 /// The note under the rows for row `id`.
 fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
-    use crate::bindings::{label, Bindings};
+    use crate::bindings::label;
     let controller = d.device.1;
     let c = match id {
         RowId::Setting(i) => return list.get(i).map_or_else(String::new, |s| tr(s.note).to_string()),
@@ -1875,45 +1880,33 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
     };
     match c {
         ControlRow::AutomaticInput => tr(AUTOMATIC_INPUT_NOTE).to_string(),
-        ControlRow::Invert => format!("Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls] of NVForever.ini."),
+        ControlRow::Invert => format!("Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls]."),
         ControlRow::Sensitivity(_) if controller => format!(
-            "Left/Right or a click on the meter: how fast the right stick turns the view, a step of about a tenth ({} to {} of the game's). Kept as \"Stick Sensitivity\" in [Controller] of NVForever.ini.",
+            "Left/Right or a click on the meter: how fast the right stick turns the view, {} to {} of the game's. Kept as \"Stick Sensitivity\" in [Controller].",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
         ControlRow::Sensitivity(_) => format!(
-            "Left/Right or a click on the meter: how far the view turns as the mouse moves, a step of about a tenth ({} to {} of the game's). Kept as \"Mouse Sensitivity\" (radians a mouse count) in [Controls] of NVForever.ini.",
+            "Left/Right or a click on the meter: how far the view turns as the mouse moves, {} to {} of the game's. Kept as \"Mouse Sensitivity\" in [Controls].",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
         ControlRow::Vertical(_) if controller => format!(
-            "Left/Right or a click on the meter: how fast the right stick turns the view up and down, as a part of its speed left and right (100% as the game has it, {} to {}). Kept as \"Stick Vertical Sensitivity\" in [Controller] of NVForever.ini.",
+            "Left/Right or a click on the meter: how fast the right stick turns the view up and down, as a part of left and right ({} to {}).",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
         ControlRow::Vertical(_) => format!(
-            "Left/Right or a click on the meter: how far the view turns up and down as the mouse moves, as a part of how far it turns left and right (100% the same, as the game has it, {} to {}). Kept as \"Mouse Vertical Sensitivity\" in [Controls] of NVForever.ini.",
+            "Left/Right or a click on the meter: how far the view turns up and down as the mouse moves, as a part of left and right ({} to {}).",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
-        ControlRow::Rumble => format!(
-            "A or a click: the controller shakes when you fire (harder for a heavier weapon), take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller] of NVForever.ini."
-        ),
-        ControlRow::Device => format!(
-            "Enter or a click: work the controls with the keyboard and mouse or with a controller. With a controller the left stick moves, the right stick looks, Start opens this menu, and in menus the D-pad, A and B are the arrow keys, Enter and Esc. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."
-        ),
+        ControlRow::Rumble => format!("A or a click: the controller shakes when you fire, take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller]."),
+        ControlRow::Device => format!("Enter or a click: work the controls with the keyboard and mouse or with a controller. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."),
         ControlRow::Binding(c, _) if d.listening == Some(c) && controller => format!("Press the new controller button for {}. Start cancels.", label(c)),
         ControlRow::Binding(c, _) if d.listening == Some(c) => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
-        ControlRow::Binding(c, _) if controller => format!(
-            "A or a click: bind a new controller button to {} (a control that had it gets the old one). X or Delete clears it. Kept as \"{}\" in [Controller] of NVForever.ini.",
-            label(c),
-            Bindings::name(c)
-        ),
-        ControlRow::Binding(c, _) => format!(
-            "Enter or a click: bind a new key or mouse button to {} (a key replaces its key, a button its button; a control that had it gets the old one). Delete clears its key. Kept as \"{}\" in [Controls] of NVForever.ini.",
-            label(c),
-            Bindings::name(c)
-        ),
+        ControlRow::Binding(c, _) if controller => format!("A or a click: bind a new controller button to {} (a control that had it gets the old one). X or Delete clears it.", label(c)),
+        ControlRow::Binding(c, _) => format!("Enter or a click: bind a new key or mouse button to {} (a control that had it gets the old one). Delete clears its key.", label(c)),
     }
 }
 
@@ -4498,8 +4491,14 @@ fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
     let note = row_note(list, id, d);
     match d.stand_ins.iter().find(|(by, _)| *by == id) {
         Some((_, names)) => {
-            let names = names.join(", ");
-            let head = fnv_util::words::trf("Stands for: {rows}.", &[("rows", &names)]);
+            // Three names at most, so the head and the note keep to the note's lines (#2377);
+            // the page's state keeps them all.
+            let head = if names.len() > STAND_IN_NAMES {
+                let more = names.len() - STAND_IN_NAMES;
+                fnv_util::words::trf("Stands for: {rows} and {n} more.", &[("rows", &names[..STAND_IN_NAMES].join(", ")), ("n", &more)])
+            } else {
+                fnv_util::words::trf("Stands for: {rows}.", &[("rows", &names.join(", "))])
+            };
             if note.is_empty() { head } else { format!("{head} {note}") }
         }
         None => note,
@@ -4587,6 +4586,19 @@ fn check_page_text(world: &mut World, f: &Faces) {
         }
     }
     info!("settings: {} rows laid out, {cut} cut to fit (a list {:.0} units wide in a 16:9 view)", list.len(), lb.width);
+    // The notes: within the budget and two lines at the page's width in the small face
+    // (`crate::settings::note_over_budget` checks the characters at the start too).
+    let mut bad = 0;
+    for s in &list {
+        let note = tr(s.note);
+        let lines = f.small.font.lines(note, Some(note_width(lb))).len();
+        let reason = crate::settings::note_over_budget(note).or_else(|| (lines > NOTE_ROW_LINES).then(|| format!("{lines} lines at the page's width")));
+        if let Some(reason) = reason {
+            bad += 1;
+            warn!("settings: note of `{}` over the budget: {reason}", s.key);
+        }
+    }
+    info!("settings: {} notes checked, {bad} over the budget ({} characters, two lines)", list.len(), crate::settings::NOTE_BUDGET);
 }
 
 /// The settings list's place, logged when it changes (a new window size, a translated rail):
@@ -5633,6 +5645,33 @@ mod tests {
         assert_eq!(step_row(0, -1, 3), 2);
         assert_eq!(step_row(7, -1, 3), 1);
         assert_eq!(step_row(0, 1, 0), 0);
+    }
+
+    /// #2377: the Controls tab's own notes, on either device and while a control waits for its
+    /// key, are within the notes' budget (`crate::settings::note_over_budget`), and a row
+    /// standing for many names three of them.
+    #[test]
+    fn the_controls_notes_are_within_the_budget() {
+        use crate::bindings::{InputDevice, GAME_CONTROLS};
+        assert_eq!(crate::settings::note_over_budget(AUTOMATIC_INPUT_NOTE), None);
+        for controller in [false, true] {
+            for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+                let mut rows = vec![ControlRow::Device, ControlRow::AutomaticInput, ControlRow::Invert, ControlRow::Sensitivity(device), ControlRow::Vertical(device), ControlRow::Rumble];
+                rows.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, device)));
+                for listening in [None, Some(GAME_CONTROLS[0].0)] {
+                    let d = Drawn { device: ("", controller), listening, ..default() };
+                    for c in &rows {
+                        let note = row_note(&[], RowId::Control(*c), &d);
+                        assert!(!note.is_empty(), "{c:?}");
+                        assert_eq!(crate::settings::note_over_budget(&note), None, "{c:?} ({controller}): {note}");
+                    }
+                }
+            }
+        }
+        let id = RowId::Control(ControlRow::Rumble);
+        let names: Vec<String> = ["A", "B", "C", "D", "E"].map(String::from).to_vec();
+        let d = Drawn { stand_ins: vec![(id, names)], ..default() };
+        assert!(note_of(&[], id, &d).starts_with("Stands for: A, B, C and 2 more. "), "{}", note_of(&[], id, &d));
     }
 
     /// #2377: text cut to fit is cut at its measured width, with the mark, never into

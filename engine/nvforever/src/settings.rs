@@ -151,7 +151,7 @@ pub fn register(app: &mut App) {
             key: "borderless",
             group: GROUP_PICTURE,
             label: "Full screen",
-            note: "On: the game fills the monitor it is on, without a frame, at the resolution chosen above for full screen. Off: a window of the resolution chosen for a window.",
+            note: "On: the game fills its monitor without a frame, at the full screen resolution above. Off: a window of the window resolution.",
             switches: "--window",
             get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
             set: window_mode::set_borderless,
@@ -225,7 +225,7 @@ pub fn register(app: &mut App) {
                 key: "weapon-lower",
                 group: GROUP_PICTURE,
                 label: "Lower weapon near walls",
-                note: "On: in first person a drawn weapon is lowered when a wall or a friendly person is right in front of you, and comes straight back up when you aim or fire. Off: it stays up and can poke through them, as in the original. Lower Weapon (H) lowers or raises it by hand either way.",
+                note: "On: in first person a drawn weapon lowers at a wall or a friend and comes back up when you aim or fire. Off: it stays up, as in the original.",
                 switches: "--no-weapon-lower",
                 get: |w| w.resource::<PlayerBody>().weapon_lower,
                 set: |w, on| w.resource_mut::<PlayerBody>().weapon_lower = on,
@@ -238,7 +238,7 @@ pub fn register(app: &mut App) {
                 key: "true-iron-sights",
                 group: GROUP_MENUS,
                 label: "True iron sights",
-                note: "On: aiming a gun lines its sights up with your eye. The crosshair is hidden while you aim down them. Off: the gun is held low with the crosshair, as in the original. Guns with no sights to look down (laser rifle, minigun) aim as the original either way.",
+                note: "On: aiming a gun lines its sights up with your eye and hides the crosshair. Off: the gun is held low with the crosshair, as in the original.",
                 switches: "--no-true-iron-sights",
                 get: |w| w.resource::<PlayerBody>().true_iron_sights,
                 set: |w, on| w.resource_mut::<PlayerBody>().true_iron_sights = on,
@@ -251,7 +251,7 @@ pub fn register(app: &mut App) {
                 key: "scope-3d",
                 group: GROUP_MENUS,
                 label: "3D scopes (test)",
-                note: "On: aiming a scoped gun keeps the gun on screen and shows the zoomed view in its scope's lens, with the reticle; the view around it zooms only a little. Off: the full-screen scope picture with its black border, as in the original. Guns whose scope lens is not known yet keep the picture.",
+                note: "On: a scoped gun stays on screen and shows the zoomed view in its lens. Off: the full-screen scope picture, as in the original.",
                 switches: "--scope-3d",
                 get: |w| w.resource::<nvf_play::aim_zoom::Scope3d>().on,
                 set: |w, on| w.resource_mut::<nvf_play::aim_zoom::Scope3d>().on = on,
@@ -268,7 +268,7 @@ pub fn register(app: &mut App) {
                 "sun-shadows",
                 GROUP_PICTURE,
                 "Sun shadows",
-                "The sun's shadows, out to the shadow distance: Off; Performance (the shadow maps drawn every other frame in two cascades, trees casting shadows only near you, the first-person arms taking the world's shadows: saves frame time outdoors, shadows of moving things update at half the frame rate); or Quality (three cascades, the farther ones drawn less often). The original casts none from the world. Quality by default in the game.",
+                "The sun's shadows: Off, Performance (cheaper outdoors; moving shadows update at half the frame rate) or Quality. The original casts none from the world.",
                 Slider::choice(n, |w| choice_part(sun_shadow_choice(w), SUN_SHADOW_CHOICES.len()), |w, v| set_sun_shadow_choice(w, choice_index(v, SUN_SHADOW_CHOICES.len())), |v| {
                     SUN_SHADOW_CHOICES[choice_index(v, SUN_SHADOW_CHOICES.len())].to_string()
                 }),
@@ -384,7 +384,7 @@ pub fn register(app: &mut App) {
 }
 
 /// The Frame rate counter switch's note.
-pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original.";
+pub(crate) const FPS_COUNTER_NOTE: &str = "On: a panel of performance readings at the top right; the Counter rows below choose what it shows. Not in the original.";
 
 /// The Frame rate counter switch's command-line switch (`--fps`): it decides with the INI
 /// whether the frame split takes GPU timestamps from the start
@@ -392,10 +392,10 @@ pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance read
 pub(crate) const FPS_COUNTER_SWITCHES: &str = "--fps";
 
 /// The upscaling row's note (#2242), NVForever's own words [design].
-pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler that draws now: its name and mode, the size the world is drawn at and the size it is rebuilt to (with FSR 3.1 from its mode, with DLSS the size DLSS chose), and with DLSS the model asked for. Reads Off and the window's size while nothing upscales, also when the upscaler asked for cannot run on this computer. Follows a change within a frame or two, showing the upscaler without sizes until then.";
+pub(crate) const FPS_UPSCALING_NOTE: &str = "The upscaler drawing now: its name and mode, and the sizes the world is drawn at and rebuilt to. Off and the window's size while nothing upscales.";
 
 /// The frame split row's note.
-pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
+pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread, the render thread (its wait for the window in brackets) and the GPU. The GPU part needs this row on at the start.";
 
 /// The frame split row's command-line switches: none, so the INI's state always applies.
 pub(crate) const FPS_SPLIT_SWITCHES: &str = "";
@@ -445,7 +445,7 @@ fn register_display(app: &mut App) {
             key: "display-sync",
             group: GROUP_PICTURE,
             label: "Display sync",
-            note: "Vertical sync: each frame waits for the display's refresh (no tearing). Variable refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few frames under the screen's refresh rate, so frames are shown as soon as they are drawn without tearing. Off: frames are shown as soon as they are drawn (may tear).",
+            note: "Vertical sync: frames wait for the display (no tearing). Variable refresh: for a G-Sync or FreeSync screen. Off: frames show at once (may tear).",
             switches: "",
             get: |_| false,
             set: |_, _| {},
@@ -468,7 +468,7 @@ fn register_display(app: &mut App) {
             "frame-cap",
             GROUP_PICTURE,
             "Frame rate limit",
-            "At most this many frames a second (Off: as many as the computer draws, or the display's refresh with vertical sync; with variable refresh the lower of this and its own limit). A lower limit keeps the computer cooler and quieter.",
+            "At most this many frames a second (Off: no limit of its own). A lower limit keeps the computer cooler and quieter.",
             Slider::choice(
                 caps,
                 |w| {
@@ -495,7 +495,7 @@ fn register_counter_rows(app: &mut App) {
         row(
             "fps-counter-fps",
             "Counter: frame rate",
-            "The frames a second and the mean frame time of the last half second, and the 1% low (the mean of the slowest hundredth of the frames of the last 10 seconds) or the slowest frame of the last 10 seconds, as the row below chooses. Measured from the time between frames. While frame generation shows generated frames, the frames shown a second come first and the rendered ones in brackets; the frame times are the rendered frames'.",
+            "Frames a second, the mean frame time and the 1% low or the slowest frame (the row below chooses), from the time between frames.",
             |w| w.resource::<FpsCounter>().rows.fps,
             |w, on| w.resource_mut::<FpsCounter>().rows.fps = on,
         ),
@@ -506,7 +506,7 @@ fn register_counter_rows(app: &mut App) {
             key: "fps-counter-low",
             group: GROUP_PICTURE,
             label: "Counter: last figure",
-            note: "The frame rate row's last figure, over the last 10 seconds: 1% low, the mean of the slowest hundredth of the frames; Slowest frame, the single slowest.",
+            note: "The frame rate row's last figure, over 10 seconds: 1% low (the mean of the slowest hundredth of frames) or the slowest frame.",
             switches: "",
             get: |_| false,
             set: |_, _| {},
@@ -525,7 +525,7 @@ fn register_counter_rows(app: &mut App) {
         row(
             "fps-counter-graph",
             "Counter: frame graph",
-            "The frame times of the last 5 seconds as a line under the frame rate, the newest at the right, with a faint line at a 60 Hz frame (16.7 ms); its top is the slowest frame drawn, or two 60 Hz frames when every frame was faster, so a spike reaches the top. Measured from the time between frames, drawn again twice a second.",
+            "The frame times of the last 5 seconds as a line under the frame rate, the newest at the right, a faint line at 60 Hz (16.7 ms).",
             |w| w.resource::<FpsCounter>().rows.graph,
             |w, on| w.resource_mut::<FpsCounter>().rows.graph = on,
         ),
@@ -540,35 +540,35 @@ fn register_counter_rows(app: &mut App) {
         row(
             "fps-counter-cpu",
             "Counter: CPU use",
-            "Machine and game CPU use, read once a second while shown. Windows uses performance counters; Linux uses /proc. Missing machine readings say Not available. Game use is cores kept busy: 1.0 is one full core.",
+            "Machine and game CPU use, read once a second. Game use is cores kept busy: 1.0 is one full core.",
             |w| w.resource::<FpsCounter>().rows.cpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
         ),
         row(
             "fps-counter-gpu",
             "Counter: GPU use",
-            "GPU use, read once a second while shown. Windows: busiest engine across programs. Linux: NVIDIA NVML, then amdgpu, then DRM client time. DRM reads game use and says game; the other Linux sources read whole-device use. Missing readings say Not available.",
+            "GPU use, read once a second: on Windows the busiest engine across programs; on Linux the whole device's, or the game's own where the driver tells.",
             |w| w.resource::<FpsCounter>().rows.gpu,
             |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
         ),
         row(
             "fps-counter-vram",
             "Counter: GPU memory",
-            "The graphics memory the game holds against the budget the driver gives it (Vulkan's memory budget, read every 2 seconds). It is the driver's figure: it counts the blocks kept empty for reuse, so it is what the game holds, not the size of what is drawn. Left out on a graphics chip that shares the machine's RAM, which has no budget of its own. Marked ! while the game keeps fewer unused models and textures because it is near the budget.",
+            "The graphics memory the game holds against the driver's budget, read every 2 seconds. Marked ! while near it the game keeps fewer unused assets.",
             |w| w.resource::<FpsCounter>().rows.vram,
             |w, on| w.resource_mut::<FpsCounter>().rows.vram = on,
         ),
         row(
             "fps-counter-ram",
             "Counter: RAM",
-            "The game's memory in RAM (its working set, from Windows once a second while the counter shows) and the share of the machine's RAM in use (read every 2 seconds). Marked ! while the game keeps fewer unused models and textures because the machine has under a tenth of its RAM free. Windows only.",
+            "The game's RAM and the machine's RAM in use. Marked ! while under a tenth is free and the game keeps fewer unused assets. Windows only.",
             |w| w.resource::<FpsCounter>().rows.ram,
             |w, on| w.resource_mut::<FpsCounter>().rows.ram = on,
         ),
         row(
             "fps-counter-loaded",
             "Counter: loaded",
-            "What the game holds now: the cells loaded in the physics world, the placed objects with a model, the actors with a skeleton and every entity of the engine, counted twice a second while the row shows (the stress tests' counts).",
+            "What the game holds now: the cells in the physics world, placed objects with a model, actors with a skeleton and engine entities.",
             |w| w.resource::<FpsCounter>().rows.loaded,
             |w, on| w.resource_mut::<FpsCounter>().rows.loaded = on,
         ),
@@ -676,7 +676,7 @@ fn register_distances(app: &mut App) {
             "object-distance",
             GROUP_PICTURE,
             "Object distance",
-            "How far from you objects (buildings, rocks, furniture, clutter) of the loaded cells are drawn, as a part of the farthest those cells reach. Lower draws fewer and runs faster.",
+            "How far from you objects of the loaded cells (buildings, rocks, furniture, clutter) are drawn. Lower draws fewer and runs faster.",
             slider(|w| w.resource::<DrawDistances>().objects, |w, v| draw_distance::set_part(w, DrawClass::Object, v)),
         ),
         Setting::slider(
@@ -690,7 +690,7 @@ fn register_distances(app: &mut App) {
             "item-distance",
             GROUP_PICTURE,
             "Item distance",
-            "How far from you items lying in the world (weapons, ammo, aid, notes, caps, clutter you can take) are drawn, as a part of the farthest the loaded cells reach.",
+            "How far from you items lying in the world are drawn, as a part of the farthest the loaded cells reach.",
             slider(|w| w.resource::<DrawDistances>().items, |w, v| draw_distance::set_part(w, DrawClass::Item, v)),
         ),
         Setting::slider(
@@ -728,8 +728,8 @@ pub(crate) const QUALITY_KEY: &str = "upscaler-quality";
 pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 
 /// The two rows' notes.
-pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs an upscaler.";
-pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set.";
+pub(crate) const UPSCALER_NOTE: &str = "FSR 3.1 or NVIDIA DLSS rebuilds the world at display resolution, at the mode below. DLSS needs an NVIDIA RTX card and its files in the dlss folder.";
+pub(crate) const QUALITY_NOTE: &str = "The share of the screen the world is drawn at; the upscaler rebuilds the rest. Native AA: full size. Quality to Ultra Performance: ever faster.";
 
 /// The two rows' command-line switches: each row names all three, so a test run that gives
 /// any of them keeps both rows at the command line's choice over the INI
@@ -746,7 +746,7 @@ pub(crate) const MODEL_KEY: &str = "dlss-model";
 /// defaults NGX reported in the runs at 1280x720 [observed, 2026-11-12:
 /// docs/spec-notes/streamline.md, "DLSS presets"]. The settings page has no note per choice,
 /// so the row's note holds them all; it says the letters are what NVIDIA calls presets.
-pub(crate) const MODEL_NOTE: &str = "Which of NVIDIA's DLSS models rebuilds the picture (NVIDIA calls them presets). Default (recommended): NVIDIA picks per mode: K for Native AA, Quality and Balanced, M for Performance, L for Ultra Performance. K: transformer model, best detail, costs more. L: sharper and steadier, less ghosting, costs the most. M: close to L in looks, closer to K in speed. J: like K with a little less ghosting and more flicker. Takes effect at once. Only while DLSS draws.";
+pub(crate) const MODEL_NOTE: &str = "Which DLSS model rebuilds the picture (NVIDIA calls them presets). Default, recommended: NVIDIA picks per mode. Only while DLSS draws.";
 
 /// The DLSS model row's command-line switch.
 pub(crate) const MODEL_SWITCHES: &str = "--dlss-model";
@@ -818,7 +818,7 @@ fn register_graphics(app: &mut App) {
             key: "fsr-library",
             group: GROUP_GRAPHICS,
             label: "FSR library",
-            note: "What FSR upscales with: NVForever's built-in FSR 3.1, or a FidelityFX library in the game's folder (amd_fidelityfx_loader_vk.dll or amd_fidelityfx_vk.dll; not part of NVForever), which tools that replace the upscaler use. The choice names the library found; with none there the built-in FSR runs.",
+            note: "What FSR upscales with: NVForever's built-in FSR 3.1, or a FidelityFX library in the game's folder (for tools that replace the upscaler).",
             switches: "",
             get: |_| false,
             set: |_, _| {},
@@ -839,7 +839,7 @@ fn register_graphics(app: &mut App) {
             "anti-aliasing",
             GROUP_GRAPHICS,
             "Anti-aliasing",
-            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving). Multisampling is the dearest, more at each step: at 1920x1080 on an RTX 4070, 2x added about 0.8 ms a frame, 4x about 1.3 ms and 8x about 2.3 ms (Goodsprings and Novac at noon); FXAA, SMAA and TAA cost less than 4x. Where the processor sets the pace (the Strip at night) the choice costs next to nothing. While an upscaler (FSR 3.1 or DLSS) is on it does the anti-aliasing itself, so this row reads Off (upscaling active); your choice comes back when Upscaler is Off.",
+            "How edges are smoothed: multisampling 2x, 4x or 8x (dearer at each step) or FXAA, SMAA or TAA afterwards. Reads Off while an upscaler is on.",
             Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
                 graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
             }),
@@ -849,7 +849,7 @@ fn register_graphics(app: &mut App) {
             "shadow-filter",
             GROUP_GRAPHICS,
             "Shadow filtering",
-            "How the edges of the sun's shadows are softened: Fast (hardware 2x2, harder edges, cheapest), Smooth (as vanilla) or Temporal (soft but grainy unless Anti-aliasing is TAA).",
+            "How the sun's shadow edges are softened: Fast (harder, cheapest), Smooth (as vanilla) or Temporal (grainy unless Anti-aliasing is TAA).",
             Slider::choice(
                 graphics::SHADOW_FILTERS.len(),
                 |w| {
@@ -894,7 +894,7 @@ fn register_graphics(app: &mut App) {
             key: "latency-reduction",
             group: GROUP_GRAPHICS,
             label: "Latency reduction",
-            note: "The graphics driver keeps the game from preparing frames ahead of the graphics card: AMD Anti-Lag on AMD cards (Windows: Adrenalin 24.9.1 or later; Linux: Mesa 26.3 or later), NVIDIA low latency on NVIDIA cards whose Vulkan driver has it. It is meant to make what you do reach the screen sooner; that has not been measured yet. The log says which of the two this graphics card uses, or why neither. Not in the original.",
+            note: "The graphics driver keeps the game from preparing frames ahead (AMD Anti-Lag, NVIDIA low latency), meant to show what you do sooner. Not in the original.",
             switches: "--latency-reduction",
             get: |w| w.resource::<crate::anti_lag::LatencyReduction>().on,
             set: |w, on| w.resource_mut::<crate::anti_lag::LatencyReduction>().on = on,
@@ -930,7 +930,7 @@ fn register_graphics(app: &mut App) {
         (
             "glow",
             "Light glow (HDR)",
-            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space (the Strip's neon at night most). Bloom, when on, adds to it.",
+            "On: neon, lamps, beams and fire glow softly, as the original's HDR glow does, as much as the place's image space asks. Bloom adds to it.",
             "--graphics-only",
             |w| w.resource::<Graphics>().glow,
             |w, on| w.resource_mut::<Graphics>().glow = on,
@@ -946,7 +946,7 @@ fn register_graphics(app: &mut App) {
         (
             "neon-glow",
             "Neon glow",
-            "On: where the place's image space asks for a strong glow (the Strip at night) neon tubes and signs burn with a wide halo, as in the original. Needs the light glow.",
+            "On: where the image space asks for a strong glow (the Strip at night) neon burns with a wide halo, as in the original. Needs the light glow.",
             "--graphics-only",
             |w| w.resource::<Graphics>().neon_glow,
             |w, on| w.resource_mut::<Graphics>().neon_glow = on,
@@ -989,7 +989,7 @@ fn register_graphics(app: &mut App) {
         (
             "water-mirror",
             "Mirrored water reflections",
-            "On: water mirrors the world above it, as in the original; the scene is drawn a second time for it while water is on screen. Off: water reflects the sky, and what is on the screen with screen-space reflections.",
+            "On: water mirrors the world above it, as in the original, drawing the scene a second time. Off: it reflects the sky.",
             "--graphics-only",
             |w| w.resource::<Graphics>().water_mirror,
             |w, on| w.resource_mut::<Graphics>().water_mirror = on,
@@ -1360,7 +1360,7 @@ pub(crate) fn upscaler_after_ini(command_line: UpscalerChoice, ini: Option<&Upsc
 
 /// The Frame generation row's key and note (#2317).
 pub(crate) const FRAME_GENERATION_KEY: &str = "frame-generation";
-pub(crate) const FRAME_GENERATION_NOTE: &str = "Frames made between the real ones, so motion looks smoother; what you do reaches the screen a little later. FSR 3.1: one frame between each two real frames; needs FSR 3.1 upscaling (any mode; not with DLSS) and vertical sync or variable refresh, and real frames are held to just under half the refresh rate. DLSS: NVIDIA DLSS Frame Generation, one to three frames for each real frame (Generated frames, below); needs an upscaler (FSR 3.1 or DLSS), Display sync Off, an NVIDIA RTX 40 series or newer graphics card, Windows' hardware-accelerated GPU scheduling and NVIDIA's frame generation files in the dlss folder beside nvforever.exe; frames are generated only while the game's window is in front. Latency reduction turns on with either. The HUD and menus are not generated; menus and loading screens show real frames only. Best from 60 real frames a second. Not in the original.";
+pub(crate) const FRAME_GENERATION_NOTE: &str = "Frames made between the real ones: smoother motion, input a little later. FSR 3.1 needs FSR upscaling; DLSS an RTX 40 or newer. Not in the original.";
 
 /// The Frame generation row's command-line switch: a test run that gives it keeps the row at
 /// the command line's choice over the INI.
@@ -1370,7 +1370,7 @@ pub(crate) const FRAME_GENERATION_SWITCHES: &str = "--frame-generation";
 /// (`frame_gen::DlssgFrames`), dimmed unless DLSS is the Frame generation choice; 3x and 4x only
 /// where the GPU offers them (`dlss::frame_generation_max`, `DLSSGState::numFramesToGenerateMax`).
 pub(crate) const FRAMES_KEY: &str = "frame-generation-frames";
-pub(crate) const FRAMES_NOTE: &str = "How many frames DLSS frame generation makes for each real frame: 2x one, 3x two, 4x three. More looks smoother and costs a little more latency and graphics memory; 3x and 4x only where the graphics card offers them (RTX 50 series). Takes effect at once. Only with DLSS frame generation. Not in the original.";
+pub(crate) const FRAMES_NOTE: &str = "How many frames DLSS frame generation makes per real frame: 2x one, 3x two, 4x three (3x and 4x on RTX 50 series). Not in the original.";
 const FRAMES_CHOICES: [&str; 3] = ["2x", "3x", "4x"];
 
 /// The frames generated per real frame of a Generated frames choice (`2x` is one).
@@ -2067,6 +2067,24 @@ dlss-model=Preset K
         };
         assert_eq!(switches(UPSCALER_KEY), ["--fsr", "--upscaler", "--upscaler-quality"]);
         assert_eq!(switches(QUALITY_KEY), switches(UPSCALER_KEY), "a switch given keeps both rows or neither");
+    }
+
+    /// #2377: the renderer's rows that register without the game's files or the command line
+    /// (the Graphics tab's and the frame rate counter's) keep their notes within the budget.
+    /// (`register` as a whole reads the quality presets from the game folder and the command
+    /// line, so it is left to the start's own check, `nvf_play::settings::check_notes`.)
+    #[test]
+    fn the_renderer_notes_are_within_the_budget() {
+        let mut app = rows_app();
+        register_counter_rows(&mut app);
+        let settings = app.world().resource::<Settings>();
+        assert!(settings.list().len() > 25, "{}", settings.list().len());
+        for s in settings.list() {
+            assert_eq!(nvf_play::settings::note_over_budget(s.note), None, "{}: {}", s.key, s.note);
+        }
+        for note in [FPS_COUNTER_NOTE, FPS_UPSCALING_NOTE, FPS_SPLIT_NOTE] {
+            assert_eq!(nvf_play::settings::note_over_budget(note), None, "{note}");
+        }
     }
 
     /// #2377: the command-line switches moved out of the notes into `Setting::switches`; each

@@ -60,6 +60,14 @@
 //! ([`set_older_split`], [`with_older_split`]), so each row loads it, and a test run keeps
 //! ([`KeptRows`]) and later writes, a value of its own.
 //!
+//! A row's note says what it does in one or two short sentences, at most [`NOTE_BUDGET`]
+//! characters and no command-line switch (those are [`Setting::switches`]); the longer
+//! explanations are in docs/settings-reference.md [design: #2377]. Once every row is
+//! registered the notes are checked ([`check_notes`], `PostStartup`): each one over the
+//! budget logs `settings: note of `<key>` over the budget: <reason>`, then `settings: <n>
+//! notes checked, <bad> over the budget (200 characters)`; the pause menu checks they wrap to
+//! two lines at its width once its fonts are loaded (`crate::pause`).
+//!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
 //! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
 //! draw distances are sliders) and the test aids.
@@ -156,6 +164,38 @@ pub fn note_switches(note: &str) -> Vec<&str> {
     out
 }
 
+/// A note's most characters: one or two short sentences, two lines at the page's width in a
+/// 16:9 view [design: #2377].
+pub const NOTE_BUDGET: usize = 200;
+
+/// Why `note` is over the budget (longer than [`NOTE_BUDGET`] characters, or naming a
+/// command-line switch); `None`: within it.
+pub fn note_over_budget(note: &str) -> Option<String> {
+    let n = note.chars().count();
+    if n > NOTE_BUDGET {
+        return Some(format!("{n} characters, more than {NOTE_BUDGET}"));
+    }
+    if let Some(at) = note.find("--").filter(|at| note[at + 2..].starts_with(|c: char| c.is_ascii_alphanumeric())) {
+        let name: String = note[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+        return Some(format!("it names the command-line switch {name} (that is the row's switches)"));
+    }
+    None
+}
+
+/// The registered rows' notes checked against the budget ([`note_over_budget`]) once every
+/// row is registered (module notes) [design: #2377].
+pub fn check_notes(settings: Option<Res<Settings>>) {
+    let Some(settings) = settings else { return };
+    let mut bad = 0;
+    for s in settings.list() {
+        if let Some(reason) = note_over_budget(s.note) {
+            bad += 1;
+            warn!("settings: note of `{}` over the budget: {reason}", s.key);
+        }
+    }
+    info!("settings: {} notes checked, {bad} over the budget ({NOTE_BUDGET} characters)", settings.list().len());
+}
+
 /// One on/off switch of the settings page.
 #[derive(Clone, Copy)]
 pub struct Setting {
@@ -164,7 +204,8 @@ pub struct Setting {
     /// The heading it is listed under; a new group goes after the ones before it.
     pub group: &'static str,
     pub label: &'static str,
-    /// What it does, in a line or two; no command-line switch in it ([`Setting::switches`]).
+    /// What it does, in a line or two: within [`NOTE_BUDGET`], no command-line switch in it
+    /// ([`Setting::switches`], [`note_over_budget`]).
     pub note: &'static str,
     /// The command-line switches whose state the row replaces, as `--a, --b` ([`note_switches`]
     /// reads them; [`GivenSwitches`]); empty: none. Not shown on the page (the search finds
@@ -842,6 +883,7 @@ pub(crate) fn setup(app: &mut App) {
     app.insert_resource(SettingsFile::for_run(crate::test_aid::Unattended::from_env().0));
     app.add_systems(PostStartup, (apply_stored, crate::bindings::apply_stored));
     app.add_systems(PostStartup, fix_ui_scale.after(apply_stored));
+    app.add_systems(PostStartup, check_notes.after(apply_stored));
     app.add_systems(Update, revert_unkept);
 }
 
@@ -1235,6 +1277,23 @@ ui-scale={stored}
         let s = slider("reach").with_switches("--reach");
         assert_eq!((s.switches, s.key, s.slider.is_some()), ("--reach", "reach", true));
         assert_eq!(slider("reach").switches, "");
+    }
+
+    /// #2377: a note is within the budget up to 200 characters, counted as characters (not
+    /// bytes), and names no command-line switch.
+    #[test]
+    fn a_note_over_the_budget_says_why() {
+        let a = "a".repeat(NOTE_BUDGET);
+        assert_eq!(note_over_budget(&a), None);
+        assert_eq!(note_over_budget(&format!("{a}b")), Some("201 characters, more than 200".to_string()));
+        let umlauts = "ä".repeat(NOTE_BUDGET);
+        assert!(umlauts.len() > NOTE_BUDGET && note_over_budget(&umlauts).is_none(), "200 two-byte characters are within it");
+        assert!(note_over_budget(&format!("{umlauts}ö")).is_some());
+        let switch = note_over_budget("On: a lamp. (--lamp)").expect("a switch in the text");
+        assert!(switch.contains("--lamp"), "{switch}");
+        assert!(note_over_budget("Off: --no-reverb.").is_some());
+        assert_eq!(note_over_budget("A range -- of two."), None, "a dash between words is not a switch");
+        assert_eq!(note_over_budget(""), None);
     }
 
     #[test]

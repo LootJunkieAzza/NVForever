@@ -446,7 +446,7 @@ pub fn register_settings(app: &mut App) {
                 key: "voice-reverb",
                 group: GROUP_SOUND,
                 label: "Voice reverb",
-                note: "What people say around you echoes in the place you are in, up to the end of each line, as Reverb does for world sounds. Conversations stay dry.",
+                note: "What people say around you echoes in the place you are in, as Reverb does for world sounds. Conversations stay dry.",
                 switches: "",
                 get: |w| w.resource::<crate::voice::VoiceSettings>().reverb,
                 set: |w, on| w.resource_mut::<crate::voice::VoiceSettings>().reverb = on,
