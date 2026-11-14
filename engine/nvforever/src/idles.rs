@@ -696,6 +696,91 @@ pub fn play_script_sequences(script: Option<Res<ScriptState>>, mut pi: ResMut<Pl
     }
 }
 
+/// A sequence a script played on an NPC that [`play_npc_sequences`] started: the actor,
+/// the path and the idle's serial in its slot (0: its clip could not be played).
+#[derive(Debug, Clone)]
+pub struct NpcSequence {
+    actor: u32,
+    path: String,
+    serial: u32,
+}
+
+/// kNVSE's PlayAnimationPath on the drawn NPCs (docs/design/knvse-anim.md §5): the
+/// sequence starts as a script's idle does on the actor's idle slot, bound to its
+/// skeleton; once if the clip says so (cycle type Clamp), else looping until DeactivateAnim
+/// takes it back or another idle replaces it. An actor not drawn waits; one that goes out
+/// of view starts it again when drawn. ActivateAnim's layered sequences are not played on
+/// NPCs yet.
+pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState>>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut actors: Query<Drawn>, mut started: Local<Vec<NpcSequence>>) {
+    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let me = FormId::PLAYER_REF;
+    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
+    let wanted: Vec<(u32, &String)> = game
+        .anim_paths
+        .played
+        .iter()
+        .filter(|(a, _)| **a != me)
+        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p)))
+        .filter(|(a, p)| !game.anim_paths.layered.contains(&(FormId(*a), p.replace('/', "\\").to_ascii_lowercase())))
+        .collect();
+    if wanted.is_empty() && started.is_empty() {
+        return;
+    }
+    let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
+    // Taken back: its idle stops; out of view: forgotten, so it starts again when drawn.
+    started.retain(|s| {
+        let kept = wanted.iter().any(|(a, p)| *a == s.actor && same(p, &s.path));
+        let Some(&e) = drawn.get(&s.actor) else { return false };
+        if kept {
+            return true;
+        }
+        if let Ok((_, _, _, Some(mut slot), ..)) = actors.get_mut(e) {
+            if let Some(c) = slot.0.cur.as_mut().filter(|c| c.serial == s.serial && s.serial != 0) {
+                c.play.stop();
+            }
+        }
+        info!("anim sequence: {:08X}'s {} stops", s.actor, s.path);
+        false
+    });
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    for (actor, p) in wanted {
+        if started.iter().any(|s| s.actor == actor && same(&s.path, p)) {
+            continue;
+        }
+        let Some(&e) = drawn.get(&actor) else { continue };
+        let path = meshes_path(p);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Ok((e, _, rig, slot, ..)) = actors.get_mut(e) else { continue };
+        let bound = ctx.clip(&path).map(|clip| (bind_clip(&rig.skel, clip.clone()), clip));
+        let Some((bound, clip)) = bound.filter(|(b, _)| !b.tracks.is_empty()) else {
+            warn!("anim sequence: {actor:08X}'s {p} does not load or drives no node of its skeleton");
+            started.push(NpcSequence { actor, path: p.clone(), serial: 0 });
+            continue;
+        };
+        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+        let once = clip.cycle_type == 2;
+        let play = IdlePlay::new(keys, once.then_some(1));
+        let bound = Arc::new(bound);
+        let serial = match slot {
+            Some(mut s) => {
+                s.0.start(0, IdleSource::Script, None, bound, play);
+                s.0.serial
+            }
+            None => {
+                let mut s = ActorIdle::default();
+                s.0.start(0, IdleSource::Script, None, bound, play);
+                let serial = s.0.serial;
+                commands.entity(e).insert(s);
+                serial
+            }
+        };
+        info!("anim sequence: {actor:08X} plays {p} ({})", if once { "once" } else { "looping" });
+        started.push(NpcSequence { actor, path: p.clone(), serial });
+    }
+}
+
 /// The clip of an idle and its playback, as its record and text keys say; a creature's
 /// standing look loops until replaced (`IdleSource::Standing`).
 fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: bool) -> Result<(Arc<Clip>, IdlePlay), String> {

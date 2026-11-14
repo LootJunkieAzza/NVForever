@@ -98,5 +98,13 @@ player does not read their state yet.
   priorities]; a camera-only clip such as Enhanced Movement's `EM_NoBob.kf` (1 track)
   leaves the arms to the rest. DeactivateAnim takes the layer back (smoke
   `knvse-player-sequences`).
-- **Still not built:** script-played sequences on NPCs; NPCs' conditional paths and
-  anything but their standing locomotion.
+- **Script-played sequences on NPCs** (`nvforever` idles.rs, `play_npc_sequences`):
+  PlayAnimationPath's sequence starts on the drawn actor's idle slot, bound to its
+  skeleton, once or looping as on the player; DeactivateAnim stops it; an actor out of
+  view starts it again when drawn (smoke `knvse-npc-sequences`).
+- **NPCs' conditional paths** (anim_paths.rs): an actor with a conditional
+  SetActorAnimationPath gets `Game::anim_overrides_now` each frame, the world put back,
+  so the replacement comes and goes with its condition; the others keep
+  `Game::anim_overrides`.
+- **Still not built:** ActivateAnim's layered sequences on NPCs; NPCs' replacements
+  for anything but their standing locomotion.

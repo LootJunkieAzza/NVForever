@@ -1954,3 +1954,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      retain a target or an ally's fight, and do any actually complete searches? Our
      two-sweep design and 300 s stall bound do not assert parity with those durations
      [design, #2010]; relate any answer to observer check 6's target-retention question.
+
+## Added 2026-11-14 (power-armour footfalls, PR #2430)
+
+128. **What sounds at a power-armour wearer's footfalls?** (P3; audio.md §10.1.) The data
+     has `FSTArmorPowerWalkL`/`R` beside the ground's `FST<material>` sets, and no record
+     links them to anything [observed]; the Power audio template's run sound
+     (`FOLArmorPowerRun`) names `fx\fol\powerarmor_walkrun\`, a folder no archive of
+     the base game, its DLCs or the Blue Moon list holds [observed: archive listings,
+     2026-11-14]. NVForever plays the ground's footstep and the template's `(Armor)`
+     rustle and nothing for the missing folder. Walk and run in T-45d power armour on
+     dirt and on concrete, first and third person, and record which SOUN records play
+     at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
+     or beside the ground's step, and does anything play for the run rustle?
