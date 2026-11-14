@@ -157,8 +157,10 @@ wide as the room left of the rail allows (`pause::ListBox::of`): the band starts
 wide as its translated words, the list at most `OPTIONS_MAX` (1300) and centred in the room
 once capped. No fixed least width: a narrow view gets a narrower list rather than one under
 the rail. In interface units (960 high): a 16:9 view (1280x720, 1920x1080) is 1707 wide and,
-with a 220-unit rail, gets a list about 1036 wide (820 before #2377); 16:10 about 865; 4:3
-about 609; 3440x1440 (2293) the full 1300. The list's place is logged when it changes
+with the English rail as measured in the smoke runs, gets a list 1101 wide (820 before
+#2377); 16:10 (1536) 930; 4:3 (1280) about 674; 3440x1440 (2293) the full 1300. The
+width follows the rail's measured words, so another language's longer tab names give a
+narrower list. The list's place is logged when it changes
 (`pause menu: settings list <w> wide from <x> in a view <w> wide, band <l>-<r>`).
 
 **A row's parts** [design: #2377]: the places in a row (a switch's state and a reason
@@ -393,7 +395,7 @@ pause menu: colour sliders HUD shown, Pip-Boy hidden
 pause menu: inspect: Display, keys on the rows, selected hud-colour, lines 1-12 of 21
 pause menu: inspect: window 12 lines, 12 drawn
 pause menu: settings window of 12 lines
-pause menu: settings list 1036 wide from 90 in a view 1707 wide, band 60-1192
+pause menu: settings list 1101 wide from 90 in a view 1707 wide, band 60-1257
 settings: 103 notes checked, 0 over the budget (200 characters)
 settings: 103 notes checked, 0 over the budget (200 characters, two lines)
 settings: 103 rows laid out, 0 cut to fit (a list 1036 units wide in a 16:9 view)

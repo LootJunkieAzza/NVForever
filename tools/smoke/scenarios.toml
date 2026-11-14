@@ -10387,7 +10387,8 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 [[scenario]]
 name = "settings-layout-ultrawide"
 source = "#2377: at 3440x1440 (a view 2293 units wide) the settings list is as wide as it may be (1300 units), centred in the room left of the rail, the window twelve lines"
-note = "the window must open at 3440x1440 (a monitor that size); a smaller one gives a narrower view and list, which the second line then misses"
+note = "the window must open at 3440x1440 (a monitor that size); a smaller one gives a narrower view and list, which the second line then misses. Opt-in: runs only with NVF_SMOKE_ULTRAWIDE set (any value) on a machine with such a monitor; elsewhere the unit test `the_settings_page_fits_the_view` covers the 2293-unit view"
+requires = ["NVF_SMOKE_ULTRAWIDE"]
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:tab:Graphics", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect" }
