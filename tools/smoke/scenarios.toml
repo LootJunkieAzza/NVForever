@@ -6177,6 +6177,49 @@ expect = [
 ]
 
 [[scenario]]
+name = "crime-expiry-karl-hostile"
+source = "issue #2467 (owner's playtest 2026-11-14): Karl, the Legion's envoy at Red Rock, attacked on sight. He is in ArmorVCaesarsLegionFaction (Track Crime), and a seen murder of a Legionary in no Evil faction makes the player an enemy of the victim's crime-tracking factions, that one among them (docs/spec-notes/crime-karma.md §3.4, §3.7). Within iCoolDownTimerSetting (3) days of the murder he fights: the crime path that sets the flag, staged here"
+note = "at Cottonwood Cove (--day 30, hour 12) the face aid puts the player at NVCCLegionary5REF's post (0x001364BC, which its OnLoad script SCPT 0x00174CE8 disables) at 14 s, in sight of NVCCAurelius (0x0012D6E2), who detects the player; the script aid kills NVCCLegionary4REF (0x001364C0, in no Evil faction, karma 0) as the player at 18 s (Game::kill): a murder the witness saw. coc to Karl's longhouse at 22 s; the face aid puts the player in front of Karl (0x00140E71) at 30 s. Karl never saw the murder: he fights by the faction flag alone. A Legionary in an Evil faction (NVLegionaryAlexusREF, CaesarsLegionTechMineFaction) is no victim for this: the Evil faction's area alert flags that faction only, and the kill then counts as self-defence. crime-expiry-karl-calm is the same with the clock moved on four days first"
+areas = ["crime"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "22:coc 4BRRCPapasCabin;22.3:close" }
+args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour", "12", "--day", "30", "--no-voice"]
+run_seconds = 44
+order = [[
+  { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the flag lands on the armour faction, Karl's (faction lines name the Editor ID)" },
+  { re = 'alert: VRRCKarl 00140E71 \w+ → Combat', label = "Karl fights in the longhouse, by the flag alone" },
+]]
+expect = [
+  { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
+  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the witness saw: it turns" },
+]
+forbid = [
+  { re = 'crime: the player is no longer an enemy of ', label = "no crime expires within the run" },
+  { re = 'provocation: the player attacked .*\(Evil\)', label = "the victim is in no Evil faction" },
+]
+
+[[scenario]]
+name = "crime-expiry-karl-calm"
+source = "issue #2467: the crime-expiry-karl-hostile set-up, and the clock moved on four game days after the murder (a script setting GameDaysPassed, as the console's `set` does): the crime is older than iCoolDownTimerSetting (3 days), the flag a crime set is cleared, and Karl at Red Rock does not fight (docs/spec-notes/crime-karma.md §3.7) [documented: GECK wiki Category:Crime]"
+note = "as crime-expiry-karl-hostile, with `set GameDaysPassed to 34.5` at 20 s (the murder at about day 30.0); expiry is read at the next detection round's start"
+areas = ["crime"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "20:set GameDaysPassed to 34.5;20.3:close;22:coc 4BRRCPapasCabin;22.3:close" }
+args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour", "12", "--day", "30", "--no-voice"]
+run_seconds = 44
+order = [[
+  { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the murder sets the armour faction's flag (faction lines name the Editor ID)" },
+  { re = 'crime: the player is no longer an enemy of ArmorVCaesarsLegionFaction: the last crime against it is 4\.\d\d game days old', label = "four days on, the crime's flag is cleared" },
+]]
+expect = [
+  { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
+  { re = "crime: .* no longer counts the player's crimes: the last is 4\\.\\d\\d game days old", label = "the witness forgives too" },
+]
+forbid = [{ re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl does not fight or search for the player at Red Rock" }]
+
+[[scenario]]
 name = "karma-fiend"
 source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since #1131 an Evil NPC holding −500 in its own record gives +100, as the original's NorthVegasFiendCF and GoodspringsPowderGangerHM (capture o6_02, docs/spec-notes/crime-karma.md §4.1), and no murder"
 note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
