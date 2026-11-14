@@ -4025,6 +4025,54 @@ mod tests {
         assert!(guest.is_enabled(FormId(SIGN)).unwrap() && guest.is_enabled(FormId(CRATE)).unwrap() && !guest.is_enabled(FormId(BOTTLE)).unwrap());
     }
 
+    /// Queue item 201, the owner's case: a guest whose own game finished Ghost Town
+    /// Gunfight (the Powder Gangers killed, and disabled as the plugin places them) joins
+    /// a host mid-quest. The ganger the host has alive and drawn here is up again and
+    /// enabled on the guest; one dead on the host is left to the deaths (dead here too);
+    /// one the host disabled is not brought back.
+    #[test]
+    fn a_guests_own_dead_gangers_are_alive_as_in_the_hosts_world() {
+        const CELL: u32 = 0x0010_C000;
+        const ALIVE: u32 = 0x0010_4C70;
+        const KILLED: u32 = 0x0010_4C72;
+        const GONE: u32 = 0x0010_4C73;
+        let mut table = fnv_sim::RefTable::default();
+        for (id, disabled) in [(FormId::PLAYER_REF.0, false), (ALIVE, true), (KILLED, true), (GONE, true)] {
+            let mut p = placed(id, disabled);
+            p.cell = Some(FormId(CELL));
+            table.refs.insert(p.id, p);
+        }
+        let forms = fnv_sim::FormStore::default();
+        let mut world = fnv_sim::World::new(&forms, &table, Default::default());
+        let _ = world.get(FormId::PLAYER_REF).unwrap();
+        let empty = crate::outfits::tests::empty_world_data();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let functions = fnv_script::FunctionTable::load(&path).unwrap();
+        let no_refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+        let no_forms: &'static fnv_sim::FormStore = Box::leak(Box::default());
+        let data: &'static fnv_game::GameData = Box::leak(Box::new(fnv_game::GameData::build(empty.lo, empty.schema, functions, &json, no_refs)));
+        let mut g = fnv_game::Game::new(data, fnv_sim::World::new(no_forms, no_refs, Default::default()), Default::default());
+        // The guest's own game: every ganger killed.
+        for r in [ALIVE, KILLED, GONE] {
+            g.extra.entry(FormId(r)).or_default().dead = true;
+        }
+        let sample = |r: u32, flags: u8| net::NpcState { reference: r, feet: [10.0, 20.0, 30.0], heading: 0.0, pitch: 0.0, flags, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: true, space: 0 };
+        let mut npcs = HashMap::new();
+        for (r, flags) in [(ALIVE, 0), (KILLED, npc_flag::DEAD), (GONE, 0)] {
+            let mut t = NpcTrack::default();
+            t.samples.push_back((10.0, sample(r, flags)));
+            npcs.insert(r, t);
+        }
+        let host_disabled = HashSet::from([GONE]);
+        let enabled = place_like_host(&mut world, &mut g, &npcs, &host_disabled, 5.0, 10.2);
+        assert_eq!(enabled, vec![FormId(ALIVE)]);
+        assert!(world.is_enabled(FormId(ALIVE)).unwrap() && !g.is_dead(FormId(ALIVE)), "alive and drawn as in the host's world");
+        assert!(!world.is_enabled(FormId(KILLED)).unwrap() && g.is_dead(FormId(KILLED)), "dead on the host: left to the deaths");
+        assert!(!world.is_enabled(FormId(GONE)).unwrap(), "the host disabled it");
+        assert_eq!(world.peek(FormId(ALIVE)).map(|s| s.pos), Some([0.0; 3]), "in this player's cell already: not moved (the drawing puts it at the host's feet)");
+    }
+
     /// The host's doors reach a guest's: a door the host opened opens, one only the
     /// guest's game opened closes again, except the one its player just used; a load door
     /// takes no part.
