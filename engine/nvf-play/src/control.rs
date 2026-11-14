@@ -614,8 +614,7 @@ pub fn read_controls(
     time: Res<Time>,
     scroll: Res<AccumulatedMouseScroll>,
     state: Res<State<PlayState>>,
-    (mut control, mut held_sneak): (ResMut<PlayerControl>, Option<ResMut<HeldSneakInput>>),
-    touch_switch: Option<Res<crate::pad::TouchDeviceSwitch>>,
+    (mut control, mut held_sneak, touch_switch): (ResMut<PlayerControl>, Option<ResMut<HeldSneakInput>>, Option<Res<crate::pad::TouchDeviceSwitch>>),
     hud: Option<ResMut<HudMessage>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {

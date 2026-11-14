@@ -41,7 +41,7 @@ fn read_touch(
     touch: Option<ResMut<TouchDeviceSwitch>>,
 ) {
     let Some(mut state)=touch else {touches.clear();focus.clear();lifecycle.clear();return};
-    state.fresh=false; state.consumed=false; state.busy=!state.contacts.is_empty();
+    state.fresh=false; state.consumed=false; state.busy = !state.contacts.is_empty();
     let suspended=lifecycle.read().any(|e|matches!(e,bevy::window::AppLifecycle::Suspended));
     let lost=!focus.is_empty() || suspended;
     focus.clear();

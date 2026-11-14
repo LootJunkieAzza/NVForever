@@ -520,8 +520,7 @@ fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
-    held_sneak: Option<Res<crate::control::HeldSneakInput>>,
-    touch_switch: Option<Res<crate::pad::TouchDeviceSwitch>>,
+    (held_sneak, touch_switch): (Option<Res<crate::control::HeldSneakInput>>, Option<Res<crate::pad::TouchDeviceSwitch>>),
 ) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
