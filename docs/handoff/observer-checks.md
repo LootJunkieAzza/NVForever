@@ -2196,3 +2196,29 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      anything explode on a second pass (the bottle-cap mine 0x0008424C, the frag mines
      0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
      once.
+
+## Added 2026-11-14 (HELIOS One's guard dogs and troopers, #2547)
+
+144. **Do HELIOS One's guard dogs fight the troopers in the original, and what holds
+     them if not?** (P2; #2547, factions.md §4-5, combat-ai.md §13.1.) The three dogs
+     0x000A695E, 0x000A695F and 0x000A6944 (CrDogNCRAggressive 0x000A692B, "NCR Guard
+     Dog", placed at about (25542, 1960), linked to patrol markers there) are in no NCR
+     faction: their own factions are GeneralHostileToPlayerFaction (Enemy of
+     PlayerFaction), CreatureHitDog, DogFaction and AnimalFriendFaction; the template
+     CrDogNCR, which is in ArmorNCRFactionNV and VNCRSnifferFaction, does not supply
+     the factions or the AI data (template flags Traits, Stats, Actor Effect List,
+     Model/Animation, Base Data, Inventory, Script). They are Very Aggressive, Foolhardy,
+     Aggro Radius Behavior on with radius 2,000 [observed: the records]. The troopers
+     TestTrooperREF1-5 (HeliosExtLvlNCRTrooperGun: VNCRHeliosFaction, NCRFactionNV)
+     stand about 2,800 units west at (22778, 1293). No faction of either side lists one
+     of the other's, so they are Neutral both ways, and by the documented rule a Very
+     Aggressive actor attacks Neutrals it detects. Ours: the dogs notice the troopers at
+     2,800-3,200 units and attack, again and again [observed: the log of #2547]. To
+     check, the player standing in the solar field for two game minutes (`tdetect` so
+     the dogs leave the player out of it): on each dog `GetDetected TestTrooperREF4`,
+     `IsInCombat`, `GetCombatTarget`, `GetDistance TestTrooperREF4`,
+     `GetFactionRelation TestTrooperREF4`, `GetAV Aggression`; then `MoveTo` one dog to
+     1,900 and to 900 units from TestTrooperREF4 and read the same. That tells apart: no
+     detection at that range or through the yard's fence; an aggro radius that bounds
+     who a Very Aggressive actor attacks on sight (a fight at 1,900 and none at 2,800);
+     a relation that is not Neutral; or a fight in the original too.
