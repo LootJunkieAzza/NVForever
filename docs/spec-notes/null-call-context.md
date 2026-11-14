@@ -1,7 +1,7 @@
 # Fatal no-reference call context (#2499)
 
-Status: public source implementation in progress; public Rust controls and canonical
-checks have not run.
+Status: source-only merge with current main; controls and canonical checks for this
+merged head are pending. Earlier hosted results remain historical.
 
 ## Existing behavior and source authority
 
@@ -27,6 +27,12 @@ checks have not run.
   diagnostics and other Game behavior. This port retains those changes in full.
   The VM no-reference boundary, shared-key API and numeric instance-key shapes
   remain unchanged; the hook stays separate from JIP registration diagnostics.
+- [documented] Main `26e5fc7805a9dc563ba740401aecef7479a6604c` adds
+  `Host::skipped_in` and `Host::plugin_asked`, plus command/control, string and enum
+  handling. The normal merge retains every main runtime operation and adds only
+  this leaf's prior diagnostic operations. Both Host notifications coexist;
+  receiver evaluation, fatal boundaries and `Compiled::shared_key()` stay intact.
+  This merged source has not yet run its public controls or canonical checks.
 - [documented] `InstKey` in `crates/fnv-game/src/game.rs` contains only FormIDs or
   an effect ID in its five current variants. `FormId`'s Debug implementation
   delegates to its numeric Display (`crates/fnv-sim/src/form.rs`). Their current
