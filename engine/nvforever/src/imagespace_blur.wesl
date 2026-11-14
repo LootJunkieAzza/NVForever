@@ -233,6 +233,7 @@ fn blur_down(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 const BOKEH_TAPS: i32 = 96;
 const NEAR_TAPS: i32 = 64;
 const NEAR_SCALE: f32 = 3.0;
+const WIDE_FROM: f32 = 0.7;
 const PREFILTER_TAPS: i32 = 12;
 const GOLDEN_ANGLE: f32 = 2.399963;
 const SHARP_PX: f32 = 0.5;
@@ -276,6 +277,13 @@ fn near_share(centre_coc: f32, tap_coc: f32, in_front: bool) -> f32 {
 fn coverage(tap_coc: f32, radius: f32, n: i32) -> f32 {
     let c = max(tap_coc, radius * 1.8 / sqrt(f32(n)));
     return (radius * radius) / (c * c * f32(n));
+}
+
+// bokeh.rs wide_share: how much of a near disc the wide spiral takes; the main spiral
+// takes the rest. Handed over between 0.7 and 1 times the reach, so a disc growing past
+// the reach leaves no seam.
+fn wide_share(tap_coc: f32, reach: f32) -> f32 {
+    return clamp((tap_coc - reach * WIDE_FROM) / (reach * (1.0 - WIDE_FROM)), 0.0, 1.0);
 }
 
 // bokeh.rs highlight: near-white points weigh more.
@@ -365,12 +373,11 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let hw = w * highlight(s);
         acc += s * hw * (1.0 - f);
         total += hw * (1.0 - f);
-        // Discs past the reach are the wide spiral's.
-        if tc <= reach {
-            near_acc += s * hw * f;
-            near_total += hw * f;
-            cover += w * f * coverage(tc, reach, BOKEH_TAPS);
-        }
+        // Discs nearing the reach are handed to the wide spiral.
+        let m = f * (1.0 - wide_share(tc, reach));
+        near_acc += s * hw * m;
+        near_total += hw * m;
+        cover += w * m * coverage(tc, reach, BOKEH_TAPS);
     }
     // The wide spiral (NEAR_SCALE times the reach): the near discs past the reach, and,
     // past the reach, the rest of a large disc, each tap weighing the area it stands for.
@@ -386,7 +393,8 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let tc = coc_px(z);
         let d = length(off);
         let w = tap_weight(c0, tc, z > z0, d);
-        if w <= 0.0 || (d <= reach && tc <= reach) {
+        let t = wide_share(tc, reach);
+        if w <= 0.0 || (d <= reach && t <= 0.0) {
             continue;
         }
         let s = textureSampleLevel(screen, screen_sampler, at, 0.0).rgb;
@@ -396,11 +404,9 @@ fn bokeh(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             acc += s * hw * (1.0 - f) * k;
             total += hw * (1.0 - f) * k;
         }
-        if tc > reach {
-            near_acc += s * hw * f;
-            near_total += hw * f;
-            cover += w * f * coverage(tc, wide, NEAR_TAPS);
-        }
+        near_acc += s * hw * f * t;
+        near_total += hw * f * t;
+        cover += w * f * t * coverage(tc, wide, NEAR_TAPS);
     }
     let far = acc / total;
     if near_total <= 0.0 {

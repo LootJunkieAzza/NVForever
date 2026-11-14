@@ -57,6 +57,9 @@ mod tests {
     /// spiral's radius [design: 3, a wall by the lens spread over about 5% of the screen
     /// height at Blur 100%].
     const NEAR_SCALE: f32 = 3.0;
+    /// Where the main spiral starts handing near discs to the wide one, as a share of the
+    /// reach [design: a blend wide enough that the handover shows no seam].
+    const WIDE_FROM: f32 = 0.7;
     /// How much more a near-white point weighs ([`highlight`]) [design].
     const HIGHLIGHT_GAIN: f32 = 6.0;
     /// The luminance (0 to 1, tonemapped) from which a point starts to weigh more [design].
@@ -106,6 +109,13 @@ mod tests {
         radius * radius / (c * c * n as f32)
     }
 
+    /// How much of a near disc (radius `tap_coc`) the wide spiral takes; the main spiral
+    /// takes the rest (`wide_share`). Handed over from [`WIDE_FROM`] times the reach to the
+    /// reach, so a disc growing past the reach leaves no seam.
+    fn wide_share(tap_coc: f32, reach: f32) -> f32 {
+        ((tap_coc - reach * WIDE_FROM) / (reach * (1.0 - WIDE_FROM))).clamp(0.0, 1.0)
+    }
+
     /// A point of a test scene: its grey and its distance.
     type Scene = dyn Fn(f32, f32) -> (f32, f32);
 
@@ -130,12 +140,11 @@ mod tests {
             let f = near_share(c0, tc, z < z0);
             acc += g * w * (1.0 - f);
             total += w * (1.0 - f);
-            // Discs past the reach are the wide spiral's.
-            if tc <= reach {
-                near_acc += g * w * f;
-                near_total += w * f;
-                cover += w * f * coverage(tc, reach, TAPS);
-            }
+            // Discs nearing the reach are handed to the wide spiral.
+            let m = f * (1.0 - wide_share(tc, reach));
+            near_acc += g * w * m;
+            near_total += w * m;
+            cover += w * m * coverage(tc, reach, TAPS);
         }
         let wide = reach * NEAR_SCALE;
         let k = wide * wide * TAPS as f32 / (reach * reach * NEAR_TAPS as f32);
@@ -146,7 +155,8 @@ mod tests {
             let tc = coc_px(z, focus, aperture, MAX);
             let d = off[0].hypot(off[1]);
             let w = tap_weight(c0, tc, z > z0, d);
-            if w <= 0.0 || (d <= reach && tc <= reach) {
+            let t = wide_share(tc, reach);
+            if w <= 0.0 || (d <= reach && t <= 0.0) {
                 continue;
             }
             let f = near_share(c0, tc, z < z0);
@@ -154,11 +164,9 @@ mod tests {
                 acc += g * w * (1.0 - f) * k;
                 total += w * (1.0 - f) * k;
             }
-            if tc > reach {
-                near_acc += g * w * f;
-                near_total += w * f;
-                cover += w * f * coverage(tc, wide, NEAR_TAPS);
-            }
+            near_acc += g * w * f * t;
+            near_total += w * f * t;
+            cover += w * f * t * coverage(tc, wide, NEAR_TAPS);
         }
         let far = acc / total;
         if near_total <= 0.0 {
@@ -265,6 +273,30 @@ mod tests {
         }
     }
 
+    /// A near object whose disc grows past the reach (the main spiral hands it to the wide
+    /// one) changes the picture smoothly: no seam where its disc crosses the reach.
+    #[test]
+    fn a_near_disc_crossing_the_reach_leaves_no_seam() {
+        // A near post 10 pixels left of the point, over a far field; the post's distance is
+        // swept so its disc goes from half the reach to twice it.
+        let at = |zp: f32| {
+            let scene = move |x: f32, _y: f32| if x < -10.0 { (0.1, zp) } else { (0.6, 2000.0) };
+            shade(&scene, [0.0, 0.0], 2000.0, 1.0)
+        };
+        let reach = MAX;
+        let zs: Vec<f32> = (0..=200)
+            .map(|i| {
+                let c = reach * (0.5 + 1.5 * i as f32 / 200.0);
+                // coc = MAX * (focus - z) / z  =>  z = focus * MAX / (c + MAX)
+                2000.0 * MAX / (c + MAX)
+            })
+            .collect();
+        let vals: Vec<f32> = zs.iter().map(|&z| at(z)).collect();
+        for w in vals.windows(2) {
+            assert!((w[1] - w[0]).abs() < 0.01, "a jump of {} in {vals:?}", w[1] - w[0]);
+        }
+    }
+
     /// Far from any edge a blurred near wall is itself, though its disc reaches past the
     /// main spiral.
     #[test]
@@ -335,6 +367,7 @@ mod tests {
             format!("const BOKEH_TAPS: i32 = {TAPS};"),
             format!("const NEAR_TAPS: i32 = {NEAR_TAPS};"),
             format!("const NEAR_SCALE: f32 = {NEAR_SCALE:?};"),
+            format!("const WIDE_FROM: f32 = {WIDE_FROM:?};"),
             format!("const SHARP_PX: f32 = {SHARP_PX:?};"),
             format!("const HIGHLIGHT_GAIN: f32 = {HIGHLIGHT_GAIN:?};"),
             format!("const HIGHLIGHT_FROM: f32 = {HIGHLIGHT_FROM:?};"),
