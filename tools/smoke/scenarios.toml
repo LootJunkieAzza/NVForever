@@ -7658,10 +7658,10 @@ expect = [
 [[scenario]]
 name = "creature-no-talk"
 source = "playtest list 4 item 19 (engine/nvf-play/src/activate.rs): a creature with nothing to say shows only its name, no Talk"
-note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line)"
+note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line). The face aid stands the player 100 units from it looking level, which passes over a young bighorner's back; the look aid at 7 s, once the start-up message boxes are gone, tips the view 25 degrees down onto it (issue #2354: the level look only met its bounds in the frame of the move, and not at all once the message boxes came in that frame)"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs", "crates/fnv-game/src/dialogue.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63", NVF_PLAY_TEST_LOOK = "7:270:-25" }
 args = ["--play", "--pos=-69700,-714,8300", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'target 0x0015EF63 Young Bighorner \(\) ', label = "the bighorner: name only" }]
