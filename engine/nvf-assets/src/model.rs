@@ -14,7 +14,7 @@ use crate::anim_play::{Clip, MaterialTarget, MaterialTrack, OwnCycle, Playing};
 use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
 use crate::texture::{worker_texture, TextureCache, TextureSnapshot, WorkerTextures};
 use bevy::asset::AssetHandleProvider;
 use bevy::image::CompressedImageFormats;
@@ -1536,6 +1536,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // shapes wear in that form after it and the texture swap (first-person-textures.md).
     let mut first_textures = 0;
     let mut first_worn = 0;
+    // Shapes without any property beside shaded ones: editor geometry (`Props::is_helper`).
+    let shaded = shaded_model(&file, &dec);
+    let mut editor_shapes: Vec<String> = Vec::new();
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1571,7 +1574,10 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         let shape_name = o.name.clone().unwrap_or_default();
         props.animated_emissive = emissive_shapes.contains(&shape_name);
         props.animated_alpha = alpha_shapes.contains(&shape_name);
-        if props.is_helper() {
+        if props.is_helper(shaded) {
+            if props.is_bare() {
+                editor_shapes.push(shape_name);
+            }
             continue;
         }
         if let Some(set) = swap_of.get(&o.block) {
@@ -1675,6 +1681,9 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     }
     if first_person {
         info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
+    }
+    if !editor_shapes.is_empty() {
+        info!("{path}: {} editor shape(s) without any property left out: {}", editor_shapes.len(), editor_shapes.join(", "));
     }
     if !swaps.is_empty() {
         info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
