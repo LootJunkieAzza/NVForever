@@ -773,6 +773,16 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     moved
 }
 
+/// A round's snapshot lag (ms) for the perf line: the (here - host) clock difference over
+/// the lowest seen (`floor`), which it lowers. A host started again resets `floor`
+/// (`Event::RelReset`).
+fn snapshot_lag(floor: &mut Option<i64>, here_ms: u32, host_ms: u32) -> f32 {
+    let off = i64::from(here_ms) - i64::from(host_ms);
+    let low = floor.map_or(off, |f| f.min(off));
+    *floor = Some(low);
+    (off - low) as f32
+}
+
 #[allow(clippy::too_many_arguments)]
 fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, mut residents: Option<&mut Residents>, (loc, player, phys): (Option<&Location>, Option<&Player>, Option<&nvf_play::phys::PhysState>), now: f32) -> Vec<u32> {
     // The references whose place changed here (their collision follows).
@@ -781,7 +791,14 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
     let r = &mut coop.repl;
     for e in std::mem::take(&mut r.inbox) {
         match e {
-            Event::RelReset { .. } => info!("replication: the host's stream starts again"),
+            Event::RelReset { .. } => {
+                info!("replication: the host's stream starts again");
+                // A host started again counts its clock from zero: the lag is measured over
+                // the new run's lowest (the ship19 run read 124204 ms after a load's
+                // handoff, 2-6 ms before). Only the perf line reads it.
+                r.lag_floor = None;
+                r.lag.clear();
+            }
             Event::Reliable { item, .. } => {
                 if let Some(changes) = repl::unpack_changes(&item) {
                     for c in changes {
@@ -915,12 +932,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                 }
             }
             Event::Actors { ms, here_ms, poses } => {
-                let off = i64::from(here_ms) - i64::from(ms);
-                let floor = *r.lag_floor.get_or_insert(off);
-                if off < floor {
-                    r.lag_floor = Some(off);
-                }
-                r.lag.push((off - r.lag_floor.unwrap_or(off)) as f32);
+                r.lag.push(snapshot_lag(&mut r.lag_floor, here_ms, ms));
                 r.poses_heard += poses.len() as u64;
                 for p in poses {
                     let s = r.slow.get(&p.reference).cloned().unwrap_or_default();
@@ -1450,6 +1462,21 @@ fn near_guests(host: Option<(Place, [f32; 3])>, guests: &[(u8, Place, [f32; 3], 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The snapshot lag over a host started again: its clock counts from zero, so without
+    /// the reset every round reads the old run's lead (ship19: 124204 ms).
+    #[test]
+    fn the_snapshot_lag_starts_again_with_the_host() {
+        let mut floor = None;
+        // The old host's run, 130 s in when the guest started: rounds 2-6 ms late.
+        assert_eq!(snapshot_lag(&mut floor, 1_000, 130_000), 0.0);
+        assert_eq!(snapshot_lag(&mut floor, 2_006, 131_000), 6.0);
+        // The new run's clock starts again; the guest's goes on.
+        assert_eq!(snapshot_lag(&mut floor, 3_000, 5), 131_995.0, "over the old run's floor");
+        floor = None;
+        assert_eq!(snapshot_lag(&mut floor, 3_000, 5), 0.0);
+        assert_eq!(snapshot_lag(&mut floor, 4_003, 1_005), 3.0);
+    }
 
     /// A script that moves the host to the same spot again and again is one summon for
     /// the guests (item 185); a move elsewhere is another.
