@@ -34,6 +34,7 @@ pub mod drink_coop;
 pub mod coop_audio;
 pub mod coop_companions;
 pub mod coop_downed;
+pub mod sync_icon;
 pub mod coop_heads;
 pub mod coop_social;
 pub mod coop_subtitles;

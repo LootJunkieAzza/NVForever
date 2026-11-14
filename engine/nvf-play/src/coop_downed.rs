@@ -14,8 +14,9 @@
 //!
 //! **The syncing screen** (queue item 186, the owner's addition of 2026-11-10): a guest
 //! that has just joined, or come back by loading a save after going down, sees a black
-//! screen in the same style, the Swift Learner perk picture over "Syncing..." (no other
-//! text), until its game holds the host's world as it is now (`nvforever`'s
+//! screen in the same style, the Swift Learner perk picture drawn as the owner's
+//! outlines without its "XP" letters (queue item 208, [`crate::sync_icon`]) over
+//! "Syncing..." (no other text), until its game holds the host's world as it is now (`nvforever`'s
 //! `coop/syncing.rs` decides; [`SyncingScreen`]). Its black is its own, drawn over the
 //! game and under the loading screen.
 
@@ -30,10 +31,9 @@ use nvf_assets::GameData;
 /// pipboyimages\perks\perk_life giver.dds` in Fallout - Textures2.bsa; the owner's pick,
 /// 2026-11-06].
 pub const ICON: &str = r"Interface\Icons\PipboyImages\Perks\perk_life giver.dds";
-/// The Swift Learner perk's Pip-Boy picture, the syncing screen's [observed: `textures\
-/// interface\icons\pipboyimages\perks\perk_swift learner.dds` in Fallout -
-/// Textures2.bsa; the owner's pick, queue item 186].
-pub const SYNC_ICON: &str = r"Interface\Icons\PipboyImages\Perks\perk_swift learner.dds";
+/// The Swift Learner perk's Pip-Boy picture, the syncing screen's (item 186's pick), drawn
+/// as the owner's outlines (item 208, [`crate::sync_icon`]).
+pub const SYNC_ICON: &str = crate::sync_icon::SOURCE;
 /// The syncing screen's one line [design: the owner's words, item 186].
 pub const SYNC_TEXT: &str = "Syncing...";
 /// The syncing screen over the game and the HUD, under the loading screen (200).
@@ -157,6 +157,10 @@ fn draw(
     info!("co-op downed screen: {first}{}", second.map_or(String::new(), |s| format!(" / {s}")));
 }
 
+/// The syncing screen's picture once made: None before, then the image or, when it could
+/// not be made, nothing to draw.
+type MadeIcon = Option<Option<Handle<Image>>>;
+
 /// The syncing screen (module notes): the revive screen's look on its own black.
 #[allow(clippy::too_many_arguments)]
 fn draw_syncing(
@@ -167,7 +171,7 @@ fn draw_syncing(
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
     mut images: ResMut<Assets<Image>>,
     mut last: Local<Option<i32>>,
-    mut kit: Local<Option<Kit>>,
+    (mut kit, mut icon): (Local<Option<Kit>>, Local<MadeIcon>),
 ) {
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
     let now = screen.0.then_some(width.round() as i32);
@@ -191,12 +195,26 @@ fn draw_syncing(
         let large = face(crate::hud::FONT, plain_font(36.0, 15.0), data, &mut images, bc);
         Kit { small: scaled(&large, SMALL), large, pictures: Pictures::load(data) }
     });
+    // Made once from the player's own perk picture, decoded to its pixels so its outlines
+    // can be drawn from it.
+    let icon = icon
+        .get_or_insert_with(|| {
+            let bytes = data?.read(SYNC_ICON)?;
+            match crate::sync_icon::outline_image(&bytes) {
+                Ok(i) => Some(images.add(i)),
+                Err(e) => {
+                    warn!("co-op syncing screen: {SYNC_ICON}: {e}");
+                    None
+                }
+            }
+        })
+        .clone();
     let bright = amber(255.0);
     let (cx, top) = (width / 2.0, 960.0 / 2.0 - ICON_SIZE + 20.0);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     commands.spawn((SyncingRoot, full, BackgroundColor(Color::BLACK), GlobalZIndex(SYNC_Z))).with_children(|r| {
-        if let Some((image, rect)) = kit.pictures.picture(SYNC_ICON, data, &mut images, bc) {
-            r.spawn((at(cx - ICON_SIZE / 2.0, top, ICON_SIZE, ICON_SIZE), ImageNode { rect, color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
+        if let Some(image) = icon {
+            r.spawn((at(cx - ICON_SIZE / 2.0, top, ICON_SIZE, ICON_SIZE), ImageNode { color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
         }
         crate::weapon_wheel::draw::text(r, &kit.large, SYNC_TEXT, cx, top + ICON_SIZE + 10.0, 0, bright);
     });
