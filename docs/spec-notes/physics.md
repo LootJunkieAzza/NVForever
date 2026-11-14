@@ -2354,19 +2354,30 @@ threshold or sits in its gap until a jump.
   before the step-up was tried.
 - **Fix** (`fnv_phys::character::on_crest`, `step_up_move`) [design]: the shape the
   step-up puts down may also rest on a **crest**: the contact it came down on holds it up
-  (its normal points up), lies at most `step_height` above the walkable surface the
-  character last stood on at the start of a step (`Character::support_z`: its feet less
-  the gap kept from it; perched on an edge the support under the cone is not walkable, so
-  feet that earlier step-ups raised onto the edge do not raise the limit), and 2 units
-  beyond it along the motion the surface falls away by more than 2 (steeper than 45°) or
-  is walkable and no higher than the edge. A lip with no top, the top edge of a thin board
-  and a ramp's upper end count; a steep slope does not (it goes on rising beyond the
-  contact, and across it sideways the surface stays about as high and is not walkable),
-  nor a thin wall higher than `step_height`. Measured from the feet instead, a slow
-  approach to a 25-unit thin wall first perched 2-4 above the ground through the walkable
-  top 19 ahead (the ground beyond the wall) and then climbed it (review of the first
-  version of this fix; test `thin_walls_are_stepped_over_up_to_the_step_height`, walls of
-  24, 25, 26 and 28 at 30, 115.5 and 344 units/s). An edge met by the cone's face (off the
+  (its normal points up), lies at most `step_height` above a base height
+  (`crest_base`), and 2 units beyond it along the motion the surface falls away by more
+  than 2 (steeper than 45°) or is walkable and no higher than the edge. A lip with no top,
+  the top edge of a thin board and a ramp's upper end count; a steep slope does not (it
+  goes on rising beyond the contact, and across it sideways the surface stays about as
+  high and is not walkable), nor a thin wall higher than `step_height`.
+  - **The base**: during a run of step-ups (`Character::perch_base`) the height the run
+    started from (or the feet less the gap, when lower), so feet that earlier steps of the
+    run raised onto an edge do not raise the limit. The run starts with the first step-up
+    taken and ends when a step starts on walkable ground, in the air or with a jump, or
+    with a placement. Outside a run: the walkable surface straight under the feet within
+    `step_height` (the floor under a cone placed, dropped or walked onto an edge), or,
+    with none so near, the feet less the gap (a cone that jumped or fell onto an edge high
+    above the ground steps on from where it rests).
+  - Measured from the step's own feet (the first version of this fix), a slow approach to
+    a 25-unit thin wall first perched 2-4 above the ground through the walkable top 19
+    ahead (the ground beyond the wall) and then climbed it; measured from the last walkable
+    support (the second version) the same climb remained after a placement or a drop onto
+    a low perch beside a 26-unit wall, and a jump onto an edge far above the ground
+    counted from the ground it left (reviews of the fix; tests
+    `thin_walls_are_stepped_over_up_to_the_step_height`, walls of 24, 25, 26 and 28 at 30,
+    115.5 and 344 units/s, `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge`
+    and `a_jump_onto_a_high_edge_steps_on_over_it`).
+- **Edges a little lower, wedges** [design]: an edge met by the cone's face (off the
   flat tip by more than 0.5) that is a crest counts even when the shape comes down up to 2
   lower than it was held: crossing the gap onto a ramp's end it sinks a little. A step the
   wedge rule stopped is tried by the step-up too. The cone stays (§6.4.1's fence-edge fit),
@@ -2401,8 +2412,12 @@ threshold or sits in its gap until a jump.
   (13.6 high) inside the camper instead of stopping at it. Tests
   `character_walks_out_over_a_threshold_lip` (fails before the fix; the player's, an
   actor's and two small creatures' parameters) and
-  `thin_walls_are_stepped_over_up_to_the_step_height`; smoke scenario
-  `caravan-door-walk-out`.
+  `thin_walls_are_stepped_over_up_to_the_step_height`,
+  `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge` (fails on the
+  second version) and `a_jump_onto_a_high_edge_steps_on_over_it` (passes on the second
+  version too: in the landings built for it rapier's controller or the walkable floor
+  beyond the lip carried the character over, so it guards the rule without having failed);
+  smoke scenario `caravan-door-walk-out`.
 
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 

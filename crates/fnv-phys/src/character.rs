@@ -228,11 +228,12 @@ pub struct Character {
     pub passes_characters: bool,
     /// Steps climbed by [`step_up_move`] (a count for reports).
     pub stepped: u32,
-    /// Height of the walkable surface the character last stood on at the start of a step
-    /// (its feet less the gap kept from it), `None` after a placement: [`on_crest`] climbs
-    /// edges up to `step_height` above it, not above feet that earlier step-ups raised
-    /// onto an edge (perched there, the support under the cone is not walkable).
-    support_z: Option<f32>,
+    /// The height a run of [`step_up_move`]'s steps started from ([`crest_base`]), kept
+    /// while the steps perch the cone on edges: [`on_crest`] climbs edges up to
+    /// `step_height` above it, not above feet that earlier steps of the run raised. `None`
+    /// outside such a run: cleared when a step starts on walkable ground, in the air or
+    /// with a jump, and by a placement.
+    perch_base: Option<f32>,
     /// Hold this character where it is while it is stuck ([`Held`]): a step whose sweep
     /// ran out of the controller's sweeps without moving it is not swept again for the
     /// next [`STUCK_RETRY`] − 1 steps. Off by default (the player, the tools' probes);
@@ -391,7 +392,7 @@ impl PhysWorld {
             ground_gap: None,
             passes_characters: false,
             stepped: 0,
-            support_z: None,
+            perch_base: None,
             hold_when_stuck: false,
             held: None,
             held_steps: 0,
@@ -419,7 +420,7 @@ impl PhysWorld {
         c.walked_off_z = None;
         c.air_top_z = None;
         c.held = None;
-        c.support_z = None;
+        c.perch_base = None;
         let center = c.center(self.k);
         self.w.bodies[c.body].set_translation(center, true);
         // A body that had gone to sleep (a character not moved for a while) stayed where
@@ -571,8 +572,8 @@ impl PhysWorld {
         }
         c.ground_gap = support.map(|(_, toi, n)| (toi - c.gap / n.z.max(walkable)).max(0.0));
         let on_walkable = support.is_some_and(|(_, toi, n)| n.z >= walkable && toi <= c.gap / n.z + SUPPORT_MARGIN);
-        if on_walkable {
-            c.support_z = Some(c.feet[2] - c.gap);
+        if on_walkable || !c.grounded || jumping {
+            c.perch_base = None;
         }
 
         let key = input.velocity;
@@ -731,13 +732,15 @@ impl PhysWorld {
                 .cast_shape(&pos, Vector::Z, c.shape.as_ref(), opts)
                 .map_or(c.params.step_height, |(_, hit)| (hit.time_of_impact / k - STEP_UP_MARGIN).clamp(0.0, c.params.step_height));
             let want = Vector::new(desired.x, desired.y, 0.0) * k;
-            if let Some((t, hits)) = (lift >= MIN_STEP_UP).then(|| step_up_move(&q, &kcc, c, &pos, want, lift, walkable, k, dt)).flatten() {
+            let base = crest_base(&q, c, walkable, k);
+            if let Some((t, hits)) = (lift >= MIN_STEP_UP).then(|| step_up_move(&q, &kcc, c, &pos, want, lift, walkable, base, k, dt)).flatten() {
                 if t.x * want.x + t.y * want.y > moved.translation.x * want.x + moved.translation.y * want.y + 1e-3 * k {
                     collisions = hits;
                     touched_handles.extend(collisions.iter().map(|h| h.handle));
                     moved.translation = t;
                     moved.grounded = true;
                     c.stepped += 1;
+                    c.perch_base.get_or_insert(base);
                 }
             }
         }
@@ -1046,6 +1049,7 @@ fn step_up_move(
     want: Vector,
     lift: f32,
     walkable: f32,
+    base: f32,
     k: f32,
     dt: f32,
 ) -> Option<(Vector, Vec<CharacterCollision>)> {
@@ -1082,7 +1086,7 @@ fn step_up_move(
     };
     let feet_z = feet.z / k;
     let on_top = [feet, feet + dir * (STEP_PROBE * k)].into_iter().any(|p| top(p).is_some_and(|z| z > feet_z - STEP_TOP_BELOW && z < feet_z + STEP_TOP_ABOVE));
-    if (low || !on_top) && !on_crest(q, c, pos, &down, dir, k) {
+    if (low || !on_top) && !on_crest(q, c, &down, dir, base, k) {
         return None;
     }
     let lowered = Vector::new(across.x, across.y, lift * k - drop);
@@ -1096,19 +1100,16 @@ fn step_up_move(
 /// bottom meets such an edge with its own steep face, so the contact is not a walkable
 /// top and the step's other checks find none (the floor under the axis lies more than
 /// [`STEP_TOP_BELOW`] under the perched feet, beyond the edge is a gap). It counts when
-/// the contact `down` holds the shape up, lies at most `step_height` above the walkable
-/// surface the character last stood on ([`Character::support_z`], or the step's start
-/// less its gap when lower: a higher edge stays a wall, however thin, also after earlier
-/// step-ups perched the cone on it), and just beyond it along
+/// the contact `down` holds the shape up, lies at most `step_height` above `base`
+/// ([`crest_base`]: a higher edge stays a wall, however thin, also after earlier steps
+/// perched the cone on it), and just beyond it along
 /// `dir` the surface falls away more steeply than the slope limit or is walkable and no
 /// higher than the edge: a steep slope continues upwards beyond its contact, and across
 /// one sideways the surface stays about as high and is not walkable, so neither counts
 /// [design].
-fn on_crest(q: &rapier3d::pipeline::QueryPipeline, c: &Character, pos: &Pose, down: &ShapeCastHit, dir: Vector, k: f32) -> bool {
+fn on_crest(q: &rapier3d::pipeline::QueryPipeline, c: &Character, down: &ShapeCastHit, dir: Vector, base: f32, k: f32) -> bool {
     let p = &c.params;
     let edge = down.witness1;
-    let start = pos.translation.z / k - p.height / 2.0 - c.gap;
-    let base = c.support_z.map_or(start, |z| z.min(start));
     if down.normal1.z <= 0.0 || edge.z / k > base + p.step_height + CREST_EPS {
         return false;
     }
@@ -1123,6 +1124,24 @@ fn on_crest(q: &rapier3d::pipeline::QueryPipeline, c: &Character, pos: &Pose, do
             z < edge_z - CREST_DROP || (r.normal.z >= p.max_slope_deg.to_radians().cos() && z <= edge_z + CREST_LEVEL)
         }
     }
+}
+
+/// The height [`on_crest`]'s limit counts from, game units: within a run of step-up
+/// perches ([`Character::perch_base`]) the height the run started from (or the feet less
+/// the gap, when lower); else the walkable surface straight under the feet within
+/// `step_height`, as standing there (the floor under a cone placed or walked onto an
+/// edge, which a perch's raised feet must not stand in for), or, with none so near, the
+/// feet less the gap (a cone that jumped or fell onto an edge high above the ground steps
+/// on from where it rests) [design].
+fn crest_base(q: &rapier3d::pipeline::QueryPipeline, c: &Character, walkable: f32, k: f32) -> f32 {
+    let start = c.feet[2] - c.gap;
+    if let Some(base) = c.perch_base {
+        return base.min(start);
+    }
+    let ray = rapier3d::geometry::Ray::new(vec3(c.feet) * k, -Vector::Z);
+    q.cast_ray_and_get_normal(&ray, c.params.step_height * k, true)
+        .filter(|(_, r)| r.normal.z >= walkable)
+        .map_or(start, |(_, r)| (c.feet[2] - r.time_of_impact / k).min(start))
 }
 
 /// How far beyond the edge [`on_crest`] looks, and how much lower the surface there must be

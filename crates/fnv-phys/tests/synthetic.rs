@@ -535,6 +535,73 @@ fn thin_walls_are_stepped_over_up_to_the_step_height() {
     }
 }
 
+/// A static floor with its top at z = 50 and a zero-thickness wall `height` high rising
+/// from it at x = 100.
+fn floor_and_thin_wall(height: f32) -> PhysWorld {
+    let mut w = ground();
+    w.add_ref(&at(1, [0.0, 0.0, 25.0]), &[object(boxed([400.0, 400.0, 25.0]), Motion::Static)]);
+    let vertices = vec![[100.0, -400.0, 50.0], [100.0, 400.0, 50.0], [100.0, 400.0, 50.0 + height], [100.0, -400.0, 50.0 + height]];
+    w.add_ref(&at(2, [0.0, 0.0, 0.0]), &[object(Shape::TriMesh { vertices, triangles: vec![[0, 1, 2], [0, 2, 3]], materials: vec![0; 2] }, Motion::Static)]);
+    w
+}
+
+#[test]
+fn a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge() {
+    // Issue #2494, second review: with no run of step-ups behind it (placed there, or
+    // dropped from a higher support), a cone resting low on a 26-unit thin wall's edge
+    // must count from the floor under it, not from its raised feet, or retries from ever
+    // higher feet climb the wall.
+    let p = CharacterParams::default();
+    // Where the cone rests on the edge (76): axis 17.8 short of it, feet 2.9 above the floor.
+    let (x, perch) = (100.0 - 17.8, 50.0 + 26.0 - p.bottom_slope * (17.8 - p.bottom_flat));
+    for speed in [30.0f32, 115.5, 344.0] {
+        // Placed just above the perch.
+        let mut w = floor_and_thin_wall(26.0);
+        let mut c = w.add_character(1, p, [x, 0.0, perch + 0.5]);
+        walk(&mut w, &mut c, [0.0, 0.0], 5);
+        assert!(c.feet[2] > 50.0 + 1.5, "speed {speed}: perched after the placement, {:?}", c.feet);
+        let steps = walk(&mut w, &mut c, [speed, 0.0], 360);
+        let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+        assert!(c.feet[0] < 100.0 && peak < 50.0 + 8.0, "placed, speed {speed}: {:?}, peak {peak}", c.feet);
+
+        // Walked off a platform 30 above the floor (y > 30) and dropped onto the perch.
+        let mut w = floor_and_thin_wall(26.0);
+        w.add_ref(&at(3, [40.0, 115.0, 65.0]), &[object(boxed([55.0, 85.0, 15.0]), Motion::Static)]);
+        let mut c = w.add_character(1, p, [x, 50.0, 81.0]);
+        settle(&mut w, &mut c, 30);
+        walk(&mut w, &mut c, [0.0, -115.5], 40);
+        walk(&mut w, &mut c, [0.0, 0.0], 30);
+        assert!(c.feet[1] < 30.0 - p.radius && c.feet[2] > 50.0 + 1.5 && c.feet[2] < 50.0 + 8.0, "speed {speed}: perched after the drop, {:?}", c.feet);
+        let steps = walk(&mut w, &mut c, [speed, 0.0], 360);
+        let peak = steps.iter().map(|s| s.feet[2]).fold(f32::MIN, f32::max);
+        assert!(c.feet[0] < 100.0 && peak < 50.0 + 8.0, "dropped, speed {speed}: {:?}, peak {peak}", c.feet);
+    }
+}
+
+#[test]
+fn a_jump_onto_a_high_edge_steps_on_over_it() {
+    // Issue #2494, second review: a character that jumped from the ground onto a
+    // threshold's lip 60 above it (the caravan door from outside), resting on the lip's
+    // edge with its cone 4-16 below the top, walks on over it into the caravan: a landing
+    // ends any run of step-up perches, and the limit then counts from where it rests (no
+    // ground within a step under it), not from the ground it jumped from.
+    let p = CharacterParams::default();
+    for ((x0, vx, hold), speed) in [(125.0f32, 60.0f32, 15usize), (130.0, 60.0, 20), (140.0, 100.0, 15), (125.0, 60.0, 20)].into_iter().flat_map(|j| [(j, 115.5f32), (j, 344.0)]) {
+        let mut w = caravan_door(10.3, false);
+        let mut c = w.add_character(1, p, [x0, 0.0, 4.0]);
+        settle(&mut w, &mut c, 30);
+        w.move_character(&mut c, CharacterInput { velocity: [-vx, 0.0], jump: true, ..Default::default() });
+        w.step();
+        walk(&mut w, &mut c, [-vx, 0.0], hold);
+        walk(&mut w, &mut c, [0.0, 0.0], 60);
+        let case = format!("jump from {x0} at {vx} for {hold}, speed {speed}");
+        assert!(c.feet[0] > 100.0 && c.feet[2] > 40.0 && c.feet[2] < 60.3 && c.grounded, "{case}: resting on the lip's edge after the jump, {:?}", c.feet);
+        // About 170 units on: inside, on the floor (which ends 400 in).
+        walk(&mut w, &mut c, [-speed, 0.0], (170.0 / speed * 60.0) as usize);
+        assert!(c.feet[0] < 60.0 && (c.feet[2] - 50.7).abs() < 1.0, "{case}: over the lip onto the floor, {:?}", c.feet);
+    }
+}
+
 #[test]
 fn character_climbs_steep_stairs_without_jumping() {
     // Catwalk stairs like the REPCONN Facility's flights up to the intercom (RocketLabMid,
