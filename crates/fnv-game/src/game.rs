@@ -1617,6 +1617,13 @@ pub struct Game<'a> {
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
     pub coop_story_wait: Option<crate::coop::StoryWait>,
+    /// Talkers a script activated with the player as the activator (`X.Activate
+    /// Player`, not by the player's hand) since the runtime last looked: their
+    /// conversation is the script's scene, which the co-op story gate does not hold, as
+    /// it does not hold a script's StartConversation ([`Game::story_gate`];
+    /// [observed: DeadMoney.esm NVDLC01FountainStartSequenceSCRIPT activates
+    /// NVDLC01ElijahTalkingActivatorREF with the player]). Not saved.
+    pub script_talks: Vec<FormId>,
     /// The speakers (base or reference) of lines that belong to, or set a stage of, a story
     /// quest, found once ([`Game::story_npc`]). Not saved.
     pub(crate) story_speakers: Option<std::collections::HashMap<FormId, Vec<FormId>>>,
@@ -2624,6 +2631,7 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_story_wait: None,
+            script_talks: Vec::new(),
             story_speakers: None,
             coop_guest: false,
             coop_hostile: BTreeSet::new(),
@@ -5507,6 +5515,9 @@ impl<'a> Game<'a> {
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
         let activated_event = self.events.len();
+        if let (false, true, Outcome::Talk { actor: talker }) = (by_hand, actor == FormId::PLAYER_REF, &act.outcome) {
+            self.script_talks.push(*talker);
+        }
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
         if matches!(act.outcome, Outcome::Activated) {

@@ -970,6 +970,10 @@ impl Runtime {
         };
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
+        // The target's own OnActivate passing the activation on (`Activate`) is still the
+        // player's hand: held by the co-op story gate like any talk.
+        let talker = self.game.talker(target).0;
+        self.game.script_talks.retain(|t| *t != target && *t != talker);
         let r = match r {
             Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
@@ -1025,7 +1029,11 @@ impl Runtime {
                 done = Some(ByHand::Woken);
                 continue;
             }
-            match g.start_dialogue(actor, None) {
+            // A script's `Activate Player` on it: the script's scene, not held by the
+            // co-op story gate (`Game::script_talks`).
+            let scripted = g.script_talks.iter().position(|t| *t == actor).map(|k| g.script_talks.remove(k)).is_some();
+            let started = if scripted { g.start_script_dialogue(actor, None) } else { g.start_dialogue(actor, None) };
+            match started {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
@@ -1052,6 +1060,8 @@ impl Runtime {
                 }
             }
         }
+        // None carried to a later activation by hand.
+        self.game.script_talks.clear();
         done
     }
 
