@@ -1996,6 +1996,23 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
      Ganger Camp, and see whether the distance follows.
 
+## Added 2026-11-14 (bloatflies' distance, shots and bite, issue #2351)
+
+129. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
+     combat-ai.md §12.6 and §19, #2351.) A player reports that in the original bloatflies
+     keep their distance, fire on a cooldown and bite when in range [hypothesis: a
+     player's report in #2351, not yet captured]. CrBloatFly 0x0009189C carries
+     Bloatfly1HP (Min Range 100, Max Range 250, semi-auto delay 0.1-0.75 s) and has its
+     own attack (DATA damage 7, reach 32); its style CSBloatfly is Ranged Only
+     [documented: fnvtool esm decode, FalloutNV.esm]. Ours since #2351: it holds about
+     225 units away and steps back only from a target within 100, to 164 [design, #2351];
+     it never bites (its folder has no h2hattack clips) [hypothesis: whether and how it
+     bites]. AI-observer capture: one bloatfly attacking the standing player, then the
+     player walking in on it: its distance over time (about 10 samples a second), the
+     time between its darts, whether it backs away and from how near, and whether it
+     bites, from how near, and which clip plays then (`1hpattackright_2`, which moves it
+     about 30 units forward, is one candidate [hypothesis]).
+
 ## Added 2026-11-14 (Hidden Valley dust storm, #2450)
 
 133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,

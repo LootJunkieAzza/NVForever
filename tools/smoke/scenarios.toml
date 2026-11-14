@@ -4084,6 +4084,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "bloatfly-holds-distance"
+source = "issue #2351 (engine/nvforever/src/combat_tactics.rs back_off_band; docs/design/combat-ai.md §12.6): a short-reach gun's step back ends short of where it stops closing in. A bloatfly (Bloatfly1HP: Max Range 250, Min Range 100) stops 225 units from its target; it stepped back from any target within 256 to 320 and closed in again beyond 225, back and forth for the whole fight. Now it holds and fires, and steps back only from a target within its Min Range"
+note = "a bloatfly (CrBloatFly 0x0009189C, the first created reference 0xFF000000) created at 3 s at a Joshua tree about 580 units from the god-mode player (TreeJoshBNV 0x00122CCA, as npc-burst-fire places its sentry bot) and set on the player at 6 s; the coyotes (VERGSCoyote1-6REF) are disabled first, so it fights the player alone (in the first run two of them helped the player and killed it before it fired). The player stands still for the rest of the 25 s run, so on main every stop at 225 was followed by a step back (each logged once as it begins). A created reference has no Editor ID: the combat log names it by its base's Editor ID or by its FormID, then its FormID (`combat_tactics::who`). Its distance is in its `opens fire on` line; the steps back are counted by their log lines"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/body_weapons.rs", "crates/fnv-combat/src/body_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:0x00122CCA:PlaceAtMe:CrBloatFly:1,6:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
+]
+
+[[scenario]]
 name = "worn-addons-lucky"
 source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
 note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
