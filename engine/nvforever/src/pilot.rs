@@ -285,6 +285,8 @@ pub const SWITCH_RANGE: f32 = 4000.0;
 pub const SWITCHES: usize = 3;
 /// Seconds a locked door on the way is waited at, after the player tried it.
 pub const LOCKED_SECS: f64 = 8.0;
+/// How far a door moves the player, within its own space, to count as gone through.
+pub const DOOR_JUMP: f32 = 500.0;
 /// How near its goal a walk that got stuck may end with the player set on the goal.
 pub const PUT_WITHIN: f32 = 400.0;
 /// Seconds without [`STUCK_UNITS`] of movement on a walk before a new path is planned.
@@ -469,6 +471,9 @@ struct Walk {
     follower: Option<Follower>,
     /// Since when the door at the end of the leg, or the one in the way, is waited for.
     door_since: Option<f64>,
+    /// Where the player stood when it went through the door at the end of the leg: a load
+    /// door into the same space (the Strip's gates) shows only as a jump from here.
+    door_from: [f32; 3],
     /// Where the player was, and when, for the stuck rule.
     seen: (f64, [f32; 3]),
     replans: u8,
@@ -577,6 +582,9 @@ struct Pilot {
     /// looking for one.
     stuck_talk: Option<f64>,
     talk_picks: u8,
+    /// A `say_info` with no known way to its line: the step and the topics already tried
+    /// in that conversation, as a player tries what is on offer.
+    explored: (usize, Vec<FormId>),
     /// A campaign's chains have their given state set all the same (`--pilot-given`).
     set_given: bool,
     /// God mode is on, and when the weapon is looked at next.
@@ -653,6 +661,7 @@ impl Pilot {
             went_along: None,
             stuck_talk: None,
             talk_picks: 0,
+            explored: (usize::MAX, Vec::new()),
             set_given: false,
             god: false,
             weapon_check: 0.0,
@@ -827,6 +836,20 @@ fn travel_to(p: Place, heading_deg: f32) -> Travel {
     match p.space {
         Space::World(w) => Travel { world: Some(w), interior: None, feet: p.pos, heading_deg },
         Space::Interior(c) => Travel { world: None, interior: Some(c), feet: p.pos, heading_deg },
+    }
+}
+
+/// The Mojave's own worldspace (WastelandNV), where the map's fast travel goes [observed:
+/// FalloutNV.esm WRLD 0x000DA726].
+const MOJAVE: u32 = 0x000D_A726;
+
+/// Whether a player in `here` could fast travel into `to` (the stand-in for a long way):
+/// within its own worldspace, or out to the Mojave's. Never into another worldspace
+/// (a DLC's: a long way round a locked door once put the player in Dead Money's Villa).
+fn fast_travel_to(here: Space, to: Space) -> bool {
+    match to {
+        Space::World(w) => here == to || w == MOJAVE,
+        Space::Interior(_) => false,
     }
 }
 
@@ -1064,7 +1087,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
         // The last stretch out of doors of a long way: only that is cut short.
         let outdoors = |path: &fnv_nav::Path| path.legs.iter().rposition(|l| matches!(l.space, Space::World(_)));
         match nav.graph.find_path(here, w.goal, &params) {
-            Ok(path) if path.length > WALK_MAX && !w.cut && outdoors(&path).is_some() => {
+            Ok(path) if path.length > WALK_MAX && !w.cut && outdoors(&path).is_some_and(|i| fast_travel_to(here.space, path.legs[i].space)) => {
                 w.cut = true;
                 let leg = &path.legs[outdoors(&path).expect("checked")];
                 let at = Place { space: leg.space, pos: tail_point(&leg.points, WALK_TAIL) };
@@ -1102,14 +1125,16 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                                 break;
                             }
                         }
-                        match upto.filter(|(space, pts)| matches!(space, Space::World(_)) && pts.len() > 1) {
+                        match upto.filter(|(space, pts)| fast_travel_to(here.space, *space) && pts.len() > 1) {
                             Some((space, pts)) => {
                                 let at = Place { space, pos: tail_point(&pts, WALK_TAIL) };
                                 info!("pilot: step {}: the way to the locked door is {:.0} units: starts {WALK_TAIL:.0} units before the door (a stand-in for fast travel)", p.i, path.length);
                                 h.put(at);
                                 w.seen = (p.now, at.pos);
                             }
-                            None => w.cut = false,
+                            // Nothing to cut that a player could fast travel to: the
+                            // way is walked (`w.cut` stays set, so the next frame plans it).
+                            None => info!("pilot: step {}: the way to the locked door is {:.0} units, none of it a fast travel away: walked", p.i, path.length),
                         }
                         return Walked::Going;
                     }
@@ -1220,8 +1245,14 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
         Steer::Door(d) => {
             if w.door_since.is_none() {
                 w.door_since = Some(p.now);
+                w.door_from = feet;
                 let r = h.script.rt.as_mut().map(|rt| with_world(rt, h.sim, |rt| rt.activate_as_player(FormId(d.door))));
                 info!("pilot: step {}: goes through door {:08X}: {}", p.i, d.door, outcome(r.as_ref()));
+            } else if hdist(feet, w.door_from) > DOOR_JUMP {
+                // Through a load door into the same space: a new path from the far side.
+                info!("pilot: step {}: door {:08X} took the player {:.0} units within its own space: a new path from there", p.i, d.door, hdist(feet, w.door_from));
+                (w.follower, w.door_since, w.seen) = (None, None, (p.now, feet));
+                return Walked::Going;
             } else if w.door_since.is_some_and(|t| p.now - t > LOCKED_SECS) {
                 // Open now (a script unlocked it meanwhile): tried again on a new path.
                 let lock = lock_words(nav, d.door);
@@ -1230,6 +1261,12 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
                     return Walked::Going;
                 }
                 let Some(lock) = lock else {
+                    // A door opened from elsewhere (a vault door's console, a gate's
+                    // switch): what names it, as for a locked one.
+                    if try_beside(p, &mut w.poked, &mut w.side, &mut w.errand, h, d.door, feet) {
+                        w.door_since = Some(p.now);
+                        return Walked::Going;
+                    }
                     let why = format!("door {:08X} is not locked and did not take the player through in {LOCKED_SECS:.0} s after the player tried it (its script refuses the player?): a player could not go on; the player stays in front of it", d.door);
                     p.finding("unreachable", why.clone());
                     return Walked::No(why);
@@ -1260,7 +1297,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, awaited: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, scene_held: 0.0, scene_last: None, told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, door_from: feet, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, awaited: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, scene_held: 0.0, scene_last: None, told_talking: false, dodge: None, snapped: None }
 }
 
 /// What a player would use to open a door that stays locked (module notes), not used
@@ -2161,6 +2198,28 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 });
                 if let Some(Some((text, away))) = picked {
                     info!("pilot: step {}: picks {text:?} for the line {info} ({})", p.i, if away == 0 { "its own choice".to_string() } else { format!("{away} pick(s) from its topic") });
+                    return None;
+                }
+                // No known way to the line (a result script's AddTopic, a way longer than
+                // the search): what is on offer is tried, one topic at a time, as a player
+                // asks around. Jessup's bribe line was never reached in 120 s otherwise.
+                if p.explored.0 != p.i {
+                    p.explored = (p.i, Vec::new());
+                }
+                let tried = p.explored.1.clone();
+                let explore = h.game(|g| {
+                    let with_it = runner::resolve(g, speaker).is_ok_and(|r| g.dialogue.as_ref().is_some_and(|c| c.actor == r));
+                    if !with_it || tried.len() >= usize::from(TALK_PICKS) {
+                        return None;
+                    }
+                    let offered = g.dialogue_choices();
+                    let i = offered.iter().position(|c| !c.goodbye && !c.darkened && !tried.contains(&c.topic))?;
+                    let (topic, text) = (offered[i].topic, g.choice_text(&offered[i]).to_string());
+                    g.choose(i).ok().map(|_| (topic, text))
+                });
+                if let Some(Some((topic, text))) = explore {
+                    p.explored.1.push(topic);
+                    info!("pilot: step {}: no known way to the line {info}: tries {text:?} ({} of {TALK_PICKS})", p.i, p.explored.1.len());
                     return None;
                 }
             }
