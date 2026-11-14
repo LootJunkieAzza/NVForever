@@ -33,6 +33,7 @@ pub mod character;
 pub mod convert;
 pub mod gore;
 pub mod grab;
+mod islands;
 pub mod layers;
 pub mod placed;
 pub mod primitive;
