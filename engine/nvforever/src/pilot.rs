@@ -187,6 +187,8 @@
 //!   (`fnv_game::levelup`, `nvf_play::chargen::finish`). Any other menu the scripts
 //!   opened that no step waits for and that is still up after [`MENU_SECS`] is closed,
 //!   with a `menu_closed` finding.
+//! - **The weapon goes up as a fight lasts** ([`ARMS`]): the 9mm pistol, a riot
+//!   shotgun after 20 s, an anti-materiel rifle after 45 s, each with its ammunition.
 //! - **The weapon is kept in repair.** God mode keeps the magazine full but not the
 //!   weapon whole: some 700 shots into a campaign the pistol broke, the game unequipped
 //!   it and the player fought on with its fists. Every [`WEAPON_SECS`] s of a fight the
@@ -300,6 +302,10 @@ pub const STILL_SECS: f64 = 6.0;
 /// The weapon and ammo the pilot fights with (Editor IDs of FalloutNV.esm's records).
 pub const PILOT_WEAPON: &str = "WeapNV9mmPistol";
 pub const PILOT_AMMO: &str = "Ammo9mm";
+/// The weapons a fight goes up to as it lasts: (seconds into the fight, weapon, ammo).
+/// The pilot tests quests, not the player's build: a Nightkin outlived 75 s of a 9mm
+/// pistol in REPCONN's basement and the fight was settled the headless way.
+pub const ARMS: [(f64, &str, &str); 3] = [(0.0, PILOT_WEAPON, PILOT_AMMO), (20.0, "WeapNVRiotShotgun", "Ammo12Ga"), (45.0, "WeapNVAntiMaterielRifle", "Ammo50MG")];
 /// How near the player goes to shoot, then nearer when the target still lives.
 pub const FIGHT_RANGE: f32 = 700.0;
 pub const FIGHT_NEAR: f32 = 220.0;
@@ -457,6 +463,8 @@ struct Fight {
     near: bool,
     /// Since when there has been no clear line of fire from where the player stands.
     blocked: Option<f64>,
+    /// When the fight began: the weapon goes up a tier as it lasts ([`ARMS`]).
+    began: f64,
 }
 
 enum Phase {
@@ -1248,21 +1256,26 @@ fn arm(p: &mut Pilot, h: &mut Hands) {
 }
 
 /// The weapon in the player's hand is whole, and it is the pilot's (module notes).
-fn keep_weapon(p: &mut Pilot, h: &mut Hands) {
+fn keep_weapon(p: &mut Pilot, h: &mut Hands, fighting_for: f64) {
     if !p.god || p.now < p.weapon_check {
         return;
     }
     p.weapon_check = p.now + WEAPON_SECS;
-    let Some(Ok(weapon)) = h.game(|g| runner::resolve(g, PILOT_WEAPON)) else { return };
+    let (_, name, ammo_name) = *ARMS.iter().rev().find(|(t, _, _)| fighting_for >= *t).unwrap_or(&ARMS[0]);
+    let Some(Ok(weapon)) = h.game(|g| runner::resolve(g, name)) else { return };
+    let ammo = h.game(|g| runner::resolve(g, ammo_name).ok()).flatten();
     let w = &mut h.sim.world;
+    if let Some(ammo) = ammo.filter(|a| w.item_count(FormId::PLAYER_REF, *a).unwrap_or(0) < 50) {
+        let _ = w.add_item(FormId::PLAYER_REF, ammo, 200);
+    }
     let held = w.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| inv.equipped().into_iter().any(|i| i == weapon));
     if !held {
         // A broken one stays in the inventory and cannot be equipped: a new one.
         let carried = w.item_count(FormId::PLAYER_REF, weapon).unwrap_or(0);
         let r = (if carried > 0 { w.remove_item(FormId::PLAYER_REF, weapon, carried).map(|_| ()) } else { Ok(()) }).and_then(|_| w.add_item(FormId::PLAYER_REF, weapon, 1)).and_then(|_| w.equip(FormId::PLAYER_REF, weapon));
         match r {
-            Ok(_) => info!("pilot: step {}: the player does not hold {PILOT_WEAPON} (broken, or taken): given a new one and equipped", p.i),
-            Err(e) => warn!("pilot: step {}: could not give the player a new {PILOT_WEAPON}: {e}", p.i),
+            Ok(_) => info!("pilot: step {}: the player now fights with {name} ({fighting_for:.0} s into the fight)", p.i),
+            Err(e) => warn!("pilot: step {}: could not give the player {name}: {e}", p.i),
         }
     }
     if let Ok(inv) = w.inventory_mut(FormId::PLAYER_REF) {
@@ -1275,7 +1288,7 @@ fn keep_weapon(p: &mut Pilot, h: &mut Hands) {
 /// One frame of shooting at an actor: nearer while it is out of range, the view on its
 /// trunk and the trigger pulled when in range. `Some(why)`: the actor cannot be reached.
 fn engage(p: &mut Pilot, h: &mut Hands, name: &str, f: &mut Fight, w: &mut Walk) -> Option<String> {
-    keep_weapon(p, h);
+    keep_weapon(p, h, p.now - f.began);
     let target = f.target;
     h.control.weapon_out = true;
     // In range with a clear line: it shoots from where it stands, as a player does, and
@@ -1951,13 +1964,15 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             // As the play loop answers a box: the button is set, the box stays a moment so
             // that MenuMode blocks read it, then it closes.
             if p.part == 0 {
-                let set = h.game(|g| match g.message_box.as_mut() {
-                    Some(m) => m.can_press(*button).map(|_| m.pressed = Some(*button)).map(|_| true),
+                let set = h.game(|g| match g.message_box.as_ref() {
+                    Some(m) => m.can_press(*button).map(|_| true),
                     None => Ok(false),
                 });
                 return match set {
                     Some(Ok(true)) => {
-                        (p.part, p.phase) = (1, Phase::Wait { until: p.now + 0.1 });
+                        // As a player's click (#2459).
+                        h.script.answer(Some(*button), "quest pilot");
+                        (p.part, p.phase) = (1, Phase::Wait { until: p.now + 0.3 });
                         None
                     }
                     Some(Ok(false)) => (p.now - p.step_from > 10.0).then(|| Some("no message box opened in 10 s".to_string())),
@@ -1967,10 +1982,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             }
             match p.phase {
                 Phase::Wait { until } if p.now < until => None,
-                _ => {
-                    h.game(|g| (g.menu == Some(fnv_game::game::menus::MESSAGE)).then(|| g.close_menu()));
-                    Some(None)
-                }
+                _ => Some(None),
             }
         }
         Action::DismissMessageBoxes { max, wait_frames, label } => {
@@ -1979,7 +1991,8 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
             if matches!(p.phase, Phase::Begin) {
                 p.phase = Phase::Wait { until: p.now + wait };
             }
-            if h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE) && g.close_menu().is_some()) == Some(true) {
+            let up = h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE) && g.message_box.as_ref().is_none_or(|m| m.waiting())) == Some(true);
+            if up && h.script.answer(None, "quest pilot") {
                 p.part += 1;
                 p.phase = Phase::Wait { until: p.now + wait };
             }
@@ -2374,7 +2387,7 @@ fn fight(p: &mut Pilot, h: &mut Hands, name: &str, a: &Action) -> Option<Option<
         };
         arm(p, h);
         let Phase::Walk(w) = new_walk(place, Some(r), FIGHT_RANGE, p.now, h.feet()) else { unreachable!() };
-        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false, blocked: None }, w);
+        p.phase = Phase::Fight(Fight { target: r, shooting: None, near: false, blocked: None, began: p.now }, w);
     }
     let Phase::Fight(mut f, mut w) = std::mem::replace(&mut p.phase, Phase::Begin) else { return Some(None) };
     let target = f.target;
@@ -2539,36 +2552,24 @@ fn drive(
     let boxed = h.game(|g| g.menu == Some(fnv_game::game::menus::MESSAGE)) == Some(true);
     match (boxed && !waited_for, p.box_since) {
         (true, None) => p.box_since = Some(p.now),
-        // The button picked a moment ago has been read by the box's script: it closes.
-        (true, Some(t)) if p.box_picked && p.now - t > BOX_SECS + 0.15 => {
-            h.game(|g| g.close_menu());
-            (p.box_since, p.box_picked) = (None, false);
-        }
+        // Answered as a player's click answers it (`ScriptState::answer`): the box closes
+        // after the frame's scripts and the player is back in the world before the box's
+        // script reads the button. Closing the box from here instead had its script ask for
+        // the pump station's terminal while the game was still in the menu (#2459).
         (true, Some(t)) if !p.box_picked && p.now - t > BOX_SECS => {
-            let picked = h.game(|g| {
-                let last = g.message_box.as_ref().filter(|m| m.buttons > 1 && m.waiting()).and_then(|m| (0..m.buttons).rev().find(|b| !m.hidden.contains(b)));
-                match (last, g.message_box.as_mut()) {
-                    (Some(b), Some(m)) => {
-                        m.pressed = Some(b as i32);
-                        Some(b)
-                    }
-                    _ => {
-                        g.close_menu();
-                        None
-                    }
-                }
-            });
-            match picked.flatten() {
-                Some(b) => {
-                    info!("pilot: step {}: a message box no step waits for has several buttons: picks the last, button {b}", p.i);
-                    p.box_picked = true;
-                }
-                None => {
-                    info!("pilot: step {}: closes a message box no step waits for", p.i);
-                    p.box_since = None;
-                }
+            let last = h.game(|g| g.message_box.as_ref().filter(|m| m.buttons > 1 && m.waiting()).and_then(|m| (0..m.buttons).rev().find(|b| !m.hidden.contains(b)))).flatten();
+            let answered = h.script.answer(last.map(|b| b as i32), "quest pilot");
+            match last {
+                Some(b) => info!("pilot: step {}: a message box no step waits for has several buttons: picks the last, button {b}", p.i),
+                None => info!("pilot: step {}: closes a message box no step waits for", p.i),
+            }
+            p.box_picked = answered;
+            if !answered {
+                p.box_since = None;
             }
         }
+        // Still up long after the answer (another box in its place): looked at afresh.
+        (true, Some(t)) if p.box_picked && p.now - t > BOX_SECS + 2.0 => (p.box_since, p.box_picked) = (None, false),
         (false, _) => (p.box_since, p.box_picked) = (None, false),
         _ => {}
     }
@@ -2617,7 +2618,7 @@ fn drive(
                 let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
                 arm(p, &mut h);
                 info!("pilot: step {}: {who} attacks {}: fought before the step goes on", p.i, if friend.is_some() { "the player or the actor it is with" } else { "the player" });
-                p.defend = Some((Fight { target: who, shooting: None, near: false, blocked: None }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
+                p.defend = Some((Fight { target: who, shooting: None, near: false, blocked: None, began: p.now }, walk_to(Place { space, pos }, Some(who), FIGHT_RANGE, p.now, feet)));
                 p.defend_from = p.now;
             }
         }

@@ -78,6 +78,27 @@ in which the pilot cannot act end the run.
   conversation broken off, a fight not fought). The places players report breaks (Hidden Valley,
   Freeside, the Strip) are where it is being pointed now.
 
+## 7. Every chain at once
+
+`tools/smoke/pilot/batch.py` runs every walkthrough chain (or the ones named) through the pilot
+and ranks them:
+
+```
+python tools/smoke/pilot/batch.py --exe <nvforever.exe> --data <Data> --fnvtool <fnvtool.exe>     --home F:/nvf-pilot-home [--jobs 2] [--minutes 30] [--only beyond-the-beef gi-blues] [--skip-fail]
+```
+
+Each chain gets its headless trace (cached), a game of its own in `<home>/batch-<slot>` started from
+`<home>/saves/pilot-after-intro.nvfsave` (a world past the opening; `--new-game` when it is not
+there), `--pilot-campaign --pilot-given`, and at most `--minutes`. `summary.md` and `summary.json`
+in `--out` (default `target/pilot-batch/`) list the chains worst first: soft locks, then findings
+that stop a quest (`no_way_out`, `unreachable`, `never_came`, `chain_abandoned`), then the pilot's
+own trouble; each row says what was still done the headless way. With 217 chains and two games at
+once a full pass takes about a day; `--skip-fail` leaves out the 51 `fail-*` chains (a
+quest's failure paths).
+
+Read a finding against the chain's notes before calling it a bug: a chain run from its `given`
+state carries the false alarms a thin `given` brings (§2).
+
 ## 6. Not yet
 
 - A terminal opened from a message box button is refused in play (East Pump Station, Vault 34):
