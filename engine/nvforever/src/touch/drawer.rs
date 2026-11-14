@@ -1,25 +1,48 @@
-//! Optional, owned bottom handle -> the existing OpenInventory admission route.
+//! Optional, owned bottom handle -> Inventory or the existing utility tray request.
 //! [design] Only the handle starts a gesture. System edges, look, controls and item
-//! taps are never global swipe listeners. Tray/VATS recognition is a later adapter.
+//! taps are never global swipe listeners. Both destinations share this recognizer.
 use bevy::{
     ecs::system::SystemParam,
     input::touch::{TouchInput, TouchPhase},
     prelude::*,
     window::PrimaryWindow,
 };
-use nvf_play::settings::{self, Setting, Slider};
+use nvf_play::settings::{self, ChoiceList, Setting, Slider};
 use std::collections::HashSet;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Destination {
+    #[default]
+    Inventory,
+    UtilityTray,
+}
+impl Destination {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Inventory => "Inventory",
+            Self::UtilityTray => "Utility tray",
+        }
+    }
+    fn named(value: &str) -> Option<Self> {
+        match value {
+            "Inventory" => Some(Self::Inventory),
+            "Utility tray" => Some(Self::UtilityTray),
+            _ => None,
+        }
+    }
+}
 #[derive(Resource, Clone, Copy)]
 pub(super) struct Options {
     pub enabled: bool,
     pub threshold: f32,
+    pub destination: Destination,
 }
 impl Default for Options {
     fn default() -> Self {
         Self {
             enabled: false,
             threshold: 96.0,
+            destination: Destination::Inventory,
         }
     }
 }
@@ -43,6 +66,7 @@ pub(super) struct Drawer {
     drag: Option<Drag>,
     swallowed: HashSet<u64>,
     focused: Option<bool>,
+    stamp: Option<(u32, u32, Destination)>,
 }
 
 pub(super) fn handle(size: Vec2, bottom: f32) -> Rect {
@@ -123,14 +147,34 @@ pub(super) struct Bridge<'w> {
     pub safe: Res<'w, SafeBottom>,
     pub capture: Option<Res<'w, nvf_play::bindings::KeyboardCapture>>,
     open: MessageWriter<'w, nvf_play::menu::OpenInventory>,
+    tray: MessageWriter<'w, super::hotbar::UtilityTrayRequest>,
+    hotbar: Option<Res<'w, super::hotbar::Preferences>>,
 }
 impl Bridge<'_> {
     pub fn allowed(&self) -> bool {
         self.options.enabled
+            && (self.options.destination == Destination::Inventory
+                || self.hotbar.as_ref().is_some_and(|p| p.tray_available()))
             && self.drawer.focused != Some(false)
             && !self.capture.as_ref().is_some_and(|c| c.0)
     }
+    pub fn opens_tray(&self) -> bool {
+        self.options.destination == Destination::UtilityTray
+    }
     pub fn event(&mut self, event: &TouchInput, size: Vec2, unclaimed: bool) -> (bool, bool) {
+        let stamp = (
+            self.options.threshold.to_bits(),
+            self.safe.0.to_bits(),
+            self.options.destination,
+        );
+        if self.drawer.stamp != Some(stamp) {
+            self.drawer.cancel();
+            self.drawer.stamp = Some(stamp);
+        }
+        if !self.allowed() {
+            self.drawer.cancel();
+            return (false, false);
+        }
         let result = self.drawer.event(
             event,
             size,
@@ -139,7 +183,14 @@ impl Bridge<'_> {
             unclaimed,
         );
         if result.1 {
-            self.open.write(nvf_play::menu::OpenInventory);
+            match self.options.destination {
+                Destination::Inventory => {
+                    self.open.write(nvf_play::menu::OpenInventory);
+                }
+                Destination::UtilityTray => {
+                    self.tray.write(super::hotbar::UtilityTrayRequest(true));
+                }
+            }
         }
         result
     }
@@ -195,16 +246,19 @@ type VisualState<'w> = (
     Res<'w, super::TouchState>,
     Res<'w, super::Layout>,
     Res<'w, super::modal::Capture>,
+    Option<Res<'w, super::hotbar::Preferences>>,
 );
 
+type HintFilter = (With<Hint>, Without<Handle>);
+
 fn visual(
-    (options, drawer, safe, state, layout, modal): VisualState<'_>,
+    (options, drawer, safe, state, layout, modal, hotbar): VisualState<'_>,
     capture: Option<Res<nvf_play::bindings::KeyboardCapture>>,
     bindings: Option<Res<nvf_play::bindings::Bindings>>,
     pads: Query<&Gamepad>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut handle_nodes: Query<(&mut Node, &mut Visibility), HandleFilter>,
-    mut hints: Query<&mut Visibility, (With<Hint>, Without<Handle>)>,
+    mut hints: Query<(&mut Text, &mut Visibility), HintFilter>,
 ) {
     let Ok(window) = windows.single() else { return };
     let size = Vec2::new(window.width(), window.height());
@@ -213,6 +267,10 @@ fn visual(
         .is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller)
         && !pads.is_empty();
     let show = options.enabled
+        && (options.destination == Destination::Inventory
+            || hotbar.as_ref().is_some_and(|p| p.tray_available()))
+        && state.interactive_actions
+        && !state.ui_capture
         && !modal.blocking()
         && !controller
         && state.playing
@@ -233,7 +291,12 @@ fn visual(
         node.width = px(rect.width());
         node.height = px(rect.height());
     }
-    for mut visible in &mut hints {
+    for (mut text, mut visible) in &mut hints {
+        text.0 = match options.destination {
+            Destination::Inventory => "Pip-Boy",
+            Destination::UtilityTray => "Utility tray",
+        }
+        .into();
         *visible = if layout.config.hints {
             Visibility::Inherited
         } else {
@@ -258,27 +321,56 @@ fn insets(mut safe: ResMut<SafeBottom>, time: Res<Time<Real>>, mut last: Local<f
     }
 }
 
+fn set_destination(world: &mut World, name: &str) -> bool {
+    let Some(destination) = Destination::named(name) else {
+        return false;
+    };
+    world.resource_mut::<Drawer>().cancel();
+    world.resource_mut::<Options>().destination = destination;
+    true
+}
+
 pub(super) fn install(app: &mut App) {
     app.init_resource::<Options>()
         .init_resource::<Drawer>()
         .init_resource::<SafeBottom>()
         .add_message::<nvf_play::menu::OpenInventory>()
+        .add_message::<super::hotbar::UtilityTrayRequest>()
         .add_systems(Startup, spawn)
         .add_systems(Update, visual);
     #[cfg(target_os = "android")]
     app.add_systems(Update, insets);
     settings::add_setting(app, Setting {
-        key: "touch-pipboy-swipe-v1", group: "Controller", label: "Swipe to Pip-Boy",
-        note: "Show a bottom handle. Drag it upward and release to open the Pip-Boy. Android system navigation stays available.",
+        key: "touch-pipboy-swipe-v1", group: "Controller", label: "Bottom swipe handle",
+        note: "Show a bottom handle. Drag upward and release to open the chosen destination. Android system navigation stays available.",
         get: |w| w.resource::<Options>().enabled, set: |w,v| w.resource_mut::<Options>().enabled = v, slider: None,
+    });
+    settings::add_choice_list(app, Setting {
+        key: "touch-bottom-swipe-target-v1", group: "Controls", label: "Bottom swipe opens",
+        note: "Choose Inventory or Utility tray for the same bottom handle. Utility tray needs Touch hotbar and Pinned consumable tray enabled.",
+        get: |_| false, set: |_,_| {}, slider: None,
+    }, ChoiceList {
+        names: |_| vec!["Inventory".into(), "Utility tray".into()],
+        chosen: |w| w.resource::<Options>().destination.name().into(),
+        pick: set_destination,
+        save: |w| w.resource::<Options>().destination.name().into(),
+        load: set_destination,
+        ask_keep: false,
+    });
+    settings::set_choice_unavailable(app, "touch-bottom-swipe-target-v1", |w, name| {
+        (name == "Utility tray"
+            && !w
+                .get_resource::<super::hotbar::Preferences>()
+                .is_some_and(|p| p.tray_available()))
+        .then(|| "Enable Touch hotbar and Pinned consumable tray first.".into())
     });
     settings::add_setting(
         app,
         Setting::slider(
             "touch-pipboy-distance-v1",
             "Controller",
-            "Pip-Boy swipe distance",
-            "Upward distance needed before releasing the bottom handle opens the Pip-Boy.",
+            "Bottom swipe distance",
+            "Upward distance needed before releasing the bottom handle opens the chosen destination.",
             Slider::choice(
                 39,
                 |w| (w.resource::<Options>().threshold - 48.0) / 152.0,
@@ -440,5 +532,57 @@ mod tests {
             ),
             (true, false)
         );
+    }
+
+    #[test]
+    fn destination_defaults_legacy_and_roundtrips_ini_without_changing_enable_or_distance() {
+        fn app(path: &std::path::Path) -> App {
+            let mut app = App::new();
+            install(&mut app);
+            super::super::hotbar::install(&mut app);
+            app.insert_resource(settings::SettingsFile(Some(path.to_path_buf())));
+            app
+        }
+        let dir = std::env::temp_dir().join(format!("nvf-drawer-target-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("settings.ini");
+        std::fs::write(&path, "[Other]\nkeep=unchanged\n").unwrap();
+        let mut first = app(&path);
+        settings::apply_stored(first.world_mut());
+        assert_eq!(
+            first.world().resource::<Options>().destination,
+            Destination::Inventory
+        );
+        assert!(!first.world().resource::<Options>().enabled);
+        assert_eq!(first.world().resource::<Options>().threshold, 96.);
+        let row = first
+            .world()
+            .resource::<settings::Settings>()
+            .index("touch-hotbar")
+            .unwrap();
+        assert_eq!(settings::flip(first.world_mut(), row), Some(true));
+        let row = first
+            .world()
+            .resource::<settings::Settings>()
+            .index("touch-bottom-swipe-target-v1")
+            .unwrap();
+        assert!(settings::pick(first.world_mut(), row, "Utility tray"));
+        let mut back = app(&path);
+        settings::apply_stored(back.world_mut());
+        assert_eq!(
+            back.world().resource::<Options>().destination,
+            Destination::UtilityTray
+        );
+        assert!(
+            !back.world().resource::<Options>().enabled,
+            "target choice must not enable legacy switch"
+        );
+        assert_eq!(back.world().resource::<Options>().threshold, 96.);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            fnv_install::ini_get(&text, "Other", "keep").as_deref(),
+            Some("unchanged")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

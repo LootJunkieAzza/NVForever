@@ -158,8 +158,10 @@ pub const SECTIONS: &[Section] = &[
             "display-sync",
             "frame-cap",
             "ui-scale",
+            "menu-scale",
         ],
     ),
+
     section(
         "Display",
         Some("Interface"),
@@ -222,6 +224,7 @@ pub const SECTIONS: &[Section] = &[
         &[
             "touch-practice-v1",
             "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-size", "touch-hotbar-tray",
+            "touch-bottom-swipe-target-v1",
             "touch-pipboy-swipe-v1",
             "touch-pipboy-distance-v1",
             "touch-icon-family",
@@ -522,14 +525,16 @@ mod tests {
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
     /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 146] = [
+    const KNOWN: [(&str, &str); 148] = [
         ("touch-practice-v1", "Controller"),
         ("touch-hotbar", "Controls"),
         ("touch-hotbar-slots", "Controls"),
         ("touch-hotbar-size", "Controls"),
         ("touch-hotbar-tray", "Controls"),
+        ("touch-bottom-swipe-target-v1", "Controls"),
         ("touch-pipboy-swipe-v1", "Controller"),
         ("touch-pipboy-distance-v1", "Controller"),
+
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -609,6 +614,7 @@ mod tests {
         ("grade", "Display"),
         ("field-of-view", "Display"),
         ("ui-scale", "Display"),
+        ("menu-scale", "Display"),
         ("hud-health-size-v1", "Display"),
         ("hud-action-points-size-v1", "Display"),
         ("hud-compass-size-v1", "Display"),
@@ -617,6 +623,7 @@ mod tests {
         ("mobile-resolution", "Display"),
         ("mobile-thermal-auto", "Display"),
         ("mobile-thermal-status", "Display"),
+
         ("fps-counter", "Display"),
         ("fps-counter-fps", "Display"),
         ("fps-counter-low", "Display"),
@@ -754,6 +761,7 @@ mod tests {
                     "[Touch]",
                     "touch-practice-v1",
                     "touch-hotbar", "touch-hotbar-slots", "touch-hotbar-size", "touch-hotbar-tray",
+                    "touch-bottom-swipe-target-v1",
                     "touch-pipboy-swipe-v1",
                     "touch-pipboy-distance-v1",
                     "touch-icon-family",
@@ -814,6 +822,7 @@ mod tests {
             assert_eq!(at(key), "Controls");
             assert!(controller_only(key));
         }
+        assert_eq!(at("touch-bottom-swipe-target-v1"), "Controls > Touch");
         assert_eq!(at("touch-pipboy-swipe-v1"), "Controls > Touch");
         assert_eq!(at("touch-practice-v1"), "Controls > Touch");
         assert_eq!(at("touch-pipboy-distance-v1"), "Controls > Touch");

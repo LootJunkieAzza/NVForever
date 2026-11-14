@@ -9,6 +9,10 @@ use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
+/// Wrapper-owned touch UI capture; absent keeps desktop/headless behavior unchanged.
+#[derive(Resource,Default)]
+pub struct OverlayCapture(pub bool);
+
 /// Rechecked after device switching, at the actual picking boundary.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct Admission<'w> {
@@ -17,6 +21,7 @@ pub struct Admission<'w> {
     switching: Option<Res<'w, crate::pad::TouchDeviceSwitch>>,
     capture: Option<Res<'w, crate::bindings::KeyboardCapture>>,
     camera: Option<Res<'w, crate::free_cam::FreeCam>>,
+    overlay: Option<Res<'w,OverlayCapture>>,
 }
 impl Admission<'_> {
     pub fn allows(&self) -> bool {
@@ -27,6 +32,7 @@ impl Admission<'_> {
             && self.switching.as_ref().is_none_or(|s| s.allows_actions())
             && self.capture.as_ref().is_none_or(|c| !c.0)
             && self.camera.as_ref().is_none_or(|c| !c.active)
+            && self.overlay.as_ref().is_none_or(|c| !c.0)
     }
 }
 
@@ -214,5 +220,23 @@ impl TouchItems {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+    #[derive(Resource,Default)]struct Seen(bool);
+    fn read(admission:Admission,mut seen:ResMut<Seen>){seen.0=admission.allows();}
+    #[test]
+    fn wrapper_touch_overlay_capture_is_optional_and_blocks_admission_without_hardware_mutation(){
+        let mut app=App::new();app.init_resource::<Seen>().init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update,read);
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyW);
+        app.update();assert!(app.world().resource::<Seen>().0);
+        app.insert_resource(OverlayCapture(true));app.update();assert!(!app.world().resource::<Seen>().0);
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW));
+        app.world_mut().resource_mut::<OverlayCapture>().0=false;app.update();assert!(app.world().resource::<Seen>().0);
+        app.world_mut().remove_resource::<OverlayCapture>();app.update();assert!(app.world().resource::<Seen>().0);
     }
 }

@@ -89,6 +89,10 @@ pub(super) fn axes(delta_pixels: Vec2, radius: f32, dead_zone: f32) -> Vec2 {
 #[derive(Default)]
 pub(super) struct Taps(Option<(f64, Vec2)>);
 impl Taps {
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
     pub fn clear(&mut self) {
         self.0 = None;
     }
@@ -113,6 +117,15 @@ pub(super) fn lock_rect(layout: &Layout, state: &TouchState, size: Vec2) -> Rect
             || layout.config.center(Target::Stick, size),
             |c| c.origin * size,
         );
+    lock_rect_at(layout, size, origin)
+}
+pub(super) fn fixed_lock_rect(layout: &Layout, size: Vec2) -> Rect {
+    if !size.is_finite() || size.min_element() < 64.0 {
+        return Rect::default();
+    }
+    lock_rect_at(layout, size, layout.config.center(Target::Stick, size))
+}
+fn lock_rect_at(layout: &Layout, size: Vec2, origin: Vec2) -> Rect {
     let radius = layout.config.diameter(Target::Stick, size) * 0.5;
     let center =
         (origin - Vec2::Y * radius * 1.6).clamp(Vec2::splat(32.0), size - Vec2::splat(32.0));
@@ -209,7 +222,10 @@ fn show(
     options: Res<Options>,
     state: Res<TouchState>,
     layout: Res<Layout>,
-    control: Option<Res<PlayerControl>>,
+    (control, occlusion): (
+        Option<Res<PlayerControl>>,
+        Option<Res<super::hotbar::Occlusion>>,
+    ),
     window: Query<&Window, With<PrimaryWindow>>,
     mut markers: Query<(&mut Node, &mut Visibility), With<LockMarker>>,
     mut captions: Query<&mut Text, With<LockCaption>>,
@@ -221,8 +237,14 @@ fn show(
     for (mut node, mut visibility) in &mut markers {
         let visible = options.run_lock
             && state.interactive_actions
+            && !state.ui_capture
             && layout.editor.is_none()
-            && size.is_some_and(|size| lock_available(&layout, &state, size));
+            && size.is_some_and(|size| {
+                lock_available(&layout, &state, size)
+                    && occlusion
+                        .as_ref()
+                        .is_none_or(|bar| !bar.blocks(lock_rect(&layout, &state, size)))
+            });
         *visibility = if visible {
             Visibility::Inherited
         } else {

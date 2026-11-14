@@ -95,6 +95,7 @@ struct TouchState {
     pulses: Vec<Control>,
     viewport: Option<Vec2>,
     interactive_actions: bool,
+    ui_capture: bool,
     physical_keys: HashSet<KeyCode>,
     physical_mouse: HashSet<MouseButton>,
     managed_keys: HashSet<KeyCode>,
@@ -479,7 +480,7 @@ fn input(
 ) {
     let modal_captures = modal.refresh();
     let previous_move = movement.clear_sample();
-    state.pulses.clear(); state.interactive_actions = false;
+    state.pulses.clear(); state.interactive_actions = false; state.ui_capture = false;
     let options = movement.options();
     if state.movement_options != options { state.cancel_touch(); state.movement_options = options; }
 
@@ -558,8 +559,24 @@ fn input(
     state.move_deadzone = Vec2::splat(
         layout.config.diameter(Target::Stick, size) * 0.5 * layout.config.aiming.dead_zone,
     ) / size;
+    let mut reserved = Vec::new();
+    if options.run_lock { reserved.push((movement::fixed_lock_rect(&layout,size),0.0)); }
+    if layout.config.floating {
+        if let Some(contact)=state.contacts.values().find(|c|matches!(c.role,Role::Move)) {
+            let origin=contact.origin*size;
+            let radius=layout.config.diameter(Target::Stick,size)*0.65;
+            if origin != layout.config.center(Target::Stick,size) {
+                reserved.push((Rect::from_center_size(origin,Vec2::splat(radius*2.0)),radius));
+            }
+        }
+    }
     bar.prepare(size, interactive && !controller && layout.editor.is_none() && !modal_captures
-        && platform.as_ref().is_none_or(|gate|gate.allows_actions()), playing);
+        && platform.as_ref().is_none_or(|gate|gate.allows_actions()), playing,
+        &layout.config,gyro_options.enabled,&reserved);
+    state.ui_capture = bar.captures_actions();
+    if state.ui_capture {
+        state.cancel_touch(); held_sneak.active = false; drawer.drawer.cancel();
+    }
     let mut pause = just_suspended && playing;
     sync_touch(&mut state, bindings.as_deref(), pause);
     if resized {
@@ -605,7 +622,7 @@ fn input(
         touches.clear();
         return;
     }
-    state.interactive_actions = playing && interactive && layout.editor.is_none();
+    state.interactive_actions = playing && interactive && layout.editor.is_none() && !state.ui_capture;
     let mut drawer_committed = false;
     let mut gesture_committed = false;
     for t in touches.read() {
@@ -615,6 +632,13 @@ fn input(
         }
         if !t.position.is_finite() { state.cancel_touch(); sync_touch(&mut state, bindings.as_deref(), false); continue; }
         let p = t.position / size;
+        if state.ui_capture {
+            // The UI owner still receives its close/drag events; background routes do not.
+            bar.event(t,false);
+            state.cancel_touch(); held_sneak.active = false; drawer.drawer.cancel();
+            sync_touch(&mut state,bindings.as_deref(),pause);
+            continue;
+        }
         if layout.editor.is_some() {
             bar.cancel();
             drawer.drawer.cancel();
@@ -624,10 +648,8 @@ fn input(
             continue;
         }
         if drawer_allowed {
-            let unclaimed = layout
-                .config
-                .hit(t.position, size, playing, false)
-                .is_none();
+            let unclaimed = layout.config.hit_filtered(t.position,size,playing,false,
+                |i| i != gyro::BUTTON || gyro_options.enabled).is_none();
             let (consumed, opened) = drawer.event(t, size, unclaimed);
             if consumed {
                 if opened {
@@ -637,16 +659,27 @@ fn input(
                 }
                 sync_touch(&mut state, bindings.as_deref(), pause);
                 if opened {
+                    // The tray request is dispatched in Update; admit its shared
+                    // capture now so the later raw gyro reader also drops the tail.
+                    state.ui_capture = drawer.opens_tray();
                     drawer_committed = true;
                     break;
                 }
                 continue;
             }
         }
-        let unclaimed=layout.config.hit(t.position,size,playing,false).is_none()
+        let unclaimed=layout.config.hit_filtered(t.position,size,playing,false,
+            |i| i != gyro::BUTTON || gyro_options.enabled).is_none()
             && !layout::utility_rect(false,size).contains(t.position)
             && !layout::utility_rect(true,size).contains(t.position);
-        if bar.event(t,unclaimed) { state.taps.clear(); continue; }
+        let consumed = bar.event(t,unclaimed);
+        if bar.captures_actions() {
+            // Capture can begin on a long-press release midway through this batch.
+            state.ui_capture = true;
+            state.cancel_touch(); held_sneak.active = false; drawer.drawer.cancel();
+            sync_touch(&mut state,bindings.as_deref(),pause);
+        }
+        if consumed || state.ui_capture { state.taps.clear(); continue; }
         if t.phase == TouchPhase::Started && interactive {
             if layout::utility_rect(false, size).contains(t.position) {
                 layout.open(playing);
@@ -663,10 +696,10 @@ fn input(
         match t.phase {
             TouchPhase::Started if interactive => {
                 if state.contacts.contains_key(&t.id) { continue; }
-                let role = if playing && options.run_lock && movement::lock_available(&layout, &state, size) && movement::lock_rect(&layout, &state, size).contains(t.position) {
+                let role = if playing && options.run_lock && movement::lock_available(&layout, &state, size) && !bar.blocks(movement::lock_rect(&layout,&state,size)) && movement::lock_rect(&layout, &state, size).contains(t.position) {
                     Some(Role::RunLock)
-                } else { match layout.config.hit(t.position, size, playing, false)
-                    .filter(|t| *t != Target::Button(gyro::BUTTON) || gyro_options.enabled) {
+                } else { match layout.config.hit_filtered(t.position,size,playing,false,
+                    |i| i != gyro::BUTTON || gyro_options.enabled) {
 
                     Some(Target::Button(i)) => Some(Role::Button(i)),
                     Some(Target::Stick) => Some(Role::Move),
@@ -736,7 +769,7 @@ fn input(
             }
             TouchPhase::Ended => {
                 let lock = movement::lock_rect(&layout, &state, size);
-                let lock_available = movement::lock_available(&layout, &state, size);
+                let lock_available = movement::lock_available(&layout, &state, size) && !bar.blocks(lock);
                 let contact = state.contacts.remove(&t.id);
                 if state.look_owner == Some(t.id) { state.look_owner = None; }
                 if let Some(c) = contact {
@@ -770,14 +803,14 @@ fn input(
     if drawer_committed || gesture_committed {
         touches.clear();
     }
-    if options.analog && state.interactive_actions {
+    if options.analog && state.interactive_actions && !state.ui_capture {
         let axes = state.contacts.values().find(|c| matches!(c.role, Role::Move)).map_or(Vec2::ZERO, |c|
             movement::axes((c.position-c.origin)*size, layout.config.diameter(Target::Stick, size)*0.5, layout.config.aiming.dead_zone));
         movement.publish(axes, previous_move);
     }
     sync_touch(&mut state, bindings.as_deref(), pause);
     held_sneak.active = state.hold_sneak && playing && interactive && !controller
-        && layout.editor.is_none() && state.contacts.values().any(|c| matches!(c.role, Role::Button(i) if BUTTONS[i].control == Some(Control::CrouchSneak)));
+        && layout.editor.is_none() && !state.ui_capture && state.contacts.values().any(|c| matches!(c.role, Role::Button(i) if BUTTONS[i].control == Some(Control::CrouchSneak)));
 }
 
 #[derive(Component, Clone, Copy)]
@@ -1241,7 +1274,7 @@ fn show_labels(
             }
         }
         *visibility =
-            if visible && !practice.blocking() && !modal.blocking() && (!controller || editing) {
+            if visible && !state.ui_capture && !practice.blocking() && !modal.blocking() && (!controller || editing) {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -2762,6 +2795,348 @@ mod tests {
         assert_eq!(*app.world().get::<Visibility>(marker).unwrap(),Visibility::Hidden);
         assert!(app.world().resource::<TouchState>().contacts.is_empty());assert_eq!(native_velocity(&app),[0.0;2]);
 
+    }
+
+    fn mixed_hotbar_phone_scene(size: Vec2, preset: &str, count: usize) -> (App, Entity) {
+        use nvf_play::{hotkeys::Hotkeys, settings};
+        let (mut app, window) = movement_scene();
+        app.insert_resource(settings::SettingsFile(None));
+        let forms = Box::leak(Box::new(fnv_sim::FormStore::default()));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        app.insert_resource(nvf_play::sim::SimState {
+            forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()),
+        }).init_resource::<Hotkeys>();
+        hotbar::reset_collision_fixture(app.world_mut());
+        app.world_mut().get_mut::<Window>(window).unwrap().resolution.set(size.x, size.y);
+        app.world_mut().resource_mut::<Layout>().config = layout::Config::default();
+        app.world_mut().resource_mut::<Layout>().config.apply_preset(preset);
+        for key in ["touch-hotbar", "touch-gyro-v1", "touch-auto-move-lock-v1"] {
+            let index = app.world().resource::<settings::Settings>().index(key).unwrap();
+            assert_eq!(settings::flip(app.world_mut(), index), Some(true), "production setting {key}");
+        }
+        let index = app.world().resource::<settings::Settings>().index("touch-hotbar-slots").unwrap();
+        let wanted = count.to_string();
+        let current = (app.world().resource::<settings::Settings>().choices(index).unwrap().chosen)(app.world());
+        if current != wanted {
+            assert!(settings::pick(app.world_mut(), index, &wanted));
+        } else {
+            assert_eq!(current, wanted, "default production choice is already selected");
+        }
+        app.update(); // Viewport/settings admission drains this frame.
+        app.update();
+        (app, window)
+    }
+
+    fn mixed_hotbar_tiles(app: &mut App) -> Vec<(String, Rect)> {
+        let world = app.world_mut();
+        let mut out = Vec::new();
+        let mut query = world.query::<(&Text, &ChildOf)>();
+        for (label, parent) in query.iter(world) {
+            if world.get::<GlobalZIndex>(parent.parent()).is_none_or(|z| z.0 != 2200) { continue; }
+            let Some(node) = world.get::<Node>(parent.parent()) else { continue };
+            let (Val::Px(x), Val::Px(y), Val::Px(w), Val::Px(h)) = (node.left, node.top, node.width, node.height) else { panic!("hotbar tile lost pixel bounds") };
+            if label.0 == "Pins" || label.0.split_whitespace().next().is_some_and(|n| n.parse::<usize>().is_ok()) {
+                out.push((label.0.clone(), Rect::from_corners(Vec2::new(x,y), Vec2::new(x+w,y+h))));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn enabled_hotbar_preserves_real_jump_stick_and_fixed_gyro_routes_on_phone_presets() {
+        for size in [Vec2::new(640.0,360.0), Vec2::new(792.0,363.0)] {
+            for (preset, _) in profiles::PRESETS {
+                for count in [4,6,8] {
+                    let (mut app, window) = mixed_hotbar_phone_scene(size, preset, count);
+                    let case = format!("{size:?}/{preset}/{count}");
+                    let jump = BUTTONS.iter().position(|b| b.control == Some(Control::Jump)).unwrap();
+                    let center = app.world().resource::<Layout>().config.center(Target::Button(jump),size);
+                    touch(&mut app,window,300,TouchPhase::Started,center.x,center.y); app.update();
+                    assert!(app.world().resource::<nvf_play::player::MoveIntent>().jump, "{case}: hotbar stole Jump center");
+                    touch(&mut app,window,300,TouchPhase::Ended,center.x,center.y); app.update();
+                    app.world_mut().resource_mut::<nvf_play::player::MoveIntent>().jump = false;
+                    let config = &app.world().resource::<Layout>().config;
+                    let center = config.center(Target::Stick,size);
+                    let r = config.diameter(Target::Stick,size)*0.45;
+                    for (probe, direction) in [Vec2::NEG_Y,Vec2::new(0.707,-0.707),Vec2::new(-0.707,-0.707)].into_iter().enumerate() {
+                        let point = center + direction*r;
+                        assert_eq!(app.world().resource::<Layout>().config.hit(point,size,true,false),Some(Target::Stick));
+                        let id = 310+probe as u64;
+                        touch(&mut app,window,id,TouchPhase::Started,point.x,point.y); app.update();
+                        touch(&mut app,window,id,TouchPhase::Moved,point.x,point.y-24.0); app.update();
+                        assert!(native_velocity(&app)[1] > 0.0, "{case}: hotbar stole admitted stick point {point:?}");
+                        touch(&mut app,window,id,TouchPhase::Ended,point.x,point.y-24.0); app.update();
+                    }
+                    let gyro = app.world().resource::<Layout>().config.center(Target::Button(gyro::BUTTON),size);
+                    assert!((gyro-Vec2::new(size.x*0.5,size.y*0.34)).length()<0.01,"{case}: fixed gyro anchor moved");
+                    let mut reader = bevy::ecs::message::MessageCursor::<nvf_play::weapon_wheel::TouchHotkey>::default();
+                    reader.read(app.world().resource::<Messages<nvf_play::weapon_wheel::TouchHotkey>>()).for_each(drop);
+                    touch(&mut app,window,320,TouchPhase::Started,gyro.x,gyro.y); app.update();
+                    assert!(app.world().resource::<TouchState>().contacts.get(&320).is_some_and(|c| matches!(c.role,Role::Button(i) if i==gyro::BUTTON)), "{case}: hotbar stole gyro target");
+                    assert!(app.world().resource::<gyro::State>().active(app.world().resource::<gyro::Options>()));
+                    touch(&mut app,window,320,TouchPhase::Ended,gyro.x,gyro.y); app.update();
+                    assert_eq!(reader.read(app.world().resource::<Messages<nvf_play::weapon_wheel::TouchHotkey>>()).count(),0,"{case}: gyro also activated hotbar");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rendered_hotbar_slots_and_pins_are_reachable_without_covering_native_targets() {
+        for size in [Vec2::new(640.0,360.0),Vec2::new(792.0,363.0)] {
+            for (preset, _) in profiles::PRESETS {
+                for count in [4,6,8] {
+                    let (mut app, window) = mixed_hotbar_phone_scene(size,preset,count);
+                    let case = format!("{size:?}/{preset}/{count}");
+                    let tiles = mixed_hotbar_tiles(&mut app);
+                    assert_eq!(tiles.len(),count+1,"{case}: missing rendered slot/tray");
+                    for (label,rect) in &tiles {
+                        assert!(rect.width()>=48.0 && rect.height()>=48.0);
+                        let config=&app.world().resource::<Layout>().config;
+                        for i in (0..9).chain(std::iter::once(gyro::BUTTON)) {
+                            let center=config.center(Target::Button(i),size);
+                            let point=center.clamp(rect.min+Vec2::splat(0.25),rect.max-Vec2::splat(0.25));
+                            assert!(config.hit(point,size,true,false).is_none(),"{case}/{label}: visible bar intersects gameplay control {i}");
+                        }
+                        let point=config.center(Target::Stick,size).clamp(rect.min+Vec2::splat(0.25),rect.max-Vec2::splat(0.25));
+                        assert!(config.hit(point,size,true,false).is_none(),"{case}/{label}: visible bar intersects stick");
+                        for help in [false,true] {
+                            let overlap=rect.intersect(layout::utility_rect(help,size));
+                            assert!(overlap.width()<=0.5 || overlap.height()<=0.5,"{case}/{label}: bar covers cog/help");
+                        }
+                        let lock=movement::lock_rect(app.world().resource::<Layout>(),app.world().resource::<TouchState>(),size);
+                        if movement::lock_available(app.world().resource::<Layout>(),app.world().resource::<TouchState>(),size) {
+                            let overlap=rect.intersect(lock);
+                            assert!(overlap.width()<=0.5 || overlap.height()<=0.5,"{case}/{label}: bar covers AutoMove target");
+                        }
+                    }
+                    let mut reader=bevy::ecs::message::MessageCursor::<nvf_play::weapon_wheel::TouchHotkey>::default();
+                    for (i,(label,rect)) in tiles.iter().enumerate() {
+                        let center=rect.center();let id=400+i as u64;
+                        touch(&mut app,window,id,TouchPhase::Started,center.x,center.y);
+                        touch(&mut app,window,id,TouchPhase::Ended,center.x,center.y);app.update();
+                        let emitted=reader.read(app.world().resource::<Messages<nvf_play::weapon_wheel::TouchHotkey>>()).map(|m|m.0).collect::<Vec<_>>();
+                        if label=="Pins" { assert!(hotbar::tray_open_collision_fixture(app.world())); assert!(emitted.is_empty()); }
+                        else { assert_eq!(emitted,[label.split_whitespace().next().unwrap().parse::<usize>().unwrap()-1],"{case}/{label}: rendered slot not reachable exactly once"); }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hotbar_context_move_is_owned_ui_and_never_also_activates_raw_gyro() {
+        let (mut app,window)=mixed_hotbar_phone_scene(Vec2::new(640.0,360.0),"classic",8);
+        let tiles=mixed_hotbar_tiles(&mut app);
+        let first=tiles.iter().find(|(label,_)|label.starts_with("1 ")).unwrap().1.center();
+        touch(&mut app,window,600,TouchPhase::Started,first.x,first.y);app.update();
+        for _ in 0..14 {app.update();} // Actual production hold threshold, not synthetic Context state.
+        touch(&mut app,window,600,TouchPhase::Ended,first.x,first.y);app.update();
+        let point={
+            let world=app.world_mut();
+            let mut query=world.query::<(&Text,&ChildOf)>();
+            let parent=query.iter(world).find(|(text,_)|text.0=="Move bar").unwrap().1.parent();
+            let node=world.get::<Node>(parent).unwrap();
+            let (Val::Px(x),Val::Px(y),Val::Px(w),Val::Px(h))=(node.left,node.top,node.width,node.height) else {panic!("context pixel bounds")};
+            Vec2::new(x+w*0.5,y+h*0.5)
+        };
+        touch(&mut app,window,601,TouchPhase::Started,point.x,point.y);app.update();
+        assert!(!app.world().resource::<gyro::State>().active(app.world().resource::<gyro::Options>()),
+            "hotbar context and raw gyro reader cannot own the same finger");
+        touch(&mut app,window,601,TouchPhase::Ended,point.x,point.y);app.update();
+        let world=app.world_mut();
+        assert!(world.query::<&Text>().iter(world).any(|t|t.0=="Drag the bar to reposition it."),"actual Move command must still execute");
+    }
+
+
+    fn choose_swipe_destination(app: &mut App, name: &str) {
+        let registry=app.world().resource::<nvf_play::settings::Settings>();
+        let row=registry.index("touch-bottom-swipe-target-v1").unwrap();
+        let current=(registry.choices(row).unwrap().chosen)(app.world());
+        if current != name { assert!(nvf_play::settings::pick(app.world_mut(),row,name)); }
+        assert_eq!(app.world().resource::<drawer::Options>().destination.name(),name);
+    }
+    #[test]
+    fn bottom_swipe_routes_one_real_destination_and_utility_capture_drops_raw_tail() {
+        for target in ["Inventory","Utility tray"] {
+            let (mut app,w)=mixed_hotbar_phone_scene(Vec2::new(640.,360.),"classic",4);
+            app.world_mut().resource_mut::<drawer::Options>().enabled=true;
+            choose_swipe_destination(&mut app,target);
+            raw_key(&mut app,w,KeyCode::KeyW,ButtonState::Pressed);app.update();
+            let start=drawer::handle(Vec2::new(640.,360.),24.).center();
+            touch(&mut app,w,810,TouchPhase::Started,start.x,start.y);app.update();
+            touch(&mut app,w,810,TouchPhase::Ended,start.x,start.y-120.);
+            let gyro=app.world().resource::<Layout>().config.center(Target::Button(gyro::BUTTON),Vec2::new(640.,360.));
+            touch(&mut app,w,811,TouchPhase::Started,gyro.x,gyro.y);
+            touch(&mut app,w,811,TouchPhase::Ended,gyro.x,gyro.y);
+            app.update();
+            let inventory=app.world().resource::<Messages<nvf_play::menu::OpenInventory>>().len();
+            assert_eq!(inventory,usize::from(target=="Inventory"),"single recognizer must not emit both destinations");
+            assert_eq!(hotbar::tray_open_collision_fixture(app.world()),target=="Utility tray");
+            assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW),"swipe cannot erase hardware owner");
+            assert!(app.world().resource::<TouchState>().contacts.is_empty());
+            assert!(app.world().resource::<TouchState>().taps.is_empty());
+            if target=="Utility tray" {
+                assert!(app.world().resource::<TouchState>().ui_capture);
+                assert!(!app.world().resource::<gyro::State>().active(app.world().resource::<gyro::Options>()),"raw gyro tail cannot coactivate with utility commit");
+            }
+        }
+    }
+    #[test]
+    fn utility_swipe_cancels_on_target_inset_disable_and_mode_changes() {
+        for scenario in 0..4 {
+            let (mut app,w)=mixed_hotbar_phone_scene(Vec2::new(640.,360.),"classic",4);
+            app.world_mut().resource_mut::<drawer::Options>().enabled=true;
+            choose_swipe_destination(&mut app,"Utility tray");
+            let start=drawer::handle(Vec2::new(640.,360.),24.).center();
+            touch(&mut app,w,820,TouchPhase::Started,start.x,start.y);app.update();
+            match scenario {
+                0=>choose_swipe_destination(&mut app,"Inventory"),
+                1=>app.world_mut().resource_mut::<drawer::SafeBottom>().0=48.,
+                2=>app.world_mut().resource_mut::<drawer::Options>().enabled=false,
+                _=>app.world_mut().resource_mut::<NextState<nvf_play::PlayState>>().set(nvf_play::PlayState::Menu),
+            }
+            touch(&mut app,w,820,TouchPhase::Ended,start.x,start.y-120.);app.update();
+            assert_eq!(app.world().resource::<Messages<nvf_play::menu::OpenInventory>>().len(),0,"scenario{scenario}");
+            assert!(!hotbar::tray_open_collision_fixture(app.world()),"scenario{scenario}: stale contact reopened tray");
+        }
+    }
+    #[test]
+    fn utility_swipe_is_disabled_with_hidden_tray_and_keeps_system_bottom_edge_free() {
+        for scenario in 0..3 {
+            let (mut app,w)=mixed_hotbar_phone_scene(Vec2::new(640.,360.),"classic",4);
+            choose_swipe_destination(&mut app,"Utility tray");
+            app.world_mut().resource_mut::<drawer::Options>().enabled=scenario!=0;
+            app.world_mut().resource_mut::<drawer::SafeBottom>().0=48.;
+            if scenario==1 {
+                let row=app.world().resource::<nvf_play::settings::Settings>().index("touch-hotbar-tray").unwrap();
+                assert_eq!(nvf_play::settings::flip(app.world_mut(),row),Some(false));
+            }
+            app.update();
+            let start=if scenario==2 { Vec2::new(320.,358.) } else { drawer::handle(Vec2::new(640.,360.),48.).center() };
+            touch(&mut app,w,830,TouchPhase::Started,start.x,start.y);app.update();
+            touch(&mut app,w,830,TouchPhase::Ended,start.x,start.y-120.);app.update();
+            assert_eq!(app.world().resource::<Messages<nvf_play::menu::OpenInventory>>().len(),0);
+            assert!(!hotbar::tray_open_collision_fixture(app.world()),"disabled/hidden/system-edge scenario{scenario}");
+        }
+    }
+
+    #[test]
+    fn utility_handle_visibility_matches_platform_input_admission_and_fresh_return() {
+        let (mut app,w)=mixed_hotbar_phone_scene(Vec2::new(640.,360.),"classic",4);
+        app.init_resource::<nvf_play::pad::PlatformInputGate>();
+        app.world_mut().resource_mut::<drawer::Options>().enabled=true;
+        choose_swipe_destination(&mut app,"Utility tray");app.update();
+        assert_eq!(drawer_visibility(&mut app),Visibility::Inherited);
+        app.world_mut().resource_mut::<nvf_play::pad::PlatformInputGate>().set_blocked(true);
+        app.update();assert_eq!(drawer_visibility(&mut app),Visibility::Hidden);
+        let start=drawer::handle(Vec2::new(640.,360.),24.).center();
+        touch(&mut app,w,840,TouchPhase::Started,start.x,start.y);
+        touch(&mut app,w,840,TouchPhase::Ended,start.x,start.y-120.);app.update();
+        assert!(!hotbar::tray_open_collision_fixture(app.world()));
+        app.world_mut().resource_mut::<nvf_play::pad::PlatformInputGate>().set_blocked(false);
+        app.update();assert_eq!(drawer_visibility(&mut app),Visibility::Inherited);
+        touch(&mut app,w,841,TouchPhase::Started,start.x,start.y);app.update();
+        touch(&mut app,w,841,TouchPhase::Ended,start.x,start.y-120.);app.update();
+        assert!(hotbar::tray_open_collision_fixture(app.world()),"fresh unblocked gesture reaches the actual tray");
+    }
+
+    #[test]
+    fn open_pins_cancellation_releases_hidden_capture_and_readmits_fresh_native_routes() {
+        use nvf_play::{bindings::InputDevice, settings};
+        for scenario in ["disabled", "controller", "focus", "modal", "platform"] {
+            let size = Vec2::new(640., 360.);
+            let (mut app, w) = mixed_hotbar_phone_scene(size, "classic", 4);
+            app.add_plugins(nvf_play::pad::InputSwitchPlugin);
+            app.world_mut().spawn(Gamepad::default());
+            raw_key(&mut app, w, KeyCode::KeyW, ButtonState::Pressed);
+            app.world_mut().write_message(MouseButtonInput {
+                window: w, button: MouseButton::Middle, state: ButtonState::Pressed,
+            });
+            app.update();
+            let pins = mixed_hotbar_tiles(&mut app).into_iter()
+                .find(|(label, _)| label == "Pins").unwrap().1.center();
+            touch(&mut app, w, 900, TouchPhase::Started, pins.x, pins.y);
+            touch(&mut app, w, 900, TouchPhase::Ended, pins.x, pins.y);
+            app.update(); app.update();
+            assert!(hotbar::tray_open_collision_fixture(app.world()), "{scenario}: real Pins tap must open tray");
+            assert!(app.world().resource::<TouchState>().ui_capture, "{scenario}: open tray owns gameplay input");
+            match scenario {
+                "disabled" => {
+                    let row = app.world().resource::<settings::Settings>().index("touch-hotbar").unwrap();
+                    assert_eq!(settings::flip(app.world_mut(), row), Some(false));
+                }
+                "controller" => nvf_play::bindings::set_device(app.world_mut(), InputDevice::Controller),
+                "focus" => {
+                    app.world_mut().get_mut::<Window>(w).unwrap().focused = false;
+                    app.world_mut().write_message(WindowFocused { window: w, focused: false });
+                }
+                "modal" => {
+                    app.init_resource::<nvf_play::terminal::touch::Settings>();
+                    app.world_mut().resource_mut::<nvf_play::terminal::touch::Settings>().enabled = true;
+                    app.insert_resource(nvf_play::terminal::TerminalScreen(Some(nvf_play::terminal::Session {
+                        reference: fnv_sim::FormId(1), base: fnv_sim::FormId(2),
+                        page: nvf_play::terminal::Page::LockedOut(["Local fixture".into(), "No game data".into()]),
+                    })));
+                }
+                "platform" => {
+                    app.init_resource::<nvf_play::pad::PlatformInputGate>();
+                    app.world_mut().resource_mut::<nvf_play::pad::PlatformInputGate>().set_blocked(true);
+                }
+                _ => unreachable!(),
+            }
+            app.update();
+            assert!(!hotbar::tray_open_collision_fixture(app.world()), "{scenario}: cancellation must close Pins");
+            assert!(!app.world().resource::<TouchState>().ui_capture, "{scenario}: hidden hotbar cannot retain capture");
+            let hardware_survives = scenario != "focus";
+            assert_eq!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW), hardware_survives,
+                "{scenario}: preserve hardware except the existing focus-loss release contract");
+            assert_eq!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle), hardware_survives);
+            match scenario {
+                "disabled" => {
+                    let row = app.world().resource::<settings::Settings>().index("touch-hotbar").unwrap();
+                    assert_eq!(settings::flip(app.world_mut(), row), Some(true));
+                }
+                "controller" => {
+                    let jump = BUTTONS.iter().position(|b| b.control == Some(Control::Jump)).unwrap();
+                    let point = app.world().resource::<Layout>().config.center(Target::Button(jump), size);
+                    touch(&mut app, w, 901, TouchPhase::Started, point.x, point.y);
+                    touch(&mut app, w, 901, TouchPhase::Ended, point.x, point.y);
+                    app.update();
+                    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+                    assert!(!app.world().resource::<nvf_play::pad::TouchDeviceSwitch>().allows_actions());
+                    assert!(!app.world().resource::<nvf_play::player::MoveIntent>().jump, "return touch only switches device");
+                }
+                "focus" => {
+                    app.world_mut().get_mut::<Window>(w).unwrap().focused = true;
+                    app.world_mut().write_message(WindowFocused { window: w, focused: true });
+                }
+                "modal" => app.world_mut().resource_mut::<nvf_play::terminal::TerminalScreen>().0 = None,
+                "platform" => app.world_mut().resource_mut::<nvf_play::pad::PlatformInputGate>().set_blocked(false),
+                _ => unreachable!(),
+            }
+            app.update(); app.update(); // Includes the dedicated modal's closing-frame drain.
+            assert!(!app.world().resource::<TouchState>().ui_capture);
+            assert!(!hotbar::tray_open_collision_fixture(app.world()), "{scenario}: return cannot resurrect Pins");
+            if scenario == "focus" {
+                raw_key(&mut app, w, KeyCode::KeyW, ButtonState::Pressed);
+                app.world_mut().write_message(MouseButtonInput {
+                    window: w, button: MouseButton::Middle, state: ButtonState::Pressed,
+                });
+                app.update();
+            }
+            let jump = BUTTONS.iter().position(|b| b.control == Some(Control::Jump)).unwrap();
+            let point = app.world().resource::<Layout>().config.center(Target::Button(jump), size);
+            touch(&mut app, w, 902, TouchPhase::Started, point.x, point.y); app.update();
+            assert!(app.world().resource::<nvf_play::player::MoveIntent>().jump, "{scenario}: fresh native Jump admitted");
+            touch(&mut app, w, 902, TouchPhase::Ended, point.x, point.y); app.update();
+            let point = app.world().resource::<Layout>().config.center(Target::Button(gyro::BUTTON), size);
+            touch(&mut app, w, 903, TouchPhase::Started, point.x, point.y); app.update();
+            assert!(app.world().resource::<gyro::State>().active(app.world().resource::<gyro::Options>()),
+                "{scenario}: fresh raw gyro route admitted");
+            assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW));
+            assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Middle));
+        }
     }
 
 }

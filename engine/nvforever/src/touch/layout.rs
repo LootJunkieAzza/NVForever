@@ -1,7 +1,7 @@
 //! Owned, versioned touch layouts. Coordinates are fractions of the current window.
 use super::BUTTONS;
 use bevy::prelude::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
@@ -116,11 +116,22 @@ impl Config {
         (self.placement(target).center * size).clamp(Vec2::splat(r), size - Vec2::splat(r))
     }
     pub fn hit(&self, point: Vec2, size: Vec2, playing: bool, editing: bool) -> Option<Target> {
+        self.hit_filtered(point, size, playing, editing, |_| true)
+    }
+    /// Shared active-control predicate for ordinary routing and owned overlay admission.
+    pub fn hit_filtered(
+        &self,
+        point: Vec2,
+        size: Vec2,
+        playing: bool,
+        editing: bool,
+        enabled: impl Fn(usize) -> bool,
+    ) -> Option<Target> {
         let mut nearest = None;
         let mut distance = f32::MAX;
         for (i, b) in BUTTONS.iter().enumerate() {
             let t = Target::Button(i);
-            if b.playing != playing || (!editing && !self.buttons[i].visible) {
+            if b.playing != playing || (!editing && !self.buttons[i].visible) || !enabled(i) {
                 continue;
             }
             let d = point.distance(self.center(t, size));
@@ -844,11 +855,9 @@ mod tests {
         c.load_slot(0).unwrap();
         assert_eq!(c.buttons, saved.buttons);
         assert_eq!(c.appearance, saved.appearance);
-        assert!(
-            c.encode()["profiles"][0]["layout"]
-                .get("profiles")
-                .is_none()
-        );
+        assert!(c.encode()["profiles"][0]["layout"]
+            .get("profiles")
+            .is_none());
         assert_eq!(c.encode()["profiles"].as_array().unwrap().len(), 2);
         c.rename_slot(0).unwrap();
         assert_eq!(c.slot_name(0), Some("My layout"));

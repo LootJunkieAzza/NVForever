@@ -33,3 +33,30 @@ it does not compete with the bottom swipe that opens Pip-Boy. The parent can sen
 the tray request from its inventory gesture owner. Configuration and gesture
 replays, plus actual App outcomes for assignment/use/refusal and lifecycle gates,
 are required before device qualification. No game-derived assets are added.
+
+
+[design] Responsive fitting reserves the actual active button shapes, expanded
+stick hit disk, reticle, help/editor targets, enabled gyro target and fixed
+run-lock rectangle. It searches bounded row/column placements at the preferred
+saved center, then smaller cells down to48 logical pixels if needed. Resolved
+geometry is cached until its inputs change; it never overwrites the saved anchor.
+Every visible cell and touch target uses this resolved geometry. A fully occupied
+custom layout shows a noninteractive request to make space in the touch editor.
+
+[design] Expanded pins, long-press context and Move bar are explicit captured UI.
+Admission includes pending outcomes before the Update dispatcher, idle hold ticks
+before the gyro reader, and a closure-frame drain. Only touch-owned controls and
+gesture history cancel; hardware owners remain intact. The single existing gyro
+reader uses the shared capture gate. Floating run-lock markers yield to actual
+hotbar rectangles, and invisible gyro controls do not reserve normal hit priority.
+
+
+[design] The existing optional bottom-handle recognizer has one persisted target:
+Inventory by default, or Utility tray. Existing enable/distance keys and Android
+insets remain authoritative; changing the target never enables the handle.
+Utility tray requires the touch hotbar and its visible Pins button. A saved choice
+remains saved when dependencies are off, while the handle is hidden/unavailable.
+The same UtilityTrayRequest route opens the tray; admission captures generic touch
+and the later raw gyro batch immediately, before Update dispatch. Target, distance,
+inset and mode changes cancel a started swipe. The ordinary visible Pins control
+continues to open/close the tray without enabling a swipe.

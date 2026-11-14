@@ -345,6 +345,7 @@ fn poll(
     state.previous = Some(*options);
     state.viewport = viewport;
     let allowed = options.enabled
+        && !touch.ui_capture
         && touch.playing
         && !touch.suspended
         && windows.single().is_ok_and(|(_, w)| w.focused)
@@ -1018,5 +1019,205 @@ mod tests {
             loaded.buttons[BUTTON].center,
             Config::default().buttons[BUTTON].center
         );
+    }
+
+    fn hotbar_scene() -> (App, Entity, Vec2) {
+        let (mut app, w, p) = scene(true);
+        let forms = Box::leak(Box::new(fnv_sim::FormStore::default()));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        app.insert_resource(nvf_play::sim::SimState {
+            forms,
+            refs,
+            world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()),
+        })
+        .init_resource::<nvf_play::hotkeys::Hotkeys>()
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(50),
+        ));
+        // Real registered setting and normal prepare/dispatch; no fabricated capture bit.
+        app.insert_resource(settings::SettingsFile(None));
+        let index = app
+            .world()
+            .resource::<settings::Settings>()
+            .index("touch-hotbar")
+            .unwrap();
+        settings::flip(app.world_mut(), index);
+        super::super::hotbar::reset_collision_fixture(app.world_mut());
+        app.update();
+        app.update();
+        (app, w, p)
+    }
+    fn hold_slot_until_context(app: &mut App, w: Entity) {
+        let slot = super::super::hotbar::test_slot_center(app.world(), 0);
+        finger(app, w, slot, 81, TouchPhase::Started);
+        app.update();
+        // No new raw event at the admission deadline: prepare must capture before gyro polls.
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(500),
+        ));
+        app.update();
+        assert!(super::super::hotbar::test_context_open(app.world()));
+        assert!(app.world().resource::<TouchState>().ui_capture);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(50),
+        ));
+    }
+    #[test]
+    fn hotbar_context_capture_cancels_touch_gyro_and_virtual_holds_but_preserves_physical_owners() {
+        use bevy::input::{mouse::MouseButtonInput, ButtonState};
+        let (mut app, w, p) = hotbar_scene();
+        {
+            let mut layout = app.world_mut().resource_mut::<super::super::Layout>();
+            layout.config.aiming.toggle_aim = true;
+            layout.config.aiming.hold_sneak = true;
+        }
+        app.world_mut()
+            .resource_mut::<super::super::movement::Options>()
+            .run_lock = true;
+        app.update();
+        activate(&mut app, w, p, true);
+        let size = Vec2::splat(1000.0);
+        let aim = app
+            .world()
+            .resource::<super::super::Layout>()
+            .config
+            .center(Target::Button(6), size);
+        let sneak = app
+            .world()
+            .resource::<super::super::Layout>()
+            .config
+            .center(Target::Button(8), size);
+        finger(&mut app, w, aim, 71, TouchPhase::Started);
+        finger(&mut app, w, aim, 71, TouchPhase::Ended);
+        finger(&mut app, w, sneak, 72, TouchPhase::Started);
+        finger(
+            &mut app,
+            w,
+            Vec2::new(150.0, 700.0),
+            73,
+            TouchPhase::Started,
+        );
+        finger(&mut app, w, Vec2::new(150.0, 620.0), 73, TouchPhase::Moved);
+        app.world_mut().write_message(MouseButtonInput {
+            window: w,
+            button: MouseButton::Left,
+            state: ButtonState::Pressed,
+        });
+        app.update();
+        assert!(app.world().resource::<TouchState>().aim_latched);
+        assert!(
+            app.world()
+                .resource::<nvf_play::control::HeldSneakInput>()
+                .active
+        );
+        assert_ne!(
+            app.world()
+                .resource::<nvf_play::touch_movement::TouchMovementInput>()
+                .axes,
+            Vec2::ZERO
+        );
+        assert_ne!(delta(&app), Vec2::ZERO);
+        hold_slot_until_context(&mut app, w);
+        assert_eq!(delta(&app), Vec2::ZERO);
+        assert!(!app.world().resource::<State>().latched);
+        let touch = app.world().resource::<TouchState>();
+        assert!(touch.contacts.is_empty() && !touch.aim_latched && touch.pulses.is_empty());
+        assert!(touch.physical_mouse.contains(&MouseButton::Left));
+        assert!(app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left));
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Right));
+        assert!(
+            !app.world()
+                .resource::<nvf_play::control::HeldSneakInput>()
+                .active
+        );
+        assert_eq!(
+            app.world()
+                .resource::<nvf_play::touch_movement::TouchMovementInput>()
+                .axes,
+            Vec2::ZERO
+        );
+        let world = app.world_mut();
+        let mut q = world.query::<(&super::super::TouchVisual, &Visibility)>();
+        let ordinary = q
+            .iter(world)
+            .filter(|(v, _)| {
+                matches!(
+                    v,
+                    super::super::TouchVisual::Button(6) | super::super::TouchVisual::Stick
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ordinary.len(), 2);
+        assert!(ordinary.iter().all(|(_, v)| **v == Visibility::Hidden));
+        let mut q = world.query_filtered::<&Visibility, With<super::super::movement::LockMarker>>();
+        assert_eq!(q.iter(world).count(), 1);
+        assert!(q.iter(world).all(|v| *v == Visibility::Hidden));
+    }
+    #[test]
+    fn context_close_batch_cannot_reactivate_raw_gyro_or_background_actions_and_fresh_gesture_works(
+    ) {
+        let (mut app, w, p) = hotbar_scene();
+        hold_slot_until_context(&mut app, w);
+        // The first outside tap closes context; the same tap and unread background tail
+        // belong to that UI session, even though gyro has its own existing raw reader.
+        let outside = Vec2::new(20.0, 20.0);
+        finger(&mut app, w, outside, 86, TouchPhase::Started);
+        finger(&mut app, w, outside, 86, TouchPhase::Ended);
+        finger(&mut app, w, p, 82, TouchPhase::Started);
+        finger(&mut app, w, p, 82, TouchPhase::Ended);
+        let fire = app
+            .world()
+            .resource::<super::super::Layout>()
+            .config
+            .center(Target::Button(7), Vec2::splat(1000.0));
+        finger(&mut app, w, fire, 83, TouchPhase::Started);
+        app.update();
+        assert!(!super::super::hotbar::test_context_open(app.world()));
+        assert!(app.world().resource::<TouchState>().ui_capture);
+        assert_eq!(delta(&app), Vec2::ZERO);
+        assert!(!app.world().resource::<State>().latched);
+        assert!(app.world().resource::<TouchState>().contacts.is_empty());
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left));
+        app.update();
+        app.update();
+        assert!(!app.world().resource::<TouchState>().ui_capture);
+        assert_eq!(
+            delta(&app),
+            Vec2::ZERO,
+            "closed-session raw input cannot replay"
+        );
+        activate(&mut app, w, p, true);
+        assert_eq!(delta(&app), Vec2::new(0.02, -0.01));
+    }
+    #[test]
+    fn pending_hotbar_context_release_and_raw_gyro_in_one_batch_have_one_input_owner() {
+        let (mut app, w, p) = hotbar_scene();
+        let slot = super::super::hotbar::test_slot_center(app.world(), 0);
+        finger(&mut app, w, slot, 84, TouchPhase::Started);
+        app.update();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(500),
+        ));
+        finger(&mut app, w, slot, 84, TouchPhase::Ended);
+        finger(&mut app, w, p, 85, TouchPhase::Started);
+        finger(&mut app, w, p, 85, TouchPhase::Ended);
+        app.update();
+        assert!(app.world().resource::<TouchState>().ui_capture);
+        assert_eq!(delta(&app), Vec2::ZERO);
+        assert!(!app.world().resource::<State>().latched);
+        assert!(app.world().resource::<TouchState>().contacts.is_empty());
+        assert!(app
+            .world()
+            .resource::<Messages<nvf_play::weapon_wheel::TouchHotkey>>()
+            .is_empty());
     }
 }

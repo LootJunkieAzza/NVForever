@@ -833,7 +833,9 @@ pub(crate) fn setup(app: &mut App) {
 }
 
 /// The UI scale is fixed for the run once the INI is read (`crate::interface::fix_ui_scale`).
-pub fn fix_ui_scale() {
+pub fn fix_ui_scale(menu: Option<Res<crate::menu_scale::MenuScale>>) {
+    let scale = menu.map_or_else(|| crate::interface::menu_scale_of(crate::interface::ui_scale_setting()), |menu| menu.scale());
+    crate::menu_scale::publish(scale);
     crate::interface::fix_ui_scale();
 }
 
@@ -1172,12 +1174,14 @@ mod tests {
             let mut app = App::new();
             app.insert_resource(SettingsFile(Some(path.to_path_buf())));
             add_setting(&mut app, crate::interface::ui_scale_row("Display"));
+            crate::menu_scale::register(&mut app, "Display");
             app.add_systems(PostStartup, apply_stored);
             app.update();
             app
         };
         let mut app = start(&path);
         assert_eq!(crate::interface::ui_scale_setting(), 1.0, "no INI yet: 100%");
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 1.0, "no INI yet: menus 100%");
         set_slider(app.world_mut(), 0, 0.25);
         assert_eq!(crate::interface::ui_scale_setting(), 0.75);
         assert!(std::fs::read_to_string(&path).unwrap().contains("[Settings]
@@ -1192,6 +1196,35 @@ ui-scale={stored}
             let _app = start(&path);
             assert_eq!(crate::interface::ui_scale_setting(), scale, "ui-scale={stored}");
         }
+        // A legacy-only value seeds both effective sizes. Changing only the HUD
+        // then saves the untouched menu value explicitly before the next restart.
+        std::fs::write(&path, "[Settings]\nui-scale=0.25\n[Other]\nkeep=yes\n").unwrap();
+        let mut app = start(&path);
+        assert_eq!(crate::interface::ui_scale_setting(), 0.75);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 0.75);
+        set_slider(app.world_mut(), 0, 0.0);
+        assert_eq!(crate::interface::ui_scale_setting(), 0.5);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 0.75);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(ini_get(&saved, SECTION, "menu-scale").unwrap().parse::<f32>().unwrap(), 0.5);
+        assert_eq!(ini_get(&saved, "Other", "keep").as_deref(), Some("yes"));
+        let mut app = start(&path);
+        assert_eq!(crate::interface::ui_scale_setting(), 0.5);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 0.75);
+        let menu = app.world().resource::<Settings>().index(crate::menu_scale::KEY).unwrap();
+        set_slider(app.world_mut(), menu, 1.0);
+        let app = start(&path);
+        assert_eq!(crate::interface::ui_scale_setting(), 0.5);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 1.0);
+        // The explicit new key wins even when the legacy HUD value is larger.
+        std::fs::write(&path, "[Settings]\nui-scale=0.75\nmenu-scale=0.5\n").unwrap();
+        let app = start(&path);
+        assert_eq!(crate::interface::ui_scale_setting(), 1.25);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 0.75);
+        std::fs::write(&path, "[Settings]\nui-scale=0.25\nmenu-scale=bad\n").unwrap();
+        let app = start(&path);
+        assert_eq!(crate::interface::ui_scale_setting(), 0.75);
+        assert_eq!(app.world().resource::<crate::menu_scale::MenuScale>().scale(), 1.0, "invalid explicit menu text keeps its default, not the legacy HUD size");
         crate::interface::set_ui_scale_setting(1.0);
         let _ = std::fs::remove_dir_all(&dir);
     }

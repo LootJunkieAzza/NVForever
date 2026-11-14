@@ -6,18 +6,20 @@ use bevy::{
 };
 use nvf_play::{
     bindings::ControlInput,
-    hotkeys::{AMMO_SWAP, Hotkeys, SLOTS},
-    menu::{ActiveMenu, model::Mode},
-    pipboy::{Phase, PipBoy, touch_items::TouchItems},
+    hotkeys::{Hotkeys, AMMO_SWAP, SLOTS},
+    menu::{model::Mode, ActiveMenu},
+    pipboy::{touch_items::TouchItems, Phase, PipBoy},
     settings::{self, ChoiceList, Setting, Slider},
 };
 use std::collections::HashSet;
 #[path = "hotbar_gesture.rs"]
 mod gesture;
 use gesture::{Box2, Gesture, Outcome, Target};
+#[path = "hotbar_layout.rs"]
+mod packing;
 
 #[derive(Resource, Clone, PartialEq)]
-struct Preferences {
+pub(super) struct Preferences {
     enabled: bool,
     count: usize,
     scale: f32,
@@ -32,6 +34,9 @@ impl Default for Preferences {
             tray: true,
         }
     }
+}
+impl Preferences {
+    pub(super) fn tray_available(&self) -> bool { self.enabled && self.tray }
 }
 #[derive(Clone, Debug, PartialEq)]
 struct Placement {
@@ -113,21 +118,58 @@ struct Bar {
     safe_bottom: f32,
     size: Vec2,
     mode: u8,
-    dimensions: Option<(usize, u32, bool)>,
+    fitting_key: Option<FittingKey>,
+    resolved: Option<packing::Resolved>,
+    occupied: Vec<packing::Occupied>,
+    capture_drain: u8,
     message: String,
 }
 impl Bar {
+    fn observe_hold(&mut self, now: u64) {
+        if let Some(outcome) = self.gesture.tick(now) {
+            if self.outcomes.is_empty() {
+                self.outcomes.push(outcome);
+            }
+            self.capture_drain = 2;
+        }
+    }
     fn cancel(&mut self) {
         self.mode = 0;
         self.gesture.cancel();
         self.ignored.clear();
         self.outcomes.clear();
         self.context = None;
+        self.tray_open = false;
         self.move_id = None;
         if let Some(original) = self.move_original.take() {
             self.placement.center = original;
         }
         self.moving = false;
+        self.capture_drain = 0;
+    }
+}
+#[derive(Clone, PartialEq)]
+struct FittingKey {
+    size: Vec2,
+    safe: f32,
+    count: usize,
+    scale: f32,
+    tray: bool,
+    center: Vec2,
+    occupied: Vec<packing::Occupied>,
+}
+#[derive(Resource, Default)]
+pub(super) struct Occlusion {
+    rects: Vec<Rect>,
+    capturing: bool,
+}
+impl Occlusion {
+    pub fn blocks(&self, rect: Rect) -> bool {
+        self.capturing
+            || self.rects.iter().any(|r| {
+                let overlap = r.intersect(rect);
+                overlap.width() > 0. && overlap.height() > 0.
+            })
     }
 }
 
@@ -142,45 +184,54 @@ struct Geometry {
     context: Vec<Rect>,
     bounds: Rect,
 }
-fn geometry(size: Vec2, prefs: &Preferences, bar: &Bar) -> Option<Geometry> {
+fn usable(size: Vec2, bar: &Bar) -> Option<Vec2> {
     if !size.is_finite() || !bar.safe_bottom.is_finite() {
         return None;
     }
-    // Keep the parent's bottom-swipe handle and Android gesture inset unobstructed.
     let size = Vec2::new(size.x, size.y - bar.safe_bottom.max(0.) - 64.);
-    if !size.is_finite() || size.min_element() < 96. || !prefs.scale.is_finite() {
-        return None;
+    (size.min_element() >= 96.).then_some(size)
+}
+fn rect2(r: Rect) -> packing::Rect2 {
+    packing::Rect2 {
+        x: r.min.x,
+        y: r.min.y,
+        w: r.width(),
+        h: r.height(),
     }
-    let side = (size.min_element() * 0.11 * prefs.scale.clamp(0.6, 1.8)).clamp(48., 96.);
-    let gap = 6.;
-    let count = prefs.count.min(SLOTS);
-    let buttons = count + usize::from(prefs.tray);
-    let columns = (((size.x - 16.) / (side + gap)).floor() as usize).clamp(1, buttons.max(1));
-    let rows = buttons.div_ceil(columns);
-    let width = columns as f32 * (side + gap) - gap;
-    let height = rows as f32 * (side + gap) - gap;
-    let half = Vec2::new(width, height) * 0.5;
-    if half.x * 2. > size.x - 8. || half.y * 2. > size.y - 8. {
-        return None;
-    }
-    let center =
-        (bar.placement.center * size).clamp(half + Vec2::splat(4.), size - half - Vec2::splat(4.));
-    let bounds = Rect::from_center_size(center, half * 2.);
-    let rect = |i: usize| {
-        Rect::from_corners(
-            bounds.min
-                + Vec2::new(
-                    (i % columns) as f32 * (side + gap),
-                    (i / columns) as f32 * (side + gap),
-                ),
-            bounds.min
-                + Vec2::new(
-                    (i % columns) as f32 * (side + gap) + side,
-                    (i / columns) as f32 * (side + gap) + side,
-                ),
-        )
+}
+fn bevy_rect(r: packing::Rect2) -> Rect {
+    Rect::from_corners(Vec2::new(r.x, r.y), Vec2::new(r.x + r.w, r.y + r.h))
+}
+fn fit(size: Vec2, prefs: &Preferences, bar: &Bar) -> Option<packing::Resolved> {
+    let size = usable(size, bar)?;
+    packing::fit(
+        size.to_array(),
+        bar.placement.center.to_array(),
+        (size.min_element() * 0.11 * prefs.scale).clamp(48., 96.),
+        prefs.count + usize::from(prefs.tray),
+        &bar.occupied,
+    )
+}
+fn geometry(size: Vec2, prefs: &Preferences, bar: &Bar) -> Option<Geometry> {
+    let raw_size = size;
+    let size = usable(size, bar)?;
+    let fitted = if bar.fitting_key.is_some() {
+        bar.resolved.clone()?
+    } else {
+        fit(raw_size, prefs, bar)?
     };
-    let mut slots = (0..count).map(|i| (i, rect(i))).collect::<Vec<_>>();
+    let mut slots = fitted
+        .cells
+        .iter()
+        .take(prefs.count)
+        .enumerate()
+        .map(|(i, r)| (i, bevy_rect(*r)))
+        .collect::<Vec<_>>();
+    let tray = if prefs.tray {
+        fitted.cells.get(prefs.count).copied().map(bevy_rect)
+    } else {
+        None
+    };
     if prefs.tray && bar.tray_open {
         let pinned = bar
             .placement
@@ -188,19 +239,36 @@ fn geometry(size: Vec2, prefs: &Preferences, bar: &Bar) -> Option<Geometry> {
             .iter()
             .enumerate()
             .filter(|(_, on)| **on)
-            .map(|(i, _)| i);
-        for (k, i) in pinned.enumerate() {
-            let y = bounds.min.y - (side + gap) * (1 + k / columns) as f32;
-            if y < 4. {
-                break;
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        if !pinned.is_empty() {
+            // Expanded pins are an explicit captured UI layer; retain the base bar
+            // as occupied so duplicate slot views cannot cover each other.
+            let occupied = fitted
+                .cells
+                .iter()
+                .map(|r| packing::Occupied {
+                    rect: *r,
+                    radius: 0.,
+                })
+                .collect::<Vec<_>>();
+            if let Some(pin_layout) = packing::fit(
+                size.to_array(),
+                [0.5, 0.3],
+                fitted.side,
+                pinned.len(),
+                &occupied,
+            ) {
+                slots.extend(
+                    pinned
+                        .into_iter()
+                        .zip(pin_layout.cells)
+                        .map(|(i, r)| (i, bevy_rect(r))),
+                );
             }
-            let x = (bounds.min.x + (k % columns) as f32 * (side + gap)).min(size.x - side - 4.);
-            slots.push((
-                i,
-                Rect::from_corners(Vec2::new(x, y), Vec2::new(x + side, y + side)),
-            ));
         }
     }
+    let bounds = bevy_rect(fitted.panel);
     let context = if bar.context.is_some() {
         let width = (size.x * 0.42).clamp(220., 360.).min(size.x - 16.);
         let height = 48.;
@@ -218,7 +286,7 @@ fn geometry(size: Vec2, prefs: &Preferences, bar: &Bar) -> Option<Geometry> {
     };
     Some(Geometry {
         slots,
-        tray: prefs.tray.then(|| rect(count)),
+        tray,
         context,
         bounds,
     })
@@ -240,13 +308,37 @@ pub(super) struct Bridge<'w> {
     fresh: Option<Res<'w, nvf_play::menu::FreshMenu>>,
     time: Res<'w, Time<Real>>,
     safe: Option<Res<'w, super::drawer::SafeBottom>>,
+    occlusion: ResMut<'w, Occlusion>,
 }
 impl Bridge<'_> {
     pub fn cancel(&mut self) {
         self.bar.cancel();
         self.items.cancel();
     }
-    pub fn prepare(&mut self, size: Vec2, allowed: bool, playing: bool) {
+    pub fn captures_actions(&self) -> bool {
+        self.bar.context.is_some()
+            || self.bar.moving
+            || self.bar.tray_open
+            || self.bar.capture_drain > 0
+            || self.bar.outcomes.iter().any(|o| {
+                matches!(
+                    o,
+                    Outcome::Context(_) | Outcome::Tap(Target::Context(_) | Target::Tray)
+                )
+            })
+    }
+    pub fn blocks(&self, rect: Rect) -> bool {
+        self.occlusion.blocks(rect)
+    }
+    pub fn prepare(
+        &mut self,
+        size: Vec2,
+        allowed: bool,
+        playing: bool,
+        config: &super::layout::Config,
+        gyro_enabled: bool,
+        extra: &[(Rect, f32)],
+    ) {
         let inventory = self
             .active
             .as_ref()
@@ -263,23 +355,102 @@ impl Bridge<'_> {
             0
         };
         let safe = self.safe.as_ref().map_or(0., |s| s.0).max(0.);
-        let dimensions = (
-            self.prefs.count,
-            self.prefs.scale.to_bits(),
-            self.prefs.tray,
-        );
+        let mut occupied = Vec::new();
+        if size.is_finite() && size.min_element() >= 96. {
+            for (i, b) in super::BUTTONS.iter().enumerate() {
+                if b.playing != playing
+                    || !config.buttons[i].visible
+                    || (i == super::gyro::BUTTON && !gyro_enabled)
+                {
+                    continue;
+                }
+                let t = super::layout::Target::Button(i);
+                let g = config.appearance.geometry(config.diameter(t, size));
+                occupied.push(packing::Occupied {
+                    rect: rect2(Rect::from_center_size(
+                        config.center(t, size),
+                        Vec2::new(g.width, g.height),
+                    )),
+                    radius: g.radius,
+                });
+            }
+            if playing {
+                let r = config.diameter(super::layout::Target::Stick, size) * 0.65;
+                occupied.push(packing::Occupied {
+                    rect: rect2(Rect::from_center_size(
+                        config.center(super::layout::Target::Stick, size),
+                        Vec2::splat(r * 2.),
+                    )),
+                    radius: r,
+                });
+                occupied.push(packing::Occupied {
+                    rect: rect2(Rect::from_center_size(size * 0.5, Vec2::splat(48.))),
+                    radius: 0.,
+                });
+            }
+            for help in [false, true] {
+                occupied.push(packing::Occupied {
+                    rect: rect2(super::layout::utility_rect(help, size)),
+                    radius: 0.,
+                });
+            }
+            occupied.extend(extra.iter().map(|(r, radius)| packing::Occupied {
+                rect: rect2(*r),
+                radius: *radius,
+            }));
+        }
+        let key = FittingKey {
+            size,
+            safe,
+            count: self.prefs.count,
+            scale: self.prefs.scale,
+            tray: self.prefs.tray,
+            center: self.bar.placement.center,
+            occupied: occupied.clone(),
+        };
         if mode != self.bar.mode
             || self.bar.size != size
-            || self.bar.dimensions != Some(dimensions)
             || self.bar.safe_bottom != safe
             || self.fresh.as_ref().is_some_and(|f| f.0)
         {
             self.cancel();
         }
-        self.bar.dimensions = Some(dimensions);
-        self.bar.safe_bottom = safe;
+        if self.bar.fitting_key.as_ref() != Some(&key) {
+            self.bar.gesture.cancel();
+            self.bar.outcomes.clear();
+            self.items.cancel();
+            self.bar.size = size;
+            self.bar.safe_bottom = safe;
+            self.bar.occupied = occupied;
+            self.bar.resolved = fit(size, &self.prefs, &self.bar);
+            self.bar.fitting_key = Some(key);
+        }
         self.bar.mode = mode;
         self.bar.size = size;
+        self.bar.safe_bottom = safe;
+        if mode != 0 {
+            let now = self
+                .time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX);
+            self.bar.observe_hold(now);
+        }
+        self.bar.capture_drain =
+            if self.bar.context.is_some() || self.bar.moving || self.bar.tray_open {
+                2
+            } else {
+                self.bar.capture_drain.saturating_sub(1)
+            };
+        self.occlusion.rects = if mode == 0 {
+            Vec::new()
+        } else {
+            geometry(size, &self.prefs, &self.bar).map_or_else(Vec::new, |g| {
+                g.slots.into_iter().map(|(_, r)| r).chain(g.tray).collect()
+            })
+        };
+        self.occlusion.capturing = self.captures_actions();
     }
     pub fn event(&mut self, event: &TouchInput, unclaimed: bool) -> bool {
         if self.bar.mode == 0 {
@@ -322,6 +493,7 @@ impl Bridge<'_> {
             if matches!(event.phase, TouchPhase::Ended | TouchPhase::Canceled) {
                 self.bar.move_id = None;
                 self.bar.moving = false;
+                self.bar.capture_drain = 2;
                 if event.phase == TouchPhase::Ended && event.position.is_finite() {
                     self.bar.move_original = None;
                     self.bar.placement.save();
@@ -336,6 +508,12 @@ impl Bridge<'_> {
         };
         if self.bar.gesture.owns(event.id) {
             let size = self.bar.size.to_array();
+            self.bar
+                .gesture
+                .moved(event.id, event.position.to_array(), size);
+            if event.phase != TouchPhase::Canceled {
+                self.bar.observe_hold(now);
+            }
             match event.phase {
                 TouchPhase::Moved => {
                     self.bar
@@ -350,6 +528,12 @@ impl Bridge<'_> {
                         now,
                         event.phase == TouchPhase::Canceled,
                     ) {
+                        if matches!(
+                            o,
+                            Outcome::Context(_) | Outcome::Tap(Target::Context(_) | Target::Tray)
+                        ) {
+                            self.bar.capture_drain = 2;
+                        }
                         if self.bar.outcomes.is_empty() {
                             self.bar.outcomes.push(o);
                         }
@@ -385,6 +569,9 @@ impl Bridge<'_> {
                     .map(|(i, r)| (Target::Slot(*i), *r))
             });
         if let Some((target, rect)) = target {
+            if !unclaimed && !self.captures_actions() {
+                return false;
+            }
             if self.bar.gesture.busy() || self.items.busy() {
                 if self.bar.ignored.len() < 16 {
                     self.bar.ignored.insert(event.id);
@@ -404,6 +591,17 @@ impl Bridge<'_> {
         }
         if self.bar.context.is_some() {
             self.bar.context = None;
+            self.bar.capture_drain = 2;
+            return true;
+        }
+        if self.bar.tray_open {
+            self.bar.tray_open = false;
+            self.bar.capture_drain = 2;
+            return true;
+        }
+        if self.bar.moving {
+            self.bar.moving = false;
+            self.bar.capture_drain = 2;
             return true;
         }
         if self.bar.mode == 2 && unclaimed && !self.items.busy() {
@@ -414,9 +612,12 @@ impl Bridge<'_> {
 }
 
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<Preferences>()
+    app.init_resource::<bevy::picking::pointer::PointerMap>()
+        .init_resource::<Occlusion>()
+        .init_resource::<Preferences>()
         .init_resource::<Bar>()
         .init_resource::<TouchItems>()
+        .init_resource::<bevy::picking::pointer::PointerMap>()
         .add_message::<UtilityTrayRequest>()
         .add_message::<nvf_play::weapon_wheel::TouchHotkey>()
         .add_systems(Startup, load)
@@ -507,14 +708,23 @@ pub(super) fn install(app: &mut App) {
             "touch-hotbar-size",
             "Controls",
             "Quick slot size",
-            "Resize the visible controls and their touch areas together. Hold a slot and choose Move bar to reposition.",
-            Slider {
-                get: |w| (w.resource::<Preferences>().scale - 0.6) / 1.2,
-                set: |w, v| w.resource_mut::<Preferences>().scale = 0.6 + v.clamp(0., 1.) * 1.2,
-                min: 0.,
-                step: 0.1,
-                shown: Some(|v| format!("{:.0}%", (0.6 + v * 1.2) * 100.0)),
-            },
+            "Choose a preferred size; slots wrap or shrink to fit around controls, with a 48-pixel minimum. Hold a slot and choose Move bar to reposition.",
+            Slider::choice(
+                13,
+                |w| {
+                    settings::choice_part(
+                        ((w.resource::<Preferences>().scale * 100.0 - 60.0) / 10.0)
+                            .round()
+                            .clamp(0.0, 12.0) as usize,
+                        13,
+                    )
+                },
+                |w, v| {
+                    w.resource_mut::<Preferences>().scale =
+                        (60 + settings::choice_index(v, 13) * 10) as f32 / 100.0
+                },
+                |v| format!("{}%", 60 + settings::choice_index(v, 13) * 10),
+            ),
         ),
     );
 }
@@ -564,23 +774,24 @@ fn dispatch(
     }
     let now = time.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
     items.update_hold(now);
-    if let Some(o) = bar.gesture.tick(now) {
-        if bar.outcomes.is_empty() {
-            bar.outcomes.push(o);
-        }
-    }
+    bar.observe_hold(now);
     for outcome in std::mem::take(&mut bar.outcomes) {
         match outcome {
             Outcome::Context(slot) => {
                 bar.context = Some(slot);
+                bar.capture_drain = 2;
             }
             Outcome::Tap(Target::Slot(slot)) => {
                 if bar.mode == 1 && slot < SLOTS {
                     out.write(nvf_play::weapon_wheel::TouchHotkey(slot));
                 }
             }
-            Outcome::Tap(Target::Tray) => bar.tray_open = !bar.tray_open,
+            Outcome::Tap(Target::Tray) => {
+                bar.tray_open = !bar.tray_open;
+                bar.capture_drain = 2;
+            }
             Outcome::Tap(Target::Context(action)) => {
+                bar.capture_drain = 2;
                 let Some(slot) = bar.context.take() else {
                     continue;
                 };
@@ -638,23 +849,48 @@ struct Picture {
     pinned: [bool; SLOTS],
     message: String,
 }
+#[derive(Default)]
+struct DrawCache {
+    picture: Option<Picture>,
+    no_room: bool,
+}
 fn draw(
     mut commands: Commands,
     (prefs, bar, items): (Res<Preferences>, Res<Bar>, Res<TouchItems>),
     hotkeys: Res<Hotkeys>,
     mut sim: ResMut<nvf_play::sim::SimState>,
     roots: Query<Entity, With<Visual>>,
-    mut previous: Local<Option<Picture>>,
+    mut previous: Local<DrawCache>,
 ) {
-    let g = geometry(bar.size, &prefs, &bar);
-    if bar.mode == 0 || !prefs.enabled || g.is_none() {
+    if bar.mode == 0 || !prefs.enabled {
         for e in &roots {
             commands.entity(e).despawn();
         }
-        *previous = None;
+        *previous = DrawCache::default();
         return;
     }
-    let g = g.unwrap();
+    let Some(g) = geometry(bar.size, &prefs, &bar) else {
+        if !previous.no_room {
+            for e in &roots {
+                commands.entity(e).despawn();
+            }
+            let width = (bar.size.x - 16.).clamp(48., 480.);
+            tile(
+                &mut commands,
+                Rect::from_corners(
+                    Vec2::new((bar.size.x - width) * 0.5, 60.),
+                    Vec2::new((bar.size.x + width) * 0.5, 108.),
+                ),
+                "Hotbar needs space. Move/hide controls in the touch editor.",
+                None,
+                false,
+            );
+            previous.picture = None;
+            previous.no_room = true;
+        }
+        return;
+    };
+    previous.no_room = false;
     let mut entries = Vec::new();
     for (slot, _) in &g.slots {
         let (name, count, aid) = if *slot == AMMO_SWAP {
@@ -683,16 +919,18 @@ fn draw(
         entries: entries.clone(),
         context: bar.context,
         pinned: bar.placement.pins,
-        message: if items.message.is_empty() {
+        message: if bar.tray_open && !bar.placement.pins.iter().any(|p| *p) {
+            "No pins yet. Hold an Aid slot to pin it.".into()
+        } else if items.message.is_empty() {
             bar.message.clone()
         } else {
             items.message.clone()
         },
     };
-    if previous.as_ref() == Some(&picture) {
+    if previous.picture.as_ref() == Some(&picture) {
         return;
     }
-    *previous = Some(picture.clone());
+    previous.picture = Some(picture.clone());
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -799,8 +1037,56 @@ fn tile(commands: &mut Commands, r: Rect, label: &str, icon: Option<&str>, enabl
 }
 
 #[cfg(test)]
+pub(super) fn test_slot_center(world: &World, index: usize) -> Vec2 {
+    let bar = world.resource::<Bar>();
+    let prefs = world.resource::<Preferences>();
+    geometry(bar.size, prefs, bar)
+        .unwrap()
+        .slots
+        .into_iter()
+        .find(|(i, _)| *i == index)
+        .unwrap()
+        .1
+        .center()
+}
+#[cfg(test)]
+pub(super) fn test_context_open(world: &World) -> bool {
+    world.resource::<Bar>().context.is_some()
+}
+#[cfg(test)]
+pub(super) fn reset_collision_fixture(world: &mut World) {
+    *world.resource_mut::<Bar>() = Bar::default();
+}
+#[cfg(test)]
+pub(super) fn tray_open_collision_fixture(world: &World) -> bool {
+    world.resource::<Bar>().tray_open
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installing_the_custom_pointer_initializes_its_map_without_replacing_existing_entries() {
+        use bevy::picking::pointer::{PointerId, PointerMap};
+        for preexisting in [false, true] {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins);
+            let other = PointerId::Custom(bevy::asset::uuid::Uuid::from_u128(23));
+            let other_entity = preexisting.then(|| {
+                app.init_resource::<PointerMap>();
+                app.world_mut().spawn(other).id()
+            });
+            install(&mut app);
+            app.update();
+            let map = app.world().resource::<PointerMap>();
+            let entity = map.get_entity(nvf_play::pipboy::touch_items::POINTER).unwrap();
+            assert_eq!(app.world().get::<PointerId>(entity), Some(&nvf_play::pipboy::touch_items::POINTER));
+            assert_eq!(map.get_entity(other), other_entity);
+            let world = app.world_mut();
+            let mut ids = world.query::<&PointerId>();
+            assert_eq!(ids.iter(world).filter(|id| **id == nvf_play::pipboy::touch_items::POINTER).count(), 1);
+        }
+    }
     #[test]
     fn placement_roundtrips_bounded_geometry_and_reserved_pin() {
         let mut p = Placement { center: Vec2::new(0.3, 0.7), ..Placement::default() };
@@ -906,5 +1192,81 @@ mod tests {
                 && n.width == px(r.width())
                 && n.height == px(r.height())));
         }
+    }
+    #[test]
+    fn size_default_and_every_choice_roundtrip_actual_ini_without_scale_drift() {
+        fn settings_app(path: &std::path::Path) -> App {
+            let mut app = App::new();
+            install(&mut app);
+            app.insert_resource(settings::SettingsFile(Some(path.to_path_buf())));
+            app
+        }
+        let dir = std::env::temp_dir().join(format!("nvf-hotbar-size-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("settings.ini");
+        std::fs::write(
+            &path,
+            "[Other]
+untouched=keep me
+",
+        )
+        .unwrap();
+        let mut first = settings_app(&path);
+        let toggle = first
+            .world()
+            .resource::<settings::Settings>()
+            .index("touch-hotbar")
+            .unwrap();
+        assert_eq!(settings::flip(first.world_mut(), toggle), Some(true));
+        let mut loaded = settings_app(&path);
+        settings::apply_stored(loaded.world_mut());
+        assert_eq!(
+            loaded.world().resource::<Preferences>().scale,
+            1.0,
+            "default100% survives an unrelated preference write"
+        );
+        for (index, expected) in [
+            0.6_f32, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = first
+                .world()
+                .resource::<settings::Settings>()
+                .index("touch-hotbar-size")
+                .unwrap();
+            assert!(
+                settings::set_slider(first.world_mut(), row, settings::choice_part(index, 13))
+                    .is_some()
+            );
+            assert_eq!(first.world().resource::<Preferences>().scale, expected);
+            let mut back = settings_app(&path);
+            settings::apply_stored(back.world_mut());
+            assert_eq!(
+                back.world().resource::<Preferences>().scale,
+                expected,
+                "choice{index} drifted through INI rounding"
+            );
+            let row = back
+                .world()
+                .resource::<settings::Settings>()
+                .index("touch-hotbar-size")
+                .unwrap();
+            let slider = back.world().resource::<settings::Settings>().list()[row]
+                .slider
+                .unwrap();
+            assert_eq!(
+                slider.text((slider.get)(back.world())),
+                format!("{:.0}%", expected * 100.0)
+            );
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert_eq!(
+                fnv_install::ini_get(&text, "Other", "untouched").as_deref(),
+                Some("keep me")
+            );
+        }
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 }

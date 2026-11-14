@@ -117,6 +117,9 @@ pub const PIPBOY_POINTER: PointerId = PointerId::Custom(Uuid::from_u128(0x6e76_6
 /// device's system is nvforever's `pipboy_arm`; the flat image's is here.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PointerSet;
+/// Admission boundary for mobile projected pointer input before Bevy picking.
+#[derive(SystemSet,Debug,Clone,Copy,PartialEq,Eq,Hash)]
+pub struct TouchPointerSet;
 
 /// Hidden draws are arranged before the clip advances [design: nvforever/pipboy_arm.rs].
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -566,7 +569,7 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput));
+            .add_systems(PreUpdate, drive_pointer.in_set(TouchPointerSet).after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput));
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -1389,4 +1392,32 @@ mod tests {
         p.apply(PipBoyInput::StepTab(3));
         assert_eq!(p.tab(), 0);
     }
+
+    #[test]
+    fn overlay_capture_cancels_real_preupdate_touch_pointer_before_press_and_keeps_physical_route(){
+        use bevy::input::{touch::{TouchInput,TouchPhase},mouse::MouseButtonInput};
+        let mut app=App::new();app.init_resource::<bevy::picking::pointer::PointerMap>()
+            .add_message::<PointerInput>().add_message::<WindowEvent>()
+            .init_resource::<PipBoyAid>().init_resource::<PointerMoved>()
+            .init_resource::<ButtonInput<KeyCode>>().init_resource::<touch_items::TouchItems>()
+            .insert_resource(touch_items::OverlayCapture(true))
+            .insert_resource(PipBoy{phase:Phase::Up,..default()})
+            .add_systems(PreUpdate,drive_pointer.in_set(TouchPointerSet));
+        let camera=app.world_mut().spawn_empty().id();
+        app.insert_resource(PipBoyScreen{image:Handle::default(),camera,on_model:false,pointer:Some(Vec2::splat(100.)),scale:1.0});
+        {let mut touch=app.world_mut().resource_mut::<touch_items::TouchItems>();
+            touch.event(&TouchInput {window:Entity::PLACEHOLDER,id:8,phase:TouchPhase::Started,position:Vec2::splat(100.),force:None},0);
+            touch.project(Some);
+        }
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyW);
+        app.world_mut().write_message(WindowEvent::MouseButtonInput(MouseButtonInput{window:Entity::PLACEHOLDER,button:MouseButton::Right,state:ButtonState::Pressed}));
+        app.update();
+        let events:Vec<_>=app.world_mut().resource_mut::<Messages<PointerInput>>().drain().collect();
+        assert!(events.iter().any(|p|p.pointer_id==touch_items::POINTER && matches!(p.action,PointerAction::Cancel)));
+        assert!(!events.iter().any(|p|p.pointer_id==touch_items::POINTER && matches!(p.action,PointerAction::Press(_)|PointerAction::Release(_))));
+        assert!(events.iter().any(|p|p.pointer_id==PIPBOY_POINTER && matches!(p.action,PointerAction::Press(PointerButton::Secondary))));
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyW));
+        assert!(!app.world().resource::<touch_items::TouchItems>().busy());
+    }
+
 }
