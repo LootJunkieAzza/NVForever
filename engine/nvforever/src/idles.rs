@@ -87,6 +87,13 @@
 //!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
 //!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
 //!
+//! - **Activating** (idles.md §16, #2349). The player's activation asks the tree's
+//!   activation root (`Game::activate_idles`, `Game::activate_idle`: `ActivateIdles`,
+//!   whose conditions choose): drinking from placeable water plays `1stPersonActWater`
+//!   on the first-person rig in first person, `3rdPersonActWater` on the body in third.
+//!   It holds nothing: unlike a scripted idle that drives the camera node, the player
+//!   keeps mouse look, movement and the HUD [design, #2349].
+//!
 //! - **Creatures' combat idles** (idles.md §14). A creature standing still with its
 //!   stance drawn (`Game::draws_weapon`: fighting, alerted, or warning the player) is
 //!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
@@ -1201,6 +1208,33 @@ pub fn drive(
         }
     }
 
+    // Activating: the player's activation asks the idle tree's activation root, whose
+    // conditions choose (`Game::activate_idle`: drinking from placeable water; idles.md
+    // §16, #2349). Played as any idle asked for: a clip that drives the first-person
+    // camera node on the first-person rig, any other on the third-person body.
+    for actor in std::mem::take(&mut game.activate_idles) {
+        let folder = if actor.0 == player_ref { Some(PEOPLE_FOLDER.to_string()) } else { actors.iter().find(|(_, v, ..)| v.0 == actor.0).and_then(|(_, _, rig, ..)| skeleton_folder(&rig.skeleton)) };
+        let Some(folder) = folder else { continue };
+        let what = game.activating(actor).map_or_else(|| "nothing".to_string(), |t| t.to_string());
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor.0, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.activate_idle(actor, &folder, &held_back));
+        let name = game.data.name(actor);
+        match pick {
+            Some((idle, way)) => {
+                let way: Vec<String> = way.iter().map(|i| game.data.name(*i)).collect();
+                info!("activate idle: {name} activating {what}: {} by {}", game.data.name(idle), way.join(" > "));
+                st.fidget_last.insert((actor.0, idle.0), st.clock);
+                game.ask_idle(actor, idle, IdleSource::Activate);
+            }
+            None => debug!("activate idle: {name} activating {what}: the tree has no idle for it"),
+        }
+    }
+
     // Start what was asked for: those that waited for their clip first, in the order
     // asked. An actor's later asks wait behind one that waits, so its idles start in
     // the order asked, as they did in one frame.
@@ -1223,7 +1257,7 @@ pub fn drive(
                     IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                     IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                     IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                    IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic => {}
+                    IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic | IdleSource::Activate => {}
                 }
             }
             let name = game.data.name(actor);
@@ -1269,7 +1303,12 @@ pub fn drive(
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-                if first && pi.held.is_none() {
+                // An activation's idle (the drink) holds nothing: mouse look, movement
+                // and the HUD stay with the player while the camera node moves the view
+                // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
+                // applies) [design, #2349: whether the original holds the player is
+                // observer check 128; documented: `_1stperson\skeleton.nif`].
+                if first && pi.held.is_none() && source != IdleSource::Activate {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);

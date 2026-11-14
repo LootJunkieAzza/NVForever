@@ -1982,3 +1982,13 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (the drinking idle, #2349)
+
+128. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
+     §16.) Drink from Goodsprings' water pump, once in first person and once in third
+     person. Note: how long the animation runs (ours: the clips are 2.37 s and 2.70 s);
+     whether movement and mouse look are held while it plays (ours holds neither); and
+     when the healing and the rads apply (ours: at the activation, before the animation),
+     read from the health bar and the RAD meter frame by frame. Ours until then:
+     [design, #2349].

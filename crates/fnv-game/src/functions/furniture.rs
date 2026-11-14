@@ -147,9 +147,13 @@ pub fn get_is_used_item_equip_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
     yes(g.data.ingestibles.get(&item).is_some_and(|d| d.equip_type == want))
 }
 
-/// `actor.GetUsedItemActivate`: 1 while the actor uses something ([`used`])
-/// [documented: GECK wiki GetUsedItemActivate, "Returns true if the actor is
-/// using/activating an item(?)"; the page is marked incomplete].
+/// `actor.GetUsedItemActivate`: 1 while the actor uses something ([`used`]) or activates
+/// something ([`Game::activating`], the window IsWaterObject reads) [documented: GECK
+/// wiki GetUsedItemActivate, "Returns true if the actor is using/activating an item(?)";
+/// the page is marked incomplete; the activation window is design, #2349]. It is the
+/// condition of the idle tree's `ActivateIdles` root, which holds the drinking idles
+/// (docs/spec-notes/idles.md §16) [observed: FalloutNV.esm 0x00003BDC].
 pub fn get_used_item_activate(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    yes(used(g, ctx.subject()?).is_some())
+    let s = ctx.subject()?;
+    yes(used(g, s).is_some() || g.activating(s).is_some())
 }
