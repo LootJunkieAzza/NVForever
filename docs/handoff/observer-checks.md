@@ -1983,6 +1983,60 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
 
+## Added 2026-11-14 (map markers without XRDS, #2338)
+
+128. **How near must the player come to a map marker without `XRDS` to find it?** (P2;
+     pipboy.md §5.3, hud.md §11, #2338.) 65 of WastelandNV's 186 named markers carry no
+     radius (Coyote Den 0x00154A69, the four Powder Ganger Camps 0x0015354F-0x00153552).
+     Ours since #2338: `iMapMarkerRevealDistance`, 1000 when no plugin sets it [documented:
+     the GECK wiki's list of FNV defaults; hypothesis: that this is the distance]. To check:
+     walk straight towards Coyote Den from the south-west (flat ground) and from two other
+     sides, and note the player's distance from the marker (GetDistance to the marker
+     reference, or the player's GetPos) when "You have discovered" appears: about 1000
+     expected. Then `setgs iMapMarkerRevealDistance 3000` before approaching a Powder
+     Ganger Camp, and see whether the distance follows.
+
+## Added 2026-11-14 (bloatflies' distance, shots and bite, issue #2351)
+
+129. **How does a bloatfly fight the player: its distance, its shots and its bite?** (P2;
+     combat-ai.md §12.6 and §19, #2351.) A player reports that in the original bloatflies
+     keep their distance, fire on a cooldown and bite when in range [hypothesis: a
+     player's report in #2351, not yet captured]. CrBloatFly 0x0009189C carries
+     Bloatfly1HP (Min Range 100, Max Range 250, semi-auto delay 0.1-0.75 s) and has its
+     own attack (DATA damage 7, reach 32); its style CSBloatfly is Ranged Only
+     [documented: fnvtool esm decode, FalloutNV.esm]. Ours since #2351: it holds about
+     225 units away and steps back only from a target within 100, to 164 [design, #2351];
+     it never bites (its folder has no h2hattack clips) [hypothesis: whether and how it
+     bites]. AI-observer capture: one bloatfly attacking the standing player, then the
+     player walking in on it: its distance over time (about 10 samples a second), the
+     time between its darts, whether it backs away and from how near, and whether it
+     bites, from how near, and which clip plays then (`1hpattackright_2`, which moves it
+     about 30 units forward, is one candidate [hypothesis]).
+
+## Added 2026-11-14 (shots through the Transparent layer, #2340)
+
+130. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
+     #2340, combat-rules.md "The world".) The road gate door 0x0008D5B8 (CLFenceGateRoad01,
+     WastelandNV, -4576, -30616, 6819, not rotated) has its chain link on layer 3 east of
+     the gate leaves (model x 45..246, 13..224 high); the gate leaves themselves are on
+     Transparent Small Anim (28). Ours since #2340: every projectile passes layer 3
+     [hypothesis from the GECK wiki "Collision layer": "nothing can pass through except
+     projectiles"]. To check: stand at (-4420, -30766), face north, look about 10 degrees
+     down and fire one 9mm pistol round: does it strike the ground beyond the link, or
+     leave a metal impact on the link? Then the same at the gate leaves (28, where a 9mm
+     should stop) as a control. The same question for a utility room's ceiling grate
+     (layer 3 at 183 units, e.g. utlrmwall01.nif), shot from below.
+
+## Added 2026-11-14 (the drinking idle, #2349)
+
+131. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
+     §16.) Drink from Goodsprings' water pump, once in first person and once in third
+     person. Note: how long the animation runs (ours: the clips are 2.37 s and 2.70 s);
+     whether movement and mouse look are held while it plays (ours holds neither); and
+     when the healing and the rads apply (ours: at the activation, before the animation),
+     read from the health bar and the RAD meter frame by frame. Ours until then:
+     [design, #2349].
+
 ## Added 2026-11-14 (a script moving the clock, issue #2353)
 
 132. **Where are actors after a script sets GameHour?** (P2; packages.md §9.) NVForever,
@@ -1996,3 +2050,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      at 06:00 on the street by Easy Pete's porch, with him in bed in his house,
      `set GameHour to 8` from the console and the same samples: is he on his porch chair
      at once, does he walk out of his door, or does he stay in bed until his next choice?
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.

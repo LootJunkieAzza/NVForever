@@ -1248,6 +1248,7 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
+    compiled_origins: crate::jip_provenance::CompiledOrigins,
     /// JIP's Script Runner: its files and their units (`crate::script_runner`).
     pub(crate) sr: crate::script_runner::SrState<'a>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
@@ -1447,6 +1448,16 @@ pub struct Game<'a> {
     /// (`crate::idles::pick_idle`), for the layer that animates actors to take: it knows
     /// their animation folder. Each actor once. Not part of the saved state.
     pub idle_picks: Vec<FormId>,
+    /// Actors whose activation asks the idle tree's activation root
+    /// (`Game::activate_idle`: drinking from placeable water, #2349), for the layer that
+    /// animates actors to take, as [`Game::idle_picks`]: it knows their animation folder.
+    /// Only the player is put here [design, #2349]. Each actor once. Not part of the
+    /// saved state.
+    pub activate_idles: Vec<FormId>,
+    /// The actor whose activation idle the tree is being walked for
+    /// (`Game::activate_idle`): only then does GetUsedItemActivate answer for an
+    /// activation (`functions::furniture::get_used_item_activate`, #2349). Not saved.
+    pub(crate) activate_walk: Option<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -2309,6 +2320,7 @@ impl<'a> Game<'a> {
             unusable_reported: Default::default(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
+            compiled_origins: Default::default(),
             sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
@@ -2388,6 +2400,8 @@ impl<'a> Game<'a> {
             magic_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
+            activate_idles: Vec::new(),
+            activate_walk: None,
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             walk_up_greets: BTreeMap::new(),
@@ -3087,6 +3101,7 @@ impl<'a> Game<'a> {
         // UTF-8 when it is, else 8-bit text in this run's code page (#1439).
         let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
         let id = self.compile_source(&format!("CompileScript {path}"), src)?;
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::File(crate::jip_provenance::Text::new(&key)));
         self.compiled_paths.insert(key, id);
         Some(id)
     }
@@ -3152,6 +3167,7 @@ impl<'a> Game<'a> {
         let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let id = COMPILED_BASE + self.compiled_files.len() as u32;
         self.compiled_files.push(unit);
+        self.compiled_origins.set(id, crate::jip_provenance::CompiledOrigin::Dynamic);
         Some(id)
     }
 
@@ -3161,9 +3177,32 @@ impl<'a> Game<'a> {
     /// reported once per handler kind and error, not on every frame it fires (#2280: up
     /// to 47,000 times a session in the player reports); other errors every time.
     pub(crate) fn handler_failed(&mut self, unit: String, error: String) {
+        self.handler_failed_with_context(unit, error, || None);
+    }
+
+    /// Optional diagnostic context never changes the error event or its dedup key.
+    pub(crate) fn handler_failed_with_context(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>) {
+        self.handler_failed_with_registrar(unit, error, context, None);
+    }
+
+    pub(crate) fn handler_failed_with_registrar(&mut self, unit: String, error: String, context: impl FnOnce() -> Option<String>, registrar: Option<&crate::jip_provenance::Registrar>) {
         let unusable = error.ends_with(NOT_A_FUNCTION) || error.ends_with(NO_FUNCTION_BLOCK);
         if unusable && !self.unusable_reported.insert((unit.clone(), error.clone())) {
             return;
+        }
+        if let Some(context) = context() {
+            if let Some(registrar) = registrar {
+                let r = registrar.diagnostic();
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = r.kind, registrar_unit = r.unit, registrar_plugin = r.plugin,
+                    registrar_source = r.source, registrar_source_status = r.source_status,
+                    registrar_compiled_id = r.compiled, registrar_owner_form = r.owner,
+                    registrar_self_ref = r.self_ref, registrar_action_ref = r.action_ref, registrar_quest = r.quest,
+                    "extender handler failed");
+            } else {
+                tracing::warn!(frame = self.frame, unit = %unit, error = %error, handler_context = %context,
+                    registrar_kind = "unavailable", "extender handler failed");
+            }
         }
         self.emit(EventKind::ScriptError { unit, error });
     }
@@ -3263,6 +3302,10 @@ impl<'a> Game<'a> {
     /// The event functions (tasks E1–E3; docs/spec-notes/ext-events.md). `sender` is the
     /// calling script's plugin, DispatchEvent's default sender.
     pub fn event_call(&mut self, c: fnv_script::vm::EventCall, sender: &str) -> Result<fnv_script::vm::XVal, String> {
+        self.event_call_with_registrar(c, sender, None)
+    }
+
+    fn event_call_with_registrar(&mut self, c: fnv_script::vm::EventCall, sender: &str, registrar: Option<std::sync::Arc<crate::jip_provenance::Registrar>>) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::{EventCall, XKey, XVal};
         let key_text = |k: &XVal| if let XVal::Str(s) = k { s.to_ascii_lowercase() } else { String::new() };
         Ok(match c {
@@ -3357,7 +3400,7 @@ impl<'a> Game<'a> {
                 XVal::Num(1.0)
             }
             EventCall::CurrentName => XVal::Str(self.event_names.last().cloned().unwrap_or_default()),
-            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters)))),
+            EventCall::JipSet { event, func, add, filters } => XVal::Num(f64::from(u8::from(self.jip_set(event, func, add, filters, registrar)))),
             EventCall::MainLoop { func, add, delay, flags, on } => {
                 self.jip_main_loop(func, add, delay, flags, on.and_then(|v| v.as_form()).map(FormId));
                 XVal::Num(0.0)
@@ -5058,6 +5101,14 @@ impl<'a> Game<'a> {
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
+        // The player's activation asks the idle tree's activation root, whose conditions
+        // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
+        // effect (`drink_from`) still applies now, at the activation [design, #2349:
+        // whether the original applies it at the idle's start or end is observer check
+        // 131].
+        if actor == FormId::PLAYER_REF && !self.activate_idles.contains(&actor) {
+            self.activate_idles.push(actor);
+        }
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
@@ -5711,6 +5762,32 @@ impl<'a> Game<'a> {
         if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
             return 0.0;
         }
+        // Only these two CTDA aliases use the already built named extender handlers.
+        // This is not a fallback for arbitrary unknown opcodes. Keep the established
+        // null-form condition rule above, and form remapping in cond::ParamTypes.
+        let native = match c.function {
+            cond::GET_PERK_RANK => Some("getperkrank"),
+            cond::GET_PC_USING_IRON_SIGHTS => Some("getpcusingironsights"),
+            _ => None,
+        };
+        if let Some(name) = native {
+            use fnv_script::vm::XVal;
+            let args = if c.function == cond::GET_PERK_RANK {
+                match c.params.first() {
+                    Some(ArgValue::Value(Value::Ref(r))) => vec![XVal::Ref(*r)],
+                    Some(ArgValue::Value(Value::Num(n))) => vec![XVal::Num(*n)],
+                    _ => Vec::new(),
+                }
+            } else { Vec::new() };
+            return match crate::nvse::call(self, &RunCtx { self_ref: on, ..RunCtx::default() }, name, on, &args) {
+                Some(Ok(XVal::Num(value))) => value,
+                Some(Err(error)) => {
+                    self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: name.into(), unit: ctx.unit.to_string(), error });
+                    0.0
+                }
+                _ => 0.0,
+            };
+        }
         self.call_function(&ctx, &c.params).num()
     }
 
@@ -6334,7 +6411,13 @@ impl Host for Exec<'_, '_> {
 
     fn event_call(&mut self, c: fnv_script::vm::EventCall) -> Result<fnv_script::vm::XVal, String> {
         let sender = self.unit.unit.plugin.clone();
-        self.game.event_call(c, &sender)
+        let registrar = if matches!(&c, fnv_script::vm::EventCall::JipSet { add: true, .. }) {
+            let plugin = self.calling_plugin();
+            let compiled = self.game.compiled_files.iter().position(|&unit| std::ptr::eq(unit, self.unit)).map(|i| COMPILED_BASE + i as u32);
+            let origin = compiled.and_then(|id| self.game.compiled_origins.get(id));
+            Some(std::sync::Arc::new(crate::jip_provenance::Registrar::capture(self.unit, self.ctx, plugin, compiled, origin)))
+        } else { None };
+        self.game.event_call_with_registrar(c, &sender, registrar)
     }
 
     fn members(&mut self, form: u32) -> Option<Vec<u32>> {
@@ -6384,19 +6467,9 @@ impl Host for Exec<'_, '_> {
     }
 
     fn record_field(&mut self, form: u32, sub: &str, path: &str) -> Option<fnv_script::vm::XVal> {
-        use fnv_script::vm::XVal;
-        // A script's change of the field for the session first (SetFormDescription …).
-        if let Some(v) = self.game.field_overrides.get(&(FormId(form), format!("{sub}/{path}"))) {
-            return Some(v.clone());
-        }
-        let v = self.game.data.record_field(FormId(form), sub, path)?;
-        Some(match v {
-            serde_json::Value::Number(n) => XVal::Num(crate::nvse::record_float(n.as_f64()?)),
-            // Form IDs decode as "0x0007EA31"; the null form is no form.
-            serde_json::Value::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
-            serde_json::Value::String(s) => XVal::Str(s.clone()),
-            _ => return None,
-        })
+        // The VM's built-in record getters need the same clone inheritance and
+        // per-clone overrides as the host's extender getters.
+        crate::nvse::record_value(self.game, FormId(form), sub, path)
     }
 
     fn hit_value(&mut self, actor: u32, what: &str, k: i64) -> Option<fnv_script::vm::XVal> {
