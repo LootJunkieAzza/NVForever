@@ -38,6 +38,12 @@ what), `chargen/vigor/view.rs` (where the machine sits before the camera),
 - Pad bindings: RT → `next_page`, LT → `previous_page`, right → `increase_value`, left →
   `decrease_value` (both repeat while held, `repeathorizontal`), up → `index_up`, down
   → `index_down`, X → `exit_menu` (whose own button is A).
+- The button picture of `increase_value` and of `decrease_value` is the left stick's
+  (`_xbox_button` `&xbuttonls;`), as in `menus\chargen\specialbookmenu.xml` (the same
+  menu for Fallout 3's S.P.E.C.I.A.L. book, the same bindings). The file's `xright` /
+  `xleft` say "right" and "left" without naming the stick or the D-pad; that the stick
+  gives them is a [hypothesis] the picture fits (not captured). NVForever takes both
+  (§6, issue #2313).
 - The named parts are invisible click targets with placeholder positions and no
   picture: `next_page`, `previous_page`, `increase_value`, `decrease_value`,
   `exit_menu`, the two 1 × 1 hot rectangles `index_up`/`index_down`, and a
@@ -193,6 +199,10 @@ to Strength by itself [observed: the captures of 2026-11-06, §5].
   page; Shift+Tab or Page Up the previous one; Enter or E Done. On the review page the
   → (and Tab) is Done too. Once Up/Down was used, the chosen row's arrows show their
   grey `On` pictures (the original shows no row with the mouse).
+- A controller: its D-pad and its left stick are the arrow keys (`pad::menu_keys`,
+  `pad::menu_stick`; the stick a step a push past half way, no repeat while held, as the
+  D-pad) [design, #2313; the stick from §2's pictures], RT / LT the next / previous page
+  (Page Down / Page Up), A Done (Enter), B leaves as Esc.
 - Clicks: on the parts in front for the page (§3): ←, →, the first page's →, the lever's
   halves, and on the review page each row's ◄, ► and value (which chooses the row). A
   click is matched against each part's outline on the screen (its bounds projected),
@@ -246,7 +256,7 @@ with the owner's.
   `OBJBookSpecialNumberFinished`, a refusal `UIMenuCancel` (`nvf_play::ui_sounds`, menu
   `vigor tester`).
 - Not built: any sounds of the lever and the bulbs
-  of their own, and the repeat of a held Left/Right (`repeathorizontal`); a turn asked
+  of their own, and the repeat of a held Left/Right, D-pad or stick (`repeathorizontal`); a turn asked
   during another does not wait for it.
 - The original lights the machine and blurs the room [observed: §5]; what light it uses
   is not known, and NVForever's rig (§6) is a stand-in tuned by eye. So are the strength of
