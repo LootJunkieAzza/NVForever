@@ -97,8 +97,18 @@ recorded in ยง5.
   - **Compass Marker Ignores Locks**: a target indoors is marked outdoors at a door into
     its interior; NVForever picks a door that is not locked when there is one, and the
     first door when the target ignores locks or every door is locked [hypothesis: the
-    Objectives Tab describes a path that avoids locked doors "if possible"; NVForever
-    takes one door, not a path through several cells].
+    Objectives Tab describes a path that avoids locked doors "if possible"].
+  - **Targets several doors deep (#2458).** When no door outdoors leads straight into the
+    target's interior, the World Map marks it at the door outdoors that starts the way to
+    it through the fewest load doors (at most 8), avoiding locked doors as above
+    [hypothesis: observer-checks.md question 140]. Example [observed: FalloutNV.esm]: For
+    the Republic, Part 2 (VMQ05) objective 10 marks VHDColonelMooreREF, who stands in
+    `HooverDamIntPowerPlant01b`, an interior no exterior door leads into; before this fix the
+    World Map had no marker for her at all. The compass and the Local Map mark the door of the
+    player's own place that starts the way there (hud.md ง11), from the Strip the gate
+    to Freeside, the Strip's only load door into another worldspace in the master
+    [observed: `fnvtool sim doors`, TheStripWorldNew -> FreesideWorld only]. The console's
+    ShowQuestTargets names the same door outdoors.
 - An objective is **displayed or not** and **completed or not**, set by
   SetObjectiveDisplayed / SetObjectiveCompleted (value 1 or 0) and read by the matching Get
   functions. CompleteAllObjectives completes every displayed objective [documented:

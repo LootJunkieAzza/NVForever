@@ -2161,3 +2161,17 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
      HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
      INFO 000CD8A9 and after, said after part 4, 0008D401?).
+
+## Added 2026-11-14 (quest markers several doors deep, #2458)
+
+140. **Where does the original mark a target several doors deep, seen from another
+     worldspace?** (P2; #2458, quests-dialogue.md §2, hud.md §11.) Ours: the World Map
+     marks it at the door outdoors that starts the fewest-doors way into its interior,
+     and the compass and Local Map at the door of the player's own place that starts the
+     way there [hypothesis]. To check: with For the Republic, Part 2 (VMQ05) objective 10
+     shown and the quest active, stand on the Strip (NCR embassy) and note where the
+     World Map's quest marker sits (which door of Hoover Dam, or elsewhere) and which
+     door the compass marker points at (the gate to Freeside, or another); then again
+     from the Mojave outside Freeside and inside the dam's visitor centre. Also: does
+     the World Map draw a second marker at the Strip's gate while the player is on the
+     Strip?
