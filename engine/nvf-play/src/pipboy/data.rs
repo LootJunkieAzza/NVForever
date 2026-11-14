@@ -375,6 +375,10 @@ struct PaneMoves {
     drag: f32,
 }
 
+/// A marked target's doors on the maps: the World Map's door outdoors, the Local Map's
+/// first door of the way (`None`: the target itself, or no way).
+type TargetDoors = (Option<FormId>, Option<FormId>);
+
 /// The DATA page's state.
 #[derive(Resource, Default)]
 pub struct DataState {
@@ -457,7 +461,7 @@ pub struct DataState {
     /// Each marked target check's (quest, objective, place in its list) door on the maps
     /// last logged: the world map's door outdoors and the local map's first door of the
     /// way (`None`: the target itself, or no way).
-    target_doors_logged: HashMap<(u32, i32, usize), (Option<FormId>, Option<FormId>)>,
+    target_doors_logged: HashMap<(u32, i32, usize), TargetDoors>,
     /// The references the World Map's quest markers stand for, last logged.
     world_quests_logged: Option<Vec<u32>>,
     /// The active quest's targets of the objectives shown and not done, with whether their
