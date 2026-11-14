@@ -28393,3 +28393,14 @@ expect = [
   { text = 'script: print "nvf physical wheel edge 265"', min = 1, label = "actual physical down reaches its public script handler" },
 ]
 manual = "Keep the primary game window focused; scroll up and down after loading. This manual scenario has no selection or scroll-offset expectation and provides no GPU/native visual comparison."
+
+[[scenario]]
+name = "quiet-missing-starfield"
+source = "#2408 (engine/nvforever/src/sky.rs cloud_layers, official_plugin): FalloutNV.esm's NVWastelandClearNight names sky/NVWastelandStarfieldSky.dds for its first cloud layer and no base archive has it; the player reports' missing_asset for it came from 25 of 43 installs. A texture the base game's own weather names and nobody has is no failure and logs no warning"
+note = "Goodsprings at 23:00: the climate rolls NVWastelandClearNight at the start"
+areas = ["sky", "reports"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs", "engine/nvf-assets/src/texture.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [{ text = "weather: NVWastelandClearNight at 23:00", label = "the night weather is the one shown" }]
+forbid = [{ re = 'texture not loaded: .*nvwastelandstarfieldsky', label = "a warning for the starfield texture the game does not have" }]
