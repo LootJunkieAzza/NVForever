@@ -411,6 +411,15 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+62. **Freeside's missing residents (#2432, #2434) taken as fixed by #2239; please
+    retest on a build from 2026-11-13 or later.** Both reproduce in the engine only with
+    #2239's reset of the handed-over grid squares on a change of worldspace taken out
+    (Freeside's three worldspaces lie on the same squares): then the fort has 0 people
+    drawn and Orris and his bodyguard are missing at the north gate, as reported. Main
+    has them all, on your way there too (fast travel, King's School, bus door). v0.7.0
+    (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
+    no version]. No other engine change was made; the smoke scenarios
+    `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

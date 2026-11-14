@@ -27454,3 +27454,39 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+[[scenario]]
+name = "freeside-fort-residents-door"
+source = "issue #2434 (engine/nvforever/src/residents.rs newly_loaded): the Old Mormon Fort (FreesideFortWorld) lies on the grid squares of Freeside's north side (FreesideNorthWorld) it is entered from; its residents join on the first entry, are drawn and see the player. With the squares remembered by grid alone (before #2239) none joined: 0 drawn, no Follower detected"
+note = "the player beside the fort's door (0x00133966) in FreesideNorthWorld at noon; the aid activates the door at 8 s"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "8:activate:0x00133966" }
+args = ["--play", "--world", "FreesideNorthWorld", "--pos=6450,3550,1013", "--heading", "135", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all"]
+run_seconds = 40
+expect = [
+  { re = 'render: worldspace 0012D94D -> 0012D94E \(FreesideFortWorld\)', label = "the door takes the player into the fort" },
+  { re = 'detection: VFSFollowers(Guard|Doctor)\d [0-9A-F]{8} → the player', min = 3, label = "the Followers' guards and doctors are there and look at the player (2026-11-14: 5; 0 without the fix)" },
+  { re = 'detection: VFSJulieFarkas 00115C5F → the player', label = "Julie Farkas is there" },
+  { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the fort's residents are drawn (2026-11-14: 14; 0 without the fix)" },
+]
+
+[[scenario]]
+name = "freeside-north-residents-door"
+source = "issue #2432 (engine/nvforever/src/residents.rs newly_loaded): the owner's way to G.I. Blues' north gate, from Goodsprings by fast travel to the Strip North Gate (FreesideWorld), into the King's School of Impersonation and out, then through the bus door (0x0012BDD0) to Freeside's north side (FreesideNorthWorld), which lies on the same grid squares. Orris and the King's bodyguard at the gate are drawn and see the player on the first arrival; with the squares remembered by grid alone (before #2239) they were not until the player had been somewhere else (0 residents drawn)"
+note = "fast travel as fast-travel-primm does it (ShowMap 6 s, Pip-Boy 12-18 s), the King's School door at 32 s; VMS19 started at 36 s and the King's line 0x00113630 (stage 10, the gambler talking to Orris disabled) at 37 s; out at 42 s, the bus door at 52 s, the player put by the north gate at 64 s"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0015EC3F:1,32:activate:0x0011150F,36:start:VMS19,37:info:0x00113630,42:activate:0x0010E09D,52:activate:0x0012BDD0", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0015EC3F,18:key=use", NVF_PLAY_TEST_GOTO = "64:7700:6500:1040" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--npc-packages", "all"]
+run_seconds = 90
+order = [[
+  { re = 'render: worldspace 000DA726 -> 0010BEEA \(FreesideWorld\)', label = "the fast travel arrives in Freeside" },
+  { text = "script: VFSGamblerTalkingToOrrisREF disabled", label = "the King's line sets G.I. Blues going" },
+  { re = 'render: worldspace 0010BEEA -> 0012D94D \(FreesideNorthWorld\)', label = "the bus door takes the player to the north side" },
+  { re = 'detection: VFSOrris 00115C60 → the player', label = "Orris is there and sees the player" },
+]]
+expect = [
+  { re = 'detection: VFSKingBodyguardNorth 0013EF08 → the player', label = "the King's bodyguard beside him too" },
+  { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the north side's residents are drawn (2026-11-14: 17; 0 without the fix)" },
+]
