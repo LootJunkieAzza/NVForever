@@ -8606,6 +8606,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-stats-worn-once"
+source = "#2495 (docs/spec-notes/pipboy.md §5.1, aid-items.md §13): a worn apparel enchantment is the game's active effect in the temporary pool (#377); the STATS page added its changes a second time (Speech 19 with the Vault 21 Jumpsuit) and counted an enchantment whose condition fails. The page now shows the game's actor value"
+note = "a new-game player (Speech 15, Perception 5 [observed: headless fnvtool, #2495]) wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184: Speech +2, Melee Weapons +2) and the Reading Glasses (GlassesReading 0x0001C296: Perception +2 only with Four Eyes, which the player lacks); S.P.E.C.I.A.L. row 2 at 23 s, then the Skills list stepped down to Speech (row 11 by name) from 25 s"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/abilities.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_EQUIP = "00104184,0001C296", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=1,24:tab=2,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:down,25:down,25.25:down,25.5:down,25.75:down,26:down,26.25:down,26.5:down,26.75:down,27:down,27.25:down" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 31
+expect = [
+  { re = 'test aid: the player equips 0x00104184', label = "the jumpsuit worn" },
+  { re = 'test aid: the player equips 0x0001C296', label = "the reading glasses worn" },
+  { re = 'pipboy stats: S\.P\.E\.C\.I\.A\.L\.: Perception 5 selected', label = "the glasses' conditioned Perception +2 changes nothing and marks nothing (no Four Eyes)" },
+  { re = 'pipboy stats: Skills: Melee Weapons 17 \(\+\) selected', label = "Melee Weapons 15 + 2, counted once, marked" },
+  { re = 'pipboy stats: Skills: Speech 17 \(\+\) selected', label = "Speech 15 + 2 = GetActorValue Speech, counted once, marked" },
+  { re = 'pipboy stats: Skills: Speech 19', count = 0, label = "not the jumpsuit's +2 twice" },
+]
+
+[[scenario]]
 name = "pipboy-repair"
 source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols (Weap10mmPistol, first in the Weapons tab by name), the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
 areas = ["repair", "pipboy"]
