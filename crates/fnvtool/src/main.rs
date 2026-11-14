@@ -40,6 +40,7 @@ mod nav_path;
 mod observer;
 mod nif_cmd;
 mod phys_cmd;
+mod quest_sweep;
 mod script_cmd;
 mod sim_cmd;
 mod source;
@@ -117,6 +118,9 @@ enum Cmd {
     /// Layer 6 dialogue: topics, lines and headless conversations.
     #[command(subcommand)]
     Dialogue(dialogue_cmd::DialogueCmd),
+    /// Quests: static checks over the data for soft locks (issue #2365).
+    #[command(subcommand)]
+    Quest(quest_sweep::QuestCmd),
     /// Actor appearance: the parts that make up placed NPCs (workstream 5).
     #[command(subcommand)]
     Actor(ActorCmd),
@@ -1198,6 +1202,7 @@ fn main() -> ExitCode {
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
         Cmd::Dialogue(c) => dialogue_cmd::run(c),
+        Cmd::Quest(c) => quest_sweep::run(c),
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),
