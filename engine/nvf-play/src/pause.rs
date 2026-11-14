@@ -38,13 +38,13 @@
 //! Debug (`crate::settings_layout` says each row's tab and heading; a row it does not name
 //! stays under the group it registered with) [design: #1953]. Left of the column, from the
 //! rows' top, the rail lists Search, Changed and the tabs; the chosen tab's rows are in
-//! the middle over the darkened band (from near the view's top, as far left as keeps the
-//! band clear of the rail:
-//! `options_left`, #1210), under dim headings in the page's font (Gameplay: Game, Saving,
+//! the middle over the darkened band (from near the view's top, as wide as the room left of
+//! the rail allows up to 1300 units and centred in it, the band clear of the rail:
+//! [`ListBox::of`], #1210, #2377), under dim headings in the page's font (Gameplay: Game, Saving,
 //! Dialogue, Camera; Display: Screen, Interface, Performance; Graphics: Picture,
 //! Distance, World), which take a line of the window and the scroll bar but are never
 //! chosen; each row with its value as the game is using it now, the chosen row's note
-//! under them (cut to the lines that fit), Defaults and Back at the bottom right, the
+//! under them (three lines at most), Defaults and Back at the bottom right, the
 //! version at the bottom left. The view model is `crate::settings_view`.
 //!
 //! **Where it opens** [design: #1953, the fork owner's request 2026-11-09]: Settings opens
@@ -880,8 +880,15 @@ const BAR_MARKER_MIN: f32 = 32.0;
 const BAR_PICTURES: [&str; 3] = ["interface\\shared\\scrollbar\\arrow_up.dds", "interface\\shared\\scrollbar\\arrow_down.dds", "interface\\shared\\scrollbar\\vert_marker.dds"];
 /// Mouse wheel movement counted in pixels (a touchpad): this many make a notch.
 const WHEEL_PIXELS: f32 = 20.0;
-const OPTIONS_WIDTH: f32 = 820.0;
-const OPTIONS_LEFT: f32 = -470.0;
+/// The settings list's band starts this far from the view's left edge where the list is as
+/// wide as the room allows, and the list is never wider than [`OPTIONS_MAX`] (a wide view
+/// centres it in the room) [design: #2377].
+const LEFT_MARGIN: f32 = 60.0;
+const OPTIONS_MAX: f32 = 1300.0;
+/// The row the in-row places below were laid out in: the list's width before #2377. Each
+/// place is kept as its distance from the row's right end ([`RowX`]), so a row of this width
+/// is drawn as before and a wider row gives its extra room to the label [design: #2377].
+const ROW_BASE: f32 = 820.0;
 /// The settings page's rows' top: higher than the column's (360 with the pause menu's
 /// five entries), where nine rows and the note under them ran off the bottom [design:
 /// #1210]. The rail starts there too: Search, Changed and seven tabs are nine lines
@@ -918,7 +925,9 @@ const METER_ARROWS: [f32; 2] = [420.0, 692.0];
 const METER_ARROW: Vec2 = Vec2::new(17.5, 35.0);
 const PERCENT_AT: f32 = 765.0;
 /// A list's box in its row (its left edge and width, from the slider's left arrow to the
-/// row's end), the open list's rows shown at once and their height [design].
+/// row's end), the open list's rows shown at once and their height [design]. The places
+/// above and this one are in a [`ROW_BASE`] row; [`RowX`] keeps them at their distance from
+/// the row's right end.
 const LIST_LEFT: f32 = 420.0;
 const LIST_WIDTH: f32 = 386.0;
 const DROP_ROWS: usize = 8;
@@ -1062,6 +1071,8 @@ struct PauseView {
     found: Found,
     /// The Changed list's rows when last logged (the log says when they change).
     changed_logged: Option<Vec<RowId>>,
+    /// The settings list's place when last logged ([`log_list_box`]).
+    list_logged: Option<ListBox>,
 }
 
 impl PauseView {
@@ -1507,8 +1518,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         return;
     }
     let f = &look.faces;
-    // The settings rows' left edge, clear of the categories.
-    let left = options_left(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
+    // The settings list's place, clear of the categories.
+    let lb = ListBox::of(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
         // The pause screen over the held world.
         if !d.under_main {
@@ -1539,7 +1550,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             let tall = |n: Node| crate::interface::over_view(n, crate::interface::MIDDLE, false);
             match d.page {
                 Page::Settings { .. } => {
-                    band(root, look, tall(Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(left - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W, 0.0) }))
+                    let (band_left, band_w) = lb.band();
+                    band(root, look, tall(Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(band_left, 0.0, band_w, 0.0) }))
                 }
                 Page::Load { .. } => band(root, look, tall(Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) })),
                 // The mod's page is drawn from its tiles over this one (`crate::tiles::draw`).
@@ -1574,7 +1586,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                         });
                     }
                 }
-                Page::Settings { selected } => settings_page(root, d, look, settings, selected, left, glyphs),
+                Page::Settings { selected } => settings_page(root, d, look, settings, selected, lb, glyphs),
                 Page::Load { selected } => load_page(root, d, look, list, selected, glyphs),
                 Page::Mods => {}
             }
@@ -1636,17 +1648,18 @@ struct KeepLine;
 /// The settings page (module notes): the rail left of the column, the heading links over
 /// the rows, the listed lines (headings and rows) in a window of [`Drawn::lines`] round the
 /// chosen row, the chosen row's note under them, the version at the bottom left.
-fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: Option<RowId>, left: f32, glyphs: &crate::pad::PadGlyphs) {
+fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: Option<RowId>, lb: ListBox, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
     rail_column(root, f, d, glyphs);
     let top = OPTIONS_TOP;
+    let left = lb.left;
     let entries = &d.entries;
     if entries.is_empty() {
-        root.spawn(from_middle(left, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, tr(empty_words(d.scope)), 10.0, BASE, color(Shade::Dim)));
+        root.spawn(from_middle(left, top, lb.width, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, tr(empty_words(d.scope)), 10.0, BASE, color(Shade::Dim)));
     }
     // On the search its line takes the links' place, the rows' whole width; Page Up/Down
     // (LB/RB) still go from heading to heading there [design: #1953].
-    let links = if d.search.is_none() && entries.iter().any(|e| matches!(e, ViewEntry::Heading(_))) { heading_links(root, f, left, glyphs) } else { left + OPTIONS_WIDTH };
+    let links = if d.search.is_none() && entries.iter().any(|e| matches!(e, ViewEntry::Heading(_))) { heading_links(root, f, lb, glyphs) } else { left + lb.width };
     if let Some((query, typing)) = &d.search {
         search_line(root, f, query, *typing, left, links - 10.0 - left);
     }
@@ -1654,12 +1667,12 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let lines = d.lines.max(1);
     let first = d.scroll.min(entries.len().saturating_sub(lines));
     let drawn = crate::settings_view::drawn_slots(entries, first, lines);
-    scroll_bar(root, look, entries.len(), first, top, left, lines);
+    scroll_bar(root, look, entries.len(), first, top, lb, lines);
     for (n, k) in drawn.clone().enumerate() {
         let y = top + n as f32 * OPTION_ROW;
         match entries[k] {
-            ViewEntry::Heading(p) => heading_line(root, f, &heading_words(p, crumbs), left, y),
-            ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), left, y, glyphs),
+            ViewEntry::Heading(p) => heading_line(root, f, &heading_words(p, crumbs), lb, y),
+            ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), lb, y, glyphs),
         }
     }
     // The chosen row's note under the rows; with its list open on a choice out of reach,
@@ -1671,7 +1684,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (entries.len() - first.min(entries.len())).min(lines) as f32;
-    note_lines(root, f, &note, left, top + shown * OPTION_ROW + NOTE_GAP);
+    note_lines(root, f, &note, lb, top + shown * OPTION_ROW + NOTE_GAP);
     version(root, f);
     // The open dropdown over the rows under its own (over those above near the bottom).
     let Some((o, names)) = d.dropdown.and_then(|o| Some((o, d.list(o.row)?.0))) else { return };
@@ -1681,7 +1694,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let row_top = top + n as f32 * OPTION_ROW;
     let y = if row_top + OPTION_ROW + h > 950.0 { row_top - h } else { row_top + OPTION_ROW };
     let (line, _) = highlight_colors();
-    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + lb.row().list_left(), y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
             let name = tr_str(d.choice_words(o.row, k, name));
             let shade = if d.choice_reason(o.row, k).is_some() { Shade::Dim } else { Shade::Bright };
@@ -1693,9 +1706,9 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
 }
 
 /// A heading's line: its words dim in the page's font, nothing to choose [design: #1953].
-fn heading_line(root: &mut ChildSpawnerCommands, f: &Faces, words: &str, left: f32, y: f32) {
+fn heading_line(root: &mut ChildSpawnerCommands, f: &Faces, words: &str, lb: ListBox, y: f32) {
     root.spawn((HeadingLine, Text::new(words), Node { display: Display::None, ..default() }));
-    root.spawn(from_middle(left, y, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, words, 10.0, BASE + 2.0, color(Shade::Dim)));
+    root.spawn(from_middle(lb.left, y, lb.width, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, words, 10.0, BASE + 2.0, color(Shade::Dim)));
 }
 
 /// A heading's words, translated: on a tab its heading's (`Saving`); on the search and the
@@ -1739,8 +1752,8 @@ struct SearchText;
 
 /// "Previous heading" and "Next heading" over the rows' right end, each with its key; the
 /// left edge they leave.
-fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, left: f32, glyphs: &crate::pad::PadGlyphs) -> f32 {
-    let mut right = left + OPTIONS_WIDTH;
+fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, lb: ListBox, glyphs: &crate::pad::PadGlyphs) -> f32 {
+    let mut right = lb.left + lb.width;
     for (k, key) in [(1, KeyCode::PageDown), (0, KeyCode::PageUp)] {
         let label = format!("{}  {}", tr(HEADING_LINKS[k]), crate::pad::hint(&[key], crate::pad::PAUSE_AT));
         let w = crate::pad::hint_width(&f.small, &label, glyphs) + 20.0;
@@ -1754,9 +1767,10 @@ fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, left: f32, glyphs: 
 /// A row's line: its label, its value (ON or OFF, a meter, a list's box, a key), the box
 /// round it when chosen. The one drawing of a row wherever it is listed.
 #[allow(clippy::too_many_arguments)]
-fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], id: RowId, on: bool, left: f32, y: f32, glyphs: &crate::pad::PadGlyphs) {
+fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], id: RowId, on: bool, lb: ListBox, y: f32, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
-    let node = boxed(from_middle(left, y, OPTIONS_WIDTH, OPTION_ROW), on);
+    let x = lb.row();
+    let node = boxed(from_middle(lb.left, y, lb.width, OPTION_ROW), on);
     match id {
         RowId::Setting(i) => {
             let Some(s) = list.get(i) else { return };
@@ -1768,21 +1782,21 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                     let reason = tr(reason);
                     r.spawn((SwitchState(id), Text::new(reason), Node { display: Display::None, ..default() }));
                     let vw = f.entry.font.width(reason);
-                    sm_text(r, &f.entry, reason, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Dim));
+                    sm_text(r, &f.entry, reason, x.value_at() - vw / 2.0, BASE + 2.0, color(Shade::Dim));
                     return;
                 }
                 if let Some(slider) = &s.slider {
-                    slider_row(r, look, id, v, &slider.text(v));
+                    slider_row(r, look, x, id, v, &slider.text(v));
                     return;
                 }
                 if let Some((_, chosen)) = d.list(i) {
-                    list_row(r, look, id, chosen, d.chosen_words(i, chosen), d.dropdown.is_some_and(|o| o.row == i));
+                    list_row(r, look, x, id, chosen, d.chosen_words(i, chosen), d.dropdown.is_some_and(|o| o.row == i));
                     return;
                 }
                 let value = tr(if v > 0.5 { "ON" } else { "OFF" });
                 let vw = f.entry.font.width(value);
                 r.spawn((SwitchState(id), Text::new(value), Node { display: Display::None, ..default() }));
-                sm_text(r, &f.entry, value, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Bright));
+                sm_text(r, &f.entry, value, x.value_at() - vw / 2.0, BASE + 2.0, color(Shade::Bright));
             });
         }
         RowId::Control(c) => {
@@ -1791,12 +1805,12 @@ fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: 
                 sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
                 if let ControlRow::Sensitivity(_) | ControlRow::Vertical(_) = c {
                     let m = if matches!(c, ControlRow::Vertical(_)) { d.vertical } else { d.sensitivity };
-                    slider_row(r, look, id, crate::bindings::sensitivity_part(m), &value);
+                    slider_row(r, look, x, id, crate::bindings::sensitivity_part(m), &value);
                     return;
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
                 r.spawn((SwitchState(id), Text::new(value.clone()), Node { display: Display::None, ..default() }));
-                crate::pad::set_button(r, &f.entry, &value, (VALUE_AT - vw / 2.0).min(OPTIONS_WIDTH - vw - 14.0), BASE + 2.0, color(Shade::Bright), glyphs);
+                crate::pad::set_button(r, &f.entry, &value, (x.value_at() - vw / 2.0).min(x.0 - vw - 14.0), BASE + 2.0, color(Shade::Bright), glyphs);
             });
         }
     }
@@ -1875,19 +1889,20 @@ fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
 
 /// A list's row: its choice in a box with a down arrow (lit while its dropdown is open),
 /// shown by its words (`shown`), dim when out of reach now.
-fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, x: RowX, i: RowId, chosen: &str, shown: (&str, bool), open: bool) {
     let bright = color(Shade::Bright);
     let (line, fill) = highlight_colors();
-    r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
+    let list_left = x.list_left();
+    r.spawn((Node { border: UiRect::all(u(LINE)), ..at(list_left, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
     // The state kept as text stays the English name (tests and aids read it); the page
     // shows it in the language chosen.
     r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
     let (words, out_of_reach) = shown;
     let words = tr_str(words);
     let vw = look.faces.entry.font.width(words);
-    sm_text(r, &look.faces.entry, words, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
+    sm_text(r, &look.faces.entry, words, list_left + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
     // The right arrow turned to point down.
-    let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
+    let node = at(list_left + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
     let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
     match &look.arrows[1] {
         Some(image) => r.spawn((node, turned, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
@@ -1920,8 +1935,8 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
 
 /// The note under the settings page's rows from `top`, wrapped to the rows' width and cut
 /// to the lines that are drawn ([`note_fit`]).
-fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32, top: f32) {
-    let width = OPTIONS_WIDTH - 20.0;
+fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, lb: ListBox, top: f32) {
+    let (left, width) = (lb.left, note_width(lb));
     let lines = f.small.font.lines(note, Some(width));
     let fit = note_fit(lines.len(), top);
     let bright = color(Shade::Bright);
@@ -1930,6 +1945,11 @@ fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32,
             crate::interface::set_line(t, &f.small, line, 0.0, NOTE_STEP * (i as f32 + 0.8), bright);
         }
     });
+}
+
+/// The note's width in a list `lb`: the rows' less 10 at each side.
+fn note_width(lb: ListBox) -> f32 {
+    lb.width - 20.0
 }
 
 /// How many of a note's `lines` are drawn from `top`: at most [`NOTE_LINES`], and only those
@@ -1952,20 +1972,80 @@ fn rail_label(item: RailItem, controller: bool) -> &'static str {
     }
 }
 
-/// The settings rows' left edge from the view's middle in a view `view_w` units wide
-/// whose rail is `tabs_w` wide: [`OPTIONS_LEFT`] where that keeps the band
-/// [`TABS_GAP`] clear of the rail, else as far left as does, but never so far that
-/// the band leaves the view (a view narrower than about 16:10 cannot hold both).
-fn options_left(view_w: f32, tabs_w: f32) -> f32 {
-    let half = view_w / 2.0;
-    let clear = half - (SUB_RIGHT + tabs_w + TABS_GAP) - (OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN);
-    OPTIONS_LEFT.min(clear).max(BAND_MARGIN - half)
+/// The settings list's place in the view: its left edge from the view's middle and its
+/// width (the rows', the headings', the note's; the scroll bar is right of it, the band
+/// round both) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ListBox {
+    left: f32,
+    width: f32,
+}
+
+impl ListBox {
+    /// The list in a view `view_w` units wide whose rail is `tabs_w` wide: as wide as the room
+    /// left of the rail allows (the band [`LEFT_MARGIN`] from the view's left edge and
+    /// [`TABS_GAP`] clear of the rail), at most [`OPTIONS_MAX`], then centred in that room.
+    /// A narrow view gets a narrow list rather than one that runs under the rail (#1210).
+    fn of(view_w: f32, tabs_w: f32) -> ListBox {
+        let room = (view_w - (SUB_RIGHT + tabs_w + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN).max(0.0);
+        let width = room.min(OPTIONS_MAX);
+        ListBox { left: -view_w / 2.0 + LEFT_MARGIN + BAND_MARGIN + (room - width) / 2.0, width }
+    }
+
+    /// The places in its rows.
+    fn row(self) -> RowX {
+        RowX(self.width)
+    }
+
+    /// The band behind the list and its scroll bar: its left edge from the view's middle and
+    /// its width.
+    fn band(self) -> (f32, f32) {
+        (self.left - BAND_MARGIN, self.width + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W)
+    }
+}
+
+/// The places in a settings row `.0` units wide, from its left edge: each as far from the
+/// row's right end as in a [`ROW_BASE`] row (module notes of the constants) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowX(f32);
+
+impl RowX {
+    fn from_right(self, at: f32) -> f32 {
+        self.0 - (ROW_BASE - at)
+    }
+
+    /// A switch's state's and a reason's centre.
+    fn value_at(self) -> f32 {
+        self.from_right(VALUE_AT)
+    }
+
+    /// The left edge of the row's value part: a slider's left arrow, a list's box.
+    fn value_left(self) -> f32 {
+        self.from_right(LIST_LEFT)
+    }
+
+    fn meter_left(self) -> f32 {
+        self.from_right(METER_LEFT)
+    }
+
+    fn arrows(self) -> [f32; 2] {
+        METER_ARROWS.map(|a| self.from_right(a))
+    }
+
+    /// A slider's value's centre.
+    fn percent_at(self) -> f32 {
+        self.from_right(PERCENT_AT)
+    }
+
+    fn list_left(self) -> f32 {
+        self.from_right(LIST_LEFT)
+    }
 }
 
 /// The settings page's scroll bar, right of its window of `lines` rows.
-fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, left: f32, lines: usize) {
+fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, lb: ListBox, lines: usize) {
     let w = settings_window(lines);
-    let bar = from_middle(left + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, w.shown as f32 * w.row);
+    let bar = from_middle(lb.left + lb.width + BAR_GAP, top, BAR_W, w.shown as f32 * w.row);
     window_bar(root, look, rows, first, w, bar);
 }
 
@@ -2020,22 +2100,24 @@ fn meter_ticks(v: f32) -> usize {
 
 /// A slider's meter, arrows and value (`value`: `v` as shown, e.g. a percentage) in its
 /// row `i`.
-fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, v: f32, value: &str) {
+fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, x: RowX, i: RowId, v: f32, value: &str) {
     let bright = color(Shade::Bright);
     let my = (OPTION_ROW - METER_HEIGHT) / 2.0;
+    let meter_left = x.meter_left();
     // The ground, then the ticks as far as the value.
-    r.spawn((at(METER_LEFT, my, METER_WIDTH, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
+    r.spawn((at(meter_left, my, METER_WIDTH, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
     for t in 0..meter_ticks(v) {
-        let x = METER_LEFT + t as f32 * METER_TICK;
-        let w = METER_TICK.min(METER_LEFT + METER_WIDTH - x);
+        let x = meter_left + t as f32 * METER_TICK;
+        let w = METER_TICK.min(meter_left + METER_WIDTH - x);
         match &look.tick {
             Some(image) => r.spawn((at(x, my, w, METER_HEIGHT), ImageNode { rect: Some(Rect::new(0.0, 0.0, w, 20.0)), color: bright, ..ImageNode::new(image.clone()) })),
             None => r.spawn((at(x, my, (w - 3.0).max(1.0), METER_HEIGHT), BackgroundColor(bright))),
         };
     }
     // Over them what takes the pointer, a little taller than the meter.
-    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(METER_LEFT, my - 6.0, METER_WIDTH, METER_HEIGHT + 12.0)));
-    for (k, (x, step)) in [(METER_ARROWS[0], -1), (METER_ARROWS[1], 1)].into_iter().enumerate() {
+    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(meter_left, my - 6.0, METER_WIDTH, METER_HEIGHT + 12.0)));
+    let arrows = x.arrows();
+    for (k, (x, step)) in [(arrows[0], -1), (arrows[1], 1)].into_iter().enumerate() {
         let node = at(x, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
         match &look.arrows[k] {
             Some(image) => r.spawn((Button, PauseButton::SliderStep(i, step), node, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
@@ -2046,7 +2128,7 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, v: f32, 
     // A value with words ("Off" on the frame rate limit) in the language shown.
     let value = tr_str(value);
     let vw = look.faces.entry.font.width(value);
-    sm_text(r, &look.faces.entry, value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
+    sm_text(r, &look.faces.entry, value, x.percent_at() - vw / 2.0, BASE + 2.0, bright);
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
@@ -4292,6 +4374,19 @@ fn changed_now(world: &mut World, list: &[Setting]) {
     world.resource_mut::<PauseView>().found.changed = changed;
 }
 
+/// The settings list's place, logged when it changes (a new window size, a translated rail):
+/// `pause menu: settings list <width> wide from <left> in a view <w> wide, band <l>-<r>`, in
+/// interface units from the view's left edge [design: #2377].
+fn log_list_box(view: &mut PauseView, lb: ListBox, view_w: u32) {
+    if view.list_logged == Some(lb) {
+        return;
+    }
+    let half = view_w as f32 / 2.0;
+    let (band_left, band_w) = lb.band();
+    info!("pause menu: settings list {:.0} wide from {:.0} in a view {view_w} wide, band {:.0}-{:.0}", lb.width, half + lb.left, half + band_left, half + band_left + band_w);
+    view.list_logged = Some(lb);
+}
+
 /// Draw the page again when what it shows changed.
 fn draw(world: &mut World) {
     // A film holds the game as the pause menu does (`crate::intro`) but shows no page.
@@ -4312,6 +4407,10 @@ fn draw(world: &mut World) {
     }
     let settings = world.resource::<Settings>().list().to_vec();
     let glyphs = world.resource::<crate::pad::PadGlyphs>().clone();
+    if matches!(now.page, Page::Settings { .. }) {
+        let lb = ListBox::of(now.view_w as f32, rail_width(&world.resource::<PauseLook>().faces, &now.rail, now.device.1));
+        log_list_box(&mut world.resource_mut::<PauseView>(), lb, now.view_w);
+    }
     world.resource_scope(|world, look: Mut<PauseLook>| {
         world.resource_scope(|world, list: Mut<LoadList>| {
             let mut commands = world.commands();
@@ -4604,20 +4703,45 @@ mod tests {
         assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)));
     }
 
+    /// The views the settings page is laid out for in the tests: 16:9 (1280x720 and 1920x1080
+    /// are both 1707 units wide), 16:10, 4:3 and 3440x1440 (21:9, 2293 units).
+    const VIEW_WIDTHS: [f32; 4] = [VIEW_W, 1536.0, 1280.0, 2293.0];
+
     #[test]
     fn the_settings_page_fits_the_view() {
-        // 16:9 (1280x720, 1920x1080, 2560x1440 are all 1707 units wide), 16:10, 21:9.
-        for (view_w, tabs_w) in [(VIEW_W, SUB_WIDTH), (VIEW_W, 220.0), (1536.0, 220.0), (2240.0, 220.0)] {
-            let left = options_left(view_w, tabs_w);
-            let band_right = view_w / 2.0 + left + OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN;
-            let tabs_left = view_w - SUB_RIGHT - tabs_w;
-            assert!(band_right + TABS_GAP <= tabs_left + 0.01, "{view_w}: the band ends at {band_right}, the categories start at {tabs_left}");
-            assert!(view_w / 2.0 + left - BAND_MARGIN >= 0.0, "{view_w}: the band leaves the view");
-            assert!(left <= OPTIONS_LEFT);
+        for view_w in VIEW_WIDTHS {
+            for tabs_w in [SUB_WIDTH, 220.0] {
+                let lb = ListBox::of(view_w, tabs_w);
+                let (band_left, band_w) = lb.band();
+                let band_left = view_w / 2.0 + band_left;
+                let band_right = band_left + band_w;
+                let tabs_left = view_w - SUB_RIGHT - tabs_w;
+                assert!(band_right + TABS_GAP <= tabs_left + 0.01, "{view_w}/{tabs_w}: the band ends at {band_right}, the categories start at {tabs_left}");
+                assert!(band_left >= LEFT_MARGIN - 0.01, "{view_w}/{tabs_w}: the band starts at {band_left}");
+                assert!(lb.width <= OPTIONS_MAX, "{view_w}/{tabs_w}: {}", lb.width);
+                // Room for a label left of the value part; the list's box (and its dropdown,
+                // as wide) inside the row.
+                let x = lb.row();
+                assert!(x.value_left() - 10.0 >= 150.0, "{view_w}/{tabs_w}: a label's room {}", x.value_left() - 10.0);
+                assert!(x.list_left() >= 0.0 && x.list_left() + LIST_WIDTH <= lb.width && x.meter_left() > x.arrows()[0] && x.percent_at() < lb.width);
+            }
         }
-        // Wide views keep the old place; a 4:3 view keeps the band on it.
-        assert_eq!(options_left(2240.0, 220.0), OPTIONS_LEFT);
-        assert_eq!(options_left(1280.0, 220.0), BAND_MARGIN - 640.0);
+        // 16:9 with a 220-unit rail: the list is about 1036 units wide (820 before #2377),
+        // its band from LEFT_MARGIN.
+        let lb = ListBox::of(VIEW_W, 220.0);
+        assert!((lb.width - 1035.7).abs() < 0.5, "{}", lb.width);
+        assert!((VIEW_W / 2.0 + lb.band().0 - LEFT_MARGIN).abs() < 0.01);
+        // 3440x1440: capped at OPTIONS_MAX and centred in the room left of the rail.
+        let lb = ListBox::of(2293.0, 220.0);
+        assert_eq!(lb.width, OPTIONS_MAX);
+        let room = 2293.0 - (SUB_RIGHT + 220.0 + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN;
+        assert!((2293.0 / 2.0 + lb.band().0 - (LEFT_MARGIN + (room - OPTIONS_MAX) / 2.0)).abs() < 0.01);
+        // A row of the width before #2377 has every place where it was; a wider one keeps
+        // each as far from its right end.
+        let x = RowX(ROW_BASE);
+        assert_eq!((x.value_at(), x.value_left(), x.meter_left(), x.arrows(), x.percent_at(), x.list_left()), (VALUE_AT, LIST_LEFT, METER_LEFT, METER_ARROWS, PERCENT_AT, LIST_LEFT));
+        let x = RowX(1036.0);
+        assert_eq!((x.0 - x.value_at(), x.0 - x.list_left(), x.0 - x.percent_at()), (ROW_BASE - VALUE_AT, ROW_BASE - LIST_LEFT, ROW_BASE - PERCENT_AT));
         // The window's lines (12 today) and a note of three lines fit above "Report a bug"
         // and the version's line, and one more line would not (#2377).
         let lines = window_lines();
