@@ -96,3 +96,12 @@ already in `engine/Cargo.lock` through the graphics stack. This avoids another c
 and hand-written loader bindings. NVML remains optional at run time; no NVIDIA SDK
 or link-time NVIDIA library is required. The library stays loaded through all calls
 and a matching `nvmlShutdown`, including initialization paths with no readable devices.
+
+## Android platform boundary (#2436)
+
+[design] The Android-only `nvforever` dependency on `jni` 0.21.1 (MIT/Apache-2.0)
+reuses the version already in engine/Cargo.lock. It attaches the engine thread to the
+VM owned by Bevy's AndroidApp and calls the private app activity for startup arguments,
+restart and exit. The `nvf-android` entry package uses the existing pinned Bevy and
+its `android-native-activity` feature. Java uses Android's platform APIs without a
+third-party runtime library. Gradle 8.11.1 and Android Gradle Plugin 8.9.2 are build tools.

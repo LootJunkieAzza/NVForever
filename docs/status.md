@@ -21,6 +21,11 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
   original game can settle in [observer-checks](handoff/observer-checks.md), and every
   guess is still in its spec note.
 
+Experimental Android platform work (#2436): [ARM64 app, read-only game import,
+startup, process restart and touch controls](design/android.md). Device installation,
+gameplay, lifecycle and performance acceptance remain pending; this is not a qualified
+Android release. [Build instructions](android.md).
+
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate
 production and identical six authored fixtures in validation context 54830c0 gave

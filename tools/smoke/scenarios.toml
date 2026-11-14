@@ -27436,3 +27436,17 @@ order = [[
   { text = "player controls: all enabled", label = "the greeting's result script gives the controls back" },
 ]]
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
+
+[[scenario]]
+name = "android-start-options"
+source = "NVForever design, issue #2436 (docs/design/android.md): the Android launch defaults reach the shared game's main menu with MSAA off. This desktop scenario checks the shared argument path only, not NativeActivity, touch input or Android GPU behavior."
+areas = ["main-menu", "android"]
+paths = ["engine/nvf-android/**", "engine/nvforever/src/android.rs", "engine/nvforever/src/bin/nvforever.rs", "engine/nvforever/src/main.rs", "android/**"]
+env = { NVFOREVER_HOME = "android-start-options-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:continue" }
+args = ["--play", "--menu", "--msaa", "1", "--window", "borderless"]
+run_seconds = 12
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the Android default arguments open the shared main menu" },
+  { text = "main menu: Continue is greyed out", label = "the main menu accepts the existing navigation input" },
+]
+forbid = [{ text = "explore: the free-camera explorer", label = "the port defaults do not select the explorer" }]

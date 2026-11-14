@@ -4631,6 +4631,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-android"
+version = "0.7.0"
+dependencies = [
+ "bevy",
+ "nvforever",
+]
+
+[[package]]
 name = "nvf-assets"
 version = "0.7.0"
 dependencies = [
@@ -4715,6 +4723,7 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "half",
+ "jni 0.21.1",
  "libc",
  "libloading",
  "nvf-assets",

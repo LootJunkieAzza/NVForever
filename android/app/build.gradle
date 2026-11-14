@@ -1,0 +1,19 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'org.nvforever.android'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.nvforever.android'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '0.7.0-android-dev'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    // Only this repository's schemas and translations. No game data.
+    sourceSets.main.assets.srcDirs = ['../../runtime-assets']
+    sourceSets.main.jniLibs.srcDirs = ['../../native-libs']
+    packaging { jniLibs { useLegacyPackaging = true } }
+    buildTypes { release { minifyEnabled false } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

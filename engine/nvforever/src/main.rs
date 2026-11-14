@@ -24,6 +24,10 @@ macro_rules! eprintln {
 }
 
 mod activators;
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(any(target_os = "android", test))]
+mod touch;
 mod fos_start;
 mod reports;
 mod native_crash;
@@ -924,8 +928,25 @@ fn parse_frame_generation(value: &str) -> Result<frame_gen::FrameGenKind, String
     frame_gen::FrameGenKind::parse(value).ok_or_else(|| format!("{value:?} is none of fsr, dlss, off"))
 }
 
-fn main() -> AppExit {
-    let mut line = with_default_mode(std::env::args().collect());
+/// Start the engine from the desktop command line.
+pub fn run() -> AppExit {
+    run_with_args(std::env::args().collect())
+}
+
+#[cfg(target_os = "android")]
+/// Android entry point, called after Bevy has installed the NativeActivity handle.
+pub fn run_android() {
+    match android::prepare() {
+        Ok(args) => {
+            let exit = run_with_args(args);
+            android::stopped(if exit == AppExit::Success { "" } else { "The engine stopped. Check the NVForever log for details." });
+        }
+        Err(e) => { eprintln!("Android startup failed: {e}"); android::stopped(&e); }
+    }
+}
+
+fn run_with_args(line: Vec<String>) -> AppExit {
+    let mut line = with_default_mode(line);
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
         let functions = dir.join("schemas").join("script").join("functions.json");
@@ -1385,6 +1406,11 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    #[cfg(target_os = "android")]
+    {
+        app.insert_resource(bevy::winit::WinitSettings::mobile());
+        app.add_plugins(touch::TouchControlsPlugin);
+    }
     // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
     // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time
     // plugin, which keeps it), so the test aids reach the same view on the same frame in every
