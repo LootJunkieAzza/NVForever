@@ -14,6 +14,8 @@ use nvf_assets::GameData;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod tga;
+
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
@@ -412,7 +414,7 @@ fn texture_read(
     decode: fn(&[u8], bool, bool) -> Result<Image, String>,
 ) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match decode(&bytes, true, bc) {
+    match decode_texture(&bytes, bc, decode) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
@@ -423,6 +425,14 @@ fn texture_read(
             None
         }
     }
+}
+
+fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> Result<Image, String>) -> Result<Image, String> {
+    if bytes.starts_with(b"DDS ") || !tga::recognizable(bytes) {
+        return decode_dds(bytes, true, bc);
+    }
+    let decoded = tga::decode(bytes)?;
+    nvf_assets::texture::checked_image(decoded.width, decoded.height, 1, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, decoded.rgba)
 }
 
 /// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
@@ -772,6 +782,10 @@ fn own_texture(path: &str) -> String {
 #[cfg(test)]
 #[path = "interface_layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "interface/tga_consumer_tests.rs"]
+mod tga_consumer_tests;
 
 #[cfg(test)]
 mod tests {

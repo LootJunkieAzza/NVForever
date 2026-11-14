@@ -20,6 +20,7 @@ pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
+pub mod clutter_pose;
 pub mod creator;
 pub mod combat;
 pub mod compass;

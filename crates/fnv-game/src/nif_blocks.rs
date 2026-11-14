@@ -459,12 +459,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             list(g, out)
         }
+        // JIP: `block [getWorld] [pcModel]`, or ButcherPete's axis overload.
+        // Compose through the existing Alt getter's world transform route.
+        "getnifblocktranslation" => {
+            let component = axis(args.get(1));
+            let world = num(args,if component.is_some() {2} else {1},0.0) != 0.0;
+            let Some((v,_)) = node_place(g,r,&text(args,0),world) else {return Some(Ok(XVal::Array(0)))};
+            match component {
+                Some(a) => XVal::Num(f64::from(v[a])),
+                None => list(g,v.into_iter().map(|x|XVal::Num(f64::from(x))).collect()),
+            }
+        }
         // `block [axis]`: an axis gives that number; otherwise the three as an array
         // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head].
-        "getnifblocktranslation" | "getnifblockrotation" => {
+        "getnifblockrotation" => {
             let Some(t) = g.scene.tree(r) else { return Some(Ok(XVal::Array(0))) };
             let Some(i) = find(t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
-            let v = if name == "getnifblocktranslation" { t[i].translation } else { t[i].rotation };
+            let v = t[i].rotation;
             match axis(args.get(1)) {
                 Some(a) => XVal::Num(f64::from(v[a])),
                 None => {
