@@ -34,7 +34,7 @@ metadata cache; live asset hot reload within one session is not promised.
 
 [documented: the authored `paperdoll_*` tests in `interface.rs`,
 `pipboy/frame.rs`, and `pipboy/stats/mod.rs`]
-The five CPU controls cover normalized read caching, a fresh session, invalid or
+The five CPU controls cover normalized read caching, a fresh Pictures/cache instance, invalid or
 incomplete DDS input, proportional and clipped crop geometry, and the actual
 VFS-to-GameData-to-Ctx-to-condition producer. The producer creates synthetic DDS
 bytes in its own temporary directory and compares the head crop plus all six
