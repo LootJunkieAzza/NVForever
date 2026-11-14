@@ -1522,7 +1522,7 @@ impl<'a> Game<'a> {
         // Bright's speech, whose script starts only its first part (SCPT 0008D41A,
         // JasonBrightSpeech1) and whose Goodbye part 4 links to parts 5 to 9, and
         // Veronica's exchange with Ramos at Hidden Valley's intercom, whose third line's
-        // end script opens the bunker (INFO 0015B6D3, issue #2451); observer check 132].
+        // end script opens the bunker (INFO 0015B6D3, issue #2451); observer check 139].
         if def.goodbye && def.choices.is_empty() && def.follow_ups.is_empty() {
             return end(self, ended::GOODBYE);
         }

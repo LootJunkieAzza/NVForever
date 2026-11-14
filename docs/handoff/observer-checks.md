@@ -1985,7 +1985,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (Goodbye lines between NPCs, #2451)
 
-132. **Does a conversation between NPCs go on past a Goodbye line that links on?** (P2;
+139. **Does a conversation between NPCs go on past a Goodbye line that links on?** (P2;
      #2451, dialogue.md §5.1.) Ours: yes, a Goodbye line ends it only when it has no
      Link To or follow-up [hypothesis]. To check: with Veronica hired, walk into
      VHiddenValleyVeronicaEnterTrigger (0015B6D7) at the Hidden Valley bunker and record

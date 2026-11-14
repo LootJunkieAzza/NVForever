@@ -779,7 +779,7 @@ Joe Cobb and Trudy (below).
   lines of FalloutNV.esm are Goodbye with links; Jason Bright's speech is started at its
   first part only (SCPT 0008D41A) and its Goodbye part 4 links to parts 5-9; Veronica's
   exchange with Ramos (HVVeronicaEnter, four Goodbye lines) opens the bunker only at its
-  third line; observer check 132]; so does either
+  third line; observer check 139]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
   Target is the other actor, Self the same one, Either the other and else the same one
   [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the
