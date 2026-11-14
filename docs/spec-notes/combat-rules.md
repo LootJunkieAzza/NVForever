@@ -909,6 +909,14 @@ module notes).
   - damages actors in its radius, with line of sight, armour and the cause's and target's
     damage and DT perks (perk-entry-points.md §2, "Blasts"; with no cause, the target's
     with no condition on the attacker or the weapon [hypothesis: as the original]);
+  - reaches corpses too: one whose ragdoll took over from its hit volume is caught by its
+    ragdoll, its centre the trunk's, its reach the bounds of its bodies, its bodies' centres
+    seen and measured to as a living actor's part capsules are; once per actor, a volume not
+    yet dropped standing for it; placed objects' ragdolls (traps) and gore pieces are not
+    caught (#2346) [design: `CombatWorld::blast_targets_near`,
+    `PhysWorld::ragdoll_bounds`]. Only blasts: proximity fuses and swings still go by the
+    living actors' volumes. A corpse takes no damage (it is dead) but may lose the part facing
+    the blast (dismemberment.md §4.2);
   - uses the impact point for effects, radius, damage falloff and push. For actor line
     of sight only, an impact with a finite, nonzero surface normal starts 0.5 units
     outward along its normalized normal, then derives the existing 16-unit raised

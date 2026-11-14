@@ -222,6 +222,11 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Explosion-hit handlers on corpses (#2346).** [design, #2346] A blast now reaches a corpse
+  whose ragdoll has taken over, so ShowOff's OnExplosionHit handlers also run for corpses
+  it catches (no damage is taken). Whether the original calls them for a corpse is not
+  observed. Leave them out for corpses instead?
+  ([combat-rules §11](spec-notes/combat-rules.md))
 - **A script jumping the clock (#2353).** [design, #2353] A script's GameHour write of more
   than `SCRIPT_HOUR_JUMP` (1 game hour) is handled like the end of a wait: everyone chooses
   its package at once, residents out of sight are put at their new place, those in view
