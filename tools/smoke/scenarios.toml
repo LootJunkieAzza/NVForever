@@ -4092,8 +4092,8 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 25
 expect = [
-  { re = 'npc combat: Bloatfly( \S+)? opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
-  { re = 'npc combat: Bloatfly( \S+)? steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
+  { re = 'npc combat: CrBloatFly 0x[0-9A-F]{8} opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires its dart gun at the player" },
+  { re = 'npc combat: CrBloatFly 0x[0-9A-F]{8} steps back from the player', max = 2, label = "it holds its distance: few steps back (before #2351 one after each stop at 225)" },
 ]
 
 [[scenario]]
