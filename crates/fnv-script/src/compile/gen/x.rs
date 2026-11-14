@@ -276,7 +276,10 @@ impl Gen<'_> {
                 self.in_args = was;
                 self.in_paren = was_paren;
                 let e = e?;
-                if p.peek().is_some_and(|c| c.kind == XKind::Comma || c.kind != XKind::Close && ends_in_call(&e)) {
+                // A name nothing knows, taken as its text, is not such an expression: an
+                // operand after it means a call the catalogue lacks.
+                let unquoted = ends_in_text(&e) && p.i > 0 && p.t[p.i - 1].kind == XKind::Word;
+                if p.peek().is_some_and(|c| c.kind == XKind::Comma || c.kind != XKind::Close && (ends_in_call(&e) || !unquoted && starts_operand(Some(c)))) {
                     // What is left before the `)` once the expression inside is whole and
                     // ends in a call, or from a comma on (a function's surplus argument, `,
                     // x`, `38 || …`), is dropped [observed:
@@ -284,7 +287,11 @@ impl Gen<'_> {
                     // QuestREF))`, `((GetFormDescription Plural), iBonus)` and
                     // `(GetWeaponSkill rWeapon 38 || GetWeaponSkill rWeapon 45)` with
                     // compiled bytes holding `GetActiveObjectives` with no argument, the
-                    // description alone and `GetWeaponSkill rWeapon` alone, #2275].
+                    // description alone and `GetWeaponSkill rWeapon` alone, #2275]. So is an
+                    // operand that meets the whole expression without an operator (`("a" +
+                    // $s ".nif")` is `"a" + $s`) [observed: MrShersh Functional
+                    // Backpack.esp ships `AttachModel Player 2 ("…" + $sv ".nif")` with
+                    // compiled bytes whose string sum ends at the variable, #2275].
                     let from = p.i;
                     let mut depth = 0i32;
                     while let Some(c) = p.peek() {
@@ -305,6 +312,17 @@ impl Gen<'_> {
                 }
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
+                }
+                // On a `set` line the editor drops the parentheses (§3), so a call they
+                // close before it has all its arguments takes the ones after the `)`:
+                // `set t to 1 + (GetVariable (…)) Quest` reads the quest's variable
+                // [observed: Animated Ingestibles.esp ships that line with compiled bytes
+                // holding GetVariable with the inline expression and the quest, #2275].
+                let mut e = e;
+                if self.set_line {
+                    if let XExpr::Call { call } = &mut e {
+                        self.more_args(p, call)?;
+                    }
                 }
                 Some(e)
             }
@@ -345,6 +363,26 @@ impl Gen<'_> {
             }
             _ => self.xerr("syntax", format!("unexpected {}", t.text)),
         }
+    }
+
+    /// More arguments for `call`, up to as many as its function takes.
+    fn more_args(&mut self, p: &mut P<'_>, call: &mut XCall) -> Option<()> {
+        let name = match &call.func {
+            FuncId::Name(n) => n.clone(),
+            FuncId::Opcode(op) => self.table.get(*op).map(|f| f.name.clone())?,
+        };
+        let Some(f) = self.xfunction(&name) else { return Some(()) };
+        let left = match f.params {
+            Some(n) if n <= call.args.len() => return Some(()),
+            Some(n) => Some(n - call.args.len()),
+            None => None,
+        };
+        if !starts_operand(p.peek()) {
+            return Some(());
+        }
+        let more = self.xargs(p, &XFn { params: left, ..f })?;
+        call.args.extend(more);
+        Some(())
     }
 
     /// Whether `name` (with or without `Ref.`) is a function the catalogue lists without
@@ -604,9 +642,34 @@ impl Gen<'_> {
             // signed number after a space (`GetMaxOf -1 -5`).
             let minus = p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
             let minus_first = f.params != Some(0) && minus && (comma || args.is_empty() || p.peek().is_some_and(|t| t.sign));
+            // A `&` after a comma boxes the argument (`Call Fn, &rRef, 0`) [documented: NVSE
+            // Expressions, unary `&` "Box"; observed: Famine.esp ships that line with
+            // compiled bytes holding the variable and the box operator as the first of
+            // five arguments, #2275].
+            let boxed = comma && p.peek().is_some_and(|t| t.is(XKind::Op, "&"));
+            // `{expr}` not followed by `=>` is the expression, one argument (`call Fn
+            // {(BuildRef 0 n)}`, `call Fn {Quest.var}`) [observed: Animated Ingestibles.esp
+            // ships both with compiled bytes holding the value alone as the one argument,
+            // #2275].
+            let braced = p.peek().is_some_and(|t| t.kind == XKind::LBrace) && !lambda_at(p);
             let boxing = f.params != Some(0) && p.peek().is_some_and(|t| t.sign && (t.is(XKind::Op, "*") || t.is(XKind::Op, "&")));
-            if !starts_operand(p.peek()) && !minus_first && !boxing {
+            if !starts_operand(p.peek()) && !minus_first && !boxed && !boxing && !braced {
                 break;
+            }
+            if braced {
+                p.next();
+                let was = std::mem::replace(&mut self.in_args, false);
+                let was_paren = std::mem::replace(&mut self.in_paren, true);
+                let e = self.xexpr(p, 0);
+                self.in_args = was;
+                self.in_paren = was_paren;
+                let e = e?;
+                if p.next().map(|c| c.kind) != Some(XKind::RBrace) {
+                    self.xerr("syntax", "missing }");
+                    return None;
+                }
+                args.push(e);
+                continue;
             }
             // A string variable given by name to an xNVSE function's plain string
             // parameter, on a line that is that call alone, is its name as text [observed: nvse-sixth,
@@ -822,6 +885,28 @@ impl Gen<'_> {
 /// `X/Z`, which the catalogue does not take for an axis).
 fn axis_letters(t: &str) -> bool {
     t.len() >= 3 && t.split('/').all(|c| matches!(c.trim(), "X" | "Y" | "Z" | "x" | "y" | "z"))
+}
+
+/// Whether the `{` at the parser's place opens a lambda's parameters (`{a, b} =>`).
+fn lambda_at(p: &P<'_>) -> bool {
+    let mut j = p.i + 1;
+    while let Some(t) = p.t.get(j) {
+        match t.kind {
+            XKind::RBrace => return p.t.get(j + 1).is_some_and(|a| a.is(XKind::Op, "=>")),
+            XKind::Word | XKind::Comma => j += 1,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// The expression's last operand is text (`a || SomeName`, a name taken as its text).
+fn ends_in_text(e: &XExpr) -> bool {
+    match e {
+        XExpr::Str { .. } => true,
+        XExpr::Binary { r, .. } => ends_in_text(r),
+        _ => false,
+    }
 }
 
 /// The expression's last operand is a call (`a && GetWeaponSkill w`).

@@ -4730,8 +4730,8 @@ mod tests {
         assert_eq!(*world.resource::<Page>(), Page::Settings { selected: None });
         assert_eq!(world.resource::<PauseView>().scope, SettingsScope::Tab("Tweaks"));
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        // The stand-in font sets no spaces.
-        assert!(texts.iter().any(|t| t == "Nosettingshere."), "{texts:?}");
+        // The stand-in font keeps the spaces between words (#2298).
+        assert!(texts.iter().any(|t| t == "No settings here."), "{texts:?}");
         assert!(!world.query::<&PauseButton>().iter(world).any(|b| matches!(b, PauseButton::Row(_))));
         assert_eq!(Page::Settings { selected: None }.settings_row(), Some(NO_ROW_SOUND));
     }
@@ -4870,7 +4870,7 @@ mod tests {
         let world = app.world_mut();
         assert_eq!(*world.resource::<Page>(), Page::Settings { selected: None });
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        assert!(texts.iter().any(|t| t == "Noresults."), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "No results."), "{texts:?}");
     }
 
     #[test]
@@ -4883,7 +4883,7 @@ mod tests {
         // Defaults' states are those the page was first shown with: nothing changed.
         assert!(world.resource::<PauseView>().found.changed.is_empty());
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        assert!(texts.iter().any(|t| t == "Nochangedsettings."), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "No changed settings."), "{texts:?}");
         // Both rows share one switch here (Lamp): both are listed, each under its place.
         crate::settings::flip(world, 0);
         app.update();
@@ -5310,8 +5310,8 @@ mod tests {
         let mut details = world.query_filtered::<&Text, With<DetailLine>>();
         let details: Vec<String> = details.iter(world).map(|t| t.0.clone()).collect();
         assert!(details.iter().any(|t| t == "Courier, level 1"), "{details:?}");
-        // The stand-in font sets no spaces.
-        assert!(all.iter().any(|t| t.0 == "Nopicture"), "{all:?}");
+        // The stand-in font keeps the spaces between words (#2298).
+        assert!(all.iter().any(|t| t.0 == "No picture"), "{all:?}");
     }
 
     #[derive(Resource, Default)]

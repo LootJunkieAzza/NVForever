@@ -337,6 +337,70 @@ PAGELESS = [
      "params": [_i("enable")], "categories": ["Functions (TTW)", "Radio Functions"]},
 ]
 
+
+# Commands JIP LN 57.30 registers (nvse.log RegisterCommand lines, opcodes 0x2212 and
+# 0x26FD-0x2941) that have no wiki page, called by the Blue Moon and High and Dry lists'
+# mods: their argument shapes from those mods' script source, what they do from probes in
+# the original (jip_probes.py sets cmd1-cmd3; docs/spec-notes/ext-unlisted-commands.md).
+def _p(name, kind, typ=None, optional=False):
+    d = {"name": name, "type": typ or kind, "kind": kind}
+    if optional:
+        d["optional"] = True
+    return d
+
+
+def _jip(name, returns, params=(), ref="reference", cat="Functions (JIP)"):
+    rec = {"name": name, "page": None, "origin": "JIP", "returns": {"type": returns, "name": None},
+           "params": list(params), "categories": [cat, "Functions (JIP)"] if cat != "Functions (JIP)" else [cat]}
+    if ref:
+        rec["calling_reference"] = ref
+    if not rec["params"]:
+        del rec["params"]
+    return rec
+
+
+_FMT = [_p("text", "string", "formattedString"), _p("formatVars(up to 20)", "unknown", None, True)]
+_FMT[1]["type"] = None
+PAGELESS += [
+    _jip("AttachLight", "successful:0/1", [_p("nodeName", "string"), _p("light", "form"), _p("x", "float"),
+                                           _p("y", "float"), _p("z", "float")], cat="Model Functions (JIP)"),
+    _jip("RemoveLight", "int", [_p("nodeName", "string")], cat="Model Functions (JIP)"),
+    _jip("RefreshAnimData", "void", cat="Actor Functions (JIP)"),
+    _jip("LockEquipment", "void", [_p("lock", "int")], cat="Actor Functions (JIP)"),
+    _jip("GetTeammateUsingAmmo", "int", cat="Actor Functions (JIP)"),
+    _jip("SetTeammateUsingAmmo", "void", [_p("usesAmmo", "int")], cat="Actor Functions (JIP)"),
+    _jip("ToggleDetectionFix", "void", [_p("enable", "int")], cat="Actor Functions (JIP)"),
+    _jip("ToggleIgnoreLockedDoors", "void", [_p("enable", "int")], cat="Actor Functions (JIP)"),
+    _jip("MoveAwayFromPlayer", "void", cat="Actor Functions (JIP)"),
+    _jip("KillActorAlt", "void", [_p("killer", "reference", "ref", True)], cat="Actor Functions (JIP)"),
+    _jip("GetHitNode", "string_var", cat="Actor Functions (JIP)"),
+    _jip("RefToPosStr", "string_var", cat="Misc Reference Functions (JIP)"),
+    _jip("MoveToPosStr", "successful:0/1", [_p("position", "string")], cat="Misc Reference Functions (JIP)"),
+    _jip("GetCenterPos", "float", [_p("axis", "axis", "X/Y/Z")], cat="Misc Reference Functions (JIP)"),
+    _jip("DisableScriptedActivate", "void", [_p("disable", "int")], cat="Misc Reference Functions (JIP)"),
+    _jip("GetConditionDamagePenalty", "float", ref=None, cat="Inventory Functions (JIP)"),
+    _jip("ListToArray", "array", [_p("formList", "form")], ref=None, cat="Form List Functions (JIP)"),
+    # The Companions Command & Control mod's own functions.
+    _jip("CCCInFaction", "int", [_p("faction", "form"), _p("includeBase", "int", None, True)], cat="CCC Functions (JIP)"),
+    _jip("CCCGetDistance", "float", [_p("target", "reference", "ref"), _p("mode", "int")], cat="CCC Functions (JIP)"),
+    _jip("CCCLocationName", "string_var", cat="CCC Functions (JIP)"),
+    _jip("CCCGetReputation", "ref", cat="CCC Functions (JIP)"),
+    _jip("CCCSavedForm", "ref", [_p("index", "int")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetFloat", "void", [_p("index", "int"), _p("value", "float")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetString", "void", [_p("index", "int")] + [dict(p) for p in _FMT], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetTrait", "void", [_p("index", "int"), _p("value", "float"), _p("value2", "float", None, True)], ref=None,
+         cat="CCC Functions (JIP)"),
+    _jip("CCCSetEquipped", "int", cat="CCC Functions (JIP)"),
+    _jip("CCCSetNCCS", "void", [_p("enable", "int")], cat="CCC Functions (JIP)"),
+    _jip("CCCSMS", "void", [_p("actor", "reference", "ref")], ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCSetFollowState", "int", [_p("state", "int", None, True)], cat="CCC Functions (JIP)"),
+    _jip("CCCSayTo", "void", [_p("target", "reference", "ref"), _p("topic", "form")], cat="CCC Functions (JIP)"),
+    _jip("CCCRunResultScripts", "void", [_p("topic", "form")], cat="CCC Functions (JIP)"),
+    _jip("CCCLoadNCCS", "void", ref=None, cat="CCC Functions (JIP)"),
+    _jip("CCCOnLoad", "void", ref=None, cat="CCC Functions (JIP)"),
+]
+
+
 # Pages whose template `name` is another function's (copied from a sibling page): the
 # page title is the function's name [documented: each page's title and its example,
 # e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says

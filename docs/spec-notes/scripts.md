@@ -639,7 +639,17 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   7 at 3.22 s of 3.25, 70 at 0.96 of 1.0, 95, 100 and 105 at 0.96–0.98 of 1.0,
   layer5-captures.md §10.7; `Game::mark_run`]. Round 3 counted the time since the last
   call, which made the walk-through's 85 → 90 countdown expire at once; that rule is
-  gone. **Menus and loading screens do not count**: the game time
+  gone. **A trigger's OnTrigger** is its per-frame run when the script has no GameMode
+  block (`Game::trigger_frame`); it runs once for each actor inside, and only the
+  first run of a frame gets the frame's time, the later ones 0 (`Game::trigger_again`)
+  [documented: the GECK wiki's "time since the script last ran"; hypothesis: that the
+  original also runs it once per reference inside]. No trigger block runs while the game
+  is paused (a menu, a message box, a conversation, a loading screen; nvf-play
+  `script.rs`) [hypothesis: OnTrigger is held as GameMode is]. Both made Hidden Valley's
+  virus purge (HVHuntingVirusTrigger, SCPT 0015A154, `Begin OnTrigger` with no actor,
+  20 s by GetSecondsPassed) run out in a fraction of its time, with Ibsen and two scribes
+  in the room and under message boxes (issue #2455; smoke `hv-virus-purge-timer`).
+  **Menus and loading screens do not count**: the game time
   (`Game::time`) and the GameMode quest delay stop while a menu is open or a loading
   screen is up [observed: after a 900-frame container menu the first drop was one frame
   for VCG00 and VMQ03aTimer's own 0.5 s, `L5.quest.seconds_after_menu`; a `coc` loading
