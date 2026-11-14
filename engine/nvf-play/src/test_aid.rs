@@ -109,9 +109,11 @@
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_TRANSFORM_ROOTS`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
+//! `NVF_PLAY_TEST_TRANSFORM_ROOTS` only while its value turns it on: `=0` or text that is no
+//! number measures nothing, so it counts as any other variable, as it did before the aid.
 //!
 //! Debug switches for a session played by hand (off unless set; development tools, not
 //! part of a release; the run stays attended):
@@ -452,12 +454,12 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 }
 
 /// The test aids that only log what the run costs or does (nvforever stress_sample.rs and
-/// profile.rs, [`crate::tiles`], [`crate::hitvol`]): they leave the run attended, and a
+/// profile.rs, transform_roots.rs, [`crate::tiles`], [`crate::hitvol`]): they leave the run attended, and a
 /// load's new run keeps them. A run that only measures and must not wait for anyone also
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 8] = [
+pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -466,12 +468,23 @@ pub const MEASURING_AIDS: [&str; 8] = [
     "NVF_PLAY_TEST_TILE_COUNTS",
     "NVF_PLAY_TEST_HITVOL_SCAN",
     "NVF_PLAY_TEST_HITVOL_COMPARE",
+    "NVF_PLAY_TEST_TRANSFORM_ROOTS",
 ];
 
-/// Whether this environment variable is a test aid that drives the run (any
-/// `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`]).
+/// `NVF_PLAY_TEST_TRANSFORM_ROOTS`'s window in seconds; `None`, the aid is off.
+pub fn transform_roots_window(value: &str) -> Option<f32> {
+    value.trim().parse::<f32>().ok().filter(|s| *s > 0.0)
+}
+
+/// Whether this environment variable, set in this run, is a test aid that drives the run
+/// (any `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`] that measure).
 pub fn drives_run(key: &str) -> bool {
-    key.starts_with("NVF_PLAY_TEST_") && !MEASURING_AIDS.contains(&key)
+    drives_run_with(key, std::env::var(key).ok().as_deref())
+}
+
+fn drives_run_with(key: &str, value: Option<&str>) -> bool {
+    let measures = if key == "NVF_PLAY_TEST_TRANSFORM_ROOTS" { value.and_then(transform_roots_window).is_some() } else { MEASURING_AIDS.contains(&key) };
+    key.starts_with("NVF_PLAY_TEST_") && !measures
 }
 
 /// Whether a test aid drives this run (some `NVF_PLAY_TEST_*` variable is set, not only
@@ -1015,6 +1028,13 @@ mod tests {
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_SPANS"));
         assert!(!drives_run("NVF_PLAY_TEST_TILE_COUNTS"));
+        assert!(!drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some("5")));
+        // Off, it measures nothing: exempting these would leave a run attended by a variable
+        // that does nothing. Trips if the exemption goes by the name alone.
+        for off in ["0", "-1", "", "x", "NaN"] {
+            assert!(drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some(off)), "{off:?}");
+            assert_eq!(transform_roots_window(off), None, "{off:?}");
+        }
         assert!(drives_run("NVF_PLAY_TEST_UNATTENDED"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
