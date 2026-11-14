@@ -487,6 +487,20 @@ the spec it links to.
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
+69. **Quest targets several doors deep: which door the World Map marks (#2458).** Colonel
+    Moore (For the Republic, Part 2) stands in a power plant room of Hoover Dam that no
+    outdoor door leads into directly, so the World Map had no marker for her. The same
+    was true of 213 quest targets indoors in the master. Now the World Map marks the
+    outdoor door that starts the way in with the fewest load doors. For Moore that is
+    the hatch of intake tower 3 on top of the dam (tower 3, then its elevator), not the
+    observation deck's door that the quest marks while you are in the Mojave. From the
+    Strip, the compass and the Local Map mark the gate to Freeside, the first door of
+    the way. Fewest doors may not be the way the original picks (walking distance, or
+    the doors players use); observer check 140 asks. If you prefer, the World Map could
+    follow the player's own way from where they stand instead (the last outdoor door
+    of that way), which can differ for buildings with several entrances.
+    ([quests-dialogue §2](spec-notes/quests-dialogue.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
