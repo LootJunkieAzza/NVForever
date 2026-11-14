@@ -144,6 +144,8 @@ pub struct MainLoop {
     /// 1 game mode, 2 menu mode, 8 removed on load [documented].
     pub flags: u32,
     pub due: u64,
+    /// Quantized game clock at registration or the last actual invocation.
+    pub(crate) last_clock: f64,
 }
 
 /// What a filter at each position tests: the calling reference or an argument
@@ -207,7 +209,7 @@ impl Game<'_> {
         self.jip.main_loop.retain(|m| !(m.func == func && m.on == on));
         if add {
             let delay = delay.max(1);
-            self.jip.main_loop.push(MainLoop { func, on, delay, flags, due: self.frame + delay });
+            self.jip.main_loop.push(MainLoop { func, on, delay, flags, due: self.frame + delay, last_clock: crate::functions::clock_now(self.time) });
         }
     }
 
@@ -363,12 +365,15 @@ impl Game<'_> {
         let frame = self.frame;
         let due: Vec<MainLoop> = self.jip.main_loop.iter().filter(|m| m.due <= frame && m.flags & want != 0).cloned().collect();
         for m in due {
+            let now = crate::functions::clock_now(self.time);
+            let seconds = (now - m.last_clock).max(0.0);
             for x in self.jip.main_loop.iter_mut().filter(|x| x.func == m.func && x.on == m.on) {
                 x.due = frame + x.delay;
+                x.last_clock = now;
             }
             let on = m.on.unwrap_or(FormId::PLAYER_REF);
             let ctx = RunCtx { self_ref: Some(on), ..RunCtx::default() };
-            if let Err(error) = self.run_function(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, ctx) {
+            if let Err(error) = self.run_function_with_seconds(&m.func, Some(Value::Ref(on.0)), Vec::new(), None, (ctx, Some(seconds))) {
                 self.handler_failed("JIP main-loop callback".into(), error);
             }
         }

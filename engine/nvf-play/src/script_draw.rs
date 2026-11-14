@@ -70,6 +70,19 @@ pub struct WantsEmittance(pub u32);
 #[derive(Component, Clone, Debug)]
 pub struct ScriptDrawnModel(pub String);
 
+/// On the rig root of a door that opens in place drawn here: what nvforever's door
+/// drawing (`nvforever::doors::DoorRig`) needs to pose it from `crate::doors::Doors`,
+/// as for one render streaming drew (#2420).
+#[derive(Component, Clone, Debug)]
+pub struct ScriptDrawnDoor {
+    pub reference: u32,
+    pub path: String,
+    /// The rig's node entities by name.
+    pub nodes: HashMap<String, Entity>,
+    /// ONAM "Open by Default" of the placement.
+    pub open_by_default: bool,
+}
+
 /// On the rig root of a model drawn here whose rig has named sequences (`Forward`,
 /// `Left`, …): its node entities by name, so the engine can play the groups scripts
 /// ask for on it as on one render streaming drew (`nvforever::object_anims`). VMS15's
@@ -243,6 +256,13 @@ fn sync(
                             }
                             // Its nodes by name, for what follows one (`crate::RefNodes`): the
                             // map spawn_nodes made, kept rather than dropped.
+                            // A door that opens in place: nvforever's door drawing poses it
+                            // as it does render streaming's (#2420: Ranger Station
+                            // Charlie's door, enabled with its enable parent, stayed drawn
+                            // shut while it opened and its collision swung away).
+                            if rig.door.is_some() {
+                                commands.entity(r).insert(ScriptDrawnDoor { reference: id, path: d.path.clone(), nodes: nodes.clone(), open_by_default: d.placement.open_by_default });
+                            }
                             commands.entity(r).insert(crate::RefNodes { reference: id, nodes });
                             for e in &drawn {
                                 commands.entity(*e).insert(RefVisual(id));

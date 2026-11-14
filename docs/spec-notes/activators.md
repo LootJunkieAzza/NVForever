@@ -301,6 +301,12 @@ script), and whether that base's model has a sequence named like the group.
     applied, the root carrying the placement [design]; particle, refraction and morph
     controllers are not played (§6);
   - `Sound: <SOUN>` keys the group passes play where the object is (anim_sounds.rs).
+  - **A group the model lacks** (issue #2420): when the engine finds the model has no
+    sequence of the group asked, that group is not what the object shows when drawn
+    again; the group it replaced is the last asked again (`ObjectAnims::not_in_model`)
+    [design]. A tripwire's script plays `Forward` and then activates itself, which asks
+    "Open" (§5's activator rule); `tripwire01.nif` has no "Open", and the sprung wire was
+    drawn armed after each cell build (Ranger Station Charlie).
   - **Drawn again and saved** (issue #1396): the rules keep the last group asked of each
     reference (`ObjectAnims::asked`, until `Reset3DState`) and save it with the game
     (`object_groups` in the snapshot). An object drawn again with no request waiting

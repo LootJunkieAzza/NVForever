@@ -452,6 +452,17 @@ the spec it links to.
     (item 5, second part) is not built yet.
     ([pickpocket §5](spec-notes/pickpocket.md))
 
+72. **A sprung trap stays sprung when drawn again (#2420).** Ranger Station Charlie's
+    door and tripwire come in with an enable parent the station's trigger script turns
+    on. The door was drawn without its door animation, so it looked shut while it was
+    open and its collision had swung away; it now opens and closes as a door. The
+    tripwire went off once only, but each cell load drew it armed again: its script asks
+    an "Open" sequence its model does not have, and that was what it showed. Ours now
+    forgets a group the model lacks and shows the one before (the sprung wire). We did
+    not see the wire fire twice or a mine re-arm in our runs; if you still see fresh
+    explosions on a second pass, note where you stand (the frag mines at the entrance
+    and the bottle-cap mine behind the door are separate placed mines). Observer check
+    143. ([doors §2](spec-notes/doors.md), [activators §5](spec-notes/activators.md))
 61. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
     weapon away now bite their nails, smoke and so on, by the idle tree's factions and
     chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace

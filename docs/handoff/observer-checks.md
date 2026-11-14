@@ -2174,3 +2174,14 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      dirt and on concrete, first and third person, and record which SOUN records play
      at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
      or beside the ground's step, and does anything play for the run rustle?
+
+## Added 2026-11-14 (Ranger Station Charlie's door and tripwire, #2420)
+
+143. **What does a sprung tripwire look like after a cell load, and does it fire again?**
+     (P3; #2420, activators.md §5.) In RSCharlieNVDESTROYED (after the station's trigger
+     has enabled CharlieEnableParentREF 0x00126F4E), walk through the tripwire 0x00084246
+     behind the left door (OffDoorSmR02a 0x000CD068), leave the cell and come back. Is the
+     wire shown sprung or whole, does it fire its shotgun (0x00084247) again, and does
+     anything explode on a second pass (the bottle-cap mine 0x0008424C, the frag mines
+     0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
+     once.

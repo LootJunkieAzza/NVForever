@@ -2997,7 +2997,7 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         let data = self.data;
         let table = &data.table;
-        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx, seconds: None };
         let mut vm = Vm::new(table, &mut ex, opts);
         let r = match resume {
             Some(at) => vm.resume(stmts, at),
@@ -3152,7 +3152,7 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         self.udf.push(UdfFrame { value: None, caller: None });
         self.open_run();
-        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
+        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx, seconds: None };
         let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
         if let Locals::Temp(m) = &ex.locals {
             for (&index, v) in m {
@@ -3298,10 +3298,16 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
-        self.nested(move |g| g.run_function_here(f, on, args, caller, ctx))
+        self.run_function_with_seconds(f, on, args, caller, (ctx, None))
     }
 
-    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+    /// An elapsed value belongs to this UDF invocation and its nested calls only.
+    /// JIP callbacks supply it; ordinary calls and result scripts do not.
+    pub(crate) fn run_function_with_seconds(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, (ctx, seconds): (RunCtx, Option<f64>)) -> Result<fnv_script::vm::XVal, String> {
+        self.nested(move |g| g.run_function_here(f, on, args, caller, (ctx, seconds)))
+    }
+
+    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, (ctx, seconds): (RunCtx, Option<f64>)) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
         let id = match f {
             XVal::Ref(id) => *id,
@@ -3336,7 +3342,7 @@ impl<'a> Game<'a> {
         self.udf.push(UdfFrame { value: None, caller });
         self.open_run();
         let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
-        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx, seconds };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
         let mut result = Ok(());
         for (p, a) in params.iter().zip(args) {
@@ -3573,6 +3579,9 @@ impl<'a> Game<'a> {
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
         self.jip.main_loop = s.main_loop;
+        for callback in &mut self.jip.main_loop {
+            callback.last_clock = functions::clock_now(self.time);
+        }
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
         self.pp_put_session(s.pp);
@@ -3658,7 +3667,7 @@ impl<'a> Game<'a> {
             Arg::Float(f) => Value::Num(*f),
             Arg::Enum(c) => Value::Num(*c as f64),
             Arg::Ref(r) => {
-                let mut ex = Exec { game: self, unit, locals: Locals::Instance(key), ctx: RunCtx::default() };
+                let mut ex = Exec { game: self, unit, locals: Locals::Instance(key), ctx: RunCtx::default(), seconds: None };
                 match ex.ref_value(*r) {
                     Ok(v) => v,
                     Err(_) => return false,
@@ -5967,6 +5976,10 @@ impl<'a> Game<'a> {
 
     /// Dispatch a function by opcode (scripts and conditions share it).
     pub fn call_function(&mut self, ctx: &Ctx, args: &[ArgValue]) -> Value {
+        self.call_function_with_seconds(ctx, args, None)
+    }
+
+    fn call_function_with_seconds(&mut self, ctx: &Ctx, args: &[ArgValue], seconds: Option<f64>) -> Value {
         let data = self.data;
         let name = || data.table.get(ctx.opcode).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", ctx.opcode));
         // A console function (a number of ours, no opcode of the game's) by the function's catalogue name.
@@ -5974,7 +5987,10 @@ impl<'a> Game<'a> {
         match functions::lookup(ctx.opcode).or_else(console) {
             Some(Kind::Impl(f)) => {
                 let outer = functions::begin_unread();
-                let r = f(self, ctx, &Args(args));
+                // GetSecondsPassed in a callback UDF has no persistent instance.
+                // Keep instance clocks and the normal dispatch/result bookkeeping.
+                let elapsed = seconds.filter(|_| ctx.opcode == 0x100C && ctx.inst.is_none());
+                let r = elapsed.map_or_else(|| f(self, ctx, &Args(args)), |dt| Ok(Value::Num(dt)));
                 self.call_result(ctx, r, functions::end_unread(outer))
             }
             Some(Kind::NoOp(_)) => Value::ZERO,
@@ -6353,6 +6369,7 @@ struct Exec<'g, 'a> {
     unit: &'a Compiled,
     locals: Locals,
     ctx: RunCtx,
+    seconds: Option<f64>,
 }
 
 impl Exec<'_, '_> {
@@ -6558,7 +6575,7 @@ impl Host for Exec<'_, '_> {
             inst: self.inst_key(),
             in_condition: false,
         };
-        Ok(self.game.call_function(&ctx, args))
+        Ok(self.game.call_function_with_seconds(&ctx, args, self.seconds))
     }
 
     fn no_reference_call(&mut self, name: &str, on: Option<Value>, call: &fnv_script::ir::XCall) {
@@ -6717,7 +6734,7 @@ impl Host for Exec<'_, '_> {
             }
             _ => None,
         };
-        let r = self.game.run_function(f, on, args, caller, ctx);
+        let r = self.game.run_function_with_seconds(f, on, args, caller, (ctx, self.seconds));
         if let (Some(i), Locals::Temp(m)) = (mine, &mut self.locals) {
             if let Some(c) = self.game.lambdas.get(i).and_then(|d| d.captured.clone()) {
                 *m = c;

@@ -7427,10 +7427,10 @@ expect = [
 [[scenario]]
 name = "ringo-comes-out"
 source = "playtest list 4 item 13 (docs/design/actor-behaviour.md §5.9, fnv_ai::process ProcessLevel::Coming): Ringo, sent out of the gas station by RingoTravelPackage after the player left, is moved every frame on his way into the loaded area and comes out of the door"
-note = "the player leaves through the gas station door at 5 s (after Ringo's greeting); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame"
+note = "the player leaves through the gas station door at 7.5 s, after Ringo's greeting (the unattended run leaves his choices at about 5.2 s; while the zoomed conversation is up the view stays locked on him, #2254, so the door is faced at 6.5 s, after it); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame"
 areas = ["ai", "process-levels"]
 paths = ["crates/fnv-ai/src/process.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/cell_buffer.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 order = [[
@@ -7618,7 +7618,7 @@ expect = [
 
 [[scenario]]
 name = "creature-names"
-source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
+source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature is the target by its name with no prompt drawn (issue #2536), a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/sim.rs", "crates/fnv-game/src/templates.rs"]
@@ -7626,10 +7626,13 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_T
 args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
-  { re = 'target 0x00157B3[DE] Gecko \(\) ', label = "a living gecko: 'Gecko', name only" },
+  { re = 'target 0x00157B3[DE] Gecko \(\) ', label = "a living gecko: the target as 'Gecko', with no action" },
   { re = 'menu: open Container\(.*\) "Gecko"', label = "the dead gecko's loot menu titled 'Gecko'" },
 ]]
-forbid = [{ re = 'VSpawnTier2GeckoMed \(', label = "the template actor's Editor ID as the name" }]
+forbid = [
+  { re = 'VSpawnTier2GeckoMed \(', label = "the template actor's Editor ID as the name" },
+  { text = 'reticle: prompt "" on "Gecko"', label = "a prompt drawn over the living, hostile gecko (#2536)" },
+]
 
 [[scenario]]
 name = "challenge-kill"
@@ -9890,7 +9893,7 @@ source = "playtest list 5 item 3 (engine/nvforever/src/door_fade.rs, nvf-play wo
 note = "the ringo-comes-out run: Ringo comes out of the gas station door into the drawn exterior where the player stands"
 areas = ["ai", "doors"]
 paths = ["engine/nvforever/src/door_fade.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/world_sounds.rs", "crates/fnv-nav/src/follow.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 expect = [
@@ -9904,7 +9907,7 @@ source = "issue #2123 (crates/fnv-game/src/npc_doors.rs, docs/spec-notes/doors.m
 note = "the npc-door-fade run with an OnActivate handler set from the console at 1 s: Ringo (00104C7D) leaves the gas station by its door 0010903F (base OffDoorMetalSmL01, no script: XTEL to 00109040 [observed: fnvtool esm decode]); the handler prints both references"
 areas = ["ai", "doors", "scripts"]
 paths = ["crates/fnv-game/src/npc_doors.rs", "crates/fnv-ai/src/carry.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "1:SetEventHandler \"OnActivate\" ({ref rT, ref rA} => PrintC \"nvf npc-door event %i %i\", rT, rA);1.5:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "1:SetEventHandler \"OnActivate\" ({ref rT, ref rA} => PrintC \"nvf npc-door event %i %i\", rT, rA);1.5:close" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 expect = [
@@ -23666,6 +23669,26 @@ order = [[
 ]]
 
 [[scenario]]
+name = "rs-charlie-door-and-tripwire"
+source = "issue #2420 (owner): in Ranger Station Charlie the door on the left was drawn shut, would not open and let the player through, and the tripwire behind it looked armed again on every pass. The door (OffDoorSmR02a 0x000CD068), the tripwire (0x00084246) and its shotgun come in with CharlieEnableParentREF (0x00126F4E, enabled by the station's trigger script): drawn at run time (nvf_play::script_draw), the door had no DoorRig, so it stayed drawn shut while it opened and its collision swung away; the wire's script plays Forward and then activates itself, which asks an Open sequence its model lacks, and that ask was what it showed when drawn again (fnv_game anims not_in_model)"
+note = "the destroyed interior (RSCharlieNVDESTROYED), god mode; the test aid enables the parent at 10 s as the trigger script does, puts the player on the wire at 12 s (it fires the shotgun once), moves the player to the entrance and back onto the wire (a fresh cell build: drawn again), then opens the door"
+areas = ["traps", "doors", "scripts"]
+paths = ["engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/doors.rs", "engine/nvforever/src/object_anims.rs", "crates/fnv-game/src/anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:0x00126F4E:Enable,12:moveto:player:0x00084246,16:moveto:player:0x00084249,19:moveto:player:0x00084246,23:activate:0x000CD068", NVF_PLAY_TEST_CONSOLE = "26:000CD068.getopenstate;26.5:close" }
+args = ["--cell", "RSCharlieNVDESTROYED", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 29
+order = [[
+  { text = "door: 0x000CD068 drawn at run time, posed as a door", label = "the door enabled with its parent is drawn as a door" },
+  { re = 'script: activate parent 0x00084246 sets off 0x00084247', label = "the wire fires the shotgun" },
+  { re = 'playgroup: 0x00084246 drawn again, shows Forward at its end', label = "drawn again after the moves, the wire shows itself sprung, not armed" },
+  { re = 'door 0x000CD068 opening', label = "the door opens" },
+  { re = 'console: GetOpenState on 0x000CD068 >> 1\.00', label = "and is open" },
+]]
+expect = [
+  { re = 'script: activate parent 0x00084246 sets off', count = 1, label = "the wire goes off once" },
+]
+
+[[scenario]]
 name = "script-move-dynamic-clutter"
 source = "issue #1311: SetPos on a reference whose collision is one dynamic body (clutter, dropped or placed items) snapped back at once, the settle write-back copying the body's old pose over the move; console moves were never seen (the tick cleared Game::turned first)"
 note = "A bottle (0x0010A1F6) placed by the console at the player in Goodsprings, moved sideways 3 s later to x = -68150 with SetPos; GetPos x half a second and two seconds later reads the new x"
@@ -23795,7 +23818,7 @@ source = "issue #1388 (engine/nvf-play/src/hitvol.rs, module notes): the bounds 
 note = "the npc-door-fade run: the player waits outside; Ringo (0x00104C7D) comes through the door into the drawn exterior and must get a volume there"
 areas = ["combat", "actors"]
 paths = ["engine/nvf-play/src/hitvol.rs"]
-env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 order = [[
@@ -28337,3 +28360,21 @@ order = [[
   { re = 'ai summary at 08:[23]\d: .* 0 unreachable', label = "half an hour into the morning nobody has failed to reach a place" },
 ]]
 forbid = [{ re = 'cannot reach the place of VSpecial\w*StalkerHunters', label = "a night stalker tries a raid route it cannot reach" }]
+
+[[scenario]]
+name = "script-physical-wheel-delivery"
+source = "[hypothesis: engineering input bridge] docs/spec-notes/script-wheel-input.md: authored public JIP handlers observe physical wheel264/265; no MCM navigation model"
+note = "Manual opt-in only: set NVF_SCRIPT_WHEEL_MANUAL=1, focus the primary game window after loading, roll the wheel up then wait and roll down during the24second run. Do not use synthetic Tap/Hold codes as physical input proof. This checks delivery to actual published script callbacks, not native per-notch parity, pane focus or left-list selection. The scenario and authored scripts are unrun."
+areas = ["input", "scripts"]
+paths = ["engine/nvf-play/src/script_input.rs", "engine/nvf-play/src/script_input_wheel_tests.rs", "crates/fnv-game/src/script_input.rs", "crates/fnv-game/src/jip_events.rs", "docs/spec-notes/script-wheel-input.md", "tools/smoke/fixtures/script-wheel-home/"]
+requires = ["NVF_SCRIPT_WHEEL_MANUAL"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/script-wheel-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = 'script: print "nvf wheel up handler 1"', count = 1, label = "wheel-up callback registration succeeds" },
+  { text = 'script: print "nvf wheel down handler 1"', count = 1, label = "wheel-down callback registration succeeds" },
+  { text = 'script: print "nvf physical wheel edge 264"', min = 1, label = "actual physical up reaches its public script handler" },
+  { text = 'script: print "nvf physical wheel edge 265"', min = 1, label = "actual physical down reaches its public script handler" },
+]
+manual = "Keep the primary game window focused; scroll up and down after loading. This manual scenario has no selection or scroll-offset expectation and provides no GPU/native visual comparison."

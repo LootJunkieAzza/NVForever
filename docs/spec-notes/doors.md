@@ -105,6 +105,11 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
 - Actors on paths: they stop in front of the door, open it and wait until the Open
   sequence has ended, then walk through square to the door (docs/design/navmesh.md §4,
   §6.1) [owner decision for the waiting; the rest engine choices].
+- A door a script enables at run time (directly or through its enable parent) is drawn
+  by `nvf_play::script_draw` and posed as render streaming's doors are (a `DoorRig`,
+  `nvforever::doors::script_drawn`) [design, #2420: Ranger Station Charlie's
+  OffDoorSmR02a 0x000CD068, enabled with CharlieEnableParentREF, stayed drawn shut while
+  it opened and its collision swung away].
 - `GetOpenState` still reports only 1 (open) and 3 (closed); the GECK wiki's opening
   and closing codes are not produced yet.
 
