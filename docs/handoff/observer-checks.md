@@ -1982,3 +1982,17 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (shots through the Transparent layer, #2340)
+
+128. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
+     #2340, combat-rules.md "The world".) The road gate door 0x0008D5B8 (CLFenceGateRoad01,
+     WastelandNV, -4576, -30616, 6819, not rotated) has its chain link on layer 3 east of
+     the gate leaves (model x 45..246, 13..224 high); the gate leaves themselves are on
+     Transparent Small Anim (28). Ours since #2340: every projectile passes layer 3
+     [hypothesis from the GECK wiki "Collision layer": "nothing can pass through except
+     projectiles"]. To check: stand at (-4420, -30766), face north, look about 10 degrees
+     down and fire one 9mm pistol round: does it strike the ground beyond the link, or
+     leave a metal impact on the link? Then the same at the gate leaves (28, where a 9mm
+     should stop) as a control. The same question for a utility room's ceiling grate
+     (layer 3 at 183 units, e.g. utlrmwall01.nif), shot from below.

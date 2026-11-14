@@ -169,12 +169,17 @@ pub fn character_ignores() -> LayerSet {
     ])
 }
 
-/// Layers a shot passes: what the character passes ([`character_ignores`]) and the
+/// Layers a shot passes: what the character passes ([`character_ignores`]), the
 /// invisible walls, which stop actors but not bullets, lasers or thrown weapons (the
-/// owner, issue #1545) [design].
+/// owner, issue #1545) [design], and the plain Transparent layer, which "nothing can
+/// pass through except projectiles" [documented: GECK wiki "Collision layer",
+/// TRANSPARENT; issue #2340]. The Transparent Small layers are not here: only a
+/// projectile flagged "Pass Through Small Transparent" passes them, and fnv-combat's
+/// trace decides that per projectile [documented: same page, TRANSPARENT SMALL].
 pub fn shot_ignores() -> LayerSet {
     let mut s = character_ignores();
     s.insert(INVISIBLE_WALL);
+    s.insert(TRANSPARENT);
     s
 }
 
@@ -188,6 +193,14 @@ mod tests {
         assert!(shot_ignores().contains(INVISIBLE_WALL));
         assert!(character_ignores().layers().iter().all(|&l| shot_ignores().contains(l)));
         assert!(!shot_ignores().contains(STATIC) && !shot_ignores().contains(UNIDENTIFIED));
+    }
+
+    #[test]
+    fn shots_pass_transparent_but_not_transparent_small() {
+        // Transparent (3) stops actors and lets every projectile through (#2340).
+        assert!(shot_ignores().contains(TRANSPARENT) && !character_ignores().contains(TRANSPARENT));
+        // The small-transparent layers stay in the ray: the projectile's flag decides.
+        assert!(!shot_ignores().contains(TRANSPARENT_SMALL) && !shot_ignores().contains(TRANSPARENT_SMALL_ANIM));
     }
 
     #[test]

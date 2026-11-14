@@ -192,7 +192,7 @@ under. Still a [hypothesis] until checked in game (§6). Reproduce:
 CollisionMarker primitive without XTRI is on the **Invisible Wall** layer (27), not
 Unidentified (0). Characters collide with it, as before. Shots, VATS mode's line of fire
 and the aim ray pass it (`layers::shot_ignores`, the character's layers plus Invisible
-Wall), and so do sight (`detection.rs` `see_through`) and blast cover lines, which already
+Wall and, since #2340, Transparent: docs/spec-notes/combat-rules.md), and so do sight (`detection.rs` `see_through`) and blast cover lines, which already
 passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
 stopped on it (smoke `shot-passes-collision-marker`).
 

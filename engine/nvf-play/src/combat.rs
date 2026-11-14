@@ -2367,9 +2367,9 @@ impl CombatWorld for PhysView<'_> {
         if len < 1e-4 {
             return None;
         }
-        // Shots pass what the character passes (triggers, zones, water, …) and invisible
-        // walls (`layers::shot_ignores`) [design]: they splash going into water
-        // (`water_surface`, `ProjEvent::Splash`) and fly on.
+        // Shots pass what the character passes (triggers, zones, water, …), invisible
+        // walls and the plain Transparent layer (`layers::shot_ignores`; #2340): they
+        // splash going into water (`water_surface`, `ProjEvent::Splash`) and fly on.
         let mut f = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
         // Another actor's shot can hit the player's character; the player's own and
         // the rest (blasts, picks) pass it, as before.
