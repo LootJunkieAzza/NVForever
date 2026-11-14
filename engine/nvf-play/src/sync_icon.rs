@@ -1,26 +1,32 @@
 //! The syncing screen's picture (queue item 208, the owner's pick of 2026-11-14): the
 //! Swift Learner perk picture read from the player's own archives, made at load time into
-//! the owner's drawing of it: its floating "XP" letters left out and the figure drawn as
-//! bold outlines in the HUD colour, no grey fill, its terminal's screen filled [design: the
+//! the owner's drawing of it: its floating "XP" letters left out and its own lines drawn
+//! bold and smooth in the HUD colour, no grey fill, its terminal's screen filled [design: the
 //! owner's image `sync-icon-208.jpg`, "Yes, outlines"; parity's comparison of 2026-11-14].
 //! Nothing of the picture is shipped; only the steps below are ours.
 //!
 //! The steps, on the picture's alpha (the perk pictures are a light figure whose lines are
-//! left out of it [observed: `perk_swift learner.dds`, 256 square, alpha 0 to 221]):
+//! left out of it [observed: `perk_swift learner.dds`, 256 square, alpha 0 to 221]), so the
+//! lines drawn are the picture's own: its collar, mouth, screen frame, keyboard and cabinet
+//! lines, not lines rebuilt from its outside shape (parity's comparison of 2026-11-14):
 //!
-//! 1. Doubled in size (bilinear) and cut at [`CUT`]: the figure, smooth at the new size.
-//! 2. The figure's own shape: grown by [`CLOSE`] texels, so the lines left out of it no
+//! 1. Made [`SCALE`] times the size (bilinear) and cut at [`CUT`]: the figure, smooth.
+//! 2. The figure's own shape: grown by [`JOIN`] texels, so the lines left out of it no
 //!    longer split it, its largest connected piece is the figure; the small marks floating
 //!    round it (the "XP" letters, 11 of them) are separate pieces and go [observed: at
 //!    this growth the terminal, the figure, the gun and its flash are one piece].
-//! 3. Outlines: the figure grown by [`LINE`] texels, less the figure, so its outside edge
-//!    and the lines inside it become strokes, then the strokes grown by [`BOLD`] texels so
-//!    the lines inside the figure are as bold as its edge.
-//! 4. The largest space the strokes close in (not reached from the picture's edge) is
+//! 3. The lines: the figure closed (grown by [`CLOSE`], then shrunk by as much, which fills
+//!    the lines left out of it), grown by [`EDGE`] more so its outside edge is a line about
+//!    as wide as those inside it, less the figure.
+//! 4. Every line thickened evenly by [`THICK`] texels with a soft edge one texel wide: each
+//!    texel's alpha from its distance to the nearest line (straight-line distances, not
+//!    square ones, so curves stay round).
+//! 5. The largest space the lines close in (not reached from the picture's edge) is
 //!    filled: the terminal's screen, solid in the owner's drawing [observed: one such space
-//!    of about 1000 texels; the others are a few texels].
-//! 5. Cut to a square round the figure, so it fills the picture as the owner's does, and
-//!    scaled to [`SIDE`] texels. White, the strokes in its alpha, so the HUD colour tints it.
+//!    ten times the size of the next].
+//! 6. Cut to a square round the figure, so it fills the picture as the owner's does, and
+//!    scaled to [`SIDE`] texels, averaging. White, the lines in its alpha, so the HUD
+//!    colour tints it.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{Image, ImageSampler};
@@ -30,57 +36,68 @@ use std::collections::VecDeque;
 /// The perk picture [observed: `textures\interface\icons\pipboyimages\perks\perk_swift
 /// learner.dds` in Fallout - Textures2.bsa; item 186's pick].
 pub const SOURCE: &str = r"textures\interface\icons\pipboyimages\perks\perk_swift learner.dds";
-/// The alpha (of 255) the doubled figure is cut at [our choice: the middle of its 0..221].
-const CUT: u8 = 110;
-/// How far the figure is grown to join its pieces, texels at the doubled size.
-const CLOSE: usize = 4;
-/// The strokes' width, texels at the doubled size [our choice: the owner's drawing's
-/// strokes, about 5 of 512].
-const LINE: usize = 5;
-/// How much the strokes are grown after, texels at the doubled size [our choice: more
-/// runs the lines round the head and the screen together].
-const BOLD: usize = 1;
+/// How many times the picture is enlarged before the steps.
+const SCALE: usize = 4;
+/// The alpha (of 255) the enlarged figure is cut at [our choice: the middle of its 0..221].
+const CUT: f32 = 110.0;
+/// How far the figure is grown to join its pieces, texels at the enlarged size.
+const JOIN: f32 = 8.0;
+/// How far the figure is grown and shrunk to fill its lines, texels at the enlarged size
+/// [our choice: the lines left out of it close; the owner's drawing compared].
+const CLOSE: f32 = 8.0;
+/// How far the closed figure is grown for its outside line, texels at the enlarged size
+/// [our choice: as wide as the lines inside it look].
+const EDGE: f32 = 5.0;
+/// How much every line is thickened, texels at the enlarged size [parity: about 1 to 2
+/// texels at twice the size].
+const THICK: f32 = 2.0;
 /// The made picture's side, texels.
 pub const SIDE: usize = 512;
 
 /// The picture made from a perk picture's pixels (RGBA8, `w` by `h`): white, alpha the
-/// outlines, [`SIDE`] square. None when the picture has no figure.
+/// lines, [`SIDE`] square. None when the picture has no figure.
 pub fn outlines(rgba: &[u8], w: usize, h: usize) -> Option<Vec<u8>> {
+    made(rgba, w, h).map(|(out, _)| out)
+}
+
+/// Where the made picture was cut from, at the enlarged size: its left, its top and the
+/// enlarged texels per made texel.
+type Frame = (f32, f32, f32);
+
+fn made(rgba: &[u8], w: usize, h: usize) -> Option<(Vec<u8>, Frame)> {
     if w == 0 || h == 0 || rgba.len() < w * h * 4 {
         return None;
     }
     let alpha: Vec<u8> = rgba.chunks(4).take(w * h).map(|p| p[3]).collect();
-    let (w2, h2) = (w * 2, h * 2);
-    let figure: Vec<bool> = doubled(&alpha, w, h).into_iter().map(|a| a > CUT).collect();
-    let keep = largest(&grown(&figure, w2, h2, CLOSE), w2, h2, false)?;
+    let (w2, h2) = (w * SCALE, h * SCALE);
+    let figure: Vec<bool> = enlarged(&alpha, w, h).into_iter().map(|a| a > CUT).collect();
+    let near = |m: &[bool], r: f32| -> Vec<bool> { distance(m, w2, h2).into_iter().map(|d| d <= r).collect() };
+    let keep = largest(&near(&figure, JOIN), w2, h2, false)?;
     let figure: Vec<bool> = figure.iter().zip(&keep).map(|(f, k)| *f && *k).collect();
-    let edges: Vec<bool> = grown(&figure, w2, h2, LINE).iter().zip(&figure).map(|(g, f)| *g && !*f).collect();
-    let mut strokes = grown(&edges, w2, h2, BOLD);
-    let open: Vec<bool> = strokes.iter().zip(&figure).map(|(s, f)| !*s && !*f).collect();
+    let outside: Vec<bool> = near(&figure, CLOSE).iter().map(|g| !*g).collect();
+    let closed: Vec<bool> = near(&outside, CLOSE).iter().map(|g| !*g).collect();
+    let lines: Vec<bool> = near(&closed, EDGE).iter().zip(&figure).map(|(s, f)| *s && !*f).collect();
+    let mut out: Vec<f32> = distance(&lines, w2, h2).into_iter().map(|d| (THICK + 0.5 - d).clamp(0.0, 1.0)).collect();
+    let open: Vec<bool> = out.iter().zip(&figure).map(|(a, f)| *a <= 0.5 && !*f).collect();
     if let Some(screen) = largest(&open, w2, h2, true) {
-        strokes.iter_mut().zip(&screen).for_each(|(s, h)| *s |= *h);
+        out.iter_mut().zip(&screen).filter(|(_, s)| **s).for_each(|(a, _)| *a = 1.0);
     }
-    // The square round the figure, its strokes and a margin.
+    // The square round the figure, its lines and a margin.
     let (mut x0, mut y0, mut x1, mut y1) = (w2, h2, 0, 0);
     for (i, _) in keep.iter().enumerate().filter(|(_, k)| **k) {
         let (x, y) = (i % w2, i / w2);
         (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
     }
-    let side = ((x1 - x0).max(y1 - y0) + 1 + 2 * (LINE + BOLD + 4)) as f32;
-    let (cx, cy) = ((x0 + x1) as f32 / 2.0, (y0 + y1) as f32 / 2.0);
-    let (left, top) = (cx - side / 2.0, cy - side / 2.0);
+    let side = (x1 - x0).max(y1 - y0) as f32 + 1.0 + 2.0 * (EDGE + THICK + 4.0 * SCALE as f32);
+    let (left, top) = ((x0 + x1) as f32 / 2.0 - side / 2.0, (y0 + y1) as f32 / 2.0 - side / 2.0);
     let at = |x: f32, y: f32| -> f32 {
         let (xi, yi) = (x.floor() as i64, y.floor() as i64);
         let inside = xi >= 0 && yi >= 0 && xi < w2 as i64 && yi < h2 as i64;
-        if inside && strokes[yi as usize * w2 + xi as usize] {
-            1.0
-        } else {
-            0.0
-        }
+        if inside { out[yi as usize * w2 + xi as usize] } else { 0.0 }
     };
-    // Each made texel: the share of strokes under it (4 by 4 samples), for smooth edges.
+    // Each made texel: the average under it (4 by 4 samples).
     let k = side / SIDE as f32;
-    let mut out = Vec::with_capacity(SIDE * SIDE * 4);
+    let mut px = Vec::with_capacity(SIDE * SIDE * 4);
     for y in 0..SIDE {
         for x in 0..SIDE {
             let mut sum = 0.0;
@@ -89,10 +106,10 @@ pub fn outlines(rgba: &[u8], w: usize, h: usize) -> Option<Vec<u8>> {
                     sum += at(left + (x as f32 + (sx as f32 + 0.5) / 4.0) * k, top + (y as f32 + (sy as f32 + 0.5) / 4.0) * k);
                 }
             }
-            out.extend_from_slice(&[255, 255, 255, (sum / 16.0 * 255.0).round() as u8]);
+            px.extend_from_slice(&[255, 255, 255, (sum / 16.0 * 255.0).round() as u8]);
         }
     }
-    Some(out)
+    Some((px, (left, top, k)))
 }
 
 /// [`outlines`] of a picture's `.dds` (its largest level, decoded here as the cursor's
@@ -109,8 +126,8 @@ pub fn outline_image(dds: &[u8]) -> Result<Image, String> {
     Ok(image)
 }
 
-/// The alpha at twice the size, bilinear.
-fn doubled(a: &[u8], w: usize, h: usize) -> Vec<u8> {
+/// The alpha at [`SCALE`] times the size, bilinear.
+fn enlarged(a: &[u8], w: usize, h: usize) -> Vec<f32> {
     let get = |x: f32, y: f32| -> f32 {
         let (x, y) = (x.clamp(0.0, (w - 1) as f32), y.clamp(0.0, (h - 1) as f32));
         let (xi, yi) = (x.floor() as usize, y.floor() as usize);
@@ -119,30 +136,69 @@ fn doubled(a: &[u8], w: usize, h: usize) -> Vec<u8> {
         let v = |x: usize, y: usize| a[y * w + x] as f32;
         (v(xi, yi) * (1.0 - fx) + v(xj, yi) * fx) * (1.0 - fy) + (v(xi, yj) * (1.0 - fx) + v(xj, yj) * fx) * fy
     };
-    let mut out = Vec::with_capacity(w * h * 4);
-    for y in 0..h * 2 {
-        for x in 0..w * 2 {
-            out.push(get((x as f32 + 0.5) / 2.0 - 0.5, (y as f32 + 0.5) / 2.0 - 0.5).round() as u8);
+    let s = SCALE as f32;
+    let mut out = Vec::with_capacity(w * h * SCALE * SCALE);
+    for y in 0..h * SCALE {
+        for x in 0..w * SCALE {
+            out.push(get((x as f32 + 0.5) / s - 0.5, (y as f32 + 0.5) / s - 0.5));
         }
     }
     out
 }
 
-/// The mask grown by `r` texels each way (a square of side 2r+1), rows then columns.
-fn grown(m: &[bool], w: usize, h: usize, r: usize) -> Vec<bool> {
-    let mut rows = vec![false; w * h];
+/// Each texel's distance to the nearest set texel of the mask (straight-line, in texels;
+/// very large when the mask is empty): the squared distance along the rows, then along the
+/// columns, each the lower envelope of parabolas (Felzenszwalb and Huttenlocher, "Distance
+/// Transforms of Sampled Functions", 2012).
+fn distance(m: &[bool], w: usize, h: usize) -> Vec<f32> {
+    let mut d: Vec<f64> = m.iter().map(|v| if *v { 0.0 } else { 1e20 }).collect();
+    let mut line = Vec::with_capacity(w.max(h));
     for y in 0..h {
-        for x in 0..w {
-            let (a, b) = (x.saturating_sub(r), (x + r).min(w - 1));
-            rows[y * w + x] = m[y * w + a..=y * w + b].iter().any(|v| *v);
+        line.clear();
+        line.extend_from_slice(&d[y * w..(y + 1) * w]);
+        d[y * w..(y + 1) * w].copy_from_slice(&squared_1d(&line));
+    }
+    for x in 0..w {
+        line.clear();
+        line.extend((0..h).map(|y| d[y * w + x]));
+        for (y, v) in squared_1d(&line).into_iter().enumerate() {
+            d[y * w + x] = v;
         }
     }
-    let mut out = vec![false; w * h];
-    for y in 0..h {
-        let (a, b) = (y.saturating_sub(r), (y + r).min(h - 1));
-        for x in 0..w {
-            out[y * w + x] = (a..=b).any(|yy| rows[yy * w + x]);
+    d.into_iter().map(|v| v.sqrt() as f32).collect()
+}
+
+/// The squared distance transform of one line of costs `f`: for each place, the least of
+/// `f[p] + (q - p)^2` over every `p`.
+fn squared_1d(f: &[f64]) -> Vec<f64> {
+    let n = f.len();
+    let mut out = vec![0.0; n];
+    if n == 0 {
+        return out;
+    }
+    // v: the places whose parabolas make the envelope; z: where each takes over.
+    let (mut v, mut z) = (vec![0usize; n], vec![0.0f64; n + 1]);
+    let mut k = 0;
+    (z[0], z[1]) = (f64::NEG_INFINITY, f64::INFINITY);
+    let meet = |q: usize, p: usize| ((f[q] + (q * q) as f64) - (f[p] + (p * p) as f64)) / (2.0 * q as f64 - 2.0 * p as f64);
+    for q in 1..n {
+        let mut s = meet(q, v[k]);
+        while s <= z[k] {
+            k -= 1;
+            s = meet(q, v[k]);
         }
+        k += 1;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = f64::INFINITY;
+    }
+    let mut k = 0;
+    for (q, o) in out.iter_mut().enumerate() {
+        while z[k + 1] < q as f64 {
+            k += 1;
+        }
+        let d = q as f64 - v[k] as f64;
+        *o = d * d + f[v[k]];
     }
     out
 }
@@ -216,29 +272,38 @@ mod tests {
     }
 
     #[test]
-    fn a_perk_picture_becomes_its_figures_outlines_without_the_floating_marks() {
-        let out = outlines(&picture(), 64, 64).unwrap();
+    fn a_perk_picture_becomes_its_own_lines_without_the_floating_marks() {
+        let (out, (left, top, k)) = made(&picture(), 64, 64).unwrap();
         assert_eq!(out.len(), SIDE * SIDE * 4);
         assert!(out.chunks(4).all(|p| p[..3] == [255, 255, 255]), "white, so the HUD colour tints it");
-        // The block, cut square round it: its middle is empty (no grey fill), the line
-        // left out across it is a stroke, and so is its left edge.
-        let (mid, upper) = (SIDE / 2, SIDE / 2 - 60);
-        assert_eq!(alpha_at(&out, mid, upper), 0, "inside the figure: no fill");
-        // The space it closes in (the "screen") is filled: its middle, doubled and cut.
-        // The square is cut round the block grown by CLOSE (doubled 4..123 by 36..103):
-        // side 120 + 1 + 2 * (LINE + BOLD + 4), centred at (63.5, 69.5).
-        let k = (120 + 1 + 2 * (LINE + BOLD + 4)) as f32 / SIDE as f32;
-        let to_out = |v: f32, c: f32| ((v - c) / k + SIDE as f32 / 2.0) as usize;
-        let (sx, sy) = (to_out(33.0, 63.5), to_out(57.0, 69.5));
-        let filled = (sy - 3..=sy + 3).flat_map(|y| (sx - 6..=sx + 6).map(move |x| (x, y))).filter(|(x, y)| alpha_at(&out, *x, *y) > 200).count();
-        assert!(filled > 60, "the closed-in space is filled round ({sx}, {sy}): {filled} of 91");
-        let line = (mid - 20..SIDE).find(|y| alpha_at(&out, mid, *y) > 200).unwrap();
-        assert!(line < mid + 40, "the line across the block is drawn near the middle, at {line}");
-        let edge = (0..SIDE).find(|x| alpha_at(&out, *x, upper) > 200).unwrap();
-        assert!(edge < 40, "the block's left edge is a stroke at the picture's edge, at {edge}");
-        // The floating mark is gone: nothing is drawn above the block's top stroke.
-        let top = (0..SIDE).find(|y| alpha_at(&out, mid, *y) > 0).unwrap();
-        assert!((0..top).all(|y| (0..SIDE).all(|x| alpha_at(&out, x, y) == 0)), "a mark drawn above row {top}");
+        // A place in the 64-square picture, in the made one (texel centres, enlarged).
+        let to = |x: f32, y: f32| ((((x + 0.5) * SCALE as f32 - left) / k) as usize, (((y + 0.5) * SCALE as f32 - top) / k) as usize);
+        let alpha = |(x, y): (usize, usize)| alpha_at(&out, x, y);
+        assert_eq!(alpha(to(40.0, 26.0)), 0, "inside the figure: no fill");
+        assert!(alpha(to(40.0, 34.5)) > 200, "the line left out across the block is drawn");
+        assert!(alpha(to(16.0, 28.0)) > 200, "the space the block closes in (the screen) is filled");
+        let (row_x, row_y) = to(4.0, 26.0);
+        let edge = (0..SIDE).find(|x| alpha_at(&out, *x, row_y) > 200).unwrap();
+        assert!(edge <= row_x && row_x - edge < 20, "the block's left edge is a line, at {edge} (the block from {row_x})");
+        // The floating mark is gone: nothing above the block's top line.
+        let (_, above) = to(0.0, 15.0);
+        assert!((0..above).all(|y| (0..SIDE).all(|x| alpha_at(&out, x, y) == 0)), "a mark drawn above row {above}");
+        // The lines are even: the line across the block is about as wide as twice THICK
+        // plus the line left out (2 texels, enlarged), not more.
+        let (cx, _) = to(40.0, 0.0);
+        let wide = (0..SIDE).filter(|y| alpha_at(&out, cx, *y) > 127).count() as f32 * k;
+        assert!(wide < 4.0 * (2.0 * SCALE as f32 + 2.0 * THICK + 1.0), "{wide} enlarged texels of line down the middle");
+    }
+
+    #[test]
+    fn distances_are_straight_line() {
+        let mut m = vec![false; 9 * 9];
+        m[4 * 9 + 4] = true;
+        let d = distance(&m, 9, 9);
+        assert_eq!(d[4 * 9 + 4], 0.0);
+        assert_eq!(d[4 * 9 + 7], 3.0);
+        assert!((d[7 * 9 + 8] - 5.0).abs() < 1e-6, "3 down and 4 across: {}", d[7 * 9 + 8]);
+        assert!(distance(&[false; 4], 2, 2).iter().all(|v| *v > 1e6), "no set texel: far");
     }
 
     /// Writes the picture made from a perk picture as a PNG to look at: the `.dds` (taken
