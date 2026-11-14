@@ -252,9 +252,19 @@ faction given) on the player and makes it say Assault [documented].
 - **Why it mattered** (#2467) [observed: `fnvtool esm decode`, FalloutNV.esm; the cause a
   hypothesis, the owner's run left no log]: Karl (`VRRCKarl`, the Legion's envoy at Red
   Rock) is in `ArmorVCaesarsLegionFaction` (Track Crime, the faction the Legion armour's
-  disguise allies with the player), not in `VCaesarsLegionFaction`; 242 of the 244 Legion
-  NPC_ bases are in both. One seen murder of a Legionary made the player an enemy of the
-  armour faction, and without expiry Karl attacked on sight for good.
+  disguise allies with the player), not in `VCaesarsLegionFaction`. Of the 242 NPC_
+  bases in either faction (factions taken through Use Factions templates), 241 are in the
+  armour faction; 52 of those are also in an Evil faction (VCaesarsLegionSnifferFaction
+  33, VHooverDamCaesarsLegionFaction 13, CaesarsLegionTechMineFaction 4, two others), 189
+  are in none [observed: a scan of FalloutNV.esm's NPC_ and FACT records, 2026-11-14].
+  Killing one of the 189 unprovoked while a fellow Legionary sees the player is a murder
+  (§3.4) that flags the victim's crime-tracking factions, the armour faction among them;
+  without expiry Karl attacked on sight for good. Killing one of the 52 takes the Evil
+  faction's area alert (`crate::provocation`), which flags that Evil faction only, and
+  the kill then counts as self-defence (the victim is a member of a faction the player
+  is now an enemy of), so it never flags the armour faction [observed: smoke run of
+  2026-11-14, NVLegionaryAlexusREF killed: only CaesarsLegionTechMineFaction flagged, no
+  murder].
 - **Open**: the minor crimes' timer. An AI observer check saw Chet calm one day after a
   theft (npc-behaviour-compare.md §16.9, GetActorCrimePlayerEnemy 0 after 1 day and after
   4), where the wiki has the victim attack for three; NVForever uses the three days for
@@ -365,8 +375,9 @@ GetOwnerOfCell, HasOwnership, SetIsPCAMurderer, ClearActorsFactionsPlayerEnemyFl
   clock jump, the Wait menu's check, a script's flag kept, a later crime restarting the
   count, an older save dated at the load).
 - Smoke scenarios `crime-expiry-karl-hostile` and `crime-expiry-karl-calm` (§3.7, #2467):
-  a Legionary murdered in front of two others, then the longhouse at Red Rock; Karl
-  fights at once, and after a clock jump of four days he does not.
+  a Cottonwood Cove Legionary in no Evil faction murdered while another, at its post,
+  detects the player, then the longhouse at Red Rock; Karl fights at once, and after a
+  clock jump of four days he does not.
 - In play, smoke scenarios `crime-steal` (a carton of cigarettes taken in front of Chet in
   his store: "crime: theft against GSChet … turned on the player: [GSChetRef …]", the
   karma line and his fight) and `karma-fiend` (Violet shot dead: "crime: karma +100 for
