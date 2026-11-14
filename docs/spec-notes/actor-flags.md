@@ -127,6 +127,28 @@ quest's voice-type list is observer check 127]. A line whose INFO names its spea
 allowed too, since it is said by that actor only [hypothesis]. A VTYP without DNAM
 (9 records) is not restricted [hypothesis]. The player's own lines are not gated.
 
+## 11. Fixtures that never fight (Immobile, Unaggressive, Helps Nobody, unarmed)
+
+`Game::is_fixture` (fnv-game awareness.rs; issue #2431): a creature flagged Immobile
+whose AI data is Aggression Unaggressive and Assistance Helps Nobody, carrying no
+weapon (its inventory, or before it is loaded its base's CNTO, a leveled item list
+counting as a weapon). Such an actor is never hostile: the hostility rule answers no
+before StartCombat, grudges, the player's crimes and faction relations; StartCombat
+does nothing on it; each settle of the awareness drops whatever alarms, targets or
+calls for help it was given; and the engine fixes its heading as for a Turning Speed
+of 0. [documented: GECK wiki Stats Tab for Creatures and AI Data; observed: in the
+masters the placed fixtures are MrHouse and MrHouseOFFLINE (Mr. House's screens),
+NVCRMrHouse (his life-support chamber, Turning Speed 30) and NVCRFestus; the turrets,
+also Immobile and Unaggressive, carry their guns (tests/fixtures_data.rs);
+hypothesis: the original lets such an actor take no part in a fight; owner ruling
+2026-11-13 for the screens and the chamber.] Taking damage is left to the records
+and scripts: the screens are Invulnerable, the chamber a ghost until its terminal
+unseals it (NVCRMrHouseSCRIPT's SetGhost 1, the terminal items' SetGhost 0), after
+which House's body can be killed as the owner ruled. Before, a screen became hostile
+after House's death: the murder made it a crime enemy (`Game::crime_enemy` comes
+before Aggression) or a script's StartCombat or a hit did [hypothesis: which one the
+owner's game took is not in the report]. Observer check 139.
+
 ## 10. Checks
 
 Unit test: `fnv_sim::leveled::rolls_none`. Smoke: `vats-no-melee-turret` (a melee mark on

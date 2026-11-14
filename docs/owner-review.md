@@ -487,6 +487,16 @@ the spec it links to.
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
+68. **Fixtures never fight: Mr. House's screens and chamber, and Festus (#2431).** An
+    Immobile creature that is Unaggressive, Helps Nobody and carries no weapon is never
+    hostile, takes no combat target and never turns, whatever the player did (murder,
+    hits, faction enmity). That rule, from the records alone, covers MrHouse,
+    MrHouseOFFLINE, NVCRMrHouse and also NVCRFestus; turrets are untouched (they carry
+    guns). The screens take no damage (their records are Invulnerable); House's body
+    can still be killed once the terminal unseals the chamber, as you ruled. Please
+    check Festus behaves as you expect, and the penthouse screen after House's death.
+    ([actor flags §11](spec-notes/actor-flags.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
