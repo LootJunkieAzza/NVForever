@@ -460,6 +460,8 @@ pub struct DataState {
     /// When each quest was first seen listed (a running count).
     seen: HashMap<u32, u64>,
     seen_count: u64,
+    /// A co-op guest's quest list as last logged (`track`).
+    guest_listed: Vec<u32>,
     /// The notes' filter is on: only the active quest's notes (`sShowActiveNotes`).
     notes_of_active: bool,
     /// The note whose page was last shown, so it is marked read once (GetNoteRead).
@@ -1362,6 +1364,15 @@ pub(crate) fn restore_custom_marker(game: &mut fnv_game::Game, pending: Option<&
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
+        // A co-op guest's list as it changes (the host's quests in, and out with why).
+        if rt.game.coop_guest {
+            let now: Vec<u32> = guest_quests(None, &rt.game).into_iter().map(|k| k.form).collect();
+            for q in st.guest_listed.iter().filter(|q| !now.contains(q)) {
+                let story = rt.game.coop_host_story.quests.get(&FormId(*q)).map(|s| format!("story: ended {} failed {} objectives {:?}", s.ended, s.failed, s.objectives)).unwrap_or_else(|| "not in the story".into());
+                info!("pipboy data: the host's quest {} left this guest's list ({story})", rt.game.data.name(FormId(*q)));
+            }
+            st.guest_listed = now;
+        }
         // A co-op guest lists the host's quests (`guest_quests`), as they first come.
         let mut new: Vec<u32> = if rt.game.coop_guest {
             guest_quests(None, &rt.game).into_iter().map(|k| k.form).filter(|q| !st.seen.contains_key(q)).collect()
