@@ -66,3 +66,17 @@ Reset restores that handedness layout; Cancel restores the layout before editing
 Save writes `touch-controls.json` in the app's own engine home, then leaves the game
 paused so you can resume deliberately. It does not change keyboard bindings or saves.
 The icon/editor revision still needs rendered device validation.
+
+### Touch aiming follow-up
+
+The editor's Aiming entry opens a bottom sheet. Look and ADS have separate minus/plus
+adjustments. ADS means the engine's actual sight state, so holding aim during a reload
+or blocking with a melee weapon does not use the ADS multiplier. These scales affect
+touch-look swipes; external mouse and controller sensitivities stay in their existing
+settings. Dead zone cycles through 10%, 18%, 25% and 35% of joystick radius on each axis.
+Aim can hold or toggle. Sneak can toggle or act only while held, preserving independent
+keyboard/controller toggle state when the touch hold ends. Reset aiming leaves button
+positions alone; Save/Cancel includes both the layout and aiming settings.
+
+This follow-up source still needs compilation, execution and rendered device validation;
+it is separate from the earlier experimental APK.

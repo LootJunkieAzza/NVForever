@@ -17,6 +17,7 @@ pub struct Config {
     pub southpaw: bool,
     pub opacity: f32,
     pub hints: bool,
+    pub aiming: super::aiming::Aiming,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -38,6 +39,7 @@ impl Default for Config {
             southpaw: false,
             opacity: 0.7,
             hints: true,
+            aiming: super::aiming::Aiming::default(),
         }
     }
 }
@@ -120,7 +122,7 @@ impl Config {
     }
     pub fn encode(&self) -> Value {
         let place = |p: &Placement| json!({"x":p.center.x,"y":p.center.y,"scale":p.scale,"visible":p.visible});
-        json!({"version":1,"buttons":BUTTONS.iter().zip(&self.buttons).map(|(b,p)| (b.text.to_string(),place(p))).collect::<serde_json::Map<_,_>>(),"stick":place(&self.stick),"floating":self.floating,"southpaw":self.southpaw,"opacity":self.opacity,"hints":self.hints})
+        json!({"version":1,"buttons":BUTTONS.iter().zip(&self.buttons).map(|(b,p)| (b.text.to_string(),place(p))).collect::<serde_json::Map<_,_>>(),"stick":place(&self.stick),"floating":self.floating,"southpaw":self.southpaw,"opacity":self.opacity,"hints":self.hints,"aiming":self.aiming.encode()})
     }
     pub fn decode(v: &Value) -> Result<Self, String> {
         if v["version"].as_u64() != Some(1) {
@@ -151,6 +153,7 @@ impl Config {
             read(&v["buttons"][b.text], &mut c.buttons[i]);
         }
         read(&v["stick"], &mut c.stick);
+        c.aiming = super::aiming::Aiming::decode(&v["aiming"]);
         if let Some(b) = v["floating"].as_bool() {
             c.floating = b;
         }
@@ -197,6 +200,7 @@ pub struct Editor {
     original: Config,
     pub playing: bool,
     pub selected: Target,
+    pub aiming: bool,
     drag: Option<(u64, Vec2)>,
 }
 #[derive(Resource, Default)]
@@ -217,7 +221,7 @@ pub const EDIT_ACTIONS: [&str; 12] = [
     "Reset",
     "Save",
     "Cancel",
-    "Help",
+    "Aiming",
 ];
 pub fn editor_rect(index: usize, size: Vec2) -> Rect {
     let width = (size.x * 0.4).max(288.0).min(size.x * 0.75);
@@ -239,6 +243,7 @@ impl Layout {
             original: self.config.clone(),
             playing,
             selected: Target::Stick,
+            aiming: false,
             drag: None,
         });
         self.message = "Drag a control to move it. Select it, then change its size.".into();
@@ -251,29 +256,107 @@ impl Layout {
         let mut done = false;
         match t.phase {
             TouchPhase::Started => {
-                if let Some(action) =
-                    (0..EDIT_ACTIONS.len()).find(|&i| editor_rect(i, size).contains(t.position))
-                {
+                if let Some(action) = (0..EDIT_ACTIONS.len()).find(|&i| {
+                    let rect = if e.aiming {
+                        super::aiming::editor_rect(i, size)
+                    } else {
+                        editor_rect(i, size)
+                    };
+                    rect.contains(t.position)
+                }) {
                     // A toolbar tap ends the previous finger's drag before changing its target/layout.
                     e.drag = None;
-                    match action {
-                        0|1=> { let p=self.config.placement_mut(e.selected); p.scale=(p.scale+if action==0 {-0.1} else {0.1}).clamp(0.8,1.8); }
-                        2=> {self.config.opacity=if self.config.opacity>=0.85 {0.35} else {(self.config.opacity+0.15).min(0.9)};}
-                        3=> { self.config.southpaw= !self.config.southpaw; for p in &mut self.config.buttons {p.center.x=1.0-p.center.x;} self.config.stick.center.x=1.0-self.config.stick.center.x; }
-                        4=>self.config.floating= !self.config.floating,
-                        5=>{e.playing= !e.playing;e.selected=Target::Stick;},
-                        6=>{if e.selected!=Target::Stick {let p=self.config.placement_mut(e.selected);p.visible= !p.visible;}},
-                        7=>self.config.hints= !self.config.hints,
-                        8=>self.config=Config::preset(self.config.southpaw),
-                        9=> {
-                            // Tests use Layout without a home and never write player settings.
-                            let result=std::env::var_os(fnv_install::HOME_ENV).ok_or_else(||"Settings directory is unavailable".to_string()).and_then(|p|self.config.save_to(&std::path::PathBuf::from(p).join("touch-controls.json")));
-                            match result {Ok(())=>{self.message="Touch layout saved. Resume from the pause menu.".into();done=true;},Err(err)=>self.message=format!("Could not save: {err}")}
+                    if e.aiming && action < 9 {
+                        self.config.aiming.adjust(action);
+                        self.message = if action == 5 {
+                            "Look scales touch swipes. ADS uses actual sight state; dead zone is a share of stick radius.".into()
+                        } else {
+                            format!(
+                                "Look {:.0}% · ADS {:.0}% · dead zone {:.0}%",
+                                self.config.aiming.look * 100.0,
+                                self.config.aiming.ads * 100.0,
+                                self.config.aiming.dead_zone * 100.0
+                            )
+                        };
+                    } else {
+                        match action {
+                            0 | 1 => {
+                                let p = self.config.placement_mut(e.selected);
+                                p.scale = (p.scale + if action == 0 { -0.1 } else { 0.1 })
+                                    .clamp(0.8, 1.8);
+                            }
+                            2 => {
+                                self.config.opacity = if self.config.opacity >= 0.85 {
+                                    0.35
+                                } else {
+                                    (self.config.opacity + 0.15).min(0.9)
+                                };
+                            }
+                            3 => {
+                                self.config.southpaw = !self.config.southpaw;
+                                for p in &mut self.config.buttons {
+                                    p.center.x = 1.0 - p.center.x;
+                                }
+                                self.config.stick.center.x = 1.0 - self.config.stick.center.x;
+                            }
+                            4 => self.config.floating = !self.config.floating,
+                            5 => {
+                                e.playing = !e.playing;
+                                e.selected = Target::Stick;
+                            }
+                            6 => {
+                                if e.selected != Target::Stick {
+                                    let p = self.config.placement_mut(e.selected);
+                                    p.visible = !p.visible;
+                                }
+                            }
+                            7 => self.config.hints = !self.config.hints,
+                            8 => {
+                                let aiming = self.config.aiming;
+                                self.config = Config::preset(self.config.southpaw);
+                                self.config.aiming = aiming;
+                            }
+                            9 => {
+                                // Tests use Layout without a home and never write player settings.
+                                let result = std::env::var_os(fnv_install::HOME_ENV)
+                                    .ok_or_else(|| "Settings directory is unavailable".to_string())
+                                    .and_then(|p| {
+                                        self.config.save_to(
+                                            &std::path::PathBuf::from(p)
+                                                .join("touch-controls.json"),
+                                        )
+                                    });
+                                match result {
+                                    Ok(()) => {
+                                        self.message =
+                                            "Touch layout saved. Resume from the pause menu."
+                                                .into();
+                                        done = true;
+                                    }
+                                    Err(err) => self.message = format!("Could not save: {err}"),
+                                }
+                            }
+                            10 => {
+                                self.config = e.original.clone();
+                                self.message = "Changes cancelled.".into();
+                                done = true;
+                            }
+                            _ => {
+                                e.aiming = !e.aiming;
+                                self.message = if e.aiming {
+                                    "Adjust touch aiming, then Save or Cancel."
+                                } else {
+                                    "Drag a control to move it. Select it, then change its size."
+                                }
+                                .into();
+                            }
                         }
-                        10=>{self.config=e.original.clone();self.message="Changes cancelled.".into();done=true;},
-                        _=>self.message="Left/right thumb: move/look. Hold an action icon. Mirror swaps hands; stick mode switches fixed/floating. Hidden controls remain visible here.".into(),
                     }
-                } else if let Some(target) = self.config.hit(t.position, size, e.playing, true) {
+                } else if let Some(target) = self
+                    .config
+                    .hit(t.position, size, e.playing, true)
+                    .filter(|_| !e.aiming)
+                {
                     e.selected = target;
                     e.drag = Some((t.id, self.config.center(target, size) - t.position));
                     self.message = format!(

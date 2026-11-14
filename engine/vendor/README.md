@@ -450,3 +450,14 @@ and prebuilt binaries.
   `MaterialBindlessSlab::get_bindless_index_table`, reversed in 0.19.1, which kept freed
   `ExtendedMaterial`s' textures in the slabs. Fixed upstream (bevyengine/bevy#25848);
   Bevy 0.20 has the fix, in `bevy_render::material_bind_groups` (#934).
+
+## winit 0.30.13 (Apache-2.0; rust-windowing contributors)
+
+Android controller admission only, marked `NVForever controller admission`: an optional
+application handler runs before the single native queue consumer translates input into
+window events. Unhandled inputs use the upstream path. NVForever copies controller
+samples into its own bounded queue, then uses Bevy's ordinary RawGamepadEvent route.
+No other platform backend changes. The upstream crate archive checksum was matched to
+Cargo.lock and its source files matched the installed registry before copying; upstream
+licences remain beside the source. Drop this patch when winit exposes equivalent native
+controller admission or provides a complete controller-event backend.

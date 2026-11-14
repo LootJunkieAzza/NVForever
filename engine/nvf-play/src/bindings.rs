@@ -854,25 +854,29 @@ pub fn set_device(world: &mut World, d: InputDevice) {
     b.device = d;
     // Cancel pending release actions before readers can interpret the device change
     // as a completed tap/selection. Hardware releases remain visible [design, #2200].
-    if changed {
-        if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
-            control.cancel_input_holds();
-        }
-        if let Some(mut grab) = world.get_resource_mut::<crate::grab::GrabState>() {
-            grab.tap = None;
-        }
-        if let Some(mut wheel) = world.get_resource_mut::<crate::weapon_wheel::WeaponWheel>() {
-            wheel.cancel_input_hold();
-        }
-        let mut pointers = world.query::<&mut crate::ui_pointer::PointerState>();
-        for mut pointer in pointers.iter_mut(world) {
-            if *pointer == crate::ui_pointer::PointerState::Pressed {
-                *pointer = crate::ui_pointer::PointerState::None;
-            }
-        }
-    }
+    if changed { cancel_input_holds(world); }
     info!("controls: input device {}", d.name());
     store(world);
+}
+
+/// Cancel release-triggered actions after a device is lost or input is invalidated.
+/// Input backends use this without changing the player's saved device choice.
+pub fn cancel_input_holds(world: &mut World) {
+    if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
+        control.cancel_input_holds();
+    }
+    if let Some(mut grab) = world.get_resource_mut::<crate::grab::GrabState>() {
+        grab.tap = None;
+    }
+    if let Some(mut wheel) = world.get_resource_mut::<crate::weapon_wheel::WeaponWheel>() {
+        wheel.cancel_input_hold();
+    }
+    let mut pointers = world.query::<&mut crate::ui_pointer::PointerState>();
+    for mut pointer in pointers.iter_mut(world) {
+        if *pointer == crate::ui_pointer::PointerState::Pressed {
+            *pointer = crate::ui_pointer::PointerState::None;
+        }
+    }
 }
 
 /// Set the Controls opt-out, saved with the device [design, #2200].
@@ -1150,6 +1154,19 @@ impl ControlInput<'_, '_> {
     /// A controller works the controls.
     pub fn controller(&self) -> bool {
         self.bindings.device == InputDevice::Controller
+    }
+
+    /// A platform-owned action may act through its current keyboard/mouse binding.
+    /// It still obeys device selection, capture and script-disabled inputs.
+    pub fn virtual_action_allowed(&self, control: Control) -> bool {
+        if self.controller() || self.suppressed() || self.held(control) {
+            return false;
+        }
+        let binding = self.bindings.get(control);
+        // Touch uses the primary key when present, otherwise its mouse binding.
+        // A disabled primary must not be bypassed via an unused secondary binding.
+        if let Some(key) = binding.key { self.open_key(key) }
+        else { binding.mouse.is_some_and(|button| self.open_button(button)) }
     }
 
     /// Derived physical stick edges with the switching crossing filtered [design, #2200].

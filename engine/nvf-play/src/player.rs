@@ -520,6 +520,8 @@ fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    held_sneak: Option<Res<crate::control::HeldSneakInput>>,
+    touch_switch: Option<Res<crate::pad::TouchDeviceSwitch>>,
 ) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
@@ -559,7 +561,10 @@ fn read_input(
             intent.walk = true;
         }
     }
-    intent.sneak = control.sneak;
+    intent.sneak = held_sneak.as_deref().map_or(control.sneak, |held| {
+        held.effective(control.sneak, input.virtual_action_allowed(Control::CrouchSneak)
+            && touch_switch.as_deref().is_none_or(crate::pad::TouchDeviceSwitch::allows_actions))
+    });
     if input.just_pressed(Control::Jump) {
         intent.jump = true;
     }
@@ -1669,6 +1674,53 @@ mod tests {
         assert_eq!(swim_velocity(&MoveIntent::default(), 1.0, 0.5, SWIM_SPEEDS), [0.0, 0.0, 0.0]);
     }
 
+    #[test]
+    fn first_touch_consumption_gates_both_movement_and_control_sneak_without_erasing_native_base() {
+        for native_base in [false, true] {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::state::app::StatesPlugin,
+                crate::pad::InputSwitchPlugin))
+                .init_resource::<Bindings>().init_resource::<PlayerControl>().init_resource::<MoveIntent>()
+                .init_resource::<crate::furniture::PlayerSeat>().init_resource::<crate::control::HeldSneakInput>()
+                .init_resource::<crate::pad::TouchDeviceSwitch>()
+                .insert_state(PlayState::Playing)
+                .add_systems(Update, (read_input, crate::control::read_controls).chain());
+            app.world_mut().spawn(Gamepad::default());
+            app.world_mut().resource_mut::<Bindings>().device = crate::bindings::InputDevice::Controller;
+            app.world_mut().resource_mut::<PlayerControl>().sneak = native_base;
+            // Simulates source cleanup arriving after selection, so both readers
+            // must honor the actual switch-frame gate rather than a stale hold.
+            app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active = true;
+            app.world_mut().write_message(bevy::input::touch::TouchInput {
+                phase: bevy::input::touch::TouchPhase::Started, position: Vec2::splat(10.0),
+                window: Entity::PLACEHOLDER, force: None, id: 1,
+            });
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
+            assert!(!app.world().resource::<crate::pad::TouchDeviceSwitch>().allows_actions());
+            assert_eq!(app.world().resource::<PlayerControl>().sneak, native_base);
+            assert_eq!(app.world().resource::<MoveIntent>().sneak, native_base);
+            app.update();
+            assert!(app.world().resource::<PlayerControl>().sneak && app.world().resource::<MoveIntent>().sneak);
+            app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active = false;
+            app.update();
+            assert_eq!(app.world().resource::<PlayerControl>().sneak, native_base);
+            assert_eq!(app.world().resource::<MoveIntent>().sneak, native_base);
+        }
+    }
+    #[test]
+    fn momentary_touch_sneak_releases_in_the_same_movement_input_phase() {
+        let mut app=App::new();
+        app.add_plugins((MinimalPlugins,bevy::input::InputPlugin,bevy::state::app::StatesPlugin))
+            .init_resource::<Bindings>().init_resource::<PlayerControl>().init_resource::<MoveIntent>()
+            .init_resource::<crate::furniture::PlayerSeat>().init_resource::<crate::control::HeldSneakInput>()
+            .insert_state(PlayState::Playing)
+            .add_systems(Update,(read_input,crate::control::read_controls).chain());
+        app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active=true;app.update();
+        assert!(app.world().resource::<PlayerControl>().sneak && app.world().resource::<MoveIntent>().sneak);
+        app.world_mut().resource_mut::<crate::control::HeldSneakInput>().active=false;app.update();
+        assert!(!app.world().resource::<PlayerControl>().sneak && !app.world().resource::<MoveIntent>().sneak);
+    }
     #[test]
     fn toggles_and_the_run_key() {
         let mut c = Controls::default();

@@ -1,31 +1,38 @@
 //! Android platform boundary. See docs/design/android.md; game files stay read-only.
 use jni::{objects::JObject, JavaVM};
 
-fn activity_string(method: &str, argument: Option<&str>) -> Result<String, String> {
+pub(crate) fn activity_string(method: &str, argument: Option<&str>) -> Result<String, String> {
     let app = bevy::android::ANDROID_APP
         .get()
         .ok_or("Android activity is not ready")?;
     // SAFETY: AndroidApp owns the VM and activity global reference for this call.
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.map_err(|e| e.to_string())?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
-    let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
-    let value = match argument {
-        Some(text) => {
-            let text = env.new_string(text).map_err(|e| e.to_string())?;
-            env.call_method(
-                &activity,
-                method,
-                "(Ljava/lang/String;)Ljava/lang/String;",
-                &[(&text).into()],
-            )
-        }
-        None => env.call_method(&activity, method, "()Ljava/lang/String;", &[]),
+    // Polling controller metadata runs repeatedly on a possibly already-attached
+    // thread. Bound every call's local JNI references, including the returned String.
+    let result = env.with_local_frame(16, |env| -> Result<String, jni::errors::Error> {
+        let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        let value = match argument {
+            Some(text) => {
+                let text = env.new_string(text)?;
+                env.call_method(
+                    &activity,
+                    method,
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[(&text).into()],
+                )
+            }
+            None => env.call_method(&activity, method, "()Ljava/lang/String;", &[]),
+        }?
+        .l()?;
+        let value = value.into();
+        let text: String = env.get_string(&value)?.into();
+        Ok(text)
+    });
+    if result.is_err() && env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
     }
-    .and_then(|v| v.l())
-    .map_err(|e| e.to_string())?;
-    let value = value.into();
-    let text: String = env.get_string(&value).map_err(|e| e.to_string())?.into();
-    Ok(text)
+    result.map_err(|error| error.to_string())
 }
 
 /// The Java launcher has extracted this APK's schemas and imported the user's game.
@@ -44,6 +51,7 @@ pub fn prepare() -> Result<Vec<String>, String> {
         "NVF_PLAY_SCRIPT_FUNCTIONS",
         files.join("runtime/schemas/script/functions.json"),
     );
+    crate::android_controller::install();
     let mut args = vec!["nvforever".into()];
     let extra: Vec<String> =
         serde_json::from_str(&activity_string("startupArgs", None)?).map_err(|e| e.to_string())?;

@@ -69,6 +69,7 @@ opt-level = 3
 
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
+winit = { path = "vendor/winit" }
 rapier3d = { path = "../vendor/rapier3d" }
 gpu-allocator = { path = "vendor/gpu-allocator" }
 bevy_pbr = { path = "vendor/bevy_pbr" }

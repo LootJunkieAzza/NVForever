@@ -28,6 +28,9 @@ physics assertion exposed a [query-refresh registration defect](spec-notes/query
 the bounded repair passes seven CPU controls, with device confirmation pending. Full
 gameplay, lifecycle and performance acceptance remain open. This is not a qualified
 Android release. [Build and touch-control instructions](android.md).
+Touch aiming settings are authored in a separate follow-up: independent look/ADS scales,
+dead zone and hold/toggle choices with a bottom-sheet UI. Compilation, authored test
+execution and rendered device acceptance are pending ([design](design/android-touch-aiming.md)).
 
 Qualified private CPU host: [explicitly cleared cloned form-list JIP
 wildcards](spec-notes/jip-cloned-list-wildcard.md). Exact f30 original/candidate

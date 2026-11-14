@@ -69,6 +69,7 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
+    section("Controller", Some("Touch gestures"), &["touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"]),
     section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
@@ -309,7 +310,9 @@ mod tests {
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
     /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 109] = [
+    const KNOWN: [(&str, &str); 111] = [
+        ("touch-pipboy-swipe-v1", "Controller"),
+        ("touch-pipboy-distance-v1", "Controller"),
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),

@@ -32,7 +32,7 @@ use bevy::prelude::*;
 
 pub(crate) mod device;
 pub mod pointer;
-pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, InputSwitchSystems, SwitchingInput, TouchDeviceSwitch};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).

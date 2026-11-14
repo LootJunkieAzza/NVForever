@@ -11,6 +11,8 @@ use bevy::window::{AppLifecycle, PrimaryWindow, WindowFocused};
 use nvf_play::bindings::{Bindings, Control};
 use std::collections::{HashMap, HashSet};
 
+mod aiming;
+mod drawer;
 mod icons;
 mod layout;
 use layout::{Layout, Target};
@@ -18,8 +20,11 @@ use layout::{Layout, Target};
 pub struct TouchControlsPlugin;
 impl Plugin for TouchControlsPlugin {
     fn build(&self, app: &mut App) {
+        drawer::install(app);
         app.init_resource::<TouchState>()
             .init_resource::<Layout>()
+            .init_resource::<nvf_play::pad::TouchDeviceSwitch>()
+            .init_resource::<nvf_play::control::HeldSneakInput>()
             .init_resource::<Assets<Image>>()
             .add_systems(
                 PreUpdate,
@@ -29,6 +34,7 @@ impl Plugin for TouchControlsPlugin {
                 PreUpdate,
                 merge_sources
                     .after(InputSystems)
+                    .before(nvf_play::pad::InputSwitchSystems::Switch)
                     .before(bevy::ui::UiSystems::Focus),
             )
             .add_systems(Startup, (layout::load, labels).chain())
@@ -56,12 +62,21 @@ struct TouchState {
     suspended: bool,
     saved_volume: Option<f32>,
     move_deadzone: Vec2,
+    aim_latched: bool,
+    toggle_aim: bool,
+    hold_sneak: bool,
     physical_keys: HashSet<KeyCode>,
     physical_mouse: HashSet<MouseButton>,
     managed_keys: HashSet<KeyCode>,
     managed_mouse: HashSet<MouseButton>,
     combined_keys: ButtonInput<KeyCode>,
     combined_mouse: ButtonInput<MouseButton>,
+}
+impl TouchState {
+    fn cancel_touch(&mut self) {
+        self.contacts.clear();
+        self.aim_latched = false;
+    }
 }
 #[derive(Clone, Copy)]
 struct ButtonSpec {
@@ -265,6 +280,7 @@ fn capture_physical(
     }
 }
 fn clear_physical(state: &mut TouchState) {
+    state.cancel_touch();
     state.physical_keys.clear();
     state.physical_mouse.clear();
     let keys: Vec<_> = state.combined_keys.get_pressed().copied().collect();
@@ -308,7 +324,13 @@ fn merge_sources(
     state: Res<TouchState>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
+    touch_device: Option<ResMut<nvf_play::pad::TouchDeviceSwitch>>,
+    layout: Res<Layout>,
 ) {
+    if let Some(mut touch_device) = touch_device {
+        touch_device.set_editor_active(layout.editor.is_some());
+        touch_device.set_actions(state.keys.iter().copied(), state.mouse.iter().copied());
+    }
     aggregate(&mut keys, &state.managed_keys, &state.combined_keys);
     aggregate(&mut mouse, &state.managed_mouse, &state.combined_mouse);
 }
@@ -348,11 +370,19 @@ fn sync_touch(state: &mut TouchState, bindings: Option<&Bindings>, pause: bool) 
                     wanted_keys.insert(key);
                 }
                 if let Some(control) = b.control {
+                    if (control == Control::Block && state.toggle_aim)
+                        || (control == Control::CrouchSneak && state.hold_sneak)
+                    {
+                        continue;
+                    }
                     controls.push(control);
                 }
             }
             _ => {}
         }
+    }
+    if state.playing && state.aim_latched {
+        controls.push(Control::Block);
     }
     if let Some(bindings) = bindings {
         for control in controls {
@@ -388,6 +418,8 @@ fn sync_touch(state: &mut TouchState, bindings: Option<&Bindings>, pause: bool) 
 fn input(
     mut state: ResMut<TouchState>,
     mut layout: ResMut<Layout>,
+    mut held_sneak: ResMut<nvf_play::control::HeldSneakInput>,
+    ads: Option<Res<nvf_play::aim_zoom::AimZoom>>,
     mut touches: MessageReader<TouchInput>,
     mut lifecycle: MessageReader<AppLifecycle>,
     mut focus: MessageReader<WindowFocused>,
@@ -397,8 +429,14 @@ fn input(
     next_play: Option<Res<NextState<nvf_play::PlayState>>>,
     bindings: Option<Res<Bindings>>,
     mut motion: MessageWriter<MouseMotion>,
+    mut drawer: drawer::Bridge,
 ) {
     let Ok((window_id, window)) = window.single() else {
+        drawer.drawer.cancel();
+        touches.clear();
+        state.cancel_touch();
+        held_sneak.active = false;
+        sync_touch(&mut state, bindings.as_deref(), false);
         return;
     };
     let size = Vec2::new(window.width().max(1.0), window.height().max(1.0));
@@ -432,33 +470,87 @@ fn input(
             _ => {}
         }
     }
-    let lost_focus = focus.read().any(|f| f.window == window_id && !f.focused);
+    let mut lost_focus = false;
+    for event in focus.read().filter(|f| f.window == window_id) {
+        drawer.drawer.set_focus(event.focused);
+        lost_focus |= !event.focused;
+    }
     let suspended = state.suspended;
-    if playing != state.playing || suspended || lost_focus {
-        state.contacts.clear();
+    let interactive = !suspended && window.focused && !lost_focus;
+    let controller = bindings
+        .as_deref()
+        .is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller);
+    let drawer_allowed =
+        playing && interactive && !controller && layout.editor.is_none() && drawer.allowed();
+    if !drawer_allowed {
+        drawer.drawer.cancel();
+    }
+    if playing != state.playing || !interactive || controller {
+        state.cancel_touch();
     }
     state.playing = playing;
     if lost_focus {
         clear_physical(&mut state);
     }
-    state.move_deadzone = Vec2::splat(layout.config.diameter(Target::Stick, size) * 0.09) / size;
+    if state.toggle_aim != layout.config.aiming.toggle_aim
+        || state.hold_sneak != layout.config.aiming.hold_sneak
+    {
+        state.cancel_touch();
+    }
+    state.toggle_aim = layout.config.aiming.toggle_aim;
+    state.hold_sneak = layout.config.aiming.hold_sneak;
+    state.move_deadzone = Vec2::splat(
+        layout.config.diameter(Target::Stick, size) * 0.5 * layout.config.aiming.dead_zone,
+    ) / size;
     let mut pause = just_suspended && playing;
     sync_touch(&mut state, bindings.as_deref(), pause);
+    // The first touch restores the overlay/device; do not let it also fire or open
+    // an editor whose pause edge is consumed by the switching frame.
+    if controller {
+        drawer.drawer.cancel();
+        state.cancel_touch();
+        held_sneak.active = false;
+        sync_touch(&mut state, bindings.as_deref(), pause);
+        touches.clear();
+        return;
+    }
+    let mut drawer_committed = false;
     for t in touches.read() {
         if t.window != window_id {
             continue;
         }
         let p = t.position / size;
         if layout.editor.is_some() {
+            drawer.drawer.cancel();
             layout.event(t, size);
-            state.contacts.clear();
+            state.cancel_touch();
             sync_touch(&mut state, bindings.as_deref(), pause);
             continue;
         }
-        if t.phase == TouchPhase::Started && !suspended {
+        if drawer_allowed {
+            let unclaimed = layout
+                .config
+                .hit(t.position, size, playing, false)
+                .is_none();
+            let (consumed, opened) = drawer.event(t, size, unclaimed);
+            if consumed {
+                if opened {
+                    drawer.drawer.cancel();
+                    state.cancel_touch();
+                    held_sneak.active = false;
+                }
+                sync_touch(&mut state, bindings.as_deref(), pause);
+                if opened {
+                    drawer_committed = true;
+                    break;
+                }
+                continue;
+            }
+        }
+        if t.phase == TouchPhase::Started && interactive {
             if layout::utility_rect(false, size).contains(t.position) {
                 layout.open(playing);
-                state.contacts.clear();
+                state.cancel_touch();
                 pause |= playing;
                 sync_touch(&mut state, bindings.as_deref(), pause);
                 continue;
@@ -469,7 +561,7 @@ fn input(
             }
         }
         match t.phase {
-            TouchPhase::Started if !suspended => {
+            TouchPhase::Started if interactive => {
                 let role = match layout.config.hit(t.position, size, playing, false) {
                     Some(Target::Button(i)) => Some(Role::Button(i)),
                     Some(Target::Stick) => Some(Role::Move),
@@ -488,6 +580,17 @@ fn input(
                     })
                 });
                 if let Some(role) = role {
+                    if let Role::Button(i) = role {
+                        if state.toggle_aim
+                            && BUTTONS[i].control == Some(Control::Block)
+                            && !controller
+                        {
+                            let already_down = state.contacts.values().any(|c| matches!(c.role, Role::Button(j) if BUTTONS[j].control == Some(Control::Block)));
+                            if !already_down {
+                                state.aim_latched = !state.aim_latched;
+                            }
+                        }
+                    }
                     state.contacts.insert(
                         t.id,
                         Contact {
@@ -504,26 +607,42 @@ fn input(
             }
             TouchPhase::Moved => {
                 if let Some(c) = state.contacts.get_mut(&t.id) {
-                    if matches!(c.role, Role::Look) && playing {
+                    if matches!(c.role, Role::Look) && playing && interactive {
                         motion.write(MouseMotion {
-                            delta: (p - c.position) * size,
+                            delta: (p - c.position)
+                                * size
+                                * layout
+                                    .config
+                                    .aiming
+                                    .look_scale(ads.as_deref().is_some_and(|a| a.aimed)),
                         });
                     }
                     c.position = p;
                 }
             }
-            TouchPhase::Ended | TouchPhase::Canceled => {
+            TouchPhase::Ended => {
                 state.contacts.remove(&t.id);
+            }
+            TouchPhase::Canceled => {
+                state.contacts.remove(&t.id);
+                state.aim_latched = false;
             }
             _ => {}
         }
         sync_touch(&mut state, bindings.as_deref(), pause);
     }
+    // Drop the unread tail too: breaking the iterator alone would replay it on the
+    // next frame, before or after the ordinary menu consumer applies its request.
+    if drawer_committed {
+        touches.clear();
+    }
     sync_touch(&mut state, bindings.as_deref(), pause);
+    held_sneak.active = state.hold_sneak && playing && interactive && !controller
+        && layout.editor.is_none() && state.contacts.values().any(|c| matches!(c.role, Role::Button(i) if BUTTONS[i].control == Some(Control::CrouchSneak)));
 }
 
 #[derive(Component, Clone, Copy)]
-enum TouchVisual {
+pub(super) enum TouchVisual {
     Button(usize),
     Caption,
     Glyph,
@@ -535,6 +654,7 @@ enum TouchVisual {
     EditorPanel,
     EditorAction(usize),
     EditorMessage,
+    AimingValue(bool),
 }
 fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     for (i, b) in BUTTONS.iter().enumerate() {
@@ -643,6 +763,22 @@ fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             TouchVisual::EditorAction(i),
         ));
     }
+    for ads in [false, true] {
+        commands.spawn((
+            Text::new(""),
+            TextFont {
+                font_size: FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            GlobalZIndex(3001),
+            TouchVisual::AimingValue(ads),
+        ));
+    }
     commands.spawn((
         Text::new(""),
         TextFont {
@@ -666,7 +802,10 @@ fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 fn show_labels(
     state: Res<TouchState>,
     layout: Res<Layout>,
+    control: Option<Res<nvf_play::control::PlayerControl>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    bindings: Option<Res<Bindings>>,
+    pads: Query<&Gamepad>,
     mut visuals: Query<(
         &TouchVisual,
         &mut Node,
@@ -681,6 +820,10 @@ fn show_labels(
     let Ok(window) = window.single() else { return };
     let size = Vec2::new(window.width().max(32.0), window.height().max(32.0));
     let editing = layout.editor.is_some();
+    let controller = bindings
+        .is_some_and(|b| b.device == nvf_play::bindings::InputDevice::Controller)
+        && !pads.is_empty();
+    let aiming_page = layout.editor.as_ref().is_some_and(|e| e.aiming);
     let playing = layout.editor.as_ref().map_or(state.playing, |e| e.playing);
     let movement = state
         .contacts
@@ -706,7 +849,10 @@ fn show_labels(
                 let pressed = state
                     .contacts
                     .values()
-                    .any(|c| matches!(c.role,Role::Button(j) if j==i));
+                    .any(|c| matches!(c.role,Role::Button(j) if j==i))
+                    || (BUTTONS[i].control == Some(Control::Block) && state.aim_latched)
+                    || (BUTTONS[i].control == Some(Control::CrouchSneak)
+                        && control.as_deref().is_some_and(|c| c.sneak));
                 let selected = layout.editor.as_ref().is_some_and(|e| e.selected == target);
                 if let Some(bg) = background.as_deref_mut() {
                     bg.0 = if pressed || selected {
@@ -724,7 +870,9 @@ fn show_labels(
                         )
                     };
                 }
-                BUTTONS[i].playing == playing && (editing || layout.config.buttons[i].visible)
+                !aiming_page
+                    && BUTTONS[i].playing == playing
+                    && (editing || layout.config.buttons[i].visible)
             }
             TouchVisual::Caption => editing || layout.config.hints,
             TouchVisual::Glyph => true,
@@ -733,7 +881,7 @@ fn show_labels(
                     stick_center,
                     Vec2::splat(stick_diameter),
                 ));
-                playing
+                playing && !aiming_page
             }
             TouchVisual::Knob => {
                 let offset = movement.map_or(Vec2::ZERO, |c| {
@@ -743,7 +891,7 @@ fn show_labels(
                     stick_center + offset,
                     Vec2::splat(stick_diameter * 0.35),
                 ));
-                playing
+                playing && !aiming_page
             }
             TouchVisual::Gear | TouchVisual::Help => {
                 rect = Some(layout::utility_rect(
@@ -759,33 +907,74 @@ fn show_labels(
                 !editing && layout.config.hints
             }
             TouchVisual::EditorPanel => {
-                let first = layout::editor_rect(0, size);
-                let last = layout::editor_rect(11, size);
-                rect = Some(Rect::from_corners(
-                    first.min - Vec2::splat(4.0),
-                    last.max + Vec2::splat(4.0),
-                ));
+                rect = Some(if aiming_page {
+                    aiming::editor_panel(size)
+                } else {
+                    let first = layout::editor_rect(0, size);
+                    let last = layout::editor_rect(11, size);
+                    Rect::from_corners(first.min - Vec2::splat(4.0), last.max + Vec2::splat(4.0))
+                });
                 editing
             }
-            TouchVisual::EditorAction(i) => {
-                rect = Some(layout::editor_rect(i, size));
+            TouchVisual::AimingValue(ads) => {
+                rect = Some(aiming::value_rect(ads, size));
                 if let Some(mut text) = text {
-                    text.0 = match i {
-                        2 => format!("Opacity {:.0}%", layout.config.opacity * 100.0),
-                        3 => if layout.config.southpaw {
-                            "Left handed"
+                    text.0 = format!(
+                        "{} {:.0}%",
+                        if ads { "ADS" } else { "Look" },
+                        if ads {
+                            layout.config.aiming.ads
                         } else {
-                            "Right handed"
+                            layout.config.aiming.look
+                        } * 100.0
+                    );
+                }
+                aiming_page
+            }
+            TouchVisual::EditorAction(i) => {
+                rect = Some(if aiming_page {
+                    aiming::editor_rect(i, size)
+                } else {
+                    layout::editor_rect(i, size)
+                });
+                if let Some(mut text) = text {
+                    text.0 = if layout.editor.as_ref().is_some_and(|e| e.aiming) {
+                        match i {
+                            6 => {
+                                format!("Dead zone {:.0}%", layout.config.aiming.dead_zone * 100.0)
+                            }
+                            7 => if layout.config.aiming.toggle_aim {
+                                "Aim: toggle"
+                            } else {
+                                "Aim: hold"
+                            }
+                            .into(),
+                            8 => if layout.config.aiming.hold_sneak {
+                                "Sneak: hold"
+                            } else {
+                                "Sneak: toggle"
+                            }
+                            .into(),
+                            _ => aiming::EDIT_ACTIONS[i].into(),
                         }
-                        .into(),
-                        4 => if layout.config.floating {
-                            "Floating stick"
-                        } else {
-                            "Fixed stick"
+                    } else {
+                        match i {
+                            2 => format!("Opacity {:.0}%", layout.config.opacity * 100.0),
+                            3 => if layout.config.southpaw {
+                                "Left handed"
+                            } else {
+                                "Right handed"
+                            }
+                            .into(),
+                            4 => if layout.config.floating {
+                                "Floating stick"
+                            } else {
+                                "Fixed stick"
+                            }
+                            .into(),
+                            5 => if playing { "Edit menus" } else { "Edit game" }.into(),
+                            _ => layout::EDIT_ACTIONS[i].into(),
                         }
-                        .into(),
-                        5 => if playing { "Edit menus" } else { "Edit game" }.into(),
-                        _ => layout::EDIT_ACTIONS[i].into(),
                     };
                 }
                 editing
@@ -795,6 +984,14 @@ fn show_labels(
                     text.0 = layout.editor.as_ref().map_or_else(
                         || layout.message.clone(),
                         |e| {
+                            if e.aiming {
+                                return format!(
+                                    "Touch aiming · look {:.0}% · ADS {:.0}%\n{}",
+                                    layout.config.aiming.look * 100.0,
+                                    layout.config.aiming.ads * 100.0,
+                                    layout.message
+                                );
+                            }
                             format!(
                                 "{} · {}\n{}",
                                 e.selected.name(),
@@ -846,7 +1043,7 @@ fn show_labels(
                 }
             }
         }
-        *visibility = if visible {
+        *visibility = if visible && (!controller || editing) {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -895,6 +1092,785 @@ mod tests {
             force: None,
             id,
         });
+    }
+    fn controls_scene() -> (App, Entity) {
+        let (mut app, window) = scene();
+        app.init_resource::<nvf_play::control::PlayerControl>()
+            .add_systems(Update, nvf_play::control::read_controls);
+        app.update();
+        (app, window)
+    }
+    fn button_touch(app: &mut App, window: Entity, id: u64, phase: TouchPhase, control: Control) {
+        let index = BUTTONS
+            .iter()
+            .position(|b| b.control == Some(control))
+            .unwrap();
+        let center = app
+            .world()
+            .resource::<Layout>()
+            .config
+            .center(Target::Button(index), Vec2::splat(1000.0));
+        touch(app, window, id, phase, center.x, center.y);
+    }
+    fn tap_control(app: &mut App, window: Entity, id: u64, control: Control) {
+        button_touch(app, window, id, TouchPhase::Started, control);
+        button_touch(app, window, id, TouchPhase::Ended, control);
+        app.update();
+    }
+    fn raw_key(app: &mut App, window: Entity, key: KeyCode, state: ButtonState) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Character("owned input fixture".into()),
+            state,
+            text: None,
+            repeat: false,
+            window,
+        });
+    }
+    fn aim_requested(app: &App) -> bool {
+        app.world()
+            .resource::<nvf_play::control::PlayerControl>()
+            .aiming
+    }
+    fn sneak_requested(app: &App) -> bool {
+        app.world()
+            .resource::<nvf_play::control::PlayerControl>()
+            .sneak
+    }
+    #[test]
+    fn controller_takeover_cancels_touch_latches_and_first_touch_returns_without_actions() {
+        use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
+        use nvf_play::bindings::InputDevice;
+        let pad_edge = |app: &mut App, pad, down| {
+            app.world_mut().write_message(RawGamepadEvent::Button(
+                RawGamepadButtonChangedEvent::new(
+                    pad,
+                    GamepadButton::South,
+                    if down { 1.0 } else { 0.0 },
+                ),
+            ));
+        };
+        for native_sneak in [false, true] {
+            let (mut app, w) = controls_scene();
+            app.add_plugins(nvf_play::pad::InputSwitchPlugin);
+            let pad = app.world_mut().spawn(Gamepad::default()).id();
+            {
+                let mut layout = app.world_mut().resource_mut::<Layout>();
+                layout.config.aiming.toggle_aim = true;
+                layout.config.aiming.hold_sneak = true;
+            }
+            if native_sneak {
+                let key = app
+                    .world()
+                    .resource::<Bindings>()
+                    .get(Control::CrouchSneak)
+                    .key
+                    .unwrap();
+                raw_key(&mut app, w, key, ButtonState::Pressed);
+                app.update();
+                raw_key(&mut app, w, key, ButtonState::Released);
+                app.update();
+            }
+            app.update();
+            assert_eq!(sneak_requested(&app), native_sneak);
+            tap_control(&mut app, w, 1, Control::Block);
+            app.update(); // The finger is gone; its aim latch must not block takeover.
+            assert!(aim_requested(&app));
+            pad_edge(&mut app, pad, true);
+            app.update();
+            assert_eq!(
+                app.world().resource::<Bindings>().device,
+                InputDevice::Controller,
+                "accepted controller activity takes over a released touch aim latch"
+            );
+            assert!(!aim_requested(&app));
+            pad_edge(&mut app, pad, false);
+            app.update();
+            app.update();
+            assert!(!app.world().resource::<TouchState>().aim_latched);
+            tap_control(&mut app, w, 2, Control::Block);
+            assert_eq!(
+                app.world().resource::<Bindings>().device,
+                InputDevice::KeyboardMouse
+            );
+            assert!(!app
+                .world()
+                .resource::<nvf_play::pad::TouchDeviceSwitch>()
+                .allows_actions());
+            assert!(!aim_requested(&app) && !app.world().resource::<TouchState>().aim_latched);
+            assert_eq!(sneak_requested(&app), native_sneak);
+            tap_control(&mut app, w, 3, Control::Block);
+            assert!(aim_requested(&app), "a subsequent aim tap works");
+            tap_control(&mut app, w, 4, Control::Block);
+            button_touch(&mut app, w, 5, TouchPhase::Started, Control::CrouchSneak);
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<nvf_play::control::HeldSneakInput>()
+                    .active
+            );
+            assert!(sneak_requested(&app));
+            // A live touch keeps the automatic selector busy; an explicit choice
+            // must still clear that touch source while preserving the native base.
+            nvf_play::bindings::set_device(app.world_mut(), InputDevice::Controller);
+            app.update();
+            assert!(
+                !app.world()
+                    .resource::<nvf_play::control::HeldSneakInput>()
+                    .active
+            );
+            assert!(app.world().resource::<TouchState>().contacts.is_empty());
+            assert_eq!(sneak_requested(&app), native_sneak);
+            button_touch(&mut app, w, 5, TouchPhase::Ended, Control::CrouchSneak);
+            app.update();
+            tap_control(&mut app, w, 6, Control::CrouchSneak);
+            assert_eq!(
+                app.world().resource::<Bindings>().device,
+                InputDevice::KeyboardMouse
+            );
+            assert!(
+                !app.world()
+                    .resource::<nvf_play::control::HeldSneakInput>()
+                    .active
+            );
+            assert_eq!(
+                sneak_requested(&app),
+                native_sneak,
+                "first return tap cannot buffer sneak"
+            );
+            button_touch(&mut app, w, 7, TouchPhase::Started, Control::CrouchSneak);
+            app.update();
+            assert!(sneak_requested(&app), "a fresh hold works");
+            button_touch(&mut app, w, 7, TouchPhase::Ended, Control::CrouchSneak);
+            app.update();
+            assert_eq!(sneak_requested(&app), native_sneak);
+            nvf_play::bindings::set_device(app.world_mut(), InputDevice::Controller);
+            app.update();
+            let gear = layout::utility_rect(false, Vec2::splat(1000.0)).center();
+            touch(&mut app, w, 8, TouchPhase::Started, gear.x, gear.y);
+            touch(&mut app, w, 8, TouchPhase::Ended, gear.x, gear.y);
+            app.update();
+            assert!(
+                app.world().resource::<Layout>().editor.is_none(),
+                "return tap cannot open an unpaused editor"
+            );
+            assert!(!app
+                .world()
+                .resource::<ButtonInput<KeyCode>>()
+                .pressed(KeyCode::Escape));
+            touch(&mut app, w, 9, TouchPhase::Started, gear.x, gear.y);
+            touch(&mut app, w, 9, TouchPhase::Ended, gear.x, gear.y);
+            app.update();
+            assert!(
+                app.world().resource::<Layout>().editor.is_some(),
+                "the subsequent cog tap opens editing"
+            );
+        }
+    }
+    fn drawer_visibility(app: &mut App) -> Visibility {
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<&Visibility, With<drawer::Handle>>();
+        *query.single(world).unwrap()
+    }
+    #[test]
+    fn explicit_controller_takeover_cancels_drawer_and_first_swipe_only_restores_overlay() {
+        use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
+        use nvf_play::bindings::InputDevice;
+        let (mut app, w) = controls_scene();
+        app.add_plugins(nvf_play::pad::InputSwitchPlugin);
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+        app.update();
+        let start = drawer::handle(Vec2::splat(1000.0), 24.0).center();
+        touch(&mut app, w, 10, TouchPhase::Started, start.x, start.y);
+        app.update();
+        app.world_mut()
+            .write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
+                pad,
+                GamepadButton::South,
+                1.0,
+            )));
+        app.update();
+        assert_eq!(
+            app.world().resource::<Bindings>().device,
+            InputDevice::KeyboardMouse,
+            "an owned contact retains the existing old-device-busy policy"
+        );
+        app.world_mut()
+            .write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
+                pad,
+                GamepadButton::South,
+                0.0,
+            )));
+        app.update();
+        nvf_play::bindings::set_device(app.world_mut(), InputDevice::Controller);
+        app.update();
+        assert_eq!(drawer_visibility(&mut app), Visibility::Hidden);
+        touch(&mut app, w, 10, TouchPhase::Ended, start.x, start.y - 140.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            0,
+            "old release cannot open inventory after takeover"
+        );
+        for (phase, y) in [
+            (TouchPhase::Started, start.y),
+            (TouchPhase::Moved, start.y - 140.0),
+            (TouchPhase::Ended, start.y - 140.0),
+        ] {
+            touch(&mut app, w, 11, phase, start.x, y);
+        }
+        app.update();
+        assert_eq!(
+            app.world().resource::<Bindings>().device,
+            InputDevice::KeyboardMouse
+        );
+        assert!(!app
+            .world()
+            .resource::<nvf_play::pad::TouchDeviceSwitch>()
+            .allows_actions());
+        assert_eq!(drawer_visibility(&mut app), Visibility::Inherited);
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            0,
+            "first return swipe is consumed in full"
+        );
+        for (phase, y) in [
+            (TouchPhase::Started, start.y),
+            (TouchPhase::Moved, start.y - 140.0),
+            (TouchPhase::Ended, start.y - 140.0),
+        ] {
+            touch(&mut app, w, 12, phase, start.x, y);
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            1,
+            "a fresh owned swipe reaches the real shared request route once"
+        );
+    }
+    #[test]
+    fn drawer_commit_releases_touch_aim_and_hold_sneak_without_erasing_native_base() {
+        for native_sneak in [false, true] {
+            let (mut app, w) = controls_scene();
+            app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+            {
+                let mut layout = app.world_mut().resource_mut::<Layout>();
+                layout.config.aiming.toggle_aim = true;
+                layout.config.aiming.hold_sneak = true;
+            }
+            if native_sneak {
+                let key = app
+                    .world()
+                    .resource::<Bindings>()
+                    .get(Control::CrouchSneak)
+                    .key
+                    .unwrap();
+                raw_key(&mut app, w, key, ButtonState::Pressed);
+                app.update();
+                raw_key(&mut app, w, key, ButtonState::Released);
+                app.update();
+            }
+            tap_control(&mut app, w, 1, Control::Block);
+            assert!(aim_requested(&app));
+            button_touch(&mut app, w, 2, TouchPhase::Started, Control::CrouchSneak);
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<nvf_play::control::HeldSneakInput>()
+                    .active
+                    && sneak_requested(&app)
+            );
+            let start = drawer::handle(Vec2::splat(1000.0), 24.0).center();
+            for (phase, y) in [
+                (TouchPhase::Started, start.y),
+                (TouchPhase::Moved, start.y - 140.0),
+                (TouchPhase::Ended, start.y - 140.0),
+            ] {
+                touch(&mut app, w, 10, phase, start.x, y);
+                app.update();
+            }
+            assert_eq!(
+                app.world()
+                    .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                    .len(),
+                1
+            );
+            assert!(!app.world().resource::<TouchState>().aim_latched && !aim_requested(&app));
+            assert!(
+                !app.world()
+                    .resource::<nvf_play::control::HeldSneakInput>()
+                    .active
+            );
+            assert_eq!(sneak_requested(&app), native_sneak);
+        }
+    }
+    #[test]
+    fn drawer_commit_drops_later_gameplay_starts_in_the_same_batch_and_keeps_physical_owners() {
+        for action in [Control::Use, Control::Block, Control::CrouchSneak] {
+            let (mut app, w) = controls_scene();
+            app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+            {
+                let mut layout = app.world_mut().resource_mut::<Layout>();
+                layout.config.aiming.toggle_aim = true;
+                layout.config.aiming.hold_sneak = true;
+            }
+            raw_key(&mut app, w, KeyCode::KeyW, ButtonState::Pressed);
+            app.world_mut().write_message(MouseButtonInput {
+                button: MouseButton::Middle,
+                state: ButtonState::Pressed,
+                window: w,
+            });
+            app.update();
+            let start = drawer::handle(Vec2::splat(1000.0), 24.0).center();
+            touch(&mut app, w, 10, TouchPhase::Started, start.x, start.y);
+            app.update();
+            touch(&mut app, w, 10, TouchPhase::Moved, start.x, start.y - 140.0);
+            touch(&mut app, w, 10, TouchPhase::Ended, start.x, start.y - 140.0);
+            button_touch(&mut app, w, 20, TouchPhase::Started, action);
+            app.update();
+            assert_eq!(
+                app.world()
+                    .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                    .len(),
+                1
+            );
+            for _ in 0..2 {
+                let state = app.world().resource::<TouchState>();
+                assert!(
+                    state.contacts.is_empty() && !state.aim_latched,
+                    "post-commit {action:?} cannot own a gameplay contact"
+                );
+                assert!(
+                    state.physical_keys.contains(&KeyCode::KeyW)
+                        && state.physical_mouse.contains(&MouseButton::Middle)
+                );
+                assert!(!app
+                    .world()
+                    .resource::<ButtonInput<MouseButton>>()
+                    .pressed(MouseButton::Left));
+                assert!(
+                    !aim_requested(&app)
+                        && !app
+                            .world()
+                            .resource::<nvf_play::control::HeldSneakInput>()
+                            .active
+                );
+                assert!(app
+                    .world()
+                    .resource::<ButtonInput<KeyCode>>()
+                    .pressed(KeyCode::KeyW));
+                assert!(app
+                    .world()
+                    .resource::<ButtonInput<MouseButton>>()
+                    .pressed(MouseButton::Middle));
+                app.update(); // An unread tail must not replay next frame either.
+            }
+        }
+    }
+    #[test]
+    fn touch_look_uses_actual_ads_state_and_does_not_rescale_hardware_motion() {
+        let (mut app, w) = controls_scene();
+        app.init_resource::<nvf_play::aim_zoom::AimZoom>();
+        {
+            let mut l = app.world_mut().resource_mut::<Layout>();
+            l.config.aiming.look = 2.0;
+            l.config.aiming.ads = 0.25;
+        }
+        touch(&mut app, w, 1, TouchPhase::Started, 600.0, 400.0);
+        button_touch(&mut app, w, 2, TouchPhase::Started, Control::Block);
+        app.update();
+        assert!(aim_requested(&app));
+        assert!(
+            !app.world().resource::<nvf_play::aim_zoom::AimZoom>().aimed,
+            "a held aim binding alone does not establish ADS"
+        );
+        touch(&mut app, w, 1, TouchPhase::Moved, 620.0, 410.0);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(3.0, -2.0),
+        });
+        app.update();
+        assert!(
+            (app.world().resource::<AccumulatedMouseMotion>().delta - Vec2::new(43.0, 18.0))
+                .length()
+                < 0.001
+        );
+        app.world_mut()
+            .resource_mut::<nvf_play::aim_zoom::AimZoom>()
+            .aimed = true;
+        touch(&mut app, w, 1, TouchPhase::Moved, 640.0, 420.0);
+        app.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(3.0, -2.0),
+        });
+        app.update();
+        assert!(
+            (app.world().resource::<AccumulatedMouseMotion>().delta - Vec2::new(8.0, 0.5)).length()
+                < 0.001
+        );
+    }
+    #[test]
+    fn toggle_aim_taps_release_only_the_touch_key_owner() {
+        let (mut app, w) = controls_scene();
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .toggle_aim = true;
+        tap_control(&mut app, w, 1, Control::Block);
+        assert!(aim_requested(&app));
+        let key = app
+            .world()
+            .resource::<Bindings>()
+            .get(Control::Block)
+            .key
+            .unwrap();
+        raw_key(&mut app, w, key, ButtonState::Pressed);
+        app.update();
+        tap_control(&mut app, w, 2, Control::Block);
+        assert!(!app.world().resource::<TouchState>().aim_latched);
+        assert!(aim_requested(&app), "the physical owner still holds Block");
+        raw_key(&mut app, w, key, ButtonState::Released);
+        app.update();
+        assert!(!aim_requested(&app));
+    }
+    #[test]
+    fn latched_aim_clears_on_cancel_menu_focus_suspend_and_editor() {
+        for case in 0..6 {
+            let (mut app, w) = controls_scene();
+            app.world_mut()
+                .resource_mut::<Layout>()
+                .config
+                .aiming
+                .toggle_aim = true;
+            tap_control(&mut app, w, 1, Control::Block);
+            assert!(aim_requested(&app));
+            match case {
+                0 => touch(&mut app, w, 2, TouchPhase::Canceled, 600.0, 400.0),
+                1 => app
+                    .world_mut()
+                    .resource_mut::<NextState<nvf_play::PlayState>>()
+                    .set(nvf_play::PlayState::Menu),
+                2 => {
+                    app.world_mut().write_message(WindowFocused {
+                        window: w,
+                        focused: false,
+                    });
+                    button_touch(&mut app, w, 3, TouchPhase::Started, Control::Block);
+                }
+                3 => {
+                    app.world_mut().write_message(AppLifecycle::Suspended);
+                }
+                4 => touch(&mut app, w, 2, TouchPhase::Started, 500.0, 75.0),
+                _ => {
+                    app.world_mut().write_message(KeyboardFocusLost);
+                }
+            }
+            app.update();
+            assert!(!aim_requested(&app), "cleanup case {case}");
+            assert!(!app.world().resource::<TouchState>().aim_latched);
+        }
+    }
+    #[test]
+    fn hold_sneak_preserves_keyboard_toggle_base_and_restores_on_lift() {
+        let (mut app, w) = controls_scene();
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .hold_sneak = true;
+        let key = app
+            .world()
+            .resource::<Bindings>()
+            .get(Control::CrouchSneak)
+            .key
+            .unwrap();
+        button_touch(&mut app, w, 1, TouchPhase::Started, Control::CrouchSneak);
+        app.update();
+        assert!(sneak_requested(&app));
+        assert!(
+            !app.world().resource::<ButtonInput<KeyCode>>().pressed(key),
+            "touch hold is not a fabricated toggle press"
+        );
+        raw_key(&mut app, w, key, ButtonState::Pressed);
+        app.update();
+        raw_key(&mut app, w, key, ButtonState::Released);
+        app.update();
+        button_touch(&mut app, w, 1, TouchPhase::Ended, Control::CrouchSneak);
+        app.update();
+        assert!(
+            sneak_requested(&app),
+            "the independent keyboard toggle survives touch release"
+        );
+        raw_key(&mut app, w, key, ButtonState::Pressed);
+        app.update();
+        raw_key(&mut app, w, key, ButtonState::Released);
+        app.update();
+        assert!(!sneak_requested(&app));
+        button_touch(&mut app, w, 2, TouchPhase::Started, Control::CrouchSneak);
+        app.update();
+        assert!(sneak_requested(&app));
+        button_touch(&mut app, w, 2, TouchPhase::Ended, Control::CrouchSneak);
+        app.update();
+        assert!(!sneak_requested(&app));
+    }
+    #[test]
+    fn hold_sneak_fast_tap_cancellation_and_input_gates_do_not_toggle_the_base() {
+        let (mut app, w) = controls_scene();
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .hold_sneak = true;
+        tap_control(&mut app, w, 1, Control::CrouchSneak);
+        assert!(!sneak_requested(&app));
+        button_touch(&mut app, w, 2, TouchPhase::Started, Control::CrouchSneak);
+        app.update();
+        assert!(sneak_requested(&app));
+        app.world_mut().write_message(AppLifecycle::Suspended);
+        app.update();
+        assert!(!sneak_requested(&app));
+        app.world_mut().write_message(AppLifecycle::Running);
+        app.update();
+        app.insert_resource(nvf_play::bindings::KeyboardCapture(true));
+        button_touch(&mut app, w, 3, TouchPhase::Started, Control::CrouchSneak);
+        app.update();
+        assert!(!sneak_requested(&app));
+        app.world_mut()
+            .remove_resource::<nvf_play::bindings::KeyboardCapture>();
+        app.update();
+        assert!(sneak_requested(&app));
+        app.world_mut().resource_mut::<Bindings>().device =
+            nvf_play::bindings::InputDevice::Controller;
+        app.update();
+        assert!(!sneak_requested(&app));
+        assert!(
+            !app.world()
+                .resource::<nvf_play::control::HeldSneakInput>()
+                .active
+        );
+    }
+    #[test]
+    fn touch_joystick_uses_the_configured_dead_zone_in_the_event_route() {
+        let (mut app, w) = scene();
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .dead_zone = 0.35;
+        touch(&mut app, w, 1, TouchPhase::Started, 200.0, 800.0);
+        touch(&mut app, w, 1, TouchPhase::Moved, 200.0, 760.0);
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW));
+        touch(&mut app, w, 1, TouchPhase::Moved, 200.0, 740.0);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW));
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .dead_zone = 0.5;
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_released(KeyCode::KeyW));
+    }
+    #[test]
+    fn aiming_editor_settings_cancel_with_the_layout() {
+        let (mut app, w) = scene();
+        let original = app.world().resource::<Layout>().config.clone();
+        touch(&mut app, w, 1, TouchPhase::Started, 500.0, 75.0);
+        app.update();
+        for action in [11, 1, 7, 8, 6] {
+            let size = Vec2::splat(1000.0);
+            let p = if app
+                .world()
+                .resource::<Layout>()
+                .editor
+                .as_ref()
+                .unwrap()
+                .aiming
+            {
+                aiming::editor_rect(action, size)
+            } else {
+                layout::editor_rect(action, size)
+            }
+            .center();
+            touch(&mut app, w, 2, TouchPhase::Started, p.x, p.y);
+            touch(&mut app, w, 2, TouchPhase::Ended, p.x, p.y);
+            app.update();
+        }
+        let config = &app.world().resource::<Layout>().config;
+        assert!(config.aiming.look > 1.0 && config.aiming.toggle_aim && config.aiming.hold_sneak);
+        let p = aiming::editor_rect(10, Vec2::splat(1000.0)).center();
+        touch(&mut app, w, 3, TouchPhase::Started, p.x, p.y);
+        app.update();
+        assert_eq!(app.world().resource::<Layout>().config, original);
+    }
+    #[test]
+    fn toggle_aim_touch_from_controller_selection_does_not_buffer_a_latch() {
+        let (mut app, w) = controls_scene();
+        app.world_mut()
+            .resource_mut::<Layout>()
+            .config
+            .aiming
+            .toggle_aim = true;
+        app.world_mut().resource_mut::<Bindings>().device =
+            nvf_play::bindings::InputDevice::Controller;
+        tap_control(&mut app, w, 1, Control::Block);
+        assert!(!aim_requested(&app));
+        app.world_mut().resource_mut::<Bindings>().device =
+            nvf_play::bindings::InputDevice::KeyboardMouse;
+        app.update();
+        assert!(!aim_requested(&app));
+        tap_control(&mut app, w, 2, Control::Block);
+        assert!(aim_requested(&app));
+    }
+    #[test]
+    fn drawer_release_requests_the_real_inventory_route_without_fire_or_look() {
+        let (mut app, w) = scene();
+        app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+        for (phase, y) in [
+            (TouchPhase::Started, 940.0),
+            (TouchPhase::Moved, 820.0),
+            (TouchPhase::Ended, 820.0),
+        ] {
+            touch(&mut app, w, 1, phase, 530.0, y);
+            app.update();
+            assert!(!app
+                .world()
+                .resource::<ButtonInput<MouseButton>>()
+                .pressed(MouseButton::Left));
+            assert_eq!(
+                app.world().resource::<AccumulatedMouseMotion>().delta,
+                Vec2::ZERO
+            );
+        }
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<Messages<nvf_play::menu::OpenInventory>>()
+                .drain()
+                .count(),
+            1
+        );
+        touch(&mut app, w, 1, TouchPhase::Ended, 530.0, 820.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            0
+        );
+    }
+    #[test]
+    fn drawer_never_steals_an_edited_fire_button_hit_target() {
+        let (mut app, w) = scene();
+        app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+        let fire = BUTTONS
+            .iter()
+            .position(|b| b.control == Some(Control::Use))
+            .unwrap();
+        app.world_mut().resource_mut::<Layout>().config.buttons[fire].center =
+            Vec2::new(0.53, 0.94);
+        touch(&mut app, w, 1, TouchPhase::Started, 530.0, 940.0);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left));
+        touch(&mut app, w, 1, TouchPhase::Ended, 530.0, 800.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            0
+        );
+    }
+    #[test]
+    fn drawer_cancels_on_pending_menu_suspend_focus_text_capture_and_editor() {
+        for scenario in 0..5 {
+            let (mut app, w) = scene();
+            app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+            touch(&mut app, w, 1, TouchPhase::Started, 530.0, 940.0);
+            app.update();
+            match scenario {
+                0 => app
+                    .world_mut()
+                    .resource_mut::<NextState<nvf_play::PlayState>>()
+                    .set(nvf_play::PlayState::Menu),
+                1 => {
+                    app.world_mut().write_message(AppLifecycle::Suspended);
+                }
+                2 => {
+                    app.world_mut().write_message(WindowFocused {
+                        window: w,
+                        focused: false,
+                    });
+                }
+                3 => {
+                    app.world_mut()
+                        .insert_resource(nvf_play::bindings::KeyboardCapture(true));
+                }
+                _ => app.world_mut().resource_mut::<Layout>().open(true),
+            }
+            touch(&mut app, w, 1, TouchPhase::Ended, 530.0, 800.0);
+            app.update();
+            assert_eq!(
+                app.world()
+                    .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                    .len(),
+                0,
+                "scenario {scenario}"
+            );
+        }
+    }
+    #[test]
+    fn drawer_remembers_focus_loss_until_an_explicit_gain() {
+        let (mut app, w) = scene();
+        app.world_mut().resource_mut::<drawer::Options>().enabled = true;
+        app.world_mut().write_message(WindowFocused {
+            window: w,
+            focused: false,
+        });
+        app.update();
+        for (phase, y) in [(TouchPhase::Started, 940.0), (TouchPhase::Ended, 800.0)] {
+            touch(&mut app, w, 1, phase, 530.0, y);
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            0
+        );
+        app.world_mut().write_message(WindowFocused {
+            window: w,
+            focused: true,
+        });
+        app.update();
+        for (phase, y) in [(TouchPhase::Started, 940.0), (TouchPhase::Ended, 800.0)] {
+            touch(&mut app, w, 2, phase, 530.0, y);
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .resource::<Messages<nvf_play::menu::OpenInventory>>()
+                .len(),
+            1
+        );
     }
     #[test]
     fn editing_releases_attack_pauses_and_cancel_restores_dragged_layout() {

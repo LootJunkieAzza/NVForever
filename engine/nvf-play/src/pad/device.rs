@@ -6,7 +6,55 @@ use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
 use bevy::input::gamepad::GamepadInput;
 use std::{borrow::Cow, hash::Hash};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Ordering shared by native/touch backends and the saved device selector.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InputSwitchSystems { ReadActivity, Switch }
+
+/// Opt-in touch ownership for Android. Absent on the ordinary desktop path.
+#[derive(Resource, Default)]
+pub struct TouchDeviceSwitch {
+    contacts: HashSet<u64>,
+    fresh: bool,
+    busy: bool,
+    consumed: bool,
+    editor_active: bool,
+    keys: Vec<KeyCode>,
+    mouse: Vec<MouseButton>,
+}
+impl TouchDeviceSwitch {
+    /// Virtual holds (for example touch-only hold-sneak) share switching consumption.
+    pub fn allows_actions(&self) -> bool { !self.consumed }
+    /// Touch editing owns its input until Save/Cancel; do not switch a background menu.
+    pub fn set_editor_active(&mut self, active: bool) { self.editor_active=active; }
+    /// The touch backend publishes only its synthesized ownership, never hardware.
+    pub fn set_actions(&mut self, keys: impl IntoIterator<Item=KeyCode>, mouse: impl IntoIterator<Item=MouseButton>) {
+        self.keys.clear(); self.keys.extend(keys);
+        self.mouse.clear(); self.mouse.extend(mouse);
+    }
+}
+fn read_touch(
+    mut touches: MessageReader<bevy::input::touch::TouchInput>,
+    mut focus: MessageReader<bevy::input::keyboard::KeyboardFocusLost>,
+    mut lifecycle: MessageReader<bevy::window::AppLifecycle>,
+    touch: Option<ResMut<TouchDeviceSwitch>>,
+) {
+    let Some(mut state)=touch else {touches.clear();focus.clear();lifecycle.clear();return};
+    state.fresh=false; state.consumed=false; state.busy=!state.contacts.is_empty();
+    let suspended=lifecycle.read().any(|e|matches!(e,bevy::window::AppLifecycle::Suspended));
+    let lost=!focus.is_empty() || suspended;
+    focus.clear();
+    if lost {state.contacts.clear();state.busy=true;touches.clear();return;}
+    for event in touches.read() {
+        use bevy::input::touch::TouchPhase;
+        match event.phase {
+            TouchPhase::Started=>{state.contacts.insert(event.id);state.fresh=true;},
+            TouchPhase::Ended|TouchPhase::Canceled=>{state.contacts.remove(&event.id);state.busy=true;},
+            TouchPhase::Moved=>{},
+        }
+    }
+}
 
 /// Hardware activity and old-device busy flags; analog activity means a crossing
 /// from neutral [design, #2200].
@@ -57,6 +105,7 @@ fn analog_active(g: &Gamepad) -> [bool; 4] {
 #[derive(Resource, Default)]
 pub struct SwitchingInput {
     physical_keys: ButtonInput<KeyCode>,
+    physical_mouse: ButtonInput<MouseButton>,
     keys: Vec<KeyCode>,
     mouse: Vec<MouseButton>,
     buttons: HashMap<Entity, Vec<GamepadButton>>,
@@ -195,12 +244,22 @@ impl ActionPad<'_> {
 /// from Bevy's keyboard_input_system [design, #2200; bevy_input/keyboard.rs].
 pub(crate) fn read_keyboard(
     mut events: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut mouse: MessageReader<bevy::input::mouse::MouseButtonInput>,
     mut focus_lost: MessageReader<bevy::input::keyboard::KeyboardFocusLost>,
     mut held: ResMut<SwitchingInput>,
 ) {
     held.physical_keys.clear();
+    held.physical_mouse.clear();
     for event in events.read() { held.keyboard_input(event.key_code, event.state.is_pressed()); }
-    if !focus_lost.is_empty() { held.physical_keys.release_all(); focus_lost.clear(); }
+    for event in mouse.read() {
+        if event.state.is_pressed() { held.physical_mouse.press(event.button); }
+        else { held.physical_mouse.release(event.button); }
+    }
+    if !focus_lost.is_empty() {
+        held.physical_keys.release_all();
+        held.physical_mouse.release_all();
+        focus_lost.clear();
+    }
 }
 
 /// Runs once after hardware/aids and before action readers. Only this frame's fresh
@@ -211,16 +270,30 @@ pub(crate) fn automatic(world: &mut World) {
     let listening = world.get_resource::<crate::pause::Listening>().is_some_and(|l| l.0.is_some());
     let mut held = world.remove_resource::<SwitchingInput>().unwrap_or_default();
     held.keys.clear(); held.mouse.clear(); held.buttons.clear(); held.analog.clear();
+    // A touch aim latch may keep the aggregate mouse binding down after the finger
+    // lifts. Only hardware mouse ownership and actual touch contacts keep touch busy.
+    // Preserve the existing aggregate path when touch ownership is not installed.
+    let physical_mouse = if world.contains_resource::<TouchDeviceSwitch>() {
+        &held.physical_mouse
+    } else {
+        world.resource::<ButtonInput<MouseButton>>()
+    };
     let mut activity = Activity {
         key: held.physical_keys.get_just_pressed().next().is_some(),
-        mouse: world.resource::<ButtonInput<MouseButton>>().get_just_pressed().next().is_some(),
-        keyboard_busy: digital_busy(&held.physical_keys) || digital_busy(world.resource::<ButtonInput<MouseButton>>()),
+        mouse: physical_mouse.get_just_pressed().next().is_some(),
+        keyboard_busy: digital_busy(&held.physical_keys) || digital_busy(physical_mouse),
         // Include pads removed this frame: disconnect must not split a pending hold
         // from the old device's readers [design, #2200].
         controller_busy: held.previous_buttons || held.previous.values().flatten().any(|active| *active),
         ..default()
     };
     let mut pads = world.query::<(Entity, &Gamepad)>();
+    let no_pads=pads.iter(world).next().is_none();
+    let (touch_fresh,touch_busy,touch_held)=world.get_resource::<TouchDeviceSwitch>().map_or((false,false,false),|t|(t.fresh,t.busy||t.editor_active,!t.contacts.is_empty()));
+    // A saved Controller choice cannot strand touch controls after the pad is gone.
+    let touch_fallback=current==InputDevice::Controller && no_pads && touch_held;
+    activity.key|=touch_fresh || touch_fallback;
+    activity.keyboard_busy|=touch_busy;
     let mut previous = HashMap::new();
     let mut buttons_down = false;
     for (e, g) in pads.iter(world) {
@@ -233,13 +306,20 @@ pub(crate) fn automatic(world: &mut World) {
         activity.trigger |= (2..4).any(|i| now[i] && !before[i]);
         previous.insert(e, now);
     }
-    let switch = switch_on_use(current, enabled && !listening, activity);
+    let switch = switch_on_use(current, (enabled || touch_fallback) && !listening, activity);
     if let Some((device, cause)) = switch {
         crate::bindings::set_device(world, device);
         info!("controller: input device switched to {} ({cause})", device.name());
         if device == InputDevice::KeyboardMouse {
             held.keys.extend(held.physical_keys.get_just_pressed().copied());
             held.mouse.extend(world.resource::<ButtonInput<MouseButton>>().get_just_pressed().copied());
+            if touch_fresh || touch_fallback {
+                if let Some(mut touch)=world.get_resource_mut::<TouchDeviceSwitch>() {
+                    held.keys.extend(touch.keys.iter().copied());
+                    held.mouse.extend(touch.mouse.iter().copied());
+                    touch.consumed=true;
+                }
+            }
         } else {
             for (e, g) in pads.iter(world) {
                 held.buttons.insert(e, g.get_just_pressed().copied().collect());
@@ -260,8 +340,12 @@ pub struct InputSwitchPlugin;
 impl Plugin for InputSwitchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwitchingInput>()
-            .add_systems(PreUpdate, read_keyboard.after(bevy::input::InputSystems).before(crate::test_aid::real_presses))
-            .add_systems(PreUpdate, automatic.after(read_keyboard).after(crate::test_aid::real_presses)
+            .add_message::<bevy::window::AppLifecycle>()
+            .add_systems(PreUpdate, (read_keyboard, read_touch).chain()
+                .in_set(InputSwitchSystems::ReadActivity)
+                .after(bevy::input::InputSystems).before(crate::test_aid::real_presses))
+            .add_systems(PreUpdate, automatic.in_set(InputSwitchSystems::Switch)
+                .after(InputSwitchSystems::ReadActivity).after(crate::test_aid::real_presses)
                 .before(crate::full_screen_key::read).before(bevy::ui::UiSystems::Focus)
                 .before(bevy::picking::PickingSystems::ProcessInput));
     }
