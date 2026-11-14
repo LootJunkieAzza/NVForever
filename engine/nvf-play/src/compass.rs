@@ -70,6 +70,10 @@ const DISCOVER_XP: f64 = 10.0;
 /// Seconds between looks at who is near [design].
 const POLL: f32 = 0.1;
 
+/// How far (units) a quest target marked as itself moves before its place is logged
+/// again [design: a walker is not logged every step].
+const PLACE_LOG_STEP: f32 = 512.0;
+
 // ---- the pictures and where they stand [observed: fitted to the owner's screenshots] ----
 
 const TICK: &str = "textures\\interface\\hud\\glow_hud_tick_mark.dds";
@@ -291,6 +295,7 @@ fn gather(
     mut logged: Local<[usize; 5]>,
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
+    mut logged_places: Local<std::collections::HashMap<u32, (Option<FormId>, [f32; 3])>>,
 ) {
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
@@ -374,8 +379,24 @@ fn gather(
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         for c in st.marked_targets() {
             let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
-            let Some((pos, itself)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            let Some((pos, door)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            let itself = door.is_none();
             placed += 1;
+            // Where each target is marked (itself or a door), logged when the door
+            // changes or the place moves [`PLACE_LOG_STEP`] (#2464, #2458): with the body
+            // the mark follows when it is the target itself.
+            let moved = logged_places.get(&c.target.0).is_none_or(|(d, at)| *d != door || (at[0] - pos[0]).hypot(at[1] - pos[1]) > PLACE_LOG_STEP);
+            if moved {
+                logged_places.insert(c.target.0, (door, pos));
+                let how = match door {
+                    Some(d) => format!("at door {d}, the first of the way there"),
+                    None => match bodies.get(&c.target.0) {
+                        Some(b) => format!("itself, its body at ({:.0}, {:.0}, {:.0}), {:.0} units off", b[0], b[1], b[2], (b[0] - pos[0]).hypot(b[1] - pos[1])),
+                        None => "itself, no body near the player".to_string(),
+                    },
+                };
+                info!("compass: quest target {} placed at ({:.0}, {:.0}, {:.0}) {how}", c.target, pos[0], pos[1], pos[2]);
+            }
             if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                 marks.push(Mark::Quest);
                 shown += 1;
@@ -424,9 +445,9 @@ pub(crate) fn place(
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
 /// notes): the target itself in the player's cell or worldspace, else the door of the
 /// player's place that starts the way to it (`fnv_game::quest_targets::DoorGraph`);
-/// `None` when no way through doors is known. True with the target itself, false with a
-/// door.
-fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], bool)> {
+/// `None` when no way through doors is known. With the door, or `None` for the target
+/// itself.
+fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: FormId, ignores_locks: bool) -> Option<([f32; 3], Option<FormId>)> {
     let refs = sim.refs;
     let (cell, pos) = match sim.world.peek(target) {
         Some(s) => (s.cell?, s.pos),
@@ -441,10 +462,10 @@ fn quest_mark_at(sim: &SimState, loc: &Location, graph: &DoorGraph, target: Form
     };
     let there = QuestPlace::of_cell(refs, cell);
     if here == there {
-        return Some((pos, true));
+        return Some((pos, None));
     }
     let door = graph.first_door(&sim.world, here, there, ignores_locks)?;
-    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, false))
+    sim.world.peek(door).map(|s| s.pos).or_else(|| refs.get(door).map(|d| d.pos)).map(|p| (p, Some(door)))
 }
 
 struct Art {

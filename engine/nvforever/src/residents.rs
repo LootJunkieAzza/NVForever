@@ -1446,6 +1446,9 @@ impl Residents {
         let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
         if let Some(e) = r.root.take() {
             commands.entity(e).despawn();
+        } else if r.spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} drawn anew before its body spawned earlier was found: that body is not taken away", r.label);
         }
         r.spawned = false;
         r.last_drawn = None;
@@ -3084,6 +3087,9 @@ pub fn drive(
         if let Some(e) = r.root.take().filter(|_| r.spawned) {
             commands.entity(e).remove::<(RefVisual, crate::limbs::ActorRig)>().insert(crate::door_fade::DoorFade { since: now, out: true });
             door_fades.outs += 1;
+        } else if r.spawned {
+            // Diagnostic for #2461: a body spawned and not yet found is not taken away.
+            warn!("ai: {} went through a door before its body spawned earlier was found: that body is not taken away", r.label);
         }
         r.spawned = false;
         r.last_drawn = None;
@@ -3347,6 +3353,8 @@ pub fn report(
     res: Res<Residents>,
     world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    bodies: Query<(Entity, &crate::limbs::ActorRig, &GlobalTransform)>,
+    world_root: Query<&GlobalTransform, With<WorldRoot>>,
 ) {
     if exit.read().next().is_none() {
         return;
@@ -3358,6 +3366,17 @@ pub fn report(
     };
     let core = &res.core;
     let data = game.data;
+    // Actor bodies drawn more than once for one reference (#2461), in game space.
+    let to_game = world_root.single().map_or(bevy::math::Affine3A::IDENTITY, |g| g.affine().inverse());
+    let twice = drawn_twice(bodies.iter().map(|(e, rig, g)| (rig.reference, e, to_game.transform_point3(g.translation()).to_array())));
+    for (reference, places) in &twice {
+        let r = core.list.iter().find(|r| r.actor.0 == *reference);
+        let label = r.map_or_else(|| data.name(game.world.placed.get(FormId(*reference)).map_or(FormId(*reference), |p| p.base)), |r| r.label.clone());
+        let tracked = r.and_then(|r| r.root.filter(|_| r.spawned));
+        let each: Vec<String> = places.iter().map(|(e, p)| format!("({:.0}, {:.0}, {:.0}){}", p[0], p[1], p[2], if Some(*e) == tracked { " driven" } else { "" })).collect();
+        info!("actor bodies: {label} ({reference:08X}) is drawn by {} bodies: {}", places.len(), each.join(", "));
+    }
+    info!("actor bodies summary: {} references drawn by more than one body ({} bodies in all)", twice.len(), twice.iter().map(|(_, p)| p.len()).sum::<usize>());
     let one = |r: &Resident| -> Option<String> {
         let a = core.ai.agents.get(&r.actor)?;
         let package = game.extra.get(&r.actor).and_then(|e| e.current_package).map(|p| data.name(p)).unwrap_or_else(|| "no package".into());
@@ -3529,12 +3548,39 @@ fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
     use_target.is_none_or(|t| t.0 == lock_target)
 }
 
+/// The references drawn by more than one actor body at once, in FormID order, each with
+/// its bodies (`K`: the body, and where it stands), from every drawn body's reference;
+/// the player's own body is left out. One reference has one body; a second one stands
+/// where something left it and answers to the reference (#2461, Lt. Boyd at Camp
+/// McCarran) [design: a diagnostic for the smoke tests].
+fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) -> Vec<(u32, Vec<(K, [f32; 3])>)> {
+    let mut by_ref: std::collections::BTreeMap<u32, Vec<(K, [f32; 3])>> = std::collections::BTreeMap::new();
+    for (reference, body, at) in bodies.into_iter().filter(|b| b.0 != FormId::PLAYER_REF.0) {
+        by_ref.entry(reference).or_default().push((body, at));
+    }
+    by_ref.into_iter().filter(|(_, b)| b.len() > 1).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, drawn_twice, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// #2461: a reference with two bodies is reported with both, one with one body is
+    /// not, and the player's own body never counts.
+    #[test]
+    fn a_reference_drawn_by_two_bodies_is_reported() {
+        let boyd = 0x000F_0678;
+        let silus = 0x000F_2DEF;
+        let bodies = [(boyd, 1, [296.0, 1665.0, 18671.0]), (silus, 2, [228.0, 1726.0, 18671.0]), (boyd, 3, [325.0, 719.0, 18672.0]), (FormId::PLAYER_REF.0, 4, [0.0; 3]), (FormId::PLAYER_REF.0, 5, [0.0; 3])];
+        let twice = drawn_twice(bodies);
+        assert_eq!(twice.len(), 1, "{twice:?}");
+        assert_eq!(twice[0].0, boyd);
+        assert_eq!(twice[0].1.iter().map(|b| b.0).collect::<Vec<_>>(), vec![1, 3]);
+        assert!(drawn_twice([(silus, 2, [0.0; 3])]).is_empty());
+    }
 
     /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
     /// During Combat, or a script's) is drawn facing the use's target, not its combat
