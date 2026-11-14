@@ -1855,6 +1855,11 @@ impl Core {
                 if never_turns(r.immobile, game.creature_turning_speed(FormId(r.base), r.actor)) {
                     self.ai.fix_heading(r.actor);
                     info!("ai: {} never turns (flagged Immobile, Turning Speed 0): it keeps its heading", r.label);
+                } else if game.is_fixture(r.actor) {
+                    // A fixture that never fights (`fnv_game::Game::is_fixture`): Mr.
+                    // House's chamber, Turning Speed 30, never turns either (#2431).
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (a fixture: Immobile, Unaggressive, Helps Nobody, unarmed): it keeps its heading", r.label);
                 }
             }
         }

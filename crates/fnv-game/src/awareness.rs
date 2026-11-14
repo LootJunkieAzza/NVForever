@@ -689,10 +689,49 @@ impl Game<'_> {
         self.hostility(actor, other, &aggression).unwrap_or(false)
     }
 
+    /// Whether `r` is a fixture that never fights: a creature flagged Immobile whose AI
+    /// data (Aggression Unaggressive, Assistance Helps Nobody) never starts or joins a
+    /// fight and that carries no weapon. It cannot move, turn to a foe or hurt one, so
+    /// it never takes a combat target, never answers an alarm or a call for help and is
+    /// never hostile ([`Game::hostility`], [`Game::start_combat`],
+    /// [`Game::settle_awareness`]), whatever the player did to it or to its factions,
+    /// and the engine never turns it (`nvforever` residents.rs). [documented: GECK wiki
+    /// Stats Tab for Creatures, Immobile; AI Data, Aggression "Unaggressive: will not
+    /// initiate combat", Assistance "Helps Nobody"; observed: in FalloutNV.esm these are
+    /// the placed MrHouse and MrHouseOFFLINE (his screens), NVCRMrHouse (his life-support
+    /// chamber) and NVCRFestus (a ghosted robot), YesManMainframe too though it is placed
+    /// nowhere; the turrets, also Immobile and Unaggressive, carry their guns (CNTO), and
+    /// no other placed actor of the masters is one (tests/fixtures_data.rs); hypothesis: that the original lets such an actor take no part in a
+    /// fight, as the owner ruled for the screens and the chamber, issue #2431.] The
+    /// screens are Invulnerable by their records ([`Game::is_immune`]); the chamber is a
+    /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
+    /// terminal unseals it (owner ruling 2026-11-13).
+    pub fn is_fixture(&self, r: FormId) -> bool {
+        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+            return false;
+        }
+        let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
+        // Armed: a weapon in its inventory, or, before it has one (not loaded yet), a
+        // weapon or leveled item list among its base's items (CNTO, from the definition
+        // supplying its inventory): the turrets carry their guns so.
+        let armed = || match self.world.peek(r).and_then(|s| s.inventory.as_ref()) {
+            Some(inv) => inv.iter().any(|(item, n)| n > 0 && self.data.sig(item).as_ref() == Some(b"WEAP")),
+            None => crate::functions::base_of(self, r)
+                .and_then(|b| self.template_source(b, r, |d| d.template_inventory))
+                .and_then(|(id, _)| self.world.forms.entries(id))
+                .is_some_and(|items| items.iter().any(|e| matches!(self.data.sig(e.item).as_ref(), Some(b"WEAP") | Some(b"LVLI")))),
+        };
+        calm && !armed()
+    }
+
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about.
     fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
+            return Some(false);
+        }
+        // A fixture never fights (issue #2431): before StartCombat, grudges and crimes.
+        if self.is_fixture(actor) {
             return Some(false);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
@@ -873,6 +912,17 @@ impl Game<'_> {
         for id in ids {
             if !self.present(id) || self.is_dead(id) || self.extra.get(&id).is_some_and(|e| e.dead) {
                 self.awareness.actors.remove(&id);
+                self.provocations.calm(id);
+                self.awareness.tactics.calm(id);
+                continue;
+            }
+            // A fixture keeps no targets or alarms, from whatever gave them (an ally's
+            // call, a hit, a crime): it stays Normal (`Game::is_fixture`, issue #2431).
+            if self.is_fixture(id) {
+                if let Some(a) = self.awareness.actors.remove(&id).filter(|a| a.state != State::Normal) {
+                    self.awareness.changes.push(Change { actor: id, from: a.state, to: State::Normal, time: now, about: None, cause: None, at: None, value: None });
+                }
+                self.awareness.forced.retain(|(a, _)| *a != id);
                 self.provocations.calm(id);
                 self.awareness.tactics.calm(id);
                 continue;
@@ -1111,7 +1161,8 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) {
+        // A fixture takes no combat target (`Game::is_fixture`, issue #2431).
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) {
             return;
         }
         self.awareness.forced.insert((actor, target));
