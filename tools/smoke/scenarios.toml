@@ -27798,6 +27798,44 @@ order = [[
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
 
 [[scenario]]
+name = "mccarran-boyd-one-body"
+source = "issue #2461 (owner): after the Silus interrogation Lt. Carrie Boyd (LieutenantBoydREF 0x000F0678, CampMCTermInt02) was drawn twice, one body in the room and one outside the door, and the one in the room talked as the other. The scene's records: Silus's GREETING (INFO 0x000F1873) MoveTo's her to BoydExitREF 0x000FA73E (325, 719); the assassin trick's line (INFO 0x000F2DDE) MoveTo's her to XMarker 0x000FB4E1 (467, 1386) by the room's door and its end script sets bBoydEnter, so VFreeformMcCarran2BoydPatrolReturn walks her to her linked ref 0x000FA73D (296, 1665) in the room; the trigger 0x000FA742 there starts the POW2Int exchange with Silus, whose last line sets bBoydExit, and VFreeformMcCarran2BoydPatrolExit walks her back to BoydExitREF. One body per reference throughout (engine/nvforever/src/residents.rs drawn_twice, nav.rs show_actor)"
+note = "the player stands in the interrogation room; Silus's greeting is said at 3 s and the trick's line at 8 s (as the dialogue would, conditions not required). The census is taken at exit; the warnings name a body spawned and lost before it was found"
+areas = ["ai", "actors"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/nav.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:info:0x000F1873:SilusREF,8:info:0x000F2DDE:SilusREF" }
+args = ["--cell", "CampMCTermInt02", "--pos=340,1690,18690", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 90
+expect = [
+  { re = 'LieutenantBoydREF: put at \(325, 719, \d+\) in .* by a script \(MoveTo\)', label = "Silus's greeting puts Boyd at BoydExitREF" },
+  { re = 'LieutenantBoydREF: put at \(467, 1386, \d+\) in .* by a script \(MoveTo\)', label = "the trick's line puts Boyd by the room's door" },
+  { re = 'actor bodies summary: (?P<n>\d+) references drawn by more than one body', range = [0, 0], label = "one body per reference at the end (Boyd not drawn twice)" },
+]
+forbid = [
+  { re = 'actor bodies: LieutenantBoydREF', label = "Boyd drawn by two bodies" },
+  { re = 'that body is not taken away', label = "a body spawned and not yet found was left behind" },
+  { re = 'bodies under the world root when its body was looked for', label = "two bodies of one reference under the world root" },
+]
+
+[[scenario]]
+name = "mccarran-vms08-markers"
+source = "issue #2464 (owner): I Put a Spell on You's marker for Lt. Boyd pointed outside. VMS08 objective 20 (\"Ask around about suspicious activity at Camp McCarran\") has three targets [documented: the QUST 0x000E790F QSTA/CTDA records, read with fnvtool esm decode]: LieutenantBoydREF 0x000F0678 in CampMCTermInt02 (GetDead 0), SupplyOfficerContrerasREF 0x000E5517 in CampMCTermInt04, the Supply Shack (bAskedContreras 0, GetDead 0), and CorporalSterlingRef 0x000F570E outdoors (bAskedSterling 0, GetDead 0). With the player beside Capt. Curtis in the Terminal Building all three are marked: Boyd at herself, the other two at the first door of the way to them, both leading out of the building (engine/nvf-play/src/compass.rs quest_mark_at)"
+note = "the player stands beside CaptainCurtisREF (976, -288, 18240); the objective is shown and the quest made active by the console at 6 s"
+areas = ["hud", "quests"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/quest_targets.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "6:setobjectivedisplayed VMS08 20 1;6.5:forceactivequest VMS08;7:close" }
+args = ["--cell", "CampMCTermInt02", "--pos=900,-288,18250", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'quest targets: VMS08 objective 20 target 0x000F0678 LieutenantBoydREF marked', label = "Boyd is marked" },
+  { re = 'quest targets: VMS08 objective 20 target 0x000E5517 SupplyOfficerContrerasREF marked', label = "Contreras is marked" },
+  { re = 'quest targets: VMS08 objective 20 target 0x000F570E CorporalSterlingRef marked', label = "Sterling is marked" },
+  { re = 'compass: quest target 0x000F0678 placed at \([-\d]+, [-\d]+, [-\d]+\) itself', label = "Boyd's mark is Boyd herself (same interior)" },
+  { re = 'compass: quest target 0x000E5517 placed at .* at door ', label = "Contreras's mark is at a door (another interior)" },
+  { re = 'compass: quest target 0x000F570E placed at .* at door ', label = "Sterling's mark is at a door (outdoors)" },
+]
+
+[[scenario]]
 name = "weathers-key-freed"
 source = "issue #2466 (owner's playtest 2026-11-14): at Cottonwood Cove, given the collar key, Mrs. Weathers' collar went off while her sons got away. With the key given, none of the family's collars may go off. Mrs. Weathers' line for the key (INFO 0x0013A62B, topic VFreeformCottonwoodCoveNVCCMrsWeathersTopic009) completes vCCLeftMyHeart objective 50 in its begin script (the family's NVCCSlaveFreePackage becomes valid) and takes off the three collars (SlaveCollar 0x0002F563) only in its end script; the four NVCCSlaveHeadPopper volumes round the pen (SCPT 0x0013A3B8) kill a family member who enters one while GetItemCount of its collar is 1 (PlaceAtMe FakeMediumExplosion, KillActor)"
 note = "The player starts in the north of the pen (outside the gate's dialogue trigger, so Mrs. Weathers' bark package does not start), with the key the Topic009 line asks for (iBuySlaves stays 0: the line for a key not bought); the gate is unlocked (the line wants it unlocked). vCCEyeforaneye's iDeadCount is set to 12 so that the line's end script does not turn the Legion on the family (SetEnemy NVCCSlaveFaction / VCaesarsLegionFaction, the original's rule for a key not paid for): only the collars are under test. Only the family runs packages. Setup and the collar probes come after the scripts' 6.5 s start threshold and before the talk; the talk starts 4.6 s after the last probe. Each family member is followed by name: collared before the key, the key line, then its own entry into a death volume, then alive, then collarless (that last probe comes after the escape so that it cannot race the entry). First run (2026-11-14, combined build): all three left through the gate and crossed the north volume 0x0013A63F about 12 s after the line ended, and lived"
