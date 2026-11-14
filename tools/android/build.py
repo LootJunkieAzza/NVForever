@@ -60,6 +60,7 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--gradle", default="gradle")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--tests", action="store_true", help="Cross-check authored engine tests (does not execute them)")
     parser.add_argument("--gradle-build-dir", type=Path, help="Optional separate Gradle output/cache directory")
     args = parser.parse_args()
     if args.ndk is None or args.jobs < 1:
@@ -69,8 +70,13 @@ def main() -> None:
     if args.gradle_build_dir:
         args.gradle_build_dir = args.gradle_build_dir.resolve()
         env["NVF_ANDROID_BUILD_DIR"] = str(args.gradle_build_dir)
+    if args.tests and not args.check:
+        parser.error("--tests requires --check; Android test execution needs a device")
+    package = "nvforever" if args.tests else "nvf-android"
     command = ["cargo", "check" if args.check else "build", "--manifest-path", "engine/Cargo.toml",
-               "-p", "nvf-android", "--lib", "--target", TARGET, "--locked"]
+               "-p", package, "--lib", "--target", TARGET, "--locked"]
+    if args.tests:
+        command.append("--tests")
     if not args.check:
         command.extend(["--profile", "android-dev"])
     subprocess.run(command, cwd=ROOT, env=env, check=True)

@@ -37,3 +37,10 @@ java -cp <temporary-output> org.nvforever.android.InstallConfigTest
 
 The existing desktop checks in CONTRIBUTING.md still apply to engine changes. A passing
 cross-check or Java compilation does not replace desktop regressions or device acceptance.
+
+The `android-test-apk` workflow cross-checks the engine and authored input test source,
+builds a development APK, verifies ARM64 ELF/runtime contents and its signature, and
+uploads the APK as an artifact. It does not run Android gameplay or input tests on a
+device. CI debug signing keys are temporary; an APK from another run may require an
+uninstall, which deletes app saves. Keep your own development signing key for updates
+and export saves before replacing an installation signed by a different key.
