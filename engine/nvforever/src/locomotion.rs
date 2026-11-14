@@ -956,6 +956,8 @@ type ActorAnimItem<'w, 's> = bevy::ecs::query::QueryItem<'w, 's, ActorAnimParts>
 fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32, scratch: &mut Vec<(usize, Transform)>, out: &mut Vec<(Entity, Transform)>, cost: &mut ActorAnimCost) {
     let (lo, player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) = item;
     let (flinch, seated, idle, name, talk) = (*flinch, *seated, *idle, *name, *talk);
+    // Set below for a standing actor's idle only.
+    player.over_movement = 0;
     if let Some(d) = dying.as_mut() {
         // Dead: the death pose to its end and held; without one the pose stays (and
         // whoever has the bones now, a ragdoll, has written them).
@@ -1049,6 +1051,19 @@ fn drive_one(item: &mut ActorAnimItem<'_, '_>, written: bool, dt: f32, now: f32,
     (player.layers[idles], player.layers[idles + 1]) = (None, None);
     if let Some(i) = idle {
         i.layers(player);
+        // A standing actor's idle shows in place of its base idle on every bone it drives,
+        // whatever the priorities of their tracks (`BlendPlayer::over_movement`): Mr.
+        // House's chamber is closed by DynamicIdle_Sleeping (priority 40) and opened by
+        // WakeUp (30), both under his mtidle.kf (50), the pod open [observed: the
+        // ControlledBlock priorities of the clips in `creatures/nvmrhouse`; owner, #2425: the original
+        // shows the chamber sealed until the terminal opens it]. 129 of the 556 idle files
+        // under an `IdleAnims` folder of the base archive have some tracks under their
+        // base idle's [observed: survey 2026-11-14]. Not while it moves: an idle shown
+        // over a walk keeps the walk's legs [hypothesis] (animation.md §9.4).
+        let standing = lo.velocity[0].hypot(lo.velocity[1]) < fnv_actor::locomotion::STAND_SPEED && !lo.blend.cur.mv.is_moving();
+        if standing {
+            player.over_movement = (1 << idles) | (1 << (idles + 1));
+        }
     }
     if let Some(f) = flinch {
         let (len, t) = (f.clip.clip.length().max(1e-3), now - f.at);
