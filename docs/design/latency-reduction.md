@@ -15,6 +15,21 @@ code in NVForever:
 `anti_lag.rs` owns the switch, the frame indices and the points in the frame; it calls into
 `nv_low_latency.rs` from the same points.
 
+**Through Streamline's Reflex** (#2317): when NVIDIA's DLSS Frame Generation files are in the
+`dlss` folder and frame generation was set up at the start, Streamline's Reflex (`sl.reflex`,
+`sl.pcl`) stays loaded for the session, and every NVIDIA call goes through it instead of the
+direct extension calls: the same points call `slReflexSleep` and `slPCLSetMarker` every frame,
+whatever the switch, and the switch sets Reflex's mode (`eLowLatency` or `eOff`) with
+`slReflexSetOptions`, only when it changes (`nv_low_latency.rs` `ViaStreamline`). Reflex's own
+backend makes the same driver calls on the swapchain it tracks [documented: Streamline 2.14.16
+`vknvll2.cpp`]; DLSS Frame Generation requires it on (`eFailReflexNotDetectedAtRuntime`) and
+turns latency reduction on while it runs, as FSR's frame generation does. While frame generation
+runs, the frame cap goes to Reflex's `frameLimitUs` and frame pacing does not wait itself. When
+frame generation could not start, both are unloaded and the direct calls run as before. The log
+names it: `latency reduction: NVIDIA Reflex through Streamline available on …` at the start,
+`NVIDIA Reflex (Streamline)` as the technique, and with `NVF_PACE_LOG=1` a line from Reflex's own
+latency report every ten seconds. Design: [dlss-frame-generation](dlss-frame-generation.md).
+
 ## Using it
 
 **Settings > Graphics > Latency reduction**, or `--latency-reduction`. Off by default, saved like
