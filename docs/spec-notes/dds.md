@@ -105,3 +105,18 @@ six face bits set (1 when not a cube map). Sizes count the
 bytes after the 128-byte header. `error` is set when the file is not a valid DDS (bad
 magic, short header); then the other fields are `null`. Lab comparator: **keyed** on
 `path`, all fields.
+
+## Device without BC sampling
+
+[documented: wgpu 30 `Features::TEXTURE_COMPRESSION_BC`,
+https://docs.rs/wgpu/30.0.0/wgpu/struct.Features.html]
+BC1/BC2/BC3 GPU textures require the renderer's BC compression feature.
+
+[design, Android #2436] The shared texture loader uses the existing fnv-dds DXT1/3/5
+block decoder when BC sampling is unavailable, as it already does for non-block-aligned
+source dimensions (#2164). Decode each validated mip into RGBA8 at that mip's dimensions;
+retain the caller's sRGB diffuse or linear data intent and normal sampler. A BC-capable
+renderer keeps aligned compressed bytes and formats. This changes no DDS format facts,
+worker-cache coordination or source game files. Cubemaps and unsupported/truncated DDS
+remain errors. Authored colour/alpha/mip/capability controls are source-only until run;
+GPU output and the reported exterior symptom are not established by this policy.
