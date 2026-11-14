@@ -223,6 +223,15 @@ the spec it links to.
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
 
+- **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
+  A sequence's texture offset, scale or rotation track now moves every shape that lists
+  the same `NiTexturingProperty`, as material tracks already did for a shared
+  `NiMaterialProperty`: the Hidden Valley storm's 18 dust sheets all scroll (only the
+  first did). This applies to every model whose sequences scroll a shared texture, not
+  only the storm; if some model should scroll one shape only, it would need its own
+  property, and ruling otherwise means a per-model exception. Check the storm in game at
+  night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
+
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))
