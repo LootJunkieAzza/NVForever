@@ -1366,7 +1366,7 @@ fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
         // A co-op guest's list as it changes (the host's quests in, and out with why).
         if rt.game.coop_guest {
-            let now: Vec<u32> = guest_quests(None, &rt.game).into_iter().map(|k| k.form).collect();
+            let now: Vec<u32> = guest_quests(&rt.game).into_iter().map(|k| k.form).collect();
             for q in st.guest_listed.iter().filter(|q| !now.contains(q)) {
                 let story = rt.game.coop_host_story.quests.get(&FormId(*q)).map(|s| format!("story: ended {} failed {} objectives {:?}", s.ended, s.failed, s.objectives)).unwrap_or_else(|| "not in the story".into());
                 info!("pipboy data: the host's quest {} left this guest's list ({story})", rt.game.data.name(FormId(*q)));
@@ -1375,7 +1375,7 @@ fn track(st: &mut DataState, game: &Game) {
         }
         // A co-op guest lists the host's quests (`guest_quests`), as they first come.
         let mut new: Vec<u32> = if rt.game.coop_guest {
-            guest_quests(None, &rt.game).into_iter().map(|k| k.form).filter(|q| !st.seen.contains_key(q)).collect()
+            guest_quests(&rt.game).into_iter().map(|k| k.form).filter(|q| !st.seen.contains_key(q)).collect()
         } else {
             rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect()
         };
@@ -1444,16 +1444,25 @@ pub fn active_quest(st: Option<&DataState>, g: &fnv_game::game::Game) -> Option<
     chosen.or(running.first().copied()).map(FormId)
 }
 
+/// When the quest list first showed `quest` (a running count, larger is newer; 0: not
+/// yet): a co-op host sends it with its story, for its guests' order (item 205).
+pub fn quest_seen(st: &DataState, quest: u32) -> u64 {
+    st.seen.get(&quest).copied().unwrap_or(0)
+}
+
 /// A co-op guest's quest list, the host's (item 205; the laptop's duo b3: the guest
 /// listed only the host's active quest): each quest of the host's story with a name and an
 /// objective shown or done, as [`listed`] has the host's own (`Game::coop_host_story`,
 /// which reaches a guest that joins later within a round of its pages); the host's active
 /// quest; the quests that ended while this guest played (`Game::coop_host_ended`, at
-/// once, before the story's next page). Done when completed or failed. In order as
-/// [`player_quests`], `st` giving when this guest first listed each.
-fn guest_quests(st: Option<&DataState>, g: &fnv_game::game::Game) -> Vec<QuestKey> {
+/// once, before the story's next page). Done when completed or failed. In the host's
+/// order: [`model::sort_quests`] by when the host's list first showed each
+/// (`HostQuestState::seen`; the laptop's late join listed them by when the guest did).
+fn guest_quests(g: &fnv_game::game::Game) -> Vec<QuestKey> {
     let named = |q: FormId| g.data.quests.get(&q).and_then(|d| d.name.as_deref()).is_some_and(|n| !n.trim().is_empty());
-    let seen = |q: u32| st.map_or(0, |st| st.seen.get(&q).copied().unwrap_or(st.seen_count + 1));
+    // The host's order (`HostQuestState::seen`); a quest the story has not ordered yet (one
+    // that ended a moment ago) is newest, as the host's own newest quest is.
+    let seen = |q: u32| g.coop_host_story.quests.get(&FormId(q)).map(|s| s.seen).filter(|s| *s > 0).unwrap_or(u64::MAX);
     let mut done: BTreeMap<u32, bool> = BTreeMap::new();
     for (q, s) in &g.coop_host_story.quests {
         if named(*q) && !s.objectives.is_empty() {
@@ -1528,7 +1537,7 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     if g.coop_guest {
         // A co-op guest's list is the host's (item 205): its quests as the host's story
         // carries them, its active quest and the quests that ended while it played.
-        out.quests = guest_quests(Some(st), g);
+        out.quests = guest_quests(g);
         st.active_quest = g.coop_host_quest.as_ref().map(|h| h.quest.0);
     } else {
         out.quests = player_quests(Some(st), g);
@@ -1792,7 +1801,16 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     if len > 0 {
         st.sel[tab] = st.sel[tab].min(len - 1);
-        st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        // Not before the page has measured how many rows fit (0 until it is first drawn):
+        // the first frame took one row for the page and opened the list scrolled onto the
+        // active quest, hiding the rows above it (item 205, late205e: the newer Bleed Me
+        // Dry above the active quest). Once measured, the least move that shows the
+        // selection [design; how the original opens a long list is not known].
+        if st.fit[tab] > 0 {
+            st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
+        } else {
+            st.first[tab] = st.first[tab].min(len - 1);
+        }
     }
     let shows = pane_key(st, tab, l);
     scroll_pane(st, tab, shows, pane);

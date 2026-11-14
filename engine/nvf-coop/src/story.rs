@@ -41,7 +41,8 @@ pub enum StoryEntry {
     /// whether it runs, whether it ended (completed or failed) and failed, and its
     /// objectives shown or done (index, done; at most [`OBJECTIVES`]): a guest's quest list
     /// is the host's from these (item 205).
-    Quest { quest: u32, stage: i16, running: bool, ended: bool, done: Vec<i16>, failed: bool, objectives: Vec<(i16, bool)> },
+    /// `seen`: when the host's quest list first showed it (0: not yet), for the guests' order.
+    Quest { quest: u32, stage: i16, running: bool, ended: bool, done: Vec<i16>, failed: bool, objectives: Vec<(i16, bool)>, seen: u32 },
     /// A variable of a quest's script.
     Var { quest: u32, index: u16, value: StoryValue },
 }
@@ -58,7 +59,7 @@ impl StoryEntry {
     /// Bytes it takes on the wire (`net::encode`).
     pub fn wire_len(&self) -> usize {
         match self {
-            StoryEntry::Quest { done, objectives, .. } => 1 + 4 + 2 + 1 + 1 + 2 * done.len().min(STAGES) + 1 + 3 * objectives.len().min(OBJECTIVES),
+            StoryEntry::Quest { done, objectives, .. } => 1 + 4 + 2 + 1 + 1 + 2 * done.len().min(STAGES) + 1 + 3 * objectives.len().min(OBJECTIVES) + 4,
             StoryEntry::Var { value: StoryValue::Num(_), .. } => 1 + 4 + 2 + 1 + 8,
             StoryEntry::Var { value: StoryValue::Ref(_), .. } => 1 + 4 + 2 + 1 + 4,
         }
@@ -139,7 +140,7 @@ mod tests {
     }
 
     fn quest(quest: u32, stage: i16) -> StoryEntry {
-        StoryEntry::Quest { quest, stage, running: true, ended: false, done: vec![stage], failed: false, objectives: Vec::new() }
+        StoryEntry::Quest { quest, stage, running: true, ended: false, done: vec![stage], failed: false, objectives: Vec::new(), seen: 0 }
     }
 
     #[test]
@@ -194,8 +195,8 @@ mod tests {
 
     #[test]
     fn a_quest_entry_counts_its_stages() {
-        let e = StoryEntry::Quest { quest: 1, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true)] };
-        assert_eq!(e.wire_len(), 9 + 4 + 1 + 3);
+        let e = StoryEntry::Quest { quest: 1, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true)], seen: 3 };
+        assert_eq!(e.wire_len(), 9 + 4 + 1 + 3 + 4);
         assert!(e.key() < var(1, 0, 0.0).key());
     }
 }

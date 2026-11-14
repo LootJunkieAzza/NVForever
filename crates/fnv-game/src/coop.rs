@@ -78,6 +78,9 @@ pub struct HostQuestState {
     /// Its objectives shown or done, by index: whether each is done. A guest's quest list
     /// and objectives are the host's from these (item 205).
     pub objectives: BTreeMap<i32, bool>,
+    /// When the host's quest list first showed it (the host's Pip-Boy's running count,
+    /// larger is newer; 0: not yet), so a guest's list is in the host's order (item 205).
+    pub seen: u64,
 }
 
 impl HostQuestState {
@@ -458,7 +461,7 @@ impl Game<'_> {
             .map(|(q, s)| {
                 let skip = s.stages_done.len().saturating_sub(HOST_STAGES_DONE);
                 let objectives = s.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect();
-                (*q, HostQuestState { stage: s.stage(), running: s.running, ended: s.completed || s.failed, done: s.stages_done.iter().skip(skip).copied().collect(), failed: s.failed, objectives })
+                (*q, HostQuestState { stage: s.stage(), running: s.running, ended: s.completed || s.failed, done: s.stages_done.iter().skip(skip).copied().collect(), failed: s.failed, objectives, seen: 0 })
             })
             .collect();
         let vars = self
