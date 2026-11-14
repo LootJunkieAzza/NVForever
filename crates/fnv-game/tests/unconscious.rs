@@ -359,3 +359,32 @@ fn damage_actor_value_does_not_kill_a_ghost() {
     ask(&mut g, BOXER_REF, DAMAGE_ACTOR_VALUE, &[av(HEALTH), num(9999.0)]);
     assert!(!g.is_dead(BOXER_REF));
 }
+
+/// A co-op guest's revive of one the host has alive takes its death back from what
+/// GetDeadCount reads, so it reads as in the host's world (VMS16's targets, run
+/// 2026-11-14), and leaves the count itself, which goes back to the guest's own game; a
+/// script's ResurrectActor takes nothing back.
+#[test]
+fn a_coop_revive_takes_the_death_back_from_get_dead_count_only() {
+    let f = fixture();
+    let mut g = game(&f);
+    let base = FormId(BOXER);
+    ask(&mut g, BOXER_REF, KILL_ACTOR, &[]);
+    assert_eq!(g.dead_count(base), 1);
+    ask(&mut g, BOXER_REF, RESURRECT_ACTOR, &[]);
+    assert!(!g.is_dead(BOXER_REF));
+    assert_eq!(g.dead_count(base), 1, "ResurrectActor keeps the count");
+    ask(&mut g, BOXER_REF, KILL_ACTOR, &[]);
+    assert_eq!(g.dead_count(base), 2);
+    g.coop_revive(BOXER_REF);
+    assert!(!g.is_dead(BOXER_REF));
+    assert_eq!(g.dead_count(base), 1, "GetDeadCount as in the host's world");
+    assert_eq!(g.player.dead_count.get(&base), Some(&2), "the count the guest's own game keeps");
+    g.coop_revive(BOXER_REF);
+    g.coop_revive(BOXER_REF);
+    assert_eq!(g.dead_count(base), 0, "never below none");
+    assert_eq!(g.player.dead_count.get(&base), Some(&2));
+    // A kill in the host's world counts again.
+    ask(&mut g, BOXER_REF, KILL_ACTOR, &[]);
+    assert_eq!(g.dead_count(base), 1);
+}

@@ -1629,6 +1629,12 @@ pub struct Game<'a> {
     /// host's world (`fighting one or ready to attack one`), which this game's compass marks
     /// hostile as its own would be; this game runs none of the scripts that turned them.
     pub coop_hostile: BTreeSet<FormId>,
+    /// A co-op guest's: deaths of each base this game counts (`PlayerState::dead_count`)
+    /// that the host's world doesn't have, taken back by [`Game::coop_revive`] while in
+    /// the host's world, so GetDeadCount reads as there. Never saved: the count itself is
+    /// left as it is, and it is what goes back to the guest's own game (its character,
+    /// `coop::Character`), whose world still has them dead.
+    pub coop_deaths_taken_back: BTreeMap<FormId, u32>,
     /// The host's: checkpoints that took the player's items of a form type into a
     /// container (`RemoveAllTypedItems` on the player: a Strip casino's weapon check) or
     /// gave them back (the container's `RemoveAllItems player`), for the guests to do the
@@ -2621,6 +2627,7 @@ impl<'a> Game<'a> {
             story_speakers: None,
             coop_guest: false,
             coop_hostile: BTreeSet::new(),
+            coop_deaths_taken_back: BTreeMap::new(),
             coop_checkpoints: Vec::new(),
             coop_checkpoint_holds: BTreeSet::new(),
             script_image_modifiers: BTreeSet::new(),
