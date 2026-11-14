@@ -345,6 +345,14 @@ location, in cell (radius ignored), near reference; the radius is editable.
     HeadTracking**: speaker and target "will not be forced to look at each other by the
     package". FOV: the dialogue menu's zoom when the target is the player. Topic: the
     first topic of a conversation between two NPCs, or the Say To line.
+  - **A target other than the player** (an actor, or a talking activator, which speaks
+    for its talking actor): the actor goes up to it as to the player and starts a
+    conversation between actors (`Game::start_actor_conversation`, dialogue.md §5.1);
+    the package lasts while the two talk (issue #2451: Veronica's
+    FollowersVeronicaForceGreetIntercom, target HVIntercomREF). Only the player is
+    measured for a clear line. Before, such packages were parked "not carried out"; the
+    masters' others are the Strip's VStripSS1* street scenes and
+    CaptainParkerArrestKeith [observed: `fnvtool ai show`].
   - Must Complete: the package "will not reevaluate until actor has engaged in
     dialogue with the target".
   - **A wait location that is furniture**: the actor sits on it and talks from its

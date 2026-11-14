@@ -1458,20 +1458,23 @@ expect = [
 [[scenario]]
 name = "hv-veronica-intercom"
 source = "issue #2451: a Dialogue package whose target is a talking activator is carried out (fnv_ai goal.rs talk, carry.rs talk_start: Game::start_actor_conversation); the activator says its talking actor's lines and Goodbye lines that link on go on (fnv-game dialogue.rs next_conversation_line): Veronica's FollowersVeronicaForceGreetIntercom walks her to HVIntercomREF and she and Ramos (through it) say HVVeronicaEnter 0015B6D1, 0015B6D2, 0015B6D3 (its end script opens the bunker's inner door) and 0015B6D4"
-note = "HiddenValleyBunker1 from the new-game state: the console hires Veronica (bVeronicaHired 1 on the companion quest 000B16D0, VeronicaREF moved to the player) and the goto aid puts the player in VHiddenValleyVeronicaEnterTrigger (0015B6D7) at 6 s, whose OnTriggerEnter (SCPT 0015B6D5) makes Ramos the intercom's talking actor, has her say 'Hold on, I've got this.' and sets her bIntercomConversationActive"
+note = "HiddenValleyBunker1 from the new-game state: the console makes the Brotherhood and the player neutral (SetEnemy 0001D3FE 0001B2A4 1 1) and moves VeronicaREF to the player, then at 3 s does what VHiddenValleyVeronicaEnterTrigger's OnTriggerEnter (SCPT 0015B6D5) does for a hired Veronica: makes Ramos the intercom's talking actor, sets her bIntercomConversationActive and re-evaluates her package (hiring her properly from the new-game state takes her companion quest's whole set-up)"
 areas = ["ai", "dialogue-packages", "talking-activators"]
 paths = ["crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/dialogue.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:set 000B16D0.bveronicahired to 1;000E32A9.moveto player;1.3:close", NVF_PLAY_TEST_GOTO = "6:-702:1585:11700" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:setenemy 0001D3FE 0001B2A4 1 1;000E32A9.moveto player;1.3:close;3:000E27FC.settalkingactivatoractor 000E2807;set 000E32A9.bintercomconversationactive to 1;000E32A9.evaluatepackage;3.3:close" }
 args = ["--cell", "HiddenValleyBunker1", "--play", "--pos=-200,2000,11700", "--npc-packages", "000E32A9", "--no-voice", "--no-messages"]
 run_seconds = 60
 order = [[
-  { re = 'VeronicaREF says 0x0015B6D0', label = "Veronica: 'Hold on, I've got this.'" },
-  { re = 'VeronicaREF: starts a conversation with .*FollowersVeronicaForceGreetIntercom', label = "her package starts the conversation with the intercom" },
+  { re = 'walks up to HVIntercomREF to talk \(FollowersVeronicaForceGreetIntercom\)', label = "her package walks her to the intercom" },
+  { re = 'starts a conversation with HVIntercomREF from \d+ units \(FollowersVeronicaForceGreetIntercom\)', label = "and starts the conversation with it" },
   { re = 'VeronicaREF says 0x0015B6D1', label = "she orders at the intercom" },
   { re = 'RamosREF says 0x0015B6D2', label = "Ramos answers through it" },
   { re = 'VeronicaREF says 0x0015B6D3', label = "she insists" },
   { re = 'RamosREF says 0x0015B6D4', label = "Ramos opens up" },
 ]]
+expect = [
+  { re = 'door 0x000DA1C6 opening', label = "0015B6D3's end script opens the inner door HVOuterLockedDoor" },
+]
 
 [[scenario]]
 name = "restrained-dialogue-package"

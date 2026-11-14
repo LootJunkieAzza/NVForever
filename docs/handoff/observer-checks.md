@@ -1982,3 +1982,13 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      what does she say on it? The same for one actor each of MaleAdult10-12 and
      FemaleAdult12 without a Goodbye line of their own. If she offers none, the gate
      takes a quest's GetIsID (and what else?) but not its voice-type list.
+
+## Added 2026-11-14 (Goodbye lines between NPCs, #2451)
+
+132. **Does a conversation between NPCs go on past a Goodbye line that links on?** (P2;
+     #2451, dialogue.md §5.1.) Ours: yes, a Goodbye line ends it only when it has no
+     Link To or follow-up [hypothesis]. To check: with Veronica hired, walk into
+     VHiddenValleyVeronicaEnterTrigger (0015B6D7) at the Hidden Valley bunker and record
+     which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
+     HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
+     INFO 000CD8A9 and after, said after part 4, 0008D401?).

@@ -218,6 +218,15 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **NPC conversations go on past a Goodbye line that links on (#2451).** [hypothesis,
+  #2451] The editor's documentation says a Goodbye line ends a conversation between
+  NPCs; ours ends it only when the line links nowhere, because the data needs it:
+  Veronica and Ramos's exchange at the Hidden Valley intercom (all its lines Goodbye)
+  opens the bunker only at its third line, and Jason Bright's speech continues past a
+  Goodbye part. NPCs' Dialogue packages that talk to another NPC or an intercom are now
+  carried out too (also the Strip's street scenes). Check in game that Veronica walks
+  to the intercom, the exchange plays out and the inner door opens.
+  ([dialogue §5.1](spec-notes/dialogue.md))
 - **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
