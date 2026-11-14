@@ -551,7 +551,7 @@ pub(crate) fn show_actor(
         // 1110e: one "moves with no movement clip" line per actor at its enable).
         let placed = step.length() > PLACED_STEP.max(PLACED_SPEED * dt);
         if placed && moving {
-            info!("nav: {reference:08X} put {:.0} units on in one frame: placed, not walked", step.length());
+            info!("nav: {reference:08X} put {:.0} units on in one frame: placed, not walked{}", step.length(), if found_now { " (its body just found)" } else { "" });
         }
         let turned = (heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         if let Some((velocity, turn)) = step_motion(step, turned, heading, t.scale.x.max(1e-3), dt, moving && !placed, strafe, jumped || found_now) {

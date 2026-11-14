@@ -56,6 +56,11 @@ fn same_summon(a: &Effect, b: &Effect) -> bool {
     }
 }
 
+/// Whether a script's move `since` seconds after `last` is the same trip again (item 185).
+fn again(since: f32, last: &Effect, now: &Effect) -> bool {
+    since < SUMMON_SAME && same_summon(last, now)
+}
+
 /// How often the host sends changes and actor poses.
 const TICK: f32 = 0.05;
 /// How often the host goes over every reference it holds near each guest.
@@ -116,6 +121,10 @@ pub(super) struct Repl {
     /// wait"): sent as a story wait for the host's own player until each is near
     /// (`scene::share_scene`), while story NPCs are held (`Game::story_gate`).
     pub wait_for: Vec<u8>,
+    /// The host's: the last script's move that took no guest along, and when: the same
+    /// move again within [`SUMMON_SAME`] is the same trip (s182: Dead Money's bunker moved
+    /// the host 13 times in one second, each logged "player 2 too far").
+    left_behind: Option<(f32, Effect)>,
     /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
     /// those the host sent, to take off here ([`dismember_in`]).
     dismembered: Vec<Effect>,
@@ -501,6 +510,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     if !r.summoned.is_empty() && r.summoned.values().all(|(at, last)| now - at < SUMMON_SAME && same_summon(last, &summon)) {
                         return None;
                     }
+                    if r.left_behind.as_ref().is_some_and(|(at, last)| again(now - at, last, &summon)) {
+                        return None;
+                    }
                     // Only the guests within sight of where the host stood go along
                     // (owner, 2026-11-09: a cutscene pulls in the players within sight).
                     let (near, far) = near_guests(r.host_was, &guests);
@@ -511,6 +523,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                         if near.is_empty() { "no guest within sight".to_string() } else { names(&near) },
                         if far.is_empty() { String::new() } else { format!("; {} too far, left where they are", names(&far)) }
                     );
+                    r.left_behind = near.is_empty().then(|| (now, summon.clone()));
                     if !near.is_empty() {
                         summons.push((summon, near));
                     }
@@ -941,6 +954,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         hostile: s.hostile,
                         space: s.space,
                     };
+                    if super::traced(p.reference) {
+                        info!("co-op trace: {:08X} pose heard at {now:.3}: ({:.0}, {:.0}, {:.0})", p.reference, n.feet[0], n.feet[1], n.feet[2]);
+                    }
                     let t = coop.npcs.entry(p.reference).or_default();
                     t.samples.push_back((now, n));
                     while t.samples.len() > 8 {
@@ -1460,6 +1476,18 @@ mod tests {
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 300.0)), "farther than a step");
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0, 0xDA726, 0.0)), "another place");
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &Effect::Rules { friendly_fire: true }));
+    }
+
+    /// The same move again within a moment is the same trip, taken or not (s182: 13 moves
+    /// to Dead Money's bunker in one second, each "player 2 too far"); later, or elsewhere,
+    /// it is a new one.
+    #[test]
+    fn the_same_move_again_soon_is_one_trip() {
+        let at = |x: f32| Effect::Summon { interior: 0x1555FD, world: 0, pos: [x, 0.0, 0.0], yaw: 0.0 };
+        assert!(again(0.02, &at(0.0), &at(0.0)));
+        assert!(again(1.9, &at(0.0), &at(10.0)));
+        assert!(!again(2.5, &at(0.0), &at(0.0)), "a later move is another trip");
+        assert!(!again(0.1, &at(0.0), &at(500.0)), "a move elsewhere is another trip");
     }
 
     #[test]

@@ -276,10 +276,28 @@ const NPC_JUMP_SPEED: f32 = 2000.0;
 /// it counts as a jump [design: a run's speed-ups and the states' jitter; the fastest
 /// runner seen, a cazador, runs 955 units/s, observed: creature pace logs].
 const NPC_RUN_ROOM: f32 = 1.5;
-/// States further apart in time than this (seconds, over three rounds of
-/// [`net::NPC_HZ`]) with a move of more than [`NPC_JUMP`] between them: the host did not
-/// send it meanwhile (faded out, disabled for the move), so it is put there too.
-const NPC_GAP: f32 = 0.35;
+/// States further apart in time than this (seconds) with a move of more than
+/// [`NPC_JUMP`] between them: the host did not send it meanwhile (faded out, disabled for
+/// the move), so it is put there too. Two rounds of the slowest rate the host sends an
+/// actor's pose at (3 Hz, far from the guest: `repl::pose_hz`): at three rounds of
+/// [`net::NPC_HZ`] (0.35 s) every pose of a far actor running came after a "gap", and a
+/// guest held the Dead Horses still and put them 131-166 units on about every 0.36 s
+/// (laptop deadhorse-look 74bac664, item 187 (a)) [observed].
+const NPC_GAP: f32 = 2.0 / SLOWEST_POSE_HZ;
+/// How long (seconds) a guest carries a moving NPC on past its newest state, waiting for
+/// the next: one round of the slowest pose rate [design].
+const NPC_CARRY_ON: f32 = 1.0 / SLOWEST_POSE_HZ;
+/// The slowest rate (Hz) the host sends an actor's pose to a guest at (`repl::pose_hz`).
+const SLOWEST_POSE_HZ: f32 = 3.0;
+/// How many of its own rounds behind its newest state a guest draws an NPC whose states
+/// come further apart than [`NPC_DELAY`] allows for, up to [`NPC_DELAY_MAX`] seconds: drawn
+/// between two states, not held at the newest until the next comes [design].
+const NPC_DELAY_ROUNDS: f32 = 1.5;
+const NPC_DELAY_MAX: f32 = 0.6;
+/// The time (seconds) a guest takes to go over to another delay when an NPC's states come
+/// faster or slower (it comes nearer or into view): the drawn copy runs a little slower
+/// or faster meanwhile instead of jumping back or on [design].
+const NPC_DELAY_EASE: f32 = 1.0;
 /// The least time between two of an NPC's states on a guest, in rounds of
 /// [`net::NPC_HZ`] [design: under one round, so stamps on time do not drift later than
 /// they came; [`NPC_DELAY`] is two rounds, so a spaced state is still blended to].
@@ -323,6 +341,7 @@ impl Plugin for CoopPlugin {
             npcs: HashMap::new(),
             npc_attacks: HashMap::new(),
             ai_was_off: None,
+            joining_held: false,
             host_quest: None,
             quest_untold: None,
             host_place: None,
@@ -380,6 +399,7 @@ impl Plugin for CoopPlugin {
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host, syncing::syncing).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
+            .add_systems(Update, hold_joining_world.before(nvf_play::PlaySet::Scripts))
             .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
@@ -505,6 +525,9 @@ pub(crate) struct Coop {
     npc_attacks: HashMap<u32, u8>,
     /// A guest following the host's world: whether this game's actors' AI was off before.
     ai_was_off: Option<bool>,
+    /// A joining guest: its own world logic is held until it is flagged a guest
+    /// ([`hold_joining_world`]).
+    joining_held: bool,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
     /// A guest's: the host's quest as its messages last told it, while messages for a
@@ -601,12 +624,44 @@ pub(crate) struct Coop {
 #[derive(Default)]
 struct NpcTrack {
     samples: VecDeque<(f32, NpcState)>,
+    /// How far behind its newest state it is drawn (seconds; 0 until first drawn):
+    /// [`eased_delay`].
+    delay: f32,
     /// The attack counter played up to (None until the first state).
     played: Option<u8>,
     attacked_at: Option<f32>,
 }
 
+/// The host's NPCs whose every state heard and pose drawn a guest logs
+/// (`NVF_COOP_NPC_TRACE`: hex references, comma-separated), to see how the states of one
+/// come in (item 187 (a): the Dead Horses put about 150 units on every 0.36 s on a guest).
+fn traced(r: u32) -> bool {
+    static LIST: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| std::env::var("NVF_COOP_NPC_TRACE").map(|v| v.split(',').filter_map(|s| u32::from_str_radix(s.trim(), 16).ok()).collect()).unwrap_or_default())
+        .contains(&r)
+}
+
+/// How far behind its newest state a guest draws an NPC this frame (seconds): from
+/// `delay`, eased over [`NPC_DELAY_EASE`] towards [`NPC_DELAY_ROUNDS`] of the time between
+/// its states (`spacing`), at least [`NPC_DELAY`] and at most [`NPC_DELAY_MAX`].
+fn eased_delay(delay: f32, spacing: f32, dt: f32) -> f32 {
+    let target = (spacing * NPC_DELAY_ROUNDS).clamp(NPC_DELAY, NPC_DELAY_MAX);
+    if delay <= 0.0 {
+        return target;
+    }
+    delay + (target - delay) * (dt / NPC_DELAY_EASE).clamp(0.0, 1.0)
+}
+
 impl NpcTrack {
+    /// The time between its states as they came (seconds; [`NPC_DELAY`]'s round when
+    /// fewer than two).
+    fn spacing(&self) -> f32 {
+        match (self.samples.front(), self.samples.back()) {
+            (Some((a, _)), Some((b, _))) if self.samples.len() > 1 => (b - a) / (self.samples.len() - 1) as f32,
+            _ => 1.0 / net::NPC_HZ as f32,
+        }
+    }
+
     /// A state heard at `now`. States heard in one frame (one late, the next on time) are
     /// spaced [`NPC_SPACING`] of a round apart, not given the same time: blended over no
     /// time, the second was put on at once, and the Nipton survivor running about 516
@@ -623,10 +678,28 @@ impl NpcTrack {
     /// Where to draw it at `t`: feet and heading blended between the states either side.
     /// `top`: the fastest it moves walking or running (units/s); a move faster than that
     /// (and longer than [`NPC_JUMP`]) is a jump.
+    /// Past its newest state while it was moving: carried on as it went between its last
+    /// two states, for at most [`NPC_CARRY_ON`] seconds, rather than held there until the
+    /// next comes. When its states come further apart all at once (from 10 Hz to 3 Hz as
+    /// it goes far from the guest), its delay is still short and the newest state is
+    /// passed: a guest held 0100B824 and put it 22-65 units on about every 0.35 s for a
+    /// second or two (laptop deadhorse-look d7992be2, item 187 (a)) [observed].
+    fn carried_on(&self, t: f32, top: f32) -> Option<([f32; 3], f32, bool)> {
+        let n = self.samples.len();
+        let ((ta, a), (tb, b)) = (*self.samples.get(n.checked_sub(2)?)?, *self.samples.back()?);
+        let span = tb - ta;
+        let gap = (0..3).map(|k| (b.feet[k] - a.feet[k]).powi(2)).sum::<f32>().sqrt();
+        if !b.has(npc_flag::MOVING) || a.space != b.space || span <= 1e-3 || span > NPC_GAP || gap / span > top {
+            return None;
+        }
+        let k = (t - tb).clamp(0.0, NPC_CARRY_ON) / span;
+        Some((std::array::from_fn(|i| b.feet[i] + (b.feet[i] - a.feet[i]) * k), b.heading, true))
+    }
+
     fn pose(&self, t: f32, top: f32) -> Option<([f32; 3], f32, bool)> {
         let last = self.samples.back()?.1;
         let (a, b, f) = match self.samples.iter().position(|(at, _)| *at > t) {
-            None => return Some((last.feet, last.heading, false)),
+            None => return Some(self.carried_on(t, top).unwrap_or((last.feet, last.heading, false))),
             Some(0) => return Some((self.samples[0].1.feet, self.samples[0].1.heading, false)),
             Some(i) => {
                 let (ta, a) = self.samples[i - 1];
@@ -1834,7 +1907,25 @@ fn take_events(
             }
             Event::Npcs(list) => {
                 for n in list {
-                    coop.npcs.entry(n.reference).or_default().heard(now, n);
+                    let track = coop.npcs.entry(n.reference).or_default();
+                    // A state after a pause in the host's (more than three rounds) that
+                    // puts it far on: where a guest's copy is then put at once
+                    // ([`NpcTrack::pose`]), to tell what the host did meanwhile.
+                    if let Some(&(last, was)) = track.samples.back() {
+                        let far = (0..3).map(|k| (n.feet[k] - was.feet[k]).powi(2)).sum::<f32>().sqrt();
+                        if now - last > NPC_GAP && far > NPC_JUMP {
+                            info!("co-op: {:08X} heard again after {:.2} s, {far:.0} units from its last state", n.reference, now - last);
+                        } else if far > NPC_JUMP && far > NPC_JUMP_SPEED / 2.0 * (now - last).max(1e-3) {
+                            // On time but far on: what the host drew it doing (item 187 (a):
+                            // the Dead Horses put 153-160 units on a guest, no pause heard).
+                            info!("co-op: {:08X} heard {far:.0} units on from its last state in {:.2} s", n.reference, now - last);
+                        }
+                    }
+                    track.heard(now, n);
+                    if traced(n.reference) {
+                        let at = track.samples.back().map_or(now, |(at, _)| *at);
+                        info!("co-op trace: {:08X} heard at {now:.3} as {at:.3}: ({:.0}, {:.0}, {:.0}) flags {}", n.reference, n.feet[0], n.feet[1], n.feet[2], n.flags);
+                    }
                 }
             }
             // A guest's, as its actor's in this world (module notes).
@@ -2280,7 +2371,7 @@ fn share_npcs(
     actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>, Option<&crate::outfits::Dressed>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
-    mut told: Local<usize>,
+    (mut told, mut sent_at): (Local<usize>, Local<HashMap<u32, [f32; 3]>>),
     (mut sim, actor_world, time): (Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>, Res<Time>),
     (residents, streamer, world, mut script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<ResMut<nvf_play::script::ScriptState>>),
 ) {
@@ -2370,6 +2461,14 @@ fn share_npcs(
         // deadhorse-spears b015).
         let on = on.filter(|f| !f.leaving());
         flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
+        // Drawn here further on than last frame than any run goes (item 187 (a): a guest
+        // put the Dead Horses 153-160 units on with no pause in these states).
+        if let Some(was) = sent_at.insert(r, t.translation.to_array()) {
+            let far = (t.translation.x - was[0]).hypot(t.translation.y - was[1]);
+            if far > NPC_JUMP {
+                info!("co-op: {r:08X} drawn here {far:.0} units on from last frame (sent so){}", if on.is_some() { ", on furniture" } else { "" });
+            }
+        }
         let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
         npcs.push(NpcState {
             reference: r,
@@ -2451,8 +2550,13 @@ fn share_npcs(
     let sending: HashSet<u32> = npcs.iter().map(|n| n.reference).collect();
     coop.sent_npcs.retain(|r, since| {
         if sending.contains(r) {
-            *since = None;
+            if since.take().is_some() {
+                info!("co-op: {r:08X} drawn here again: its own state goes to the guests");
+            }
             return true;
+        }
+        if since.is_none() {
+            info!("co-op: {r:08X} not drawn here: sent from where its AI has it for {NPC_LINGER} s");
         }
         now_secs - *since.get_or_insert(now_secs) < NPC_LINGER
     });
@@ -2612,6 +2716,38 @@ fn follow_looks(
             Err(e) => warn!("co-op: {id} cannot be dressed as the host's game has it: {e}"),
         }
         coop.wear_taken.insert(r, items);
+    }
+}
+
+/// Whether a joining guest's own world logic is held: from the host's welcome
+/// (`joining`, `nvf_play::save::KeepSolo`) until the game is first flagged a guest
+/// (`seen_guest`; [`follow_npcs`] then turns it off itself), while the link is a guest's.
+fn holds_joining_world(joining: bool, seen_guest: bool, link_guest: bool) -> bool {
+    joining && !seen_guest && link_guest
+}
+
+/// A joining guest runs none of its own world logic from the host's welcome: it is
+/// flagged a guest ([`follow_npcs`]) only once its own game was kept
+/// (`nvf_play::save::SoloBase`), after the first frame past the loading screen, and that
+/// frame ran its own quests. s182 (desktop two-window run, 2026-11-13): Dead Money's
+/// NVDLC01MQ00 moved the joining guest out of the Sierra Madre bunker to the Mojave there
+/// (its own bTeleportOut was still 0), so the host's later move to the bunker's trigger
+/// left it "too far". Its triggers are held the same way (`script_trigger::held_for_guest`).
+fn hold_joining_world(mut coop: ResMut<Coop>, joining: Option<Res<nvf_play::save::KeepSolo>>, mut script: Option<ResMut<nvf_play::script::ScriptState>>, mut seen_guest: Local<bool>) {
+    let Some(g) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    *seen_guest |= g.coop_guest;
+    let hold = holds_joining_world(joining.is_some(), *seen_guest, coop.is_guest());
+    if hold {
+        if !coop.joining_held {
+            info!("replication: joining: this game's own world logic is held until the host's world reaches it");
+        }
+        coop.joining_held = true;
+        g.world_logic_off = true;
+        g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
+    } else if coop.joining_held && !g.coop_guest {
+        info!("replication: joining ended before the host's world reached this game: its own world logic runs again");
+        coop.joining_held = false;
+        g.world_logic_off = false;
     }
 }
 
@@ -2790,8 +2926,9 @@ fn follow_npcs(
     // Kept off (a console `tai` would turn it back on).
     g.toggles.actors_ai_off = true;
     g.coop_guest = true;
-    // Replication (phase 4): the host runs the world's logic, this game draws it.
-    if !g.world_logic_off {
+    // Replication (phase 4): the host runs the world's logic, this game draws it (held
+    // already while joining, [`hold_joining_world`]).
+    if !g.world_logic_off || std::mem::take(&mut coop.joining_held) {
         g.world_logic_off = true;
         g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
         info!("replication: this guest runs no world logic (story plugins {:?}); the host's world is drawn", g.story_plugins);
@@ -2813,9 +2950,10 @@ fn follow_npcs(
         }
     }
     coop.npcs.retain(|_, t| t.samples.back().is_some_and(|(at, _)| now - at < NPC_FORGET));
+    let dt = time.delta_secs();
     let poses: HashMap<u32, RemotePose> = coop
         .npcs
-        .iter()
+        .iter_mut()
         .filter_map(|(&r, t)| {
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             // Not a dead one's: Chet, killed on the host, sat down on his chair again on a
@@ -2826,7 +2964,12 @@ fn follow_npcs(
             // and the Legion sniper's enables and first states at the Hoover Dam were
             // blended from where they were placed at 1165-1399 units/s (laptop 1110d).
             let top = residents.as_deref().and_then(|res| res.top_speed(r)).map_or(NPC_JUMP_SPEED, |run| (run * NPC_RUN_ROOM).min(NPC_JUMP_SPEED));
-            t.pose(now - NPC_DELAY, top).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
+            t.delay = eased_delay(t.delay, t.spacing(), dt);
+            let pose = t.pose(now - t.delay, top);
+            if let (true, Some((feet, _, moving))) = (traced(r), pose) {
+                info!("co-op trace: {r:08X} drawn at {now:.3} for {:.3} (top {top:.0}): ({:.0}, {:.0}, {:.0}) moving {moving}", now - t.delay, feet[0], feet[1], feet[2]);
+            }
+            pose.map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
         })
         .collect();
     if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
@@ -3880,6 +4023,19 @@ fn act(
 mod tests {
     use super::*;
 
+    /// s182: a joining guest's own quests are held from the host's welcome until it is
+    /// flagged a guest (Dead Money's MQ00 moved it out of the bunker on that first frame);
+    /// a plain game, or one already a guest (the flag's own hold), or one whose link is
+    /// gone, holds nothing here.
+    #[test]
+    fn a_joining_guest_runs_no_world_logic_before_the_guest_flag() {
+        use super::holds_joining_world;
+        assert!(holds_joining_world(true, false, true), "welcomed, not yet flagged a guest");
+        assert!(!holds_joining_world(false, false, true), "not welcomed yet");
+        assert!(!holds_joining_world(true, true, true), "flagged a guest once: follow_npcs holds it");
+        assert!(!holds_joining_world(true, false, false), "the link is gone or a host's");
+    }
+
     fn speech(speaker: u32, target: Option<u32>, remaining: f64) -> fnv_game::game::Speech {
         let mut s = lines_in(&[net::LineView { speaker, target: 0, topic: 0x10, info: 0x11, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).remove(0);
         s.target = target.map(FormId);
@@ -3919,6 +4075,87 @@ mod tests {
             ok.heard(k as f32 * 0.1, state(k as f32 * 52.0));
         }
         assert!(ok.samples.iter().enumerate().all(|(k, s)| (s.0 - k as f32 * 0.1).abs() < 1e-6));
+    }
+
+    /// A Dead Horse running about 430 units/s far from the guest, its poses sent at 3 Hz
+    /// (every 6 or 7 ticks of 0.05 s): drawn frame by frame, it runs on every frame and
+    /// is never held still and put 131-166 units on (laptop deadhorse-look 74bac664).
+    #[test]
+    fn a_far_npc_sent_at_three_hz_runs_smoothly() {
+        let state = |x: f32| net::NpcState { reference: 0x0100_B824, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: npc_flag::MOVING, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 7 };
+        let run = 430.0;
+        let top = run * NPC_RUN_ROOM;
+        let mut t = NpcTrack::default();
+        let (mut now, mut next_sent, mut ticks) = (0.0f32, 0.0f32, 0u32);
+        let mut last: Option<f32> = None;
+        while now < 6.0 {
+            if now >= next_sent {
+                // As `replication` pushes a pose: stamped when it came.
+                t.samples.push_back((now, state(now * run)));
+                while t.samples.len() > 8 {
+                    t.samples.pop_front();
+                }
+                ticks += 1;
+                next_sent += if ticks % 2 == 0 { 0.30 } else { 0.35 };
+            }
+            t.delay = eased_delay(t.delay, t.spacing(), 1.0 / 60.0);
+            let x = t.pose(now - t.delay, top).unwrap().0[0];
+            if let (Some(l), true) = (last, now > 1.5) {
+                let step = x - l;
+                assert!(step < 48.0, "put {step:.0} units on at {now:.2} s (delay {:.2})", t.delay);
+                assert!(step > 0.0, "held still at {now:.2} s (delay {:.2})", t.delay);
+            }
+            last = Some(x);
+            now += 1.0 / 60.0;
+        }
+        // Its delay settled at one and a half of its rounds.
+        assert!((t.delay - 0.325 * NPC_DELAY_ROUNDS).abs() < 0.05, "delay {}", t.delay);
+    }
+
+    /// Running on as it goes far from the guest: its poses come at 10 Hz, then at 3 Hz.
+    /// Drawn frame by frame, no frame puts it more than a few frames' run on, and it is
+    /// not held still (laptop deadhorse-look d7992be2: 22-65 unit steps every 0.35 s).
+    #[test]
+    fn an_npc_whose_poses_slow_down_runs_on_smoothly() {
+        let state = |x: f32| net::NpcState { reference: 0x0100_B824, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: npc_flag::MOVING, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 7 };
+        let run = 430.0;
+        let mut t = NpcTrack::default();
+        let (mut now, mut next_sent) = (0.0f32, 0.0f32);
+        let mut last: Option<f32> = None;
+        let mut biggest = 0.0f32;
+        while now < 8.0 {
+            if now >= next_sent {
+                t.samples.push_back((now, state(now * run)));
+                while t.samples.len() > 8 {
+                    t.samples.pop_front();
+                }
+                next_sent += if now < 3.0 { 0.1 } else { 0.35 };
+            }
+            t.delay = eased_delay(t.delay, t.spacing(), 1.0 / 60.0);
+            let x = t.pose(now - t.delay, run * NPC_RUN_ROOM).unwrap().0[0];
+            if let (Some(l), true) = (last, now > 0.5) {
+                biggest = biggest.max((x - l).abs());
+                assert!(x - l > -1.0, "went back {:.0} units at {now:.2} s", l - x);
+            }
+            last = Some(x);
+            now += 1.0 / 60.0;
+        }
+        // A frame's run is 7 units; a correction when a pose comes stays far under the
+        // 48 units a frame that count as a placement.
+        assert!(biggest < 24.0, "largest step {biggest:.0}");
+    }
+
+    #[test]
+    fn the_delay_eases_to_its_rounds_within_bounds() {
+        // First drawn: at once.
+        assert_eq!(eased_delay(0.0, 0.1, 1.0 / 60.0), NPC_DELAY);
+        assert_eq!(eased_delay(0.0, 2.0, 1.0 / 60.0), NPC_DELAY_MAX);
+        // From 10 Hz to 3 Hz: a sixtieth of the way in a frame, all of it in a second.
+        let d = eased_delay(NPC_DELAY, 0.35, 1.0 / 60.0);
+        assert!(d > NPC_DELAY && d < NPC_DELAY + 0.01, "{d}");
+        assert!((eased_delay(NPC_DELAY, 0.35, NPC_DELAY_EASE) - 0.525).abs() < 1e-4);
+        // The far actor's 3 Hz rounds are no gap.
+        const { assert!(NPC_GAP > 0.35 * 1.5) };
     }
 
     #[test]

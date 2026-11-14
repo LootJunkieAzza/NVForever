@@ -889,6 +889,19 @@ pub fn drive_actors(
                             Some((_, ends)) => UseFrames { clip: on.exit_frame.unwrap_or(clip_frame), on: on.plan.frames.on }.after(ends, on.plan.standing_yaw),
                             None => Frame { pos: on.plan.entry.pos, heading: on.plan.entry.heading },
                         };
+                        // How far the root is put at the end, from where the clip's last frame
+                        // had it (to tell a drawn jump from the clip's own Bip01 offset).
+                        if let Some((_, ends)) = &on.get_off {
+                            let travel = Vec3::from_array(ends.stop.bip01) - Vec3::from_array(ends.start.bip01);
+                            let last = on.exit_frame.unwrap_or(clip_frame).point([travel.x, travel.y, 0.0]);
+                            let put = (end.pos[0] - last[0]).hypot(end.pos[1] - last[1]);
+                            if put > 10.0 {
+                                info!(
+                                    "furniture: {:08X} off {:08X}: its root put {put:.0} units at the clip's end (Bip01 starts {:.0}, {:.0} and stops {:.0}, {:.0} off the root)",
+                                    on.who.reference, on.plan.furniture, ends.start.bip01[0], ends.start.bip01[1], ends.stop.bip01[0], ends.stop.bip01[1]
+                                );
+                            }
+                        }
                         let end = Frame { pos: [end.pos[0] + on.shift[0], end.pos[1] + on.shift[1], end.pos[2]], heading: end.heading };
                         place(end);
                         if let Some(tr) = nav.as_deref_mut().and_then(|n| n.travellers.iter_mut().find(|tr| tr.reference == on.who.reference)) {
