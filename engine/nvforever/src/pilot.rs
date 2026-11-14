@@ -131,6 +131,7 @@
 //!      line's end script unlocks the door); no step of the headless chain goes near it;
 //!   3. any other reference within [`BESIDE_DOOR`] whose script has an OnActivate block
 //!      and that is no actor: the button a player would press.
+//!
 //!   One further off than [`NEAR_TARGET`] is walked to first; a nearer one is used from
 //!   where the player stands (the crosshair is not asked). Not yet: a terminal that
 //!   opens a door (its menu would have to be worked). A conversation that begins on
@@ -1110,7 +1111,15 @@ fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f3
 /// What a player would use to open a door that stays locked (module notes), not used
 /// for it yet on this walk: the reference, where it is, how far from the door, and what
 /// it is in words.
-fn door_switch(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, Option<FormId>, [f32; 3], f32, &'static str)> {
+/// A switch for a door: the reference, its cell, where it is, how far from the door, and
+/// what it is in words.
+type Switch = (FormId, Option<FormId>, [f32; 3], f32, &'static str);
+/// A terminal for a door: the terminal, the menu, the entry, its cell and where it is.
+type DoorTerminal = (FormId, FormId, usize, Option<FormId>, [f32; 3]);
+/// Where an item was found: how far, the holder or the item, its cell, where, lying.
+type Found = (f32, FormId, Option<FormId>, [f32; 3], bool);
+
+fn door_switch(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<Switch> {
     use fnv_script::unit::RefSlot;
     if used.iter().filter(|(_, d)| *d == door).count() >= SWITCHES {
         return None;
@@ -1145,7 +1154,7 @@ fn door_switch(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, Opti
 
 /// A terminal of the door's cell with an entry whose result script names the door: the
 /// terminal, the menu the entry is on, the entry, and where the terminal is.
-fn door_terminal(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<(FormId, FormId, usize, Option<FormId>, [f32; 3])> {
+fn door_terminal(g: &Game, door: u32, used: &[(u32, u32)]) -> Option<DoorTerminal> {
     use fnv_script::unit::RefSlot;
     let (cell, at) = where_is(g, FormId(door))?;
     let refs = g.world.placed.by_cell.get(&cell?)?;
@@ -1928,7 +1937,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 p.mark_items = have;
                 p.part = 1;
             }
-            if have >= p.mark_items + *count as i32 || (p.part == 1 && have >= *count as i32 && find_item_none(&found)) {
+            if have >= p.mark_items + *count || (p.part == 1 && have >= *count && find_item_none(&found)) {
                 info!("pilot: step {}: the player carries {have} {item}", p.i);
                 return Some(None);
             }
@@ -1936,7 +1945,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 Some((from, cell, pos, lying)) if p.part == 1 => {
                     let space = cell.and_then(|c| crate::nav::space_of_cell(world, c.0)).unwrap_or(space_of(h.location));
                     info!("pilot: step {}: {item} is to be found: the player goes for it", p.i);
-                    p.errand = Some((Errand::Take { from, item: it, count: *count as i32, lying }, walk_to(Place { space, pos }, None, NEAR_TARGET, p.now, feet), p.now, 0));
+                    p.errand = Some((Errand::Take { from, item: it, count: *count, lying }, walk_to(Place { space, pos }, None, NEAR_TARGET, p.now, feet), p.now, 0));
                     p.part = 2;
                     None
                 }
@@ -2115,7 +2124,7 @@ fn worth_taking(g: &Game, body: FormId) -> Vec<(FormId, i32)> {
 /// lies: the holder (or the item's own reference), its cell and place, and whether it
 /// lies in the world.
 fn find_item(g: &Game, item: FormId, feet: [f32; 3]) -> Option<(FormId, Option<FormId>, [f32; 3], bool)> {
-    let mut found: Vec<(f32, FormId, Option<FormId>, [f32; 3], bool)> = Vec::new();
+    let mut found: Vec<Found> = Vec::new();
     for (r, state) in g.world.changed() {
         if r == FormId::PLAYER_REF {
             continue;
@@ -2683,11 +2692,9 @@ fn drive(
                 }
             }
         }
-        if p.errand.is_some() {
-            if !run_errand(p, &mut h) {
-                p.step_from += dt as f64;
-                return;
-            }
+        if p.errand.is_some() && !run_errand(p, &mut h) {
+            p.step_from += dt as f64;
+            return;
         }
     }
     // A terminal left open by a `terminal` step is left when another kind of step follows.
