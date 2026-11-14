@@ -28157,8 +28157,14 @@ areas = ["ai", "schedule"]
 paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "12:call:-:SetStage:VCG01:200" }
 args = ["--play", "--new-game", "--no-voice", "--no-messages"]
-run_seconds = 60
+run_seconds = 70
 expect = [
   "new game: VCG00 started at stage 0",
 ]
+order = [[
+  { re = 'ai \[23:\d\d\] VERT2NightStalkerSmallWalkingBox01REF: put at .+ by a script \(MoveTo\)', label = "the night branch puts the stalkers out at 23:00" },
+  { re = 'ai \[08:00\] the clock was set from 23:\d\d to 08:00 by a script: packages chosen again', label = "the clock set to 08:00 has everyone choose a package again (#2353)" },
+  { re = 'ai \[08:\d\d\] VERT2NightStalkerSmallWalkingBox01REF: put at .+ by a script \(MoveTo\)', label = "the day branch takes the stalkers to their rest marker" },
+  { re = 'ai summary at 08:[23]\d: .* 0 unreachable', label = "half an hour into the morning nobody has failed to reach a place" },
+]]
 forbid = [{ re = 'cannot reach the place of VSpecial\w*StalkerHunters', label = "a night stalker tries a raid route it cannot reach" }]
