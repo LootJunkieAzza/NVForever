@@ -17,7 +17,10 @@
 //!    this growth the terminal, the figure, the gun and its flash are one piece].
 //! 3. The lines: the figure closed (grown by [`CLOSE`], then shrunk by as much, which fills
 //!    the lines left out of it), grown by [`EDGE`] more so its outside edge is a line about
-//!    as wide as those inside it, less the figure.
+//!    as wide as those inside it, less the figure; and every space the figure closes in,
+//!    whatever its size, so the wide shapes left out of it (the "21" on the back) are solid,
+//!    not outlined [parity's comparison of a771c5caf]. The picture's small light spaces
+//!    (between the keyboard's keys) stay, so its fine lines do not run together.
 //! 4. Every line thickened evenly by [`THICK`] texels with a soft edge one texel wide: each
 //!    texel's alpha from its distance to the nearest line (straight-line distances, not
 //!    square ones, so curves stay round).
@@ -76,7 +79,9 @@ fn made(rgba: &[u8], w: usize, h: usize) -> Option<(Vec<u8>, Frame)> {
     let figure: Vec<bool> = figure.iter().zip(&keep).map(|(f, k)| *f && *k).collect();
     let outside: Vec<bool> = near(&figure, CLOSE).iter().map(|g| !*g).collect();
     let closed: Vec<bool> = near(&outside, CLOSE).iter().map(|g| !*g).collect();
-    let lines: Vec<bool> = near(&closed, EDGE).iter().zip(&figure).map(|(s, f)| *s && !*f).collect();
+    let gaps: Vec<bool> = figure.iter().map(|f| !*f).collect();
+    let inside = closed_in(&gaps, w2, h2);
+    let lines: Vec<bool> = near(&closed, EDGE).iter().zip(&figure).zip(&inside).map(|((s, f), i)| (*s && !*f) || *i).collect();
     let mut out: Vec<f32> = distance(&lines, w2, h2).into_iter().map(|d| (THICK + 0.5 - d).clamp(0.0, 1.0)).collect();
     let open: Vec<bool> = out.iter().zip(&figure).map(|(a, f)| *a <= 0.5 && !*f).collect();
     if let Some(screen) = largest(&open, w2, h2, true) {
@@ -203,17 +208,18 @@ fn squared_1d(f: &[f64]) -> Vec<f64> {
     out
 }
 
-/// The largest piece of the mask (texels joined side by side); with `closed_in`, of the
-/// pieces that do not reach the picture's edge only. None when there is none.
-fn largest(m: &[bool], w: usize, h: usize, closed_in: bool) -> Option<Vec<bool>> {
+/// The pieces of the mask (texels joined side by side): each texel's piece (0 for none,
+/// else 1 and up) and each piece's size and whether it reaches the picture's edge.
+fn pieces(m: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<(usize, bool)>) {
     let mut piece = vec![0u32; w * h];
-    let (mut best, mut best_size, mut next) = (0u32, 0usize, 0u32);
+    let mut info = Vec::new();
     let mut queue = VecDeque::new();
     for start in 0..w * h {
         if !m[start] || piece[start] != 0 {
             continue;
         }
-        next += 1;
+        info.push((0, false));
+        let next = info.len() as u32;
         piece[start] = next;
         queue.push_back(start);
         let (mut size, mut edge) = (0, false);
@@ -229,11 +235,23 @@ fn largest(m: &[bool], w: usize, h: usize, closed_in: bool) -> Option<Vec<bool>>
                 }
             }
         }
-        if size > best_size && !(closed_in && edge) {
-            (best, best_size) = (next, size);
-        }
+        info[next as usize - 1] = (size, edge);
     }
-    (best_size > 0).then(|| piece.iter().map(|p| *p == best).collect())
+    (piece, info)
+}
+
+/// The largest piece of the mask; with `closed_in`, of the pieces that do not reach the
+/// picture's edge only. None when there is none.
+fn largest(m: &[bool], w: usize, h: usize, closed_in: bool) -> Option<Vec<bool>> {
+    let (piece, info) = pieces(m, w, h);
+    let best = info.iter().enumerate().filter(|(_, (_, edge))| !(closed_in && *edge)).max_by_key(|(_, (size, _))| *size)?.0 as u32 + 1;
+    Some(piece.iter().map(|p| *p == best).collect())
+}
+
+/// Every piece of the mask that does not reach the picture's edge.
+fn closed_in(m: &[bool], w: usize, h: usize) -> Vec<bool> {
+    let (piece, info) = pieces(m, w, h);
+    piece.iter().map(|p| *p > 0 && !info[*p as usize - 1].1).collect()
 }
 
 #[cfg(test)]
@@ -256,6 +274,12 @@ mod tests {
         for y in 4..8 {
             for x in 28..32 {
                 set(x, y);
+            }
+        }
+        // A wide shape left out of the block (a "21" on the back), closed in by it.
+        for y in 38..47 {
+            for x in 40..52 {
+                px[(y * 64 + x) * 4..][..4].copy_from_slice(&[0, 0, 0, 0]);
             }
         }
         // A "screen": a space closed in by the block, left of the line across it.
@@ -282,6 +306,7 @@ mod tests {
         assert_eq!(alpha(to(40.0, 26.0)), 0, "inside the figure: no fill");
         assert!(alpha(to(40.0, 34.5)) > 200, "the line left out across the block is drawn");
         assert!(alpha(to(16.0, 28.0)) > 200, "the space the block closes in (the screen) is filled");
+        assert!(alpha(to(46.0, 42.5)) > 200, "a wide shape left out of the block is solid, not outlined");
         let (row_x, row_y) = to(4.0, 26.0);
         let edge = (0..SIDE).find(|x| alpha_at(&out, *x, row_y) > 200).unwrap();
         assert!(edge <= row_x && row_x - edge < 20, "the block's left edge is a line, at {edge} (the block from {row_x})");
@@ -290,7 +315,7 @@ mod tests {
         assert!((0..above).all(|y| (0..SIDE).all(|x| alpha_at(&out, x, y) == 0)), "a mark drawn above row {above}");
         // The lines are even: the line across the block is about as wide as twice THICK
         // plus the line left out (2 texels, enlarged), not more.
-        let (cx, _) = to(40.0, 0.0);
+        let (cx, _) = to(30.0, 0.0);
         let wide = (0..SIDE).filter(|y| alpha_at(&out, cx, *y) > 127).count() as f32 * k;
         assert!(wide < 4.0 * (2.0 * SCALE as f32 + 2.0 * THICK + 1.0), "{wide} enlarged texels of line down the middle");
     }
