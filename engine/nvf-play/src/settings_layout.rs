@@ -69,7 +69,6 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Controller", Some("Touch gestures"), &["touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"]),
     section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
@@ -88,6 +87,7 @@ pub const SECTIONS: &[Section] = &[
     ),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
+    section("Controls", Some("Touch"), &["touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"]),
     // The quality presets over the rows they set, under a heading of their own; the
     // enhanced look as a whole first under Picture [design: #1966].
     section("Graphics", Some("Quality"), &["quality"]),
@@ -451,7 +451,9 @@ mod tests {
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
         assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
-        assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
+        let mut controls = CONTROLLER_KEYS.map(str::to_string).to_vec();
+        controls.extend(["[Touch]", "touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"].map(str::to_string));
+        assert_eq!(keys(&list, &l, "Controls"), controls);
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);
         assert!(keys(&list, &l, "Tweaks").is_empty(), "an empty tab is still a tab");
         let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
@@ -463,6 +465,8 @@ mod tests {
         assert_eq!(at("enhanced"), "Graphics > Picture");
         assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
         assert_eq!(at("button-style"), "Controls");
+        assert_eq!(at("touch-pipboy-swipe-v1"), "Controls > Touch");
+        assert_eq!(at("touch-pipboy-distance-v1"), "Controls > Touch");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
