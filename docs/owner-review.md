@@ -218,6 +218,12 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Trigger countdowns count game time once a frame, and wait under menus (#2455).**
+  [hypothesis, #2455] A trigger script runs once for each actor inside it; now only the
+  first of those runs in a frame counts the frame's time, and no trigger script runs
+  while a menu, message box or conversation holds the game. Ibsen's virus purge now
+  lasts its 20 s (his warning at 10 s left). Check in game that the purge gives you the
+  time to reach the terminals. ([scripts §5](spec-notes/scripts.md))
 - **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
