@@ -45,6 +45,7 @@ untimed = [
   "NVF_PLAY_AIDS_FROM_SCRIPTS", "NVF_PLAY_TEST_HELD_GRENADE",
   "NVF_PLAY_TEST_SANDBOX_INTERRUPT",
   "NVF_PLAY_TEST_MELEE_KNOCKBACK",
+  "NVF_PLAY_TEST_RAGDOLL_FAIL",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -5144,6 +5145,23 @@ expect = [
   { re = "death poses: \\d+ actor frames held without sampling \\((?P<n>\\d+) at the clip's end\\)", range = [100, 1000000000], label = "death poses: at least 100 actor frames in all held at the clip's end without sampling (a sum over all dead actors; says nothing of which)" },
   { re = "death poses: .*\\), (?P<n>\\d+) more at the clip's end sampled", range = [1, 1000000000], label = "death poses: at least one actor frame in all sampled at the clip's end (a sum; not one per corpse)" },
 ]
+
+[[scenario]]
+name = "ragdoll-fail-laid-out"
+source = "#2347: a fresh corpse whose ragdoll failed to build kept the last frame of its clip and stood (a legionary killed running, Nipton); it is now shown dead as an actor without a ragdoll: its death pose from its first frame, or laid on its back (engine/nvforever/src/ragdoll.rs unbuilt) [design]"
+note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); NVF_PLAY_TEST_RAGDOLL_FAIL refuses his ragdoll build as if it had failed, standing in for ragdoll data that breaks the build (none in the data is known to). The issue's Nipton dynamite scene needs a build that really fails, so this aid stands in for it"
+areas = ["combat"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_RAGDOLL_FAIL = "00104C79", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=EnduranceCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ragdoll_fail_before.png,12:ragdoll_fail_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+order = [[
+  { re = 'combat: .* 0x00104C79 killed', label = "the hit aid kills Chet" },
+  { re = 'ragdoll: actor 00104C79: not built \(refused by the test aid NVF_PLAY_TEST_RAGDOLL_FAIL\)$', label = "the aid refuses his ragdoll build" },
+  { re = 'ragdoll: actor 00104C79: not built; shown dead without it: (its death pose, from its first frame|laid on its back)$', label = "and he is shown dead as one without a ragdoll" },
+]]
+forbid = [{ re = 'ragdoll: actor 00104C79 at rest', label = "no ragdoll of his is in the world" }]
+manual = "ragdoll_fail_after.png: Chet lies on the floor (his death pose's end, or on his back), not standing"
 
 [[scenario]]
 name = "corpse-respawn"
