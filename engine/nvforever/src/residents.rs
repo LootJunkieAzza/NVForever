@@ -1194,6 +1194,26 @@ fn interiors_behind_doors(world: &WorldData, streamer: &Streamer, refs: &RefTabl
     out
 }
 
+/// The cells of `now` (the loaded cells of worldspace `world`, or its interior) not
+/// handed over yet: `seen` becomes `now`. A grid square of another worldspace is another
+/// cell, so a change of worldspace forgets the exterior squares seen (`seen_world` is
+/// the worldspace they were seen in). Sibling worldspaces lie on the same squares: TTW's
+/// MegatonWorld on the Wasteland cells around its gate (issue #2233), Freeside's
+/// FreesideWorld, FreesideNorthWorld and FreesideFortWorld on one another (#2432: Orris
+/// and the King's bodyguard at the north gate; #2434: the Old Mormon Fort's people)
+/// [observed: their cells share grid squares, `fnvtool world list`]. Kept by grid square
+/// alone, the squares of the worldspace left counted as handed over, and the people of
+/// the one entered never joined, so were never drawn.
+fn newly_loaded(seen: &mut HashSet<CellKey>, seen_world: &mut u32, world: u32, now: HashSet<CellKey>) -> Vec<CellKey> {
+    if *seen_world != world {
+        seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
+        *seen_world = world;
+    }
+    let new: Vec<CellKey> = now.difference(seen).copied().collect();
+    *seen = now;
+    new
+}
+
 /// A trip ends this many frames after the loaded cells settled and the loading screen
 /// let the game go [our choice: the frame the last cells' actors join, and the one
 /// they are put in].
@@ -1586,16 +1606,7 @@ impl Core {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
-        // A grid square of another worldspace is another cell: TTW's MegatonWorld lies on
-        // the grid squares of the Wasteland cells around its gate, so after the gate every
-        // square counted as handed over and Megaton's people never joined until an
-        // interior cleared the set (issue #2233).
-        if self.cells_seen_world != world.world {
-            self.cells_seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
-            self.cells_seen_world = world.world;
-        }
-        let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
-        self.cells_seen = now;
+        let new = newly_loaded(&mut self.cells_seen, &mut self.cells_seen_world, world.world, now);
         let before = self.list.len();
         for key in new {
             let (cell, persistent) = match key {
@@ -3531,10 +3542,46 @@ fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, level_for, newly_loaded, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use crate::world::CellKey;
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
+
+    /// #2432, #2434: Freeside's worldspaces lie on the same grid squares. Going through a
+    /// door from one into another (FreesideWorld to FreesideNorthWorld, that to
+    /// FreesideFortWorld) hands over every loaded cell of the one entered on the first
+    /// arrival, though the same squares were loaded in the one left; a square seen
+    /// before in the same worldspace is not handed over twice.
+    #[test]
+    fn sibling_worldspaces_on_the_same_squares_hand_over_their_cells_on_the_first_arrival() {
+        const FREESIDE: u32 = 0x0010_BEEA;
+        const NORTH: u32 = 0x0012_D94D;
+        const FORT: u32 = 0x0012_D94E;
+        let squares = |s: &[(i32, i32)]| -> HashSet<CellKey> { s.iter().map(|g| CellKey::Exterior(*g)).collect() };
+        let set = |v: Vec<CellKey>| -> HashSet<CellKey> { v.into_iter().collect() };
+        let (mut seen, mut world) = (HashSet::new(), 0);
+        let around_gate = [(0, 0), (1, 0), (0, 1), (1, 1)];
+        assert_eq!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).len(), 4, "the start");
+        assert!(newly_loaded(&mut seen, &mut world, FREESIDE, squares(&around_gate)).is_empty(), "the same squares again");
+        // Through the door into the north side, on the same squares: the loading screen
+        // empties the loaded cells, then they come in one by one; all of them are new.
+        assert!(newly_loaded(&mut seen, &mut world, NORTH, HashSet::new()).is_empty());
+        let mut got = newly_loaded(&mut seen, &mut world, NORTH, squares(&[(0, 0), (1, 1)]));
+        got.extend(newly_loaded(&mut seen, &mut world, NORTH, squares(&around_gate)));
+        assert_eq!(set(got), squares(&around_gate), "Orris's square (1, 1) is handed over");
+        // A frame that still shows the squares of the worldspace left counts them for
+        // the one entered (its cells are looked up there), not as seen already.
+        let (mut seen2, mut world2) = (HashSet::new(), 0);
+        newly_loaded(&mut seen2, &mut world2, NORTH, squares(&around_gate));
+        assert_eq!(set(newly_loaded(&mut seen2, &mut world2, FORT, squares(&around_gate))), squares(&around_gate), "the fort's people join");
+        // Into the fort and back out: each worldspace's squares on each arrival.
+        assert_eq!(newly_loaded(&mut seen, &mut world, FORT, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0)])), vec![CellKey::Exterior((1, 0))]);
+        // An interior and back to the same worldspace.
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, [CellKey::Interior(0x0010_E03B)].into()), vec![CellKey::Interior(0x0010_E03B)]);
+        assert_eq!(newly_loaded(&mut seen, &mut world, NORTH, squares(&[(1, 0), (2, 0)])).len(), 2);
+    }
 
     /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
     /// During Combat, or a script's) is drawn facing the use's target, not its combat

@@ -1992,3 +1992,15 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
      HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
      INFO 000CD8A9 and after, said after part 4, 0008D401?).
+
+## Added 2026-11-14 (Hidden Valley dust storm, #2450)
+
+133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
+     activators.md §6.1.) Ours: all 18 dust sheets of `nvsandstormnight.nif` scroll their
+     texture by SpecialIdle, U 0 to 2 in 4 s, along +U [hypothesis: the sign of the
+     offset; every sheet of a property moves, as Gamebryo properties are shared by
+     reference]. To check: `ForceWeather HVDustStorm 1` at Hidden Valley (-17863, -4814)
+     at 22:00 with the storm references enabled (`000E18D7.enable`), two screenshots of
+     the same view 1 s apart: do all the dust banks move, in which direction across the
+     view, and about how far? Also whether the weather's own cloud layer 3
+     (`NVCloudlight.dds`, ONAM speed 0) stands still there.
