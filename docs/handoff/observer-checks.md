@@ -2002,7 +2002,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
 
 ## Added 2026-11-14 (OnTrigger timing, #2455)
 
-131. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
+138. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
      runs once per reference inside each frame, only the first run of a frame gets the
      frame's GetSecondsPassed, and no trigger block runs under a menu or message box
      [hypothesis]. To check: start Ibsen's purge (or set HVHuntingVirusTriggerREF's
