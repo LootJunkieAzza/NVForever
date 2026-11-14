@@ -167,7 +167,7 @@ follows docs/spec-notes/level-design.md §11.2 T1–T3:
   unloads gives none to the actors still in it, but gives one to the player, who went
   away (fast travel, a door, MoveTo) [design, #2449: the Boomers' artillery field counts
   the player in and out, and a player who travelled out stayed counted;
-  observer-checks.md check 129].
+  observer-checks.md check 137].
 
 ## 4. Effects
 
