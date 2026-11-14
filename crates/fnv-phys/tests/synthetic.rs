@@ -855,6 +855,30 @@ fn character_passes_through_non_solid_layers() {
 }
 
 #[test]
+fn shots_pass_a_transparent_sheet_that_stops_blows_and_characters() {
+    // A thin sheet (a chain-link panel) at x = 100 in front of a static wall at x = 300.
+    for (layer, shot_passes) in [(layers::TRANSPARENT, true), (layers::TRANSPARENT_SMALL, false), (layers::TRANSPARENT_SMALL_ANIM, false), (layers::STATIC, false)] {
+        let mut w = ground();
+        w.add_ref(&at(1, [100.0, 0.0, 100.0]), &[on_layer(boxed([2.0, 300.0, 100.0]), layer)]);
+        w.add_ref(&at(2, [310.0, 0.0, 100.0]), &[on_layer(boxed([10.0, 300.0, 100.0]), layers::STATIC)]);
+        let shot = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
+        let hit = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1_000.0, &shot).unwrap();
+        let want = if shot_passes { Key::Ref(2) } else { Key::Ref(1) };
+        assert_eq!(hit.owner.key(), want, "layer {layer} ({:?})", layers::name(layer as u32));
+        // A melee swing's ray stops on the sheet whatever its layer: the Transparent
+        // exception is for projectiles only.
+        let blow = Filter { exclude_layers: layers::melee_ignores(), ..Default::default() };
+        let hit = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1_000.0, &blow).unwrap();
+        assert_eq!(hit.owner.key(), Key::Ref(1), "melee, layer {layer} ({:?})", layers::name(layer as u32));
+        // A character walking at it stops on the sheet whatever its layer.
+        let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut c, 30);
+        walk(&mut w, &mut c, [150.0, 0.0], 90);
+        assert!(c.feet[0] < 100.0, "layer {layer}: the character got through to {:?}", c.feet);
+    }
+}
+
+#[test]
 fn collision_marker_primitives_become_boxes() {
     use fnv_phys::primitive::{primitive_object, BoundsMeaning, Primitive, PrimitiveKind};
     let p = Primitive { bounds: [100.0, 10.0, 200.0], kind: PrimitiveKind::PortalBox, layer: None };
