@@ -23047,6 +23047,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "shot-passes-transparent-mesh"
+source = "issue #2340: a mesh body on the plain Transparent layer (3) stopped every shot; the original lets projectiles through it [documented: GECK wiki Collision layer, TRANSPARENT]. layers::shot_ignores now holds Transparent (crates/fnv-phys/src/layers.rs; combat-rules.md, The world)"
+note = "WastelandNV: the road gate door 0x0008D5B8 (CLFenceGateRoad01, -4576, -30616, 6819, not rotated) has its chain link CLFenceGateRoad01Link on layer 3 east of the gate leaves (model x 45..246, 13..224 high, material metal); the player stands 150 units south of it at x -4420, faces north, looks 10 degrees down and fires the 9mm pistol (no Pass Through Small Transparent) once at 12 s: the shot crosses the link about 30 units above its bottom edge and lands on the ground about 485 units beyond it. Before the change it stopped on the link: a metal impact"
+areas = ["combat", "physics"]
+paths = ["crates/fnv-phys/src/layers.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_LOOK = "9:0:-10", NVF_PLAY_TEST_CONTROL = "8:weapon,12:fire,12.2:fire" }
+args = ["--world", "WastelandNV", "--pos=-4420,-30766,6900", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'combat: 1 shots .*, 1 world hits', label = "one shot, which strikes the world" },
+  { re = 'impacts by material: (?!metal )[a-z_]+ 1 \(', label = "it passes the layer-3 chain link (metal) and strikes the ground beyond it" },
+]
+
+[[scenario]]
 name = "dropped-clothes-fall"
 source = "issue #1604: clothing dropped from the inventory hung in the air: its folded ground model (armour MOD2, GO.NIF) is 2-4 dynamic bodies on hinges, and the drawn item follows one body only. Created references whose model's bodies are all dynamic now get one body (engine/nvf-play/src/phys.rs one_dynamic_body; simulation.md §5)"
 note = "Goodsprings, by the player: the Pre-War Spring Outfit, Leather Armor, Merc Charmer Outfit and Vault 21 Jumpsuit dropped from 8 s to 11 s from chest height, then the 10mm pistol at 12 s as a control; the ground is about 85 units below the drop point"

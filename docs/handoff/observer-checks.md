@@ -2013,6 +2013,20 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      bites, from how near, and which clip plays then (`1hpattackright_2`, which moves it
      about 30 units forward, is one candidate [hypothesis]).
 
+## Added 2026-11-14 (shots through the Transparent layer, #2340)
+
+130. **Does a 9mm round pass a chain link on the plain Transparent layer (3)?** (P2;
+     #2340, combat-rules.md "The world".) The road gate door 0x0008D5B8 (CLFenceGateRoad01,
+     WastelandNV, -4576, -30616, 6819, not rotated) has its chain link on layer 3 east of
+     the gate leaves (model x 45..246, 13..224 high); the gate leaves themselves are on
+     Transparent Small Anim (28). Ours since #2340: every projectile passes layer 3
+     [hypothesis from the GECK wiki "Collision layer": "nothing can pass through except
+     projectiles"]. To check: stand at (-4420, -30766), face north, look about 10 degrees
+     down and fire one 9mm pistol round: does it strike the ground beyond the link, or
+     leave a metal impact on the link? Then the same at the gate leaves (28, where a 9mm
+     should stop) as a control. The same question for a utility room's ceiling grate
+     (layer 3 at 183 units, e.g. utlrmwall01.nif), shot from below.
+
 ## Added 2026-11-14 (Hidden Valley dust storm, #2450)
 
 133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,
