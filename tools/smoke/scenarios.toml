@@ -13443,6 +13443,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "water-drink-idle"
+source = "#2349 (docs/spec-notes/idles.md section 16): drinking from placeable water plays the idle tree's ActivateIdles > ActWaterSource idle: 1stPersonActWater on the first-person rig in first person, 3rdPersonActWater on the body in third; it holds nothing"
+note = "drink-sink's sink in Doc Mitchell's house (0x00103E58) drunk from at 6 s in first person, the view switched at 9 s, drunk from again at 12 s in third person. The view must not be driven (an activation's idle does not hold the player)"
+areas = ["activation", "idles"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/furniture.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "6:activate:0x00103E58,12:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONTROL = "9:view" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'activate idle: .* activating 0x00103E58: 1stPersonActWater by ActivateIdles > ActWaterSource > 1stPersonActWater', label = "first person: the tree gives the first-person drinking idle" },
+  { re = 'idle: the player plays 1stPersonActWater .* on the first-person rig \(Activate\)', label = "it plays on the first-person rig" },
+  { re = 'activate idle: .* activating 0x00103E58: 3rdPersonActWater by ActivateIdles > ActWaterSource > 3rdPersonActWater', label = "third person: the third-person drinking idle" },
+  { re = 'idle: the player plays 3rdPersonActWater .* on the third-person rig \(Activate\)', label = "it plays on the body" },
+  { re = 'player view: driven by an idle', count = 0, label = "the drink holds neither the view nor movement" },
+]
+
+[[scenario]]
 name = "interior-clip"
 source = "ESM audit group 7 (docs/spec-notes/world.md §6 Interior clip distance): indoors the camera's far plane is the cell's fog clip distance; Doc Mitchell's house stores one"
 areas = ["sky", "world"]

@@ -222,6 +222,12 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Drinking from water holds nothing (#2349).** [design, #2349] Drinking from a sink or
+  pump now plays the tree's drinking idle (first or third person), but the player keeps
+  moving, looking and the HUD while it plays, and the water's healing and rads apply at
+  the activation, before it. Ruling otherwise would hold the player for the clip's 2.4 s
+  (as scripted first-person idles do) or apply the effect at its end. The original's
+  behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
 
 - **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
   A sequence's texture offset, scale or rotation track now moves every shape that lists

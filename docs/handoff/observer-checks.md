@@ -2027,6 +2027,16 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      should stop) as a control. The same question for a utility room's ceiling grate
      (layer 3 at 183 units, e.g. utlrmwall01.nif), shot from below.
 
+## Added 2026-11-14 (the drinking idle, #2349)
+
+131. **How does the original play drinking from placeable water?** (P2; #2349, idles.md
+     §16.) Drink from Goodsprings' water pump, once in first person and once in third
+     person. Note: how long the animation runs (ours: the clips are 2.37 s and 2.70 s);
+     whether movement and mouse look are held while it plays (ours holds neither); and
+     when the healing and the rads apply (ours: at the activation, before the animation),
+     read from the health bar and the RAD meter frame by frame. Ours until then:
+     [design, #2349].
+
 ## Added 2026-11-14 (Hidden Valley dust storm, #2450)
 
 133. **Which way and how fast does the Hidden Valley dust storm blow?** (P3; #2450,

@@ -1440,6 +1440,16 @@ pub struct Game<'a> {
     /// (`crate::idles::pick_idle`), for the layer that animates actors to take: it knows
     /// their animation folder. Each actor once. Not part of the saved state.
     pub idle_picks: Vec<FormId>,
+    /// Actors whose activation asks the idle tree's activation root
+    /// (`Game::activate_idle`: drinking from placeable water, #2349), for the layer that
+    /// animates actors to take, as [`Game::idle_picks`]: it knows their animation folder.
+    /// Only the player is put here [design, #2349]. Each actor once. Not part of the
+    /// saved state.
+    pub activate_idles: Vec<FormId>,
+    /// The actor whose activation idle the tree is being walked for
+    /// (`Game::activate_idle`): only then does GetUsedItemActivate answer for an
+    /// activation (`functions::furniture::get_used_item_activate`, #2349). Not saved.
+    pub(crate) activate_walk: Option<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -2379,6 +2389,8 @@ impl<'a> Game<'a> {
             magic_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
+            activate_idles: Vec::new(),
+            activate_walk: None,
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             walk_up_greets: BTreeMap::new(),
@@ -5047,6 +5059,14 @@ impl<'a> Game<'a> {
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.note_activating(actor, target);
+        // The player's activation asks the idle tree's activation root, whose conditions
+        // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
+        // effect (`drink_from`) still applies now, at the activation [design, #2349:
+        // whether the original applies it at the idle's start or end is observer check
+        // 131].
+        if actor == FormId::PLAYER_REF && !self.activate_idles.contains(&actor) {
+            self.activate_idles.push(actor);
+        }
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });
         let mut item_added_event = None;
