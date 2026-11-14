@@ -129,7 +129,23 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 /// Ringo's Caravan Deck relies on it: its OnAdd moves the spare deck's 54 cards to the
 /// player with RemoveAllItems and each card's OnAdd runs AddCardToPlayer, caravan.md §2].
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    story_items(g, ctx, |g| remove_all_items_now(g, ctx, a))
+    let to_player = a.opt_form(0) == Some(FormId::PLAYER_REF);
+    no_hand_out(g, to_player, |g| story_items(g, ctx, |g| remove_all_items_now(g, ctx, a)))
+}
+
+/// Co-op: a container that gives the player everything it holds (a checkpoint giving the
+/// player's own items back: Dead Money's SCPT 0x01013FB4, a casino's door) hands the
+/// guests nothing (`crate::coop_rewards`): what it gives was the player's (item 211;
+/// the way out of the Sierra Madre handed the host's own items out as NVDLC01MQ03's)
+/// [design].
+fn no_hand_out(g: &mut Game, to_player: bool, f: impl FnOnce(&mut Game) -> Result<Value, String>) -> Result<Value, String> {
+    let on = g.coop_rewards.on;
+    if to_player {
+        g.coop_rewards.on = false;
+    }
+    let r = f(g);
+    g.coop_rewards.on = on;
+    r
 }
 
 fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -352,7 +368,8 @@ pub fn form_type_code(sig: &[u8; 4]) -> Option<i32> {
 /// items. With a target they move there keeping their condition (and their owner with
 /// the retain flag, otherwise the owner is cleared); without one they are destroyed.
 pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    story_items(g, ctx, |g| remove_all_typed_items_now(g, ctx, a))
+    let to_player = a.opt_form(0) == Some(FormId::PLAYER_REF);
+    no_hand_out(g, to_player, |g| story_items(g, ctx, |g| remove_all_typed_items_now(g, ctx, a)))
 }
 
 fn remove_all_typed_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {

@@ -580,6 +580,9 @@ impl Game<'_> {
     /// taken off.
     pub fn follow_story_gear(&mut self, host: &[(FormId, bool)]) -> (Vec<FormId>, Vec<FormId>) {
         let me = FormId::PLAYER_REF;
+        // An add-on checkpoint's gear only while this player's items are in it (item 211).
+        let host: Vec<(FormId, bool)> = host.iter().copied().filter(|&(item, _)| self.coop_checkpoint_of(item) != CheckpointGear::Out).collect();
+        let host = &host[..];
         let mut on = Vec::new();
         let wears = |g: &Self, item: FormId| g.world.peek(me).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
         for &(item, locked) in host {
@@ -605,13 +608,34 @@ impl Game<'_> {
             }
             self.coop_story_gear.insert(item, !had);
         }
-        self.coop_story_kept.retain(|i| host.iter().any(|(h, _)| h == i));
+        // The guest's own copy of an add-on checkpoint's gear the host's story took off
+        // inside it goes too: NVDLC01MQ03 stage 100 takes the player's collar, whoever's
+        // it is (item 211; tri9: guest B kept its own collar from its save).
+        let dropped: Vec<FormId> = self.coop_story_kept.iter().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
+        for item in dropped {
+            self.coop_story_kept.remove(&item);
+            if matches!(self.coop_checkpoint_of(item), CheckpointGear::In(_)) {
+                let _ = self.world.lock_equip(me, item, None);
+                let _ = self.world.unequip(me, item);
+                let _ = self.world.remove_item(me, item, 1);
+                tracing::info!("co-op: {} taken from this player: the host's story took its own off inside the checkpoint", self.data.name(item));
+            }
+        }
         let gone: Vec<FormId> = self.coop_story_gear.keys().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
         for &item in &gone {
             let added = self.coop_story_gear.remove(&item).unwrap_or(false);
+            // An add-on checkpoint's gear the host's story took off inside it (Dead
+            // Money's collar, NVDLC01MQ03 stage 100) goes from this player too (item 211).
+            let mut checkpoint = false;
+            for held in self.coop_checkpoint_gear.values_mut() {
+                if let Some(i) = held.iter().position(|(h, _)| *h == item) {
+                    held.remove(i);
+                    checkpoint = true;
+                }
+            }
             let _ = self.world.lock_equip(me, item, None);
             let _ = self.world.unequip(me, item);
-            if added {
+            if added || checkpoint {
                 let _ = self.world.remove_item(me, item, 1);
             }
         }
@@ -839,6 +863,8 @@ impl Game<'_> {
             return 0;
         }
         let except = except.map(|l| crate::functions::refs::list_members(self, l)).unwrap_or_default();
+        // In the checkpoint even with nothing to hand over (`Game::coop_checkpoint_of`).
+        self.coop_checked.entry(container).or_default();
         let forms = self.world.forms;
         let stacks: Vec<(FormId, i32)> = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default();
         let mut took = 0;
@@ -861,8 +887,21 @@ impl Game<'_> {
         took
     }
 
-    /// Give this player back what checkpoint `container` holds of its; how many.
+    /// Give this player back what checkpoint `container` holds of its; how many. The
+    /// checkpoint's gear it was handed meanwhile goes first ([`Game::coop_checkpoint_of`]).
     pub fn coop_check_out(&mut self, container: FormId) -> i32 {
+        let me = FormId::PLAYER_REF;
+        // What the checkpoint's story handed this player and the host's story did not take
+        // back is its own now, as the original leaves it with the host (item 211).
+        let gear = self.coop_checkpoint_gear.remove(&container).unwrap_or_default();
+        for (item, _) in gear {
+            if self.coop_story_gear.remove(&item).is_some() {
+                let _ = self.world.lock_equip(me, item, None);
+            }
+            if self.world.item_count(me, item).unwrap_or(0) > 0 {
+                tracing::info!("co-op: {} is this player's now: the checkpoint {container} gives its items back", self.data.name(item));
+            }
+        }
         let Some(held) = self.coop_checked.remove(&container) else { return 0 };
         let mut gave = 0;
         for (item, c, extra) in held {
@@ -871,6 +910,80 @@ impl Game<'_> {
             }
         }
         gave
+    }
+}
+
+/// Where an add-on checkpoint's gear may go (item 211; owner, 2026-11-14, via parity:
+/// guests were seen in Dead Money's gear).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckpointGear {
+    /// Not an add-on checkpoint's: it goes anywhere.
+    Free,
+    /// The checkpoint of this container holds this player's items now: it goes, and is
+    /// taken away again when the checkpoint gives them back.
+    In(FormId),
+    /// An add-on checkpoint's, and this player's items are not in it: it does not go.
+    Out,
+}
+
+/// The containers the load order's scripts put the player's whole inventory in: a
+/// `player.RemoveAllItems <container>` call (Dead Money's bunker, SCPT 0x0100C59E into
+/// NVDLC01PlayerEquipmentContainerRef 0x0100EFCC; FalloutNV.esm SCPT 0x0015E57A and INFO
+/// 0x000E2849 into 0x000E3669) [observed: `fnvtool script decompile`].
+pub fn strip_containers_of(data: &GameData) -> BTreeSet<FormId> {
+    use fnv_script::ir::{Arg, Stmt};
+    use fnv_script::unit::RefSlot;
+    let remove_all = data.table.by_name("RemoveAllItems");
+    let mut out = BTreeSet::new();
+    for c in &data.units {
+        c.program.walk(&mut |s| {
+            let Stmt::Call { call } = s else { return };
+            if Some(call.opcode) != remove_all || !matches!(call.on.and_then(|r| c.unit.slot(r)), Some(RefSlot::Form(f)) if f == FormId::PLAYER_REF.0) {
+                return;
+            }
+            if let Some(Arg::Ref(r)) = call.args.first() {
+                if let Some(RefSlot::Form(f)) = c.unit.slot(*r) {
+                    out.insert(FormId(f));
+                }
+            }
+        });
+    }
+    out
+}
+
+/// An add-on whose story takes the player's whole inventory into a container (Dead
+/// Money's Sierra Madre) owns the gear its story hands out there: its quests' hand-outs
+/// and the story gear of its own forms (the collar, the jumpsuit, the holorifle and its
+/// cells, QUST 0x01000FBF stage 5) [design, item 211]. In the original that gear is the
+/// player's from the bunker on, where the player's own items are taken (SCPT
+/// 0x0100C59E), to the way out, where NVDLC01MQ03 stage 100 takes the collar and the
+/// container gives the player's items back (SCPT 0x01013FB4) [observed: `fnvtool script
+/// decompile`]; nothing else on the way out takes the jumpsuit, the holorifle, the cells
+/// or the Sierra Madre chips (0x01011236; only dialogue lines that exchange chips take
+/// them) [observed: the same]. So a co-op guest gets that gear only while that
+/// checkpoint holds its own items (`Game::coop_check_in`, item 182), loses what the
+/// host's story takes off inside (the collar), and keeps the rest as its own when the
+/// checkpoint gives its items back, as the host does (owner, 2026-11-14, via parity: the
+/// original wins). A guest that joins later, or a host that set the stage outside (a
+/// console `SetStage NVDLC01MQ01 5` in Goodsprings), hands it to no guest.
+/// The base game's own such container (0x000E3669) makes no gear of its quests.
+impl Game<'_> {
+    /// Where `form` (a hand-out's quest, or an item of the host's story gear) may go on
+    /// this player ([`CheckpointGear`]).
+    pub fn coop_checkpoint_of(&mut self, form: FormId) -> CheckpointGear {
+        let data = self.data;
+        let plugin = form.0 >> 24;
+        if plugin == 0 || form.0 >= 0xFF00_0000 {
+            return CheckpointGear::Free;
+        }
+        let strip = self.strip_containers.get_or_insert_with(|| strip_containers_of(data));
+        if !strip.iter().any(|c| c.0 >> 24 == plugin) {
+            return CheckpointGear::Free;
+        }
+        match self.coop_checked.keys().find(|c| c.0 >> 24 == plugin && strip.contains(c)) {
+            Some(c) => CheckpointGear::In(*c),
+            None => CheckpointGear::Out,
+        }
     }
 }
 

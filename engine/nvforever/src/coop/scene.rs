@@ -20,6 +20,15 @@
 //!   are put on the guest's (`Game::apply_image_modifier`), again when the host's starts
 //!   again, and taken off when the host's goes. Outside a scene they are not sent: the
 //!   host's drugs, hits and the like are its own.
+//! - **Not its own opening's.** The modifiers a guest's own scripts put on its screen
+//!   before it played as a guest are taken off once its game is kept as the guest's own
+//!   (item 210, 2026-11-14) [design]. A fresh guest's new game runs FalloutNV.esm's
+//!   VCG00 stage 0, which puts WhiteISFX (0x000AC03C) and MQ08AllBlackedOutISFX
+//!   (0x00026370) on the screen; VCG00 stage 100 takes the second off and sets VCG01
+//!   stage 0, which takes the first off [observed: the data, `fnvtool script decompile`].
+//!   A guest never reaches VCG00 stage 100 (the host's story goes on, not its own
+//!   opening), so its screen stayed white. The host's modifiers it is sent at that moment
+//!   stay on.
 //! - **The same slides.** While the host is held, the textures its scripts swapped on
 //!   references' shapes (`SwapTexture`: each slideshow line's begin script puts its slide
 //!   on the screen) are swapped here too (`TextureSwaps::follow_host`): a guest runs none
@@ -105,6 +114,8 @@ pub(super) struct Shared {
     gear_hold: Option<f32>,
     /// When the host's player was first heard in its world during the hold.
     host_in_world: Option<f32>,
+    /// A guest's: its own scripts' modifiers were taken off (module notes, item 210).
+    own_mods_dropped: bool,
 }
 
 impl Shared {
@@ -345,6 +356,13 @@ fn follow_mods(given: &mut HashMap<u32, f32>, host: &[(u32, f32)]) -> (Vec<u32>,
     (on, off)
 }
 
+/// The modifiers a guest's own scripts put on its screen (`script_mods`) that are taken
+/// off when it starts playing as a guest: all of them but those the host's screen has
+/// (`host`, as [`follow_mods`] keeps them).
+fn own_mods_to_drop(script_mods: &std::collections::BTreeSet<FormId>, host: &HashMap<u32, f32>) -> Vec<FormId> {
+    script_mods.iter().copied().filter(|m| !host.contains_key(&m.0)).collect()
+}
+
 /// How far the host may turn within a scene's hold before a held player is turned to face
 /// as the host again (radians; about 10 degrees, past the jitter of a head turn).
 const TURN_AGAIN: f32 = 0.17;
@@ -484,6 +502,17 @@ pub(super) fn share_scene(
     }
     for m in off {
         g.remove_image_modifier(FormId(m));
+    }
+    // This guest's own opening's modifiers (item 210): off once its game is its own.
+    if !guest {
+        s.own_mods_dropped = false;
+    } else if solo.is_some() && !s.own_mods_dropped {
+        s.own_mods_dropped = true;
+        for m in own_mods_to_drop(&g.script_image_modifiers, &s.mods) {
+            info!("co-op: image space modifier {} ({:#010X}) off: this guest's own scripts put it on", g.data.name(m), m.0);
+            g.remove_image_modifier(m);
+            g.script_image_modifiers.remove(&m);
+        }
     }
     // The host's slides: its line scripts swapped them, which this game does not run.
     for (on, shape, texture) in &view.swaps {
@@ -723,6 +752,19 @@ mod tests {
         // It is gone from the host's: off here.
         assert_eq!(follow_mods(&mut given, &[]), (vec![], vec![0x0101_013B]));
         assert!(given.is_empty());
+    }
+
+    #[test]
+    fn a_guest_drops_its_own_openings_modifiers_but_not_the_hosts() {
+        // A fresh guest's VCG00 stage 0: WhiteISFX and MQ08AllBlackedOutISFX; the host's
+        // scene sends VCG01PlayerStrainISFX (0x00120E96), which this guest also has on.
+        let (white, black, strain) = (FormId(0x000A_C03C), FormId(0x0002_6370), FormId(0x0012_0E96));
+        let own: std::collections::BTreeSet<FormId> = [white, black, strain].into_iter().collect();
+        let mut given = HashMap::new();
+        follow_mods(&mut given, &[(strain.0, 0.2)]);
+        assert_eq!(own_mods_to_drop(&own, &given), vec![black, white]);
+        assert_eq!(own_mods_to_drop(&own, &HashMap::new()).len(), 3, "the host sends none: all off");
+        assert!(own_mods_to_drop(&Default::default(), &given).is_empty());
     }
 
     #[test]

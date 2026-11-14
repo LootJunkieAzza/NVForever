@@ -71,8 +71,9 @@ pub enum Shared {
     Reward { quest: u32, xp: u32, caps: u32 },
     Save { stamp: u32, kind: SaveKind },
     Reload { stamp: u32 },
-    /// A hand-out of the host's scripts (`fnv_game::coop_rewards`, items 112 and 114).
-    Gift { batch: u32, item: u32, count: u32 },
+    /// A hand-out of the host's scripts (`fnv_game::coop_rewards`, items 112 and 114):
+    /// `quest` 0 and `stage` `u32::MAX` for none (`nvf_coop::net::Progress::Gift`).
+    Gift { batch: u32, item: u32, count: u32, quest: u32, stage: u32 },
 }
 
 /// The mailbox between this module and nvforever's `coop`.
@@ -273,6 +274,7 @@ fn take_inbox(
     mut load: MessageWriter<LoadRequest>,
     mates: Option<Res<crate::coop_social::SocialMates>>,
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
+    mut sim: Option<ResMut<crate::sim::SimState>>,
 ) {
     let p = &mut *p;
     let mut script = script;
@@ -285,7 +287,20 @@ fn take_inbox(
                 };
                 let name = rt.game.data.name(FormId(quest));
                 let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()).to_string();
-                match rt.game.take_coop_reward(xp as f64, caps as i32) {
+                // Completed in this player's own game: its reward was this player's then
+                // (`fnv_game::coop_rewards::REPEAT_DONE_REWARDS`).
+                if rt.game.coop_reward_done_here(FormId(quest)) {
+                    info!("co-op: the host completed {name} ({xp} XP, {caps} caps): this player completed it in its own game");
+                    continue;
+                }
+                // Into the played world (`crate::script::with_world`): outside it the
+                // runtime holds a stand-in, whose caps no menu shows (a guest's +50 caps
+                // never reached its Pip-Boy, 2026-11-14).
+                let taken = match sim.as_deref_mut() {
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_reward(xp as f64, caps as i32)),
+                    None => Err("no simulation world".to_string()),
+                };
+                match taken {
                     // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
                     Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
@@ -306,7 +321,7 @@ fn take_inbox(
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
-            Shared::Gift { batch, item, count } if p.role == Role::Guest && id == 0 => {
+            Shared::Gift { batch, item, count, quest, stage } if p.role == Role::Guest && id == 0 => {
                 let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
                     warn!("co-op: a hand-out came before the scripts run: {count} of {} lost", FormId(item));
                     continue;
@@ -316,7 +331,15 @@ fn take_inbox(
                 // corner line for the first, not one per card.
                 let card = rt.game.data.caravan_cards.contains_key(&FormId(item));
                 let first_card = card && rt.game.player.caravan.cards.is_empty();
-                match rt.game.take_coop_gift(batch, FormId(item), count as i32, &mut p.gift_batch) {
+                let gift = fnv_game::coop_rewards::Gift { batch, item: FormId(item), count: count as i32, quest: (quest != 0).then_some(FormId(quest)), stage: (stage != u32::MAX).then_some(stage as i32) };
+                let done_here = rt.game.coop_gift_done_here(&gift);
+                // Into the played world, as the reward above.
+                let taken = match sim.as_deref_mut() {
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift(&gift, &mut p.gift_batch)),
+                    None => Err("no simulation world".to_string()),
+                };
+                match taken {
+                    Ok(0) if done_here => info!("co-op: the host's hand-out {name} ({count}): this player did {} in its own game", rt.game.data.name(FormId(quest))),
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
                     Ok(_) if card && !first_card => {}
                     Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()))),
@@ -356,9 +379,14 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     if !host {
         return;
     }
-    for (batch, item, count) in std::mem::take(&mut rt.game.coop_rewards.gifts) {
-        info!("co-op: a script handed the player {} ({count}): to the guests too", rt.game.data.name(item));
-        p.outbox.push(Shared::Gift { batch, item: item.0, count: count.max(0) as u32 });
+    for g in std::mem::take(&mut rt.game.coop_rewards.gifts) {
+        let of = match (g.quest, g.stage) {
+            (Some(q), Some(s)) => format!(" by {} stage {s}", rt.game.data.name(q)),
+            (Some(q), None) => format!(" by {}", rt.game.data.name(q)),
+            _ => String::new(),
+        };
+        info!("co-op: a script handed the player {} ({}){of}: to the guests too", rt.game.data.name(g.item), g.count);
+        p.outbox.push(Shared::Gift { batch: g.batch, item: g.item.0, count: g.count.max(0) as u32, quest: g.quest.map_or(0, |q| q.0), stage: g.stage.map_or(u32::MAX, |s| s as u32) });
     }
     for r in rt.game.coop_rewards.due(rt.game.frame) {
         if r.quest == fnv_game::coop_rewards::SCRIPT_XP {

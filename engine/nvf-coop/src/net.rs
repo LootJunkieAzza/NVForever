@@ -513,8 +513,10 @@ pub enum Progress {
     Reload { stamp: u32 },
     /// A hand-out of the host's result scripts (`count` of `item`; `batch` groups one
     /// script's): every guest takes it as its rules say (`fnv_game::coop_rewards`, items
-    /// 112 and 114). Only the host's are taken.
-    Gift { batch: u32, item: u32, count: u32 },
+    /// 112 and 114). Only the host's are taken. `quest` (0: none) and `stage`
+    /// ([`Progress::NO_STAGE`]: none) name the result script's quest stage, so a guest
+    /// that did it in its own game keeps its own (owner, 2026-11-14).
+    Gift { batch: u32, item: u32, count: u32, quest: u32, stage: u32 },
 }
 
 impl Progress {
@@ -522,6 +524,8 @@ impl Progress {
     pub const QUICK: u8 = 1;
     pub const AUTO: u8 = 2;
     pub const SYSTEM: u8 = 3;
+    /// [`Progress::Gift`]'s stage when the script was no quest stage's.
+    pub const NO_STAGE: u32 = u32::MAX;
 
     /// Only the host may send it (a guest's is dropped).
     pub fn host_only(&self) -> bool {
@@ -2436,9 +2440,9 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.push(2);
                     b.extend_from_slice(&stamp.to_le_bytes());
                 }
-                Progress::Gift { batch, item, count } => {
-                    b.push(3);
-                    for v in [batch, item, count] {
+                Progress::Gift { batch, item, count, quest, stage } => {
+                    b.push(4);
+                    for v in [batch, item, count, quest, stage] {
                         b.extend_from_slice(&v.to_le_bytes());
                     }
                 }
@@ -2633,7 +2637,9 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
                 1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
                 2 => Progress::Reload { stamp: r.u32()? },
-                3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()? },
+                // Before quest and stage were sent (a build of 2026-11-13 or older).
+                3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: 0, stage: Progress::NO_STAGE },
+                4 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
                 _ => return None,
             };
             Msg::Progress { id, seq, what }
@@ -2875,7 +2881,8 @@ mod tests {
             Msg::Anim { id: 1, seq: 65_535, cue: AnimCue { kind: AnimCue::CONSUME, style: 2, power_armor: false, item: 0x0001_5169, edid: "Stimpak".into(), clip: "meshes\\characters\\_male\\idleanims\\b42inject\\0\\1\\stimpak\\stimpak.kf".into() } },
             Msg::Anim { id: 0, seq: 0, cue: AnimCue::default() },
             Msg::Progress { id: 0, seq: 9, what: Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 } },
-            Msg::Progress { id: 0, seq: 10, what: Progress::Gift { batch: 3, item: 0x0011_A208, count: 24 } },
+            Msg::Progress { id: 0, seq: 10, what: Progress::Gift { batch: 3, item: 0x0011_A208, count: 24, quest: 0x0010_4C1E, stage: 50 } },
+            Msg::Progress { id: 0, seq: 11, what: Progress::Gift { batch: 4, item: 0x0015_9E04, count: 1, quest: 0, stage: Progress::NO_STAGE } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {

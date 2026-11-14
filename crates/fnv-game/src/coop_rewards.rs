@@ -30,14 +30,33 @@
 //! **Hand-outs** are not rewards: the items a quest's or a dialogue line's result script
 //! gives the player along the way (Sunny Smiles' varmint rifle and its rounds, Ringo's
 //! Caravan deck) go to every player (owner, items 112 and 114) [design]. The ledger keeps
-//! them ([`RewardLedger::hand_out`], not caps, not quest items: those stay the host's,
-//! item 123), unless the same script took caps from the player (a purchase); each run of
-//! a result script is one batch. A guest takes them with [`Game::take_coop_gift`]: ammo,
-//! aid and chips always; Caravan cards only if it had none when the batch began (one
-//! deck), into its Caravan cards as AddCardToPlayer puts them, not its inventory (the
-//! card's own script takes the card away on the host; playtest of 2026-11-11: a guest's
-//! deck builder listed none); anything else only if it has none of it yet (no second
-//! rifle).
+//! them ([`RewardLedger::hand_out`], not caps), unless the same script took caps from the
+//! player (a purchase); each run of a result script is one batch, which names the quest
+//! (and stage) whose script gave it ([`Gift`]). Quest items are hand-outs too (owner,
+//! 2026-11-14, replacing item 123's "quest items stay the host's": a guest on a fresh save
+//! gets every item the host's quests hand out). A guest takes them with
+//! [`Game::take_coop_gift`]:
+//! - nothing of a batch whose quest its own game has completed, or whose stage its own
+//!   game has done (owner, 2026-11-14: a guest whose save finished the story gets none of
+//!   the items it already received there, and nothing stacks twice) [design];
+//! - otherwise ammo, aid and chips always (a gun's rounds come with the gun);
+//! - Caravan cards only if it had none when the batch began (one deck), into its Caravan
+//!   cards as AddCardToPlayer puts them, not its inventory (the card's own script takes the
+//!   card away on the host; playtest of 2026-11-11: a guest's deck builder listed none);
+//! - anything else, quest items included, only if it has none of it yet (no second rifle,
+//!   no second key).
+//!
+//! A quest's own script (its GameMode and other blocks) and an object's script that
+//! names a quest hand out too (owner, 2026-11-14, via parity: a fresh guest gets every
+//! quest item, also those a quest's script gives) [design]: [`RewardLedger::open_script`]
+//! around each such run outside a result script. The quest is the script's own, or the
+//! first quest the object's script names in its reference list (Dead Money's Tampico
+//! script SCPT 0x0100FFD4 names NVDLC01MQ03b, Honest Hearts' SCPT 0x0200F703 names
+//! NVDLC02MQ02c) [observed: the data], else the quest whose stage or objective the run
+//! sets; the stage is that quest's stage then (or the stage the run sets). An object's
+//! script that names no quest and moves none (a pickup, a vendor) hands out nothing,
+//! and a run that takes anything from the player (an exchange such as Old World Blues'
+//! or Lonesome Road's book and junk chutes, a purchase) keeps its items the host's.
 
 use crate::game::Game;
 use fnv_sim::FormId;
@@ -62,6 +81,23 @@ const HELD_MAX: usize = 256;
 
 /// The caps item (`Caps001`).
 pub const CAPS: FormId = FormId(0xF);
+
+/// Whether a guest whose own game completed a quest takes that quest's completion XP and
+/// caps again when the host completes it. On: every guest takes XP and caps, finished
+/// or not; only items keep the no-repeat rule (owner, 2026-11-14, via parity).
+pub const REPEAT_DONE_REWARDS: bool = true;
+
+/// One item of a hand-out batch (module notes): what the host's result script gave the
+/// player, and the quest and stage that script belongs to (`stage` `None`: a dialogue
+/// line's script, or a script of the quest's own run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gift {
+    pub batch: u32,
+    pub item: FormId,
+    pub count: i32,
+    pub quest: Option<FormId>,
+    pub stage: Option<i32>,
+}
 
 /// A completed quest's XP and caps, for the guests.
 #[derive(Debug, Clone, PartialEq)]
@@ -93,11 +129,28 @@ pub struct RewardLedger {
     /// Gains a quest's result scripts gave, waiting for that quest's completion:
     /// (frame, quest, XP, caps).
     held: Vec<(u64, FormId, f64, i32)>,
-    /// Hand-outs of the result script running now: (item, count).
-    giving: Vec<(FormId, i32)>,
-    /// Hand-outs ready for the guests: (batch, item, count).
-    pub gifts: Vec<(u32, FormId, i32)>,
+    /// Hand-outs of the result script running now: (item, count, quest, stage), the quest
+    /// and stage whose script gave it (a stage's script may set another quest's stage).
+    giving: Vec<(FormId, i32, Option<FormId>, Option<i32>)>,
+    /// The quest stage whose result script runs now (`Game::set_stage`): (quest, stage).
+    pub stage: Option<(FormId, i32)>,
+    /// Hand-outs ready for the guests.
+    pub gifts: Vec<Gift>,
     batch: u32,
+    /// The quest or object script running now outside any result script
+    /// ([`RewardLedger::open_script`]).
+    scripted: Option<ScriptRun>,
+}
+
+/// A quest's or an object's script run (a GameMode or event block), for its hand-outs
+/// (module notes).
+#[derive(Debug, Clone, Default)]
+struct ScriptRun {
+    /// The quest it is for, and that quest's stage then.
+    quest: Option<(FormId, Option<i32>)>,
+    /// It took something from the player (an exchange, a purchase).
+    took: bool,
+    giving: Vec<(FormId, i32)>,
 }
 
 impl RewardLedger {
@@ -124,10 +177,19 @@ impl RewardLedger {
         self.recent.push_back((frame, xp, caps));
     }
 
-    /// A result script gave the player `count` of `item` (not caps, not a quest item).
+    /// A result script gave the player `count` of `item` (not caps).
     pub fn hand_out(&mut self, item: FormId, count: i32) {
+        if self.on && self.paying.is_none() && count > 0 {
+            if let Some(r) = self.scripted.as_mut() {
+                r.giving.push((item, count));
+            }
+            return;
+        }
         if self.on && self.paying.is_some() && count > 0 {
-            self.giving.push((item, count));
+            // A stage's script may say another quest's line: that line's hand-outs name
+            // no stage.
+            let stage = self.stage.filter(|(q, _)| Some(*q) == self.paying).map(|(_, s)| s);
+            self.giving.push((item, count, self.paying, stage));
         }
     }
 
@@ -143,7 +205,53 @@ impl RewardLedger {
         }
         self.batch = self.batch.wrapping_add(1);
         let n = given.len();
-        self.gifts.extend(given.into_iter().map(|(i, c)| (self.batch, i, c)));
+        let batch = self.batch;
+        self.gifts.extend(given.into_iter().map(|(item, count, quest, stage)| Gift { batch, item, count, quest, stage }));
+        n
+    }
+
+    /// A quest's or an object's script starts running outside any result script, for
+    /// `quest` (the quest whose script it is, or the quest an object's script names;
+    /// `None`: none yet) at that quest's `stage`. Whether this call opened the run (a run
+    /// already open, or a result script running, keeps its own); [`Self::close_script`]
+    /// ends what it opened.
+    pub fn open_script(&mut self, quest: Option<(FormId, Option<i32>)>) -> bool {
+        if !self.on || self.paying.is_some() || self.scripted.is_some() {
+            return false;
+        }
+        self.scripted = Some(ScriptRun { quest, ..ScriptRun::default() });
+        true
+    }
+
+    /// A quest's stage was set (`Some`) or its objective changed while a script ran: an
+    /// object's script that named no quest is for this one, and a stage set of its own
+    /// quest is the stage its hand-outs name.
+    pub fn quest_moved(&mut self, quest: FormId, stage: Option<i32>) {
+        let Some(r) = self.scripted.as_mut() else { return };
+        match &mut r.quest {
+            None => r.quest = Some((quest, stage)),
+            Some((q, s)) if *q == quest && stage.is_some() => *s = stage,
+            _ => {}
+        }
+    }
+
+    /// The player lost an item while a script ran: that run's hand-outs were an exchange
+    /// (or a purchase) and stay the host's.
+    pub fn took_from_player(&mut self) {
+        if let Some(r) = self.scripted.as_mut() {
+            r.took = true;
+        }
+    }
+
+    /// The script run [`Self::open_script`] opened ended: its hand-outs become one batch
+    /// for the guests if it is for a quest and took nothing from the player. The count.
+    pub fn close_script(&mut self) -> usize {
+        let Some(r) = self.scripted.take() else { return 0 };
+        let Some((quest, stage)) = r.quest.filter(|_| !r.took && !r.giving.is_empty()) else { return 0 };
+        self.batch = self.batch.wrapping_add(1);
+        let batch = self.batch;
+        let n = r.giving.len();
+        self.gifts.extend(r.giving.into_iter().map(|(item, count)| Gift { batch, item, count, quest: Some(quest), stage }));
         n
     }
 
@@ -215,6 +323,13 @@ impl RewardLedger {
 }
 
 impl Game<'_> {
+    /// Whether this guest leaves out the host's completion reward of `quest`: its own game
+    /// completed it already and [`REPEAT_DONE_REWARDS`] is off. Script XP no completion
+    /// claimed ([`SCRIPT_XP`]) names no quest and is always taken.
+    pub fn coop_reward_done_here(&self, quest: FormId) -> bool {
+        !REPEAT_DONE_REWARDS && quest != SCRIPT_XP && self.quests.get(&quest).is_some_and(|q| q.completed)
+    }
+
     /// A co-op guest takes a quest's reward the host completed: the XP as `RewardXP`
     /// gives it (this player's perks change it, `crate::experience::award`), and the
     /// caps added as `AddItem` adds them (the "added" note shows). The XP given.
@@ -229,11 +344,33 @@ impl Game<'_> {
         Ok(gained)
     }
 
-    /// A co-op guest takes a hand-out of the host's scripts (module notes): `batch`
-    /// groups one script's items, `had_cards` is kept between the calls of a batch. The
-    /// count given (0: this player keeps what it has).
-    pub fn take_coop_gift(&mut self, batch: u32, item: FormId, count: i32, last: &mut Option<(u32, bool)>) -> Result<i32, String> {
+    /// Whether this player's own game has done what gave the host `gift` already: its
+    /// quest completed, or its stage done (module notes).
+    pub fn coop_gift_done_here(&self, gift: &Gift) -> bool {
+        let Some(q) = gift.quest.and_then(|q| self.quests.get(&q)) else { return false };
+        q.completed || gift.stage.is_some_and(|s| q.stages_done.contains(&s))
+    }
+
+    /// A co-op guest takes a hand-out of the host's scripts (module notes): `gift.batch`
+    /// groups one script's items, `last` (the batch and whether this player had cards)
+    /// is kept between the calls of a batch. The count given (0: this player keeps what
+    /// it has, or did that part of the quest in its own game).
+    pub fn take_coop_gift(&mut self, gift: &Gift, last: &mut Option<(u32, bool)>) -> Result<i32, String> {
         use fnv_sim::forms::ItemKind;
+        let Gift { batch, item, count, .. } = *gift;
+        if self.coop_gift_done_here(gift) {
+            return Ok(0);
+        }
+        // An add-on checkpoint's gear (Dead Money's collar): only while its checkpoint
+        // holds this player's items (`Game::coop_checkpoint_of`, item 211).
+        let held_in = match self.coop_checkpoint_of(gift.quest.unwrap_or(item)) {
+            crate::coop::CheckpointGear::Free => None,
+            crate::coop::CheckpointGear::In(c) => Some(c),
+            crate::coop::CheckpointGear::Out => {
+                tracing::info!("co-op: the host's hand-out {}: its add-on checkpoint does not hold this player's items, so not here", self.data.name(item));
+                return Ok(0);
+            }
+        };
         let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref());
         let has = inv.map_or(0, |i| i.count(item));
         let kind = self.world.forms.item(item).map(|i| i.kind);
@@ -253,18 +390,30 @@ impl Game<'_> {
                 !had
             }
             Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney) => true,
+            // A note is filed with the player's notes, never carried (`Game::file_note`).
+            Some(ItemKind::Note) => !self.player.notes.contains(&item),
             _ => has == 0,
         };
         // Lent by the host's story (`Game::follow_story_gear`: Sunny's script equips the
         // varmint rifle on the host): handed out too, it is this player's to keep.
+        // An add-on checkpoint's gear stays that checkpoint's until the way out: what the
+        // host's story takes off inside (the collar) goes from here too (item 211).
         if let Some(lent) = self.coop_story_gear.get_mut(&item).filter(|l| **l) {
             *lent = false;
+            if let Some(c) = held_in {
+                self.coop_checkpoint_gear.entry(c).or_default().push((item, 1));
+            }
         }
         if !give {
             return Ok(0);
         }
         // A card joins the collection as its script's AddCardToPlayer does on the host;
         // it is not left in the inventory.
+        if kind == Some(ItemKind::Note) {
+            self.file_note(item);
+            tracing::info!("co-op: the host's hand-out: note {item} filed with this player's notes");
+            return Ok(1);
+        }
         if card {
             let n = count.max(1);
             for _ in 0..n {
@@ -277,6 +426,9 @@ impl Game<'_> {
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
         for (item, count) in added {
             self.emit(crate::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, silent: false });
+        }
+        if let Some(c) = held_in {
+            self.coop_checkpoint_gear.entry(c).or_default().push((item, n));
         }
         Ok(n)
     }
@@ -298,17 +450,79 @@ mod tests {
         let mut l = ledger();
         l.hand_out(FormId(0x100), 1);
         assert!(l.gifts.is_empty() && l.handed_out(false) == 0, "outside a result script: nothing");
+        // As `Game::run_result`: the batch closes while its quest's script still runs.
         l.paying(Some(Q1));
         l.hand_out(FormId(0x100), 1);
         l.hand_out(FormId(0x101), 20);
-        l.paying(None);
         assert_eq!(l.handed_out(false), 2);
-        assert_eq!(l.gifts, vec![(1, FormId(0x100), 1), (1, FormId(0x101), 20)]);
+        l.paying(None);
+        let g = |item, count| Gift { batch: 1, item: FormId(item), count, quest: Some(Q1), stage: None };
+        assert_eq!(l.gifts, vec![g(0x100, 1), g(0x101, 20)]);
         l.paying(Some(Q1));
         l.hand_out(FormId(0x102), 1);
         l.paying(None);
         assert_eq!(l.handed_out(true), 0, "a purchase stays the buyer's");
         assert_eq!(l.gifts.len(), 2);
+    }
+
+    /// A quest's script hands out for its quest at its stage; an object's script for the
+    /// quest it names or moves; one that names and moves none, or takes from the player,
+    /// hands out nothing.
+    #[test]
+    fn quest_and_object_scripts_hand_out_for_their_quest_only() {
+        let mut l = ledger();
+        // A quest's GameMode block.
+        assert!(l.open_script(Some((Q1, Some(10)))));
+        assert!(!l.open_script(None), "a run inside a run is the outer one's");
+        l.hand_out(FormId(0x100), 1);
+        assert_eq!(l.close_script(), 1);
+        // An object's script that names no quest but sets Q2's stage 20.
+        assert!(l.open_script(None));
+        l.hand_out(FormId(0x101), 2);
+        l.quest_moved(Q2, Some(20));
+        assert_eq!(l.close_script(), 1);
+        // A pickup: no quest.
+        assert!(l.open_script(None));
+        l.hand_out(FormId(0x102), 1);
+        assert_eq!(l.close_script(), 0);
+        // An exchange: the player gave something.
+        assert!(l.open_script(Some((Q1, None))));
+        l.took_from_player();
+        l.hand_out(FormId(0x103), 1);
+        assert_eq!(l.close_script(), 0);
+        assert_eq!(
+            l.gifts,
+            vec![
+                Gift { batch: 1, item: FormId(0x100), count: 1, quest: Some(Q1), stage: Some(10) },
+                Gift { batch: 2, item: FormId(0x101), count: 2, quest: Some(Q2), stage: Some(20) },
+            ]
+        );
+        // Off (a guest, a solo game): nothing opens.
+        let mut off = RewardLedger::default();
+        assert!(!off.open_script(Some((Q1, None))));
+    }
+
+    /// A stage's hand-out names the stage; a line of another quest said inside that
+    /// stage's script names its own quest and no stage, and one batch holds both.
+    #[test]
+    fn a_hand_out_names_the_stage_of_its_own_quest_only() {
+        let mut l = ledger();
+        l.stage = Some((Q1, 40));
+        l.paying(Some(Q1));
+        l.hand_out(FormId(0x100), 1);
+        let outer = l.paying(Some(Q2));
+        l.hand_out(FormId(0x101), 30);
+        l.paying(outer);
+        assert_eq!(l.handed_out(false), 2);
+        l.paying(None);
+        l.stage = None;
+        assert_eq!(
+            l.gifts,
+            vec![
+                Gift { batch: 1, item: FormId(0x100), count: 1, quest: Some(Q1), stage: Some(40) },
+                Gift { batch: 1, item: FormId(0x101), count: 30, quest: Some(Q2), stage: None },
+            ]
+        );
     }
 
     #[test]
