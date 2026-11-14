@@ -3548,13 +3548,16 @@ fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
     use_target.is_none_or(|t| t.0 == lock_target)
 }
 
+/// One reference's drawn bodies, each with where it stands.
+type Bodies<K> = Vec<(K, [f32; 3])>;
+
 /// The references drawn by more than one actor body at once, in FormID order, each with
 /// its bodies (`K`: the body, and where it stands), from every drawn body's reference;
 /// the player's own body is left out. One reference has one body; a second one stands
 /// where something left it and answers to the reference (#2461, Lt. Boyd at Camp
 /// McCarran) [design: a diagnostic for the smoke tests].
-fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) -> Vec<(u32, Vec<(K, [f32; 3])>)> {
-    let mut by_ref: std::collections::BTreeMap<u32, Vec<(K, [f32; 3])>> = std::collections::BTreeMap::new();
+fn drawn_twice<K: Copy>(bodies: impl IntoIterator<Item = (u32, K, [f32; 3])>) -> Vec<(u32, Bodies<K>)> {
+    let mut by_ref: std::collections::BTreeMap<u32, Bodies<K>> = std::collections::BTreeMap::new();
     for (reference, body, at) in bodies.into_iter().filter(|b| b.0 != FormId::PLAYER_REF.0) {
         by_ref.entry(reference).or_default().push((body, at));
     }
