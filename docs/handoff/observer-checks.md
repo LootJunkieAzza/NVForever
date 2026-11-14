@@ -2161,3 +2161,18 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
      HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
      INFO 000CD8A9 and after, said after part 4, 0008D401?).
+
+## Added 2026-11-14 (allies of an actor given StartCombat, #2520)
+
+140. **Do an actor's allies join a fight a script gave it against a player who did
+     nothing?** (P1; #2520, combat-ai.md §10.) Ours: no; Assistance answers an ally being
+     attacked (hit by the player, or fought by someone it did not start on), so a
+     StartCombat on a player it would leave alone draws neither its allies nor an alarm
+     [hypothesis]. Also ours: a Cowardly actor in a fight flees from its start, hurt or
+     not [hypothesis from GECK wiki Confidence, "will always flee from combat"]. To check:
+     in a game where VMS29a has not started, walk into the Silver Rush (FreesideSilverRush),
+     stand still by the door and watch the intro to its end (INFO 0012423E, the customer's
+     `startcombat player`): does Jean-Baptiste (0010D8E5) or a Van Graff thug draw on the
+     player, what stage is VMS29a afterwards (`GetStage VMS29a`), and does the customer
+     (00124121) run out without swinging? Then again, hitting the customer once as he
+     runs: do the Van Graffs turn on the player then?

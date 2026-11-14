@@ -961,6 +961,63 @@ fn a_cowardly_ally_stays_out_of_fights() {
     let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (coward, [300.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
     assert_eq!(g.raise_alarms(&near), 0);
     assert!(!g.would_attack(coward, player));
+    // In a fight of its own it flees from the start, hurt or not (#2520), until its
+    // confidence is raised at a flee spot.
+    assert!(g.always_flees(coward) && !g.always_flees(helper));
+    assert!(g.flee_check(coward, 0.0).flees);
+    g.boost_confidence(coward);
+    assert!(!g.always_flees(coward));
+}
+
+#[test]
+fn allies_stay_out_of_a_scripted_fight_the_player_did_not_provoke() {
+    // #2520 (`fnv_game::provocation`, "Assistance"): the Silver Rush customer's
+    // `startcombat player` drew Jean-Baptiste on the player. A StartCombat on a player the
+    // actor would leave alone draws no ally and sends no alarm; once the player hits it,
+    // its allies help as before.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    assert!(!g.would_attack(own, player) && !g.would_attack(helper, player));
+    g.start_combat(own, player);
+    assert!(g.awareness.state(own).in_combat() && g.would_attack(own, player));
+    assert!(g.unprovoked_scripted_fight(own, player));
+    g.detection.pairs.insert((helper, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, player));
+    let notes = g.provocations.take_notes();
+    assert_eq!(notes.iter().filter(|n| matches!(n, Note::Unprovoked { victim, .. } if *victim == own)).count(), 1);
+    // No alarm either.
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [300.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(helper, player));
+    // Noted once.
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.provocations.take_notes().iter().any(|n| matches!(n, Note::Unprovoked { .. })));
+    // The player hits it: now its ally takes the fight up.
+    g.attacked_by(own, player);
+    assert!(g.hurt_by(own, player, [500.0, 0.0, 0.0]));
+    assert!(!g.unprovoked_scripted_fight(own, player));
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, player));
+}
+
+#[test]
+fn an_actor_hostile_by_its_records_is_helped_after_a_start_combat_too() {
+    // #2520: the rule leaves alone a fight the actor would have started anyway.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player), "a grudge");
+    g.start_combat(own, player);
+    assert!(!g.unprovoked_scripted_fight(own, player));
+    // Not the player: an NPC's scripted fight is not this rule's.
+    g.start_combat(own, FormId(HELPER_REF));
+    assert!(!g.unprovoked_scripted_fight(own, FormId(HELPER_REF)));
 }
 
 #[test]

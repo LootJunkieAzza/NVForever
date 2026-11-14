@@ -1128,6 +1128,27 @@ impl Game<'_> {
         }
     }
 
+    /// Whether `actor` fights `foe` only because a script told it to: a StartCombat on the
+    /// player, who has not hit it and whom it would not attack otherwise (no grudge, its
+    /// records leave the player alone). Such a fight is the actor's own, not an attack on
+    /// it, so its allies do not take it up and it sends them no alarm
+    /// (`crate::provocation` module notes, "Assistance") [hypothesis: Assistance answers
+    /// an ally being attacked; the Silver Rush intro's customer, whose StartCombat makes
+    /// him run out and whose OnHit player alone sets the Van Graffs against the player,
+    /// FalloutNV.esm SCPT 0x0012424C, #2520; observer-checks.md question 140].
+    pub fn unprovoked_scripted_fight(&mut self, actor: FormId, foe: FormId) -> bool {
+        if foe != FormId::PLAYER_REF || !self.awareness.forced.contains(&(actor, foe)) || self.provocations.holds(actor, foe) {
+            return false;
+        }
+        if self.awareness.get(actor).is_some_and(|a| a.alarms.iter().any(|x| x.cause == Cause::Hurt && x.owner == foe)) {
+            return false;
+        }
+        self.awareness.forced.remove(&(actor, foe));
+        let own = self.hostile_to_now(actor, foe);
+        self.awareness.forced.insert((actor, foe));
+        !own
+    }
+
     /// `actor.StopCombat`: the actor leaves its combat state [documented: catalogue
     /// notes, "Ends the calling actor's combat state so it stops fighting"]; what
     /// StartCombat forced on it is undone. It may start again on what it perceives next.
