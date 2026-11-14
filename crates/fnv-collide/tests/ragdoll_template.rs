@@ -193,6 +193,7 @@ fn body(name: &str, mass: f32) -> RagdollBody {
         angular_damping: 0.05,
         stored: Iso::IDENTITY,
         unit: 7.0,
+        inertia: None,
     }
 }
 
@@ -250,6 +251,17 @@ fn a_template_overrides_the_bodies_and_joints_of_its_bones() {
     assert_eq!((r.joints[1].a, r.joints[1].kind), (2, JointKind::Ball));
     assert_eq!(r.bodies[2].object.mass, 6.0);
     assert!(matches!(r.joints[2].kind, JointKind::Hinge { .. }) && r.joints[2].strength == Some(0.9));
+}
+
+/// A template's mass scales the body's stored inertia with it: the same shape, heavier.
+#[test]
+fn a_template_mass_scales_the_stored_inertia() {
+    let mut r = skeleton();
+    r.bodies[1].inertia = Some([60.0, 0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 0.0, 30.0]);
+    r.apply_template(&read(&rdt()));
+    // 6 kg to the template's 25.
+    let t = r.bodies[1].inertia.unwrap();
+    assert!((t[0] - 250.0).abs() < 1e-3 && (t[4] - 125.0).abs() < 1e-3 && t[1] == 0.0, "{t:?}");
 }
 
 #[test]

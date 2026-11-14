@@ -3,14 +3,13 @@
 //! dead actor falls and comes to rest under gravity and contacts.
 //!
 //! - **Bodies.** One dynamic body per ragdoll body, started at its bone's pose, with the
-//!   stored mass and damping, and continuous collision detection (a thin limb must not
-//!   pass through a floor). Their colliders carry [`Owner::Actor`] on the DEAD_BIP layer,
-//!   so rays find the corpse as they found its hit volume.
+//!   stored mass, inertia tensor (an actor's) and damping, and continuous collision
+//!   detection (a thin limb must not pass through a floor). Their colliders carry
+//!   [`Owner::Actor`] on the DEAD_BIP layer, so rays find the corpse as they found its
+//!   hit volume.
 //! - **Joints.** The stored constraints with their limits ([`joint`]): a ragdoll
-//!   constraint is a ball joint limited about its twist axis, its plane axis and the
-//!   third axis; a hinge is a revolute joint. rapier limits the components of the
-//!   relative rotation's quaternion, which equal the stored angles for a turn about one
-//!   axis and approximate the cones for mixed turns [design].
+//!   constraint is a ball joint limited about its twist axis, with two more joints for its
+//!   cone and its plane cones ([`cone_joints`]); a hinge is a revolute joint [design].
 //! - **Contacts** [design]: with the world (terrain, references, other ragdolls); not
 //!   between two small ragdolls ([`SMALL_RAGDOLL_SPAN`]: a heap of small corpses would
 //!   cost the solver for nothing the eye sees; hypothesis that the original allows it); not
@@ -49,8 +48,9 @@ pub const JOINT_DAMPING: f32 = 6.0;
 pub const MAX_PUSH_SPIN: f32 = 5.0;
 pub const PUSH_ARM: f32 = 6.0;
 
-/// Angular limits are kept inside ±this many radians: rapier compares sines of half
-/// angles, which stop growing at π.
+/// A twist or hinge range is kept inside ±this many radians: rapier measures the angle
+/// within (−π, π], so a limit at π could never be reached. No stored twist or hinge limit
+/// of the human skeleton comes near it (the widest, an elbow's, is −2.27) [observed].
 const MAX_LIMIT: f32 = 3.0;
 
 /// Bodies of one ragdoll closer than this in the bind pose never collide with each
@@ -118,8 +118,9 @@ pub(crate) struct RagdollBodies {
     pub(crate) data: Arc<Ragdoll>,
     scale: f32,
     parts: Vec<u8>,
-    /// Per stored joint, its joint in the world (none at rest, or when cut).
-    joints: Vec<Option<ImpulseJointHandle>>,
+    /// Per stored joint, its joints in the world (the joint and a ragdoll constraint's
+    /// [`cone_joints`]; none at rest, or when cut).
+    joints: Vec<Vec<ImpulseJointHandle>>,
     /// Joints cut by dismemberment ([`PhysWorld::cut_ragdoll`]), by stored index: never
     /// built again.
     cut: Vec<usize>,
@@ -238,19 +239,16 @@ pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
     let (pa, pb) = (vec3(j.pivot_a) * s, vec3(j.pivot_b) * s);
     let ball = || GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES).local_anchor1(pb).local_anchor2(pa).build();
     let mut out = match j.kind {
-        JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, cone_max, plane_min, plane_max, twist_min, twist_max } => {
+        JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, twist_min, twist_max, .. } => {
             match (frame(twist_a, plane_a), frame(twist_b, plane_b)) {
                 (Some(fa), Some(fb)) => {
                     let mut g = GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES)
                         .local_frame1(Pose::from_parts(pb, fb))
                         .local_frame2(Pose::from_parts(pa, fa))
                         .build();
-                    let cone = cone_max.abs();
-                    // x: about the twist axis. z: the twist axis leaning towards the plane
-                    // axis, inside the plane cones and the cone. y: the cone alone.
+                    // x: the twist. The cone and the plane cones are joints of their own
+                    // ([`cone_joints`]).
                     limit(&mut g, JointAxis::AngX, JointAxesMask::ANG_X, twist_min, twist_max);
-                    limit(&mut g, JointAxis::AngY, JointAxesMask::ANG_Y, -cone, cone);
-                    limit(&mut g, JointAxis::AngZ, JointAxesMask::ANG_Z, plane_min.max(-cone), plane_max.min(cone));
                     g
                 }
                 _ => ball(),
@@ -277,6 +275,47 @@ pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
     for (axis, mask) in [(JointAxis::AngX, JointAxesMask::ANG_X), (JointAxis::AngY, JointAxesMask::ANG_Y), (JointAxis::AngZ, JointAxesMask::ANG_Z)] {
         if !out.locked_axes.contains(mask) && !matches!(j.kind, JointKind::Spring { .. }) {
             out.set_motor_velocity(axis, 0.0, JOINT_DAMPING);
+        }
+    }
+    out
+}
+
+/// The cone limits of a ragdoll constraint (ragdoll.md §3), each held by a joint of its own
+/// between the same two bodies as [`joint`]'s: the **cone** (the angle between the two
+/// twist axes at most `cone_max`) and the **plane cones** (the angle between a's twist axis
+/// and b's plane axis, π/2 − plane, inside π/2 − `plane_max` … π/2 − `plane_min`). Each is a
+/// rapier joint with no locked axes whose two coupled angular axes limit the angle between
+/// its frames' x axes: one row along the axis that turns one onto the other, the exact
+/// gradient of that angle in every direction [design, 2026-11-13: limited about the twist
+/// frame's y and z axes apart, as before, the cone was a box that let a limb through on
+/// the diagonal (observed: `a_ragdoll_joint_holds_its_cone_in_every_direction` fails that
+/// way); with the stored inertia these joints brought the human skeleton's worst joint at
+/// rest from 5.4° to 2.3° outside its limits at 60 steps a second and from 4.6° to 0.1° at
+/// 160 (ragdoll.md §4)].
+pub fn cone_joints(j: &RagdollJoint, s: f32) -> Vec<GenericJoint> {
+    let JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, cone_max, plane_min, plane_max, .. } = j.kind else { return Vec::new() };
+    let (pa, pb) = (vec3(j.pivot_a) * s, vec3(j.pivot_b) * s);
+    let coupled = JointAxesMask::ANG_Y | JointAxesMask::ANG_Z;
+    let cone_joint = |fa: Rotation, fb: Rotation, lo: f32, hi: f32| {
+        let mut g = GenericJointBuilder::new(JointAxesMask::empty()).local_frame1(Pose::from_parts(pb, fb)).local_frame2(Pose::from_parts(pa, fa)).coupled_axes(coupled).build();
+        g.set_limits(JointAxis::AngY, [lo, hi]);
+        g.set_contacts_enabled(false);
+        g
+    };
+    let mut out = Vec::new();
+    let (pi, half_pi) = (std::f32::consts::PI, std::f32::consts::FRAC_PI_2);
+    if let (Some(fa), Some(fb)) = (frame(twist_a, plane_a), frame(twist_b, plane_b)) {
+        let cone = cone_max.abs();
+        if cone.is_finite() && cone < pi {
+            out.push(cone_joint(fa, fb, -1.0, cone));
+        }
+    }
+    // The plane cones: the angle between a's twist axis and b's plane axis is π/2 − plane.
+    if let (Some(fa), Some(fb)) = (frame(twist_a, plane_a), frame(plane_b, twist_b)) {
+        let lo = if plane_max.is_finite() && plane_max < half_pi { half_pi - plane_max } else { -1.0 };
+        let hi = if plane_min.is_finite() && plane_min > -half_pi { half_pi - plane_min } else { 4.0 };
+        if lo > 0.0 || hi < pi {
+            out.push(cone_joint(fa, fb, lo, hi));
         }
     }
     out
@@ -311,7 +350,7 @@ impl PhysWorld {
         let mut report = RagdollReport::default();
         let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
-        let joints = vec![None; data.joints.len()];
+        let joints = vec![Vec::new(); data.joints.len()];
         let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
@@ -356,6 +395,10 @@ impl PhysWorld {
             }
             if !at_rest && !held {
                 self.set_mass(body, o.mass);
+                // An actor's bodies turn with their stored inertia (ragdoll.md §2, §4).
+                if let (Some(t), false) = (b.inertia, object) {
+                    self.set_inertia(body, t.map(|v| v * (f * k) * (f * k)));
+                }
             }
             rag.bodies[i] = Some(body);
             report.bodies += 1;
@@ -387,7 +430,12 @@ impl PhysWorld {
             } else {
                 joint(j, f * k)
             };
-            rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, built));
+            rag.joints[ji].push(self.w.insert_impulse_joint(*b, *a, built));
+            if !starts_outside {
+                for cone in cone_joints(j, f * k) {
+                    rag.joints[ji].push(self.w.insert_impulse_joint(*b, *a, cone));
+                }
+            }
             report.joints += 1;
         }
         // Its size from the bind-pose shapes (scaled as built).
@@ -424,6 +472,37 @@ impl PhysWorld {
         report
     }
 
+    /// Give a dynamic body the inertia tensor `inertia` (kg·m², rows of a 3×3 matrix in the
+    /// body's frame) about its mass centre, in place of the one rapier works out from its
+    /// shapes; its mass and mass centre stay. Its colliders then carry no mass of their own
+    /// (density 0) and the body's mass properties are all its additional ones. Returns
+    /// false, changing nothing, when the tensor's principal moments are not all positive.
+    ///
+    /// For actors' ragdolls [observed, `_male\skeleton.nif`, ragdoll.md §2]: rapier's
+    /// moments from the shapes equal the stored ones for the head, hands and feet and about
+    /// the thighs' and calves' short sides, but are a seventeenth to a sixty-seventh of them
+    /// for the neck, a thirty-sixth for the pelvis, a sixth for the lowest spine body and a
+    /// fifteenth for the upper arms about their length. Turning that easily, those bodies
+    /// spun through their joints' limits under a fall or a shove and corpses lay with heads
+    /// turned round, necks bent back and hips and shoulders twisted (ragdoll.md §4).
+    fn set_inertia(&mut self, body: RigidBodyHandle, inertia: [f32; 9]) -> bool {
+        let Some(b) = self.w.bodies.get(body) else { return false };
+        let mp = b.mass_properties().local_mprops;
+        let props = MassProperties::with_inertia_matrix(mp.local_com, mp.mass(), Matrix::from_cols_array(&inertia).transpose());
+        let moments = props.principal_inertia();
+        if !(mp.mass() > 0.0 && moments.is_finite() && moments.min_element() > 0.0) {
+            return false;
+        }
+        let colliders: Vec<ColliderHandle> = b.colliders().to_vec();
+        for c in colliders {
+            self.w.colliders[c].set_density(0.0);
+        }
+        let b = &mut self.w.bodies[body];
+        b.set_additional_mass_properties(props, true);
+        b.recompute_mass_properties_from_colliders(&self.w.colliders);
+        true
+    }
+
     /// Build a ragdoll again where it is now, at rest or moving.
     fn rebuild_ragdoll(&mut self, form_id: u32, at_rest: bool) -> bool {
         let Some(nodes) = self.ragdoll_nodes(form_id) else { return false };
@@ -446,7 +525,7 @@ impl PhysWorld {
             if bodies.contains(&j.a) != bodies.contains(&j.b) && !r.cut.contains(&ji) {
                 r.cut.push(ji);
                 newly += 1;
-                handles.extend(r.joints.get_mut(ji).and_then(Option::take));
+                handles.extend(r.joints.get_mut(ji).map(std::mem::take).unwrap_or_default());
                 woken.extend([j.a, j.b].iter().filter_map(|&i| r.bodies.get(i).copied().flatten()));
             }
         }

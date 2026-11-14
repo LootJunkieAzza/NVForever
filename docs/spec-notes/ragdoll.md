@@ -52,6 +52,15 @@ documentation). Reader: `fnv_collide::ragdoll`. Physics: `fnv_phys::ragdoll`. In
 - The body's stored translation and rotation are its pose in the mesh root's frame when
   the file was made: in the human skeleton, translation × 7 is the bone's bind position
   to 0.01 units [observed]. They are not used to place anything.
+- The rigid body info's `inertia_tensor` [documented: nif.xml bhkRigidBodyCInfo, three
+  rows of four floats, the fourth column unused] is in kg·(Havok unit)², in the body's
+  frame [observed: with 1 Havok unit = 7 game units = 0.1 m the human skeleton's head,
+  hands and feet carry the moments of their shapes at their stored masses, as rapier
+  works them out, and the thighs and calves the same about their short sides]. Elsewhere
+  the stored moments are larger than the shape's: the pelvis 0.25 kg·m² about every axis
+  (its shape 0.007), the lowest spine bodies 0.25 (0.04-0.06), the neck that of the head
+  (0.018; its shape 0.0003-0.001), the thighs and upper arms 5-15 times their shapes'
+  about their length [observed, `_male\skeleton.nif`, 2026-11-13].
 - Constraint axes are unit vectors in the body's frame.
 
 ## 3. Constraint limits
@@ -119,7 +128,9 @@ ragdoll keep the earlier presentation. [hypothesis: the original also drops plac
 corpses when their cell loads.]
 
 **Bodies** (`PhysWorld::add_ragdoll`). One dynamic body per ragdoll body with the stored
-shape (scaled by the actor's scale), mass and damping; friction capped at 1; no bounce;
+shape (scaled by the actor's scale), mass, inertia tensor (§2; actors' ragdolls, since
+2026-11-13, below; a Ragdoll Template's mass scales it; without a usable one rapier's from
+the shape) and damping; friction capped at 1; no bounce;
 continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
 part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
@@ -128,13 +139,35 @@ world.
 **Joints.** Body 1 is the constraint's b, body 2 its a; the joint frames are
 (twist, plane, twist × plane) or (axis, perp1, axis × perp1) at the pivots.
 
-- Ragdoll → a ball joint limited about x to the twist range, about z to the plane range
-  cut to ± the cone, about y to ± the cone. rapier limits the components of the relative
-  rotation's quaternion: equal to §3's angles for a turn about one axis, an
-  approximation of the cones otherwise.
+- Ragdoll → a ball joint limited about x to the twist range, and two more joints between
+  the same bodies, no axis locked, each limiting one angle between two axes with rapier's
+  coupled angular limit (a single row along the axis that turns one onto the other): the
+  **cone** (a's twist axis from b's, at most `cone_max`) and the **plane cones** (a's
+  twist axis from b's plane axis, π/2 − `plane_max` to π/2 − `plane_min`), §3's readings
+  in every direction (`fnv_phys::ragdoll::cone_joints`, since 2026-11-13).
 - Limited hinge → a revolute joint with the angle range; hinge → without.
-- A range of zero width locks the axis (the human neck's twist). Limits are kept within
-  ±3 radians.
+- A range of zero width locks the axis (the human neck's twist). Twist and hinge limits
+  are kept within ±3 radians (none of the human skeleton's comes near).
+- **Why the stored inertia and the cone joints** [observed 2026-11-13; the owner's hand
+  test of 2026-11-11 saw ragdoll limbs twisted into impossible poses]. A scratch program
+  on `fnv_phys` (not kept) dropped the human skeleton 50 times from random tilts,
+  headings, heights and shoves onto flat ground, shoved it again 1.5 s later as a
+  critical hit would (600-1200 units/s on the head, 400-800 on another body), settled it
+  from 6 s and held it at rest at 8 s, measuring every joint against its stored limits
+  (§3's angles). Before, with rapier's inertia from the shapes and the cone and plane
+  limited about the twist frame's y and z axes apart (a box), the worst joint per drop
+  at rest was on average 51° (60 steps a second), 46° (120), 45° (160) and 39° (240),
+  with one joint more than 20° out in 44, 39, 42 and 34 drops of 50; the head on the
+  neck (turned round about its twist axis or bent back), the pelvis's joints to the
+  thighs and the spine and the shoulders went furthest (up to 147°). With the head cut
+  off before the shove: 30° and 14° (60, 160). The stored inertia alone: 5.4° and 4.6°
+  (cone joints alone: 64° and 46°); both: 2.3° (60), 0.1° or less (120, 160, 240), cut 0.8° and
+  0.0°, no drop more than 20° out above 60 steps a second. At 60 two drops of 50 still
+  lay with a joint over 20° out (an elbow bent back 50°, held so for 6 s [hypothesis:
+  the forearm pinned under the body]). Just after the hard shove a joint still opens
+  past its limit for a moment (mean worst 9° at 60, 3° at 160) and comes back. Test:
+  `joints_hold_their_limits_through_hard_shoves` (a made-up figure of a person's
+  proportions with stored moments), `a_ragdoll_joint_holds_its_cone_in_every_direction`.
 - Every free angular axis is damped (`JOINT_DAMPING`, 6 per second) so limbs do not
   swing like chains; it stands in for `max_friction`. `strength` is not used.
 - Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
