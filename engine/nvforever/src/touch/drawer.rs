@@ -345,11 +345,13 @@ pub(super) fn install(app: &mut App) {
     settings::add_setting(app, Setting {
         key: "touch-pipboy-swipe-v1", group: "Controller", label: "Bottom swipe handle",
         note: "Show a bottom handle. Drag upward and release to open the chosen destination. Android system navigation stays available.",
+        switches: "",
         get: |w| w.resource::<Options>().enabled, set: |w,v| w.resource_mut::<Options>().enabled = v, slider: None,
     });
     settings::add_choice_list(app, Setting {
         key: "touch-bottom-swipe-target-v1", group: "Controls", label: "Bottom swipe opens",
         note: "Choose Inventory or Utility tray for the same bottom handle. Utility tray needs Touch hotbar and Pinned consumable tray enabled.",
+        switches: "",
         get: |_| false, set: |_,_| {}, slider: None,
     }, ChoiceList {
         names: |_| vec!["Inventory".into(), "Utility tray".into()],

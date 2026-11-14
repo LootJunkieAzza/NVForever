@@ -73,7 +73,8 @@ impl Plugin for TouchActionPresentationPlugin {
             );
         crate::settings::add_setting(app,crate::settings::Setting {
             key:"adaptive-touch-actions",group:"Touch",label:"Adaptive touch actions",
-            note:"On: Aim shows Block for ready drawn melee weapons and fists, or Scope for a ready drawn scope-equipped gun. Off: keep the static Aim caption and icon. Bindings, action identity and positions stay the same.",
+            note:"On: Aim becomes Block for ready drawn melee weapons or fists, or Scope for a ready drawn scoped gun; off: keep Aim. Only text and icons change; bindings, actions and positions stay the same.",
+            switches: "",
             get:|w|w.resource::<AdaptiveTouchActions>().0,set:|w,on|w.resource_mut::<AdaptiveTouchActions>().0=on,slider:None,
         });
     }

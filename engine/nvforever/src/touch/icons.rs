@@ -116,6 +116,7 @@ fn register_family(app: &mut App) {
             group: "Touch",
             label: "Touch icon family",
             note: "Choose Precise line, Bold filled, Rounded or Industrial action icons.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,

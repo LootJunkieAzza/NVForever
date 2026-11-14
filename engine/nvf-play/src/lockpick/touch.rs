@@ -96,7 +96,7 @@ fn register(app: &mut App) {
          (|w: &World| SIZE_NAMES[w.resource::<Options>().size].to_string()) as fn(&World)->String,
          pick_size as fn(&mut World,&str)->bool),
     ] {
-        settings::add_choice_list(app,settings::Setting {key,group:"Touch",label,note,get: |_|false,set:|_,_|{},slider:None},settings::ChoiceList {names,chosen,pick,save:chosen,load:pick,ask_keep:false});
+        settings::add_choice_list(app,settings::Setting {key,group:"Touch",label,note,switches: "", get: |_|false,set:|_,_|{},slider:None},settings::ChoiceList {names,chosen,pick,save:chosen,load:pick,ask_keep:false});
     }
 }
 #[derive(Resource, Default)]

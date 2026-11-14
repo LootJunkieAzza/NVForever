@@ -134,6 +134,7 @@ impl Plugin for ControllerAimPlugin {
                     group: "Controller",
                     label,
                     note,
+                    switches: "",
                     get: |_| false,
                     set: |_, _| {},
                     slider: Some(slider),
@@ -142,9 +143,11 @@ impl Plugin for ControllerAimPlugin {
         }
         settings::add_setting(app,Setting {key:KEYS[2],group:"Controller",label:"Controller aim: toggle",
             note:"Off: hold the aim/block control. On: press once to aim or block, press again to release. Menus and input handoffs cancel it.",
+            switches: "",
             get:|w|w.resource::<Options>().toggle_aim,set:|w,v|w.resource_mut::<Options>().toggle_aim=v,slider:None});
         settings::add_setting(app,Setting {key:KEYS[3],group:"Controller",label:"Controller sneak: hold",
             note:"Off: press to toggle sneak. On: sneak while held, then restore the independent keyboard/script sneak state.",
+            switches: "",
             get:|w|w.resource::<Options>().hold_sneak,set:|w,v|w.resource_mut::<Options>().hold_sneak=v,slider:None});
     }
 }

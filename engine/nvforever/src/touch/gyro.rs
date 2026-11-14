@@ -209,6 +209,7 @@ pub(super) fn install(app: &mut App) {
                 label,
                 note,
                 slider: None,
+                switches: "",
                 get: match index {
                     0 => |w| w.resource::<Options>().enabled,
                     3 => |w| w.resource::<Options>().toggle,
@@ -264,6 +265,7 @@ pub(super) fn install(app: &mut App) {
                 group: "Controller",
                 label,
                 note,
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: Some(slider),
@@ -277,6 +279,7 @@ pub(super) fn install(app: &mut App) {
             group: "Controller",
             label: "Recenter gyro",
             note: "Discard the motion reference and pending input. Your current view stays where it is.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,

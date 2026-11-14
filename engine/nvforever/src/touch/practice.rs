@@ -484,6 +484,7 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Update, show);
     settings::add_choice_list(app, Setting {
         key: KEY, group: "Controller", label: "Touch practice", note: "Open a safe guide: left thumb moves, right thumb looks. Practice actions only update the guide. Close returns to Settings.",
+        switches: "",
         get: |_| false, set: |_, _| {}, slider: None,
     }, ChoiceList {
         names: |_| vec![CLOSED.into(), OPEN.into()], chosen: |_| CLOSED.into(),

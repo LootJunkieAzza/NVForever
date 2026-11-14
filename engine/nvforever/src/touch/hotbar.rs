@@ -715,6 +715,7 @@ pub(super) fn install(app: &mut App) {
         group: "Controls",
         label,
         note,
+        switches: "",
         get,
         set,
         slider: None,

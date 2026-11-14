@@ -135,7 +135,7 @@ pub fn ui_scale_row(group: &'static str) -> crate::settings::Setting {
         "ui-scale",
         group,
         "HUD scale",
-        "The size of the in-game HUD, with each piece kept at its screen edge. Menu scale is independent. Takes effect at the next start (loading a save starts the game again). Not in the original.",
+        "Size of the in-game HUD, independent of menu scale. Takes effect at the next start.",
         crate::settings::Slider::choice(UI_SCALE_CHOICES, |_| ui_scale_part(ui_scale_setting()), |_, v| set_ui_scale_setting(ui_scale_of_part(v)), |v| format!("{:.0}%", ui_scale_of_part(v) * 100.0)),
     )
 }

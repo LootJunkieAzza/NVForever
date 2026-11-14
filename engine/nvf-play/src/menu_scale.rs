@@ -43,7 +43,7 @@ pub fn register(app: &mut App, group: &'static str) {
     app.init_resource::<MenuScale>();
     settings::add_setting(app, Setting::slider(
         KEY, group, "Menu scale",
-        "The size of the main, pause and other menus, centred in the view. 50% to 100%: the existing fixed layouts may shrink but cannot grow beyond the screen. Independent of HUD scale. Takes effect at the next start (loading a save starts the game again). Not in the original.",
+        "Size of the main, pause and other menus, independent of HUD scale. Takes effect at the next start.",
         Slider::choice(CHOICES, |w| part(w.resource::<MenuScale>().0), |w, v| w.resource_mut::<MenuScale>().0 = of_part(v), |v| format!("{:.0}%", of_part(v) * 100.0)),
     ));
     // Synthesize only the missing menu value before ordinary settings loading.

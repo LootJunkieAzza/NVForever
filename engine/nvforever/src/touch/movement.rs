@@ -158,15 +158,19 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Update, show);
     settings::add_setting(app, Setting { key: "touch-analog-movement-v1", group: "Touch", label: "Analog movement",
         note: "On: stick distance scales native movement speed; small pushes walk and larger pushes run with Always Run. Off: legacy directional keys. Desktop/controller behavior is unchanged.",
+        switches: "",
         get: |w| w.resource::<Options>().analog, set: |w,v| w.resource_mut::<Options>().analog=v, slider: None });
     settings::add_setting(app, Setting { key: "touch-fire-drag-look-v1", group: "Touch", label: "Drag Fire to look",
         note: "Keep firing through the Use binding while dragging the Fire finger to turn. One finger owns look at a time. Off keeps the stationary Fire button.",
+        switches: "",
         get: |w| w.resource::<Options>().fire_drag, set: |w,v| w.resource_mut::<Options>().fire_drag=v, slider: None });
     settings::add_setting(app, Setting { key: "touch-auto-move-lock-v1", group: "Touch", label: "Auto-move lock target",
-        note: "Show an arrow above the movement stick. Drag the movement finger onto it and release to engage native Auto Move; tap it to toggle Auto Move. Uses your binding and existing walk/run rules, with no sprint or AP change.",
+        note: "Show an arrow above the stick: drag the movement finger onto it and release to engage native Auto Move; tap to toggle it. Uses your binding and normal walk/run rules; no sprint or AP change.",
+        switches: "",
         get: |w| w.resource::<Options>().run_lock, set: |w,v| w.resource_mut::<Options>().run_lock=v, slider: None });
     settings::add_setting(app, Setting { key: "touch-vats-double-tap-v1", group: "Touch", label: "Double-tap look space for VATS",
         note: "Two short stationary taps on empty look space, with no other fingers down, pulse your VATS binding. Drags/cancellation do not. Native weapon, target and AP rules decide the result.",
+        switches: "",
         get: |w| w.resource::<Options>().vats_taps, set: |w,v| w.resource_mut::<Options>().vats_taps=v, slider: None });
 }
 
