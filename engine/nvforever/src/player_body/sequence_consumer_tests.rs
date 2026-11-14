@@ -449,13 +449,21 @@ fn prepared_public_sequence_reaches_real_pose_and_releases_to_the_underlying_cli
             assert_pose(&app, &first, 10.0 + (end_sample - 10.0) * share);
             assert_pose(&app, &third, 10.0);
         }
-        assert!(!game.anim_paths.sequences.contains_key(&key));
+        // [documented: Game::tick -> knvse_tick] Request cleanup precedes
+        // advancing Game.time. The fourth render fade step reaches zero after
+        // that frame's cleanup has already read the preceding core time.
         assert!(!first
             .rig
             .animator
             .layers
             .iter()
             .any(|layer| layer.tag == tag));
+        println!(
+            "sequence-consumer: phase=core-retirement cycle={cycle} before_time={} request_present={}",
+            game.time, game.anim_paths.sequences.contains_key(&key)
+        );
+        game.tick(); // Exactly one ordinary cleanup boundary; no direct mutation.
+        assert!(!game.anim_paths.sequences.contains_key(&key));
         assert!(first
             .rig
             .animator
