@@ -20,6 +20,10 @@
 //!   them (the player's means everywhere), but each from its own `given` state, set as
 //!   the headless run sets it. For a chain far into the game that no campaign has
 //!   reached yet; what it finds carries the false alarms a thin `given` brings.
+//! - **Scenes are watched**: NPCs near the player saying scripted lines to one another
+//!   (SayTo, a conversation between them) stop its walk, up to [`SCENE_SECS`] a walk.
+//!   At the Silver Rush's entrance a trigger turns the Van Graffs hostile on a player who
+//!   walks on through Jean-Baptiste's scene, and Birds of a Feather fails.
 //! - **An actor the player cannot walk to is waited for** (`Phase::Await`, up to
 //!   [`AWAIT_SECS`]): it may come out and start the conversation itself, or come near
 //!   enough to walk to. The Nellis gate guard is behind the locked gate and comes out to
@@ -173,7 +177,9 @@
 //!   deal with it (a `trigger_enter`, an actor kept company, a walk followed by
 //!   `wait_talk`, `choose` or `talk`), the walk ends there and they hear it out
 //!   (REPCONN's lobby intercom, as its trigger is entered). Anywhere else nothing in the
-//!   chain answers it: the player hears it out, leaves by its Goodbye and walks on.
+//!   chain answers it: the player goes along with it once (its first choice that is no
+//!   Goodbye: Simon's search at the Silver Rush door lets the player in), then leaves and
+//!   walks on.
 //! - Lines are skipped after [`SKIP_AFTER`] s, as a player in a hurry does. A conversation
 //!   still open when the next step is a walk is left first, unless the walk is to the
 //!   actor talking; an actor that came and spoke first is the conversation a `talk`
@@ -314,6 +320,11 @@ pub const WAIT_HOURS: u32 = 24;
 pub const ERRAND_SECS: f64 = 90.0;
 /// Seconds a message box nobody waits for stays up before the pilot closes it.
 pub const BOX_SECS: f64 = 1.5;
+/// How far off NPCs playing a scene stop the player, and for how long at most a walk.
+pub const SCENE_RANGE: f32 = 1500.0;
+pub const SCENE_SECS: f64 = 90.0;
+/// Seconds without a line that end a scene being watched.
+pub const SCENE_GAP: f64 = 20.0;
 /// Seconds an actor the player cannot walk to is waited for, and how many times the walk
 /// is tried again when it comes near.
 pub const AWAIT_SECS: f64 = 60.0;
@@ -396,7 +407,7 @@ impl Plugin for PilotPlugin {
                         Err(e) => error!("pilot: {}: {e}", path.display()),
                     }
                 }
-                app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held)).add_systems(Last, report_on_exit);
+                app.insert_resource(pilot).add_systems(Update, (drive.in_set(PlaySet::Input).after(nvf_play::control::read_controls).before(nvf_play::control::enforce_locks), held, close_engine_menus)).add_systems(Last, report_on_exit);
             }
             Ok(_) => error!("pilot: no chain"),
             Err(e) => error!("pilot: {e}"),
@@ -485,6 +496,9 @@ struct Walk {
     errand: Option<(Errand, Place)>,
     /// A switch being walked to, for the door, before the walk goes on.
     side: Option<(FormId, u32, Box<Walk>)>,
+    /// Seconds stood watching scenes on this walk, and when a scene's line was last seen.
+    scene_held: f64,
+    scene_last: Option<f64>,
     /// Said that the actor walked to is talking (once a conversation).
     told_talking: bool,
     /// Stepping aside (to this side, until then) round what the player walked into.
@@ -557,6 +571,8 @@ struct Pilot {
     /// Failed steps one after the other, and the real time the pilot last could act.
     failed_in_a_row: u32,
     acted_at: Option<f64>,
+    /// The conversation (its serial) last gone along with in the player's way.
+    went_along: Option<u32>,
     /// Since when the open conversation has offered no way out, and the picks made in it
     /// looking for one.
     stuck_talk: Option<f64>,
@@ -634,6 +650,7 @@ impl Pilot {
             headless: Default::default(),
             failed_in_a_row: 0,
             acted_at: None,
+            went_along: None,
             stuck_talk: None,
             talk_picks: 0,
             set_given: false,
@@ -950,21 +967,54 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
             return Walked::There;
         }
         if !w.dodge.is_some_and(|(t, _)| t < 0.0) {
-            info!("pilot: step {}: a conversation began on the way that no step answers: heard out and left by its Goodbye", p.i);
+            info!("pilot: step {}: a conversation began on the way that no step answers: the player goes along with it once, then leaves", p.i);
             // (Said once: the marker is a dodge that is over.)
             w.dodge = Some((-1.0, 0.0));
         }
         w.seen = (p.now, feet);
-        if leave_talk(p, h) {
+        if leave_talk(p, h, true) {
             (w.follower, w.door_since, w.dodge) = (None, None, None);
         }
         return Walked::Going;
     }
+    // A scene being played near the player (NPCs saying scripted lines to one another, or
+    // a conversation between them): the player stops and watches, up to [`SCENE_SECS`] a
+    // walk. The Silver Rush's entrance plays Jean-Baptiste's scene with the volunteer;
+    // walking on through it crosses a trigger that turns the Van Graffs hostile and fails
+    // Birds of a Feather.
+    if w.scene_held < SCENE_SECS {
+        let scene = h
+            .game(|g| {
+                let here_cell = g.world.peek(FormId::PLAYER_REF).and_then(|s| s.cell);
+                g.speech.iter().find(|sp| {
+                    (sp.say_to || g.in_actor_conversation(sp.speaker)) && !sp.greeting && sp.target != Some(FormId::PLAYER_REF) && !g.chatter_topic(sp.topic)
+                        && where_is(g, sp.speaker).is_some_and(|(c, at)| c == here_cell && hdist(at, feet) < SCENE_RANGE)
+                }).map(|sp| sp.speaker)
+            })
+            .flatten();
+        if let Some(who) = scene {
+            if w.scene_held == 0.0 {
+                let name = h.game(|g| g.data.name(who)).unwrap_or_default();
+                info!("pilot: step {}: a scene plays near the player ({name} speaking): the player stops and watches", p.i);
+            }
+            w.scene_last = Some(p.now);
+        }
+        // Between its lines a scene goes on (Jean-Baptiste walks to fetch a volunteer
+        // after Gloria's last line): the player keeps watching while a line was said in the
+        // last [`SCENE_GAP`] s.
+        if w.scene_last.is_some_and(|t| p.now - t < SCENE_GAP) {
+            w.scene_held += h.dt as f64;
+            (h.intent.forward, h.intent.right) = (0.0, 0.0);
+            w.seen = (p.now, feet);
+            return Walked::Going;
+        }
+    }
     // One already open when the walk began holds the player: it is left first, as a
-    // player leaves one to go on (`leave_talk`).
+    // player leaves one to go on (`leave_talk`). (Not gone along with: it is the chain's
+    // own, left open by an earlier step.)
     if talker.is_some() {
         w.seen = (p.now, feet);
-        if leave_talk(p, h) {
+        if leave_talk(p, h, false) {
             w.talking_at_start = Some(false);
         }
         return Walked::Going;
@@ -1210,7 +1260,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, awaited: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, awaited: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, scene_held: 0.0, scene_last: None, told_talking: false, dodge: None, snapped: None }
 }
 
 /// What a player would use to open a door that stays locked (module notes), not used
@@ -1602,7 +1652,12 @@ fn choice_toward(g: &Game, wanted: FormId) -> Option<(usize, usize)> {
 
 /// One frame of leaving the open conversation as a player can (module notes). Whether no
 /// conversation is open any more.
-fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
+/// With `go_along`, a conversation in the player's way is first gone along with once (its
+/// first choice that is no Goodbye and not shaded): a player on the way somewhere does
+/// what stands in the way asks. Simon at the Silver Rush's door asks to search the player
+/// ("Okay, search away" / "That's not going to happen", the Goodbye); leaving by the
+/// Goodbye was refused at the door again and again. A chain's own `end_talk` does not.
+fn leave_talk(p: &mut Pilot, h: &mut Hands, go_along: bool) -> bool {
     if h.game(|g| g.dialogue.is_none()) != Some(false) {
         (p.stuck_talk, p.talk_picks) = (None, 0);
         return true;
@@ -1610,6 +1665,17 @@ fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
     // A line is being said: heard out (skipped after a moment, the player's own key).
     if hear(p, h) {
         return false;
+    }
+    let serial = h.game(|g| g.dialogue_serial).unwrap_or(0);
+    if go_along && p.went_along != Some(serial) {
+        let pick = h.game(|g| g.dialogue_choices().iter().position(|c| !c.goodbye && !c.darkened)).flatten();
+        if let Some(i) = pick {
+            p.went_along = Some(serial);
+            let text = h.game(|g| g.dialogue_choices().get(i).map(|c| g.choice_text(c).to_string())).flatten().unwrap_or_default();
+            h.game(|g| g.choose(i).ok());
+            info!("pilot: step {}: goes along with what stands in the way: picks {text:?}", p.i);
+            return false;
+        }
     }
     enum Way {
         Goodbye(usize),
@@ -1974,7 +2040,7 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
         }
         Action::Terminal { target, item, menu, label } => terminal_step(p, h, target, *item, menu.as_deref(), label.as_deref()),
         Action::EndTalk { .. } => {
-            if leave_talk(p, h) {
+            if leave_talk(p, h, false) {
                 return Some(None);
             }
             (p.now - p.step_from > 60.0).then(|| Some("the conversation could not be left in 60 s".to_string()))
@@ -2746,6 +2812,24 @@ fn walk_phase(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
     out
 }
 
+/// A menu of the engine's own up (the container menu Simon's search at the Silver Rush
+/// opens): the pilot cannot act behind it, and no step works it. After [`BOX_SECS`] it is
+/// closed as a player closes it, with a finding (the run was held for good before).
+fn close_engine_menus(real: Res<Time<Real>>, mut pilot: ResMut<Pilot>, active: Res<nvf_play::menu::ActiveMenu>, mut input: MessageWriter<nvf_play::menu::MenuInput>, mut since: Local<Option<f64>>) {
+    if pilot.done || active.0.is_none() {
+        *since = None;
+        return;
+    }
+    let now = real.elapsed_secs_f64();
+    let t = *since.get_or_insert(now);
+    if now - t > BOX_SECS * 2.0 {
+        input.write(nvf_play::menu::MenuInput(nvf_play::menu::model::Command::Close));
+        let p = &mut *pilot;
+        info!("pilot: step {}: closes a menu of the engine's own (inventory or container) that no step works", p.i);
+        *since = Some(now);
+    }
+}
+
 /// The game exits before the pilot is done (`--run-seconds`, a script's ExitGame at the
 /// end slides, the window closed): the report is written all the same, with where it
 /// stopped.
@@ -3029,7 +3113,7 @@ fn drive(
     // The save after the chain is asked for once nothing holds the game, then waited for.
     if p.campaign && !p.saved {
         if *state.get() != PlayState::Playing {
-            leave_talk(p, &mut h);
+            leave_talk(p, &mut h, false);
             return;
         }
         let name = format!("pilot-after-{}", p.chain);
