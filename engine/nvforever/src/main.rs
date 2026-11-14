@@ -168,6 +168,7 @@ mod fsr;
 mod upscaler;
 mod speech_look;
 mod stress_sample;
+mod transform_roots;
 mod profile;
 mod perf_overlay;
 mod occlusion;
@@ -1721,6 +1722,8 @@ fn main() -> AppExit {
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
             app.add_plugins(profile::ProfilePlugin);
+            // Transform propagation's counts (NVF_PLAY_TEST_TRANSFORM_ROOTS; nothing without it).
+            app.add_plugins(transform_roots::TransformRootsPlugin);
             app.add_plugins(frame_telemetry::FrameTelemetryPlugin(args.data().to_path_buf()));
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             // The player knocked down (player_knockdown.rs).

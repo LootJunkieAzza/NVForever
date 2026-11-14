@@ -145,7 +145,8 @@ pub fn enabled(lo: &LoadOrder, schema: &EsmSchema, p: &Placement, depth: usize) 
     }
 }
 
-/// Marks the root that maps game space (Z up) to Bevy space (Y up).
+/// Marks the entity that maps game space (Z up) to Bevy space (Y up). It is not a root of the
+/// hierarchy: [`setup_root`] puts it under a parent that never moves.
 #[derive(Component)]
 pub struct WorldRoot;
 
@@ -295,8 +296,18 @@ pub fn bevy_to_game(p: Vec3) -> Vec3 {
     Vec3::new(p.x, -p.z, p.y)
 }
 
+/// `World`, with a parent above it (issue #1387). Bevy assigns the `GlobalTransform` of a root
+/// whose tree is dirty, which marks it changed even with the same value, and then has to
+/// recompute every direct child; a child's goes through `set_if_neq`, so with this parent
+/// `World`'s stays unchanged when only something under it moves, and its clean direct
+/// children stop at their test [design: bevy_transform 0.20.1 `src/systems.rs` :529, :707-718].
+///
+/// The parent has only `World` under it and stays identity: particles.rs and shot_fx.rs read
+/// `World`'s local matrix as the game-to-Bevy conversion. What is directly under `World` stays
+/// so (nav.rs `show_actor` and nvf-play's moved.rs rely on the parents they find).
 pub fn setup_root(mut commands: Commands) {
-    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default()));
+    let parent = commands.spawn((Name::new("World parent"), Transform::IDENTITY, Visibility::default())).id();
+    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default(), ChildOf(parent)));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1743,5 +1754,476 @@ mod tests {
             let p = placement(&lo, &schema, id).unwrap();
             assert_eq!(enabled(&lo, &schema, &p, 0), want, "0x{id:X}");
         }
+    }
+}
+
+/// The parent above `World` against the hierarchy without it, frame by frame, with Bevy's own
+/// transform and visibility plugins (issue #1387). Every test runs with Bevy's static
+/// optimization on and off.
+#[cfg(test)]
+mod parent_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+    use bevy::camera::visibility::VisibilityPlugin;
+    use bevy::ecs::change_detection::Tick;
+    use bevy::mesh::MeshPlugin;
+    use bevy::transform::systems::StaticTransformOptimizations;
+    use bevy::transform::{TransformPlugin, TransformSystems};
+    use std::collections::BTreeMap;
+
+    /// `setup_root` as it was: `World` a root.
+    fn original_root(mut commands: Commands) {
+        commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default()));
+    }
+
+    /// The cells [`retire`] gave up, for [`despawn_dying`] each frame.
+    #[derive(Resource, Default)]
+    struct Dying(Vec<Entity>);
+
+    fn despawn_slices(mut commands: Commands, mut dying: ResMut<Dying>, children: Query<&Children>) {
+        despawn_dying(&mut commands, &mut dying.0, &children);
+    }
+
+    fn place(at: Vec3) -> Transform {
+        Transform::from_translation(at).with_rotation(Quat::from_rotation_z(0.3))
+    }
+
+    /// One hierarchy, its entities by name so that two can be compared.
+    struct Scene {
+        app: App,
+        world: Entity,
+        parent: Option<Entity>,
+        nodes: BTreeMap<&'static str, Entity>,
+    }
+
+    impl Scene {
+        fn new(wrapped: bool, statics: bool) -> Self {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default(), MeshPlugin, TransformPlugin, VisibilityPlugin));
+            app.insert_resource(if statics { StaticTransformOptimizations::Enabled } else { StaticTransformOptimizations::Disabled });
+            app.init_resource::<Dying>().add_systems(Update, despawn_slices);
+            if wrapped {
+                app.add_systems(Startup, setup_root);
+            } else {
+                app.add_systems(Startup, original_root);
+            }
+            app.update();
+            let w = app.world_mut();
+            let world = w.query_filtered::<Entity, With<WorldRoot>>().single(&*w).expect("one World");
+            let parent = w.get::<ChildOf>(world).map(ChildOf::parent);
+            Scene { app, world, parent, nodes: BTreeMap::new() }
+        }
+
+        /// A cell as `stream` attaches it.
+        fn cell(&mut self, name: &'static str, at: Vec3) {
+            let world = self.world;
+            let w = self.app.world_mut();
+            let e = w.spawn((CellEntity, RenderCell::Interior(1), place(at), Visibility::default())).id();
+            w.entity_mut(world).add_child(e);
+            self.nodes.insert(name, e);
+        }
+
+        /// A reference, or a part of one.
+        fn node(&mut self, name: &'static str, parent: Entity, at: Vec3) {
+            let e = self.app.world_mut().spawn((place(at), Visibility::default(), ChildOf(parent))).id();
+            self.nodes.insert(name, e);
+        }
+
+        /// World
+        /// ├ cell a ─ ref a ─ leaf
+        /// ├ cell b ─ ref b ─ part
+        /// └ actor ─ bone (an actor is placed directly under `World`, nav.rs)
+        fn populate(&mut self) {
+            self.cell("cell a", Vec3::new(4096.0, 0.0, 0.0));
+            self.node("ref a", self.nodes["cell a"], Vec3::new(10.0, 20.0, 30.0));
+            self.node("leaf", self.nodes["ref a"], Vec3::new(1.0, 2.0, 3.0));
+            self.cell("cell b", Vec3::new(0.0, 4096.0, 0.0));
+            self.node("ref b", self.nodes["cell b"], Vec3::new(-10.0, 5.0, 0.0));
+            self.node("part", self.nodes["ref b"], Vec3::new(0.0, 0.0, 7.0));
+            self.node("actor", self.world, Vec3::new(100.0, 200.0, 0.0));
+            self.node("bone", self.nodes["actor"], Vec3::new(0.0, 0.0, 64.0));
+        }
+
+        fn write(&mut self, name: &str, f: impl FnOnce(&mut Transform)) {
+            f(&mut self.app.world_mut().get_mut::<Transform>(self.nodes[name]).unwrap());
+        }
+
+        /// A `Transform` marked as written, its value the same.
+        fn write_same(&mut self, name: &str) {
+            self.app.world_mut().get_mut::<Transform>(self.nodes[name]).unwrap().set_changed();
+        }
+
+        fn reparent(&mut self, e: Entity, to: Entity) {
+            self.app.world_mut().entity_mut(e).insert(ChildOf(to));
+        }
+
+        fn alive(&self, name: &str) -> bool {
+            self.app.world().get_entity(self.nodes[name]).is_ok()
+        }
+
+        fn tick(&self, e: Entity) -> Tick {
+            self.app.world().entity(e).get_ref::<GlobalTransform>().unwrap().last_changed()
+        }
+
+        /// The change ticks of every node there is.
+        fn ticks(&self) -> BTreeMap<&'static str, Tick> {
+            self.nodes.iter().filter(|(n, _)| self.alive(n)).map(|(n, e)| (*n, self.tick(*e))).collect()
+        }
+
+        fn shown(&self, name: &str) -> bool {
+            self.visible(self.nodes[name])
+        }
+
+        fn visible(&self, e: Entity) -> bool {
+            self.app.world().get::<InheritedVisibility>(e).unwrap().get()
+        }
+
+        fn global(&self, e: Entity) -> GlobalTransform {
+            *self.app.world().get::<GlobalTransform>(e).unwrap()
+        }
+
+        fn parent_of(&self, name: &str) -> Option<Entity> {
+            self.app.world().get::<ChildOf>(self.nodes[name]).map(ChildOf::parent)
+        }
+
+        /// What every node holds, to compare with the other hierarchy.
+        fn snapshot(&self) -> BTreeMap<&'static str, Option<(GlobalTransform, bool)>> {
+            let mut all: BTreeMap<_, _> = self.nodes.iter().map(|(n, e)| (*n, self.alive(n).then(|| (self.global(*e), self.visible(*e))))).collect();
+            all.insert("World", Some((self.global(self.world), self.visible(self.world))));
+            all
+        }
+
+        /// The global that the locals now give, multiplied as Bevy does, from the top.
+        fn by_hand(&self, e: Entity) -> GlobalTransform {
+            let w = self.app.world();
+            let local = *w.get::<Transform>(e).unwrap();
+            match w.get::<ChildOf>(e) {
+                Some(p) => self.by_hand(p.parent()).mul_transform(local),
+                None => GlobalTransform::from(local),
+            }
+        }
+
+        /// Every global follows this frame's locals: nothing arrives a frame late.
+        fn assert_fresh(&self) {
+            assert_eq!(self.global(self.world), self.by_hand(self.world), "World");
+            for (n, e) in self.nodes.iter().filter(|(n, _)| self.alive(n)) {
+                assert_eq!(self.global(*e), self.by_hand(*e), "{n}");
+            }
+        }
+    }
+
+    /// Which of the two globals that differ by the arrangement one frame changed.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Changed {
+        parent: bool,
+        original_world: bool,
+    }
+
+    /// Bevy assigns a root with a dirty tree, and with the optimization off every root.
+    const ASSIGNED: Changed = Changed { parent: true, original_world: true };
+
+    /// The same hierarchy with the parent and without it, given the same frames.
+    struct Pair {
+        wrapped: Scene,
+        original: Scene,
+    }
+
+    impl Pair {
+        /// `World` alone, after its first frame.
+        fn new(statics: bool) -> Self {
+            Pair { wrapped: Scene::new(true, statics), original: Scene::new(false, statics) }
+        }
+
+        /// With the scene spawned and its marks gone.
+        fn settled(statics: bool) -> Self {
+            let mut p = Pair::new(statics);
+            p.each(Scene::populate);
+            p.step();
+            p.step();
+            p
+        }
+
+        fn each(&mut self, f: impl Fn(&mut Scene)) {
+            f(&mut self.wrapped);
+            f(&mut self.original);
+        }
+
+        /// One frame. Whatever it did, the hierarchies agree exactly, every global is this
+        /// frame's and `World`'s under the parent was not touched.
+        fn step(&mut self) -> Changed {
+            let world = self.wrapped.world;
+            let parent = self.wrapped.parent.expect("World has its parent");
+            let original_world = self.original.world;
+            let before = (self.wrapped.tick(world), self.wrapped.tick(parent), self.original.tick(original_world));
+            self.each(|s| s.app.update());
+            assert_eq!(self.wrapped.tick(world), before.0, "World's global is not changed under the parent");
+            assert_eq!(self.wrapped.snapshot(), self.original.snapshot());
+            self.wrapped.assert_fresh();
+            self.original.assert_fresh();
+            Changed { parent: self.wrapped.tick(parent) != before.1, original_world: self.original.tick(original_world) != before.2 }
+        }
+    }
+
+    fn each_mode(f: impl Fn(bool)) {
+        f(true);
+        f(false);
+    }
+
+    /// Trips if the parent grows anything, moves or takes `World`'s meaning: decals and
+    /// effects use `World`'s global, particles its local, both as the conversion.
+    fn assert_arrangement(s: &Scene) {
+        let w = s.app.world();
+        let parent = s.parent.expect("World has its parent");
+        assert_eq!(*w.get::<Transform>(parent).unwrap(), Transform::IDENTITY);
+        assert_eq!(s.global(parent), GlobalTransform::IDENTITY);
+        assert!(w.get::<ChildOf>(parent).is_none(), "the parent is the root");
+        assert!(w.get::<WorldRoot>(parent).is_none(), "one World");
+        assert_eq!(w.get::<Children>(parent).map(|c| c.to_vec()), Some(vec![s.world]), "with only World under it");
+        assert!(s.visible(parent));
+        assert_eq!(*w.get::<Transform>(s.world).unwrap(), game_to_bevy());
+        assert_eq!(s.global(s.world), GlobalTransform::from(game_to_bevy()), "World's global is its local");
+        assert!(s.visible(s.world));
+    }
+
+    #[test]
+    fn the_first_frames_match_the_original() {
+        each_mode(|statics| {
+            let mut p = Pair::new(statics);
+            assert!(p.original.parent.is_none());
+            assert_arrangement(&p.wrapped);
+            assert_eq!(p.wrapped.snapshot(), p.original.snapshot(), "World alone");
+
+            p.each(Scene::populate);
+            assert_eq!(p.step(), ASSIGNED, "what was spawned is new");
+            assert_arrangement(&p.wrapped);
+            for (name, node) in p.wrapped.snapshot() {
+                assert!(node.unwrap().1, "{name} is shown");
+            }
+        });
+    }
+
+    #[test]
+    fn clean_frames_change_no_global_under_the_parent() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let before = p.wrapped.ticks();
+            for _ in 0..3 {
+                // With the optimization on a clean root is passed by; off, it is assigned.
+                assert_eq!(p.step(), Changed { parent: !statics, original_world: !statics });
+            }
+            assert_eq!(p.wrapped.ticks(), before);
+            assert_arrangement(&p.wrapped);
+        });
+    }
+
+    #[test]
+    fn a_moving_leaf_arrives_the_same_frame_and_leaves_world_alone() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            for i in 1..4 {
+                let before = p.wrapped.ticks();
+                let was = p.wrapped.global(p.wrapped.nodes["leaf"]);
+                p.each(|s| s.write("leaf", |t| t.translation.x += 1.0));
+                assert_eq!(p.step(), ASSIGNED, "frame {i}");
+                assert_ne!(p.wrapped.global(p.wrapped.nodes["leaf"]), was, "it moved this frame");
+                for (name, tick) in p.wrapped.ticks() {
+                    assert_eq!(tick != before[name], name == "leaf", "{name}");
+                }
+            }
+            assert_arrangement(&p.wrapped);
+        });
+    }
+
+    /// An actor is moved by writing the entity directly under `World` (nav.rs `show_actor`).
+    #[test]
+    fn a_direct_child_moving_takes_its_parts_and_nothing_else() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let before = p.wrapped.ticks();
+            p.each(|s| s.write("actor", |t| t.translation.y -= 8.0));
+            assert_eq!(p.step(), ASSIGNED);
+            for (name, tick) in p.wrapped.ticks() {
+                assert_eq!(tick != before[name], matches!(name, "actor" | "bone"), "{name}");
+            }
+            assert_eq!(p.wrapped.parent_of("actor"), Some(p.wrapped.world));
+        });
+    }
+
+    #[test]
+    fn a_write_of_the_same_value_changes_no_global_under_the_parent() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let before = p.wrapped.ticks();
+            p.each(|s| s.write_same("leaf"));
+            assert_eq!(p.step(), ASSIGNED);
+            assert_eq!(p.wrapped.ticks(), before);
+            p.each(|s| s.write_same("cell b"));
+            assert_eq!(p.step(), ASSIGNED);
+            assert_eq!(p.wrapped.ticks(), before);
+        });
+    }
+
+    #[derive(Resource)]
+    struct Watched(Entity);
+
+    #[derive(Resource, Default)]
+    struct Seen(Option<GlobalTransform>);
+
+    fn move_watched(watched: Res<Watched>, mut transforms: Query<&mut Transform>) {
+        transforms.get_mut(watched.0).unwrap().translation.z += 1.0;
+    }
+
+    fn see_watched(watched: Res<Watched>, globals: Query<&GlobalTransform>, mut seen: ResMut<Seen>) {
+        seen.0 = Some(*globals.get(watched.0).unwrap());
+    }
+
+    /// Written in `Update`, read straight after propagation in the same frame: the extra
+    /// level of hierarchy costs no frame.
+    #[test]
+    fn a_system_after_propagation_sees_this_frames_move() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            p.each(|s| {
+                let leaf = s.nodes["leaf"];
+                s.app.insert_resource(Watched(leaf)).init_resource::<Seen>();
+                s.app.add_systems(Update, move_watched).add_systems(PostUpdate, see_watched.after(TransformSystems::Propagate));
+            });
+            for _ in 0..3 {
+                assert_eq!(p.step(), ASSIGNED);
+                for s in [&p.wrapped, &p.original] {
+                    assert_eq!(s.app.world().resource::<Seen>().0, Some(s.by_hand(s.nodes["leaf"])));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn a_cell_attached_during_play_is_placed_and_shown_at_once() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let before = p.wrapped.ticks();
+            p.each(|s| {
+                s.cell("cell c", Vec3::new(-4096.0, 0.0, 0.0));
+                s.node("ref c", s.nodes["cell c"], Vec3::new(3.0, 2.0, 1.0));
+            });
+            assert_eq!(p.step(), ASSIGNED);
+            assert!(p.wrapped.shown("cell c") && p.wrapped.shown("ref c"));
+            assert_eq!(p.wrapped.parent_of("cell c"), Some(p.wrapped.world));
+            let after = p.wrapped.ticks();
+            for (name, tick) in &before {
+                assert_eq!(after[name], *tick, "{name} was not touched");
+            }
+        });
+    }
+
+    /// Hidden, and hides what is under it, for as long as it is there.
+    #[test]
+    fn a_hidden_cell_hides_what_is_under_it_and_only_that() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            p.each(|s| {
+                let cell = s.nodes["cell a"];
+                s.app.world_mut().entity_mut(cell).insert(Visibility::Hidden);
+            });
+            p.step();
+            for name in ["cell a", "ref a", "leaf"] {
+                assert!(!p.wrapped.shown(name), "{name}");
+            }
+            for name in ["cell b", "ref b", "part", "actor", "bone"] {
+                assert!(p.wrapped.shown(name), "{name}");
+            }
+            p.each(|s| {
+                let cell = s.nodes["cell a"];
+                s.app.world_mut().entity_mut(cell).insert(Visibility::Inherited);
+            });
+            p.step();
+            assert!(p.wrapped.shown("leaf"));
+        });
+    }
+
+    /// By the game's own [`retire`] and [`despawn_dying`]. A cell this small goes in one slice.
+    #[test]
+    fn a_retired_cell_goes_and_its_neighbours_stay() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            p.each(|s| {
+                let cell = s.nodes["cell a"];
+                let w = s.app.world_mut();
+                let mut dying = std::mem::take(&mut w.resource_mut::<Dying>().0);
+                retire(&mut w.commands(), &mut dying, cell);
+                w.flush();
+                w.resource_mut::<Dying>().0 = dying;
+            });
+            p.step();
+            p.step();
+            assert!(p.wrapped.app.world().resource::<Dying>().0.is_empty());
+            for name in ["cell a", "ref a", "leaf"] {
+                assert!(!p.wrapped.alive(name), "{name}");
+            }
+            for name in ["cell b", "ref b", "part", "actor", "bone"] {
+                assert!(p.wrapped.shown(name), "{name}");
+            }
+            let under_world = p.wrapped.app.world().get::<Children>(p.wrapped.world).map(|c| c.len());
+            assert_eq!(under_world, Some(2), "cell b and the actor");
+            assert_arrangement(&p.wrapped);
+        });
+    }
+
+    #[test]
+    fn reparenting_places_the_subtree_the_same_frame() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let was = p.wrapped.global(p.wrapped.nodes["leaf"]);
+
+            // To another cell.
+            p.each(|s| s.reparent(s.nodes["ref a"], s.nodes["cell b"]));
+            assert_eq!(p.step(), ASSIGNED);
+            assert_ne!(p.wrapped.global(p.wrapped.nodes["leaf"]), was);
+
+            // Directly under `World`.
+            p.each(|s| s.reparent(s.nodes["ref a"], s.world));
+            assert_eq!(p.step(), ASSIGNED);
+            assert_eq!(p.wrapped.parent_of("ref a"), Some(p.wrapped.world));
+
+            // Out of the tree, a root of its own, and back in.
+            p.each(|s| {
+                let e = s.nodes["ref a"];
+                s.app.world_mut().entity_mut(e).remove::<ChildOf>();
+            });
+            p.step();
+            assert!(p.wrapped.shown("leaf"), "a root shows what is under it");
+            p.each(|s| s.reparent(s.nodes["ref a"], s.nodes["cell a"]));
+            assert_eq!(p.step(), ASSIGNED);
+            assert_eq!(p.wrapped.global(p.wrapped.nodes["leaf"]), was, "where it began");
+            assert_arrangement(&p.wrapped);
+        });
+    }
+
+    /// Travel: every cell gone at once, `World` left with no children and new cells attached
+    /// (`World` itself is not replaced).
+    #[test]
+    fn everything_despawned_and_spawned_again_comes_back_the_same() {
+        each_mode(|statics| {
+            let mut p = Pair::settled(statics);
+            let was = p.wrapped.global(p.wrapped.nodes["bone"]);
+            p.each(|s| {
+                for name in ["cell a", "cell b", "actor"] {
+                    let e = s.nodes[name];
+                    s.app.world_mut().entity_mut(e).despawn();
+                }
+            });
+            p.step();
+            assert!(p.wrapped.app.world().get::<Children>(p.wrapped.world).is_none(), "nothing under World");
+            assert_arrangement(&p.wrapped);
+            p.step();
+
+            p.each(Scene::populate);
+            assert_eq!(p.step(), ASSIGNED);
+            assert_eq!(p.wrapped.global(p.wrapped.nodes["bone"]), was);
+            for (name, node) in p.wrapped.snapshot() {
+                assert!(node.unwrap().1, "{name} is shown");
+            }
+            assert_arrangement(&p.wrapped);
+        });
     }
 }

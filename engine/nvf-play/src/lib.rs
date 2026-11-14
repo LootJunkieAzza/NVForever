@@ -131,7 +131,7 @@ pub mod ui_pointer;
 pub mod credits;
 mod test_aid;
 pub use test_aid::melee_knockback::MeleeKnockbackAid;
-pub use test_aid::{drives_run, MEASURING_AIDS};
+pub use test_aid::{drives_run, transform_roots_window, MEASURING_AIDS};
 pub mod sfx;
 pub mod start_read;
 pub mod sneak_gauges;
