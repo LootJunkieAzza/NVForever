@@ -45,7 +45,8 @@ load a save or return to the main menu, waiting for pending save writes first.
 [design] Android has no game executable to spawn. The engine asks a non-exported restart
 activity in the launcher process to terminate only this UID's identified `:game` process.
 The activity waits until that process has disappeared before starting a fresh NativeActivity
-with the successor arguments. Desktop handoff markers and hidden-window placement are
+with the successor arguments. Its NEW_TASK | CLEAR_TASK flags replace the old game task
+instead of reusing a retained singleTask activity/Intent ([Android Intent flags](https://developer.android.com/reference/android/content/Intent#FLAG_ACTIVITY_CLEAR_TASK)). Desktop handoff markers and hidden-window placement are
 omitted. Restart activities cannot be invoked by other apps. The game activity is a
 single task, so selecting Start again cannot create two native engines in one process.
 This path needs device testing for load failures, task switching and OS process death.

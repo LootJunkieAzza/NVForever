@@ -31,7 +31,10 @@ public final class RestartActivity extends Activity {
                     if (++attempts < 100) { new Handler(Looper.getMainLooper()).postDelayed(this, 100); return; }
                     text.setText("The previous game did not stop. Return to the launcher."); return;
                 }
+                // A killed singleTask activity can retain its old task/Intent. Clear
+                // only the game task so the successor receives a fresh load request.
                 startActivity(new Intent(RestartActivity.this, GameActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     .putExtra("args", getIntent().getStringExtra("args")));
                 finish();
             }
