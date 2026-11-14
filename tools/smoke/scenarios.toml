@@ -4625,6 +4625,24 @@ expect = [
 order = [["terminal 0x0014B0A7 plays Open before its screen", "terminal: open 0x0014B0A7", "terminal 0x0014B0A7 closes"]]
 
 [[scenario]]
+name = "terminal-from-message-box"
+source = "#2459: EastPumpStationTerminal's script (SCPT 0x000E8FA3) shows EastPumpStationTermMsg on activation and its GameMode block answers the button \"Activate the terminal.\" (2) with a bare Activate. An answered box closes after that frame's scripts (ScriptState::answer, Runtime::finish_answer), the player is back in the world in the next frame (hold_player), and only there does the GameMode block read the button: the terminal's screen opens. A box closed before the frame's scripts instead lets the block run while the box still holds PlayState::Menu, and the request is dropped (the quest pilot's own answer did that, #2365)"
+note = "East Pump Station (interior 1EEastPumpStation 000E8F6F), the terminal REFR 000FAA48 (base EastPumpStationTerminal 000E8FA2, not locked) [observed: FalloutNV.esm, fnvtool world refs / script decompile]. Activated at 6 s by the script aid, as the player's own activation; at 8 s the real key 2 picks the second button drawn (script_hud.rs menu_keys, the path of a click too): the record's button 2, since \"Repair the network connection.\" is hidden below Science 50; the terminal left at 12 s. Used by the quest Hard Luck Blues (VES34Vault)"
+areas = ["terminal", "scripts"]
+paths = ["engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/script_hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:activate:0x000FAA48", NVF_PLAY_TEST_KEYS = "8:2", NVF_PLAY_TEST_TERMINAL = "12:exit" }
+args = ["--play", "--cell", "1EEastPumpStation", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'script: message EastPumpStationTermMsg .*buttons', label = "the terminal's script shows its box" },
+  { re = 'script: menu \d+ \(message EastPumpStationTermMsg\) answered \(button 2\)', label = "\"Activate the terminal.\" answered" },
+  { text = "script: terminal 000FAA48 opens (a script's Activate)", label = "the script's Activate, once the box has closed" },
+  { text = "terminal: open 0x000FAA48 EastPumpStationTerminal: its menu", label = "the terminal's screen opens" },
+  { text = "terminal: closed (Esc)", label = "and is left" },
+]]
+forbid = [{ text = "terminal: request for 000FAA48 ignored", label = "the request is not dropped" }]
+
+[[scenario]]
 name = "hacking"
 manual = "[design] In hacking.png, compare 10x10 medians on glass right of the dump and below the header, and inside an attempt block, against docs/spec-notes/hacking.md §2: glass R 16-23 / G 38-52 / B 15-32; blocks near (61, 253, 152) and solid (not crossed by the scanlines), without a glare wash. Retain faint texture, dark corners (about 8, 11, 5) and the monitor's top-right streak near (100, 125, 95); use the per-constant tuning recipes in §7 and check text outside the streak stays no higher than (88, 255, 160), that the text has soft edges and the scanlines cross glass and text, and that the password prompt line's green above the glass, per character, is near the original's (§2; the words differ, so compare per character). In flat mode (no monitor model, so no glare) check its own targets instead: glass middle near (12, 38, 20) and blocks near (54, 252, 150) (screen.rs tests), with the same texture."
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
