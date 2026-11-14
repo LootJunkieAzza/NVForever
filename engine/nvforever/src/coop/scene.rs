@@ -77,6 +77,13 @@ const BESIDE: f32 = 72.0;
 /// A modifier on the host's screen whose seconds went back by more than this started
 /// again.
 const RESTARTED: f32 = 0.1;
+/// After the host was lost, came back or started a new stream, a guest takes off no story
+/// gear until the host sends some, or until the host's player has been in its world this
+/// long (seconds) since. A restarted host opens its session before its save is loaded
+/// and sends an empty list from the main menu (item 203 follow-up: a guest reconnecting
+/// to a restarted host lost its Pip-Boy, glove and rifle); it sends its player only from
+/// its world (`coop::send`), with the story gear its save keeps.
+const GEAR_SETTLE: f32 = 3.0;
 
 /// What co-op keeps of the host's scene ([`Coop::scene`]).
 #[derive(Default)]
@@ -92,6 +99,50 @@ pub(super) struct Shared {
     /// The modifiers put on this screen for the host, with the host's seconds for each as
     /// last heard.
     mods: HashMap<u32, f32>,
+    /// A guest's: since when its story gear is held on after the host was lost, came back
+    /// or started a new stream ([`GEAR_SETTLE`], [`Shared::hold_gear`]).
+    gear_hold: Option<f32>,
+    /// When the host's player was first heard in its world during the hold.
+    host_in_world: Option<f32>,
+}
+
+impl Shared {
+    /// The host was lost, is back, or sent a new stream (`now`: seconds of `Time`): keep
+    /// the story gear on until the host's list is heard again ([`GEAR_SETTLE`]).
+    pub(super) fn hold_gear(&mut self, now: f32) {
+        if self.gear_hold.is_none() {
+            info!("co-op: story gear held on until the host's list comes again (the host was lost or restarted)");
+        }
+        (self.gear_hold, self.host_in_world) = (Some(now), None);
+    }
+
+    /// The host's player was heard in its world (`now`: seconds of `Time`).
+    pub(super) fn host_heard(&mut self, now: f32) {
+        if self.gear_hold.is_some() && self.host_in_world.is_none() {
+            self.host_in_world = Some(now);
+        }
+    }
+}
+
+/// The story gear a guest follows: what the host sends (`heard`), and while held
+/// (`hold`) also what it already follows (`followed`), so nothing is taken off.
+fn gear_to_follow(heard: &[(FormId, bool)], followed: impl IntoIterator<Item = FormId>, hold: bool) -> Vec<(FormId, bool)> {
+    let mut out = heard.to_vec();
+    if hold {
+        for i in followed {
+            if !out.iter().any(|(h, _)| *h == i) {
+                out.push((i, false));
+            }
+        }
+    }
+    out
+}
+
+/// Whether a hold begun at `since` ends with the host's view heard at `at` carrying
+/// `worn`: the host sends gear again, or its player has been in its world (from
+/// `in_world`) [`GEAR_SETTLE`] seconds by then.
+fn gear_hold_ends(since: f32, in_world: Option<f32>, at: f32, worn: usize) -> bool {
+    at >= since && (worn > 0 || in_world.is_some_and(|w| at - w >= GEAR_SETTLE))
 }
 
 /// The groups held, as [`SceneView::locks`] bits.
@@ -381,8 +432,21 @@ pub(super) fn share_scene(
     let view = heard.unwrap_or_default();
     // The host's story gear: kept while the host is only lost a moment (a dropout is not
     // a leave), taken off when this game is no guest.
+    if let (Some(since), Some((v, at))) = (s.gear_hold, s.heard.as_ref()) {
+        if guest && !lost && gear_hold_ends(since, s.host_in_world, *at, v.worn.len()) {
+            info!("co-op: story gear follows the host's list again ({} item(s))", v.worn.len());
+            s.gear_hold = None;
+        }
+    }
+    if !guest {
+        s.gear_hold = None;
+    }
     let gear: Option<Vec<(FormId, bool)>> = if guest && solo.is_some() && (s.heard.is_some() || !rt.game.coop_story_gear.is_empty()) {
-        s.heard.as_ref().map(|(v, _)| v.worn.iter().map(|&(i, l)| (FormId(i), l)).collect())
+        let hold = s.gear_hold.is_some();
+        s.heard.as_ref().map(|(v, _)| {
+            let heard: Vec<(FormId, bool)> = v.worn.iter().map(|&(i, l)| (FormId(i), l)).collect();
+            gear_to_follow(&heard, rt.game.coop_story_gear.keys().copied(), hold)
+        })
     } else if !rt.game.coop_story_gear.is_empty() {
         Some(Vec::new())
     } else {
@@ -537,6 +601,32 @@ pub(super) fn hide_players_in_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reconnect_takes_no_story_gear_off_until_the_host_sends_it_again() {
+        // Item 203 follow-up: a restarted host sends an empty list until its save loads.
+        let (pipboy, collar) = (FormId(0x15038), FormId(0x0100_F3A4));
+        assert_eq!(gear_to_follow(&[], [pipboy], true), vec![(pipboy, false)], "held: kept on");
+        assert_eq!(gear_to_follow(&[], [pipboy], false), vec![], "not held: the host's list");
+        assert_eq!(gear_to_follow(&[(collar, true)], [pipboy, collar], true), vec![(collar, true), (pipboy, false)]);
+        // The hold ends when the host sends gear again, or once its player has been in
+        // its world a while; at the main menu (no player heard) it never ends by itself.
+        assert!(!gear_hold_ends(10.0, None, 11.0, 0));
+        assert!(!gear_hold_ends(10.0, None, 600.0, 0), "the host still at its main menu");
+        assert!(gear_hold_ends(10.0, None, 11.0, 2));
+        assert!(!gear_hold_ends(10.0, Some(40.0), 41.0, 0), "just loaded: its list may not be in yet");
+        assert!(gear_hold_ends(10.0, Some(40.0), 40.0 + GEAR_SETTLE, 0));
+        assert!(!gear_hold_ends(10.0, None, 9.0, 2), "a view heard before the hold began");
+        // Lost and back again (RelReset can come twice): the hold starts over.
+        let mut s = Shared::default();
+        s.hold_gear(10.0);
+        s.host_heard(12.0);
+        s.hold_gear(13.0);
+        assert_eq!((s.gear_hold, s.host_in_world), (Some(13.0), None));
+        s.host_heard(20.0);
+        s.host_heard(21.0);
+        assert_eq!(s.host_in_world, Some(20.0));
+    }
 
     #[test]
     fn lock_bits_round_trip() {

@@ -1690,7 +1690,7 @@ pub struct Game<'a> {
     /// What scripts put on the player (EquipItem on the player, until UnequipItem), with
     /// whether locked on (NoUnequipFlag): a co-op host sends those still worn to the
     /// guests, who wear them too (a DLC's collar, jumpsuit or gown; nvforever `coop`).
-    /// Not saved.
+    /// Saved ([`GameSnapshot::script_worn`]).
     pub script_worn: BTreeMap<FormId, bool>,
     /// A co-op guest's: what the host's story put on this player ([`Game::script_worn`]
     /// of the host's), with whether this game added the item for it (else the player had
@@ -1698,6 +1698,12 @@ pub struct Game<'a> {
     /// wears it or the guest leaves; a save must leave the added ones out (overnight item
     /// 81). Not saved.
     pub coop_story_gear: BTreeMap<FormId, bool>,
+    /// A co-op guest's: items of the host's story gear the guest already wore when the
+    /// host's came (its own Pip-Boy, which Doc Mitchell's script equips on the host): the
+    /// guest's own, left on when the host's player no longer wears it (owner's playtest
+    /// 2026-11-13, item 203: taken off, the guest's Pip-Boy fell back to the screen-only
+    /// frame). Not saved.
+    pub coop_story_kept: BTreeSet<FormId>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
@@ -2166,6 +2172,11 @@ pub struct GameSnapshot {
     /// AddScriptVariable, SetRefExtraData, "saved with the game"] (`crate::nvse_jip10`).
     #[serde(default, skip_serializing_if = "crate::nvse_jip10::Jip10Saved::is_empty")]
     pub jip10: crate::nvse_jip10::Jip10Saved,
+    /// What scripts put on the player ([`Game::script_worn`]): a co-op host's story gear,
+    /// so a host that loads (or restarts and loads) sends its guests the same as before
+    /// and they keep it on (item 203 follow-up, 2026-11-14). Absent in older saves.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub script_worn: BTreeMap<FormId, bool>,
 }
 
 impl GameSnapshot {
@@ -2626,6 +2637,7 @@ impl<'a> Game<'a> {
             story_locked: [false; 7],
             script_worn: BTreeMap::new(),
             coop_story_gear: BTreeMap::new(),
+            coop_story_kept: BTreeSet::new(),
             coop_session: false,
             coop_story: Default::default(),
             coop_from_others: Default::default(),
@@ -6358,6 +6370,7 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
             object_groups: self.anims.asked_all().clone(),
             extra_misc_stats: self.jip2.misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             jip10: self.jip10_saved(),
+            script_worn: self.script_worn.clone(),
         }
     }
 
@@ -6409,6 +6422,7 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
         // The live units in the restored inventories agree with the plants (#1640).
         g.reconcile_live_explosives();
         g.said = s.said.clone();
+        g.script_worn = s.script_worn.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();
         }

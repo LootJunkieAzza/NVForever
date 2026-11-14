@@ -368,7 +368,7 @@ fn draw(
     // And under a match's end view (`HudView::end_view`), while the classic VATS style
     // plays its queued attacks, and during a mini-game in the world
     // (`crate::corner_messages::in_world_game`).
-    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back()) || crate::corner_messages::in_world_game(script.as_deref());
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.as_ref().is_some_and(|h| h.end_view || h.pipboy_up) || vats.is_some_and(|v| v.playing_back()) || crate::corner_messages::in_world_game(script.as_deref());
     let held = crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });

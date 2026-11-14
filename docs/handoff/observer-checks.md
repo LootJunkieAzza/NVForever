@@ -2020,3 +2020,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      reload it from empty, and record the sound at the reload's end (the drop); then rename
      `charge_quick_drop.wav` away and record again. A drop sound heard the first time and
      not the second means the `.wav` stands in for the `.mp3`.
+
+## Added 2026-11-14 (HUD under the Pip-Boy, parity item 203b)
+
+121. **Does the original hide its HUD (Health, AP, the compass, quest and corner messages)
+     while the Pip-Boy is open?** (P3; hud.md §5.) NVForever hides the HUD's meters and
+     compass, and holds the corner and quest messages, from the moment the full Pip-Boy
+     starts to come up until it is fully down. This also covers co-op, where the Pip-Boy
+     opens live and the game stays in play (`nvf_play::hud::pipboy_hides_hud`)
+     [hypothesis: as a paused menu does in the original]. To check, in the original: show
+     a quest objective (SetObjectiveDisplayed on an active quest), open the Pip-Boy while
+     it is still on screen, and take screenshots at 0.1, 0.5 and 2 s after Tab and 0.2 s
+     after closing. Note whether the HP and AP bars, the compass or the message draw at
+     any of those times, and whether the message comes back after the Pip-Boy closes.
