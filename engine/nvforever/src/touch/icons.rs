@@ -199,7 +199,12 @@ fn release(entry: &mut Entry, images: &mut Assets<Image>, bytes: &mut usize) {
 }
 
 fn cache_visible(node: &ComputedNode, visibility: &InheritedVisibility) -> bool {
-    visibility.get() && !node.content_box().size().cmple(Vec2::ZERO).any()
+    // content_box constructs a Rect, which panics for NaN or negative raw sizes.
+    // Reject invalid layout before that construction, not only in physical_size.
+    visibility.get()
+        && node.size().is_finite()
+        && node.size().cmpgt(Vec2::ZERO).all()
+        && !node.content_box().size().cmple(Vec2::ZERO).any()
 }
 
 fn update(
@@ -452,6 +457,69 @@ mod tests {
         ] {
             assert!(physical_size(size).is_err());
         }
+    }
+    #[test]
+    fn invalid_layout_is_rejected_before_constructing_its_content_rect() {
+        let mut app = test_app();
+        let entity = spawn(&mut app, 0, Vec2::splat(40.0));
+        for size in [
+            Vec2::splat(f32::NAN),
+            Vec2::new(f32::NAN, 40.0),
+            Vec2::new(40.0, f32::NAN),
+            Vec2::splat(f32::INFINITY),
+            Vec2::splat(f32::NEG_INFINITY),
+            Vec2::ZERO,
+            Vec2::new(-1.0, 40.0),
+            Vec2::new(40.0, -1.0),
+        ] {
+            let node = ComputedNode { size, ..default() };
+            assert!(
+                !cache_visible(&node, &InheritedVisibility::VISIBLE),
+                "invalid raw layout {size:?} must be rejected without constructing a Rect"
+            );
+            app.world_mut()
+                .get_mut::<ComputedNode>(entity)
+                .unwrap()
+                .size = Vec2::splat(40.0);
+            app.update();
+            let retired = app.world().get::<ImageNode>(entity).unwrap().image.id();
+            assert_eq!(app.world().resource::<Assets<Image>>().len(), 1);
+            assert_eq!(app.world().resource::<IconCache>().bytes, 40 * 40 * 4);
+            events(&mut app);
+            app.world_mut()
+                .get_mut::<ComputedNode>(entity)
+                .unwrap()
+                .size = size;
+            app.update();
+            assert_eq!(
+                app.world().get::<ImageNode>(entity).unwrap().image,
+                ImageNode::default().image,
+                "invalid raw layout {size:?} must clear the old node image"
+            );
+            assert!(app.world().resource::<Assets<Image>>().is_empty());
+            let cache = app.world().resource::<IconCache>();
+            assert!(cache.entries.is_empty());
+            assert_eq!(cache.bytes, 0);
+            app.update();
+            assert!(
+                events(&mut app).iter().any(|e| e.is_unused(retired)),
+                "invalid raw layout {size:?} must release the final strong handle"
+            );
+        }
+        let mut node = ComputedNode {
+            size: Vec2::splat(40.0),
+            ..default()
+        };
+        assert!(cache_visible(&node, &InheritedVisibility::VISIBLE));
+        assert!(!cache_visible(&node, &InheritedVisibility::HIDDEN));
+        node.padding = BorderRect {
+            min_inset: Vec2::splat(20.0),
+            max_inset: Vec2::splat(20.0),
+        };
+        assert!(
+            !cache_visible(&node, &InheritedVisibility::VISIBLE),
+            "a collapsed content box remains ineligible even with a valid raw size"
+        );
     }
     #[test]
     fn resize_replaces_asset_and_tint_changes_reuse_it() {
