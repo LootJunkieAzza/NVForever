@@ -103,7 +103,7 @@ Runtime IDLE file replacement and replay identity have an initial candidate; cur
 
 Nested objective teleport-link paths are being qualified with owned headless regressions; complete consumer acceptance remains separate ([notes](spec-notes/objective-teleport-paths.md)).
 
-Script Console expression dispatch is being qualified with owned headless regressions; complete consumer acceptance remains separate ([notes](spec-notes/script-console-dispatch.md)).
+Script Console dispatch retains signed numeric words and declared string paths on the word reader while real expressions use a bounded source cache. Authored regressions and current validation are recorded in the PR; complete consumer acceptance remains separate ([notes](spec-notes/script-console-dispatch.md)).
 
 ### CompileScript sibling paths
 

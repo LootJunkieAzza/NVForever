@@ -46,7 +46,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                             Some(f) => f(g, &ctx, &words),
                             // Choose the parser before executing any host function.
                             // A runtime failure must never retry a side effect.
-                            None if con::has_expression_operator(&line) || g.data.table.unnumbered.contains_key(&func.to_ascii_lowercase()) => g.run_script_console_source(&line, compile_ctx),
+                            None if con::call_has_expression(g, &line, &func, &words) || g.data.table.unnumbered.contains_key(&func.to_ascii_lowercase()) => g.run_script_console_source(&line, compile_ctx),
                             None => con::call_words(g, on, &func, &words, "Console").map(|_| Vec::new()),
                         }
                     }

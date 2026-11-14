@@ -3953,6 +3953,66 @@ fn script_console_runtime_and_syntax_failures_are_diagnostic_and_do_not_end_the_
 }
 
 #[test]
+fn script_console_changing_signed_number_words_do_not_consume_the_source_cache() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 1..=300 {
+        run(&mut g, format!("player.SetPos z -{i}"));
+        run(&mut g, format!("player.SetAngle z -{}", f64::from(i) / 10.0));
+        let player = g.world.get(FormId::PLAYER_REF).unwrap();
+        assert_eq!(player.pos[2], -(i as f32), "negative SetPos word {i}");
+        assert!((player.rot[2].to_degrees() + i as f32 / 10.0).abs() < 0.001, "negative SetAngle word {i}");
+    }
+    assert!(g.console_out.is_empty(), "ordinary numeric words: {:?}", g.console_out);
+    // All expression slots remain available after more than 256 changing commands.
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty(), "numeric words must not occupy expression slots: {:?}", g.console_out);
+    run(&mut g, "TestGlobal = 999".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("256 distinct"));
+    run(&mut g, "player.SetPos z -999".into());
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().pos[2], -999.0);
+    assert_eq!(g.console_out.len(), 1, "word dispatch remains available after the expression budget");
+}
+
+#[test]
+fn script_console_compact_decimal_assignments_still_use_the_expression_compiler() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.world.set_global(FormId(0x800), 0.0).unwrap();
+    for _ in 0..300 {
+        fnv_game::nvse::call(&mut g, &Default::default(), "console", None, &[XVal::Str("TestGlobal+=0.5".into())]).unwrap().unwrap();
+    }
+    assert_eq!(g.world.global(FormId(0x800)).unwrap(), 150.0);
+    assert!(g.console_out.is_empty(), "{:?}", g.console_out);
+}
+
+#[test]
+fn script_console_unquoted_string_paths_reach_the_word_handler_without_compilation() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let run = |g: &mut fnv_game::Game, line: String| {
+        fnv_game::nvse::call(g, &Default::default(), "console", None, &[XVal::Str(line)]).unwrap().unwrap();
+    };
+    for i in 0..256 { run(&mut g, format!("TestGlobal = {i}")); }
+    assert!(g.console_out.is_empty());
+    // PlayIdle's declared string argument must reach its existing host lookup as one
+    // unchanged word. The authored missing name gives a discriminating host error.
+    run(&mut g, "player.PlayIdle Owned-Thing/path.kf".into());
+    assert_eq!(g.console_out.len(), 1);
+    assert!(g.console_out[0].contains("no form named Owned-Thing/path.kf"), "{:?}", g.console_out);
+    assert!(!g.console_out[0].contains("256 distinct"));
+    let failures = g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { name, .. } if name.eq_ignore_ascii_case("PlayIdle"))).count();
+    assert_eq!(failures, 1, "a failed word handler is not retried through the compiler");
+}
+
+#[test]
 fn generic_form_lists_and_animation_lists_change_for_the_session() {
     // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
     // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,

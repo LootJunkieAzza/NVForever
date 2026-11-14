@@ -943,6 +943,29 @@ pub fn has_expression_operator(line: &str) -> bool {
     })
 }
 
+/// Decide before calling a host function. Numeric words are literals, and a
+/// string parameter retains the word reader's path/name syntax even when unquoted.
+pub fn call_has_expression(g: &Game, line: &str, func: &str, args: &[String]) -> bool {
+    let opcode = g.data.table.by_name(func);
+    // Compact assignments can contain dots in both the variable and numeric RHS;
+    // split_call's reference/function split is not their expression grammar.
+    if has_expression_operator(func) || (opcode.is_none() && words(line).first().is_some_and(|word| has_expression_operator(word))) {
+        return true;
+    }
+    args.iter().enumerate().any(|(i, word)| {
+        if word.starts_with('"') || word.parse::<f64>().is_ok() {
+            return false;
+        }
+        if opcode.is_some_and(|op| matches!(g.data.table.param_enc(op, i), fnv_script::ParamEnc::String)) {
+            return false;
+        }
+        if crate::runner::resolve(g, word).is_ok() {
+            return false;
+        }
+        has_expression_operator(word)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
