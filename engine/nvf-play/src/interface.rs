@@ -788,8 +788,19 @@ mod layout_tests;
 mod tga_consumer_tests;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 128 + width as usize * height as usize * 4];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (at, value) in [(4, 124), (8, 0x100f), (12, height), (16, width),
+            (76, 32), (80, 0x41), (88, 32), (92, 0xff0000), (96, 0xff00),
+            (100, 0xff), (104, 0xff000000), (108, 0x1000)] {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
 
     #[test]
     fn an_atlas_index_is_read() {

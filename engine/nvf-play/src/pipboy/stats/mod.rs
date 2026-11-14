@@ -864,16 +864,25 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
     let piece = boy_picture;
-    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, c.bright());
+    // Only the actual own image supplies density, independently for every piece.
+    // Atlas-backed pieces retain the existing zoom (pipboy-paperdoll-density.md).
+    let head_path = piece("head", crippled(0));
+    let head_zoom = z * c.picture_zoom(&head_path, 128.0);
+    c.image_cut(p, &head_path, head.x, head.y, head_size.x, head_size.y, head_zoom, c.bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
     let face_size = FACE.1 * z;
-    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, z, c.bright());
+    let face_zoom = z * c.picture_zoom(BOY_FACE, 128.0);
+    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, face_zoom, c.bright());
     let torso = head + TORSO.0 * z;
-    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, z, c.bright());
+    let torso_path = piece("torso", crippled(1));
+    let torso_zoom = z * c.picture_zoom(&torso_path, 128.0);
+    c.image_cut(p, &torso_path, torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, torso_zoom, c.bright());
     for (i, (place, size, name)) in LIMB_PIECES.iter().enumerate() {
         let y = if i == 0 { place.y } else { place.y * z };
-        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, z, c.bright());
+        let path = piece(name, crippled(i + 2));
+        let zoom = z * c.picture_zoom(&path, 128.0);
+        c.image_cut(p, &path, torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, zoom, c.bright());
     }
     // The bars, from the head: its bracket's file, place, the bar's x in it, and where
     // "Crippled" goes (right of the bracket's x, and down by the bar's y or not).
@@ -1329,6 +1338,164 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PAPERDOLL_FILES: [&str; 8] = ["head", "face_00", "torso", "torso_broken", "left_arm", "right_arm", "left_leg", "right_leg"];
+    type DrawnPiece = (Val, Val, Val, Val, Rect);
+    struct PaperdollDraw {
+        pieces: std::collections::BTreeMap<String, DrawnPiece>,
+        hits: Vec<Rect>,
+        sources: std::collections::BTreeMap<String, (bool, Vec2)>,
+    }
+
+    fn draw_paperdoll(files: &[(&str, u32)], atlas: Option<bool>) -> PaperdollDraw {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::interface::u;
+        use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        #[derive(Resource)]
+        struct ObservedHits(Vec<Rect>);
+        #[derive(Resource)]
+        struct ObservedSources(std::collections::BTreeMap<String, (bool, Vec2)>);
+        struct Owned(std::path::PathBuf);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                if let (Ok(path), Ok(temp)) = (self.0.canonicalize(), std::env::temp_dir().canonicalize()) {
+                    if path.parent() == Some(temp.as_path()) && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("nvf-owned-paperdoll-")) {
+                        let _ = std::fs::remove_dir_all(path);
+                    }
+                }
+            }
+        }
+        let _canvas = crate::interface::original_units();
+        let root = std::env::temp_dir().join(format!("nvf-owned-paperdoll-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir(&root).unwrap();
+        let owned = Owned(root);
+        let dir = owned.0.join("textures/interface/stats");
+        std::fs::create_dir_all(&dir).unwrap();
+        for &(name, size) in files {
+            assert!(PAPERDOLL_FILES.contains(&name));
+            std::fs::write(dir.join(format!("{name}.dds")), crate::interface::tests::authored_rgba_dds(size, size)).unwrap();
+        }
+        if atlas == Some(true) {
+            std::fs::write(owned.0.join("textures/interface/owned-paperdoll-atlas.dds"), crate::interface::tests::authored_rgba_dds(1024, 1024)).unwrap();
+        }
+        if atlas.is_some() {
+            let index: String = PAPERDOLL_FILES.iter().map(|name| format!("{name}.dds owned-paperdoll-atlas.dds, 0, 2D, 0, 0, 0, 0.125, 0.125\n")).collect();
+            std::fs::write(owned.0.join("textures/interface/interfaceshared.tai"), index).unwrap();
+        }
+        let data = nvf_assets::GameData {
+            vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()),
+            schema: Arc::new(fnv_nif::Schema::default()),
+        };
+        let mut world = World::new();
+        world.run_system_once(move |mut commands: Commands| {
+            let mut kit = Kit::default();
+            let mut images = Assets::<Image>::default();
+            let glyphs = crate::pad::PadGlyphs::default();
+            let mut c = Ctx::new(&mut kit, Some(&data), &mut images, None, &glyphs);
+            let snap = Snapshot { limbs: [1.0; 6], ..default() };
+            let mut spots = Vec::new();
+            commands.spawn(Node::default()).with_children(|p| condition(p, &mut c, &StatsView::default(), &snap, &mut spots));
+            let sources = PAPERDOLL_FILES.iter().filter_map(|name| {
+                let (image, rect) = c.picture(&format!("Interface\\Stats\\{name}.dds"))?;
+                Some((name.to_string(), (rect.is_some(), c.images.get(&image)?.size().as_vec2())))
+            }).collect();
+            commands.insert_resource(ObservedHits(spots.into_iter().map(|(r, _)| r).collect()));
+            commands.insert_resource(ObservedSources(sources));
+        }).unwrap();
+        let z = BOY_ZOOM;
+        let head_size = HEAD * z;
+        let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
+        let torso = head + TORSO.0 * z;
+        let face_size = FACE.1 * z;
+        let mut positions = vec![("head", head), ("face_00", head + Vec2::new(FACE.0.x, (head_size.y - face_size.y) / 2.0 + FACE.0.y * z)), ("torso", torso)];
+        positions.extend(LIMB_PIECES.iter().enumerate().map(|(i, (place, _, name))| (*name, torso + Vec2::new(place.x * z, if i == 0 { place.y } else { place.y * z }))));
+        let pieces = positions.into_iter().map(|(name, at)| {
+            let value = world.query::<(&Node, &ImageNode)>().iter(&world)
+                .find(|(node, _)| node.left == u(at.x) && node.top == u(at.y))
+                .map(|(node, image)| (node.left, node.top, node.width, node.height, image.rect.unwrap()))
+                .unwrap_or_else(|| panic!("actual condition producer must draw {name} at its original position"));
+            (name.to_string(), value)
+        }).collect();
+        PaperdollDraw { pieces, hits: world.resource::<ObservedHits>().0.clone(), sources: world.resource::<ObservedSources>().0.clone() }
+    }
+
+    fn paperdoll_files(default_size: u32, changes: &[(&str, u32)]) -> Vec<(&'static str, u32)> {
+        PAPERDOLL_FILES.into_iter().filter_map(|name| {
+            let size = changes.iter().find(|(n, _)| *n == name).map_or(default_size, |(_, size)| *size);
+            (size != 0).then_some((name, size))
+        }).collect()
+    }
+
+    #[test]
+    fn paperdoll_actual_condition_draw_uses_source_density_without_moving_hit_regions() {
+        let render = |scale: u32| {
+            let drawn = draw_paperdoll(&paperdoll_files(128 * scale, &[]), None);
+            (drawn.pieces["head"], drawn.hits)
+        };
+        let (native, native_hits) = render(1);
+        let (hd, hd_hits) = render(4);
+        assert_eq!(native_hits.len(), 6);
+        assert_eq!(native_hits, hd_hits);
+        assert_eq!((native.0, native.1, native.2, native.3), (hd.0, hd.1, hd.2, hd.3));
+        assert!((native.4.width() - HEAD.x).abs() < 0.001);
+        assert!((native.4.height() - HEAD.y).abs() < 0.001);
+        assert!((hd.4.width() - HEAD.x * 4.0).abs() < 0.001);
+        assert!((hd.4.height() - HEAD.y * 4.0).abs() < 0.001);
+    }
+
+
+    #[test]
+    fn paperdoll_actual_native_atlas_ignores_shadowed_loose_hd_sources() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let atlas = draw_paperdoll(&paperdoll_files(512, &[]), Some(true));
+        assert_eq!(atlas.pieces, native.pieces);
+        assert_eq!(atlas.hits, native.hits);
+        assert_eq!(atlas.hits.len(), 6);
+        assert!(atlas.sources.values().all(|&(is_atlas, size)| is_atlas && size == Vec2::splat(1024.0)));
+    }
+
+    #[test]
+    fn paperdoll_actual_missing_atlas_uses_its_resolved_own_hd_fallback() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let fallback = draw_paperdoll(&paperdoll_files(512, &[]), Some(false));
+        assert_eq!(fallback.hits, native.hits);
+        for (name, piece) in &native.pieces {
+            let hd = fallback.pieces[name];
+            assert_eq!((hd.0, hd.1, hd.2, hd.3), (piece.0, piece.1, piece.2, piece.3));
+            assert!((hd.4.min - piece.4.min * 4.0).length() < 0.001);
+            assert!((hd.4.max - piece.4.max * 4.0).length() < 0.001);
+        }
+        assert!(fallback.sources.values().all(|&(is_atlas, size)| !is_atlas && size == Vec2::splat(512.0)));
+    }
+
+    #[test]
+    fn paperdoll_actual_torso_only_hd_does_not_change_head_or_face_density() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let mixed = draw_paperdoll(&paperdoll_files(128, &[("torso", 512)]), None);
+        assert_eq!(mixed.hits, native.hits);
+        for name in ["head", "face_00", "left_arm", "right_arm", "left_leg", "right_leg"] {
+            assert_eq!(mixed.pieces[name], native.pieces[name]);
+        }
+        let a = native.pieces["torso"];
+        let b = mixed.pieces["torso"];
+        assert_eq!((a.0, a.1, a.2, a.3), (b.0, b.1, b.2, b.3));
+        assert!((b.4.size() - a.4.size() * 4.0).length() < 0.001);
+    }
+
+    #[test]
+    fn paperdoll_actual_missing_unused_broken_torso_does_not_disable_head_hd() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let mixed = draw_paperdoll(&paperdoll_files(128, &[("head", 512), ("torso_broken", 0)]), None);
+        assert_eq!(mixed.hits, native.hits);
+        let a = native.pieces["head"];
+        let b = mixed.pieces["head"];
+        assert_eq!((a.0, a.1, a.2, a.3), (b.0, b.1, b.2, b.3));
+        assert!((b.4.size() - a.4.size() * 4.0).length() < 0.001);
+        assert_eq!(mixed.pieces["face_00"], native.pieces["face_00"]);
+        assert_eq!(mixed.pieces["torso"], native.pieces["torso"]);
+        assert!(!mixed.sources.contains_key("torso_broken"));
+    }
 
     #[test]
     fn the_test_aid_reads_its_steps() {
