@@ -899,6 +899,8 @@ pub struct CombatStats {
     pub player_died: bool,
     /// Hits of harmless shots ([`ActorFire::harmless`]): no damage dealt.
     pub harmless_hits: u32,
+    /// Of those, the hits whose target's OnHit / OnHitWith blocks ran.
+    pub harmless_scripts: u32,
 }
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
@@ -1582,6 +1584,7 @@ impl Plugin for CombatPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Slower while reloading",
                 note: "On: you and the NPCs move at 75% of your speed while a reload runs. Off: reloading does not slow anyone, as in the original.",
+                switches: "",
                 get: |_| reload_slows(),
                 set: |_, on| set_reload_slows(on),
                 slider: None,
@@ -5088,9 +5091,21 @@ fn fly(
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
         }
-        // A harmless shot is seen and heard where it lands, and does nothing more.
+        // A harmless shot is seen and heard where it lands, and the OnHit and OnHitWith
+        // blocks of what it hit run (`Game::harmless_hit`); it deals no damage and does
+        // nothing more (#2433: G.I. Blues' thugs fall in their OnHit block for Orris's
+        // Do No Damage shots).
         if p.by.harmless {
             stats.harmless_hits += 1;
+            let hit = p.actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) }).or(p.object.map(|o| FormId(o as u32)));
+            if let Some(target) = hit {
+                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
+                let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.harmless_hit(target, info)));
+                stats.harmless_scripts += u32::from(ran);
+                if ran {
+                    info!("combat: a harmless shot by {shooter} hits {target}: its hit blocks ran, no damage");
+                }
+            }
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();

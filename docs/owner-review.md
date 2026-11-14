@@ -218,6 +218,21 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **NPC conversations go on past a Goodbye line that links on (#2451).** [hypothesis,
+  #2451] The editor's documentation says a Goodbye line ends a conversation between
+  NPCs; ours ends it only when the line links nowhere, because the data needs it:
+  Veronica and Ramos's exchange at the Hidden Valley intercom (all its lines Goodbye)
+  opens the bunker only at its third line, and Jason Bright's speech continues past a
+  Goodbye part. NPCs' Dialogue packages that talk to another NPC or an intercom are now
+  carried out too (also the Strip's street scenes). Check in game that Veronica walks
+  to the intercom, the exchange plays out and the inner door opens.
+  ([dialogue §5.1](spec-notes/dialogue.md))
+- **Trigger countdowns count game time once a frame, and wait under menus (#2455).**
+  [hypothesis, #2455] A trigger script runs once for each actor inside it; now only the
+  first of those runs in a frame counts the frame's time, and no trigger script runs
+  while a menu, message box or conversation holds the game. Ibsen's virus purge now
+  lasts its 20 s (his warning at 10 s left). Check in game that the purge gives you the
+  time to reach the terminals. ([scripts §5](spec-notes/scripts.md))
 - **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
@@ -239,6 +254,15 @@ the spec it links to.
   (as scripted first-person idles do) or apply the effect at its end. The original's
   behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
 
+- **Goodbye lines finished in the world run their end script late (#2449).** [design,
+  #2449] With `goodbye_at_once` (the v0.7.0 rule, a switch that is off since #2157) a
+  chosen Goodbye line's end result script still runs when the actor finishes the line,
+  not when the menu closes. That is what kept the Boomers shelling the player in v0.7.0:
+  Pearl's last line (0x001050FD) starts Volare! from its end script about 40 s after the
+  menu closed, and a player back in the artillery field by then is never counted out
+  (NellisArtilleryScript passes over the player on leaving once Volare! runs). Kept as it
+  is because the switch is off; if you turn it back on, the end script should run as the
+  menu closes ([dialogue §5](spec-notes/dialogue.md)).
 - **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
   A sequence's texture offset, scale or rotation track now moves every shape that lists
   the same `NiTexturingProperty`, as material tracks already did for a shared
@@ -436,6 +460,23 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+64. **Scripts written for "not in the player's cell" now run there (#2445).** An actor
+    the AI processes out of the loaded cells runs its GameMode block at each low-process
+    update (about every 18 s, every 120 s beyond the cell buffer) and once in each waited
+    hour. This applies only when the block tests that the actor is not in the player's
+    cell (`GetInSameCell … == 0`). Eight object scripts in FalloutNV.esm do: Chauncey,
+    ED-E, the Hidden Valley scribe and Watkins, the Vault 22 spore carriers,
+    TecMineHostage and an SDO handler. Every other script runs in the loaded cells only,
+    as before. Beyond the Beef needs it: Chauncey reaches the steam room only through his
+    own script's warp. Running all far residents' scripts was the wider option, set aside
+    for now; observer check 135 asks what the original does. (`fnv_ai::process`)
+63. **Harmless hits run the target's hit scripts (#2433).** A Use Weapon package's or
+    UseWeapon's Do No Damage shot or blow now runs the target's OnHit and OnHitWith blocks,
+    and still deals no damage. G.I. Blues' ambush needs this: the thugs fall in their OnHit
+    block for Orris, and without it he fired once and stood for good. The other harmless
+    Use Weapon packages' targets now run their hit scripts too. Observer check 134 asks
+    whether the original does. His aim pose (the issue's "does not aim") was not changed.
+    ([use-weapon §3](spec-notes/use-weapon.md))
 62. **Freeside's missing residents (#2432, #2434) taken as fixed by #2239; please
     retest on a build from 2026-11-13 or later.** Both reproduce in the engine only with
     #2239's reset of the handed-over grid squares on a change of worldspace taken out

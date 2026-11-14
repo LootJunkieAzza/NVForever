@@ -109,6 +109,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let id = FormId(if local { CLONE_LOCAL } else { CLONE_BASE } + g.clone_seq);
             g.snapshot_combat_style(f, id);
             g.clones.insert(id, f);
+            // A clone of an item goes into containers (MCM's list of mods, `World`).
+            g.world.add_clone_item(id, f);
             XVal::Ref(id.0)
         }
         "isclonedform" => yes(form(args, 0).or(subject).is_some_and(|f| g.clones.contains_key(&f))),

@@ -139,6 +139,7 @@ mod residents;
 mod resurrect;
 mod appearance;
 mod script_look;
+mod script_sequences;
 mod ripples;
 mod settings;
 mod iron_sights;
@@ -1830,7 +1831,7 @@ fn main() -> AppExit {
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
                 .add_systems(Update, residents::melee_knockback::arrange.after(residents::drive).run_if(resource_exists::<nvf_play::MeleeKnockbackAid>))
-                .add_systems(Last, residents::report);
+                .add_systems(Last, residents::report.after(bevy::window::ExitSystems));
             // Patrols and sandboxes go on after a load where the save had them.
             if play.is_some() {
                 nvf_play::save::add_save_hook(&mut app, residents::SAVE_HOOK);

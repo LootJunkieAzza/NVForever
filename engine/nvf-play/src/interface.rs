@@ -135,7 +135,7 @@ pub fn ui_scale_row(group: &'static str) -> crate::settings::Setting {
         "ui-scale",
         group,
         "UI scale",
-        "The size of the HUD and the menus, as a part of the original's (100%): smaller leaves more of the picture free, each HUD piece kept at its edge of the screen and each menu in the middle. Above 100% only the HUD grows: the menus stay at the original's size, so they keep on the screen. Takes effect at the next start (loading a save starts the game again). Not in the original.",
+        "The size of the HUD and the menus, as a part of the original's. Above 100% only the HUD grows. Takes effect at the next start.",
         crate::settings::Slider::choice(UI_SCALE_CHOICES, |_| ui_scale_part(ui_scale_setting()), |_, v| set_ui_scale_setting(ui_scale_of_part(v)), |v| format!("{:.0}%", ui_scale_of_part(v) * 100.0)),
     )
 }
@@ -589,8 +589,9 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251).
-        let text = line.text();
+        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
+        // the spaces between the words are put back (#2298).
+        let text = line.text_spaced(&face.font);
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));
