@@ -834,6 +834,25 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
     }
 }
 
+/// The seat of a resident put at its package's place after a script moved the clock
+/// ([`Core::after_hour_jump`]): the furniture it is to use now (`None` at a standing
+/// place) and its seat. On new furniture it is sat on at once (no walk up, no sitting-down
+/// clip); otherwise the old seat stays for [`stale_seat`] to drop in the same frame
+/// (`Resident::jumped`), which also has a body still on the old furniture let go of it.
+fn seat_after_jump(seat: Seat, furniture: Option<u32>) -> (Option<u32>, Seat) {
+    match furniture {
+        Some(f) => (Some(f), Seat::Wanted(f, true)),
+        None => (None, seat),
+    }
+}
+
+/// After hours passed in the Wait menu, a script's MoveTo or a jump of the clock
+/// (`changed`): the furniture of `seat` the resident is to be off at once, when its AI
+/// no longer has it use that one (`wants`).
+fn stale_seat(seat: Seat, wants: Option<u32>, changed: bool) -> Option<u32> {
+    seat.furniture().filter(|f| changed && wants != Some(*f))
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -1983,11 +2002,10 @@ impl Core {
             self.unstuck.remove(&actor.0);
             self.skip_until.remove(&actor.0);
             self.skip_refusals.forget(actor.0);
-            if let Some(f) = arr.furniture {
-                // Sat down at once, as found sitting (no walk up, no sitting-down clip).
-                r.wants = Some(f.0);
-                r.seat = Seat::Wanted(f.0, true);
-            }
+            // The furniture it is to use now, none at a standing place: set for every one,
+            // as `note` does not run while a menu holds the game (the console's jump), and
+            // an old wish would sit it back on its old furniture once drawn.
+            (r.wants, r.seat) = seat_after_jump(r.seat, arr.furniture.map(|f| f.0));
             // Every one: a jump puts few, and the smoke tests read where they came from.
             info!(
                 "ai [{}] {}: put at its package's place after the clock was set ({}): ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
@@ -3187,22 +3205,20 @@ pub fn drive(
         }
         // Or it was put at its package's place after a script moved the clock.
         let moved = moved || std::mem::take(&mut r.jumped);
-        if let (true, Some(f)) = (waited > 0 || moved, r.seat.furniture()) {
-            if wants != Some(f) {
-                r.seat = Seat::None;
-                match entity {
-                    Some(e) if on => {
-                        commands.entity(e).insert(LeaveNow);
-                        core.seats[1] += 1;
-                        // Its visual stays for the furniture to let go of it; from the
-                        // next frame it is drawn where it is now, or not at all.
-                        continue;
-                    }
-                    Some(e) => {
-                        commands.entity(e).remove::<(SitOn, GetUp)>();
-                    }
-                    None => {}
+        if stale_seat(r.seat, wants, waited > 0 || moved).is_some() {
+            r.seat = Seat::None;
+            match entity {
+                Some(e) if on => {
+                    commands.entity(e).insert(LeaveNow);
+                    core.seats[1] += 1;
+                    // Its visual stays for the furniture to let go of it; from the
+                    // next frame it is drawn where it is now, or not at all.
+                    continue;
                 }
+                Some(e) => {
+                    commands.entity(e).remove::<(SitOn, GetUp)>();
+                }
+                None => {}
             }
         }
         // The furniture's answer to the last order, acted on once. Only an answer says it
@@ -3695,6 +3711,40 @@ mod tests {
         let other = Now { wants: Some(8), ..now };
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// Review of #2353: a resident that was seated (its visual gone, so `Wanted` at once)
+    /// and is put at a standing place by a jump of the clock while the console stays open
+    /// (no `note` to refresh what it wants) ends standing: it is not sat back on its old
+    /// furniture once drawn. One put on new furniture is sat on that at once.
+    #[test]
+    fn a_seated_resident_put_at_a_standing_place_by_a_jump_is_not_seated_again() {
+        use super::{next_seat, retry::Now, seat_after_jump, stale_seat, Seat};
+        for before in [Seat::Wanted(7, true), Seat::Ordered(7, true)] {
+            // The jump's frame: nothing to use at the new place.
+            let (wants, seat) = seat_after_jump(before, None);
+            assert_eq!(wants, None);
+            // The same frame's cleanup (`Resident::jumped`) drops the old seat.
+            assert_eq!(stale_seat(seat, wants, true), Some(7));
+            let mut seat = Seat::None;
+            // Held by the console for a while, then drawn and free: never told to sit.
+            for (drawn, eligible) in [(false, false), (false, false), (true, false), (true, true), (true, true)] {
+                let frame = Now { wants, eligible, seconds: 0.1, changed: false };
+                let (next, order) = next_seat(seat, drawn, false, &frame, false);
+                assert_eq!(order, None, "{before:?}");
+                seat = next;
+            }
+            assert_eq!(seat, Seat::None, "{before:?}");
+        }
+        // Before the fix the old wish stayed: drawn, it would be sat on its old seat again.
+        let stale = Now { wants: Some(7), eligible: true, seconds: 0.1, changed: false };
+        assert!(next_seat(Seat::Wanted(7, true), true, false, &stale, false).1.is_some());
+        // To new furniture: on it at once, and the old seat is not left (it is replaced).
+        let (wants, seat) = seat_after_jump(Seat::Wanted(7, true), Some(9));
+        assert_eq!((wants, seat), (Some(9), Seat::Wanted(9, true)));
+        assert_eq!(stale_seat(seat, wants, true), None);
+        // Nothing changed this frame: no seat is dropped.
+        assert_eq!(stale_seat(Seat::Ordered(7, true), None, false), None);
     }
 
     #[test]
