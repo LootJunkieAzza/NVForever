@@ -910,6 +910,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Told to get on this furniture at once and not on it yet (`SitOn` with `at_once`):
+    /// a co-op host sends it as on it meanwhile ([`Residents::being_put_on`]).
+    putting_on: Option<u32>,
     /// Not yet looked at for furniture its package names, as it first joins the AI
     /// ([`Core::first_seats`]).
     first_look: bool,
@@ -1289,6 +1292,19 @@ impl Residents {
     pub fn walker_of(&self, id: u32) -> Option<(Space, [f32; 3], f32)> {
         let a = self.core.ai.agents.get(&FormId(id))?;
         Some((a.walker.space, a.walker.feet, a.walker.heading))
+    }
+
+    /// The furniture actor `id` is being put on at once (wanted so, or told so and not
+    /// on it yet): drawn but without `OnFurniture` for a frame or two, a co-op host sends
+    /// it as on it, not as off (item 204d: after a load the host drew the crucified a
+    /// frame before it seated them, sent them as off, and a guest played their exit
+    /// clip and climbed back on).
+    pub fn being_put_on(&self, id: u32) -> Option<u32> {
+        let r = self.core.list.iter().find(|r| r.actor.0 == id)?;
+        match r.seat {
+            Seat::Wanted(f, true) => Some(f),
+            _ => r.putting_on,
+        }
     }
 
     /// The furniture actor `id`'s AI has it on where it stands (a seat, a bed, a cross),
@@ -1726,6 +1742,7 @@ impl Core {
             immobile: false,
             moved: false,
             first_look: true,
+            putting_on: None,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -3467,10 +3484,12 @@ pub fn drive(
         };
         let (seat, order) = next_seat(r.seat, entity.is_some(), on, &frame, restart);
         r.seat = seat;
+        r.putting_on = r.putting_on.filter(|&p| !on && r.seat == Seat::Ordered(p, false));
         if let (Some(e), Some(order)) = (entity, order) {
             match order {
                 SeatOrder::Sit(furniture, at_once) => {
                     commands.entity(e).insert(SitOn { furniture, stay: None, at_once });
+                    r.putting_on = at_once.then_some(furniture);
                     core.seats[0] += 1;
                 }
                 SeatOrder::GetUp => {

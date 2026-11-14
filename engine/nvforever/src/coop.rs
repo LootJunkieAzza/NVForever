@@ -287,6 +287,28 @@ const NPC_SPACING: f32 = 0.75;
 /// The host goes on sending an NPC it stopped drawing this long (seconds), from where its
 /// AI has it, longer than a guest's [`NPC_FORGET`] would keep it ([`share_npcs`]).
 const NPC_LINGER: f32 = 5.0;
+/// For this long after a guest first hears an NPC (seconds), a state with no furniture
+/// does not take it off the furniture it is on here (item 204d: a host after a load
+/// sends an actor it draws as off for the frame before it seats it) [design].
+const NPC_FIRST_HOLD: f32 = 2.0;
+
+/// The furniture a guest has one of the host's NPCs on: the host's (`heard`: furniture
+/// and on it), or, when the host says none within [`NPC_FIRST_HOLD`] of its first state
+/// (`young`), the one it is on here (`here`) [design, item 204d].
+fn furniture_here(heard: Option<(u32, bool)>, young: bool, here: Option<u32>) -> Option<(u32, bool)> {
+    heard.or_else(|| here.filter(|_| young).map(|f| (f, true)))
+}
+
+/// The furniture the host sends for an NPC it draws: the one it is on (`on`: furniture,
+/// seated, getting off), none while it gets off, else the one it is being put on at
+/// once (`putting_on`, [`Residents::being_put_on`]) as on it [item 204d].
+fn sent_furniture(on: Option<(u32, bool, bool)>, putting_on: Option<u32>) -> (u32, bool) {
+    match on {
+        Some((_, _, true)) => (0, false),
+        Some((f, seated, false)) => (f, seated),
+        None => putting_on.map_or((0, false), |f| (f, true)),
+    }
+}
 /// How often every body of the other players is checked for strays (seconds, [`draw`]).
 const SWEEP_EVERY: f32 = 1.0;
 /// A guest's own actor this near the host (game units, across the floor), which the
@@ -601,6 +623,9 @@ pub(crate) struct Coop {
 #[derive(Default)]
 struct NpcTrack {
     samples: VecDeque<(f32, NpcState)>,
+    /// When its first state was heard (seconds of `Time`): a new host's first states
+    /// do not take it off its furniture here ([`furniture_here`]).
+    first_heard: Option<f32>,
     /// The attack counter played up to (None until the first state).
     played: Option<u8>,
     attacked_at: Option<f32>,
@@ -613,6 +638,7 @@ impl NpcTrack {
     /// units/s on a guest was "put 48-56 units on in one frame" 13 times (laptop ship run
     /// of s187-nipton) [observed].
     fn heard(&mut self, now: f32, n: NpcState) {
+        self.first_heard.get_or_insert(now);
         let at = self.samples.back().map_or(now, |&(last, _)| now.max(last + NPC_SPACING / net::NPC_HZ as f32));
         self.samples.push_back((at, n));
         while self.samples.len() > 8 {
@@ -2359,8 +2385,9 @@ fn share_npcs(
         // meanwhile, armwrestle-c's desktop run 2026-11-12; the Dead Horses off their
         // push-up spots got off 8 s late and were put 82-165 units on, laptop
         // deadhorse-spears b015).
-        let on = on.filter(|f| !f.leaving());
-        flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
+        // Drawn but not seated yet while it is put on at once: sent as on (item 204d).
+        let (furniture, seated) = sent_furniture(on.map(|f| (f.furniture(), f.seated(), f.leaving())), residents.as_deref().and_then(|res| res.being_put_on(r)));
+        flags |= if seated { npc_flag::SEATED } else { 0 };
         let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
         npcs.push(NpcState {
             reference: r,
@@ -2371,7 +2398,7 @@ fn share_npcs(
             // Its fighting pose's weapon, else its weapon use's, else the one drawn on it.
             weapon: fighters.weapon(r).or_else(|| using.get(&r).copied()).or_else(|| dressed.and_then(|d| d.weapon).filter(|_| hold.is_some_and(|h| h.drawn))).map_or(0, |w| w.0),
             attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
-            furniture: on.map_or(0, |f| f.furniture()),
+            furniture,
             base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(0, |b| b.0),
             level: level.level,
             all_levels: level.all_levels,
@@ -2811,7 +2838,12 @@ fn follow_npcs(
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             // Not a dead one's: Chet, killed on the host, sat down on his chair again on a
             // guest (desktop run for item 195).
-            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0 && !s.has(npc_flag::DEAD)).map(|s| (arm.as_deref().map_or(s.furniture, |a| a.npc_furniture(r, s.furniture)), s.has(npc_flag::SEATED)));
+            let heard = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0 && !s.has(npc_flag::DEAD)).map(|s| (arm.as_deref().map_or(s.furniture, |a| a.npc_furniture(r, s.furniture)), s.has(npc_flag::SEATED)));
+            // A new host's first states (after a load) keep it on the furniture it is on
+            // here until it says so too (item 204d).
+            let dead = t.samples.back().is_some_and(|(_, s)| s.has(npc_flag::DEAD));
+            let young = !dead && t.first_heard.is_some_and(|f| now - f < NPC_FIRST_HOLD);
+            let furniture = furniture_here(heard, young, residents.as_deref().and_then(|res| res.furniture_of(r)));
             let space = t.samples.back().map_or(0, |(_, s)| s.space);
             // Faster than it runs (with room for a run's speed-ups) is a jump; Kimball's
             // and the Legion sniper's enables and first states at the Hoover Dam were
@@ -3870,6 +3902,30 @@ fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Item 204d: a host sends an actor it draws but is still putting on its cross at
+    /// once as on it, not as off; one getting off is sent as off at once, as before.
+    #[test]
+    fn a_host_sends_one_being_put_on_as_on() {
+        let cross = 0x0013_75D8;
+        assert_eq!(sent_furniture(None, Some(cross)), (cross, true));
+        assert_eq!(sent_furniture(None, None), (0, false));
+        assert_eq!(sent_furniture(Some((cross, true, false)), None), (cross, true));
+        assert_eq!(sent_furniture(Some((cross, false, false)), None), (cross, false));
+        assert_eq!(sent_furniture(Some((cross, true, true)), Some(cross)), (0, false));
+    }
+
+    /// Item 204d: a new host's first states with no furniture leave a guest's actor on
+    /// the furniture it is on here; once that hold is over, or with the host's furniture,
+    /// the host's word goes.
+    #[test]
+    fn a_new_hosts_first_states_keep_a_guest_on_its_furniture() {
+        let cross = 0x0013_75D8;
+        assert_eq!(furniture_here(None, true, Some(cross)), Some((cross, true)));
+        assert_eq!(furniture_here(None, false, Some(cross)), None);
+        assert_eq!(furniture_here(None, true, None), None);
+        assert_eq!(furniture_here(Some((0x0010_6192, false)), true, Some(cross)), Some((0x0010_6192, false)));
+    }
 
     fn speech(speaker: u32, target: Option<u32>, remaining: f64) -> fnv_game::game::Speech {
         let mut s = lines_in(&[net::LineView { speaker, target: 0, topic: 0x10, info: 0x11, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).remove(0);
