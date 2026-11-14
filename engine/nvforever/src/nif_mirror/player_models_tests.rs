@@ -426,7 +426,11 @@ fn cold_transform_writes_survive_frames_before_the_first_actor_is_drawn() {
     let transform = app.world().get::<Transform>(actor.nodes[1]).unwrap();
     assert_eq!(transform.translation, Vec3::new(4.0, 5.0, 6.0));
     assert_eq!(transform.scale, Vec3::splat(5.0));
-    assert!(transform.rotation.angle_between(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)).abs() < 1e-5);
+    for (axis, expected) in [(Vec3::X, Vec3::Y), (Vec3::Y, Vec3::NEG_X), (Vec3::Z, Vec3::Z)] {
+        let actual = transform.rotation.mul_vec3(axis);
+        assert!(actual.abs_diff_eq(expected, 1e-5),
+            "quarter-turn of {axis:?}: {actual:?}, expected {expected:?}; rotation {:?}", transform.rotation);
+    }
 }
 
 #[test]

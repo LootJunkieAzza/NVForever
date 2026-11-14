@@ -87,6 +87,19 @@ flat spawning, NIF parsing or GPU output.
 
 ## Qualification
 
+[documented: authored numerical control, glam 0.33.12 in `engine/Cargo.lock`]
+A quarter-turn made by `Quat::from_euler(EulerRot::ZYX, 90f32.to_radians(), 0, 0)`
+is bitwise equal to `Quat::from_rotation_z(FRAC_PI_2)` in the selected Windows
+library. Both contain `(0, 0, 0.70710677, 0.70710677)`, yet `q.angle_between(q)`
+returns approximately `0.000690534` because the float dot product is below one.
+Consequently the original `angle_between < 1e-5` fixture can reject an identical
+orientation. The corrected fixture checks the quarter-turn's action on all three
+unit basis vectors at the same `1e-5` tolerance: X becomes Y, Y becomes -X, and Z
+remains Z. The owned arithmetic control also rejects identity and the reverse
+quarter-turn. This changes the numerical test oracle, not setter arithmetic, and
+does not establish a native-game numerical policy. The failed original fixture
+and its actual counts remain historical; corrected fixture execution is pending.
+
 [documented: authored test record] Hosted CI for prior `b24124e2` passed eight
 core controls and 13 producer controls once each, alongside the canonical root
 and engine suites and strict checks ([run 43557253676](https://github.com/LootJunkieAzza/NVForever/actions/runs/43557253676)).
