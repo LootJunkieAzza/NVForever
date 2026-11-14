@@ -22,6 +22,11 @@ checks have not run.
   the Host trait, the Game host implementation, `Compiled::shared_key()` and
   the current instance-key shapes unchanged. This source port is merged with
   that main revision; public execution and current canonical CI remain pending.
+- [documented] The later public main update to
+  `df80a70555baa182742808646019acedbe6791f7` adds JIP registrar/origin
+  diagnostics and other Game behavior. This port retains those changes in full.
+  The VM no-reference boundary, shared-key API and numeric instance-key shapes
+  remain unchanged; the hook stays separate from JIP registration diagnostics.
 - [documented] `InstKey` in `crates/fnv-game/src/game.rs` contains only FormIDs or
   an effect ID in its five current variants. `FormId`'s Debug implementation
   delegates to its numeric Display (`crates/fnv-sim/src/form.rs`). Their current
@@ -49,7 +54,7 @@ checks have not run.
   Game/VM source (`Game::var`, `Value::default`). A ref declaration must not turn
   that evaluated value into a fabricated `Ref(0)` diagnostic.
 - [hypothesis] Engineering policy: source location and registrar are explicitly
-  unavailable. The decoded IR supplies no exact source spans here, and
+  unavailable in this hook. The decoded IR supplies no exact source spans here, and
   this hook provides no dynamic script-name or registration provenance.
 
 ## Authored controls and qualification
