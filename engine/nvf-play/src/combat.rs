@@ -2358,6 +2358,17 @@ struct PhysView<'a> {
     /// The ghosts (SetGhost 1) other than the player: rays pass their hit volumes
     /// ([`ghosts`]).
     ghosts: Vec<ActorId>,
+    /// The layers [`CombatWorld::ray`] passes: a shot's (`layers::shot_ignores`), or a
+    /// melee swing's (`layers::melee_ignores`, [`PhysView::for_melee`]).
+    passes: layers::LayerSet,
+}
+
+impl PhysView<'_> {
+    /// The same view for a melee swing's rays: they stop on the Transparent layer, which
+    /// only projectiles pass (`layers::melee_ignores`; #2340).
+    fn for_melee(self) -> Self {
+        PhysView { passes: layers::melee_ignores(), ..self }
+    }
 }
 
 impl CombatWorld for PhysView<'_> {
@@ -2369,8 +2380,9 @@ impl CombatWorld for PhysView<'_> {
         }
         // Shots pass what the character passes (triggers, zones, water, …), invisible
         // walls and the plain Transparent layer (`layers::shot_ignores`; #2340): they
-        // splash going into water (`water_surface`, `ProjEvent::Splash`) and fly on.
-        let mut f = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
+        // splash going into water (`water_surface`, `ProjEvent::Splash`) and fly on. A
+        // melee view's rays stop on Transparent (`PhysView::for_melee`).
+        let mut f = Filter { exclude_layers: self.passes, ..Default::default() };
         // Another actor's shot can hit the player's character; the player's own and
         // the rest (blasts, picks) pass it, as before.
         let other_shoots = ignore.iter().any(|&a| a != PLAYER);
@@ -2501,7 +2513,7 @@ fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&
     let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
     let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, aims, ghosts }
+    PhysView { q: phys.world.queries(), player, npcs, actors, aims, ghosts, passes: layers::shot_ignores() }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -3897,7 +3909,9 @@ fn melee(
         }
         let power_mult = power_mult * vats_special.map_or(1.0, |s| s.dam_mult);
         let hits = {
-            let world = view(&mut phys, script.as_deref(), Some(&sim));
+            // A blow's rays (VATS mode's straight one, the fan, the reach across the ground
+            // and the look ahead for an impact) stop on the Transparent layer (#2340).
+            let world = view(&mut phys, script.as_deref(), Some(&sim)).for_melee();
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
                 // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
                 if !lands {

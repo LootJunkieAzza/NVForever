@@ -500,9 +500,12 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     layer", TRANSPARENT and TRANSPARENT SMALL]. So `layers::shot_ignores` holds
     TRANSPARENT (characters still stop on it), and the small-transparent layers stay
     under the projectile flag above. The same filter serves the aim ray, VATS mode's line
-    of fire, aim assist and the melee swing's rays, so those pass layer 3 too; for the
-    swing that is a [design] consequence (the wiki says only projectiles pass; the swing
-    passed invisible walls the same way before). Blast cover lines already passed layer 3,
+    of fire and aim assist, so those pass layer 3 too. A melee swing's rays do not: the
+    exception is for projectiles, so the player's blows (the fan, the reach across the
+    ground, VATS mode's straight blow and the look ahead for an impact) take
+    `layers::melee_ignores`, the character's layers and invisible walls as before, and
+    stop on layer 3 (`PhysView::for_melee`). NPC blows land by reach and facing, with no
+    ray through the world, so they are unchanged. Blast cover lines already passed layer 3,
     and so does sight (`detection.rs` `see_through`; the same wiki line: actors see
     through it). Whether the original lets a 9mm through a layer-3 chain link is observer
     check 128 [hypothesis until then: the wiki holds for mesh bodies].
