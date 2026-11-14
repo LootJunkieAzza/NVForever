@@ -17,6 +17,11 @@ checks have not run.
 - [documented] Public `Compiled::shared_key()` (`crates/fnv-game/src/data.rs`)
   exposes the cached plugin/owner key. This contribution uses that existing key;
   it does not add a dynamic script-name or source-file provenance API.
+- [documented] The public main update to
+  `633e237e5603c18025c4eee2202f056628c9f8b3` leaves these VM failure paths,
+  the Host trait, the Game host implementation, `Compiled::shared_key()` and
+  the current instance-key shapes unchanged. This source port is merged with
+  that main revision; public execution and current canonical CI remain pending.
 - [documented] `InstKey` in `crates/fnv-game/src/game.rs` contains only FormIDs or
   an effect ID in its five current variants. `FormId`'s Debug implementation
   delegates to its numeric Display (`crates/fnv-sim/src/form.rs`). Their current
@@ -44,8 +49,8 @@ checks have not run.
   Game/VM source (`Game::var`, `Value::default`). A ref declaration must not turn
   that evaluated value into a fabricated `Ref(0)` diagnostic.
 - [hypothesis] Engineering policy: source location and registrar are explicitly
-  unavailable. The decoded IR supplies no exact source spans here, and the cached
-  public unit key supplies no dynamic-name or registration provenance.
+  unavailable. The decoded IR supplies no exact source spans here, and
+  this hook provides no dynamic script-name or registration provenance.
 
 ## Authored controls and qualification
 
