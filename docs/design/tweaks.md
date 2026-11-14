@@ -640,6 +640,7 @@ unless the player binds them, so nothing changes until then.
 | Hardcore need messages, Disable Needs Messages | `bDisableNeedsMessages` | base: `Game::update_need_stages` shows the masters' sDehydration/sSleepDeprevation Increase, Decrease or NotSick (`needs::need_change`); the switches `Tweaks::no_dehydration_messages`, `no_sleep_messages` |
 | Water Sources Show H2O | `bWaterSourcesShowH2O` | `activate`'s prompt for a water source adds `water_label` with the Dehydration change of its water's effect. The switch: `Tweaks::water_shows_h2o` |
 | Double-Tap Reload Changes Ammo | `bDoubleTapReloadToChangeAmmoType` | `control::read_controls` holds a tap in `PlayerControl::reload_wait` for `DOUBLE_TAP`: a second tap sets `ammo_swap`, else `reload`. The switch: `TweakSettings::double_tap_ammo` |
+| No Character Remake Offer | `bDisableCharacterRespec` | `Game::activate` returns before any block or default action for a reference running `VCG04ActivatorScript`. The switch: `Tweaks::no_respec` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -661,8 +662,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 576 |
-| to do | 18 |
+| done | 577 |
+| to do | 17 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -1272,6 +1273,7 @@ game's Data folder, read-only).
 | `bControllerTriggerDeadzones` | done |  | 2 | Trigger Dead Zones (press points per trigger, on every use of LT/RT) |
 | `bCustomLocationDiscoveredSound` | done |  | 1 | Location Discovered Sound: a list of the plugins' interface sounds (Editor IDs starting UI), the game's own first; the chosen one plays for a discovered place |
 | `bDetachedBeams` | done |  |  | Detached Beams |
+| `bDisableCharacterRespec` | done |  |  | No Character Remake Offer: the activator whose script is VCG04ActivatorScript (the masters' offer to remake the character on leaving the start, MESG 0x001164A1) does nothing when activated |
 | `bDisableControllerDeadzones` | done |  | 2 | Controller Dead Zones (ours on top of Bevy's own small dead zone) |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
 | `bDisableSellingItems` | done |  |  | No Selling |
@@ -1329,7 +1331,6 @@ game's Data folder, read-only).
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
-| `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |

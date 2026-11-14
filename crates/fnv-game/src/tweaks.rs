@@ -445,6 +445,8 @@ pub struct Tweaks {
     pub no_sleep_messages: bool,
     /// `bWaterSourcesShowH2O`: a water source's prompt shows the H2O a drink takes off.
     pub water_shows_h2o: bool,
+    /// `bDisableCharacterRespec`: leaving the start offers no remake of the character.
+    pub no_respec: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -918,6 +920,7 @@ impl Default for Tweaks {
             no_dehydration_messages: false,
             no_sleep_messages: false,
             water_shows_h2o: false,
+            no_respec: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,

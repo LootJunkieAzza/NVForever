@@ -44,6 +44,10 @@ fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
 
+/// The script of the activator that offers to remake the character as the player leaves
+/// the start (the Disable Character Respec tweak) [observed: FalloutNV.esm SCPT 0x001164A4].
+const RESPEC_SCRIPT: &str = "VCG04ActivatorScript";
+
 /// Begin-block event codes (docs/spec-notes/script-functions.md §3.3 [observed]).
 pub mod event {
     pub const GAME_MODE: u16 = 0x00;
@@ -4799,6 +4803,14 @@ impl<'a> Game<'a> {
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
         if !self.activation_begins(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
+        }
+        // The player's Disable Character Respec tweak: the activator that offers to remake
+        // the character on leaving the start (VCG04ActivatorScript) does nothing
+        // [observed: FalloutNV.esm SCPT 0x001164A4 shows the offer, MESG 0x001164A1; design:
+        // docs/design/tweaks.md].
+        if self.tweaks.no_respec && self.ref_script(target).is_some_and(|s| self.data.by_edid(RESPEC_SCRIPT) == Some(s)) {
+            tracing::info!("respec: {target}'s offer to remake the character skipped (tweak)");
+            return Ok(serde_json::json!({"result": "respec skipped"}));
         }
         // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
         if mode == ActMode::Default && self.npc_door_activated(actor, target) {
