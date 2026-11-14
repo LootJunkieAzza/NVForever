@@ -589,8 +589,9 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251).
-        let text = line.text();
+        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
+        // the spaces between the words are put back (#2298).
+        let text = line.text_spaced(&face.font);
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));

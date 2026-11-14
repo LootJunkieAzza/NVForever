@@ -1474,6 +1474,27 @@ order = [[
 ]]
 
 [[scenario]]
+name = "hv-veronica-intercom"
+source = "issue #2451: a Dialogue package whose target is a talking activator is carried out (fnv_ai goal.rs talk, carry.rs talk_start: Game::start_actor_conversation); the activator says its talking actor's lines and Goodbye lines that link on go on (fnv-game dialogue.rs next_conversation_line): Veronica's FollowersVeronicaForceGreetIntercom walks her to HVIntercomREF and she and Ramos (through it) say HVVeronicaEnter 0015B6D1, 0015B6D2, 0015B6D3 (its end script opens the bunker's inner door) and 0015B6D4"
+note = "HiddenValleyBunker1 from the new-game state: the console makes the Brotherhood and the player neutral (SetEnemy 0001D3FE 0001B2A4 1 1) and moves VeronicaREF to the player, then at 3 s does what VHiddenValleyVeronicaEnterTrigger's OnTriggerEnter (SCPT 0015B6D5) does for a hired Veronica: makes Ramos the intercom's talking actor, sets her bIntercomConversationActive and re-evaluates her package (hiring her properly from the new-game state takes her companion quest's whole set-up)"
+areas = ["ai", "dialogue-packages", "talking-activators"]
+paths = ["crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:setenemy 0001D3FE 0001B2A4 1 1;000E32A9.moveto player;1.3:close;3:000E27FC.settalkingactivatoractor 000E2807;set 000E32A9.bintercomconversationactive to 1;000E32A9.evaluatepackage;3.3:close" }
+args = ["--cell", "HiddenValleyBunker1", "--play", "--pos=-200,2000,11700", "--npc-packages", "000E32A9", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  { re = 'walks up to HVIntercomREF to talk \(FollowersVeronicaForceGreetIntercom\)', label = "her package walks her to the intercom" },
+  { re = 'starts a conversation with HVIntercomREF from \d+ units \(FollowersVeronicaForceGreetIntercom\)', label = "and starts the conversation with it" },
+  { re = 'VeronicaREF says 0x0015B6D1', label = "she orders at the intercom" },
+  { re = 'RamosREF says 0x0015B6D2', label = "Ramos answers through it" },
+  { re = 'VeronicaREF says 0x0015B6D3', label = "she insists" },
+  { re = 'RamosREF says 0x0015B6D4', label = "Ramos opens up" },
+]]
+expect = [
+  { re = 'door 0x000DA1C6 opening', label = "0015B6D3's end script opens the inner door HVOuterLockedDoor" },
+]
+
+[[scenario]]
 name = "restrained-dialogue-package"
 source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
 note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"
@@ -2415,6 +2436,22 @@ run_seconds = 12
 manual = "jeannie_may_dress.png in the run's folder: her dress the same dark brown as her sleeves, no blue"
 expect = [
   { re = '1950stylecasual01\\f\\outfit\.nif: texture swap: 4 entr\(ies\), 4 shape\(s\) retextured: .*UpperBody → textures\\armor\\1950stylecasual01\\outfit02fold\.dds', label = "her dress takes the dirty texture set" },
+]
+
+# ------------------------------------------------------------------ editor geometry
+
+[[scenario]]
+name = "furniture-marker-shapes"
+source = "issue #2469: white figures and capsules were drawn around the Tops lounge chairs at Red Rock Canyon; the property-less MarkerSource, MarkerTarget, Capsule01 and ChairBoundary shapes of loungechair_tops.nif are editor geometry (nif_spawn Props::is_helper, docs/spec-notes/nif.md §6 'Shapes with no property at all')"
+note = "The Great Khans' campfire at Red Rock Canyon, where the owner's screenshot was taken (cell -20,19, 10:00). The model loader names the shapes it left out, once per model. A Khan getting on one of the two chairs (0013F0E9, 0013F0EA) shows the chairs' entry points (their BSFurnitureMarker) still work"
+areas = ["renderer", "furniture"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-play/src/phys/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-77977,78079,4426", "--hour", "10", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = '(?i)loungechair_tops\.nif: 8 editor shape\(s\) without any property left out: MarkerSource:0, Capsule01:0, MarkerTarget:0, ChairBoundary:0, ChairBoundary:0, Capsule01:0, MarkerTarget:0, MarkerSource:0', label = "the chair's marker figures, capsules and boundaries are not drawn" },
+  { re = 'furniture: [0-9A-F]{8} is on 0013F0E[9A]', label = "a Khan sits on a lounge chair" },
 ]
 
 # ------------------------------------------------------------------ audio
@@ -6140,6 +6177,49 @@ expect = [
 ]
 
 [[scenario]]
+name = "crime-expiry-karl-hostile"
+source = "issue #2467 (owner's playtest 2026-11-14): Karl, the Legion's envoy at Red Rock, attacked on sight. He is in ArmorVCaesarsLegionFaction (Track Crime), and a seen murder of a Legionary in no Evil faction makes the player an enemy of the victim's crime-tracking factions, that one among them (docs/spec-notes/crime-karma.md §3.4, §3.7). Within iCoolDownTimerSetting (3) days of the murder he fights: the crime path that sets the flag, staged here"
+note = "at Cottonwood Cove (--day 30, hour 12) the face aid puts the player at NVCCLegionary5REF's post (0x001364BC, which its OnLoad script SCPT 0x00174CE8 disables) at 14 s, in sight of NVCCAurelius (0x0012D6E2), who detects the player; the script aid kills NVCCLegionary4REF (0x001364C0, in no Evil faction, karma 0) as the player at 18 s (Game::kill): a murder the witness saw. coc to Karl's longhouse at 22 s; the face aid puts the player in front of Karl (0x00140E71) at 30 s. Karl never saw the murder: he fights by the faction flag alone. A Legionary in an Evil faction (NVLegionaryAlexusREF, CaesarsLegionTechMineFaction) is no victim for this: the Evil faction's area alert flags that faction only, and the kill then counts as self-defence. crime-expiry-karl-calm is the same with the clock moved on four days first"
+areas = ["crime"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "22:coc 4BRRCPapasCabin;22.3:close" }
+args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour", "12", "--day", "30", "--no-voice"]
+run_seconds = 44
+order = [[
+  { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the flag lands on the armour faction, Karl's (faction lines name the Editor ID)" },
+  { re = 'alert: VRRCKarl 00140E71 \w+ → Combat', label = "Karl fights in the longhouse, by the flag alone" },
+]]
+expect = [
+  { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
+  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the witness saw: it turns" },
+]
+forbid = [
+  { re = 'crime: the player is no longer an enemy of ', label = "no crime expires within the run" },
+  { re = 'provocation: the player attacked .*\(Evil\)', label = "the victim is in no Evil faction" },
+]
+
+[[scenario]]
+name = "crime-expiry-karl-calm"
+source = "issue #2467: the crime-expiry-karl-hostile set-up, and the clock moved on four game days after the murder (a script setting GameDaysPassed, as the console's `set` does): the crime is older than iCoolDownTimerSetting (3 days), the flag a crime set is cleared, and Karl at Red Rock does not fight (docs/spec-notes/crime-karma.md §3.7) [documented: GECK wiki Category:Crime]"
+note = "as crime-expiry-karl-hostile, with `set GameDaysPassed to 34.5` at 20 s (the murder at about day 30.0); expiry is read at the next detection round's start"
+areas = ["crime"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "20:set GameDaysPassed to 34.5;20.3:close;22:coc 4BRRCPapasCabin;22.3:close" }
+args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour", "12", "--day", "30", "--no-voice"]
+run_seconds = 44
+order = [[
+  { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the murder sets the armour faction's flag (faction lines name the Editor ID)" },
+  { re = 'crime: the player is no longer an enemy of ArmorVCaesarsLegionFaction: the last crime against it is 4\.\d\d game days old', label = "four days on, the crime's flag is cleared" },
+]]
+expect = [
+  { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
+  { re = "crime: .* no longer counts the player's crimes: the last is 4\\.\\d\\d game days old", label = "the witness forgives too" },
+]
+forbid = [{ re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl does not fight or search for the player at Red Rock" }]
+
+[[scenario]]
 name = "karma-fiend"
 source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since #1131 an Evil NPC holding −500 in its own record gives +100, as the original's NorthVegasFiendCF and GoodspringsPowderGangerHM (capture o6_02, docs/spec-notes/crime-karma.md §4.1), and no murder"
 note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
@@ -8688,6 +8768,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-stats-worn-once"
+source = "#2495 (docs/spec-notes/pipboy.md §5.1, aid-items.md §13): a worn apparel enchantment is the game's active effect in the temporary pool (#377); the STATS page added its changes a second time (Speech 19 with the Vault 21 Jumpsuit) and counted an enchantment whose condition fails. The page now shows the game's actor value"
+note = "a new-game player (Speech 15, Perception 5 [observed: headless fnvtool, #2495]) wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184: Speech +2, Melee Weapons +2) and the Reading Glasses (GlassesReading 0x0001C296: Perception +2 only with Four Eyes, which the player lacks); S.P.E.C.I.A.L. row 2 at 23 s, then the Skills list stepped down to Speech (row 11 by name) from 25 s"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/abilities.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_EQUIP = "00104184,0001C296", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=1,24:tab=2,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:down,25:down,25.25:down,25.5:down,25.75:down,26:down,26.25:down,26.5:down,26.75:down,27:down,27.25:down" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 31
+expect = [
+  { re = 'test aid: the player equips 0x00104184', label = "the jumpsuit worn" },
+  { re = 'test aid: the player equips 0x0001C296', label = "the reading glasses worn" },
+  { re = 'pipboy stats: S\.P\.E\.C\.I\.A\.L\.: Perception 5 selected', label = "the glasses' conditioned Perception +2 changes nothing and marks nothing (no Four Eyes)" },
+  { re = 'pipboy stats: Skills: Melee Weapons 17 \(\+\) selected', label = "Melee Weapons 15 + 2, counted once, marked" },
+  { re = 'pipboy stats: Skills: Speech 17 \(\+\) selected', label = "Speech 15 + 2 = GetActorValue Speech, counted once, marked" },
+  { re = 'pipboy stats: Skills: Speech 19', count = 0, label = "not the jumpsuit's +2 twice" },
+]
+
+[[scenario]]
 name = "pipboy-repair"
 source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols (Weap10mmPistol, first in the Weapons tab by name), the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
 areas = ["repair", "pipboy"]
@@ -9342,6 +9440,18 @@ run_seconds = 16
 expect = [
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
   { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },
+]
+
+[[scenario]]
+name = "caravan-door-walk-out"
+source = "issue #2494 (docs/spec-notes/physics.md §6.9.2): walking out of the wrecked caravan 0x001070C1 by Goodsprings (STAT MobileHomeASNV, cell -17,-1) the player stopped on the threshold's zero-thickness lip until a jump; the original walks out at walk and run pace"
+areas = ["physics", "controls"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0:walk,16:0:0" }
+args = ["--play", "--pos=-67342,-2237,8160", "--heading", "183.2", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-6\d{4}, -(2[5-9]|3\d)\d\d, 8\d{3}\)', label = "walked over the threshold's lip and out of the caravan (lip at y -2386, outside past -2410)" },
 ]
 
 [[scenario]]
@@ -16434,6 +16544,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "modlist-blue-moon"
+kind = "tool"
+source = "issue #2275: a real mod list's extender scripts as the game builds them at start (fnvtool ext report, h9x000's #2273), read straight from its Mod Organizer 2 profile (--mo2-profile)"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/table.rs", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-blue-moon.toml"]
+requires = ["NVF_MODLIST_BLUE_MOON"]
+note = "NVF_MODLIST_BLUE_MOON: the folder of the Blue Moon profile on this machine (<MO2 instance>\\profiles\\1 - A Blue Moon 2.0; the owner's). Plugins come from the instance's mods by modlist.txt priority and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_BLUE_MOON}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-blue-moon.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-blue-moon.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-blue-moon.toml"
+
+[[scenario]]
+name = "modlist-high-dry"
+kind = "tool"
+source = "issue #2275: a second real mod list's extender scripts as the game builds them at start (fnvtool ext report), read straight from its Mod Organizer 2 profile (--mo2-profile)"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnv-game/src/source_compile.rs", "crates/fnv-script/src/compile/", "crates/fnv-script/src/table.rs", "crates/fnv-script/src/unit.rs", "crates/fnv-script/data/encodings.json", "crates/fnvtool/src/ext_cmd.rs", "crates/fnvtool/src/mo2_args.rs", "crates/fnv-install/src/mo2.rs", "schemas/script/functions.json", "tools/smoke/expected/modlist-high-dry.toml"]
+requires = ["NVF_MODLIST_HIGH_DRY"]
+note = "NVF_MODLIST_HIGH_DRY: the folder of the High and Dry profile on this machine (<MO2 instance>\\profiles\\1 - Normal; the owner's). Plugins come from the instance's mods by modlist.txt priority and its game folder's Data; {data} is only the data folder argument"
+commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_HIGH_DRY}", "--schema", "schemas/fnv"]]
+# The totals live in expected/modlist-high-dry.toml: a branch that makes more units
+# compile lowers units_kept_bytes there; a rise fails this run.
+expect_file = "expected/modlist-high-dry.toml"
+manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-high-dry.toml"
+
+[[scenario]]
 name = "mq-old-world-blues"
 kind = "tool"
 source = "headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues.actions.json: Old World Blues from the drive-in satellite through the Think Tank, X-2, X-8, X-13, the Forbidden Zone and the Think Tank talked down, the end slides to NVDLC03MQ05 100"
@@ -21528,11 +21666,11 @@ order = [[
 
 [[scenario]]
 name = "tiles-hud-notices"
-source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11): corner-messages and quest-messages with [UI] TileMenus=HUDMainMenu: the hand-built queues' lines drawn from Messages' code-made copies (*:0 bracket, *:1 text at x 130 y 5 depth 2, *:2 icon [observed]) and QuestReminder's (the banner and the objectives with their boxes at the hand-built places), the hand-built areas hidden"
+source = "[design] T12 leftovers (docs/spec-notes/hud.md §14.11; read with JIP's GetUIFloatAlt, whose `*:N` counts from the last child as the observed paths were read, #2298): corner-messages and quest-messages with [UI] TileMenus=HUDMainMenu: the hand-built queues' lines drawn from Messages' code-made copies (*:0 bracket, *:1 text at x 130 y 5 depth 2, *:2 icon [observed]) and QuestReminder's (the banner and the objectives with their boxes at the hand-built places), the hand-built areas hidden"
 note = "45 s as quest-messages: the add-ons' six quest notices queue before VCG02's completed line, which comes on screen at about 41 s; the corner messages at 1 s as corner-messages, the quest lines as quest-messages; the console's read at 15 s comes after both shots"
 areas = ["ui", "hud", "corner-messages", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloat \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloat \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloat \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloat \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloatAlt \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloatAlt \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloatAlt \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloatAlt \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
@@ -22335,6 +22473,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "missile-shot-one-model"
+source = "#2470: firing the missile launcher showed a second missile or one lying sideways. Before #2327 the shot's reference for scripts was drawn as a dropped item, unturned (rotation 0), beside the flying model shot_fx draws; this checks the missile launcher on main: one flying model, turned along its flight, and no dropped item for the shot's reference"
+note = "as missile-explosion: the missile launcher (00004340) with two missiles (00029383), fired once at the ground by the Prospector Saloon; MLProjectile.NIF is built along +y with its exhaust flame at -y (fnvtool nif decode), so its +y must lie along the shot"
+areas = ["combat"]
+paths = ["engine/nvforever/src/shot_fx.rs", "crates/fnv-game/src/nvse_proj.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004340", NVF_PLAY_TEST_GIVE = "00029383:2", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 14
+expect = [
+  { re = 'combat: explosion MissileExplosion at', label = "the missile is fired and goes off" },
+  { re = '(?i)shot fx: projectile MissileProjectile meshes.projectiles.mlprojectile.nif drawn along its flight: its \+y (?P<n>[\d.]+) degrees off the shot.s direction, its long axis y', range = [0, 1], label = "the flying missile points along its flight (the model's long axis and nose are +y)" },
+  { re = 'shot fx: \d+ muzzle flashes \(\d+ with a light\), 1 projectile models drawn', label = "one projectile model for the one shot" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: meshes.projectiles', count = 0, label = "the shot's reference is not drawn as a dropped item (#2327)" },
+]
+
+[[scenario]]
 name = "jip-raycast-points"
 source = "JIP's GetPointRayCastPos through the engine's physics (fnv_game::ray::cast_hit, the terrain included) and GetAnglesBetweenPoints, both writing script variables (the VM's out_call)"
 areas = ["scripts", "physics"]
@@ -22427,6 +22581,38 @@ expect = [
   { re = 'script: print "nvf scale 1.50"', label = "a set scale holds over the animation and reads back" },
 ]
 
+[[scenario]]
+name = "player-script-sequence-pose-release-owned"
+source = "[design: player-script-sequence-pose-aid.md] Optional actual post-propagation first/third rig observation using two externally authored owned KFs and a declared numeric manifest. NOT RUN; no native or pixel comparison."
+areas = ["scripts", "player"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/player_sequence_pose_aid.rs", "engine/nvforever/src/script_sequences.rs", "engine/nvf-assets/src/anim_blend.rs", "crates/fnv-game/src/nvse_anim.rs"]
+requires = ["NVF_PLAY_TEST_SEQUENCE_POSE"]
+env = { NVF_PLAY_TEST_CONSOLE = '11:ToggleFirstPerson 1;player.ActivateAnim "qa\sequence2395\owned_underlying.kf" 0 1 1 1 0;player.ActivateAnim "qa\sequence2395\owned_underlying.kf" 1 1 1 1 0;11.5:close;16:player.ActivateAnim "qa\sequence2395\owned_pose.kf" 1 3 1 1 0;16.5:close;20:player.DeactivateAnim "qa\sequence2395\owned_pose.kf" 0.5;20.1:close' }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-head-bob", "--no-weapon-sway", "--no-weapon-lower"]
+run_seconds = 25
+expect = [
+  { text = "sequence pose aid: PASS phase=before", count = 1, label = "both real rigs carry the declared underlying pose before the high layer" },
+  { text = "sequence pose aid: PASS phase=active-quarter", count = 1, label = "first rig applies the actual quarter-phase sample while third remains unchanged" },
+  { text = "sequence pose aid: PASS phase=active-three-quarter", count = 1, label = "second actual phase changes first local and propagated world transforms" },
+  { text = "sequence pose aid: PASS phase=fade", count = 1, label = "actual stopped request fades toward the retained underlying layer" },
+  { text = "sequence pose aid: PASS phase=released", count = 1, label = "request and high tag retire and the underlying pose remains" },
+  { text = "sequence pose aid: FAIL", count = 0, label = "manifest, rig identity and numeric observations stay valid" },
+]
+
+[[scenario]]
+name = "unlisted-attach-light"
+source = "#2318 (docs/spec-notes/ext-unlisted-commands.md §2.1): JIP's AttachLight puts a lit node under a node of Ringo's drawn model (1), the node shows among the head's children, RemoveLight takes it away again"
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nvse_unlisted.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:RingoRef.MoveTo player 0 200 0;11:PrintC \"nvf head %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"));12:PrintC \"nvf light %g\", (RingoRef.AttachLight \"Bip01 Head\" Fire420 0 0 10);13:PrintC \"nvf head lit %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"));14:RingoRef.RemoveLight \"Bip01 Head\";15:PrintC \"nvf head after %g\", (Ar_Size (RingoRef.GetChildBlocks \"Bip01 Head\"))" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'script: print "nvf light 1"', label = "AttachLight on the head gives 1" },
+  { re = "nif mirror: light 00004477 on 00104C7D's Bip01 Head, radius [1-9]", label = "the engine draws Fire420's light under Ringo's head" },
+  { re = 'script: print "nvf head lit [1-9][0-9]*"', label = "the head's children read with the light's node" },
+  { re = 'script: print "nvf head after [0-9]+"', label = "RemoveLight leaves the head readable" },
+]
 [[scenario]]
 name = "knvse-anim-replace"
 source = "N5 slice 2 (docs/design/knvse-anim.md): SetActorAnimationPath with a standing-stance file replaces that move in the actor's own copy of its set; taking it back restores the shared set"
@@ -23068,6 +23254,29 @@ expect = [
   { text = "pause menu: mods page closed", label = "Back leaves the page" },
 ]
 order = [["pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
+
+[[scenario]]
+name = "pause-mods-page-set-value"
+source = "issue #2298 (docs/spec-notes/mcm.md; crates/fnv-ui/src/tree.rs, xml.rs; crates/fnv-game/src/ui_functions.rs; engine/nvf-play/src/tiles/mod.rs, input.rs): on the pause menu's Mods page the pointer chooses a mod in MCM's list and a click on one of its toggle options sets the value through MCM's own round trip (MCM writes _Value and _NewValue, the mod's MenuMode 1013 block takes it and sets _Reset, the page shows it) [documented: MCM Guide v6, New Values]"
+note = "needs MCM and Just Assorted Mods (JustAssortedMods.esp; masters FalloutNV and DLC) in Data, as pause-mods-page-jam. Just Mods is the list's only line, at (338, 188) in interface units; its first option, Enable Dynamic Crosshair, a check box (type 5), at (600, 190), clicked twice: Just Assorted Mods keeps the setting in its INI (SetModINI), so a run starts from whatever the last left, and both values must follow the first click. The mod log's MCM line says the option's _value after each; pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/xml.rs", "crates/fnv-ui/src/input.rs", "crates/fnv-game/src/ui_functions.rs"]
+env = { NVF_PLAY_TEST_MOD_LOG = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:30", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,25.5:shot,27:back", NVF_PLAY_TEST_POINTER = "19:338:188,19.5:338:188:click,21:600:190,21.5:600:190:click,23:600:190:click,24.5:900:900" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 32
+expect = [
+  { text = "tiles: clicked StartMenu/MCM/MCM_ModList/Mod1", label = "the pointer clicks Just Mods' line" },
+  { text = "tiles: clicked StartMenu/MCM/MCM_Options/Option1", label = "and then the first option" },
+  { re = "MCM's list: _selected 1, .*MCM _ActiveMod 11,", label = "MCM chooses Just Mods (load index 11) from the click" },
+  { re = "_AltInput 0;", label = "MCM takes the pointer, not a controller" },
+]
+order = [
+  [{ re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value [01] shown "[01]"', label = "the page fills in: the check box" },
+   { re = "MCM _ActiveOption 1, _Value [01], _NewValue 0,", label = "the click: MCM wrote the option and its flipped value (its _NewValue is set and taken by the mod within one frame, so the line shows it cleared)" },
+   { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 0 shown "0"', label = "the mod took a value and the page shows the box off" }],
+  [{ re = "MCM _ActiveOption 1, _Value [01], _NewValue 0,", label = "the click" },
+   { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 1 shown "1"', label = "and the box on, one of the two clicks each" }],
+]
 
 [[scenario]]
 name = "travel-skip-sun-shadows"
@@ -27667,6 +27876,99 @@ expect = [
   { text = "main menu: Continue is greyed out", label = "the main menu accepts the existing navigation input" },
 ]
 forbid = [{ text = "explore: the free-camera explorer", label = "the port defaults do not select the explorer" }]
+
+[[scenario]]
+name = "mccarran-boyd-one-body"
+source = "issue #2461 (owner): after the Silus interrogation Lt. Carrie Boyd (LieutenantBoydREF 0x000F0678, CampMCTermInt02) was drawn twice, one body in the room and one outside the door, and the one in the room talked as the other. The scene's records: Silus's GREETING (INFO 0x000F1873) MoveTo's her to BoydExitREF 0x000FA73E (325, 719); the assassin trick's line (INFO 0x000F2DDE) MoveTo's her to XMarker 0x000FB4E1 (467, 1386) by the room's door and its end script sets bBoydEnter, so VFreeformMcCarran2BoydPatrolReturn walks her to her linked ref 0x000FA73D (296, 1665) in the room; the trigger 0x000FA742 there starts the POW2Int exchange with Silus, whose last line sets bBoydExit, and VFreeformMcCarran2BoydPatrolExit walks her back to BoydExitREF. One body per reference throughout (engine/nvforever/src/residents.rs drawn_twice, nav.rs show_actor)"
+note = "the player stands in the interrogation room; Silus's greeting is said at 3 s and the trick's line at 8 s (as the dialogue would, conditions not required). The census is taken at exit; the warnings name a body spawned and lost before it was found"
+areas = ["ai", "actors"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/nav.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:info:0x000F1873:SilusREF,8:info:0x000F2DDE:SilusREF" }
+args = ["--cell", "CampMCTermInt02", "--pos=340,1690,18690", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 90
+expect = [
+  { re = 'LieutenantBoydREF: put at \(325, 719, \d+\) in .* by a script \(MoveTo\)', label = "Silus's greeting puts Boyd at BoydExitREF" },
+  { re = 'LieutenantBoydREF: put at \(467, 1386, \d+\) in .* by a script \(MoveTo\)', label = "the trick's line puts Boyd by the room's door" },
+  { re = 'actor bodies summary: (?P<n>\d+) references drawn by more than one body', range = [0, 0], label = "one body per reference at the end (Boyd not drawn twice)" },
+]
+forbid = [
+  { re = 'actor bodies: LieutenantBoydREF', label = "Boyd drawn by two bodies" },
+  { re = 'that body is not taken away', label = "a body spawned and not yet found was left behind" },
+  { re = 'bodies under the world root when its body was looked for', label = "two bodies of one reference under the world root" },
+]
+
+[[scenario]]
+name = "mccarran-vms08-markers"
+source = "issue #2464 (owner): I Put a Spell on You's marker for Lt. Boyd pointed outside. VMS08 objective 20 (\"Ask around about suspicious activity at Camp McCarran\") has three targets [documented: the QUST 0x000E790F QSTA/CTDA records, read with fnvtool esm decode]: LieutenantBoydREF 0x000F0678 in CampMCTermInt02 (GetDead 0), SupplyOfficerContrerasREF 0x000E5517 in CampMCTermInt04, the Supply Shack (bAskedContreras 0, GetDead 0), and CorporalSterlingRef 0x000F570E outdoors (bAskedSterling 0, GetDead 0). With the player beside Capt. Curtis in the Terminal Building all three are marked: Boyd at herself, the other two at the first door of the way to them, both leading out of the building (engine/nvf-play/src/compass.rs quest_mark_at)"
+note = "the player stands beside CaptainCurtisREF (976, -288, 18240); the objective is shown and the quest made active by the console at 6 s"
+areas = ["hud", "quests"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/quest_targets.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "6:setobjectivedisplayed VMS08 20 1;6.5:forceactivequest VMS08;7:close" }
+args = ["--cell", "CampMCTermInt02", "--pos=900,-288,18250", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'quest targets: VMS08 objective 20 target 0x000F0678 LieutenantBoydREF marked', label = "Boyd is marked" },
+  { re = 'quest targets: VMS08 objective 20 target 0x000E5517 SupplyOfficerContrerasREF marked', label = "Contreras is marked" },
+  { re = 'quest targets: VMS08 objective 20 target 0x000F570E CorporalSterlingRef marked', label = "Sterling is marked" },
+  { re = 'compass: quest target 0x000F0678 placed at \([-\d]+, [-\d]+, [-\d]+\) itself', label = "Boyd's mark is Boyd herself (same interior)" },
+  { re = 'compass: quest target 0x000E5517 placed at .* at door ', label = "Contreras's mark is at a door (another interior)" },
+  { re = 'compass: quest target 0x000F570E placed at .* at door ', label = "Sterling's mark is at a door (outdoors)" },
+]
+
+[[scenario]]
+name = "weathers-key-freed"
+source = "issue #2466 (owner's playtest 2026-11-14): at Cottonwood Cove, given the collar key, Mrs. Weathers' collar went off while her sons got away. With the key given, none of the family's collars may go off. Mrs. Weathers' line for the key (INFO 0x0013A62B, topic VFreeformCottonwoodCoveNVCCMrsWeathersTopic009) completes vCCLeftMyHeart objective 50 in its begin script (the family's NVCCSlaveFreePackage becomes valid) and takes off the three collars (SlaveCollar 0x0002F563) only in its end script; the four NVCCSlaveHeadPopper volumes round the pen (SCPT 0x0013A3B8) kill a family member who enters one while GetItemCount of its collar is 1 (PlaceAtMe FakeMediumExplosion, KillActor)"
+note = "The player starts in the north of the pen (outside the gate's dialogue trigger, so Mrs. Weathers' bark package does not start), with the key the Topic009 line asks for (iBuySlaves stays 0: the line for a key not bought); the gate is unlocked (the line wants it unlocked). vCCEyeforaneye's iDeadCount is set to 12 so that the line's end script does not turn the Legion on the family (SetEnemy NVCCSlaveFaction / VCaesarsLegionFaction, the original's rule for a key not paid for): only the collars are under test. Only the family runs packages. Setup and the collar probes come after the scripts' 6.5 s start threshold and before the talk; the talk starts 4.6 s after the last probe. Each family member is followed by name: collared before the key, the key line, then its own entry into a death volume, then alive, then collarless (that last probe comes after the escape so that it cannot race the entry). First run (2026-11-14, combined build): all three left through the gate and crossed the north volume 0x0013A63F about 12 s after the line ended, and lived"
+areas = ["dialogue", "scripts", "ai"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/functions/items.rs", "crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "001364C6:1", NVF_PLAY_TEST_SCRIPT = "7:objective:vCCLeftMyHeart:10,7.3:var:vCCEyeforaneye:iDeadCount:12,7.6:call:vCCSlavePenGateREF:Unlock,9:call:vCCMrsWeathersREF:GetItemCount:SlaveCollar,9.2:call:vCCSammyWeathersREF:GetItemCount:SlaveCollar,9.4:call:vCCKennyWeathersREF:GetItemCount:SlaveCollar,70:call:vCCMrsWeathersREF:GetDead,70.2:call:vCCSammyWeathersREF:GetDead,70.4:call:vCCKennyWeathersREF:GetDead,72:call:vCCMrsWeathersREF:GetItemCount:SlaveCollar,72.2:call:vCCSammyWeathersREF:GetItemCount:SlaveCollar,72.4:call:vCCKennyWeathersREF:GetItemCount:SlaveCollar", NVF_PLAY_TEST_TALK = "14:vCCMrsWeathersREF=VFreeformCottonwoodCoveNVCCMrsWeathersTopic009" }
+args = ["--play", "--world", "WastelandNV", "--pos=65600,-87700,-1780", "--hour", "12", "--npc-packages", "00130B99,001364C5,001364C4", "--no-voice", "--no-messages"]
+run_seconds = 80
+order = [[
+  { text = "script: test aid calls GetItemCount on vCCMrsWeathersREF = 1", label = "Mrs. Weathers wears her collar before the key" },
+  { re = 'dialogue: choice \d+ made: .*, vCCMrsWeathersREF answers with 0x0013A62B', label = "Mrs. Weathers' chain: the player gives Mrs. Weathers the key (Topic009)" },
+  { re = 'dialogue: conversation with vCCMrsWeathersREF ended \(goodbye,', label = "Mrs. Weathers' chain: the key line is said to the end (its end script runs)" },
+  { re = 'script: vCCMrsWeathersREF entered trigger 0x0013A(3B6|63F|640|641)', label = "Mrs. Weathers then enters a death volume on the way out" },
+  { text = "script: test aid calls GetDead on vCCMrsWeathersREF = 0", label = "Mrs. Weathers is alive after the escape" },
+  { text = "script: test aid calls GetItemCount on vCCMrsWeathersREF = 0", label = "Mrs. Weathers' collar is off" },
+], [
+  { text = "script: test aid calls GetItemCount on vCCSammyWeathersREF = 1", label = "Sammy wears her collar before the key" },
+  { re = 'dialogue: choice \d+ made: .*, vCCMrsWeathersREF answers with 0x0013A62B', label = "Sammy's chain: the player gives Mrs. Weathers the key (Topic009)" },
+  { re = 'dialogue: conversation with vCCMrsWeathersREF ended \(goodbye,', label = "Sammy's chain: the key line is said to the end (its end script runs)" },
+  { re = 'script: vCCSammyWeathersREF entered trigger 0x0013A(3B6|63F|640|641)', label = "Sammy then enters a death volume on the way out" },
+  { text = "script: test aid calls GetDead on vCCSammyWeathersREF = 0", label = "Sammy is alive after the escape" },
+  { text = "script: test aid calls GetItemCount on vCCSammyWeathersREF = 0", label = "Sammy's collar is off" },
+], [
+  { text = "script: test aid calls GetItemCount on vCCKennyWeathersREF = 1", label = "Kenny wears his collar before the key" },
+  { re = 'dialogue: choice \d+ made: .*, vCCMrsWeathersREF answers with 0x0013A62B', label = "Kenny's chain: the player gives Mrs. Weathers the key (Topic009)" },
+  { re = 'dialogue: conversation with vCCMrsWeathersREF ended \(goodbye,', label = "Kenny's chain: the key line is said to the end (its end script runs)" },
+  { re = 'script: vCCKennyWeathersREF entered trigger 0x0013A(3B6|63F|640|641)', label = "Kenny then enters a death volume on the way out" },
+  { text = "script: test aid calls GetDead on vCCKennyWeathersREF = 0", label = "Kenny is alive after the escape" },
+  { text = "script: test aid calls GetItemCount on vCCKennyWeathersREF = 0", label = "Kenny's collar is off" },
+]]
+forbid = [
+  { re = 'dismember: (Mrs\. Weathers|Sammy Weathers|Kenny Weathers) 0x[0-9A-F]{8}: Head exploded \(KillActor\)', label = "no family member's collar goes off (the death volume's KillActor)" },
+  { text = "combat: explosion FakeMediumExplosion", label = "no death volume's explosion is placed" },
+]
+
+[[scenario]]
+name = "weathers-collar-without-key"
+source = "issue #2466: without the key the collars still behave as the scripts say. The family freed with their collars on (vCCLeftMyHeart objective 50 completed and EvaluatePackage, as the begin script of the Speech line 'Run for it!', INFO 0x001364A4, does) runs for it, and the NVCCSlaveHeadPopper volume (SCPT 0x0013A3B8) kills whoever enters it still collared: PlaceAtMe FakeMediumExplosion, then KillActor with dismemberment flag 1 (the head explodes)"
+note = "The same start as weathers-key-freed, without the key: the collars are probed after the scripts' 6.5 s start threshold and before the family is released (objective 50 completed and the three packages evaluated by the test aid). Mrs. Weathers is followed by name: collared, released, enters a death volume, the explosion placed at her, her head exploded by KillActor, dead. First run (2026-11-14, combined build): all three crossed the north volume 0x0013A63F within 1.2 s of each other and each died by its explosion"
+areas = ["scripts", "ai"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "7:objective:vCCLeftMyHeart:10,7.3:var:vCCEyeforaneye:iDeadCount:12,7.6:call:vCCSlavePenGateREF:Unlock,9:call:vCCMrsWeathersREF:GetItemCount:SlaveCollar,9.2:call:vCCSammyWeathersREF:GetItemCount:SlaveCollar,9.4:call:vCCKennyWeathersREF:GetItemCount:SlaveCollar,11:objective_done:vCCLeftMyHeart:50,11.5:call:vCCMrsWeathersREF:EvaluatePackage,11.6:call:vCCSammyWeathersREF:EvaluatePackage,11.7:call:vCCKennyWeathersREF:EvaluatePackage,50:call:vCCMrsWeathersREF:GetDead,50.2:call:vCCSammyWeathersREF:GetDead,50.4:call:vCCKennyWeathersREF:GetDead" }
+args = ["--play", "--world", "WastelandNV", "--pos=65600,-87700,-1780", "--hour", "12", "--npc-packages", "00130B99,001364C5,001364C4", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  { text = "script: test aid calls GetItemCount on vCCMrsWeathersREF = 1", label = "Mrs. Weathers wears her collar before she is released" },
+  { text = "script: test aid calls EvaluatePackage on vCCMrsWeathersREF", label = "she is released (objective 50 done, her package evaluated)" },
+  { re = 'script: vCCMrsWeathersREF entered trigger 0x0013A(3B6|63F|640|641)', label = "collared, she enters a death volume" },
+  { text = "combat: explosion FakeMediumExplosion", label = "the volume's script places its explosion (PlaceAtMe FakeMediumExplosion)" },
+  { re = 'dismember: Mrs\. Weathers 0x00130B99: Head exploded \(KillActor\)', label = "and its KillActor explodes her head" },
+  { text = "script: test aid calls GetDead on vCCMrsWeathersREF = 1", label = "she is dead" },
+]]
+
 
 [[scenario]]
 name = "freeside-fort-residents-door"

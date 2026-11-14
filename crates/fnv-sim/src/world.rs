@@ -537,6 +537,9 @@ pub struct World<'a> {
     /// The inventory sources of references created at run time ([`World::give_items_of`]);
     /// saved.
     created_inventory_sources: BTreeMap<FormId, FormId>,
+    /// Items made at run time (TempCloneForm of an item), each with the item it copies:
+    /// a container takes them by their own ID ([`World::add_clone_item`]). Not saved.
+    clone_items: BTreeMap<FormId, FormId>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     /// Kept for the session, not saved ([`WorldSession`]).
@@ -605,6 +608,7 @@ impl<'a> World<'a> {
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             created_inventory_sources: BTreeMap::new(),
+            clone_items: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             zone_levels: BTreeMap::new(),
@@ -997,7 +1001,23 @@ impl<'a> World<'a> {
         s.inventory.as_mut().ok_or(SimError::NoInventory(id))
     }
 
+    /// `clone`, made at run time from `item`, is an item a container takes by its own ID
+    /// [documented: TempCloneForm; observed: MCM marks the mods it listed by adding them
+    /// to a container, MCM Extender's menus by temporary clones of Caps001, MCM's script
+    /// source and MCM Extender's OnPauseMenuOpen.gek]. False when `item` is no item.
+    pub fn add_clone_item(&mut self, clone: FormId, item: FormId) -> bool {
+        let item = self.clone_items.get(&item).copied().unwrap_or(item);
+        let ok = self.forms.item(item).is_some();
+        if ok {
+            self.clone_items.insert(clone, item);
+        }
+        ok
+    }
+
     fn check_item(&self, item: FormId) -> Result<(), SimError> {
+        if self.clone_items.contains_key(&item) {
+            return Ok(());
+        }
         match self.forms.item(item) {
             Some(_) => Ok(()),
             None if self.forms.sig(item).is_some() => Err(SimError::NotAnItem(item)),
