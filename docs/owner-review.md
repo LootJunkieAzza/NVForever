@@ -222,6 +222,11 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **A script jumping the clock (#2353).** [design, #2353] A script's GameHour write of more
+  than `SCRIPT_HOUR_JUMP` (1 game hour) is handled like the end of a wait: everyone chooses
+  its package at once, residents out of sight are put at their new place, those in view
+  walk. The original's handling is unknown (observer check 132); a smaller threshold would
+  catch shorter jumps, a larger one fewer. ([packages §9](spec-notes/packages.md))
 - **Drinking from water holds nothing (#2349).** [design, #2349] Drinking from a sink or
   pump now plays the tree's drinking idle (first or third person), but the player keeps
   moving, looking and the HUD while it plays, and the water's healing and rads apply at

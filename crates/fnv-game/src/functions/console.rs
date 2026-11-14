@@ -787,7 +787,8 @@ pub fn set_statement(g: &mut Game, ctx: &ConsoleCtx, words: &[String]) -> Result
     };
     if owner.is_none() {
         if let Some((id, _)) = g.world.forms.global_by_edid(var) {
-            g.world.set_global(id, v.num() as f32).map_err(|e| e.to_string())?;
+            // As a script's write: a jump of GameHour is noted for the engine (#2353).
+            g.set_global_by_script(id, v.num() as f32).map_err(|e| e.to_string())?;
             return Ok(vec![format!("{var} = {}", shown(Value::Num(g.world.global(id).map_err(|e| e.to_string())? as f64), g))]);
         }
     }
