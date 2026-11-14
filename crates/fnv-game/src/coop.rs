@@ -475,6 +475,17 @@ impl Game<'_> {
         self.check_quest_targets(q).iter().any(|t| t.target == actor)
     }
 
+    /// `actor` is in a conversation with another player of the co-op game, not with this
+    /// one ([`Game::coop_talking`] holds it, this game's own conversation does not): it
+    /// offers no second conversation, "Wait for <host>" as a story NPC does (parity,
+    /// 2026-11-14: guest B was offered "Talk" on Sarah Weintraub while the host talked
+    /// to her) [design: one conversation per NPC].
+    pub fn in_another_players_talk(&self, actor: FormId) -> bool {
+        let actor = self.talker(actor).0;
+        let own = self.dialogue.as_ref().map(|c| self.talker(c.actor).0);
+        own != Some(actor) && self.coop_talking.iter().any(|t| self.talker(*t).0 == actor)
+    }
+
     /// A guest: `actor`, dead in this game and alive in the host's world, stands up again
     /// here (nvforever `coop::place_like_host`), and its death is taken back while in the
     /// host's world ([`Game::coop_deaths_taken_back`]), so GetDeadCount reads as it does

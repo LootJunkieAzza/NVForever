@@ -458,6 +458,24 @@ fn a_scripts_activate_player_on_a_story_npc_is_not_held() {
     assert!(g.dialogue.is_some());
 }
 
+/// An NPC in a conversation with another player offers no second conversation: the
+/// guest (or the host) waits ([`Game::in_another_players_talk`]); its own conversation
+/// with it is not another player's.
+#[test]
+fn an_npc_talking_to_another_player_offers_no_second_talk() {
+    let f = fixture();
+    let mut g = game(&f, true);
+    let cashier = FormId(CASHIER_REF);
+    assert!(!g.in_another_players_talk(cashier), "nobody talks to it");
+    g.coop_talking.insert(cashier);
+    assert!(g.in_another_players_talk(cashier), "the host talks to it");
+    g.coop_talking.clear();
+    // This player's own conversation, told back in the set: not another's.
+    g.start_dialogue(cashier, None).unwrap();
+    g.coop_talking.insert(cashier);
+    assert!(!g.in_another_players_talk(cashier));
+}
+
 /// A line of an ordinary quest whose compiled end script names a story quest makes its
 /// speaker a story NPC: Jed's greeting at Zion (NVDLC02DialogueCaravanMaster) starts
 /// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; laptop run story-far,

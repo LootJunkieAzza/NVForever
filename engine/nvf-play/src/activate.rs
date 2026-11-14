@@ -468,6 +468,12 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     if fighting_player || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Name;
     }
+    // In a conversation with another player: no second one ("Wait for <host>"; on the
+    // host, for the guest talking to it) (`fnv_game::Game::in_another_players_talk`).
+    if g.in_another_players_talk(r) {
+        let who = if g.coop_guest { g.coop_host_name.clone().unwrap_or_else(|| "the host".into()) } else { "the other player".into() };
+        return Action::HostOnly { host: who };
+    }
     // A co-op guest talks only to trade, to play and to change chips at a cashier
     // (`fnv_game::Game::guest_lines`).
     if g.coop_guest {
@@ -771,7 +777,7 @@ pub(crate) fn activate(
         return;
     }
     if let Action::HostOnly { host } = &t.action {
-        info!("activate 0x{:08X} {}: the host's quest is on them: wait for {host}", t.form_id, t.name);
+        info!("activate 0x{:08X} {}: the host's quest, or another player's conversation, is on them: wait for {host}", t.form_id, t.name);
         hud.show(format!("Wait for {host}"));
         return;
     }
