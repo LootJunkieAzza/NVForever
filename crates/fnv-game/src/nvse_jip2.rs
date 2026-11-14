@@ -112,7 +112,7 @@ impl Game<'_> {
     }
 
     /// Put a reference at a place, as MoveTo does (`functions::refs::move_ref`).
-    fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
+    pub(crate) fn place_ref(&mut self, r: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> bool {
         let cell = cell.map(|c| self.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
         let Ok(s) = self.world.get(r) else { return false };
         s.cell = cell;
