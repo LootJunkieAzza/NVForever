@@ -389,9 +389,18 @@ impl<'a> Game<'a> {
             }
         }
         // A voice type without Allow Default Dialog says only lines conditioned on it; not
-        // the player's own lines (its voice types lack the flag, observed).
-        if says != Says::Station && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
-            return Err(Blocked::VoiceType);
+        // the player's own lines (its voice types lack the flag, observed). The condition
+        // may be the line's own or its quest's, which gates all of the quest's lines and
+        // has passed by here [observed: ED-E's greetings 0x001579D7/8 have no conditions,
+        // their quest vDialogueEDE has GetIsID on the three ED-Es, voice type RobotEDE
+        // lacks the flag; hypothesis: the original counts the quest's conditions, since
+        // its ED-E says them] (#2378, docs/spec-notes/actor-flags.md §9).
+        if says != Says::Station && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) {
+            let gate = |c: &crate::cond::Condition| VOICE_GATE_FUNCTIONS.contains(&c.function);
+            let quest_gates = def.quest.and_then(|q| data.quests.get(&q)).is_some_and(|q| q.conditions.iter().any(gate));
+            if !quest_gates && !def.conditions.iter().any(gate) {
+                return Err(Blocked::VoiceType);
+            }
         }
         let r = self.eval_conditions(&def.conditions, Some(speaker), listener, &format!("INFO {info}"));
         if crate::cond::combine_results(&r) {
