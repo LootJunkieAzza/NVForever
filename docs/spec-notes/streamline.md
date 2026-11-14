@@ -187,6 +187,60 @@ words; no NVIDIA text or code is reproduced here beyond names.
 - [documented] `slShutdown`'s cleanup uses the Vulkan device Streamline stored, so it must run
   while that device is alive (`src/vulkan.cpp:1349-1407`).
 
+## DLSS Frame Generation
+
+What Streamline 2.14.16 documents of DLSS Frame Generation (DLSS-G), Reflex and PCL as
+`engine/nvforever/src/dlss/` relies on it (#2317; design:
+[dlss-frame-generation](../design/dlss-frame-generation.md)). Sources beside the above:
+`include/sl_dlss_g.h`, `include/sl_reflex.h`, `include/sl_pcl.h`, `docs/ProgrammingGuideDLSS_G.md`
+(DG), `docs/ProgrammingGuideReflex.md` (RG), `docs/ProgrammingGuidePCL.md`, the Reflex plugin's
+`reflexEntry.cpp` and the Vulkan low latency backend `vknvll2.cpp`. The DLSS-G plugin itself is
+shipped as a binary only (README), so its inner workings are known only from the guide.
+
+- [documented] Files: `sl.dlss_g.dll` (prebuilt only), NVIDIA's model `nvngx_dlssg.dll`,
+  `sl.reflex.dll` (DLSS-G requires Streamline's Reflex: DG §8.0) and `sl.pcl.dll` (PCL is loaded
+  with any feature, `src/pluginManager.cpp:151-154`).
+- [documented] Features asked for in `slInit`: `kFeatureDLSS_G` (1000) and `kFeatureReflex` (3)
+  (`sl_core_types.h:233-244`); a feature not asked for there cannot be loaded later, one asked for
+  may be unloaded and loaded again with `slSetFeatureLoaded` (ProgrammingGuide §2.14), which
+  wants no Vulkan call in parallel (`sl_core_api.h:120-134`).
+- [documented] Requirements (`slGetFeatureRequirements`): DLSS-G's say vsync off required and GPU
+  scheduling required when the plugin's configuration does (`src/sl.cpp:948-955`); a device that
+  lacks a loaded plugin's required extension is refused at `vkCreateDevice`
+  (`src/wrapper.cpp:816-829`); extra queues are added only where the family has room (`:906-959`).
+- [observed, RTX 5070 Ti, driver 610.88, fork-notes `fg-spike-results.md`] DLSS-G asked for 1
+  graphics, 2 compute and 1 optical flow queue, vsync off required yes, GPU scheduling required
+  yes, OS 10.0.19041 and driver 527.64 at least; `numFramesToGenerateMax` 5, `minWidthOrHeight`
+  100.
+- [documented] While DLSS-G is loaded the host renders off-screen and presents through
+  Streamline's proxy swapchain, even with its mode off (DG §18.0); the swapchain must be torn down
+  and made again when DLSS-G is switched on or off (DG §18.0), and the mode must be off before a
+  resize, full-screen change or other window change (DG §12.0, §17).
+- [documented] `slDLSSGSetOptions` takes effect at the next present and is deterministic only on
+  the presenting thread (DG §6.0); `slDLSSGGetState`'s `numFramesActuallyPresented` is the
+  frames presented for the last real frame when called after each present (DG §13); a status
+  other than `eOk` should turn it off (DG §14.3). Both functions are not thread safe and are
+  fetched with `slGetFeatureFunction(kFeatureDLSS_G, …)` (`sl_dlss_g.h:187-222`).
+- [documented] Inputs (DG §5.1): depth and motion as for DLSS SR, a HUD-less colour the size of
+  the back buffer, and a UI buffer, preferably UI alpha (`kBufferTypeUIAlpha` 69), with
+  `Final = UI.RGB + (1 - UI.A) * Hudless`; tags `eValidUntilPresent` with `slSetTagForFrame`,
+  which needs `eUseFrameBasedResourceTagging` (`src/sl.cpp` `slSetTagForFrame`); a tag set null
+  before its resource goes (ProgrammingGuide:1017-1025). User interface recomposition with the
+  HUD-less and a UI buffer (DG §6.6).
+- [documented] Frame identity: the present markers' frame number must match the constants' (DG
+  §8.0; "common constants cannot be found for frame N" otherwise). `slGetNewFrameToken` with an
+  index reuses the newest slot only for the same index, else moves on in a ring of six
+  (`src/sl.cpp:1120-1146`, `sl_consts.h:95`).
+- [documented] Reflex: `slReflexSleep` and `slPCLSetMarker` every frame even with Reflex off;
+  `slReflexSetOptions` at least once (RG §4.0); the Vulkan backend makes the
+  `VK_NV_low_latency2` calls on the swapchain it tracks and waits inside the sleep
+  (`vknvll2.cpp`), and reports its timings in microseconds (`vknvll2.cpp:274-288`).
+- [documented] API errors of the asynchronous present and acquire come through
+  `DLSSGOptions::onErrorCallback`, which must not stall (DG §6.7).
+- [observed] Frames are generated only while the game's window is in front: with other windows
+  in front the ratio fell to 1.00 with the mode on and status `eOk` (fork-notes
+  `fg-spike-results.md`).
+
 ## NVIDIA's updater
 
 - [documented] In production builds, `slInit` reads the cached server manifest and asks for an

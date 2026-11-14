@@ -318,7 +318,10 @@ fn repair_one(rt: &mut crate::script::Runtime, vendor: FormId, r: &RowView) -> R
     Ok((to, cost))
 }
 
-/// The repair services scripts asked for, opened while playing.
+/// The repair services scripts asked for, opened while playing or over a conversation (a
+/// vendor's line's result script, #2308): the menu is a `PlayState::Menu` either way, the
+/// conversation waits under it (`crate::dialogue::held`: `Game::menu` is set) and goes on
+/// when it closes ([`after_close`]).
 #[allow(clippy::too_many_arguments)]
 fn scripts_open(
     script: Option<ResMut<ScriptState>>,
@@ -331,7 +334,8 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    if rt.game.repair_requests.is_empty() || *state.get() != PlayState::Playing || menu.is_open() || active.0.is_some() {
+    let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
+    if rt.game.repair_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;
     }
     let Some(r) = rt.game.repair_requests.pop() else { return };
@@ -424,7 +428,7 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") || tile_asked(RepairServicesInput::Done) {
         info!("repair menu: done");
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
-        next.set(PlayState::Playing);
+        next.set(after_close(&rt.game));
         return;
     }
     let forms = sim.forms;
@@ -716,6 +720,17 @@ fn draw(
     spawn(&mut commands, &mut look, &v, data.as_deref(), &mut images, bc, &glyphs);
     open.selected = v.selected;
     open.drawn = Some(v);
+}
+
+/// The state a closed menu goes back to: the conversation it was opened over, if it still
+/// runs, else play. [hypothesis: the original returns to the topic list after a repair
+/// line without the Goodbye flag, as after barter; not captured]
+pub(crate) fn after_close(g: &fnv_game::Game) -> PlayState {
+    if g.dialogue.is_some() {
+        PlayState::Dialogue
+    } else {
+        PlayState::Playing
+    }
 }
 
 fn close(mut commands: Commands, mut menu: ResMut<RepairServices>, roots: Query<Entity, With<RepairRoot>>, script: Option<ResMut<ScriptState>>) {
