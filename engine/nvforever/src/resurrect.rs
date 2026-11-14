@@ -98,8 +98,14 @@ fn show_resurrections(
         let pelvis = ragdoll_bodies.iter().find(|(r, _)| r.reference == id).map_or(0, |(_, c)| pelvis_body(c));
         let live = phys.as_deref().and_then(|p| p.world.ragdoll_nodes(id)).and_then(|n| n.get(pelvis).copied().flatten().map(|b| b.translation));
         let body = live.or_else(|| ragdolls.rest.get(&id).and_then(|r| r.get(pelvis).copied().flatten().map(|i| i.translation)));
-        if let Some(at) = body {
-            rt.game.stand_where_the_body_lies(res.actor, at);
+        let own = rt.game.world.peek(res.actor).map(|s| s.pos);
+        match body_place(own, body) {
+            Some(at) => rt.game.stand_where_the_body_lies(res.actor, at),
+            None => {
+                if let Some(b) = body {
+                    info!("resurrect: {} body at ({:.0}, {:.0}, {:.0}), far from its reference: it stands where its reference is", res.actor, b[0], b[1], b[2]);
+                }
+            }
         }
         ragdolls.rest.remove(&id);
         if let Some(p) = phys.as_deref_mut() {
@@ -164,8 +170,43 @@ pub(crate) fn respawn(
     })
 }
 
+/// The farthest from its reference a body is taken to lie (game units) [design]: a
+/// ragdoll thrown by an explosion travels some hundreds of units; one further off is a
+/// ragdoll not placed yet (its bodies still at the origin).
+const BODY_REACH: f32 = 4096.0;
+
+/// Where a resurrected actor stands: where its body lies (`body`, the ragdoll's pelvis)
+/// when that is within [`BODY_REACH`] of its reference (`own`), else `None`, and it stands
+/// where its reference is. A co-op guest's ganger revived as in the host's world (item 201,
+/// 2026-11-14: 0x00104C72/73 "standing at (0, 0, 0)", their ragdolls just drawn from the
+/// guest's own save) must not come to the origin for a frame.
+fn body_place(own: Option<[f32; 3]>, body: Option<[f32; 3]>) -> Option<[f32; 3]> {
+    let body = body?;
+    match own {
+        Some(o) if Vec3::from_array(body).distance(Vec3::from_array(o)) > BODY_REACH => None,
+        _ => Some(body),
+    }
+}
+
 /// The ragdoll body on the pelvis (the body the actor's place is read from), else the
 /// first.
 fn pelvis_body(c: &Corpse) -> usize {
     c.data.bodies.iter().position(|b| b.object.node.as_deref().is_some_and(|n| n.to_ascii_lowercase().contains("pelvis"))).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_body_not_placed_yet_leaves_the_actor_at_its_reference() {
+        // GSPG02 (0x00104C73) by Goodsprings' east road, its ragdoll still at the origin.
+        let own = Some([-65387.0, -1494.0, 8389.0]);
+        assert_eq!(body_place(own, Some([0.0, 0.0, 0.0])), None);
+        // A body thrown a few hundred units: it stands up there.
+        assert_eq!(body_place(own, Some([-65100.0, -1300.0, 8380.0])), Some([-65100.0, -1300.0, 8380.0]));
+        // No body: nothing to move to; no reference state: the body as it lies.
+        assert_eq!(body_place(own, None), None);
+        assert_eq!(body_place(None, Some([1.0, 2.0, 3.0])), Some([1.0, 2.0, 3.0]));
+    }
 }

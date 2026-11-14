@@ -60,7 +60,7 @@
 //! a console line that loads would load again in every new run), except test aid
 //! `NVF_PLAY_TEST_HANDOFF_EXIT=1`: the new run ends once it has taken over and its world
 //! is in (the save put back) or its main menu is open, so a smoke run does not leave it
-//! running; and the aids that
+//! running; those `NVF_PLAY_TEST_HANDOFF_KEEP` names (a list, [`KEEP_AID`]); and the aids that
 //! only measure (`nvf_play::MEASURING_AIDS`), so a session played by hand logs its hitches
 //! after a load.
 //!
@@ -122,6 +122,17 @@ pub const GIVE_UP_MARGIN_SECS: f64 = 15.0;
 
 /// The one test aid the new run keeps (module notes).
 const EXIT_AID: &str = "NVF_PLAY_TEST_HANDOFF_EXIT";
+
+/// Test aid `NVF_PLAY_TEST_HANDOFF_KEEP=<aid>[,<aid>…]`: the `NVF_PLAY_TEST_*` aids the
+/// new run keeps too (a co-op host that waits after its load, item 200). Their times count
+/// from the new run's start; an aid that loads must not be among them.
+const KEEP_AID: &str = "NVF_PLAY_TEST_HANDOFF_KEEP";
+
+/// Whether the new run keeps the test aid `k`: [`EXIT_AID`], and those `kept` names
+/// ([`KEEP_AID`], comma-separated); the list itself is not passed on.
+fn keeps(k: &str, kept: &str) -> bool {
+    k == EXIT_AID || (k != KEEP_AID && kept.split(',').any(|n| n.trim() == k))
+}
 
 /// How often the old run updates while it waits [engineering choice: often enough to see
 /// the new run's file soon, rarely enough to leave the computer to the new run].
@@ -349,8 +360,9 @@ pub fn leave(
                     cmd.args(&args);
                     // The whole line, so a report shows what the new run was given (#1903).
                     info!("load: the new run's command line: {} {}", exe.display(), args.join(" "));
+                    let kept = std::env::var(KEEP_AID).unwrap_or_default();
                     for (k, _) in std::env::vars_os() {
-                        if k.to_str().is_some_and(|k| nvf_play::drives_run(k) && k != EXIT_AID) {
+                        if k.to_str().is_some_and(|k| nvf_play::drives_run(k) && !keeps(k, &kept)) {
                             cmd.env_remove(&k);
                         }
                     }
@@ -795,6 +807,17 @@ mod tests {
         assert_eq!(old_run_done(false, None, s(300.0)), None);
         assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS - 0.1)), None);
         assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS)), Some(false));
+    }
+
+    #[test]
+    fn the_new_run_keeps_only_the_aids_named() {
+        let kept = "NVF_PLAY_TEST_WAIT, NVF_PLAY_TEST_SHOTS";
+        assert!(keeps("NVF_PLAY_TEST_WAIT", kept) && keeps("NVF_PLAY_TEST_SHOTS", kept));
+        assert!(keeps(EXIT_AID, "") && keeps(EXIT_AID, kept));
+        // The console's load would load again in the new run: not kept unless named.
+        assert!(!keeps("NVF_PLAY_TEST_CONSOLE", kept) && !keeps("NVF_PLAY_TEST_CONSOLE", ""));
+        // The list is not passed on, even when it names itself.
+        assert!(!keeps(KEEP_AID, "NVF_PLAY_TEST_HANDOFF_KEEP"));
     }
 
     #[test]
