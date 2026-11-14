@@ -17,10 +17,10 @@ Part of #2387. The initial contract preceded the provisional implementation.
   <https://geckwiki.com/index.php?title=SetNifBlockRotation>. A method value of 1
   or 2 must not be interpreted as a model selector. This change does not qualify
   native rotation-method arithmetic; the existing arithmetic remains unchanged.
-- [observed] At f59736e9, `SceneMirror` has one tree per reference, JIP's handlers
+- [documented: repository `crates/fnv-game/src/nif_blocks.rs` and `engine/nvforever/src/nif_mirror.rs` at f59736e9] `SceneMirror` has one tree per reference, JIP's handlers
   discard `pcModel`, and the renderer publishes only `PlayerBody::third_rig`.
   This cannot distinguish identically named bones in two player rigs.
-- [observed] The f59736e9 backend uses the third-person player rig for omitted/0
+- [documented: repository `engine/nvforever/src/nif_mirror.rs` at f59736e9] The backend uses the third-person player rig for omitted/0
   queries and edits, independently of the camera. This candidate preserves that
   existing default, including JohnnyGuitar/SUP callers using the unselected API.
 - [hypothesis] Native omitted-selector behaviour may follow the current camera,
@@ -61,8 +61,8 @@ translation and rotation setter arguments from the public catalogue's parameter
 names, including optional rotation method 0/1/2 with omitted or explicit model
 selectors. A separate source-VM control invokes the rotation setter and the Alt
 getter with named output variables. These retain existing local arithmetic and do
-not qualify native rotation-method arithmetic. The fixture is a standalone Cargo
-test target to avoid rebuilding the combined integration-fixture binary.
+not qualify native rotation-method arithmetic. The Game-local fixture is registered in the combined Cargo integration binary;
+it does not alter process-wide roots, environment or file-reader configuration.
 Three backend tests cover helper/ECS
 selection and edit-key boundaries; those alone do not qualify the complete producer.
 

@@ -5,73 +5,108 @@
   reload or Update3D: <https://geckwiki.com/index.php?title=SetNifBlockScale> and
   <https://geckwiki.com/index.php?title=SetNifBlockTranslation>. Root-rebuild and
   outfit-specific native behavior has not been measured here.
-- [observed: source at 54830c0d] world::travel despawns loaded cell roots; exterior
-  stream retirement also despawns their children. Returning spawns the same placed
-  reference with new actor/node entities. nif_mirror::Memory keeps transforms by
-  reference/view/name across that destruction and applies them to the next matching
-  name. No model or node entity generation belongs to the stored transform.
-- [observed: source at 54830c0d] The script mirror and backend consumption occur at
-  different times. Binding only at consumption allows an edit queued against an old
-  published model to act on a replacement model created in between.
-- [observed: source at 54830c0d] Titans' plain mod scripts use these setters for
-  armor bones and Pip-Boy positioning; the private source audit records the selected
-  SCPT consumer IDs and hashes. No native plugin implementation informed this design.
-- [observed: source at 54830c0d] Save/main-menu handoff starts a new process, so this
-  is a drawn-node lifetime defect, not evidence of a cross-session memory leak.
-- [observed: source at 54830c0d] Vanilla Update3D is a no-op in nvse_amata; player
-  Update3DAlt can enqueue an appearance request without forcing an unchanged body to
-  rebuild. Those separate API gaps are not fixed or qualified here.
+- [documented: repository source] At `54830c0d`, `world::travel` and exterior
+  retirement despawn loaded roots and children; `nif_mirror::Memory` keeps held
+  transforms by reference/name. Returning can give the reference new entities.
+  See `engine/nvforever/src/world.rs` and `engine/nvforever/src/nif_mirror.rs` at
+  that commit. This is a reading of NVForever source, not an original-game result.
+- [documented: repository source] Main `805454db`, `nif_mirror::mirror`, stores
+  translation/rotation/scale in `held` before resolving a drawn root. The later
+  held loop resolves by name each frame. A one-shot setter can therefore precede
+  the first model publication, or the appearance of the named node. Structural
+  edits instead resolve an already drawn root once; a missing target is dropped.
+- [documented: public review] The maintainer identified that `b24124e2` dropped
+  `SceneTarget::Legacy` and `Missing` in the entity-backed producer, breaking the
+  preceding startup-write behavior. Its unpublished-actor test also expected the
+  wrong drop. Source: [PR #2419 review](https://github.com/LootJunkieAzza/NVForever/pull/2419#issuecomment-6874990859).
+- [documented: repository source] At `54830c0d`, main-menu/save handoff starts a
+  process, vanilla Update3D is a no-op in `nvse_amata`, and player Update3DAlt may
+  enqueue an appearance request without rebuilding an unchanged look. See
+  `engine/nvforever/src/main.rs` and `crates/fnv-game/src/nvse_amata.rs`. These are
+  separate implementation limits, not native observations or fixes in this work.
 
-[design: private candidate, execution pending] A renderer publication associates each
-node with an opaque model/node identity. Core holds integers supplied by the backend,
-not Bevy entities, native pointers or game memory layouts. The edit queue captures
-that identity while the script operates on the published node. The renderer refuses
-a stale or missing target rather than resolving its old name onto a replacement.
-Held transforms belong to the concrete node as well as its model, covering a child
-replaced under the same root. Both selected root and node must currently satisfy
-the actual node query; cached rig enumeration is not proof of liveness. Leaving
-the model subtree expires the target, while a sibling reorder or reparenting within
-the same subtree does not. A camera switch alone changes neither identity.
+## Compatibility and lifetime policy
 
-[design: private candidate] Legacy/headless set_tree hosts retain their existing name-only
-queue contract; renderer publications explicitly opt into identity enforcement.
-The actual entity-backed renderer refuses Legacy even for a never-published actor;
-there is no startup window in which an unknown name gains future authority. Only
-currently drawn-flat file models admit a separate, unqualified legacy path.
-That path retains transform remembering before any concrete root lookup and its
-original non-transform name/index handlers. Material metadata updates can precede
-a failed concrete shape lookup, as before. Existing legacy held-file values retain
-their original name-based replay semantics; their lifecycle or representation changes
-are not qualified by the entity-backed fix.
-Existing take_edits remains available for these hosts, while the real renderer uses
-the identity-preserving consumer. Same-frame insertion/attachment before a node has
-been published is not treated as a safe identity binding; those structural-order
-semantics remain outside this patch. Refusal must not be described as native parity.
+[hypothesis: portable engineering policy, not native parity] Keep startup writes
+while preventing a hold from transferring to a later namesake. Before any concrete
+model has been published, TRS writes wait by reference, selected view and name.
+As soon as an actual model root is available, capture its entity generation even
+if the named child is absent. Bind the first actual matching node in that model,
+then replace the pending name with the existing model/node identity. Root/node
+replacement, an observed disappearance, or departure from the model subtree
+expires this hold. Reordering or reparenting inside the same subtree does not.
+Camera switches cannot redirect a queued concrete view.
 
-Authored controls use the actual CPU mirror/PlayerBody producer: queued edits
-before replacement, direct replacement without an absent frame, disappearance and
-reappearance, child removal/recreation, unchanged-rig hold across pose/POV changes,
-independent first/third rigs, and unrenamed factory labels. Additional controls
-exercise stale selected roots, root/child Transform removal and readdition, indexed
-child reorder with an untouched sibling, and positive rename followed by a transform.
-The child-replacement control explicitly reuses an Entity index at its next generation
-through Bevy's public despawn_no_free/spawn_at API; the fixture asserts both conditions.
-Legacy file controls seed authored metadata and use the real producer; they do not
-qualify NIF parsing or GPU material drawing. Positive non-transform handler controls
-assign RefVisual to a synthetic parent and its shape so unchanged root_of/walk can
-visit that shape. Normal dropped-flat spawning tags mesh entities, not this parent;
-these controls do not qualify that actual spawn topology. The absent-root transform
-control deliberately supplies no RefVisual and exercises file metadata only. Independent core controls
-will verify queue capture and compatibility without depending on renderer helpers.
+[hypothesis: engineering ordering policy] Promotion must preserve chronological
+last-writer order independently for translation, rotation and scale. Different
+pending names can resolve to one node; an old pending component must not overwrite
+a newer bound component, and a newer scale must not erase an older translation.
+Entity edit order is renderer-local and checked rather than wrapping. Exhaustion
+refuses further entity edits instead of reversing chronology. File-only held state
+does not use this new ordering metadata.
 
-All controls are NOTRUN at this private R3 source freeze. Nine added producer tests
-and two added core tests are authored; test counts are source counts, not executions.
-Existing per-view/root-rename controls remain unchanged. The five original R1 producer fixtures can compare against original 548 production
-in isolation. The additional stale-root control directly inspects the new held map;
-a complete R2 comparison therefore requires retaining that test-visible candidate
-API while reversing the relevant production behavior, or a separate fixture-only
-packaging. The new core identity API controls likewise require the candidate API.
-Neither is represented as an unchanged-base compile-failure test. Player rigs that survive a cell transition without node replacement
-are not reset by this identity change. Material-cache lifetime, complete
-Update3D support, AttachModel, native timing, GPU rendering, Loop255 and complete
-armor-HUD behavior remain unqualified.
+[documented: implementation boundary] The model token is exactly the existing
+`SceneIdentity.model`: the selected `root_of` entity's bits, including generation.
+PlayerBody rebuilds despawn their old rig roots (`player_body.rs` at `805454db`),
+and dropped-model replacement despawns its prior root (`nvf-play/src/dropped.rs`
+at that commit). No additional asset-load generation is introduced. A custom
+topology that replaces a model underneath the same surviving root without an
+observable root lifetime change cannot be distinguished while the pending name
+has never bound a node. That case is not qualified as a replacement safeguard.
+
+[hypothesis: portable engineering policy] A published model with a missing name
+permits a pending TRS write only with that model's captured identity. It may bind
+a node added after publication, including a node created by deferred Insert in
+the same frame. A previously published model that disappears remains identified:
+forgetting its tree must not reopen unrestricted cold name binding. No readable
+tree is invented for a pending write; cold getters retain their missing value.
+
+[hypothesis: compatibility policy] Before publication, non-TRS operations retain
+main's consume-once name/index lookup on an already drawn root for queued edits.
+Public structural dispatch still requires a mirrored target; this does not add a
+new cold script admission route. Missing structural targets are not kept for
+future destructive replay. Published concrete targets
+still require their captured node generation and actual subtree membership.
+This does not introduce Created reservations, attachment loading, persistent
+handles or a component-reincarnation counter.
+
+[documented: repository source] `SceneMirror::set_tree` and `take_edits` retain
+the legacy host API. The renderer's drawn-flat file branch keeps its original
+name-held transforms and material/particle handlers. Its authored controls seed
+file metadata and a synthetic parent/shape graph; they do not qualify actual
+flat spawning, NIF parsing or GPU output.
+
+## Qualification
+
+[documented: authored test record] Hosted CI for prior `b24124e2` passed eight
+core controls and 13 producer controls once each, alongside the canonical root
+and engine suites and strict checks ([run 43557253676](https://github.com/LootJunkieAzza/NVForever/actions/runs/43557253676)).
+Those passes did not establish startup-write compatibility: one producer control
+asserted the erroneous unpublished-actor drop. This repair changes that assertion
+to require the cold write, preserving its later replacement-actor negative.
+
+[documented: authored test scope] The correction adds actual mirror-producer
+controls for cold player selection, actor TRS before drawing, a late child in an
+empty published model, immediate replacement of that captured empty root,
+pinning a pending hold before the child exists, deferred Insert
+then TRS through public dispatch (including its not-yet-drawn core placeholder),
+alias promotion with newer bound/per-property edits, and consume-once
+cold structural operations. Existing stale-generation,
+root/child query-liveness, subtree, rename and view-isolation controls remain.
+Core controls distinguish a published missing name from a forgotten identified
+model. These corrected controls are authored and have not yet been executed at
+this source freeze; old CI passes are not attributed to the corrected tree.
+
+[documented: validation boundary] Producer tests use authored ECS graphs and
+PlayerBody rigs through the real `mirror_game` implementation. They bypass
+ScriptState acquisition, asset loading, rendering and native code. A baseline
+comparison must use compatible common fixtures and actual old production behavior;
+a missing new helper/API compile failure is not behavioral evidence. The Game-local
+core fixture belongs in the combined integration binary; it changes no global
+file reader, environment or process-wide root configuration.
+
+[documented: pending checks] The maintainer requests unchanged sequential smoke
+scenarios `nif-player-model-selection` and `nif-script-root-renames`; neither has
+run for this repair. Full Update3D support, unchanged-entity Transform removal and
+reinsertion between publications, material/property/vertex cache lifetime, native
+timing/parity, special-IDLE lifetime and complete armor HUD support remain separate.

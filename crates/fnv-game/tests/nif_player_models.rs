@@ -1,5 +1,4 @@
 //! Owned dual-rig controls for #2387. No installed assets or native captures.
-mod common;
 use crate::common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::game::{Game, GameConfig, RunCtx};
@@ -236,7 +235,16 @@ fn identified_queue_captures_published_node_before_replacement_and_preserves_leg
     assert_eq!(queued.len(), 1);
     assert_eq!(queued[0].target, SceneTarget::Node(SceneIdentity { model: 100, node: 101 }));
     call(&mut g, P, "setnifblockscale", &[text("AbsentBone"), num(9.0), num(2.0)]);
-    assert_eq!(g.scene.take_targeted_edits()[0].target, SceneTarget::Missing);
+    assert_eq!(g.scene.take_targeted_edits()[0].target, SceneTarget::Model(200));
+    g.scene.forget_model(P, ModelView::FirstPerson);
+    call(&mut g, P, "setnifblockscale", &[text("AbsentBone"), num(10.0), num(2.0)]);
+    assert_eq!(g.scene.take_targeted_edits()[0].target, SceneTarget::Missing,
+        "forgetting an identified model must not reopen cold name binding");
+    g.scene.set_identified_model_for(P, ModelView::FirstPerson, 250, Vec::new());
+    assert!(g.scene.node_for_model(P, ModelView::FirstPerson, "AbsentBone").is_none());
+    call(&mut g, P, "setnifblockscale", &[text("AbsentBone"), num(11.0), num(2.0)]);
+    assert_eq!(g.scene.take_targeted_edits()[0].target, SceneTarget::Model(250),
+        "an empty visible tree still pins its actual model root");
     // A legacy, headless model still exposes exactly the old edit payload.
     call(&mut g, NPC, "setnifblockscale", &[text("SharedBone"), num(7.0)]);
     let legacy = g.scene.take_targeted_edits();

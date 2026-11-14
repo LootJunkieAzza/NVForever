@@ -39,7 +39,10 @@ struct Memory {
     // File-only models retain the explicitly legacy name-based contract.
     held: HashMap<(u32, ModelView, String), Held>,
     // Entity-backed edits live only as long as this exact model and node.
-    bound_held: HashMap<(u32, ModelView, SceneIdentity), Held>,
+    bound_held: HashMap<(u32, ModelView, SceneIdentity), OrderedHeld>,
+    // Cold writes wait by name, pin the first available model, then promote once.
+    pending_held: HashMap<(u32, ModelView, String), PendingHeld>,
+    edit_order: u64,
     tables: HashMap<String, HashMap<String, [f32; 9]>>,
     materials: HashMap<(u32, ModelView, String), [f32; 9]>,
     owned: HashMap<Entity, Handle<NifMaterial>>,
@@ -209,6 +212,20 @@ struct Held {
     scale: Option<f32>,
 }
 
+#[derive(Default)]
+struct PendingHeld {
+    model: Option<u64>,
+    value: OrderedHeld,
+}
+
+/// Per-property chronology matters when different pending names later resolve to
+/// one node, or an old pending request meets a newer already-bound request.
+#[derive(Clone, Copy, Default)]
+struct OrderedHeld {
+    value: Held,
+    order: [u64; 3],
+}
+
 type Visuals<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, Option<&'static ChildOf>), crate::lights::NotLightSource>;
 
 /// Distinguish an explicit NIF rename from factory entity labels on actor roots.
@@ -337,17 +354,39 @@ fn bound_entity(root: Entity, identity: SceneIdentity, nodes: &NodeQuery, rig: &
         .find(|e| e.to_bits() == identity.node && nodes.get(*e).is_ok())
 }
 
-fn hold_value(edit: &SceneEdit, held: &mut Held) -> bool {
+fn hold_value(edit: &SceneEdit, held: &mut OrderedHeld, order: u64) -> bool {
     match edit {
-        SceneEdit::Translation { v, .. } => held.translation = Some(Vec3::from(*v)),
+        SceneEdit::Translation { v, .. } => {
+            held.value.translation = Some(Vec3::from(*v));
+            held.order[0] = order;
+        }
         SceneEdit::Rotation { v, .. } => {
             let [x, y, z] = v.map(f32::to_radians);
-            held.rotation = Some(Quat::from_euler(EulerRot::ZYX, z, y, x));
+            held.value.rotation = Some(Quat::from_euler(EulerRot::ZYX, z, y, x));
+            held.order[1] = order;
         }
-        SceneEdit::Scale { v, .. } => held.scale = Some(*v),
+        SceneEdit::Scale { v, .. } => {
+            held.value.scale = Some(*v);
+            held.order[2] = order;
+        }
         _ => return false,
     }
     true
+}
+
+fn merge_held(target: &mut OrderedHeld, source: OrderedHeld) {
+    if source.value.translation.is_some() && source.order[0] > target.order[0] {
+        target.value.translation = source.value.translation;
+        target.order[0] = source.order[0];
+    }
+    if source.value.rotation.is_some() && source.order[1] > target.order[1] {
+        target.value.rotation = source.value.rotation;
+        target.order[1] = source.order[1];
+    }
+    if source.value.scale.is_some() && source.order[2] > target.order[2] {
+        target.value.scale = source.value.scale;
+        target.order[2] = source.order[2];
+    }
 }
 
 fn apply_value(entity: Entity, held: Held, nodes: &mut NodeQuery) {
@@ -420,7 +459,7 @@ fn mirror_game(
     (globals, boxes, mut particles): Extra,
     dropped: Dropped,
 ) {
-    let Memory { logged, held, bound_held, tables, materials, owned, props, files } = mem;
+    let Memory { logged, held, bound_held, pending_held, edit_order, tables, materials, owned, props, files } = mem;
     game.scene.use_separate_player_models();
     let edits = game.scene.take_targeted_edits();
     let mut edits_rest = Vec::new();
@@ -441,19 +480,51 @@ fn mirror_game(
             if !remember_transform(view, &edit, held) { edits_rest.push((view, edit, None)); }
             continue;
         }
-        let Some(root) = root_of(r.0, view, &rigs, &visuals) else { continue };
+        // Never wrap chronology and let an old entity request beat a later one.
+        // The file-only legacy route above keeps its existing behavior.
+        let Some(order) = edit_order.checked_add(1) else { continue };
+        *edit_order = order;
+        let root = root_of(r.0, view, &rigs, &visuals);
+        if matches!(queued.target, SceneTarget::Legacy | SceneTarget::Model(_)) {
+            let captured = match queued.target { SceneTarget::Model(model) => Some(model), _ => None };
+            if captured.is_some_and(|model| root.is_none_or(|root| root.to_bits() != model || nodes.get(root).is_err())) {
+                continue;
+            }
+            let name = match &edit {
+                SceneEdit::Translation { node, .. } | SceneEdit::Rotation { node, .. }
+                | SceneEdit::Scale { node, .. } => Some(node),
+                _ => None,
+            };
+            if let Some(name) = name {
+                let model = captured.or_else(|| root.filter(|root| nodes.get(*root).is_ok()).map(Entity::to_bits));
+                let pending = pending_held.entry((r.0, view, name.clone())).or_default();
+                // Acquiring the first root must retain the other TRS components
+                // requested while cold. An explicit request in a new model replaces
+                // a pending value from the old model; absence never unpins one.
+                if let Some(model) = model {
+                    if pending.model.is_some_and(|old| old != model) { pending.value = OrderedHeld::default(); }
+                    pending.model = Some(model);
+                }
+                hold_value(&edit, &mut pending.value, order);
+                continue;
+            }
+            // Main's prepublication structural edits are consume-once name lookups
+            // on an already drawn root, never deferred destructive requests.
+            if root.is_some() { edits_rest.push((view, edit, None)); }
+            continue;
+        }
+        let Some(root) = root else { continue };
         let rig = rig_names(r.0, view, &rigs);
         let entity = match queued.target {
             SceneTarget::Node(identity) => {
                 let Some(entity) = bound_entity(root, identity, &nodes, &rig) else { continue };
                 if matches!(&edit, SceneEdit::Translation { .. } | SceneEdit::Rotation { .. } | SceneEdit::Scale { .. }) {
-                    hold_value(&edit, bound_held.entry((r.0, view, identity)).or_default());
+                    hold_value(&edit, bound_held.entry((r.0, view, identity)).or_default(), order);
                     continue;
                 }
                 entity
             }
-            // An unseen entity-backed model is never promoted from legacy by name.
-            SceneTarget::Legacy | SceneTarget::Missing => continue,
+            SceneTarget::Legacy | SceneTarget::Model(_) | SceneTarget::Missing => continue,
         };
         edits_rest.push((view, edit, Some(entity)));
     }
@@ -464,7 +535,7 @@ fn mirror_game(
         };
         let Some(root) = root_of(r.0, view, &rigs, &visuals) else { continue };
         let rig = rig_names(r.0, view, &rigs);
-        // Only the deliberately legacy file path resolves by name/index. Keeping
+        // Cold compatibility and the legacy file path resolve once by name/index. Keeping
         // an absent entity is significant: particle/material handlers historically
         // did work before or without finding a concrete shape.
         let entity = entity.or_else(|| match &edit {
@@ -479,8 +550,8 @@ fn mirror_game(
         match edit {
             SceneEdit::ForModel { .. } => {}
             SceneEdit::Translation { .. } | SceneEdit::Rotation { .. } | SceneEdit::Scale { .. } => {}
-            // ChildFlags already names the indexed child through its captured
-            // identity; neither branch resolves a fresh name or child index.
+            // Published ChildFlags captures the actual child identity; the cold
+            // compatibility branch resolves its name/index once above.
             SceneEdit::Flags { flags, .. } | SceneEdit::ChildFlags { flags, .. } => {
                 if let Some(entity) = entity {
                     if flags & 1 != 0 {
@@ -573,13 +644,29 @@ fn mirror_game(
         let h = held[&(r, view, node.clone())];
         apply_held(root, &node, h, &mut nodes, &rig);
     }
+    // Name-based startup holds acquire a model as soon as it exists. They may
+    // wait for a late child only in that model, then become concrete node holds.
+    pending_held.retain(|&(r, view, ref name), pending| {
+        let Some(root) = root_of(r, view, &rigs, &visuals) else { return pending.model.is_none() };
+        if nodes.get(root).is_err() { return pending.model.is_none() }
+        let model = root.to_bits();
+        if pending.model.is_some_and(|captured| captured != model) { return false }
+        pending.model = Some(model);
+        let rig = rig_names(r, view, &rigs);
+        let Some(entity) = find(root, name, &nodes, &rig) else { return true };
+        let identity = SceneIdentity { model, node: entity.to_bits() };
+        if bound_entity(root, identity, &nodes, &rig).is_none() { return true }
+        let value = bound_held.entry((r, view, identity)).or_default();
+        merge_held(value, pending.value);
+        false
+    });
     // An edit holds over animation only while this exact model/node lives. A
     // disappearance, immediate root replacement, child ABA or subtree departure expires it.
     bound_held.retain(|&(r, view, identity), value| {
         let Some(root) = root_of(r, view, &rigs, &visuals) else { return false };
         let rig = rig_names(r, view, &rigs);
         let Some(entity) = bound_entity(root, identity, &nodes, &rig) else { return false };
-        apply_value(entity, *value, &mut nodes);
+        apply_value(entity, value.value, &mut nodes);
         true
     });
     // The trees of the references scripts asked about.
@@ -692,7 +779,7 @@ fn mirror_game(
             if logged.insert(r.0 | 0x8000_0000) {
                 info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
             }
-            game.scene.set_identified_tree_for(r, view, tree);
+            game.scene.set_identified_model_for(r, view, root.to_bits(), tree);
         }
     }
     // The vertices of the shapes scripts asked about (SUP's NifBlockGetVerticles), in the

@@ -50,12 +50,14 @@ pub struct SceneIdentity {
     pub node: u64,
 }
 
-/// Whether a queued edit addressed a published concrete node. Legacy hosts retain
-/// their old name-based API; an identity-enforcing renderer refuses Legacy/Missing.
+/// The publication available when an edit was queued. An unpublished model keeps
+/// the original pending-name contract; a published model pins any late-node lookup.
+/// A missing/disappeared model cannot regain authority through a future namesake.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneTarget {
     Legacy,
     Missing,
+    Model(u64),
     Node(SceneIdentity),
 }
 
@@ -136,7 +138,7 @@ pub struct SceneMirror {
     player_view: ModelView,
     watched: HashSet<FormId>,
     edits: Vec<TargetedSceneEdit>,
-    identified: HashSet<(FormId, ModelView)>,
+    identified: HashMap<(FormId, ModelView), Option<u64>>,
     /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
     /// reference and lower-case name, and what the engine told of them.
     vert_wanted: HashSet<(FormId, String)>,
@@ -184,11 +186,21 @@ impl SceneMirror {
     }
 
     /// An entity-backed host opts this model into concrete target capture. Even an
-    /// empty tree is identified; a missing node must not become a future namesake.
+    /// empty tree is identified. A missing name can wait only within its published
+    /// model identity; a disappeared model cannot become an unpublished target.
     pub fn set_identified_tree_for(&mut self, r: FormId, view: ModelView, nodes: Vec<SceneNode>) {
         let view = self.resolve_view(r, view);
+        let model = nodes.iter().find_map(|node| node.info.as_ref()?.identity).map(|identity| identity.model);
         self.set_tree_for(r, view, nodes);
-        self.identified.insert((r, view));
+        self.identified.insert((r, view), model);
+    }
+
+    /// Publish an actual model root even when its script-visible node tree is empty.
+    /// This captures no placeholder node and does not make cold getters succeed.
+    pub fn set_identified_model_for(&mut self, r: FormId, view: ModelView, model: u64, nodes: Vec<SceneNode>) {
+        let view = self.resolve_view(r, view);
+        self.set_tree_for(r, view, nodes);
+        self.identified.insert((r, view), Some(model));
     }
 
     /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
@@ -241,7 +253,7 @@ impl SceneMirror {
     fn target_for(&self, view: ModelView, edit: &SceneEdit) -> SceneTarget {
         let r = edit.reference();
         let view = self.resolve_view(r, view);
-        if !self.identified.contains(&(r, view)) { return SceneTarget::Legacy; }
+        let Some(model) = self.identified.get(&(r, view)) else { return SceneTarget::Legacy };
         let Some(tree) = self.trees.get(&(r, view)) else { return SceneTarget::Missing };
         let name = match edit {
             SceneEdit::Rename { node, .. } => node,
@@ -252,13 +264,14 @@ impl SceneMirror {
             | SceneEdit::Material { node, .. } | SceneEdit::Particle { node, .. } => node,
             SceneEdit::ForModel { .. } => return SceneTarget::Missing,
         };
-        let Some(mut index) = find(tree, name) else { return SceneTarget::Missing };
+        let missing_node = model.map_or(SceneTarget::Missing, SceneTarget::Model);
+        let Some(mut index) = find(tree, name) else { return missing_node };
         if let SceneEdit::ChildFlags { child, .. } = edit {
             let Some(found) = tree.iter().enumerate().filter(|(_, n)| n.parent == Some(index)).nth(*child).map(|(i, _)| i) else { return SceneTarget::Missing };
             index = found;
         }
         tree[index].info.as_ref().and_then(|info| info.identity)
-            .map_or(SceneTarget::Missing, SceneTarget::Node)
+            .map_or(missing_node, SceneTarget::Node)
     }
 
     fn queue_targeted(&mut self, view: ModelView, edit: SceneEdit, target: SceneTarget) {
@@ -611,12 +624,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
             list(g, out)
         }
+        // JIP: `block [getWorld] [pcModel]`, or ButcherPete's axis overload.
+        // Compose through the existing Alt getter's world transform route.
+        "getnifblocktranslation" => {
+            let component = axis(args.get(1));
+            let world = num(args,if component.is_some() {2} else {1},0.0) != 0.0;
+            let Some((v,_)) = node_place_for(g,r,&text(args,0),world,view) else {return Some(Ok(XVal::Array(0)))};
+            match component {
+                Some(a) => XVal::Num(f64::from(v[a])),
+                None => list(g,v.into_iter().map(|x|XVal::Num(f64::from(x))).collect()),
+            }
+        }
         // `block [axis]`: an axis gives that number; otherwise the three as an array
         // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head].
-        "getnifblocktranslation" | "getnifblockrotation" => {
+        "getnifblockrotation" => {
             let Some(t) = g.scene.tree_for(r, view) else { return Some(Ok(XVal::Array(0))) };
             let Some(i) = find(t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
-            let v = if name == "getnifblocktranslation" { t[i].translation } else { t[i].rotation };
+            let v = t[i].rotation;
             match axis(args.get(1)) {
                 Some(a) => XVal::Num(f64::from(v[a])),
                 None => {

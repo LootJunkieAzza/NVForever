@@ -125,6 +125,13 @@ fn real_player_body_mirror_dispatch_and_held_edits_keep_rigs_separate() {
 type NamedRig = (Entity, ActorRig);
 
 fn naming_fixture() -> (App, crate::outfits::tests::TestFiles, NamedRig, NamedRig) {
+    let (mut app, files, third, first) = unpublished_fixture();
+    assert_eq!(scale(&mut app, None), XVal::Num(0.0));
+    app.update();
+    (app, files, third, first)
+}
+
+fn unpublished_fixture() -> (App, crate::outfits::tests::TestFiles, NamedRig, NamedRig) {
     let (mut app, files) = crate::outfits::tests::asset_fixture();
     let forms = Box::leak(Box::<fnv_sim::FormStore>::default());
     let refs = Box::leak(Box::<fnv_sim::RefTable>::default());
@@ -136,8 +143,6 @@ fn naming_fixture() -> (App, crate::outfits::tests::TestFiles, NamedRig, NamedRi
     app.insert_resource(crate::player_body::PlayerBody::synthetic_script_models(third.clone(), Some(first.clone())))
         .insert_resource(TestGame(game)).init_resource::<TestMemory>()
         .add_systems(Update, produce);
-    assert_eq!(scale(&mut app, None), XVal::Num(0.0));
-    app.update();
     (app, files, third, first)
 }
 
@@ -329,14 +334,14 @@ fn child_replacement_rejects_stale_transform_rename_remove_and_child_flag_edits(
 fn ordinary_actor_cell_lifetime_and_unpublished_target_do_not_transfer_holds() {
     let (mut app, _files, _third, _first) = naming_fixture();
     let reference = FormId(0x911);
-    // There is no published actor tree yet: this queued Legacy target must not
-    // acquire authority merely because a same-name actor appears before the frame.
+    // A one-shot cold write retains main's startup contract without a prior read.
+    // After its first binding, a later same-name actor must not inherit the hold.
     call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(25.0)]);
     let (root, mut actor) = rig(app.world_mut(), "OwnedActorRoot", 50.0);
     actor.reference = reference.0;
     app.world_mut().entity_mut(root).insert((actor.clone(), Name::new("Factory Actor Label")));
     app.update();
-    assert_eq!(app.world().get::<Transform>(actor.nodes[1]).unwrap().scale, Vec3::ONE);
+    assert_eq!(app.world().get::<Transform>(actor.nodes[1]).unwrap().scale, Vec3::splat(25.0));
     call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(4.0)]);
     app.update();
     assert_eq!(app.world().get::<Transform>(actor.nodes[1]).unwrap().scale, Vec3::splat(4.0));
@@ -350,6 +355,163 @@ fn ordinary_actor_cell_lifetime_and_unpublished_target_do_not_transfer_holds() {
     assert_eq!(app.world().get::<Transform>(replacement.nodes[1]).unwrap().scale, Vec3::ONE);
     assert!(published(&mut app, reference, ModelView::Reference, "OwnedActorRoot").is_some());
     assert!(published(&mut app, reference, ModelView::Reference, "Replacement Actor Label").is_none());
+}
+
+#[test]
+fn cold_player_write_keeps_selected_view_without_a_preliminary_read() {
+    let (mut app, _files, third, first) = unpublished_fixture();
+    call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(6.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblocktranslation", &[XVal::Str("SharedBone".into()), XVal::Num(7.0), XVal::Num(8.0), XVal::Num(9.0)]);
+    app.insert_resource(nvf_play::control::PlayerControl::default());
+    app.world_mut().resource_mut::<nvf_play::control::PlayerControl>().pov = nvf_play::control::Pov::Third;
+    app.update();
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().scale, Vec3::splat(6.0));
+    assert_eq!(app.world().get::<Transform>(third.1.nodes[1]).unwrap().scale, Vec3::ONE);
+    assert_eq!(app.world().get::<Transform>(third.1.nodes[1]).unwrap().translation, Vec3::new(7.0, 8.0, 9.0));
+    assert_eq!(app.world().get::<Transform>(first.1.nodes[1]).unwrap().translation.x, 10.0);
+}
+
+#[test]
+fn published_missing_name_binds_late_node_once_in_the_same_model() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x933);
+    let root = app.world_mut().spawn((Name::new("OwnedRoot"), Transform::IDENTITY, RefVisual(reference.0))).id();
+    // An ordinary RefVisual root is a wrapper, not a script-visible NIF node:
+    // this first publication has an actual model identity but an empty node tree.
+    assert_eq!(call_ref(&mut app, reference, "getnifblockscale", &[XVal::Str("Late".into())]), XVal::Num(0.0));
+    app.update();
+    assert_eq!(call_ref(&mut app, reference, "getnifblockscale", &[XVal::Str("Late".into())]), XVal::Num(0.0));
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("Late".into()), XVal::Num(7.0)]);
+    // The queued missing name acquires the real node created after publication.
+    let child = app.world_mut().spawn((Name::new("Late"), Transform::IDENTITY, ChildOf(root))).id();
+    app.update();
+    assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::splat(7.0));
+    app.world_mut().entity_mut(child).despawn();
+    let replacement = app.world_mut().spawn((Name::new("Late"), Transform::IDENTITY, ChildOf(root))).id();
+    app.update();
+    assert_eq!(app.world().get::<Transform>(replacement).unwrap().scale, Vec3::ONE);
+}
+
+#[test]
+fn cold_pending_hold_pins_first_model_even_before_the_named_child_exists() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x934);
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("Late".into()), XVal::Num(8.0)]);
+    app.update(); // No model yet: retain main's pre-draw hold.
+    let root = app.world_mut().spawn((Name::new("OwnedRoot"), Transform::IDENTITY, RefVisual(reference.0))).id();
+    app.update(); // Pin this model despite the missing child.
+    app.world_mut().entity_mut(root).despawn();
+    let root = app.world_mut().spawn((Name::new("OwnedRoot"), Transform::IDENTITY, RefVisual(reference.0))).id();
+    let replacement = app.world_mut().spawn((Name::new("Late"), Transform::IDENTITY, ChildOf(root))).id();
+    app.update();
+    assert_eq!(app.world().get::<Transform>(replacement).unwrap().scale, Vec3::ONE, "pending hold must not transfer to a replacement model");
+}
+
+#[test]
+fn cold_transform_writes_survive_frames_before_the_first_actor_is_drawn() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x937);
+    call_ref(&mut app, reference, "setnifblocktranslation", &[XVal::Str("SharedBone".into()), XVal::Num(1.0), XVal::Num(2.0), XVal::Num(3.0)]);
+    call_ref(&mut app, reference, "setnifblockrotation", &[XVal::Str("SharedBone".into()), XVal::Num(0.0), XVal::Num(0.0), XVal::Num(90.0)]);
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(5.0)]);
+    app.update();
+    assert_eq!(call_ref(&mut app, reference, "getnifblockscale", &[XVal::Str("SharedBone".into())]), XVal::Num(0.0), "pending writes do not invent a readable tree");
+    let (root, mut actor) = rig(app.world_mut(), "OwnedActorRoot", 50.0);
+    actor.reference = reference.0;
+    app.world_mut().entity_mut(root).insert(actor.clone());
+    // A later component write when the first model becomes available must merge,
+    // not discard the pending cold scale and rotation.
+    call_ref(&mut app, reference, "setnifblocktranslation", &[XVal::Str("SharedBone".into()), XVal::Num(4.0), XVal::Num(5.0), XVal::Num(6.0)]);
+    app.update();
+    let transform = app.world().get::<Transform>(actor.nodes[1]).unwrap();
+    assert_eq!(transform.translation, Vec3::new(4.0, 5.0, 6.0));
+    assert_eq!(transform.scale, Vec3::splat(5.0));
+    assert!(transform.rotation.angle_between(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)).abs() < 1e-5);
+}
+
+#[test]
+fn published_empty_model_request_cannot_bind_a_replacement_root() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x938);
+    let root = app.world_mut().spawn((Transform::IDENTITY, RefVisual(reference.0))).id();
+    assert_eq!(call_ref(&mut app, reference, "getnifblockscale", &[XVal::Str("Late".into())]), XVal::Num(0.0));
+    app.update();
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("Late".into()), XVal::Num(8.0)]);
+    // Replace between queue capture and consumption, without an absent frame.
+    app.world_mut().entity_mut(root).despawn();
+    let root = app.world_mut().spawn((Transform::IDENTITY, RefVisual(reference.0))).id();
+    let child = app.world_mut().spawn((Name::new("Late"), Transform::IDENTITY, ChildOf(root))).id();
+    app.update();
+    assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::ONE);
+}
+
+#[test]
+fn same_frame_public_insert_then_transform_waits_for_actual_deferred_node_creation() {
+    let (mut app, _files, _third, _first) = naming_fixture();
+    let reference = FormId(0x935);
+    let root = app.world_mut().spawn((Name::new("OwnedRoot"), Transform::IDENTITY, RefVisual(reference.0))).id();
+    let anchor = app.world_mut().spawn((Name::new("Anchor"), Transform::IDENTITY, ChildOf(root))).id();
+    assert_eq!(call_ref(&mut app, reference, "getnifblockscale", &[XVal::Str("Anchor".into())]), XVal::Num(0.0));
+    app.update();
+    assert_eq!(call_ref(&mut app, reference, "insertnode", &[XVal::Ref(reference.0), XVal::Num(1.0), XVal::Str("Anchor|Inserted".into())]), XVal::Num(1.0));
+    // Public InsertNode has created only a core placeholder, with no entity identity.
+    call_ref(&mut app, reference, "setnifblockscale", &[XVal::Str("Inserted".into()), XVal::Num(9.0)]);
+    app.update(); // Commands create the child after this producer invocation.
+    let child = app.world().get::<Children>(anchor).unwrap().iter().find(|child| app.world().get::<Name>(*child).is_some_and(|name| name.as_str() == "Inserted")).unwrap();
+    app.update();
+    assert_eq!(app.world().get::<Transform>(child).unwrap().scale, Vec3::splat(9.0));
+}
+
+#[test]
+fn pending_aliases_merge_per_property_without_overwriting_newer_bound_edits() {
+    for newer_bound_scale in [false, true] {
+    let (mut app, _files, _third, first) = naming_fixture();
+    call(&mut app, "setnifblockscale", &[XVal::Str("FutureAlias".into()), XVal::Num(7.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblockscale", &[XVal::Str("futurealias".into()), XVal::Num(9.0), XVal::Num(2.0)]);
+    call(&mut app, "setnifblocktranslation", &[XVal::Str("FutureAlias".into()), XVal::Num(1.0), XVal::Num(2.0), XVal::Num(3.0), XVal::Num(2.0)]);
+    app.update(); // Both names wait in the same model, neither names a node yet.
+    if newer_bound_scale {
+        call(&mut app, "setnifblockscale", &[XVal::Str("SharedBone".into()), XVal::Num(11.0), XVal::Num(2.0)]);
+    }
+    call(&mut app, "renamenifblock", &[XVal::Str("SharedBone".into()), XVal::Str("FutureAlias".into()), XVal::Num(2.0)]);
+    app.update(); // New bound scale applies; rename is a deferred command.
+    app.update(); // Both older pending aliases now resolve to that same identity.
+    let transform = app.world().get::<Transform>(first.1.nodes[1]).unwrap();
+    assert_eq!(transform.scale, Vec3::splat(if newer_bound_scale { 11.0 } else { 9.0 }), "last writer must win independently of alias promotion order");
+    assert_eq!(transform.translation, Vec3::new(1.0, 2.0, 3.0), "independent earlier properties must still merge");
+    assert!(app.world().resource::<TestMemory>().0.pending_held.is_empty());
+    }
+}
+
+#[test]
+fn cold_structural_writes_are_consumed_once_on_already_drawn_nodes() {
+    // Producer-side SceneMirror API contract. Public structural script dispatch
+    // still requires a mirrored target, just as on main; no new admission here.
+    for operation in ["flags", "rename", "remove", "insert"] {
+        let (mut app, _files, _third, _first) = naming_fixture();
+        let reference = FormId(0x936);
+        let root = app.world_mut().spawn((Name::new("OwnedRoot"), Transform::IDENTITY, RefVisual(reference.0))).id();
+        let child = app.world_mut().spawn((Name::new("OwnedChild"), Transform::IDENTITY, ChildOf(root))).id();
+        let edit = match operation {
+            "flags" => SceneEdit::Flags { r: reference, node: "OwnedChild".into(), flags: 1 },
+            "rename" => SceneEdit::Rename { r: reference, node: "OwnedChild".into(), to: "Renamed".into() },
+            "remove" => SceneEdit::Remove { r: reference, node: "OwnedChild".into() },
+            _ => SceneEdit::Insert { r: reference, target: "OwnedChild".into(), name: "Inserted".into(), as_parent: false },
+        };
+        app.world_mut().resource_mut::<TestGame>().0.scene.push_edit(edit);
+        app.update();
+        match operation {
+            "flags" => assert!(app.world().get::<NifHidden>(child).is_some()),
+            "rename" => assert_eq!(app.world().get::<Name>(child).unwrap().as_str(), "Renamed"),
+            "remove" => assert!(app.world().get_entity(child).is_err()),
+            _ => assert!(app.world().get::<Children>(child).unwrap().iter().any(|entity| app.world().get::<Name>(entity).is_some_and(|name| name.as_str() == "Inserted"))),
+        }
+        let later = app.world_mut().spawn((Name::new("OwnedChild"), Transform::IDENTITY, ChildOf(root))).id();
+        app.update();
+        assert!(app.world().get::<NifHidden>(later).is_none());
+        assert_eq!(app.world().get::<Name>(later).unwrap().as_str(), "OwnedChild");
+        assert!(app.world().get::<Children>(later).is_none(), "{operation} must not replay on a later namesake");
+    }
 }
 
 #[test]

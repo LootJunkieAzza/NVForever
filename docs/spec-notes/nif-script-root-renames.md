@@ -8,12 +8,12 @@
 - [documented] That page says the rename resets on parent-cell reload or Update3D.
   The entity-owned marker does not by itself qualify every engine rebuild/reset
   route; it establishes only that a replacement entity does not inherit the marker.
-- [observed: source at 3ccc75a3] PlayerBody labels the root entity with a factory
+- [documented: repository `engine/nvforever/src/player_body.rs` at 3ccc75a3] PlayerBody labels the root entity with a factory
   Name such as its body/view label (`player_body.rs`, build_rig). The actual NIF
   root name is kept in the rig's skeleton map. `nif_mirror::name_of` deliberately
   prefers the skeleton name for this root, preventing the factory label from
   becoming a script-visible NIF node name.
-- [observed: source at 3ccc75a3] The Rename edit only changes the entity's Name.
+- [documented: repository `engine/nvforever/src/nif_mirror.rs` at 3ccc75a3] The Rename edit only changes the entity's Name.
   On a skeleton root, the next publication still prefers the old skeleton name.
   Its explicitly renamed Name therefore cannot be found or retained by the
   mirror, unlike the Name of a non-root node. The initial authored CPU comparison
@@ -43,14 +43,15 @@ serde_json, uses the real query_steps/run_step consumer for all six source strin
 and advances the real mirror producer between steps. It requires the return sequence
 [1, 0, 1, 1, 0, 1] and no ScriptError. This qualifies only the source strings and
 producer-step interaction when executed; it does not run QueryJob's scheduling,
-logging/output writer, the installed game or a GPU. Its execution is pending.
+logging/output writer, the installed game or a GPU. It executed and passed in hosted b24124e2 CI (run 43557253676); it is not a run of this corrected source tree.
 
 [observed: initial authored CPU controls] Keeping the same initial three producer
 fixtures and replacing only the baseline production file at 3ccc75a3 gives one pass
 and two intended assertion failures. The explicit-rename marker gives three passes;
 the four existing mirror helpers also pass. This predates the additional exact-JSON
-consumer fixture. The final four-producer-fixture comparison and its broader checks
-remain pending; the earlier three-test result does not qualify the new control.
+consumer fixture. Hosted b24124e2 CI subsequently executes that consumer among its
+13 passing producer controls. The actual optional query-job smoke remains pending;
+neither historical result qualifies the corrected cold-write source tree.
 
 This is a provisional follow-up to the per-view implementation under #2387.
 Complete armor-HUD behaviour, native parity and the excluded lifetime/order routes
