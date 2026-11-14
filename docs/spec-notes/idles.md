@@ -961,7 +961,7 @@ has gone`. Smoke `idle-hold-oliver`.
 A player noted that drinking from a sink, toilet, pump or fountain plays no animation;
 the original plays one. The tree holds it under a root of its own that nothing asked.
 
-### 16.1 What the data holds [observed: `fnvtool esm decode`, `fnvtool actor anims`, FalloutNV.esm]
+### 16.1 What the data holds [documented: `fnvtool esm decode`, `fnvtool actor anims`, FalloutNV.esm]
 
 - `ActivateIdles` 0x00003BDC: a people's root (folder `Characters\_Male\IdleAnims`;
   chain order §12.1), with one condition, GetUsedItemActivate (index 259) == 1. Its
@@ -991,12 +991,14 @@ the original plays one. The tree holds it under a root of its own that nothing a
 ### 16.2 Rules as built (`Game::activate_idle`, `engine/nvforever/src/idles.rs`)
 
 - **GetUsedItemActivate** answers 1 while the actor uses something (furniture, a
-  package's item, as before) or activates something: the reference it activated within
+  package's item), as before. Only inside the walk for the player's activation idle
+  (`Game::activate_idle`, which sets `Game::activate_walk`) does it also answer 1 while
+  that actor activates something: the reference it activated within
   `ACTIVATING_SECONDS` (2 s), the window IsWaterObject reads [documented: the wiki note
-  above; the window is design]. So an NPC that activates something also passes the root
-  for 2 s: its fidget walks then go into `ActivateIdles` first and keep nothing (the
-  pick-up leaf is no fidget), and a `PickIdle` in that window picks the pick-up idle
-  [design, #2349].
+  above; design, #2349: the window, and the scope]. Everywhere else (scripts, quests,
+  dialogue, packages, the NPCs' fidget and `PickIdle` walks) its answer is what it was:
+  an NPC that has just activated something answers 0 and picks as before (test
+  `activating_placeable_water_picks_the_drinking_idle`).
 - **Who asks** [design, #2349]: the player's activation that reaches its default action
   (`Game::run_default_activation`: by hand, or a script's `Activate` with the player as
   the action reference) queues the player in `Game::activate_idles`. The animating

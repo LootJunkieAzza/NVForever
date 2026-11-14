@@ -1445,6 +1445,10 @@ pub struct Game<'a> {
     /// Only the player is put here [design, #2349]. Each actor once. Not part of the
     /// saved state.
     pub activate_idles: Vec<FormId>,
+    /// The actor whose activation idle the tree is being walked for
+    /// (`Game::activate_idle`): only then does GetUsedItemActivate answer for an
+    /// activation (`functions::furniture::get_used_item_activate`, #2349). Not saved.
+    pub(crate) activate_walk: Option<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -2384,6 +2388,7 @@ impl<'a> Game<'a> {
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
             activate_idles: Vec::new(),
+            activate_walk: None,
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             walk_up_greets: BTreeMap::new(),

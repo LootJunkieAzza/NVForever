@@ -444,16 +444,27 @@ impl<'a> Game<'a> {
     /// to it (the root first, the leaf last), or `None` (docs/spec-notes/idles.md §16,
     /// #2349): the roots of the actor's own `folder` in chain order whose conditions name
     /// `GetUsedItemActivate == 1`, gone into as for [`Game::pick_idle`] (the first leaf
-    /// with a file whose way down passes) [observed: FalloutNV.esm has one for people,
+    /// with a file whose way down passes) [documented: fnvtool esm decode and actor anims,
+    /// FalloutNV.esm has one for people,
     /// `ActivateIdles` 0x00003BDC, whose children are `ActStimpakSource` (GetIsUsedItem
     /// Stimpak), `ActWaterSource` 0x000221B4 (IsWaterObject == 1: `1stPersonActWater`,
     /// GetIsID Player and IsPC1stPerson, then `3rdPersonActWater` with no conditions) and
     /// `NPCPickUpItem` (not the player); documented: GECK wiki IsWaterObject, "Used in
     /// vanilla game for drinking animation"; hypothesis: the original asks this root when
-    /// the player activates something]. While the actor activates something
-    /// ([`Game::activating`]) GetUsedItemActivate and IsWaterObject answer for it, so the
-    /// tree's own conditions choose. `held_back` as for [`Game::fidget`].
+    /// the player activates something]. During this walk, and only here,
+    /// GetUsedItemActivate answers 1 while the actor activates something
+    /// ([`Game::activating`]; elsewhere its answer is unchanged, #2349); IsWaterObject
+    /// answers for what it activates; the tree's own conditions choose. `held_back` as for
+    /// [`Game::fidget`].
     pub fn activate_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
+        let before = self.activate_walk.replace(actor);
+        let pick = self.activate_walk_tree(actor, folder, held_back);
+        self.activate_walk = before;
+        pick
+    }
+
+    /// [`Game::activate_idle`]'s walk, with the activation known to GetUsedItemActivate.
+    fn activate_walk_tree(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let roots: Vec<FormId> = data

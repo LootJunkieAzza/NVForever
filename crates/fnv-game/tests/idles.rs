@@ -518,7 +518,9 @@ fn an_unconscious_actor_stands_in_its_switched_off_idle() {
 /// choose: while the player activates placeable water (an activator with a Water Type),
 /// the way goes through ActWaterSource to the first-person leaf in first person and to
 /// the third-person one in third; activating anything else, or nothing, gives no idle.
-/// Only the player's activation is queued for the animating layer (idles.md §16).
+/// Only the player's activation is queued for the animating layer, and only that walk
+/// sees the activation in GetUsedItemActivate: elsewhere, and for an NPC that has just
+/// activated something, it answers and picks as before (idles.md §16).
 #[test]
 fn activating_placeable_water_picks_the_drinking_idle() {
     let f = fixture();
@@ -531,7 +533,7 @@ fn activating_placeable_water_picks_the_drinking_idle() {
     // A crate: the root passes (activating), the water node does not.
     g.default_activation_by_hand(FormId(CRATE_REF)).unwrap().expect("not refused");
     assert_eq!(g.activate_idles, vec![p], "the player's activation asks the tree");
-    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 1.0, "GetUsedItemActivate: activating");
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "GetUsedItemActivate outside the activation walk: as before");
     assert_eq!(g.activate_idle(p, folder, &|_| false), None, "a crate is no water");
     g.activate_idles.clear();
     // The sink.
@@ -546,12 +548,26 @@ fn activating_placeable_water_picks_the_drinking_idle() {
     assert_eq!(names(&g, &way), ["ActivateIdles", "ActWaterSource", "3rdPersonActWater"]);
     assert_eq!(g.activate_idle(p, folder, &|i| i == FormId(IDLE_WATER_3RD)), None, "held back");
     assert_eq!(g.activate_idle(p, "creatures\\dog", &|_| false), None, "another folder: nothing");
-    // The tree's other walks pass the activation root by.
+    // The tree's other walks pass the activation root by, even with the folder's own
+    // leaves held back (the activation root next in chain order stays shut).
+    let folder_leaves = |i: FormId| [IDLE_LEAF_OWN, IDLE_LEAF_ANY, IDLE_LEAF_LOOK, IDLE_LEAF_OFF].contains(&i.0);
     assert_eq!(g.pick_idle(p, folder, &|_| false), Some(FormId(IDLE_LEAF_ANY)));
-    // An NPC's activation is not queued.
+    assert_eq!(g.pick_idle(p, folder, &folder_leaves), None, "PickIdle does not see the activation");
+    // An NPC that has just activated the sink: not queued, GetUsedItemActivate as before,
+    // and its picks unchanged.
+    let npc = FormId(ACTOR);
     g.activate_idles.clear();
-    g.default_activation(FormId(ACTOR), FormId(SINK_REF), false).unwrap();
+    g.default_activation(npc, FormId(SINK_REF), false).unwrap();
     assert!(g.activate_idles.is_empty(), "only the player's activation asks the tree");
+    assert_eq!(g.activating(npc), Some(FormId(SINK_REF)));
+    assert_eq!(call(&mut g, 0x1103, npc, &[]).num(), 0.0, "the NPC's GetUsedItemActivate as before");
+    assert_eq!(g.pick_idle(npc, folder, &|_| false), Some(FormId(IDLE_LEAF_OWN)), "its PickIdle as before");
+    assert_eq!(g.pick_idle(npc, folder, &folder_leaves), None, "not the drinking idle");
+    assert_eq!(g.standing_idle(npc, folder), Some(FormId(IDLE_LEAF_LOOK)), "its standing look as before");
+    // The player's drink still picks it.
+    let (idle, way) = g.activate_idle(p, folder, &|_| false).expect("the drinking idle");
+    assert_eq!((idle, names(&g, &way)[1].as_str()), (FormId(IDLE_WATER_3RD), "ActWaterSource"));
+    assert_eq!(call(&mut g, 0x1103, p, &[]).num(), 0.0, "the walk over: as before");
     // The activation is over.
     g.time += fnv_game::functions::senses::ACTIVATING_SECONDS + 1.0;
     assert_eq!(g.activate_idle(p, folder, &|_| false), None, "no longer activating");
