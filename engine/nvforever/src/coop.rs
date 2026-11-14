@@ -2825,7 +2825,7 @@ fn follow_npcs(
                 g.toggles.actors_ai_off = was;
                 g.coop_guest = false;
                 g.world_logic_off = false;
-                g.coop_host_quest = None;
+                g.coop_forget_host_quests();
                 g.coop_host_story = Default::default();
                 g.coop_host_name = None;
                 g.set_remote_speech(Vec::new(), |_| false);
@@ -2968,7 +2968,7 @@ fn follow_npcs(
         g.coop_host_name = host_name;
     }
     if g.coop_host_quest != coop.host_quest {
-        g.coop_host_quest.clone_from(&coop.host_quest);
+        g.coop_set_host_quest(coop.host_quest.clone());
     }
     if let (Some(out), Some(link)) = (stats.relay.as_mut(), coop.link.as_ref()) {
         for h in out.drain(..) {
@@ -3852,6 +3852,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
                 net::Progress::Reload { stamp } => Shared::Reload { stamp },
                 net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
+                net::Progress::QuestEnded { quest, failed } => Shared::QuestEnded { quest, failed },
             },
         ));
     }
@@ -3861,6 +3862,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
         link.send_progress(match what {
             Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
             Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
+            Shared::QuestEnded { quest, failed } => net::Progress::QuestEnded { quest, failed },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,
                 kind: match kind {
@@ -3927,14 +3929,9 @@ fn host_quest_notices(data: &fnv_game::data::GameData, old: Option<&HostQuest>, 
     if !objectives.is_empty() {
         out.push(QuestNotice::Objectives(objectives));
     }
-    if let Some(o) = same {
-        if n.completed && !o.completed {
-            out.push(QuestNotice::Completed(name.clone()));
-        }
-        if n.failed && !o.failed {
-            out.push(QuestNotice::Failed(name));
-        }
-    }
+    // A quest's COMPLETED and FAILED lines come with its own message, in the order the
+    // host's quests ended (`nvf_play::coop_progress`, item 205): the view shows the
+    // newest state only, so a quest completed and failed a second apart lost both.
     out
 }
 

@@ -473,3 +473,91 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
         assert_eq!(late.take_coop_gift(g, &mut last).unwrap(), 0, "a late guest gets no {}", l.data.name(g.item));
     }
 }
+
+/// A quest the host fails (a Fail Quest stage) is kept for its guests, as a completion
+/// is (item 205; sweep-duo-b2: the host showed 10 "Quest failed", the guest none). The
+/// guest lists it once as failed, and a completed quest that fails after is told again.
+#[test]
+fn the_hosts_failed_quest_is_kept_for_the_guests() {
+    let Some(dir) = data_dir() else { return };
+    let l = load(&dir);
+    // Every named quest with a Fail Quest stage, from the data (VMS16's stage 110 among
+    // them [observed: `L5.quest.stage_order`]).
+    let failing: Vec<(FormId, i32)> = l
+        .data
+        .quests
+        .iter()
+        .filter(|(_, q)| q.name.as_deref().is_some_and(|n| !n.trim().is_empty()))
+        .filter_map(|(id, q)| q.stages.iter().find(|(_, es)| es.iter().any(|e| e.flags & fnv_game::quest::STAGE_FAIL != 0)).map(|(s, _)| (*id, *s)))
+        .collect();
+    assert!(failing.len() >= 5, "named quests with a Fail Quest stage: {}", failing.len());
+    let (q, stage) = failing[0];
+    let mut host = game(&l);
+    host.coop_rewards.on = true;
+    host.set_stage(q, stage);
+    assert!(host.quests[&q].failed, "the stage fails {q}");
+    assert_eq!(host.coop_rewards.ended, vec![(q, true)], "the host keeps {q} for its guests");
+    // Not twice: a second fail stage of the same quest is no news.
+    host.coop_rewards.ended.clear();
+    host.set_stage(q, stage);
+    assert!(host.coop_rewards.ended.is_empty());
+    // A solo game keeps nothing.
+    let mut solo = game(&l);
+    solo.set_stage(q, stage);
+    assert!(solo.quests[&q].failed && solo.coop_rewards.ended.is_empty());
+
+    let mut guest = game(&l);
+    guest.coop_guest = true;
+    guest.coop_set_host_quest(Some(fnv_game::coop::HostQuest { quest: q, objectives: BTreeMap::from([(10, true), (20, false)]), completed: false, failed: false }));
+    guest.coop_set_host_quest(None);
+    assert_eq!(guest.coop_host_objectives.get(&q), Some(&BTreeMap::from([(10, true), (20, false)])), "the objectives the host's view showed stay for the ended quest's page");
+    assert!(guest.coop_host_quest_ended(q, true), "news the first time");
+    assert!(!guest.coop_host_quest_ended(q, true), "not told twice");
+    assert!(!guest.coop_host_quest_ended(q, false), "a completion after a failure is no news");
+    assert_eq!(guest.coop_host_ended, vec![(q, true)]);
+    let other = failing[1].0;
+    assert!(guest.coop_host_quest_ended(other, false), "completed");
+    assert!(guest.coop_host_quest_ended(other, true), "then failed: told");
+    assert_eq!(guest.coop_host_ended, vec![(q, true), (other, true)]);
+    guest.coop_forget_host_quests();
+    assert!(guest.coop_host_ended.is_empty() && guest.coop_host_objectives.is_empty());
+}
+
+/// A quest completed and failed in the same frame (in one sync tick) reaches the guests
+/// as both, in that order, though its completion pays nothing (item 205; laptop duo b4:
+/// I FORGOT TO REMEMBER TO FORGET, VMS39, completed at stage 70 and failed at stage 80 a
+/// second later, showed neither line on the guest [observed: sweep-duo-b4 logs]).
+#[test]
+fn a_quest_completed_then_failed_in_one_tick_reaches_the_guest_as_both() {
+    let Some(dir) = data_dir() else { return };
+    let l = load(&dir);
+    let q = l.data.by_edid("VMS39").expect("VMS39");
+    let stages = &l.data.quests[&q].stages;
+    let flagged = |f: u8| stages.iter().find(|(_, es)| es.iter().any(|e| e.flags & f != 0)).map(|(s, _)| *s);
+    let complete = flagged(fnv_game::quest::STAGE_COMPLETE).expect("a Complete Quest stage");
+    let fail = flagged(fnv_game::quest::STAGE_FAIL).expect("a Fail Quest stage");
+    assert!(complete < fail, "VMS39 completes at {complete} before it fails at {fail}");
+    let mut host = game(&l);
+    host.coop_rewards.on = true;
+    // Its first stage shows an objective (Travel to Bitter Springs with Boone [observed:
+    // sweep-duo-b4]).
+    host.set_stage(q, *stages.keys().next().expect("a stage"));
+    // Both stages in one frame: the host's sync takes them together.
+    host.set_stage(q, complete);
+    host.set_stage(q, fail);
+    assert_eq!(host.coop_rewards.ended, vec![(q, false), (q, true)], "both, completed first");
+    let mut guest = game(&l);
+    guest.coop_guest = true;
+    let told: Vec<bool> = std::mem::take(&mut host.coop_rewards.ended).into_iter().map(|(q, failed)| guest.coop_host_quest_ended(q, failed)).collect();
+    assert_eq!(told, [true, true], "the guest tells both");
+    assert_eq!(guest.coop_host_ended, vec![(q, true)], "and lists it as failed");
+    // The host's story, which every guest's quest list reads (a guest that joins later
+    // too), carries it as failed with its objectives (laptop duo b3: the guest listed
+    // only the host's active quest).
+    let view = host.story_view();
+    let s = &view.quests[&q];
+    assert!(s.ended && s.failed, "ended and failed in the story");
+    assert!(!s.objectives.is_empty(), "with the objectives the host was shown");
+    let shown: Vec<i32> = host.quests[&q].objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, _)| *i).collect();
+    assert_eq!(s.objectives.keys().copied().collect::<Vec<_>>(), shown);
+}

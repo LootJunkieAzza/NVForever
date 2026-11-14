@@ -42,6 +42,8 @@ pub(super) fn entries(s: &HostStory) -> Vec<StoryEntry> {
         running: st.running,
         ended: st.ended,
         done: st.done.iter().map(|d| (*d).clamp(i16::MIN.into(), i16::MAX.into()) as i16).collect(),
+        failed: st.failed,
+        objectives: st.objectives.iter().map(|(i, done)| ((*i).clamp(i16::MIN.into(), i16::MAX.into()) as i16, *done)).collect(),
     });
     let vars = s.vars.iter().map(|((q, index), v)| StoryEntry::Var {
         quest: q.0,
@@ -58,8 +60,9 @@ pub(super) fn entries(s: &HostStory) -> Vec<StoryEntry> {
 pub(super) fn take(story: &mut HostStory, heard: impl IntoIterator<Item = StoryEntry>) {
     for e in heard {
         match e {
-            StoryEntry::Quest { quest, stage, running, ended, done } => {
-                story.quests.insert(FormId(quest), HostQuestState { stage: stage.into(), running, ended, done: done.into_iter().map(i32::from).collect() });
+            StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives } => {
+                let objectives = objectives.into_iter().map(|(i, done)| (i32::from(i), done)).collect();
+                story.quests.insert(FormId(quest), HostQuestState { stage: stage.into(), running, ended, done: done.into_iter().map(i32::from).collect(), failed, objectives });
             }
             StoryEntry::Var { quest, index, value } => {
                 let v = match value {
@@ -98,7 +101,8 @@ pub(super) fn share_story(time: Res<Time>, mut coop: ResMut<Coop>, mut script: O
     take(&mut g.coop_host_story, std::mem::take(&mut coop.story.heard));
     let n = g.coop_host_story.quests.len() + g.coop_host_story.vars.len();
     if coop.story.logged == 0 || n > coop.story.logged + coop.story.logged / 10 {
-        info!("co-op: the host's story: {} quests, {} quest variables (the world's scripts here read them)", g.coop_host_story.quests.len(), g.coop_host_story.vars.len());
+        let shown = g.coop_host_story.quests.values().filter(|q| !q.objectives.is_empty()).count();
+        info!("co-op: the host's story: {} quests ({shown} with objectives shown, for the quest list), {} quest variables (the world's scripts here read them)", g.coop_host_story.quests.len(), g.coop_host_story.vars.len());
         coop.story.logged = n;
     }
 }
@@ -110,7 +114,8 @@ mod tests {
     #[test]
     fn the_hosts_story_comes_through_as_it_went() {
         let mut s = HostStory::default();
-        s.quests.insert(FormId(0x1E00_2B11), HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20] });
+        s.quests.insert(FormId(0x1E00_2B11), HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: [(10, true), (20, false)].into() });
+        s.quests.insert(FormId(0x0010_4C1D), HostQuestState { stage: 80, running: false, ended: true, done: vec![70, 80], failed: true, objectives: [(10, true)].into() });
         s.vars.insert((FormId(0x1E00_2B11), 1), Value::Num(1.0));
         s.vars.insert((FormId(0x1E00_2B11), 2), Value::Ref(0x0010_C0DE));
         let mut back = HostStory::default();
@@ -121,7 +126,7 @@ mod tests {
     #[test]
     fn a_stage_out_of_range_is_held_at_the_edge() {
         let mut s = HostStory::default();
-        s.quests.insert(FormId(1), HostQuestState { stage: 100_000, running: false, ended: true, done: vec![] });
+        s.quests.insert(FormId(1), HostQuestState { stage: 100_000, running: false, ended: true, done: vec![], ..Default::default() });
         assert!(matches!(entries(&s)[0], StoryEntry::Quest { stage: i16::MAX, ended: true, .. }));
     }
 }
