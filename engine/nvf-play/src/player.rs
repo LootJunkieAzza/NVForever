@@ -381,7 +381,8 @@ impl Plugin for PlayerPlugin {
                 key: "detached-camera",
                 group: crate::pause::GROUP_MENUS,
                 label: "Detached third-person camera",
-                note: "On: in third person with your weapon away the mouse turns the camera around you, not your character, and your character turns to run whichever way you push, as the camera sees it. Drawing your weapon turns you to where the camera looks. Off: the camera stays behind you, as in the original.",
+                note: "On: in third person with your weapon away the mouse turns the camera around you and you run whichever way you push. Off: the camera stays behind you.",
+                switches: "",
                 get: |w| w.resource::<crate::control::DetachedCamera>().0,
                 set: |w, on| w.resource_mut::<crate::control::DetachedCamera>().0 = on,
                 slider: None,
@@ -438,6 +439,9 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// The character creator (`crate::creator`) always has it, whatever state the game is in
 /// when the opening opens it [owner 2026-10-17: "we should have mouse pointer in this
 /// menu"].
+///
+/// With Input Device = Controller the pointer sleeps until the mouse is used
+/// (`crate::pad::pointer`): hidden wherever it would show [design, #2310].
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
@@ -451,6 +455,7 @@ fn grab_cursor(
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
+    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     // A script's HUD cursor (ToggleHUDCursor, `crate::script_switches`): the pointer shows
@@ -468,10 +473,13 @@ fn grab_cursor(
     // The classic VATS style's target screen has the pointer: its parts and arrows are
     // chosen with it [observed: the owner's screenshots of the original's VATS, 2026-11-10].
     let targeting = vats.is_some_and(|v| v.pointer_wanted());
-    let wanted = creating || targeting || ((!playing || boxed) && !film && !scene);
+    let sleeping = crate::pad::pointer::asleep(pad_pointer.as_deref());
+    let wanted = !sleeping && (creating || targeting || ((!playing || boxed) && !film && !scene));
     // Logged when it changes, and when a film starts or ends over a pointer already hidden.
     if *wanted_before != Some((wanted, film)) {
-        let why = if creating {
+        let why = if sleeping {
+            " (the controller has the controls)"
+        } else if creating {
             " (the character creator)"
         } else if film && intro.is_some_and(|i| i.playing_script_film()) {
             " (a film)"
