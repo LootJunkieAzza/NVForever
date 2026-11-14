@@ -88,7 +88,7 @@ counts them).
 
 ## 5. Scripting (Layer 5)
 
-Player script sequence bridge/lifecycle has an isolated source-port candidate and authored controls; compilation and execution of this port are pending ([player sequences](spec-notes/player-script-sequence-bridge.md)).
+Player script sequence bridge/lifecycle has authored source-request controls and a prepared-sample CPU consumer fixture; validation results are recorded in its PR. An optional owned-input GAME observer remains unrun; asynchronous KF loading, native parity and rendered pixels remain unqualified ([player sequences](spec-notes/player-script-sequence-bridge.md), [pose observer](spec-notes/player-script-sequence-pose-aid.md)).
 
 | System | State | Specifics | Notes |
 |---|---|---|---|
