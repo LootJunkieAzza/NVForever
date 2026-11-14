@@ -551,9 +551,14 @@ pub struct PhotoMode {
     /// centre (game units), for the Focus slider's Auto.
     cam_at: [f32; 3],
     auto_focus: f32,
-    /// The view the player had, and the camera's vertical field of view.
+    /// The view the player had, and the camera's vertical field of view under photo
+    /// mode's zoom: what the game's own writers (the settings, the sights' and a
+    /// conversation's zoom) have on it, followed while open and put back on close.
     pov: Pov,
     vfov: f32,
+    /// The zoom photo mode last put on the camera, taken off again by [`lift`] before
+    /// the game's writers read it (they would take it for the unzoomed view: #202).
+    applied: Option<f32>,
     shot: Shot,
     /// The warning on the panel and the real seconds it has left.
     pub warning: Option<(String, f32)>,
@@ -719,7 +724,8 @@ impl Plugin for PhotoModePlugin {
             .add_systems(Update, hold_world.in_set(PlaySet::Sync))
             .add_systems(Update, place.in_set(PlaySet::Physics).after(crate::control::place_camera).after(crate::free_cam::fly))
             .add_systems(Update, (adjust, warn_on_hits, developed, draw).chain().in_set(PlaySet::Ui))
-            .add_systems(Update, zoom.in_set(PlaySet::Sync).after(crate::aim_zoom::zoom))
+            .add_systems(Update, lift.in_set(PlaySet::Sync).before(crate::aim_zoom::zoom).before(crate::dialogue_zoom::apply))
+            .add_systems(Update, zoom.in_set(PlaySet::Sync).after(crate::aim_zoom::zoom).after(crate::dialogue_zoom::apply))
             .add_systems(First, restore_live)
             .add_systems(
                 PostUpdate,
@@ -1021,23 +1027,37 @@ fn place(
     t.rotation = space::look_rotation(f.heading, f.pitch) * Quat::from_rotation_z(-f.settings.roll().to_radians());
 }
 
-/// The zoom: the camera's field of view while open, the one it had when it closes.
-fn zoom(photo: Res<PhotoMode>, mut cams: Query<&mut Projection, With<PlayerCamera>>, mut was_on: Local<bool>) {
+/// Take photo mode's zoom off the camera: what lies under it goes back before the game's
+/// writers of the field of view read it (`crate::aim_zoom::zoom`,
+/// `crate::dialogue_zoom::apply`, which take whatever they did not write for the unzoomed
+/// view). Something else that wrote since (the settings, the console) is the view under
+/// now. After a close it stays there: photo mode never saves its zoom anywhere (#202).
+fn lift(mut photo: ResMut<PhotoMode>, mut cams: Query<&mut Projection, With<PlayerCamera>>) {
+    let Some(applied) = photo.applied.take() else { return };
     let Ok(mut proj) = cams.single_mut() else { return };
-    let Projection::Perspective(p) = &*proj else { return };
-    let want = if photo.on {
-        crate::free_cam::vertical_fov(photo.settings.fov)
-    } else if *was_on {
-        photo.vfov
+    let Projection::Perspective(p) = &mut *proj else { return };
+    if p.fov == applied {
+        p.fov = photo.vfov;
     } else {
-        return;
-    };
-    *was_on = photo.on;
-    if (p.fov - want).abs() > 1e-5 {
-        if let Projection::Perspective(p) = &mut *proj {
-            p.fov = want;
-        }
+        photo.vfov = p.fov;
     }
+    if !photo.on {
+        info!("photo mode: the field of view is back at vertical {:.1}°", photo.vfov.to_degrees());
+    }
+}
+
+/// The zoom while open, laid over what the game's writers left on the camera this frame
+/// (that is kept as the view under it, [`lift`] puts it back).
+fn zoom(mut photo: ResMut<PhotoMode>, mut cams: Query<&mut Projection, With<PlayerCamera>>) {
+    if !photo.on {
+        return;
+    }
+    let Ok(mut proj) = cams.single_mut() else { return };
+    let Projection::Perspective(p) = &mut *proj else { return };
+    let want = crate::free_cam::vertical_fov(photo.settings.fov);
+    photo.vfov = p.fov;
+    p.fov = want;
+    photo.applied = Some(want);
 }
 
 /// The panel's keys and buttons, and the shutter.
@@ -1548,6 +1568,168 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The field of view `vertical_fov(110)`, the owner's (93.9° vertical).
+    fn gameplay() -> f32 {
+        crate::free_cam::vertical_fov(110.0)
+    }
+
+    /// The camera and the writers of its field of view in a frame's order: photo mode's
+    /// lift, the sights' zoom, a conversation's zoom, photo mode's zoom.
+    fn camera_app(fov: f32) -> App {
+        let mut app = App::new();
+        app.insert_resource(Time::<bevy::time::Real>::default())
+            .insert_resource(State::new(PlayState::Playing))
+            .init_resource::<PlayerControl>()
+            .init_resource::<crate::combat::WeaponAnim>()
+            .init_resource::<crate::aim_zoom::AimZoom>()
+            .init_resource::<crate::aim_zoom::Scope>()
+            .init_resource::<crate::aim_zoom::Scope3d>()
+            .init_resource::<crate::dialogue_zoom::DialogueZoom>()
+            .init_resource::<PhotoMode>()
+            .add_systems(Update, (lift, crate::aim_zoom::zoom, crate::dialogue_zoom::apply, zoom).chain());
+        app.world_mut().spawn((PlayerCamera, Projection::Perspective(PerspectiveProjection { fov, ..default() })));
+        app
+    }
+
+    fn fov(app: &mut App) -> f32 {
+        let mut q = app.world_mut().query_filtered::<&Projection, With<PlayerCamera>>();
+        match q.single(app.world()) {
+            Ok(Projection::Perspective(p)) => p.fov,
+            _ => f32::NAN,
+        }
+    }
+
+    fn set_fov(app: &mut App, v: f32) {
+        let mut q = app.world_mut().query_filtered::<&mut Projection, With<PlayerCamera>>();
+        if let Ok(mut proj) = q.single_mut(app.world_mut()) {
+            if let Projection::Perspective(p) = &mut *proj {
+                p.fov = v;
+            }
+        }
+    }
+
+    /// What `toggle` does to the view when photo mode opens.
+    fn open(app: &mut App) {
+        let vfov = fov(app);
+        let w = app.world_mut();
+        let was = w.resource::<PlayerControl>().pov;
+        w.resource_mut::<PlayerControl>().pov = Pov::Third;
+        let mut f = w.resource_mut::<PhotoMode>();
+        (f.on, f.active, f.pov, f.vfov) = (true, true, was, vfov);
+        f.settings = PhotoSettings::new(game_fov(vfov));
+    }
+
+    fn close(app: &mut App) {
+        app.world_mut().resource_scope(|w, mut photo: Mut<PhotoMode>| {
+            let mut next = NextState::<PlayState>::default();
+            close_photo(&mut photo, &mut w.resource_mut::<PlayerControl>(), &mut next);
+        });
+    }
+
+    fn photo_zoom(app: &mut App, deg: f32) {
+        app.world_mut().resource_mut::<PhotoMode>().settings.set(Setting::Zoom, deg);
+    }
+
+    fn frames(app: &mut App, n: usize) {
+        for _ in 0..n {
+            app.update();
+        }
+    }
+
+    /// A conversation's zoom eased in towards `target` (or out, none) over `n` frames.
+    fn talk(app: &mut App, target: Option<f32>, n: usize) {
+        for _ in 0..n {
+            app.world_mut().resource_mut::<crate::dialogue_zoom::DialogueZoom>().test_step(target, 0.05);
+            app.update();
+        }
+    }
+
+    /// #202: open, zoom, close: the camera is back on the field of view it had, in the
+    /// view (first person) it had, and the game's own zooms still go back to it after.
+    #[test]
+    fn closing_puts_back_the_field_of_view_it_opened_on() {
+        let mut app = camera_app(gameplay());
+        app.world_mut().resource_mut::<PlayerControl>().pov = Pov::First;
+        frames(&mut app, 2);
+        open(&mut app);
+        photo_zoom(&mut app, 17.0);
+        frames(&mut app, 5);
+        assert!((fov(&mut app) - crate::free_cam::vertical_fov(17.0)).abs() < 1e-5, "photo mode's zoom is on the camera while open");
+        close(&mut app);
+        frames(&mut app, 3);
+        assert_eq!(fov(&mut app), gameplay(), "the field of view it opened on");
+        assert_eq!(app.world().resource::<PlayerControl>().pov, Pov::First);
+        let reset = app.world().resource::<PhotoMode>().settings.fov;
+        assert!((reset - game_fov(gameplay())).abs() < 1e-3, "the zoom slider resets, nothing of it is kept: {reset}");
+        // A conversation's zoom afterwards eases back to the gameplay view, not to photo
+        // mode's.
+        talk(&mut app, Some(0.4), 60);
+        assert!(fov(&mut app) < gameplay() - 0.1);
+        talk(&mut app, None, 60);
+        assert_eq!(fov(&mut app), gameplay());
+    }
+
+    /// #202 as played (log 030136, 03:10:53 to 03:12:21): photo mode opened while a
+    /// conversation's zoom was easing in, and the conversation ended while it was open.
+    /// The zoom out went to photo mode's zoom (taken for the view under it) and the close
+    /// put back the conversation's: the view stayed narrow. Both now end on the gameplay
+    /// view.
+    #[test]
+    fn a_conversation_zoom_under_photo_mode_ends_on_the_gameplay_view() {
+        let mut app = camera_app(gameplay());
+        frames(&mut app, 2);
+        talk(&mut app, Some(0.22), 8);
+        assert!(fov(&mut app) < gameplay() - 0.1, "the conversation's zoom is coming in");
+        open(&mut app);
+        photo_zoom(&mut app, 40.0);
+        for target in [Some(0.22), None] {
+            for _ in 0..40 {
+                talk(&mut app, target, 1);
+                assert!((fov(&mut app) - crate::free_cam::vertical_fov(40.0)).abs() < 1e-5, "photo mode's zoom stays on top");
+            }
+        }
+        close(&mut app);
+        frames(&mut app, 3);
+        assert_eq!(fov(&mut app), gameplay());
+    }
+
+    /// Down the sights when it opens: the sights' zoom holds while open, and the close
+    /// gives back the zoomed view it opened on.
+    #[test]
+    fn the_sights_zoom_is_given_back_as_it_was() {
+        let sight = crate::free_cam::vertical_fov(45.0);
+        let mut app = camera_app(sight);
+        app.insert_resource(crate::aim_zoom::AimZoom::down_the_sights(gameplay(), sight));
+        frames(&mut app, 2);
+        // The sights' zoom as it writes it (`zoomed_fov` at a blend of 1, within a rounding).
+        let before = fov(&mut app);
+        assert!((before - sight).abs() < 1e-5);
+        open(&mut app);
+        photo_zoom(&mut app, 90.0);
+        frames(&mut app, 10);
+        close(&mut app);
+        frames(&mut app, 1);
+        assert_eq!(fov(&mut app), before);
+        assert_eq!(app.world().resource::<crate::aim_zoom::AimZoom>().blend, 1.0);
+    }
+
+    /// A field of view set while open (the settings, the console) is the one the close
+    /// leaves.
+    #[test]
+    fn a_new_field_of_view_set_while_open_is_kept() {
+        let mut app = camera_app(gameplay());
+        frames(&mut app, 2);
+        open(&mut app);
+        photo_zoom(&mut app, 30.0);
+        frames(&mut app, 3);
+        let wider = crate::free_cam::vertical_fov(120.0);
+        set_fov(&mut app, wider);
+        frames(&mut app, 3);
+        close(&mut app);
+        frames(&mut app, 2);
+        assert_eq!(fov(&mut app), wider);
+    }
 
     #[test]
     fn the_sliders_start_at_their_defaults_and_reset_there() {

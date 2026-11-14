@@ -7273,6 +7273,7 @@ expect = [
   { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
   { text = "photo mode: notice: Photo saved", label = "photo mode's own notice says Photo saved (the corner messages wait while it is open)" },
   "photo mode: closed, the view is back on the player",
+  { re = 'photo mode: the field of view is back at vertical 59\.8°', label = "the close gives back the gameplay field of view (75, vertical 59.8°), not the Zoom slider's 50 (#202)" },
   "menu pause: the picture runs again",
 ]
 
