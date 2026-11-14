@@ -209,6 +209,10 @@ the spec it links to.
     corner message now says "Map marker added", for everyone (our words; the original's
     pop-up is only known from a mod's readme). The Tweaks tab's Map Marker Added Names
     the Place adds the name. (`engine/nvf-play/src/marker_added.rs`)
+59. **Hardcore need messages (#1891).** In Hardcore, a dehydration or sleep stage changing
+    now shows the masters' own line ("Your dehydration level has increased." and the
+    rest), for everyone; which change says which is our reading (observer check 112). The
+    Tweaks tab can turn each off. (`crates/fnv-game/src/needs.rs`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

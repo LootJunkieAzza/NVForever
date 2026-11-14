@@ -272,13 +272,59 @@ impl Game<'_> {
                 }
             }
             self.emit(EventKind::NeedStage { actor: p, value: code, level: value, stage: want.map(|s| s.stage), spell: want.map(|s| s.spell) });
+            // The masters' words for a dehydration or sleep stage changing, in the corner
+            // [observed: FalloutNV.esm sDehydrationIncrease / Decrease / NotSick,
+            // sSleepDeprevationIncrease / Decrease / NotSick; hypothesis: which change says
+            // which, and that hunger and radiation say nothing (no such settings); observer
+            // check 112]. The player's Disable Needs Messages tweak keeps them off
+            // [design: docs/design/tweaks.md].
+            let pos = |s: Option<FormId>| s.and_then(|s| stages.iter().position(|x| x.stage == s));
+            let change = need_change(pos(held), pos(want.map(|s| s.stage)));
+            let prefix = match code {
+                DEHYDRATION if !self.tweaks.no_dehydration_messages => Some("sDehydration"),
+                SLEEP_DEPRIVATION if !self.tweaks.no_sleep_messages => Some("sSleepDeprevation"),
+                _ => None,
+            };
+            if let (Some(prefix), Some(change)) = (prefix, change) {
+                let name = format!("{prefix}{change}");
+                if let Some(fnv_sim::settings::Setting::Str(text)) = self.world.setting_value(&name).cloned() {
+                    if !text.trim().is_empty() {
+                        self.emit(EventKind::NoteShown { text, icon: None, seconds: NEED_NOTE_SECONDS });
+                    }
+                }
+            }
         }
+    }
+}
+
+/// How long a need's message shows, seconds [design].
+const NEED_NOTE_SECONDS: f32 = 3.0;
+
+/// The setting's last word for a need's stage moving from place `from` to `to` among its
+/// stages (`None`: no stage): `Increase` going up, `Decrease` going down to another stage,
+/// `NotSick` leaving the last; nothing when it stays [hypothesis, observer check 112].
+pub fn need_change(from: Option<usize>, to: Option<usize>) -> Option<&'static str> {
+    match (from, to) {
+        (None, Some(_)) => Some("Increase"),
+        (Some(a), Some(b)) if b > a => Some("Increase"),
+        (Some(a), Some(b)) if b < a => Some("Decrease"),
+        (Some(_), None) => Some("NotSick"),
+        _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stage_change_picks_its_message() {
+        assert_eq!(need_change(None, Some(0)), Some("Increase"));
+        assert_eq!(need_change(Some(0), Some(2)), Some("Increase"));
+        assert_eq!(need_change(Some(2), Some(1)), Some("Decrease"));
+        assert_eq!(need_change(Some(1), None), Some("NotSick"));
+        assert_eq!(need_change(Some(1), Some(1)), None);
+    }
 
     #[test]
     fn the_masters_rates_make_dehydration_fastest_and_sleep_slowest() {

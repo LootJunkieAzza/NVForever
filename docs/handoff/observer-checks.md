@@ -1573,3 +1573,9 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     speaks of "equipped ammos" in containers]. With a 10mm pistol in hand, open the
     Pip-Boy's AMMO list: does 10mm Round have the filled square, and does it move to JHP
     after switching ammo?
+112. **Which need messages show when?** (P3; `fnv_game::needs`.) FalloutNV.esm holds
+    sDehydrationIncrease / Decrease / NotSick and the same three for Sleep Deprivation
+    [observed]. NVForever shows Increase when the stage goes up (from none too), Decrease
+    when it goes down to another stage, NotSick when it leaves the last [hypothesis]; hunger
+    and radiation say nothing (no such settings). In Hardcore, let dehydration rise past a
+    stage and drink back down: which lines show, and is there one for hunger or rads?

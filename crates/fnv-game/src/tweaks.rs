@@ -439,6 +439,10 @@ pub struct Tweaks {
     pub quiet_followers: bool,
     /// `bCriticalHitMessagesIncludeLimbName`: the critical-hit message names the part struck.
     pub crit_message_limb: bool,
+    /// `bDisableNeedsMessages` (`bDehydration`, `bSleep`): no corner message when the
+    /// dehydration or sleep stage changes.
+    pub no_dehydration_messages: bool,
+    pub no_sleep_messages: bool,
     /// `bRobotCompanionsHealWithScrapMetal` (`fBase`, `fRepairMult`,
     /// `fRoboticsExpertBonus`): the companion wheel heals a robot with Scrap Metal, this
     /// much health each, plus this much per 10 points of Repair and this with Robotics Expert.
@@ -909,6 +913,8 @@ impl Default for Tweaks {
             vats_throw_visibility: false,
             quiet_followers: false,
             crit_message_limb: false,
+            no_dehydration_messages: false,
+            no_sleep_messages: false,
             robots_heal_with_scrap: false,
             robot_heal_base: 20.0,
             robot_heal_per_repair: 5.0,

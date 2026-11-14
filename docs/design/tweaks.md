@@ -637,6 +637,7 @@ unless the player binds them, so nothing changes until then.
 | Loaded ammo marked, Containers Show Equipped Ammo | `bContainersShowEquippedAmmo` | `MenuModel::current_ammo` (set by `tweaks::sync` from `Combat::player_ammo`) marks `Row::loaded`, drawn as the equipped square (`pipboy::items`, `menu::look`). The switch: `TweakSettings::containers_show_ammo` |
 | Critical-hit message, Name the Limb | `bCriticalHitMessagesIncludeLimbName` | base: `combat::hit_actor` emits a `NoteShown` with the `sCriticalStrikeIcon` icon for the player's critical; the switch `Tweaks::crit_message_limb` adds `limb_name` of the part |
 | Map marker added, Names the Place | `bDescriptiveMarkerAddedMessage` | base: `marker_added::watch` notes markers joining `PlayerState::map_markers` while played; the switch `TweakSettings::descriptive_marker_added` adds the name from `pipboy::data::read::markers` |
+| Hardcore need messages, Disable Needs Messages | `bDisableNeedsMessages` | base: `Game::update_need_stages` shows the masters' sDehydration/sSleepDeprevation Increase, Decrease or NotSick (`needs::need_change`); the switches `Tweaks::no_dehydration_messages`, `no_sleep_messages` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -658,10 +659,10 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 573 |
+| done | 574 |
 | to do | 22 |
 | unsure, skipped | 22 |
-| n/a | 18 |
+| n/a | 17 |
 | skipped: fix | 10 |
 
 ### Gameplay
@@ -1005,6 +1006,7 @@ game's Data folder, read-only).
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
 | `bDisableGrenadeIndicator` | done |  |  | Hide Grenade Indicator: NVForever now draws the base grenade indicator (`grenade_indicator`); the switch draws none |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
+| `bDisableNeedsMessages` | done |  | 4 | No Dehydration Messages, No Sleep Deprivation Messages (its bDehydration, bSleep): NVForever now shows the masters' sDehydration*/sSleepDeprevation* lines when those stages change in Hardcore (`needs`, owner-review 59, observer check 112); the switches keep them off. Hunger and radiation have no such settings in the masters, so their options have nothing to turn off |
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
 | `bExplodingDestructibleIndicator` | done |  |  | Mark Objects About to Explode: objects burning toward a destruction stage with an explosion get a mark, by the same reach |
 | `bHideAmmoLabel` | done |  | 1 | No Ammo Counter (the total-remaining option not built) |
@@ -1052,7 +1054,6 @@ game's Data folder, read-only).
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
-| `bDisableNeedsMessages` | n/a |  | 4 | NVForever shows no message when a need or radiation stage changes (`aid.rs` only logs it), and the masters hold no such MESG records [observed: FalloutNV.esm editor IDs]: nothing to turn off. Revisit if those messages are added |
 
 ### Menus
 
@@ -1179,8 +1180,8 @@ game's Data folder, read-only).
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
-| `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
+| `bCustomPopupIcons` | to do |  | 17 | per-kind icons for the need messages (built for dehydration and sleep, owner-review 59) need a picture chosen for each; the archives hold no Hardcore need icons, and the Tweaks tab has no picture list yet |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bCustomHackingAnswerLength` | unsure, skipped |  | 8 | the readme gives no defaults and does not say how its options change the attempts or the words; built from it, every figure would be a guess |
