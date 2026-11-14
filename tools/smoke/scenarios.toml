@@ -27838,3 +27838,18 @@ order = [[
 expect = [
   { re = 'far script summary: (?P<n>\d+) GameMode runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
 ]
+
+[[scenario]]
+name = "house-screen-never-hostile"
+source = "issue #2431 (crates/fnv-game/src/awareness.rs Game::is_fixture): Mr. House's screens and his chamber never fight. Here the after-death state the scripts leave (SetEnemy Lucky38Faction PlayerFaction, from the elevator Victor's OnHit/OnDeath and the penthouse Victor's death) and a StartCombat on the screen against the player, the player shooting at it meanwhile"
+note = "Lucky38MrHouseREF 0x001264C5 in the penthouse, the player 450 units in front of his screen (as dialogue-zoom-house) at 5 s, facing it at 7 s; SetEnemy at 8 s, StartCombat at 9 s; the screen never enters combat (detection's state lines), the elevator Victor beside it is not a fixture"
+areas = ["combat", "detection", "creatures"]
+paths = ["crates/fnv-game/src/awareness.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "5:-1357:5653:19100", NVF_PLAY_TEST_LOOK = "7:135:15", NVF_PLAY_TEST_SCRIPT = "8:call:-:SetEnemy:Lucky38Faction:PlayerFaction,9:combat:Lucky38MrHouseREF:player" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'test aid: script .*Combat', label = "the StartCombat aid runs" },
+  { re = 'MrHouse 001264C5 \S+ → Combat', count = 0, label = "the screen never enters combat (it did when made an enemy before the fix)" },
+  { re = 'ai: \S*Lucky38MrHouseREF never turns', label = "and never turns" },
+]

@@ -85,6 +85,8 @@ fn the_masters_fixtures_never_fight() {
         g.call_function(&ctx, &[ArgValue::Value(Value::Ref(f.0)), ArgValue::Value(Value::Ref(player_faction.0))]);
     }
     for fixture in [screen, chamber] {
+        // The player's crimes against it (House murdered before its eyes) too.
+        g.player.crime_enemies.insert(fixture);
         g.start_combat(fixture, FormId::PLAYER_REF);
         g.settle_awareness();
         assert!(!g.would_attack(fixture, FormId::PLAYER_REF), "{fixture} is not hostile");

@@ -2147,3 +2147,13 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      which of INFO 0015B6D1-0015B6D4 are said, by whom, and when the inner door
      HVOuterLockedDoor opens; or watch Jason Bright's speech at REPCONN (are parts 5-9,
      INFO 000CD8A9 and after, said after part 4, 0008D401?).
+
+## Added 2026-11-14 (Mr. House's screens after his death, #2431)
+
+139. **Is Mr. House's penthouse screen ever hostile?** (P3; #2431, actor-flags.md §11.)
+     Ours: an Immobile, Unaggressive, Helps-Nobody, unarmed creature never fights
+     [hypothesis]. To check: kill Mr. House in his chamber (after the terminal unseals
+     it), go back up to the penthouse and look at the screen (Lucky38MrHouseREF
+     0x001264C5): red crosshair, red compass tick, does `GetCombatTarget` on it read the
+     player, does it turn? Then shoot it: does it take damage? The same for Festus
+     (NVCRFestus) when shot.
