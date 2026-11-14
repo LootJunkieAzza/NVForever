@@ -69,3 +69,24 @@ installed APK on representative hardware: import a lawful install, start/new gam
 look, activate, dialogue and menu navigation, save/load/return to menu, audio, background
 and resume, restart/process death, a malformed import, and sustained memory/thermal behavior.
 Physical-device qualification is pending.
+
+## Touch layout revision after initial device testing
+
+[observed: user test, 2026-11-13] The first device build reached the opening interior.
+The user found the invisible movement area unclear and the text-only action grid crowded.
+Leaving the interior exposed a Rapier arrival-query panic; that is under separate physics
+regression work, not evidence of a GPU or memory failure.
+
+[documented] Activision's [mobile control guide](https://blog.activision.com/au/en/call-of-duty/2019-10/Getting-a-Grip-on-the-Call-of-Duty-Mobile-Controls) describes a virtual stick and an editor for position, size and opacity.
+PUBG's [control guide](https://pubgmobile.helpshift.com/hc/en/3-pubg-mobile/faq/37-what-are-the-controls/?l=en) describes left-side movement, free-area look and icon actions. These inform common interaction conventions; no artwork or implementation is copied.
+
+[design] The revised overlay draws its own geometric action icons at runtime, shows a
+movement base and thumb position, and lights held buttons. Help explains the two thumb
+areas and toggles action names. The cog opens a layout editor, releases held gameplay
+inputs and requests the ordinary pause menu. Drag selects/repositions a control; explicit
+buttons resize it, adjust opacity, show/hide secondary actions, mirror hands, choose a
+fixed/floating stick, edit menu controls, reset, save or cancel. The save is versioned
+JSON in the engine's own home; write guards and atomic rename protect its previous copy.
+Cancelling restores the original layout. Visual bounds and hit testing share geometry;
+action targets retain a minimum 48 logical-pixel diameter on a phone. Menu navigation
+remains separate from gameplay actions. Editing stays paused until the player resumes.

@@ -11,10 +11,16 @@ use bevy::window::{AppLifecycle, PrimaryWindow, WindowFocused};
 use nvf_play::bindings::{Bindings, Control};
 use std::collections::{HashMap, HashSet};
 
+mod icons;
+mod layout;
+use layout::{Layout, Target};
+
 pub struct TouchControlsPlugin;
 impl Plugin for TouchControlsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TouchState>()
+            .init_resource::<Layout>()
+            .init_resource::<Assets<Image>>()
             .add_systems(
                 PreUpdate,
                 (capture_physical, input).chain().before(InputSystems),
@@ -25,7 +31,7 @@ impl Plugin for TouchControlsPlugin {
                     .after(InputSystems)
                     .before(bevy::ui::UiSystems::Focus),
             )
-            .add_systems(Startup, labels)
+            .add_systems(Startup, (layout::load, labels).chain())
             .add_systems(Update, show_labels);
     }
 }
@@ -49,6 +55,7 @@ struct TouchState {
     playing: bool,
     suspended: bool,
     saved_volume: Option<f32>,
+    move_deadzone: Vec2,
     physical_keys: HashSet<KeyCode>,
     physical_mouse: HashSet<MouseButton>,
     managed_keys: HashSet<KeyCode>,
@@ -211,12 +218,6 @@ const BUTTONS: &[ButtonSpec] = &[
         playing: false,
     },
 ];
-fn button_at(p: Vec2, playing: bool) -> Option<usize> {
-    BUTTONS.iter().position(|b| {
-        b.playing == playing && p.x >= b.x && p.x < b.x + 0.11 && p.y >= b.y && p.y < b.y + 0.12
-    })
-}
-
 /// Record only real hardware events, before Bevy consumes them. Touch never injects
 /// fake release messages into this stream; raw typing and rebinding stay physical.
 fn capture_physical(
@@ -325,16 +326,16 @@ fn sync_touch(state: &mut TouchState, bindings: Option<&Bindings>, pause: bool) 
         match c.role {
             Role::Move if state.playing => {
                 let d = c.position - c.origin;
-                if d.x > 0.025 {
+                if d.x > state.move_deadzone.x {
                     controls.push(Control::SlideRight);
                 }
-                if d.x < -0.025 {
+                if d.x < -state.move_deadzone.x {
                     controls.push(Control::SlideLeft);
                 }
-                if d.y > 0.04 {
+                if d.y > state.move_deadzone.y {
                     controls.push(Control::Back);
                 }
-                if d.y < -0.04 {
+                if d.y < -state.move_deadzone.y {
                     controls.push(Control::Forward);
                 }
             }
@@ -386,6 +387,7 @@ fn sync_touch(state: &mut TouchState, bindings: Option<&Bindings>, pause: bool) 
 #[allow(clippy::too_many_arguments)]
 fn input(
     mut state: ResMut<TouchState>,
+    mut layout: ResMut<Layout>,
     mut touches: MessageReader<TouchInput>,
     mut lifecycle: MessageReader<AppLifecycle>,
     mut focus: MessageReader<WindowFocused>,
@@ -439,31 +441,61 @@ fn input(
     if lost_focus {
         clear_physical(&mut state);
     }
-    let pause = just_suspended && playing;
+    state.move_deadzone = Vec2::splat(layout.config.diameter(Target::Stick, size) * 0.09) / size;
+    let mut pause = just_suspended && playing;
     sync_touch(&mut state, bindings.as_deref(), pause);
     for t in touches.read() {
         if t.window != window_id {
             continue;
         }
         let p = t.position / size;
+        if layout.editor.is_some() {
+            layout.event(t, size);
+            state.contacts.clear();
+            sync_touch(&mut state, bindings.as_deref(), pause);
+            continue;
+        }
+        if t.phase == TouchPhase::Started && !suspended {
+            if layout::utility_rect(false, size).contains(t.position) {
+                layout.open(playing);
+                state.contacts.clear();
+                pause |= playing;
+                sync_touch(&mut state, bindings.as_deref(), pause);
+                continue;
+            }
+            if layout::utility_rect(true, size).contains(t.position) {
+                layout.config.hints = !layout.config.hints;
+                continue;
+            }
+        }
         match t.phase {
             TouchPhase::Started if !suspended => {
-                let role = button_at(p, playing).map(Role::Button).or({
-                    if !playing {
-                        None
-                    } else if p.x < 0.45 && p.y > 0.5 {
+                let role = match layout.config.hit(t.position, size, playing, false) {
+                    Some(Target::Button(i)) => Some(Role::Button(i)),
+                    Some(Target::Stick) => Some(Role::Move),
+                    None if playing && layout.config.floating && layout.config.movement_area(p) => {
                         Some(Role::Move)
-                    } else if p.x > 0.45 {
-                        Some(Role::Look)
-                    } else {
-                        None
                     }
+                    None if playing && layout.config.look_area(p) => Some(Role::Look),
+                    _ => None,
+                };
+                let role = role.filter(|role| {
+                    !state.contacts.values().any(|c| {
+                        matches!(
+                            (role, c.role),
+                            (Role::Move, Role::Move) | (Role::Look, Role::Look)
+                        )
+                    })
                 });
                 if let Some(role) = role {
                     state.contacts.insert(
                         t.id,
                         Contact {
-                            origin: p,
+                            origin: if matches!(role, Role::Move) && !layout.config.floating {
+                                layout.config.center(Target::Stick, size) / size
+                            } else {
+                                p
+                            },
                             position: p,
                             role,
                         },
@@ -490,58 +522,341 @@ fn input(
     sync_touch(&mut state, bindings.as_deref(), pause);
 }
 
-#[derive(Component)]
-struct TouchLabel(bool);
-fn labels(mut commands: Commands) {
-    for b in BUTTONS {
+#[derive(Component, Clone, Copy)]
+enum TouchVisual {
+    Button(usize),
+    Caption,
+    Glyph,
+    Stick,
+    Knob,
+    Gear,
+    Help,
+    Instructions,
+    EditorPanel,
+    EditorAction(usize),
+    EditorMessage,
+}
+fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    for (i, b) in BUTTONS.iter().enumerate() {
+        let image = images.add(icons::image(i));
         commands
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
-                    left: percent(b.x * 100.0),
-                    top: percent(b.y * 100.0),
-                    width: percent(11.0),
-                    height: percent(12.0),
+                    border: UiRect::all(px(1.5)),
+                    border_radius: BorderRadius::MAX,
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.02, 0.08, 0.04, 0.65)),
-                GlobalZIndex(1000),
-                TouchLabel(b.playing),
+                BackgroundColor(Color::srgba(0.02, 0.06, 0.07, 0.7)),
+                BorderColor::all(Color::srgba(0.7, 0.9, 0.85, 0.7)),
+                GlobalZIndex(2000),
+                TouchVisual::Button(i),
             ))
-            .with_child((
-                Text::new(b.text),
-                TextFont {
-                    font_size: FontSize::Px(18.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.7, 1.0, 0.7)),
-            ));
+            .with_children(|p| {
+                p.spawn((
+                    ImageNode::new(image),
+                    TouchVisual::Glyph,
+                    Node {
+                        width: percent(66.0),
+                        height: percent(66.0),
+                        ..default()
+                    },
+                    Pickable::IGNORE,
+                ));
+                p.spawn((
+                    Text::new(b.text),
+                    TextFont {
+                        font_size: FontSize::Px(12.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: percent(102.0),
+                        ..default()
+                    },
+                    TouchVisual::Caption,
+                    Pickable::IGNORE,
+                ));
+            });
     }
+    for visual in [TouchVisual::Stick, TouchVisual::Knob] {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                border: UiRect::all(px(2.0)),
+                border_radius: BorderRadius::MAX,
+                ..default()
+            },
+            BorderColor::all(Color::srgba(0.7, 0.9, 0.85, 0.8)),
+            BackgroundColor(Color::srgba(0.04, 0.1, 0.1, 0.35)),
+            GlobalZIndex(2000),
+            visual,
+            Pickable::IGNORE,
+        ));
+    }
+    for (visual, index) in [(TouchVisual::Gear, 18), (TouchVisual::Help, 19)] {
+        commands.spawn((
+            ImageNode::new(images.add(icons::image(index))),
+            Node {
+                position_type: PositionType::Absolute,
+                border_radius: BorderRadius::MAX,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.06, 0.07, 0.7)),
+            GlobalZIndex(2100),
+            visual,
+        ));
+    }
+    commands.spawn((Text::new("Left thumb: drag the stick to move. Right thumb: swipe empty space to look.\nHold an icon to act. ? toggles labels. The cog edits your controls."),
+        TextFont {font_size:FontSize::Px(14.0),..default()},TextColor(Color::WHITE),
+        Node {position_type:PositionType::Absolute,left:percent(25.0),top:percent(18.0),width:percent(50.0),padding:UiRect::all(px(8.0)),..default()},
+        BackgroundColor(Color::srgba(0.01,0.02,0.03,0.8)),GlobalZIndex(2100),TouchVisual::Instructions));
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            left: percent(4.0),
-            bottom: percent(8.0),
             ..default()
         },
-        GlobalZIndex(1000),
-        TouchLabel(true),
-        Text::new("Drag to move"),
+        BackgroundColor(Color::srgba(0.01, 0.02, 0.03, 0.94)),
+        GlobalZIndex(2900),
+        TouchVisual::EditorPanel,
+    ));
+    for (i, label) in layout::EDIT_ACTIONS.iter().enumerate() {
+        commands.spawn((
+            Text::new(*label),
+            TextFont {
+                font_size: FontSize::Px(14.0),
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                padding: UiRect::all(px(8.0)),
+                border: UiRect::all(px(1.0)),
+                ..default()
+            },
+            BorderColor::all(Color::srgba(0.7, 0.9, 0.85, 0.6)),
+            BackgroundColor(Color::srgba(0.1, 0.18, 0.2, 1.0)),
+            GlobalZIndex(3000),
+            TouchVisual::EditorAction(i),
+        ));
+    }
+    commands.spawn((
+        Text::new(""),
         TextFont {
-            font_size: FontSize::Px(18.0),
+            font_size: FontSize::Px(14.0),
             ..default()
         },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            left: percent(31.0),
+            top: percent(2.0),
+            width: percent(32.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.01, 0.02, 0.03, 0.94)),
+        GlobalZIndex(3100),
+        TouchVisual::EditorMessage,
     ));
 }
-fn show_labels(state: Res<TouchState>, mut labels: Query<(&TouchLabel, &mut Visibility)>) {
-    for (label, mut visibility) in &mut labels {
-        *visibility = if label.0 == state.playing {
-            Visibility::Visible
+#[allow(clippy::type_complexity)]
+fn show_labels(
+    state: Res<TouchState>,
+    layout: Res<Layout>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut visuals: Query<(
+        &TouchVisual,
+        &mut Node,
+        &mut Visibility,
+        Option<&mut BackgroundColor>,
+        Option<&mut Text>,
+        Option<&mut ImageNode>,
+        Option<&mut BorderColor>,
+        Option<&mut TextColor>,
+    )>,
+) {
+    let Ok(window) = window.single() else { return };
+    let size = Vec2::new(window.width().max(32.0), window.height().max(32.0));
+    let editing = layout.editor.is_some();
+    let playing = layout.editor.as_ref().map_or(state.playing, |e| e.playing);
+    let movement = state
+        .contacts
+        .values()
+        .find(|c| matches!(c.role, Role::Move));
+    let stick_center = movement.map_or_else(
+        || layout.config.center(Target::Stick, size),
+        |c| c.origin * size,
+    );
+    let stick_diameter = layout.config.diameter(Target::Stick, size);
+    for (visual, mut node, mut visibility, mut background, text, image, border, text_color) in
+        &mut visuals
+    {
+        let mut rect = None;
+        let visible = match *visual {
+            TouchVisual::Button(i) => {
+                let target = Target::Button(i);
+                let d = layout.config.diameter(target, size);
+                rect = Some(Rect::from_center_size(
+                    layout.config.center(target, size),
+                    Vec2::splat(d),
+                ));
+                let pressed = state
+                    .contacts
+                    .values()
+                    .any(|c| matches!(c.role,Role::Button(j) if j==i));
+                let selected = layout.editor.as_ref().is_some_and(|e| e.selected == target);
+                if let Some(bg) = background.as_deref_mut() {
+                    bg.0 = if pressed || selected {
+                        Color::srgba(0.18, 0.55, 0.43, 0.9)
+                    } else {
+                        Color::srgba(
+                            0.02,
+                            0.06,
+                            0.07,
+                            if layout.config.buttons[i].visible {
+                                layout.config.opacity
+                            } else {
+                                0.2
+                            },
+                        )
+                    };
+                }
+                BUTTONS[i].playing == playing && (editing || layout.config.buttons[i].visible)
+            }
+            TouchVisual::Caption => editing || layout.config.hints,
+            TouchVisual::Glyph => true,
+            TouchVisual::Stick => {
+                rect = Some(Rect::from_center_size(
+                    stick_center,
+                    Vec2::splat(stick_diameter),
+                ));
+                playing
+            }
+            TouchVisual::Knob => {
+                let offset = movement.map_or(Vec2::ZERO, |c| {
+                    ((c.position - c.origin) * size).clamp_length_max(stick_diameter * 0.32)
+                });
+                rect = Some(Rect::from_center_size(
+                    stick_center + offset,
+                    Vec2::splat(stick_diameter * 0.35),
+                ));
+                playing
+            }
+            TouchVisual::Gear | TouchVisual::Help => {
+                rect = Some(layout::utility_rect(
+                    matches!(visual, TouchVisual::Help),
+                    size,
+                ));
+                !editing
+            }
+            TouchVisual::Instructions => {
+                if let Some(mut text) = text {
+                    text.0=format!("{} thumb: drag the stick to move. {} thumb: swipe empty space to look.\nHold an icon to act. ? toggles labels. The cog edits your controls.",if layout.config.stick.center.x > 0.5 {"Right"} else {"Left"},if layout.config.stick.center.x > 0.5 {"Left"} else {"Right"});
+                }
+                !editing && layout.config.hints
+            }
+            TouchVisual::EditorPanel => {
+                let first = layout::editor_rect(0, size);
+                let last = layout::editor_rect(11, size);
+                rect = Some(Rect::from_corners(
+                    first.min - Vec2::splat(4.0),
+                    last.max + Vec2::splat(4.0),
+                ));
+                editing
+            }
+            TouchVisual::EditorAction(i) => {
+                rect = Some(layout::editor_rect(i, size));
+                if let Some(mut text) = text {
+                    text.0 = match i {
+                        2 => format!("Opacity {:.0}%", layout.config.opacity * 100.0),
+                        3 => if layout.config.southpaw {
+                            "Left handed"
+                        } else {
+                            "Right handed"
+                        }
+                        .into(),
+                        4 => if layout.config.floating {
+                            "Floating stick"
+                        } else {
+                            "Fixed stick"
+                        }
+                        .into(),
+                        5 => if playing { "Edit menus" } else { "Edit game" }.into(),
+                        _ => layout::EDIT_ACTIONS[i].into(),
+                    };
+                }
+                editing
+            }
+            TouchVisual::EditorMessage => {
+                if let Some(mut text) = text {
+                    text.0 = layout.editor.as_ref().map_or_else(
+                        || layout.message.clone(),
+                        |e| {
+                            format!(
+                                "{} · {}\n{}",
+                                e.selected.name(),
+                                if playing {
+                                    "Game controls"
+                                } else {
+                                    "Menu controls"
+                                },
+                                layout.message
+                            )
+                        },
+                    );
+                }
+                editing
+            }
+        };
+        // Opacity belongs to the entire control, not just its dark backing.
+        if matches!(
+            visual,
+            TouchVisual::Button(_)
+                | TouchVisual::Caption
+                | TouchVisual::Glyph
+                | TouchVisual::Stick
+                | TouchVisual::Knob
+        ) {
+            let alpha = layout.config.opacity;
+            if let Some(mut image) = image {
+                image.color = Color::WHITE.with_alpha(alpha);
+            }
+            if let Some(mut border) = border {
+                *border = BorderColor::all(Color::srgb(0.7, 0.9, 0.85).with_alpha(alpha));
+            }
+            if let Some(mut color) = text_color {
+                color.0 = Color::WHITE.with_alpha(alpha);
+            }
+            if matches!(visual, TouchVisual::Stick | TouchVisual::Knob) {
+                if let Some(bg) = background.as_deref_mut() {
+                    bg.0 = Color::srgba(
+                        0.04,
+                        0.1,
+                        0.1,
+                        alpha
+                            * if matches!(visual, TouchVisual::Knob) {
+                                0.8
+                            } else {
+                                0.35
+                            },
+                    );
+                }
+            }
+        }
+        *visibility = if visible {
+            Visibility::Inherited
         } else {
             Visibility::Hidden
         };
+        if let Some(rect) = rect {
+            node.left = px(rect.min.x);
+            node.top = px(rect.min.y);
+            node.width = px(rect.width());
+            node.height = px(rect.height());
+        }
     }
 }
 
@@ -580,6 +895,158 @@ mod tests {
             force: None,
             id,
         });
+    }
+    #[test]
+    fn editing_releases_attack_pauses_and_cancel_restores_dragged_layout() {
+        let (mut app, w) = scene();
+        touch(&mut app, w, 1, TouchPhase::Started, 920.0, 900.0);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left));
+        touch(&mut app, w, 2, TouchPhase::Started, 500.0, 75.0);
+        app.update();
+        assert!(app.world().resource::<Layout>().editor.is_some());
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left));
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_pressed(KeyCode::Escape));
+        let original = app.world().resource::<Layout>().config.clone();
+        touch(&mut app, w, 3, TouchPhase::Started, 180.0, 760.0);
+        app.update();
+        touch(&mut app, w, 3, TouchPhase::Moved, 240.0, 820.0);
+        app.update();
+        assert_ne!(
+            app.world().resource::<Layout>().config.stick.center,
+            original.stick.center
+        );
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyS));
+        touch(&mut app, w, 3, TouchPhase::Ended, 240.0, 820.0);
+        let cancel = layout::editor_rect(10, Vec2::splat(1000.0)).center();
+        touch(&mut app, w, 4, TouchPhase::Started, cancel.x, cancel.y);
+        app.update();
+        let layout = app.world().resource::<Layout>();
+        assert!(layout.editor.is_none());
+        assert_eq!(layout.config, original);
+    }
+    #[test]
+    fn a_second_finger_changing_editor_mode_cancels_the_first_drag() {
+        let (mut app, w) = scene();
+        touch(&mut app, w, 1, TouchPhase::Started, 500.0, 75.0);
+        app.update();
+        let size = Vec2::splat(1000.0);
+        let fire = app
+            .world()
+            .resource::<Layout>()
+            .config
+            .center(Target::Button(7), size);
+        touch(&mut app, w, 2, TouchPhase::Started, fire.x, fire.y);
+        app.update();
+        let before = app.world().resource::<Layout>().config.stick.clone();
+        let mode = layout::editor_rect(5, size).center();
+        touch(&mut app, w, 3, TouchPhase::Started, mode.x, mode.y);
+        app.update();
+        touch(&mut app, w, 2, TouchPhase::Moved, 600.0, 700.0);
+        app.update();
+        assert_eq!(app.world().resource::<Layout>().config.stick, before);
+    }
+    #[test]
+    fn opacity_applies_to_icons_borders_and_labels_not_only_backing() {
+        let (mut app, _) = scene();
+        app.world_mut().resource_mut::<Layout>().config.opacity = 0.35;
+        app.update();
+        let world = app.world_mut();
+        let mut q = world.query::<(
+            &TouchVisual,
+            Option<&ImageNode>,
+            Option<&BorderColor>,
+            Option<&TextColor>,
+        )>();
+        let mut icons = 0;
+        for (visual, image, border, text) in q.iter(world) {
+            if matches!(visual, TouchVisual::Glyph) {
+                assert!((image.unwrap().color.to_srgba().alpha - 0.35).abs() < 0.001);
+                icons += 1;
+            }
+            if matches!(visual, TouchVisual::Button(_)) {
+                assert!((border.unwrap().top.to_srgba().alpha - 0.35).abs() < 0.001);
+            }
+            if matches!(visual, TouchVisual::Caption) {
+                assert!((text.unwrap().0.to_srgba().alpha - 0.35).abs() < 0.001);
+            }
+        }
+        assert_eq!(icons, BUTTONS.len());
+    }
+    #[test]
+    fn a_repositioned_floating_stick_still_moves_at_its_visible_anchor() {
+        let (mut app, w) = scene();
+        app.world_mut().resource_mut::<Layout>().config.stick.center = Vec2::new(0.60, 0.76);
+        touch(&mut app, w, 1, TouchPhase::Started, 600.0, 760.0);
+        app.update();
+        touch(&mut app, w, 1, TouchPhase::Moved, 600.0, 660.0);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW));
+        assert_eq!(
+            app.world().resource::<AccumulatedMouseMotion>().delta,
+            Vec2::ZERO
+        );
+    }
+    #[test]
+    fn southpaw_fixed_stick_uses_its_visible_center_and_releases_on_lift() {
+        let (mut app, w) = scene();
+        {
+            let mut l = app.world_mut().resource_mut::<Layout>();
+            l.config = layout::Config::preset(true);
+            l.config.floating = false;
+        }
+        let center = app
+            .world()
+            .resource::<Layout>()
+            .config
+            .center(Target::Stick, Vec2::splat(1000.0));
+        touch(&mut app, w, 1, TouchPhase::Started, center.x, center.y);
+        app.update();
+        assert!(!app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW));
+        touch(
+            &mut app,
+            w,
+            1,
+            TouchPhase::Moved,
+            center.x,
+            center.y - 100.0,
+        );
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW));
+        touch(
+            &mut app,
+            w,
+            1,
+            TouchPhase::Ended,
+            center.x,
+            center.y - 100.0,
+        );
+        app.update();
+        assert!(app
+            .world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_released(KeyCode::KeyW));
     }
     #[test]
     fn touch_move_look_and_fire_work_together_then_cancel_releases() {

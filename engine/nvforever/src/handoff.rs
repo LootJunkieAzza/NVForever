@@ -334,7 +334,6 @@ pub fn leave(
                     Ok(()) => { *h = Leaving::HandedOver; }
                     Err(error) => { warn!("load: {error}; staying"); uncover.write(Uncover); }
                 }
-                return;
             }
             #[cfg(not(target_os = "android"))]
             let started = std::env::current_exe()

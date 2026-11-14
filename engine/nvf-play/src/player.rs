@@ -494,14 +494,16 @@ fn grab_cursor(
     }
     let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
-    let mode = match (grab, cfg!(target_os = "windows")) {
+    // NativeActivity has no desktop pointer-lock API. Touch supplies look deltas
+    // directly; repeatedly requesting a lock makes winit retry/log every frame.
+    let mode = match (grab && !cfg!(target_os = "android"), cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
         (true, true) => CursorGrabMode::Confined,
         (true, false) => CursorGrabMode::Locked,
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
+    let visible = cfg!(target_os = "android") || (!grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0));
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
@@ -759,7 +761,8 @@ pub(crate) fn mouse_look(
     ),
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    // Android touch-look is available without an unsupported OS cursor lock.
+    let grabbed = cfg!(target_os = "android") || cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
     // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
