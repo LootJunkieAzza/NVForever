@@ -436,6 +436,13 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+63. **Harmless hits run the target's hit scripts (#2433).** A Use Weapon package's or
+    UseWeapon's Do No Damage shot or blow now runs the target's OnHit and OnHitWith blocks,
+    and still deals no damage. G.I. Blues' ambush needs this: the thugs fall in their OnHit
+    block for Orris, and without it he fired once and stood for good. The other harmless
+    Use Weapon packages' targets now run their hit scripts too. Observer check 134 asks
+    whether the original does. His aim pose (the issue's "does not aim") was not changed.
+    ([use-weapon §3](spec-notes/use-weapon.md))
 62. **Freeside's missing residents (#2432, #2434) taken as fixed by #2239; please
     retest on a build from 2026-11-13 or later.** Both reproduce in the engine only with
     #2239's reset of the handed-over grid squares on a change of worldspace taken out
