@@ -1275,6 +1275,12 @@ const STAND_AFTER: f32 = 0.3;
 /// there [design].
 const SEAT_NEAR: f32 = 4.0;
 
+/// How long (seconds after the result) the darts opponent's reaction waits for it to reach
+/// its end-view seat [design]. Longer than [`BODY_WAIT`]: from wherever it stood at the
+/// result the walk took about 7 s in the Prospector (laptop run of 4542c6452, 2026-11-14:
+/// the 4 s wait ran out mid-walk and only the defeat's tail showed at the seat).
+const SEAT_WAIT: f32 = 15.0;
+
 /// Whether the darts opponent is where its reaction may play: not walking, the end view's
 /// row placed (`stood`), and, when the row gave it a seat, at that seat. Without a seat
 /// (a row too narrow for two) it reacts where it stands.
@@ -1341,9 +1347,15 @@ fn react(
                 // standing clip popped it upright and slid it (the arm-wrestling Settler,
                 // armwrestle-c's desktop run 2026-11-12).
                 let seated = rigs.iter().any(|(_, g, _, on)| g.reference == r && on);
-                if (walking || seated) && now - p.since < BODY_WAIT {
+                let cap = if walking { SEAT_WAIT } else { BODY_WAIT };
+                if (walking || seated) && now - p.since < cap {
                     waiting.push(p);
                     continue;
+                }
+                if walking {
+                    info!("match end: {:?} ({r:08X}) has not reached its seat after {SEAT_WAIT} s; it reacts where it is", p.who);
+                } else {
+                    info!("match end: {:?} ({r:08X}) is at its spot {:.1} s after the result", p.who, now - p.since);
                 }
                 r
             }
