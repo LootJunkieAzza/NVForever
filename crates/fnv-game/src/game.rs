@@ -4119,6 +4119,23 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The trigger runs its OnTrigger block again in the same frame, for one more actor
+    /// inside it ([`Game::trigger_frame`] before the first): GetSecondsPassed in that run
+    /// is 0, the time since the script last ran [documented: GECK wiki
+    /// GetSecondsPassed, "the time since the script last ran"; hypothesis: that the
+    /// original runs a trigger's OnTrigger once per reference inside, as we do]. Without
+    /// it every run got the whole frame's time: Hidden Valley's virus purge
+    /// (HVHuntingVirusTrigger, SCPT 0x0015A154, `Begin OnTrigger` with no actor) counts
+    /// its 20 s down by GetSecondsPassed on each run, and with the scribes in the room it
+    /// ran out several times too fast (issue #2455).
+    pub fn trigger_again(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
+    }
+
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
     /// order. Only the player's inventory runs per-frame item scripts here [observed: a
     /// jar of pistol powder's GameMode ran in the player's inventory by the frame after

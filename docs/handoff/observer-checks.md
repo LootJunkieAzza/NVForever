@@ -2126,3 +2126,14 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      trigger run its OnTriggerLeave for a player who travels away (ours does since #2449,
      engine/nvf-play/src/script_trigger.rs `leave_reported`, [design]): does the barrage
      start afresh on the return, or never stop?
+
+## Added 2026-11-14 (OnTrigger timing, #2455)
+
+138. **How does an OnTrigger block count time?** (P2; #2455, scripts.md §5.) Ours: it
+     runs once per reference inside each frame, only the first run of a frame gets the
+     frame's GetSecondsPassed, and no trigger block runs under a menu or message box
+     [hypothesis]. To check: start Ibsen's purge (or set HVHuntingVirusTriggerREF's
+     VirusTimer to 20 and VDialogueHiddenValley's HuntingVirus to 2) with Ibsen and the
+     two scribes in the room and record VirusTimer every frame; then again with a
+     message box open for 5 s (ShowMessage) in the middle: does VirusTimer move while the
+     box is up, and does Ibsen's 10-seconds line come 10 s of game time after the start?

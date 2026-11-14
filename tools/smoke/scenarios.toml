@@ -1457,6 +1457,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-virus-purge-timer"
+source = "issue #2455: a trigger's OnTrigger runs once per actor inside it each frame, and only the first run of a frame gets the frame's GetSecondsPassed (Game::trigger_again; GECK wiki GetSecondsPassed, the time since the script last ran): Hidden Valley's virus purge (HVHuntingVirusTrigger 0015A15B, SCPT 0015A154, Begin OnTrigger with no actor) counts VirusTimer down from 20 s with Ibsen and two scribes in the room, says Ibsen's 10-seconds line (topic 0015A129, INFO 0015A145) when it is under 10 and the failure line (topic 0015A126, INFO 0015A141) at 0; a message box or menu holds the countdown (nvf-play script.rs runs no trigger block while the game is paused)"
+note = "Hidden Valley bunker L2 from the new-game state: the player stands in the trigger box (x 3762-5042, y -2183 to -784) with Ibsen and the two scribes; the console makes the Brotherhood and the player neutral at 0.2 s (SetEnemy 0001D3FE 0001B2A4 1 1, as the bunker's scripts do) and starts the purge at 3 s as INFO 0015A14F's end script does (VirusTimer 20, HuntingVirus 2) and no terminal is fixed, so it fails. --no-messages keeps the start-up message boxes away, so the aids' clock and the game's run together. The getstage lines at 11 s and 21 s only mark the time: before the fix (four runs a frame, and the start-up message boxes draining the timer while the game stood still) both lines came 3 and 6 s after the start, before the first mark"
+areas = ["scripts", "triggers"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/script.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "0.2:setenemy 0001D3FE 0001B2A4 1 1;0.5:close;3:set 0015A15B.virustimer to 20;set 000E327C.huntingvirus to 2;3.3:close;11:getstage 0015D79D;11.3:close;21:getstage 000E327C;21.3:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=4400,-1400,15560", "--no-voice", "--no-messages"]
+run_seconds = 35
+order = [[
+  { re = 'NVF_PLAY_TEST_CONSOLE: set 0015A15B\.virustimer to 20', label = "the purge starts at 3 s" },
+  { re = 'NVF_PLAY_TEST_CONSOLE: getstage 0015D79D', label = "the 11 s mark" },
+  { re = 'HVScribeIbsenREF says 0x0015A145', label = "Ibsen's 10-seconds line comes after 10 s of the 20" },
+  { re = 'NVF_PLAY_TEST_CONSOLE: getstage 000E327C', label = "the 21 s mark" },
+  { re = 'HVScribeIbsenREF says 0x0015A141', label = "the purge fails only after its 20 s" },
+]]
+
+[[scenario]]
 name = "restrained-dialogue-package"
 source = "issue #2309: a restrained actor's Dialogue package still starts its conversation, without moving (fnv_ai begin_in_place, step_actor_inner) [documented: GECK wiki SetRestrained, restrained actors still go into dialogue]"
 note = "Hidden Valley bunker L2: the console runs the end script of Hardin's line INFO 001633C9 (both restrained, controls off, the trigger 000AD6A1's HardinTraining set to 1); its GameMode block moves both to the markers 001633EF/001633EE after 2 s and gives Hardin HVHardinPowerArmorTrainingPackage (Dialogue, PlayerRef within 200) after 4 s. His line 001633C0 gives the controls back (begin script) and releases both (end script)"
