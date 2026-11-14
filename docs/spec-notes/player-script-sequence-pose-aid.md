@@ -1,7 +1,8 @@
 # Owned player sequence pose observer
 
 [design: #2272] `player-script-sequence-pose-release-owned` is an optional,
-registered GAME aid. It has **not been compiled or run**. It reads the actual
+registered GAME aid. Its GAME execution is **NOT RUN**; Rust/CPU validation is
+recorded separately in the PR. It reads the actual
 first/third player rigs in `PostUpdate` after `TransformSystems::Propagate`;
 it does not set a request, a pose, a clip cache, a layer or a transform. The
 scenario's ordinary console calls start/stop the sequence. Missing rigs, missing

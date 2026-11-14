@@ -1,4 +1,4 @@
-//! Source-only proposed CPU consumer fixture. It has not been compiled or run.
+//! Authored prepared-sample CPU consumer fixture; validation is recorded separately.
 //! The explicit seam is an already-decoded authored Clip/Sample, not ActorCtx
 //! asynchronous KF loading or script_sequences::prepare / drive_body scheduling.
 use super::*;
