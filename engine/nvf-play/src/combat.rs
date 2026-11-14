@@ -5488,19 +5488,24 @@ mod tests {
     }
 
     #[test]
-    fn god_mode_refilling_an_empty_launcher_is_published_in_the_same_frame() {
+    fn a_magazine_changed_in_the_frame_is_published_as_fire_leaves_it() {
+        // No god mode here: it is one switch for the whole process, and the tests run
+        // side by side.
         let mut app = launcher_app(2, 0);
         app.update();
         assert_eq!(published(&app), Some(LAUNCHER), "fired, nothing loaded");
-        // God mode fills the magazine inside `fire`; what the body reads is the cycle
-        // after that, not before it.
-        set_god_mode(true);
+        // Filled as god mode's refill leaves it (a full magazine, the missiles carried):
+        // loaded in that frame.
+        app.world_mut().resource_mut::<Combat>().cycle.as_mut().unwrap().magazine = 1;
         app.update();
-        let after = published(&app);
-        let magazine = app.world().resource::<Combat>().cycle.as_ref().map(|c| c.magazine);
-        set_god_mode(false);
-        assert_eq!(magazine, Some(1));
-        assert_eq!(after, None, "refilled this frame: not empty");
+        assert_eq!(published(&app), None, "filled: not empty");
+        // The missiles leave the inventory (dropped, sold, taken by a script): `fire`
+        // empties the magazine to follow, and what is published is the cycle after that,
+        // in the same frame (before #2470's fix it was set ahead of it).
+        app.world_mut().resource_mut::<SimState>().world.remove_item(FormId::PLAYER_REF, MISSILE, 2).unwrap();
+        app.update();
+        assert_eq!(app.world().resource::<Combat>().cycle.as_ref().map(|c| c.magazine), Some(0));
+        assert_eq!(published(&app), Some(LAUNCHER), "emptied this frame");
     }
 
     #[test]
