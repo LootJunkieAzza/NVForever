@@ -436,6 +436,16 @@ the spec it links to.
     observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
     double every tree fidget, the drawn-weapon and furniture ones too)?
     ([idles §11.4](spec-notes/idles.md))
+64. **Scripts written for "not in the player's cell" now run there (#2445).** An actor
+    the AI processes out of the loaded cells runs its GameMode block at each low-process
+    update (about every 18 s, every 120 s beyond the cell buffer) and once in each waited
+    hour. This applies only when the block tests that the actor is not in the player's
+    cell (`GetInSameCell … == 0`). Eight object scripts in FalloutNV.esm do: Chauncey,
+    ED-E, the Hidden Valley scribe and Watkins, the Vault 22 spore carriers,
+    TecMineHostage and an SDO handler. Every other script runs in the loaded cells only,
+    as before. Beyond the Beef needs it: Chauncey reaches the steam room only through his
+    own script's warp. Running all far residents' scripts was the wider option, set aside
+    for now; observer check 135 asks what the original does. (`fnv_ai::process`)
 63. **Harmless hits run the target's hit scripts (#2433).** A Use Weapon package's or
     UseWeapon's Do No Damage shot or blow now runs the target's OnHit and OnHitWith blocks,
     and still deals no damage. G.I. Blues' ambush needs this: the thugs fall in their OnHit

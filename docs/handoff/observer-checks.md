@@ -2076,6 +2076,25 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      raises the revolver to aim first. Also whether a hit the target was not meant to take
      (another actor in the line of fire) runs that actor's OnHit too.
 
+## Added 2026-11-14 (scripts of actors out of the loaded cells, #2445)
+
+135. **Do the scripts of actors out of the loaded cells run, and how often?** (P1; #2445,
+     `fnv_ai::process`.) Ours since #2445: an actor the AI processes out of the loaded
+     cells (the cell buffer, interiors behind the loaded cells' doors, farther away) runs
+     its GameMode block at each of its low-process updates (about every 18 s, or 120 s
+     beyond the cell buffer) and once in each hour of a wait, when that block tests
+     "not in the player's cell" (eight object scripts in FalloutNV.esm); the others run
+     in the loaded cells only [hypothesis from the data:
+     Beyond the Beef's Chauncey (SCPT 0x0011689F) warps to the bathhouse and re-evaluates
+     his package only in a GameMode block that tests "not in the player's cell", and his
+     casino patrol is Must Complete, so nothing else moves him]. To check: with the
+     Matchbook note and objective 40 shown, wait in the steam room from 14:00 (by the
+     Wait menu, and once in real time) and record when Chauncey appears (GetPos, his
+     cell) and whether he fades in at VMS18ChaunceyBathhouseWarpMarkerREF. A second job:
+     an actor with a script that counts GameMode runs (a variable bumped each run, read
+     with GetScriptVariable) in a cell the player left, read after 1, 5 and 30 real
+     minutes, in the cell buffer and beyond it.
+
 ## Added 2026-11-14 (blasts on corpses, #2346)
 
 136. **Does a blast beside a settled corpse take its parts, and how many?** (P2; #2346,
