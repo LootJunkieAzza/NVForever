@@ -128,7 +128,7 @@ impl SceneEdit {
             Self::ForModel { edit, .. } => edit.reference(),
             Self::Translation { r, .. } | Self::Rotation { r, .. } | Self::Scale { r, .. }
             | Self::Flags { r, .. } | Self::ChildFlags { r, .. } | Self::Rename { r, .. }
-            | Self::Remove { r, .. } | Self::Insert { r, .. } | Self::Attach { r, .. }
+            | Self::Remove { r, .. } | Self::Insert { r, .. } | Self::Attach { r, .. } | Self::Light { r, .. }
             | Self::Material { r, .. } | Self::Particle { r, .. } => *r,
         }
     }
@@ -260,7 +260,7 @@ impl SceneMirror {
         let Some(tree) = self.trees.get(&(r, view)) else { return SceneTarget::Missing };
         let name = match edit {
             SceneEdit::Rename { node, .. } => node,
-            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } => target,
+            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } | SceneEdit::Light { target, .. } => target,
             SceneEdit::Translation { node, .. } | SceneEdit::Rotation { node, .. }
             | SceneEdit::Scale { node, .. } | SceneEdit::Flags { node, .. }
             | SceneEdit::ChildFlags { node, .. } | SceneEdit::Remove { node, .. }
@@ -386,7 +386,7 @@ impl Game<'_> {
         let Some(i) = find(t, target) else { return false };
         let target = t[i].name.clone();
         t.push(SceneNode { name: name.to_string(), parent: Some(i), translation: offset, rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None });
-        self.scene.edits.push(SceneEdit::Light { r, target, name: name.to_string(), light, offset });
+        self.scene.queue_for(ModelView::Reference, SceneEdit::Light { r, target, name: name.to_string(), light, offset });
         true
     }
 

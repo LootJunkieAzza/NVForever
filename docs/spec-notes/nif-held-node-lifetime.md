@@ -132,3 +132,16 @@ scenarios `nif-player-model-selection` and `nif-script-root-renames`; neither ha
 run for this repair. Full Update3D support, unchanged-entity Transform removal and
 reinsertion between publications, material/property/vertex cache lifetime, native
 timing/parity, special-IDLE lifetime and complete armor HUD support remain separate.
+
+## Main's light attachment composed with captured targets
+
+- [documented: main `26e5fc78`, `nif_blocks.rs::attach_light_now`,
+  `nvse_unlisted.rs` AttachLight and `nif_mirror.rs` Light handler] AttachLight
+  adds a named light child under a known node. Its ordinary reference/default
+  view and existing light data/offset handling remain unchanged here.
+- [hypothesis: the existing concrete-target policy] Queue that request through
+  the same target capture as other structural edits. A same-frame script rename
+  must not discard a light accepted for the same parent entity; a deleted or
+  replaced captured parent must not redirect it to a namesake. Legacy hosts keep
+  the existing consume-once name lookup. This adds no cold light reservation,
+  private Created policy, native photometry or rendering-equivalence claim.

@@ -701,3 +701,87 @@ fn rename_then_transform_preserves_concrete_target_and_same_model_reparenting() 
         "reparenting within the same live model subtree does not invalidate identity");
     assert!(published(&mut app, FormId::PLAYER_REF, ModelView::FirstPerson, "OwnedRenamedBone").is_some());
 }
+
+fn owned_light_fixture() -> (App, crate::outfits::tests::TestFiles, NamedRig, NamedRig, FormId) {
+    use fnv_esm::raw::{write_subrecords, Subrecord};
+    fn record(sig: &[u8; 4], id: u32, fields: &[Subrecord]) -> Vec<u8> {
+        let payload = write_subrecords(fields);
+        [sig.as_slice(), &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(),
+            &id.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+    }
+    let (mut app, files, third, first) = unpublished_fixture();
+    let light = FormId(0x800);
+    let body = record(b"LIGH", light.0, &[Subrecord {
+        sig: *b"EDID", data: b"OwnedCapturedLight\0".to_vec(), extended: false,
+    }]);
+    let group = [b"GRUP".as_slice(), &((24 + body.len()) as u32).to_le_bytes(),
+        b"LIGH", &0i32.to_le_bytes(), &[0; 8], &body].concat();
+    let hedr = [1.34f32.to_le_bytes(), 1u32.to_le_bytes(), 0x801u32.to_le_bytes()].concat();
+    let bytes = [record(b"TES4", 0, &[Subrecord { sig: *b"HEDR", data: hedr, extended: false }]), group].concat();
+    let plugin = fnv_esm::Plugin::parse(&bytes, "OwnedCapturedLight.esm".into()).unwrap();
+    let plugins = Box::leak(vec![plugin].into_boxed_slice());
+    let lo = Box::leak(Box::new(fnv_esm::LoadOrder::new(plugins).unwrap()));
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema = Box::leak(Box::new(fnv_esm::Schema::load_dir(root.join("schemas/fnv")).unwrap()));
+    let path = root.join("schemas/script/functions.json");
+    let table = fnv_script::FunctionTable::load(&path).unwrap();
+    let functions = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let refs = Box::leak(Box::<fnv_sim::RefTable>::default());
+    let forms = Box::leak(Box::<fnv_sim::FormStore>::default());
+    let data = Box::leak(Box::new(fnv_game::GameData::build(lo, schema, table, &functions, refs)));
+    app.insert_resource(TestGame(Game::new(data, fnv_sim::World::new(forms, refs, Default::default()), Default::default())));
+    assert_eq!(scale(&mut app, None), XVal::Num(0.0));
+    app.update();
+    (app, files, third, first, light)
+}
+
+#[test]
+fn public_light_attachment_keeps_its_captured_parent_after_same_frame_rename() {
+    let (mut app, _files, third, first, light) = owned_light_fixture();
+    let third_bone = third.1.nodes[1];
+    let first_bone = first.1.nodes[1];
+    assert_eq!(call(&mut app, "renamenifblock", &[XVal::Str("SharedBone".into()),
+        XVal::Str("OwnedRenamedParent".into()), XVal::Num(1.0)]), XVal::Num(1.0));
+    assert_eq!(call(&mut app, "attachlight", &[XVal::Str("OwnedRenamedParent".into()),
+        XVal::Ref(light.0), XVal::Num(1.0), XVal::Num(2.0), XVal::Num(3.0)]), XVal::Num(1.0));
+    // The script's tree already has the new name, while the actual ECS Name edit
+    // is still deferred. Re-finding by that new name would lose the accepted light.
+    assert!(app.world().get::<Name>(third_bone).is_none());
+    app.update();
+    assert_eq!(app.world().get::<Name>(third_bone).unwrap().as_str(), "OwnedRenamedParent");
+    let light_name = fnv_game::nvse_unlisted::light_node_name(light);
+    let mut query = app.world_mut().query::<(Entity, &Name, &ChildOf, &Transform)>();
+    let found: Vec<_> = query.iter(app.world()).filter(|(_, name, _, _)| name.as_str() == light_name)
+        .map(|(e, _, parent, transform)| (e, parent.parent(), transform.translation)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!((found[0].1, found[0].2), (third_bone, Vec3::new(1.0, 2.0, 3.0)));
+    assert_ne!(found[0].1, first_bone, "the ordinary Reference default remains third person");
+    let entity = found[0].0;
+    app.update();
+    assert_eq!(app.world().get::<ChildOf>(entity).unwrap().parent(), third_bone, "one queued request is consumed once");
+    let mut query = app.world_mut().query::<(Entity, &Name)>();
+    let later: Vec<_> = query.iter(app.world()).filter(|(_, name)| name.as_str() == light_name)
+        .map(|(e, _)| e).collect();
+    assert_eq!(later, [entity], "the consumed request does not spawn a second light");
+}
+
+#[test]
+fn public_light_attachment_rejects_a_replaced_captured_parent_then_accepts_a_fresh_call() {
+    let (mut app, _files, third, _first, light) = owned_light_fixture();
+    let old = third.1.nodes[1];
+    let args = [XVal::Str("SharedBone".into()), XVal::Ref(light.0),
+        XVal::Num(0.0), XVal::Num(0.0), XVal::Num(4.0)];
+    assert_eq!(call(&mut app, "attachlight", &args), XVal::Num(1.0));
+    app.world_mut().entity_mut(old).despawn();
+    let replacement = app.world_mut().spawn((Name::new("SharedBone"), Transform::IDENTITY, ChildOf(third.0))).id();
+    app.update();
+    let light_name = fnv_game::nvse_unlisted::light_node_name(light);
+    let mut query = app.world_mut().query::<&Name>();
+    assert!(!query.iter(app.world()).any(|name| name.as_str() == light_name), "an old light request must not attach to a replacement namesake");
+    assert_eq!(call(&mut app, "attachlight", &args), XVal::Num(1.0), "the new publication permits a new request");
+    app.update();
+    let mut query = app.world_mut().query::<(&Name, &ChildOf)>();
+    let parents: Vec<_> = query.iter(app.world()).filter(|(name, _)| name.as_str() == light_name)
+        .map(|(_, parent)| parent.parent()).collect();
+    assert_eq!(parents, [replacement]);
+}

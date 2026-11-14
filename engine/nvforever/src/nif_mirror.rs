@@ -468,7 +468,7 @@ fn mirror_game(
         let r = match &edit {
             SceneEdit::Translation { r, .. } | SceneEdit::Rotation { r, .. } | SceneEdit::Scale { r, .. }
             | SceneEdit::Flags { r, .. } | SceneEdit::ChildFlags { r, .. } | SceneEdit::Rename { r, .. }
-            | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. }
+            | SceneEdit::Remove { r, .. } | SceneEdit::Insert { r, .. } | SceneEdit::Attach { r, .. } | SceneEdit::Light { r, .. }
             | SceneEdit::Material { r, .. } | SceneEdit::Particle { r, .. } => *r,
             SceneEdit::ForModel { .. } => continue,
         };
@@ -541,7 +541,7 @@ fn mirror_game(
         let entity = entity.or_else(|| match &edit {
             SceneEdit::ChildFlags { node, child, .. } => find(root, node, &nodes, &rig)
                 .and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _, _)| ch.and_then(|c| c.iter().nth(*child)))),
-            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } => find(root, target, &nodes, &rig),
+            SceneEdit::Insert { target, .. } | SceneEdit::Attach { target, .. } | SceneEdit::Light { target, .. } => find(root, target, &nodes, &rig),
             SceneEdit::Flags { node, .. } | SceneEdit::Rename { node, .. }
             | SceneEdit::Remove { node, .. } | SceneEdit::Material { node, .. }
             | SceneEdit::Particle { node, .. } => find(root, node, &nodes, &rig),
@@ -594,7 +594,7 @@ fn mirror_game(
             // by the LIGH's colour, brightness and radius as a muzzle flash's light is
             // (`crate::shot_fx`; docs/spec-notes/ext-unlisted-commands.md §2.1).
             SceneEdit::Light { target, name, light, offset, .. } => {
-                let Some(t) = find(root, &target, &nodes, &rig) else { continue };
+                let Some(t) = entity else { continue };
                 let data = world.as_deref().and_then(|w| fnv_world::lighting::light_data(w.lo, w.schema, light.0));
                 let new = commands.spawn((Name::new(name), Transform::from_translation(Vec3::from(offset)), Visibility::Inherited)).id();
                 if let Some(l) = data.filter(|l| l.radius > 0.0) {
