@@ -264,6 +264,9 @@ pub const PUT_WITHIN: f32 = 400.0;
 const STUCK_SECS: f64 = 4.0;
 const STUCK_UNITS: f32 = 24.0;
 const REPLANS: u8 = 3;
+/// Hops along its own path a stuck walk may take, and how far each.
+const SKIPS: u8 = 3;
+const SKIP_UNITS: f32 = 200.0;
 /// How far on from where it stood stuck the player has got away from it.
 const UNSTUCK_UNITS: f32 = 300.0;
 /// The heights above a reference's origin the view is turned to, one after the other,
@@ -428,6 +431,8 @@ struct Walk {
     locked_way: bool,
     /// Locked doors tried and left: the next path keeps off them. With what each said.
     tried: Vec<(u32, String)>,
+    /// Hops taken along the path when stuck.
+    skips: u8,
     /// Where the player last stood stuck: [`UNSTUCK_UNITS`] on from there the count of
     /// new paths starts again (a long walk with fights on it got stuck three times in
     /// three places and was given up).
@@ -1009,6 +1014,20 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
             }
             if h.locks.movement || h.in_menu || hdist(feet, w.seen.1) > STUCK_UNITS {
                 w.seen = (p.now, feet);
+            } else if p.now - w.seen.0 > STUCK_SECS && w.replans >= 2 && w.skips < SKIPS {
+                // Two jumps and steps aside did not free it: moved on along its own path,
+                // past what it is caught on, as the engine moves a stuck NPC on
+                // (`fnv_nav::Follower::skip_ahead`). Within the leg: never past a door.
+                let at = w.follower.as_mut().and_then(|f| f.skip_ahead(feet, SKIP_UNITS));
+                w.seen = (p.now, feet);
+                match at {
+                    Some(at) => {
+                        w.skips += 1;
+                        p.finding("stuck", format!("caught at ({:.0}, {:.0}, {:.0}): moved {SKIP_UNITS:.0} units on along its path, as a stuck NPC is", feet[0], feet[1], feet[2]));
+                        h.put(Place { space: here.space, pos: at });
+                    }
+                    None => w.skips = SKIPS,
+                }
             } else if p.now - w.seen.0 > STUCK_SECS {
                 w.seen = (p.now, feet);
                 w.follower = None;
@@ -1085,7 +1104,7 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
 }
 
 fn walk_to(goal: Place, target: Option<FormId>, radius: f32, now: f64, feet: [f32; 3]) -> Walk {
-    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
+    Walk { goal, target, radius, follower: None, door_since: None, seen: (now, feet), replans: 0, cut: false, talking_at_start: None, keep_talk: false, locked_way: false, tried: Vec::new(), skips: 0, stuck_at: None, poked: Vec::new(), errand: None, side: None, told_talking: false, dodge: None, snapped: None }
 }
 
 /// What a player would use to open a door that stays locked (module notes), not used
