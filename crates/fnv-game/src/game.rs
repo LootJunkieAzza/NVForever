@@ -1697,6 +1697,11 @@ pub struct Game<'a> {
     /// the activator (IsActorTalkingThroughActivator, `crate::talking_activators`). Not
     /// saved.
     pub talking_through: Option<(FormId, FormId)>,
+    /// An actor's Dialogue package walks the player to its trigger location before it
+    /// talks ("Do Not Control Target Movement" off, `fnv_ai`): where to, set again by
+    /// every AI update that needs it. The engine walks the player there while it is
+    /// fresh ([`PlayerLead::fresh`]). Not saved.
+    pub player_lead: Option<PlayerLead>,
     /// A farewell's end result script is running ([`Speech::farewell`], `Game::end_line`).
     /// Not saved: a save never lands inside a script.
     pub(crate) farewell_ending: bool,
@@ -2087,6 +2092,28 @@ impl GameSnapshot {
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 
+/// The player led by an actor's Dialogue package to its trigger location
+/// ([`Game::player_lead`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerLead {
+    /// The actor whose package leads.
+    pub by: FormId,
+    /// The point to walk to, in the player's space.
+    pub to: [f32; 3],
+    /// When it was last set ([`Game::time`]).
+    pub at: f64,
+}
+
+impl PlayerLead {
+    /// How long a lead holds without being set again [our choice: a few AI updates].
+    pub const HOLD_SECONDS: f64 = 0.5;
+
+    /// Whether the lead still holds at game time `now`.
+    pub fn fresh(&self, now: f64) -> bool {
+        now - self.at <= Self::HOLD_SECONDS
+    }
+}
+
 /// The fields of this crate whose value is a tuple of form IDs alone
 /// (`Option<(FormId, FormId)>`, `Option<(FormId, Option<FormId>)>`), by name, for
 /// `fnv_save::remap_json_with`: in a save's JSON such a tuple looks like a list of form
@@ -2461,6 +2488,7 @@ impl<'a> Game<'a> {
             said_day: BTreeMap::new(),
             dialogue: None,
             talking_through: None,
+            player_lead: None,
             farewell_ending: false,
             farewell_then: None,
             farewell_said: None,

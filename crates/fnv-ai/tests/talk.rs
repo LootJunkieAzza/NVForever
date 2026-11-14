@@ -60,13 +60,22 @@ fn triple(t: Triple) -> Vec<u8> {
 /// target with the activate distance, the topic and whether it is a Say To.
 #[allow(clippy::too_many_arguments)]
 fn talk_pack(id: u32, edid: &str, general: u32, wait: Option<Triple>, trigger: Option<Triple>, target: Triple, topic: u32, say_to: bool) -> Vec<u8> {
+    talk_pack_flags(id, edid, general, wait, trigger, target, topic, say_to, 0)
+}
+
+/// PKDD flag "Don't Control Target Movement" (schemas/fnv/ai.json).
+const DONT_CONTROL_TARGET: u32 = 0x100;
+
+/// As [`talk_pack`], with the PKDD flags.
+#[allow(clippy::too_many_arguments)]
+fn talk_pack_flags(id: u32, edid: &str, general: u32, wait: Option<Triple>, trigger: Option<Triple>, target: Triple, topic: u32, say_to: bool, pkdd: u32) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), sub(b"PKDT", [&general.to_le_bytes()[..], &[15, 0, 0, 0], &[0; 4]].concat())];
     subs.extend(wait.map(|l| sub(b"PLDT", triple(l))));
     subs.extend(trigger.map(|l| sub(b"PLD2", triple(l))));
     subs.push(sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()));
     subs.push(sub(b"PTDT", triple(target)));
     // FOV, topic, flags, unused, dialogue type, unknown.
-    subs.push(sub(b"PKDD", [75f32.to_le_bytes(), topic.to_le_bytes(), [0; 4], [0; 4], (say_to as u32).to_le_bytes(), [0; 4]].concat()));
+    subs.push(sub(b"PKDD", [75f32.to_le_bytes(), topic.to_le_bytes(), pkdd.to_le_bytes(), [0; 4], (say_to as u32).to_le_bytes(), [0; 4]].concat()));
     record(b"PACK", id, &subs)
 }
 
@@ -144,6 +153,7 @@ const P_MUTE: u32 = 0x835;
 const P_WANDER: u32 = 0x836;
 const P_SEATED: u32 = 0x837;
 const P_STAND: u32 = 0x838;
+const P_HOLD: u32 = 0x839;
 // Bases.
 const N_GREET: u32 = 0x840;
 const N_COME: u32 = 0x841;
@@ -154,6 +164,7 @@ const N_MUTE: u32 = 0x845;
 const N_IDLE: u32 = 0x846;
 const N_SEATED: u32 = 0x847;
 const N_STAND: u32 = 0x848;
+const N_HOLD: u32 = 0x849;
 // The cell and its references.
 const CELL: u32 = 0x860;
 const TRIGGER: u32 = 0x870;
@@ -169,6 +180,7 @@ const R_MUTE: u32 = 0x885;
 const R_IDLE: u32 = 0x886;
 const R_SEATED: u32 = 0x887;
 const R_STAND: u32 = 0x888;
+const R_HOLD: u32 = 0x889;
 
 const PLAYER: u32 = 0x14;
 const GOODBYE: u16 = 0x0001;
@@ -193,8 +205,12 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
     let player = (0, PLAYER, 0);
     let packs = [
         // Sunny Smiles's shape: wait at the editor location (radius 0), a trigger box,
-        // the player within 256.
-        talk_pack(P_GREET, "GreetInBox", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false),
+        // the player within 256; here with Do Not Control Target Movement, so the
+        // trigger location does not hold the greeting back (case 2 as documented).
+        talk_pack_flags(P_GREET, "GreetInBox", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false, DONT_CONTROL_TARGET),
+        // The same without that flag, as Sunny's and Paladin Ramos's packages are
+        // (HVRamosEntryDialogPackage, issue #2453): the player is to be in the box.
+        talk_pack(P_HOLD, "GreetInBoxHeld", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false),
         // No locations and no distance: go to the player at once, running.
         talk_pack(P_COME, "ComeAndTalk", flags::ALWAYS_RUN, None, None, player, 0, false),
         // A wait location with a radius and a trigger location with one.
@@ -223,6 +239,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         npc(N_IDLE, "Idler", &[P_WANDER]),
         npc(N_SEATED, "Sitter", &[P_SEATED]),
         npc(N_STAND, "Stander", &[P_STAND]),
+        npc(N_HOLD, "Holder", &[P_HOLD]),
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
@@ -248,6 +265,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         placed(b"REFR", R_STOOL, "StoolRef", STOOL, STOOL_AT, None),
         placed(b"ACHR", R_SEATED, "SitterRef", N_SEATED, CORNER, None),
         placed(b"ACHR", R_STAND, "StanderRef", N_STAND, CORNER, None),
+        placed(b"ACHR", R_HOLD, "HolderRef", N_HOLD, GREETER, None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Room"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -558,6 +576,32 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     let heading = s.agent(R_GREET).walker.heading;
     assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+}
+
+/// Case 2 with "Do Not Control Target Movement" off: the player is walked into the
+/// trigger location (`Game::player_lead`, which the engine carries out) and the
+/// conversation opens there. Paladin Ramos's "Follow me" leaves the escort to the
+/// trigger box's OnTrigger block, which runs only with the player inside it (#2453).
+#[test]
+fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
+    let f = fixture();
+    // Within the activate distance (212 units) but outside the box (it ends at y 950).
+    let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
+    s.run(3.0);
+    assert_eq!(s.talks(), 0, "{:?}", s.events());
+    assert!(s.game.dialogue.is_none());
+    assert_eq!(s.agent(R_HOLD).talk, Some(Talking::Waiting));
+    // The lead: 48 units inside the box's north side, the player's x and height kept.
+    let lead = s.game.player_lead.expect("the player is led");
+    assert_eq!(lead.by, FormId(R_HOLD));
+    assert!((lead.to[0] - 750.0).abs() < 0.01 && (lead.to[1] - 902.0).abs() < 0.01 && lead.to[2] == 0.0, "{:?}", lead.to);
+    assert_eq!(s.events().iter().filter(|e| matches!(e, AiEvent::LeadsPlayer { .. })).count(), 1, "logged once: {:?}", s.events());
+    // There (the engine's walk): the greeting comes and the lead is over.
+    s.player_to(lead.to);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
+    assert!(s.game.player_lead.is_none());
 }
 
 /// A wall or a closed door between the actor and the player holds the force greet back
