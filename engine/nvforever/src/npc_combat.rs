@@ -3830,7 +3830,7 @@ mod tests {
         // A Min Range beyond the room left is held to it.
         let (within, until) = band(&dart, 500.0);
         assert!((within - (225.0 - tactics::BACK_OFF_SLACK)).abs() < 1e-3 && (until - 225.0).abs() < 1e-3);
-        // Guns whose stop leaves room keep the owner's band whatever their Min Range: the
+        // Guns whose stop leaves room keep the 256 / 320 band whatever their Min Range: the
         // 10mm pistol (Max Range 768) and a rifle with Min Range 768 (§12.6).
         let pistol = gun_reach(768.0, 1.0, 10_000.0, 0.0);
         let keep = (tactics::BACK_OFF_WITHIN, tactics::BACK_OFF_WITHIN + tactics::BACK_OFF_SLACK);
