@@ -257,6 +257,8 @@ pub const MILESTONE_SECS: f64 = 45.0;
 pub const PICKS_DEEP: usize = 5;
 /// Seconds a conversation with no way out is waited on before the finding.
 pub const NO_WAY_OUT_SECS: f64 = 5.0;
+/// Picks made in a conversation with no Goodbye before it counts as having no way out.
+pub const TALK_PICKS: u8 = 12;
 /// Seconds of a line the pilot hears before it skips it.
 pub const SKIP_AFTER: f64 = 0.4;
 /// Seconds before the first step: the world has loaded and settled.
@@ -539,8 +541,10 @@ struct Pilot {
     /// Failed steps one after the other, and the real time the pilot last could act.
     failed_in_a_row: u32,
     acted_at: Option<f64>,
-    /// Since when the open conversation has offered no way out.
+    /// Since when the open conversation has offered no way out, and the picks made in it
+    /// looking for one.
     stuck_talk: Option<f64>,
+    talk_picks: u8,
     /// A campaign's chains have their given state set all the same (`--pilot-given`).
     set_given: bool,
     /// God mode is on, and when the weapon is looked at next.
@@ -615,6 +619,7 @@ impl Pilot {
             failed_in_a_row: 0,
             acted_at: None,
             stuck_talk: None,
+            talk_picks: 0,
             set_given: false,
             god: false,
             weapon_check: 0.0,
@@ -979,6 +984,17 @@ fn walk(p: &mut Pilot, w: &mut Walk, h: &mut Hands) -> Walked {
         params.keys = keys;
         params.open_doors.extend(open_doors);
         params.refused_doors.extend(w.tried.iter().map(|(d, _)| *d));
+        // Standing off the navmesh (a given state's place, a ledge): onto the nearest
+        // point of it within 500 units first, as the pilot's own clumsiness.
+        if nav.graph.locate(here.space, feet, 96.0).is_none() {
+            if let Some((_, on)) = nav.graph.nearest(here.space, feet, 500.0) {
+                if hdist(on, feet) > 4.0 {
+                    info!("pilot: step {}: off the navmesh at ({:.0}, {:.0}, {:.0}): set on its nearest point, {:.0} units off", p.i, feet[0], feet[1], feet[2], hdist(on, feet));
+                    h.put(Place { space: here.space, pos: on });
+                    return Walked::Going;
+                }
+            }
+        }
         // The last stretch out of doors of a long way: only that is cut short.
         let outdoors = |path: &fnv_nav::Path| path.legs.iter().rposition(|l| matches!(l.space, Space::World(_)));
         match nav.graph.find_path(here, w.goal, &params) {
@@ -1543,7 +1559,7 @@ fn choice_toward(g: &Game, wanted: FormId) -> Option<(usize, usize)> {
 /// conversation is open any more.
 fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
     if h.game(|g| g.dialogue.is_none()) != Some(false) {
-        p.stuck_talk = None;
+        (p.stuck_talk, p.talk_picks) = (None, 0);
         return true;
     }
     // A line is being said: heard out (skipped after a moment, the player's own key).
@@ -1594,6 +1610,16 @@ fn leave_talk(p: &mut Pilot, h: &mut Hands) -> bool {
             info!("pilot: step {}: leaves the topic list, which offers no Goodbye (as Tab does)", p.i);
         }
         Way::NotYet => {}
+        Way::None if p.talk_picks < TALK_PICKS => {
+            // No Goodbye here: a player picks something and goes on; the way out may be
+            // further down (Sloan's Melissa, Ranger Milo, Cass). The first choice not
+            // taken before in this conversation.
+            p.talk_picks += 1;
+            let i = h.game(|g| g.dialogue_choices().iter().position(|c| !c.darkened).unwrap_or(0)).unwrap_or(0);
+            let text = h.game(|g| g.dialogue_choices().get(i).map(|c| g.choice_text(c).to_string())).flatten().unwrap_or_default();
+            h.game(|g| g.choose(i).ok());
+            info!("pilot: step {}: no Goodbye yet: picks {text:?} to go on ({} of {TALK_PICKS})", p.i, p.talk_picks);
+        }
         Way::None => {
             let since = *p.stuck_talk.get_or_insert(p.now);
             if p.now - since > NO_WAY_OUT_SECS {
@@ -2015,6 +2041,24 @@ fn step(p: &mut Pilot, h: &mut Hands) -> Option<Option<String>> {
                 let space = crate::nav::space_of_cell(world, cell?.0)?;
                 Some((actor, Place { space, pos }, where_is(g, actor).map(|(_, at)| at)))
             });
+            // `X.MoveTo player`: X comes to the player (a follower): a minute is waited,
+            // with no Wait menu.
+            if marker.eq_ignore_ascii_case("player") || marker.eq_ignore_ascii_case("playerref") {
+                let near = h.game(|g| named(g, &who).ok().and_then(|r| where_is(g, r)).zip(where_is(g, FormId::PLAYER_REF)).is_some_and(|((ca, a), (cp, b))| ca == cp && hdist(a, b) < ARRIVED)) == Some(true);
+                if near {
+                    info!("pilot: step {}: {who} is with the player", p.i);
+                    return Some(None);
+                }
+                if p.now - p.step_from < 60.0 {
+                    return None;
+                }
+                p.finding("never_came", format!("{who} did not come to the player in 60 s: moved as the headless run moves it"));
+                p.headless("call (an actor that never came)");
+                let mut applier = std::mem::take(&mut p.applier);
+                let r = h.game(|g| runner::apply_now(g, &mut applier, &a));
+                p.applier = applier;
+                return Some(r.and_then(|r| r.err()));
+            }
             let Some(Some((_actor, place, actor_at))) = places else {
                 info!("pilot: step {}: left to the AI: {line} (the actor or the place is not known)", p.i);
                 return Some(None);
