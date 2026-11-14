@@ -142,7 +142,7 @@ fn script_runner_files_report_distinct_registrars_while_valid_neighbor_keeps_run
     neighbor(&mut g);
     let rows = capture(|| { assert_eq!(fire(&mut g), 1); assert_eq!(fire(&mut g), 1); });
     assert_eq!(rows.len(), 4);
-    for pair in rows.chunks_exact(2) {
+    for pair in rows.as_chunks::<2>().0 {
         assert_eq!(pair[0].get("registrar_kind"), Some(&serde_json::json!("script_runner")));
         assert_eq!(pair[0]["registrar_source"], "gr_owned_b.txt");
         assert_eq!(pair[1]["registrar_source"], "gr_owned_a.txt");
