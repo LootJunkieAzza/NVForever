@@ -1,8 +1,6 @@
 //! Candidate-only internal safety controls. Injected malformed alias graphs are
 //! not a claim that an installed mod produced them or a new public deletion API.
-#[path = "../tests/common/mod.rs"]
-mod common;
-use common::*;
+use crate::common::*;
 use crate::{game::GameConfig, Game, GameData};
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_script::{vm::XVal, FunctionTable};

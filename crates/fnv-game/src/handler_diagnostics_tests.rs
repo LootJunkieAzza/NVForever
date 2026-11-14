@@ -1,6 +1,5 @@
 //! The actual Game error gate must admit a report before building its context.
-#[path = "../tests/common/mod.rs"]
-mod common;
+use crate::common;
 
 use crate::game::{Game, GameConfig};
 use crate::trace::EventKind;

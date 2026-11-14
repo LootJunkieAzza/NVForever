@@ -983,7 +983,7 @@ mod tests {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let string = |sig: &[u8; 4], text: &str| sub(sig, [text.as_bytes(), &[0]].concat());
         let play = play_over(&[
-            top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player"), sub(b"ZNAM", 0xD20u32.to_le_bytes())])),
+            top(b"NPC_", &record(b"NPC_", 0, 7, &[string(b"EDID", "Player"), sub(b"ZNAM", 0xD20u32.to_le_bytes().to_vec())])),
             top(b"CSTY", &record(b"CSTY", 0, 0xD20, &[string(b"EDID", "OwnedSaveStyle")])),
         ]);
         // The assigned and unused cases may run concurrently in the same binary.

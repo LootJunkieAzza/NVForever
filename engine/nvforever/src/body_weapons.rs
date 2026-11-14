@@ -369,7 +369,7 @@ fn switch(
             Some(rt) => with_world(rt, &mut sim, |rt| {
                 let usable = limbs.iter().map(|l| l.is_none_or(|code| !rt.game.is_crippled(FormId(id), code))).collect();
                 let style = rt.game.combat_style(FormId(id));
-                (usable, style.is_some_and(|s| s.ignore_damaging_self), style.is_some_and(|s| s.weapon_restrictions == 2))
+                (usable, style.as_ref().is_some_and(|s| s.ignore_damaging_self), style.as_ref().is_some_and(|s| s.weapon_restrictions == 2))
             }),
             None => (vec![true; limbs.len()], false, false),
         };
