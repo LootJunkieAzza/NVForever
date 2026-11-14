@@ -24,7 +24,8 @@ opened child-process writer while the requested file is locked, and sequential
 reuse of a stale requested path. All content/JSONL/no-NUL/separation assertions
 remain; completed files are inspected after close because Windows locks may exclude
 other read handles. The child test is isolated through its own exact test entrypoint.
-These revised controls are not yet compiled or executed; report results in the PR.
+At initial source preparation these controls were authored; subsequent source-bound
+execution results are recorded in the PR.
 
 Earlier private trace-corruption evidence and the original overlapping-writer test
 are historical regression context, not original-game behavior observations or proof
