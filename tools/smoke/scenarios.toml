@@ -27543,3 +27543,19 @@ expect = [
   { re = 'detection: VFSKingBodyguardNorth 0013EF08 → the player', label = "the King's bodyguard beside him too" },
   { re = 'ai summary at .*, (?P<n>\d+) drawn;', range = [6, 1000], label = "the north side's residents are drawn (2026-11-14: 17; 0 without the fix)" },
 ]
+
+[[scenario]]
+name = "lucky38-elevator-stay-here"
+source = "issue #2424 (crates/fnv-game/src/functions/actor.rs add_script_package): the Lucky 38 elevator Victor's OnActivate (Lucky38VictorElevatorScript, SCPT 0x0015725D) adds his Dialogue package Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation (MenuMode 1009) before its GameMode shows the floor box; Stay Here (button 0) does nothing more. A second talk before a package choice dropped the first, still current with its goal met, opened no conversation, and the script waited for one for ever: no floor box again (the owner's soft lock)"
+note = "the player starts on the casino floor by Victor at the elevator (as securitron-face-bright); he is activated at 6 s and again at 24 s; the menu aid closes the conversation after 1 s and answers the floor box with its first button, Stay Here"
+areas = ["ai", "scripting"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/ai.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:Lucky38VictorElevatorREF,24:activate:Lucky38VictorElevatorREF" }
+args = ["--cell", "Lucky38CasinoFloor01", "--play", "--pos=1087,-2290,7690", "--heading", "50", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 45
+order = [[
+  { re = 'dialogue: conversation with \S*Victor\S* started', label = "the first talk: Victor's package opens a conversation" },
+  { re = 'script: menu 1001 \(message \S*Lucky38ElevatorMessageVictor\S*\) answered', label = "the floor box shows after it, answered Stay Here" },
+  { re = 'dialogue: conversation with \S*Victor\S* started', label = "the second talk opens a conversation again (none without the fix)" },
+  { re = 'script: menu 1001 \(message \S*Lucky38ElevatorMessageVictor\S*\) answered', label = "and the floor box comes back" },
+]]

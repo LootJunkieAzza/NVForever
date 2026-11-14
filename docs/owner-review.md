@@ -430,6 +430,19 @@ the spec it links to.
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
+66. **A script package added again after it is done starts over (#2424).** The Lucky
+    38 elevator Victor's script adds his talk package on every talk and waits for the
+    conversation before it shows the floor box; after Stay Here a second talk opened
+    nothing and the floor menu never came back. Now the same package added again once
+    its goal was met begins afresh (a call while it still runs changes nothing). This
+    holds for every script that re-adds a finished package, so an actor whose script
+    adds a Travel package every frame after arriving would begin it again each time
+    [hypothesis: no shipped script was found doing so; the original's rule is not
+    documented, observer check 137]. A save made in the stuck state stays stuck: the
+    script's waiting flag (delaycounter 1) is saved and only a conversation menu clears
+    it, so NVForever does not mend it on load (that would mean naming this script).
+    ([packages §1](spec-notes/packages.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 

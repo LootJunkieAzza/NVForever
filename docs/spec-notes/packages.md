@@ -230,6 +230,14 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
 - A script package (`AddScriptPackage`) takes precedence over all other packages until
   it is done; an actor has one at a time; without Must Complete / Must Reach Location it
   is removed at the next evaluation; it is saved with the game.
+- The same package added again while it is still the actor's current one and its goal
+  was met (no choice has dropped it yet) begins afresh: the goal is forgotten and the AI
+  takes it up anew, as after ResetAI; added while it still runs, nothing changes
+  [hypothesis: the GECK wiki's "until it is done" read per call; observer check 137].
+  The Lucky 38 elevator Victor needs it: his OnActivate adds his Dialogue package on
+  every talk and waits for the conversation before showing the floor box, and a second
+  talk soon after Stay Here otherwise opened none, for good [observed:
+  Lucky38VictorElevatorScript, SCPT 0x0015725D in FalloutNV.esm; issue #2424].
 - `EvaluatePackage` drops even a Must Complete / Must Reach Location package and chooses
   again.
 - Flags that shape choosing: **Must Complete** (does not end until its conditions are met:
