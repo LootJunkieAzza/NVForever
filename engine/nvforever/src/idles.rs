@@ -209,6 +209,8 @@ pub struct Playing<C> {
     fresh: bool,
     /// Holds its actor in place until it ends ([`holds_in_place`]).
     pub holds: bool,
+    /// The normalized source file, when this is an IDLE loaded from a file.
+    file: Option<String>,
 }
 
 /// The idles of one rig: the one playing and, while that fades in, the one before it.
@@ -238,8 +240,12 @@ impl<C> IdleSlot<C> {
     /// fidget started in the step the scripted idle ended and the next line's speaker
     /// idle, asked for a frame later, handed the mirror over a second time].
     fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) -> bool {
+        self.start_file(idle, source, owner, clip, play, None)
+    }
+
+    fn start_file(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay, file: Option<String>) -> bool {
         let asked = matches!(source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
-        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone();
+        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.file == file && c.group.is_none() && !c.play.gone();
         let picked = |c: &Playing<C>| !matches!(c.source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
         if asked && self.cur.as_ref().is_some_and(picked) && self.prev.as_ref().is_some_and(same) {
             self.cur = self.prev.take();
@@ -253,7 +259,7 @@ impl<C> IdleSlot<C> {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
-        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false });
+        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false, file });
         true
     }
 
@@ -629,7 +635,8 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
 
 /// The KF file an idle plays, as its record names it.
 fn clip_path(game: &Game, idle: FormId) -> Option<String> {
-    Some(meshes_path(game.data.idles.get(&idle)?.model.as_deref()?))
+    let model = game.idle_animation_path(idle)?;
+    (!model.trim().is_empty()).then(||meshes_path(model))
 }
 
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
@@ -1279,6 +1286,7 @@ pub fn drive(
                 }
             };
             let owner = owner_now(game, actor.0, source).filter(|_| source.of_package());
+            let file = clip_path(game, idle);
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
@@ -1286,7 +1294,7 @@ pub fn drive(
                 if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
-                let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
+                let started = if first { &mut pi.first } else { &mut pi.third }.start_file(idle.0, source, owner, clip, play, file);
                 if first {
                     if let Some(current) = pi.first.cur.as_mut() {
                         current.holds = holds;
@@ -1320,7 +1328,7 @@ pub fn drive(
             let bound = Arc::new(bound);
             let started = match slot {
                 Some(mut s) => {
-                    let started = s.0.start(idle.0, source, owner, bound, play);
+                    let started = s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1328,7 +1336,7 @@ pub fn drive(
                 }
                 None => {
                     let mut s = ActorIdle::default();
-                    s.0.start(idle.0, source, owner, bound, play);
+                    s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1557,6 +1565,26 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_idle_path_reads_the_script_setter_override() {
+        use fnv_script::vm::XVal;
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo,empty.schema,table,&json,&refs);
+        let idle = FormId(0x7A00);
+        data.idles.insert(idle,fnv_game::data::IdleDef {model:Some("Owned/Loop.kf".into()),..Default::default()});
+        let mut game = Game::new(&data,fnv_sim::World::new(&forms,&refs,Default::default()),Default::default());
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Stop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\stop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Loop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+    }
 
     #[test]
     fn a_fidget_with_the_weapon_away_plays_on_while_its_actor_stands_holstered() {
@@ -1823,6 +1851,21 @@ mod tests {
         s.start(1, IdleSource::Script, None, 1, play(1.0, 0.0, None));
         s.check_owner(|_| q);
         assert!(s.playing().unwrap().play.endless());
+    }
+
+    #[test]
+    fn replacing_an_idle_file_restarts_but_repeating_that_file_does_not() {
+        let mut slot: IdleSlot<u8> = IdleSlot::default();
+        assert!(slot.start_file(7,IdleSource::Script,None,1,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        slot.advance(0.5);
+        assert!(!slot.start_file(7,IdleSource::Script,None,2,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,1);
+        assert_eq!(slot.playing().unwrap().play.time(),0.5);
+        assert!(slot.start_file(7,IdleSource::Script,None,3,play(0.75,0.0,Some(1)),Some("owned\\stop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,3);
+        assert_eq!(slot.playing().unwrap().play.time(),0.0);
+        slot.advance(0.8);
+        assert!(slot.playing().is_none());
     }
 
     #[test]
