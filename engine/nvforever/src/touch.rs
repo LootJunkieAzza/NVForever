@@ -441,7 +441,7 @@ fn input(
         let p = t.position / size;
         match t.phase {
             TouchPhase::Started if !suspended => {
-                let role = button_at(p, playing).map(Role::Button).or_else(|| {
+                let role = button_at(p, playing).map(Role::Button).or({
                     if !playing {
                         None
                     } else if p.x < 0.45 && p.y > 0.5 {
