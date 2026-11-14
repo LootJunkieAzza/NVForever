@@ -54,7 +54,9 @@ This path needs device testing for load failures, task switching and OS process 
 
 [design] Touch buttons aggregate their held inputs with independently recorded physical
 key/mouse events after Bevy's input systems. Releasing either source keeps an action held
-until both sources release, preserving the combined press/release edges. They use current keyboard bindings for game actions and ordinary navigation keys
+until both sources release, preserving the combined press/release edges, including taps
+whose press and release both arrive in one frame. Within a frame, hardware events are
+processed first and then touch events, each in its own receive order. They use current keyboard bindings for game actions and ordinary navigation keys
 in menus. Drag the lower left to move and the right free area to look. Pause, Pip-Boy,
 VATS, reload, jump, activate, aim, attack and sneak have buttons. Menu arrows, confirmation,
 back, tab and page navigation have buttons. External keyboard/mouse use the existing path.

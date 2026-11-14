@@ -53,8 +53,8 @@ struct TouchState {
     physical_mouse: HashSet<MouseButton>,
     managed_keys: HashSet<KeyCode>,
     managed_mouse: HashSet<MouseButton>,
-    previous_keys: HashSet<KeyCode>,
-    previous_mouse: HashSet<MouseButton>,
+    combined_keys: ButtonInput<KeyCode>,
+    combined_mouse: ButtonInput<MouseButton>,
 }
 #[derive(Clone, Copy)]
 struct ButtonSpec {
@@ -227,13 +227,22 @@ fn capture_physical(
     previous_keys: Res<ButtonInput<KeyCode>>,
     previous_mouse: Res<ButtonInput<MouseButton>>,
 ) {
-    state.previous_keys = previous_keys.get_pressed().copied().collect();
-    state.previous_mouse = previous_mouse.get_pressed().copied().collect();
+    state.combined_keys = (*previous_keys).clone();
+    state.combined_mouse = (*previous_mouse).clone();
+    state.combined_keys.clear();
+    state.combined_mouse.clear();
     for event in keys.read() {
         if event.state == ButtonState::Pressed {
             state.physical_keys.insert(event.key_code);
         } else {
             state.physical_keys.remove(&event.key_code);
+        }
+        let held =
+            state.physical_keys.contains(&event.key_code) || state.keys.contains(&event.key_code);
+        if held {
+            state.combined_keys.press(event.key_code);
+        } else {
+            state.combined_keys.release(event.key_code);
         }
     }
     for event in mouse.read() {
@@ -242,32 +251,55 @@ fn capture_physical(
         } else {
             state.physical_mouse.remove(&event.button);
         }
+        let held =
+            state.physical_mouse.contains(&event.button) || state.mouse.contains(&event.button);
+        if held {
+            state.combined_mouse.press(event.button);
+        } else {
+            state.combined_mouse.release(event.button);
+        }
     }
     if focus_lost.read().next().is_some() {
-        state.physical_keys.clear();
-        state.physical_mouse.clear();
+        clear_physical(&mut state);
+    }
+}
+fn clear_physical(state: &mut TouchState) {
+    state.physical_keys.clear();
+    state.physical_mouse.clear();
+    let keys: Vec<_> = state.combined_keys.get_pressed().copied().collect();
+    for key in keys {
+        if !state.keys.contains(&key) {
+            state.combined_keys.release(key);
+        }
+    }
+    let mouse: Vec<_> = state.combined_mouse.get_pressed().copied().collect();
+    for button in mouse {
+        if !state.mouse.contains(&button) {
+            state.combined_mouse.release(button);
+        }
     }
 }
 
-/// Reconstruct aggregate edges for keys touch has owned. A physical release cannot
-/// cancel a held finger, and lifting a finger cannot release a physical key.
+/// Copy the complete combined state and both edges, including press+release within
+/// one frame. A touch-held action masks a physical release until the touch ends.
 fn aggregate<T: Copy + Eq + std::hash::Hash + Send + Sync + 'static>(
     input: &mut ButtonInput<T>,
     managed: &HashSet<T>,
-    previous: &HashSet<T>,
-    physical: &HashSet<T>,
-    touch: &HashSet<T>,
+    combined: &ButtonInput<T>,
 ) {
     for &button in managed {
         input.reset(button);
-        if previous.contains(&button) {
+        if combined.pressed(button) || combined.just_released(button) {
             input.press(button);
-            input.clear_just_pressed(button);
         }
-        if physical.contains(&button) || touch.contains(&button) {
-            input.press(button);
-        } else {
+        if combined.just_released(button) {
             input.release(button);
+        }
+        if combined.pressed(button) {
+            input.press(button);
+        }
+        if !combined.just_pressed(button) {
+            input.clear_just_pressed(button);
         }
     }
 }
@@ -276,20 +308,79 @@ fn merge_sources(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
 ) {
-    aggregate(
-        &mut keys,
-        &state.managed_keys,
-        &state.previous_keys,
-        &state.physical_keys,
-        &state.keys,
-    );
-    aggregate(
-        &mut mouse,
-        &state.managed_mouse,
-        &state.previous_mouse,
-        &state.physical_mouse,
-        &state.mouse,
-    );
+    aggregate(&mut keys, &state.managed_keys, &state.combined_keys);
+    aggregate(&mut mouse, &state.managed_mouse, &state.combined_mouse);
+}
+
+/// Update virtual ownership after each touch event, preserving quick taps even if
+/// both edges arrive in one frame. Hardware events are applied first, then touches.
+fn sync_touch(state: &mut TouchState, bindings: Option<&Bindings>, pause: bool) {
+    let mut wanted_keys = HashSet::new();
+    if pause {
+        wanted_keys.insert(KeyCode::Escape);
+    }
+    let mut wanted_mouse = HashSet::new();
+    let mut controls = Vec::new();
+    for c in state.contacts.values() {
+        match c.role {
+            Role::Move if state.playing => {
+                let d = c.position - c.origin;
+                if d.x > 0.025 {
+                    controls.push(Control::SlideRight);
+                }
+                if d.x < -0.025 {
+                    controls.push(Control::SlideLeft);
+                }
+                if d.y > 0.04 {
+                    controls.push(Control::Back);
+                }
+                if d.y < -0.04 {
+                    controls.push(Control::Forward);
+                }
+            }
+            Role::Button(i) => {
+                let b = BUTTONS[i];
+                if b.playing != state.playing {
+                    continue;
+                }
+                if let Some(key) = b.key {
+                    wanted_keys.insert(key);
+                }
+                if let Some(control) = b.control {
+                    controls.push(control);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(bindings) = bindings {
+        for control in controls {
+            let b = bindings.get(control);
+            if let Some(k) = b.key {
+                wanted_keys.insert(k);
+            } else if let Some(m) = b.mouse {
+                wanted_mouse.insert(m);
+            }
+        }
+    }
+    for &key in state.keys.symmetric_difference(&wanted_keys) {
+        if wanted_keys.contains(&key) || state.physical_keys.contains(&key) {
+            state.combined_keys.press(key);
+        } else {
+            state.combined_keys.release(key);
+        }
+    }
+    for &button in state.mouse.symmetric_difference(&wanted_mouse) {
+        if wanted_mouse.contains(&button) || state.physical_mouse.contains(&button) {
+            state.combined_mouse.press(button);
+        } else {
+            state.combined_mouse.release(button);
+        }
+    }
+    state.managed_keys.extend(wanted_keys.iter().copied());
+    state.managed_mouse.extend(wanted_mouse.iter().copied());
+    state.keys = wanted_keys;
+    state.mouse = wanted_mouse;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -315,8 +406,7 @@ fn input(
             AppLifecycle::Suspended => {
                 just_suspended = !state.suspended;
                 state.suspended = true;
-                state.physical_keys.clear();
-                state.physical_mouse.clear();
+                clear_physical(&mut state);
                 if let Some(volume) = &volume {
                     if state.saved_volume.is_none() {
                         state.saved_volume = Some(volume.master());
@@ -339,6 +429,11 @@ fn input(
         state.contacts.clear();
     }
     state.playing = playing;
+    if lost_focus {
+        clear_physical(&mut state);
+    }
+    let pause = just_suspended && playing;
+    sync_touch(&mut state, bindings.as_deref(), pause);
     for t in touches.read() {
         if t.window != window_id {
             continue;
@@ -383,61 +478,11 @@ fn input(
             }
             _ => {}
         }
+        sync_touch(&mut state, bindings.as_deref(), pause);
     }
-    let mut wanted_keys = HashSet::new();
-    // Open the ordinary pause menu on backgrounding, so returning never resumes combat.
-    if just_suspended && playing {
-        wanted_keys.insert(KeyCode::Escape);
-    }
-    let mut wanted_mouse = HashSet::new();
-    let mut controls = Vec::new();
-    for c in state.contacts.values() {
-        match c.role {
-            Role::Move if playing => {
-                let d = c.position - c.origin;
-                if d.x > 0.025 {
-                    controls.push(Control::SlideRight);
-                }
-                if d.x < -0.025 {
-                    controls.push(Control::SlideLeft);
-                }
-                if d.y > 0.04 {
-                    controls.push(Control::Back);
-                }
-                if d.y < -0.04 {
-                    controls.push(Control::Forward);
-                }
-            }
-            Role::Button(i) => {
-                let b = BUTTONS[i];
-                if b.playing != playing {
-                    continue;
-                }
-                if let Some(key) = b.key {
-                    wanted_keys.insert(key);
-                }
-                if let Some(control) = b.control {
-                    controls.push(control);
-                }
-            }
-            _ => {}
-        }
-    }
-    if let Some(bindings) = bindings {
-        for control in controls {
-            let b = bindings.get(control);
-            if let Some(k) = b.key {
-                wanted_keys.insert(k);
-            } else if let Some(m) = b.mouse {
-                wanted_mouse.insert(m);
-            }
-        }
-    }
-    state.managed_keys.extend(wanted_keys.iter().copied());
-    state.managed_mouse.extend(wanted_mouse.iter().copied());
-    state.keys = wanted_keys;
-    state.mouse = wanted_mouse;
+    sync_touch(&mut state, bindings.as_deref(), pause);
 }
+
 #[derive(Component)]
 struct TouchLabel(bool);
 fn labels(mut commands: Commands) {
@@ -694,5 +739,48 @@ mod tests {
                 .resource::<ButtonInput<MouseButton>>()
                 .just_released(MouseButton::Left));
         }
+    }
+    #[test]
+    fn fast_physical_key_and_mouse_taps_keep_both_edges_after_touch_ownership() {
+        let (mut app, w) = scene();
+        move_finger(&mut app, w);
+        touch(&mut app, w, 2, TouchPhase::Started, 920.0, 900.0);
+        app.update();
+        touch(&mut app, w, 1, TouchPhase::Ended, 200.0, 700.0);
+        touch(&mut app, w, 2, TouchPhase::Ended, 920.0, 900.0);
+        app.update();
+        physical_key(&mut app, w, ButtonState::Pressed);
+        physical_key(&mut app, w, ButtonState::Released);
+        physical_mouse(&mut app, w, ButtonState::Pressed);
+        physical_mouse(&mut app, w, ButtonState::Released);
+        app.update();
+        let keys = app.world().resource::<ButtonInput<KeyCode>>();
+        assert!(!keys.pressed(KeyCode::KeyW));
+        assert!(keys.just_pressed(KeyCode::KeyW) && keys.just_released(KeyCode::KeyW));
+        let mouse = app.world().resource::<ButtonInput<MouseButton>>();
+        assert!(!mouse.pressed(MouseButton::Left));
+        assert!(mouse.just_pressed(MouseButton::Left) && mouse.just_released(MouseButton::Left));
+    }
+    #[test]
+    fn a_touch_held_through_a_physical_tap_masks_both_physical_edges() {
+        let (mut app, w) = scene();
+        move_finger(&mut app, w);
+        app.update();
+        physical_key(&mut app, w, ButtonState::Pressed);
+        physical_key(&mut app, w, ButtonState::Released);
+        app.update();
+        let keys = app.world().resource::<ButtonInput<KeyCode>>();
+        assert!(keys.pressed(KeyCode::KeyW));
+        assert!(!keys.just_pressed(KeyCode::KeyW) && !keys.just_released(KeyCode::KeyW));
+    }
+    #[test]
+    fn touch_start_and_end_in_one_frame_preserve_tap_edges() {
+        let (mut app, w) = scene();
+        touch(&mut app, w, 1, TouchPhase::Started, 920.0, 900.0);
+        touch(&mut app, w, 1, TouchPhase::Ended, 920.0, 900.0);
+        app.update();
+        let mouse = app.world().resource::<ButtonInput<MouseButton>>();
+        assert!(!mouse.pressed(MouseButton::Left));
+        assert!(mouse.just_pressed(MouseButton::Left) && mouse.just_released(MouseButton::Left));
     }
 }
