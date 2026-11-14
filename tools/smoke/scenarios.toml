@@ -6087,7 +6087,7 @@ order = [[
 ]]
 expect = [
   { re = 'test aid: the player killed ', label = "the player kills Alexus (Game::kill)" },
-  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the Legionaries saw: they turn" },
+  { re = 'crime: murder against .*turned on the player: \[[^\]\s]', label = "a murder the Legionaries saw: they turn" },
 ]
 forbid = [{ re = 'crime: the player is no longer an enemy of ', label = "no crime expires within the run" }]
 
