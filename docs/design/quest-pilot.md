@@ -41,10 +41,10 @@ NVFOREVER_HOME=<a folder of its own> nvforever --data <Data> --play --new-game \
 
 | step | in the pilot |
 |---|---|
-| `move_player`, `go_to_cell`, `trigger_enter` | a walk on the navmesh (`fnv_nav`) on the player's own movement controls, through doors; a long way out of doors is cut to its last 3,000 units (a fast-travel stand-in); never put where it could not walk |
+| `move_player`, `go_to_cell`, `trigger_enter` | a walk on the navmesh (`fnv_nav`) on the player's own movement controls, through doors; a long way out of doors is cut to its last 3,000 units (a fast-travel stand-in), only within the player's own worldspace or into the Mojave's (never a DLC's); a load door into its own worldspace (the Strip's gates) counts as gone through by the jump; never put where it could not walk |
 | `talk`, `player_activate` | walk there, turn the view on it, ask the crosshair (`could_not_target` when it does not take it), activate as E does |
 | `choose`, `wait_talk`, `end_talk` | the dialogue screen's own calls; leaving is by the Goodbye choice with its line heard out (#2157), Tab on a topic list, `no_way_out` otherwise |
-| `say_info` (campaign) | the player brings the line about: keeps the speaker company, talks to it when it stands silent, picks the choices that lead to the line (`choice_toward`, up to 5 picks deep) |
+| `say_info` (campaign) | the player brings the line about: keeps the speaker company, talks to it when it stands silent, picks the choices that lead to the line (`choice_toward`, up to 5 picks deep), or, with no known way, tries the choices on offer one topic at a time (up to 12) |
 | `kill` | a fight with the player's own weapon (a 9mm pistol is given once, god mode on by default); the body is searched for quest items and keys |
 | `terminal` | walk there, activate, the screen's own input: password on the hacking page, into the sub menu, the entry |
 | `add_item` to the player (campaign) | taken from whoever holds it in the loaded cells, or where it lies; `item_not_found` and the headless gift otherwise |
@@ -55,7 +55,7 @@ NVFOREVER_HOME=<a folder of its own> nvforever --data <Data> --play --new-game \
 
 Of its own accord, between steps: it fights what attacks the player or the actor it is with,
 answers the level-up menu (points spread down the list, the first perk on offer), keeps its weapon
-whole, searches bodies, and at a door that stays locked tries the door's switch (a script that names
+whole, searches bodies, and at a door that stays locked (or, unlocked, does not take the player: a vault door "activated elsewhere") tries the door's switch (a script that names
 the door), a talking activator beside it, any other scripted activator beside it, a terminal entry
 that names the door, then another way round.
 
