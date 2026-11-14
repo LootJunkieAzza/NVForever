@@ -14,6 +14,8 @@ use nvf_assets::GameData;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod tga;
+
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
@@ -412,7 +414,7 @@ fn texture_read(
     decode: fn(&[u8], bool, bool) -> Result<Image, String>,
 ) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match decode(&bytes, true, bc) {
+    match decode_texture(&bytes, bc, decode) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
@@ -423,6 +425,14 @@ fn texture_read(
             None
         }
     }
+}
+
+fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> Result<Image, String>) -> Result<Image, String> {
+    if bytes.starts_with(b"DDS ") || !tga::recognizable(bytes) {
+        return decode_dds(bytes, true, bc);
+    }
+    let decoded = tga::decode(bytes)?;
+    nvf_assets::texture::checked_image(decoded.width, decoded.height, 1, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, decoded.rgba)
 }
 
 /// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
@@ -679,22 +689,9 @@ pub struct Pictures {
     indexes: HashMap<String, HashMap<String, AtlasPiece>>,
     /// Textures read so far, by path; `None` for one that could not be read.
     textures: HashMap<String, Option<(Handle<Image>, Vec2)>>,
-    /// Own-file dimensions for logical UI metrics, independent of atlas packing.
-    source_sizes: HashMap<String, Option<Vec2>>,
 }
 
 impl Pictures {
-    /// Read a picture's own validated DDS dimensions without decoding/uploading it.
-    /// Atlas texels describe packed art; HD layout metrics refer to the source file.
-    pub fn source_size(&mut self, path: &str, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<Vec2> {
-        let path = own_texture(path);
-        *self.source_sizes.entry(path).or_insert_with_key(|path| {
-            let bytes = read(path)?;
-            let dds = fnv_dds::Dds::parse(&bytes).ok()?;
-            Some(Vec2::new(dds.header.width as f32, dds.header.height as f32))
-        })
-    }
-
     pub fn load(data: Option<&GameData>) -> Pictures {
         let atlas = data.and_then(|d| d.read(ATLAS_INDEX)).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default();
         Pictures { atlas, ..default() }
@@ -786,6 +783,10 @@ fn own_texture(path: &str) -> String {
 mod layout_tests;
 
 #[cfg(test)]
+#[path = "interface/tga_consumer_tests.rs"]
+mod tga_consumer_tests;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
@@ -798,39 +799,6 @@ pub(crate) mod tests {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
         bytes
-    }
-
-    #[test]
-    fn paperdoll_source_dimensions_use_the_own_file_and_cache_a_normalized_name() {
-        let calls = std::cell::Cell::new(0);
-        let read = |path: &str| {
-            calls.set(calls.get() + 1);
-            assert_eq!(path, "textures\\interface\\stats\\torso_broken.dds");
-            Some(authored_rgba_dds(512, 512))
-        };
-        // Packing could put this art in an unrelated-size atlas. Metrics must not
-        // substitute the atlas's full dimensions or its padding-trimmed rectangle.
-        let mut pictures = Pictures::with_atlas(HashMap::from([("torso_broken.dds".into(), AtlasPiece {
-            atlas: "different-atlas.dds".into(), rect: [0.25, 0.5, 0.125, 0.125],
-        })]));
-        assert_eq!(pictures.source_size("Interface\\Stats\\Torso_Broken.dds", &read), Some(Vec2::splat(512.0)));
-        assert_eq!(pictures.source_size("interface\\stats\\torso_broken.dds", &read), Some(Vec2::splat(512.0)));
-        assert_eq!(calls.get(), 1);
-        // A separate session owns separate metadata; one game's replacement does
-        // not leak its density into another game's 128px paperdoll.
-        let mut fresh = Pictures::default();
-        assert_eq!(fresh.source_size("Interface\\Stats\\torso_broken.dds", &|_| Some(authored_rgba_dds(128, 128))), Some(Vec2::splat(128.0)));
-    }
-
-    #[test]
-    fn paperdoll_incomplete_or_invalid_dds_does_not_supply_layout_density() {
-        let mut pictures = Pictures::default();
-        assert_eq!(pictures.source_size("missing.dds", &|_| None), None);
-        assert_eq!(pictures.source_size("bad.dds", &|_| Some(vec![0; 128])), None);
-        let mut truncated = authored_rgba_dds(8, 8);
-        truncated.truncate(128);
-        assert_eq!(pictures.source_size("truncated.dds", &|_| Some(truncated.clone())), None);
-        assert_eq!(pictures.source_size("zero.dds", &|_| Some(authored_rgba_dds(0, 1))), None);
     }
 
     #[test]

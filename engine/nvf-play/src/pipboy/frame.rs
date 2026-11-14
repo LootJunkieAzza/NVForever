@@ -683,12 +683,14 @@ fn on_header_out(out: On<PointerOut>, children: Query<&Children>, mut boxes: Que
 // ---- Added for the STATS page ------------------------------------------------------
 
 impl Ctx<'_> {
-    /// Logical units per source pixel, before atlas padding or packing.
-    /// A missing/invalid anchor retains the existing one-pixel layout behavior.
+    /// Adjust only an actually selected own image. Atlas pieces retain the existing
+    /// texel layout; a loose file shadowed by an atlas must not set their density.
     pub fn picture_zoom(&mut self, path: &str, logical_height: f32) -> f32 {
-        let size = self.data.and_then(|data| self.kit.pictures.as_mut()?.source_size(path, &|path| data.read(path)));
-        size.filter(|s| s.y > 0.0 && s.y.is_finite())
-            .map_or(1.0, |s| logical_height / s.y)
+        let Some((image, None)) = self.picture(path) else { return 1.0 };
+        self.images.get(&image).map_or(1.0, |image| {
+            let height = image.size().y;
+            if height == 0 { 1.0 } else { logical_height / height as f32 }
+        })
     }
 
     /// A picture's size in its file's pixels: its atlas piece's, or the whole file's.
