@@ -1682,6 +1682,8 @@ impl Ai {
     ///
     /// The wait location's radius is not wandered in; the target is not made to stand
     /// still or to walk to the trigger location ("Do Not Control Target Movement" off).
+    /// Instead, with that flag off and the player as the target, case 2 waits for the
+    /// player to be in the trigger location too (issue #2453, below).
     fn talk_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
@@ -1732,7 +1734,19 @@ impl Ai {
             Talking::Waiting => {
                 let triggered = talk.trigger.holds(game, feet, target);
                 // Case 2: a trigger location and a wait location without a radius.
-                let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0;
+                // With "Do Not Control Target Movement" off the target "will walk
+                // towards that location [the trigger location] when the dialogue
+                // package starts" [documented: GECK wiki, Dialogue Package], so the
+                // player stands in it as the conversation opens, and end scripts count
+                // on that: Ramos's "Follow me" (INFO 000A3CE0) fades the screen and
+                // leaves the escort to an OnTrigger block of the trigger location
+                // itself (HVRamosTargetDialogTrigger), which runs only with the player
+                // inside it (issue #2453). We do not walk the player; the actor waits
+                // instead until the player is in the trigger location as well as
+                // within the activate distance [hypothesis: the same end state as the
+                // original's walk; docs/spec-notes/packages.md §3].
+                let held_to_trigger = talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
+                let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0 && !held_to_trigger;
                 if near && (triggered || on_the_spot) {
                     self.talk_start(game, actor, package, &talk, away);
                 } else if triggered && !stays {

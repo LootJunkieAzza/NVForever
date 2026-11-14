@@ -83,6 +83,9 @@ pub struct Talk {
     pub say_to: bool,
     /// PKDD "No Headtracking": speaker and target are not made to look at each other.
     pub no_headtracking: bool,
+    /// PKDD "Do Not Control Target Movement" off: with a trigger location, the target
+    /// is to be in it when the conversation starts (`fnv_ai::carry`, `talk_step`).
+    pub control_target: bool,
 }
 
 /// What a Follow or Accompany package has its actor do: keep within `distance` of its
@@ -309,6 +312,17 @@ impl Trigger {
             Trigger::NearActor { radius } => near(feet, *radius),
             Trigger::InCell(cell) => cell_of_place(game.world.placed, &target) == Some(*cell),
             Trigger::Never => false,
+        }
+    }
+
+    /// Whether the trigger location is a place a target can be in: a volume, a radius
+    /// above 0 or a cell. A reference with radius 0 and no volume of its own is not.
+    pub fn has_room(&self, game: &Game) -> bool {
+        match self {
+            Trigger::None | Trigger::Never => false,
+            Trigger::NearReference { reference, radius } => *radius > 0.0 || game.world.placed.get(*reference).is_some_and(|p| p.primitive.is_some()),
+            Trigger::Near { radius, .. } | Trigger::NearActor { radius } => *radius > 0.0,
+            Trigger::InCell(_) => true,
         }
     }
 }
@@ -606,6 +620,7 @@ fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         topic: data.topic,
         say_to: data.say_to,
         no_headtracking: data.no_headtracking,
+        control_target: !data.dont_control_target_movement,
     })
 }
 
