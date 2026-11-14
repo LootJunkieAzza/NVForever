@@ -49,6 +49,9 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 png = "0.18"
+# Owned SVG touch icons at actual physical UI dimensions; already locked, BSD-3-Clause.
+# No runtime XML parser or PNG encoder. See docs/design/android-svg-icons.md.
+tiny-skia = { version = "=0.11.4", default-features = false, features = ["std", "simd"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }

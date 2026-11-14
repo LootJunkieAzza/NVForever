@@ -786,6 +786,7 @@ struct Slot {
     order: usize,
     wrapper: Option<Entity>,
     outer: Option<Entity>,
+    hud_size: Option<crate::hud_readability::Part>,
 }
 
 /// A piece by its tile and its count among that tile's pieces, as slots are kept.
@@ -1570,6 +1571,20 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     }
     // The HUD keeps the view's own frame: its places are written for the scaled view.
     paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
+    if let Some(ui) = ui {
+        for ((tile, _), slot) in &mut drawn.slots {
+            let wanted = crate::hud_readability::tile_part(&ui.path_of(*tile));
+            if wanted != slot.hud_size {
+                if let Some(part) = wanted {
+                    commands.entity(slot.node).insert(crate::hud_readability::HudSize(part));
+                } else {
+                    commands.entity(slot.node).remove::<crate::hud_readability::HudSize>()
+                        .insert(UiTransform::IDENTITY);
+                }
+                slot.hud_size = wanted;
+            }
+        }
+    }
 }
 
 /// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
@@ -1860,7 +1875,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     commands.entity(root).with_children(|r| {
                         let mut nodes = (None, None);
                         let node = r.spawn((full, ZIndex(i as i32), Pickable::IGNORE)).with_children(|s| nodes = fill(s, piece, &ctx, picture, baked, strip, model)).id();
-                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1 });
+                        slot = Some(Slot { node, order: i, wrapper: nodes.0, outer: nodes.1, hud_size: None });
                     });
                     drawn.slots.extend(slot.map(|s| (key, s)));
                 }

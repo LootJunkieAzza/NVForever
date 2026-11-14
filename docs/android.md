@@ -80,3 +80,17 @@ positions alone; Save/Cancel includes both the layout and aiming settings.
 
 This follow-up source still needs compilation, execution and rendered device validation;
 it is separate from the earlier experimental APK.
+An additional source increment adds **Adaptive touch actions** in the Touch settings
+group. The existing Aim action displays **Block** for ready drawn melee weapons or
+fists, and **Scope** for a ready drawn scope-equipped gun. Turn it off to keep the
+static Aim caption and icon. Its action binding, saved `Aim` layout key, node and
+position remain the same. Compilation, merged input/toggle qualification and device
+rendering remain pending; this is not yet an installed feature.
+
+## Original touch icon families follow-up
+
+Controls > Touch offers Precise line, Bold filled, Rounded and Industrial action icons.
+The choice is saved for the next start. It changes artwork without changing positions,
+bindings, hit targets or tint. Companion and Aid artwork is available for future controls.
+This source follow-up still needs rendered Android validation; the
+[family design](design/android-icon-families.md) records the remaining checks.

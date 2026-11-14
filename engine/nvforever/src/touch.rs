@@ -11,6 +11,7 @@ use bevy::window::{AppLifecycle, PrimaryWindow, WindowFocused};
 use nvf_play::bindings::{Bindings, Control};
 use std::collections::{HashMap, HashSet};
 
+mod action_presentation;
 mod aiming;
 mod drawer;
 mod icons;
@@ -21,6 +22,8 @@ pub struct TouchControlsPlugin;
 impl Plugin for TouchControlsPlugin {
     fn build(&self, app: &mut App) {
         drawer::install(app);
+        icons::install(app);
+        action_presentation::install(app);
         app.init_resource::<TouchState>()
             .init_resource::<Layout>()
             .init_resource::<nvf_play::pad::TouchDeviceSwitch>()
@@ -656,9 +659,8 @@ pub(super) enum TouchVisual {
     EditorMessage,
     AimingValue(bool),
 }
-fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn labels(mut commands: Commands) {
     for (i, b) in BUTTONS.iter().enumerate() {
-        let image = images.add(icons::image(i));
         commands
             .spawn((
                 Node {
@@ -676,7 +678,8 @@ fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             ))
             .with_children(|p| {
                 p.spawn((
-                    ImageNode::new(image),
+                    ImageNode::default(),
+                    icons::TouchIcon(i),
                     TouchVisual::Glyph,
                     Node {
                         width: percent(66.0),
@@ -719,7 +722,8 @@ fn labels(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     }
     for (visual, index) in [(TouchVisual::Gear, 18), (TouchVisual::Help, 19)] {
         commands.spawn((
-            ImageNode::new(images.add(icons::image(index))),
+            ImageNode::default(),
+            icons::TouchIcon(index),
             Node {
                 position_type: PositionType::Absolute,
                 border_radius: BorderRadius::MAX,

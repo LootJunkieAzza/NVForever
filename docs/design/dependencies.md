@@ -105,3 +105,16 @@ VM owned by Bevy's AndroidApp and calls the private app activity for startup arg
 restart and exit. The `nvf-android` entry package uses the existing pinned Bevy and
 its `android-native-activity` feature. Java uses Android's platform APIs without a
 third-party runtime library. Gradle 8.11.1 and Android Gradle Plugin 8.9.2 are build tools.
+
+## Owned Android touch SVG rasterization (#2436)
+
+[design] `nvforever` requests tiny-skia =0.11.4 directly (BSD-3-Clause), already present
+in engine/Cargo.lock via Bevy. Default features are disabled; `std`/`simd` provide the
+bounded antialiased path stroker, without enabling a PNG encoder. Owned SVG is validated
+at build time by a strict Python standard-library compiler, not a runtime XML crate.
+No resvg/usvg or external artwork dependency is added. Cargo must normally regenerate
+the direct dependency's lock entry and licence/advisory checks remain required before
+integration; this source packet deliberately does not hand-edit the lock. The build step
+uses `NVF_PYTHON` (already set by tools/android/build.py), or host `python`/`python3`;
+therefore a direct Cargo build also needs Python 3.11+ on PATH or that explicit variable.
+See [android-svg-icons.md](android-svg-icons.md) for bounds and pending GPU validation.

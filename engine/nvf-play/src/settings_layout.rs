@@ -38,13 +38,21 @@ pub struct Placement {
 impl Placement {
     /// A tab of its own, with no heading.
     pub const fn tab(tab: &'static str) -> Placement {
-        Placement { tab, subgroup: None, heading: None }
+        Placement {
+            tab,
+            subgroup: None,
+            heading: None,
+        }
     }
 
     /// Its tab, group and heading in English joined by " > " (`Gameplay > Dialogue`), as
     /// the log names it.
     pub fn path(&self) -> String {
-        [Some(self.tab), self.subgroup, self.heading].into_iter().flatten().collect::<Vec<_>>().join(" > ")
+        [Some(self.tab), self.subgroup, self.heading]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" > ")
     }
 }
 
@@ -55,39 +63,164 @@ pub struct Section {
 }
 
 /// The tabs, in the order the page lists them [design: #1953].
-pub const TAB_ORDER: [&str; 7] = ["Gameplay", "Display", "Audio", "Controls", "Graphics", "Tweaks", "Debug"];
+pub const TAB_ORDER: [&str; 7] = [
+    "Gameplay", "Display", "Audio", "Controls", "Graphics", "Tweaks", "Debug",
+];
 /// The tab whose first rows are the controls' keys and buttons (`crate::bindings`), drawn
 /// by the page itself before this table's rows.
 pub const CONTROLS_TAB: &str = "Controls";
 /// The tab #1892's tweaks register under.
 pub const TWEAKS_TAB: &str = "Tweaks";
 
-const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'static [&'static str]) -> Section {
-    Section { placement: Placement { tab, subgroup: None, heading }, keys }
+const fn section(
+    tab: &'static str,
+    heading: Option<&'static str>,
+    keys: &'static [&'static str],
+) -> Section {
+    Section {
+        placement: Placement {
+            tab,
+            subgroup: None,
+            heading,
+        },
+        keys,
+    }
 }
 
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
-    section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
-    section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
-    section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
-    section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
-    section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
+    section(
+        "Gameplay",
+        Some("Game"),
+        &[
+            "difficulty",
+            "hardcore",
+            "kill-camera",
+            "vats-style",
+            "vats-slowdown",
+            "reload-slows",
+            "UsePipBoy",
+        ],
+    ),
+    section(
+        "Gameplay",
+        Some("Saving"),
+        &[
+            "autosave-travel",
+            "autosave-fast-travel",
+            "autosave-wait",
+            "autosave-sleep",
+            "autosave-scripts",
+        ],
+    ),
+    section(
+        "Gameplay",
+        Some("Dialogue"),
+        &[
+            "menu-pause",
+            "dialogue-goodbye-hint",
+            "dialogue-look",
+            "dialogue-recentre",
+            "dialogue-zoom",
+            "lip-sync",
+        ],
+    ),
+    section(
+        "Gameplay",
+        Some("Reports"),
+        &["send-reports", "reports-delete"],
+    ),
+    section(
+        "Gameplay",
+        Some("Camera"),
+        &[
+            "detached-camera",
+            "true-iron-sights",
+            "first-person-body",
+            "weapon-sway",
+            "head-bob",
+            "weapon-lower",
+            "field-of-view",
+        ],
+    ),
+    section(
+        "Display",
+        Some("Screen"),
+        &[
+            "resolution",
+            "borderless",
+            "monitor",
+            "display-sync",
+            "frame-cap",
+            "ui-scale",
+        ],
+    ),
     section(
         "Display",
         Some("Interface"),
-        &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue", "language", "dynamic-crosshair", "crosshair-style", "sneak-gauges"],
+        &[
+            "hud-colour",
+            "hud-red",
+            "hud-green",
+            "hud-blue",
+            "pipboy-colour",
+            "pipboy-red",
+            "pipboy-green",
+            "pipboy-blue",
+            "language",
+            "dynamic-crosshair",
+            "crosshair-style",
+            "sneak-gauges",
+            "hud-health-size-v1",
+            "hud-action-points-size-v1",
+            "hud-compass-size-v1",
+        ],
     ),
     section(
         "Display",
         Some("Performance"),
-        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded", "fps-counter-upscaling"],
+        &[
+            "fps-counter",
+            "fps-counter-fps",
+            "fps-counter-low",
+            "fps-counter-graph",
+            "fps-counter-split",
+            "fps-counter-cpu",
+            "fps-counter-gpu",
+            "fps-counter-vram",
+            "fps-counter-ram",
+            "fps-counter-loaded",
+            "fps-counter-upscaling",
+        ],
     ),
-    section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
+    section(
+        "Audio",
+        None,
+        &[
+            "volume-master",
+            "volume-music",
+            "volume-footstep",
+            "volume-voice",
+            "volume-effects",
+            "volume-radio",
+            "music",
+            "voice",
+            "reverb",
+            "voice-reverb",
+        ],
+    ),
     section("Controls", None, &CONTROLLER_KEYS),
-    section("Controls", Some("Touch"), &["touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"]),
+    section(
+        "Controls",
+        Some("Touch"),
+        &[
+            "touch-pipboy-swipe-v1",
+            "touch-pipboy-distance-v1",
+            "touch-icon-family",
+            "adaptive-touch-actions",
+        ],
+    ),
     // The quality presets over the rows they set, under a heading of their own; the
     // enhanced look as a whole first under Picture [design: #1966].
     section("Graphics", Some("Quality"), &["quality"]),
@@ -120,9 +253,29 @@ pub const SECTIONS: &[Section] = &[
             "water-mirror",
         ],
     ),
-    section("Graphics", Some("Distance"), &["distant-lod", "grass", "object-distance", "actor-distance", "item-distance", "shadow-distance", "grass-distance"]),
-    section("Graphics", Some("World"), &["head-tracking", "foot-ik", "sky-clock"]),
-    section("Debug", None, &["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]),
+    section(
+        "Graphics",
+        Some("Distance"),
+        &[
+            "distant-lod",
+            "grass",
+            "object-distance",
+            "actor-distance",
+            "item-distance",
+            "shadow-distance",
+            "grass-distance",
+        ],
+    ),
+    section(
+        "Graphics",
+        Some("World"),
+        &["head-tracking", "foot-ik", "sky-clock"],
+    ),
+    section(
+        "Debug",
+        None,
+        &["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"],
+    ),
 ];
 
 /// The Controls tab's rows that are shown only while the input device is a controller
@@ -142,7 +295,10 @@ pub fn check(sections: &[Section]) -> Result<(), String> {
             return Err(format!("{}: not one of the tabs", s.placement.tab));
         }
         if s.placement.subgroup.is_some() {
-            return Err(format!("{}: a group is for the Tweaks list, not yet", s.placement.path()));
+            return Err(format!(
+                "{}: a group is for the Tweaks list, not yet",
+                s.placement.path()
+            ));
         }
         for k in s.keys {
             if seen.contains(k) {
@@ -190,11 +346,23 @@ pub struct ResolvedLayout {
 /// left out, a section left with none dropped), then each tab's unnamed rows, then the
 /// unnamed groups' tabs. Every registered row is in it once.
 pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
-    let index: std::collections::HashMap<&str, usize> = list.iter().enumerate().map(|(i, s)| (s.key, i)).collect();
+    let index: std::collections::HashMap<&str, usize> =
+        list.iter().enumerate().map(|(i, s)| (s.key, i)).collect();
     let mut placements: Vec<Option<Placement>> = vec![None; list.len()];
-    let mut tabs: Vec<ResolvedTab> = TAB_ORDER.iter().map(|&name| ResolvedTab { name, sections: Vec::new() }).collect();
+    let mut tabs: Vec<ResolvedTab> = TAB_ORDER
+        .iter()
+        .map(|&name| ResolvedTab {
+            name,
+            sections: Vec::new(),
+        })
+        .collect();
     for s in SECTIONS {
-        let rows: Vec<usize> = s.keys.iter().filter_map(|k| index.get(k).copied()).filter(|&i| placements[i].is_none()).collect();
+        let rows: Vec<usize> = s
+            .keys
+            .iter()
+            .filter_map(|k| index.get(k).copied())
+            .filter(|&i| placements[i].is_none())
+            .collect();
         if rows.is_empty() {
             continue;
         }
@@ -202,7 +370,10 @@ pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
             placements[i] = Some(s.placement);
         }
         if let Some(t) = tabs.iter_mut().find(|t| t.name == s.placement.tab) {
-            t.sections.push(ResolvedSection { placement: s.placement, rows });
+            t.sections.push(ResolvedSection {
+                placement: s.placement,
+                rows,
+            });
         }
     }
     // The unnamed rows, by tab, in registry order: one section after each tab's named ones.
@@ -215,7 +386,10 @@ pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
         let t = match tabs.iter().position(|t| t.name == s.group) {
             Some(t) => t,
             None => {
-                tabs.push(ResolvedTab { name: s.group, sections: Vec::new() });
+                tabs.push(ResolvedTab {
+                    name: s.group,
+                    sections: Vec::new(),
+                });
                 tabs.len() - 1
             }
         };
@@ -229,7 +403,14 @@ pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
         let placement = Placement::tab(tabs[t].name);
         tabs[t].sections.push(ResolvedSection { placement, rows });
     }
-    ResolvedLayout { tabs, placements: placements.into_iter().map(|p| p.unwrap_or(Placement::tab(""))).collect(), unnamed: count }
+    ResolvedLayout {
+        tabs,
+        placements: placements
+            .into_iter()
+            .map(|p| p.unwrap_or(Placement::tab("")))
+            .collect(),
+        unnamed: count,
+    }
 }
 
 impl ResolvedLayout {
@@ -255,7 +436,9 @@ impl ResolvedLayout {
     /// Every registered row in the page's order: tab by tab, section by section (what
     /// search and the Changed list go by).
     pub fn ordered_settings(&self) -> impl Iterator<Item = usize> + '_ {
-        self.tabs.iter().flat_map(|t| t.sections.iter().flat_map(|s| s.rows.iter().copied()))
+        self.tabs
+            .iter()
+            .flat_map(|t| t.sections.iter().flat_map(|s| s.rows.iter().copied()))
     }
 
     /// Tab `name`'s lines: each section's heading (when it has one and a row `visible`
@@ -283,7 +466,15 @@ mod tests {
     use crate::settings::Settings;
 
     fn row(key: &'static str, group: &'static str) -> Setting {
-        Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {}, slider: None }
+        Setting {
+            key,
+            group,
+            label: key,
+            note: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        }
     }
 
     /// The registry as `Settings::add` orders it.
@@ -310,7 +501,7 @@ mod tests {
     /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
     /// FSR library row, #2242's upscaling counter row and #2317's Generated frames row), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 111] = [
+    const KNOWN: [(&str, &str); 116] = [
         ("touch-pipboy-swipe-v1", "Controller"),
         ("touch-pipboy-distance-v1", "Controller"),
         ("detached-camera", "Gameplay"),
@@ -335,6 +526,8 @@ mod tests {
         ("true-iron-sights", "Gameplay"),
         ("scope-3d", "Gameplay"),
         ("button-style", "Controller"),
+        ("touch-icon-family", "Touch"),
+        ("adaptive-touch-actions", "Touch"),
         ("aim-assist", "Controller"),
         ("aim-slowdown", "Controller"),
         ("aim-lock", "Controller"),
@@ -368,6 +561,9 @@ mod tests {
         ("grade", "Display"),
         ("field-of-view", "Display"),
         ("ui-scale", "Display"),
+        ("hud-health-size-v1", "Display"),
+        ("hud-action-points-size-v1", "Display"),
+        ("hud-compass-size-v1", "Display"),
         ("fps-counter", "Display"),
         ("fps-counter-fps", "Display"),
         ("fps-counter-low", "Display"),
@@ -427,12 +623,18 @@ mod tests {
     #[test]
     fn the_table_names_each_key_once_in_one_of_the_tabs() {
         assert_eq!(check(SECTIONS), Ok(()));
-        let twice = [section("Gameplay", None, &["a"]), section("Debug", None, &["a"])];
+        let twice = [
+            section("Gameplay", None, &["a"]),
+            section("Debug", None, &["a"]),
+        ];
         assert!(check(&twice).unwrap_err().contains("placed twice"));
         let odd = [section("Sound", None, &["a"])];
         assert!(check(&odd).is_err());
         // Every row there is has its place in the table, and the table names no other.
-        let named: Vec<&str> = SECTIONS.iter().flat_map(|s| s.keys.iter().copied()).collect();
+        let named: Vec<&str> = SECTIONS
+            .iter()
+            .flat_map(|s| s.keys.iter().copied())
+            .collect();
         for (k, _) in KNOWN {
             assert!(named.contains(&k), "{k} has no place");
         }
@@ -443,56 +645,158 @@ mod tests {
     fn the_seven_tabs_come_first_with_every_row_once_in_the_tables_order() {
         let list = registry(&KNOWN);
         let l = resolve_layout(&list);
-        assert_eq!(l.tab_names(), TAB_ORDER, "no group is a tab of its own: every row is named");
+        assert_eq!(
+            l.tab_names(),
+            TAB_ORDER,
+            "no group is a tab of its own: every row is named"
+        );
         assert_eq!(l.unnamed(), 0);
         let mut all: Vec<usize> = l.ordered_settings().collect();
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
-        assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
-        assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
-        let mut controls = CONTROLLER_KEYS.map(str::to_string).to_vec();
-        controls.extend(["[Touch]", "touch-pipboy-swipe-v1", "touch-pipboy-distance-v1"].map(str::to_string));
-        assert_eq!(keys(&list, &l, "Controls"), controls);
-        assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);
-        assert!(keys(&list, &l, "Tweaks").is_empty(), "an empty tab is still a tab");
-        let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
+        assert_eq!(
+            all,
+            (0..list.len()).collect::<Vec<_>>(),
+            "each registered row once"
+        );
+        assert_eq!(
+            keys(&list, &l, "Gameplay")[..9],
+            [
+                "[Game]",
+                "difficulty",
+                "hardcore",
+                "kill-camera",
+                "vats-style",
+                "vats-slowdown",
+                "reload-slows",
+                "UsePipBoy",
+                "[Saving]"
+            ]
+        );
+        assert_eq!(
+            keys(&list, &l, "Audio"),
+            [
+                "volume-master",
+                "volume-music",
+                "volume-footstep",
+                "volume-voice",
+                "volume-effects",
+                "volume-radio",
+                "music",
+                "voice",
+                "reverb",
+                "voice-reverb"
+            ]
+        );
+        assert_eq!(
+            keys(&list, &l, "Controls"),
+            CONTROLLER_KEYS
+                .into_iter()
+                .chain([
+                    "[Touch]",
+                    "touch-pipboy-swipe-v1",
+                    "touch-pipboy-distance-v1",
+                    "touch-icon-family",
+                    "adaptive-touch-actions"
+                ])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            keys(&list, &l, "Debug"),
+            ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]
+        );
+        assert!(
+            keys(&list, &l, "Tweaks").is_empty(),
+            "an empty tab is still a tab"
+        );
+        let at = |k: &str| {
+            l.placement_of(list.iter().position(|s| s.key == k).unwrap())
+                .unwrap()
+                .path()
+        };
         assert_eq!(at("menu-pause"), "Gameplay > Dialogue");
         assert_eq!(at("head-bob"), "Gameplay > Camera");
         assert_eq!(at("hud-red"), "Display > Interface");
+        for key in [
+            "hud-health-size-v1",
+            "hud-action-points-size-v1",
+            "hud-compass-size-v1",
+        ] {
+            assert_eq!(at(key), "Display > Interface");
+        }
         assert_eq!(at("sky-clock"), "Graphics > World");
         assert_eq!(at("quality"), "Graphics > Quality");
         assert_eq!(at("enhanced"), "Graphics > Picture");
-        assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
+        assert_eq!(
+            keys(&list, &l, "Graphics")[..4],
+            ["[Quality]", "quality", "[Picture]", "enhanced"],
+            "the presets first, under their own heading (#1966)"
+        );
         assert_eq!(at("button-style"), "Controls");
         assert_eq!(at("touch-pipboy-swipe-v1"), "Controls > Touch");
         assert_eq!(at("touch-pipboy-distance-v1"), "Controls > Touch");
+        assert_eq!(at("touch-icon-family"), "Controls > Touch");
+        assert_eq!(at("adaptive-touch-actions"), "Controls > Touch");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);
-        assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
+        assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key
+            && a.group == b.group
+            && a.label == b.label
+            && a.note == b.note));
     }
 
     #[test]
     fn a_missing_row_and_an_empty_heading_are_left_out() {
         // No lip sync, no player body; no head tracking, foot IK or sky clock at all.
-        let list = registry(&[("difficulty", "Gameplay"), ("menu-pause", "Gameplay"), ("head-bob", "Display"), ("god-mode", "Debug")]);
+        let list = registry(&[
+            ("difficulty", "Gameplay"),
+            ("menu-pause", "Gameplay"),
+            ("head-bob", "Display"),
+            ("god-mode", "Debug"),
+        ]);
         let l = resolve_layout(&list);
-        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "[Dialogue]", "menu-pause", "[Camera]", "head-bob"]);
+        assert_eq!(
+            keys(&list, &l, "Gameplay"),
+            [
+                "[Game]",
+                "difficulty",
+                "[Dialogue]",
+                "menu-pause",
+                "[Camera]",
+                "head-bob"
+            ]
+        );
         assert!(keys(&list, &l, "Graphics").is_empty());
         // A hidden row hides its heading when it is the section's only one, and keeps its place.
         let hidden = list.iter().position(|s| s.key == "menu-pause").unwrap();
         let shown: Vec<_> = l.tab_entries("Gameplay", |i| i != hidden);
-        assert!(!shown.iter().any(|e| matches!(e, LayoutEntry::Heading(p) if p.heading == Some("Dialogue"))));
-        assert_eq!(l.placement_of(hidden).unwrap().path(), "Gameplay > Dialogue");
+        assert!(!shown
+            .iter()
+            .any(|e| matches!(e, LayoutEntry::Heading(p) if p.heading == Some("Dialogue"))));
+        assert_eq!(
+            l.placement_of(hidden).unwrap().path(),
+            "Gameplay > Dialogue"
+        );
     }
 
     #[test]
     fn an_unnamed_row_stays_under_its_own_group() {
-        let list = registry(&[("difficulty", "Gameplay"), ("new-switch", "Gameplay"), ("odd-sound", "Sound"), ("x1", "Mods"), ("volume-master", "Sound"), ("x2", "Extras"), ("x3", "Mods")]);
+        let list = registry(&[
+            ("difficulty", "Gameplay"),
+            ("new-switch", "Gameplay"),
+            ("odd-sound", "Sound"),
+            ("x1", "Mods"),
+            ("volume-master", "Sound"),
+            ("x2", "Extras"),
+            ("x3", "Mods"),
+        ]);
         let l = resolve_layout(&list);
         // After Debug, in the order the groups first appear in the registry; Sound is not Audio.
         assert_eq!(l.tab_names()[7..], ["Sound", "Mods", "Extras"]);
-        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "new-switch"]);
+        assert_eq!(
+            keys(&list, &l, "Gameplay"),
+            ["[Game]", "difficulty", "new-switch"]
+        );
         assert_eq!(keys(&list, &l, "Sound"), ["odd-sound"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master"]);
         assert_eq!(keys(&list, &l, "Mods"), ["x1", "x3"]);
@@ -518,7 +822,10 @@ mod tests {
         assert_eq!(l.tab_names(), TAB_ORDER);
         let shown = keys(&list, &l, "Tweaks");
         assert_eq!(shown.len(), 650, "no heading: all in one run");
-        assert!(shown.iter().zip(&names).all(|(a, b)| a == b), "in the order registered");
+        assert!(
+            shown.iter().zip(&names).all(|(a, b)| a == b),
+            "in the order registered"
+        );
         assert_eq!(l.ordered_settings().count(), list.len());
     }
 }

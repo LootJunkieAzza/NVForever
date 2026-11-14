@@ -9,5 +9,5 @@ engine/nvforever/src/dlss_download/nvngx_dlss.license.txt -text
 # Published Rapier sources and licence retain their reviewed bytes on Windows too.
 vendor/rapier3d/** -text
 
-# Published winit sources retain their reviewed archive bytes on Windows too.
+# Preserve exact upstream winit archive bytes.
 engine/vendor/winit/** -text

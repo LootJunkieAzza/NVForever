@@ -4733,6 +4733,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "texpresso",
+ "tiny-skia",
  "tracy-client",
  "ureq",
  "uuid",
