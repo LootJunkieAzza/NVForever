@@ -834,7 +834,13 @@ fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: boo
                 (Seat::None, Some(SeatOrder::Cancel))
             }
         }
-        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, false)), None),
+        // Its package's furniture: walked up to and got on in sight when drawn; when not
+        // drawn it got there unseen, so it is put on at once once it is (item 204b: the
+        // crucified at Nipton, walked to their crosses by the low process while the host
+        // was in the general store, climbed on in front of it when it came out; in the
+        // original they hang there from the start) [observed; the rule: design, as
+        // `Ordered` going out of sight on its furniture comes back on at once].
+        (Seat::None, _) => (wants.map_or(Seat::None, |f| Seat::Wanted(f, !drawn)), None),
         // The order goes out in the frame that found it eligible, not through `Wanted`:
         // by the next frame its AI may be off, or it may be held or out cold.
         (Seat::Waiting(f, so_far), _) => match (retry::waiting(f, so_far, frame), drawn) {
@@ -3984,6 +3990,22 @@ mod tests {
         let (seat, order) = next_seat(seat, true, false, &now, false);
         assert_eq!((seat, order), (Seat::Wanted(7, false), None));
         assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(7, false), Some(SeatOrder::Sit(7, false))));
+    }
+
+    /// Furniture its package gives it while it is not drawn: it got there unseen, so
+    /// it is put on at once when drawn (the crucified at Nipton, item 204b); while
+    /// drawn, it walks up and gets on by the enter clip, as before.
+    #[test]
+    fn furniture_reached_unseen_is_got_on_at_once() {
+        use super::{next_seat, retry::Now, Seat, SeatOrder};
+        let now = Now { wants: Some(0x0013_9FD7), eligible: true, seconds: 0.1, changed: false };
+        let (seat, order) = next_seat(Seat::None, false, false, &now, false);
+        assert_eq!((seat, order), (Seat::Wanted(0x0013_9FD7, true), None));
+        // Still not drawn: it waits; drawn: put on at once.
+        assert_eq!(next_seat(seat, false, false, &now, false), (seat, None));
+        assert_eq!(next_seat(seat, true, false, &now, false), (Seat::Ordered(0x0013_9FD7, false), Some(SeatOrder::Sit(0x0013_9FD7, true))));
+        // Drawn when its package gave it the cross: the enter clip in sight.
+        assert_eq!(next_seat(Seat::None, true, false, &now, false), (Seat::Wanted(0x0013_9FD7, false), None));
     }
 
     /// A reset of an actor not yet on its chair takes the order back (it is given again
