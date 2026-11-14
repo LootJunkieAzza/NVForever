@@ -595,6 +595,8 @@ impl Game<'_> {
     /// profiles, 2026-10-23, docs/design/streaming-hitches.md §4]. Within a round nothing
     /// they read changes: the pairs only record detections and awareness.
     pub fn begin_detection_round(&mut self) {
+        // Crimes that expired since the last round end first (`crate::crime`, #2467).
+        self.expire_crimes();
         self.detection_round = Some(Round { hostile: Some(HashMap::new()), ..Default::default() });
     }
 
@@ -620,6 +622,7 @@ impl Game<'_> {
     /// 2026-10-23, `Game::comrades` → `factions_of` in `npc_combat::fight`]. Scripts and
     /// crimes that change them forget them, so what is read is always what is current.
     pub fn begin_faction_frame(&mut self) {
+        self.expire_crimes();
         self.faction_frame = Some(Default::default());
     }
 

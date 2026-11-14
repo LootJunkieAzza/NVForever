@@ -843,9 +843,20 @@ pub struct PlayerState {
     pub challenges: BTreeMap<FormId, ChallengeState>,
     #[serde(skip_serializing_if = "FastTravel::is_default", default)]
     pub fast_travel: FastTravel,
-    /// Factions the player is an enemy of after a crime (SetPCEnemyOfFaction).
+    /// Factions the player is an enemy of (GetPCEnemyOfFaction): those a script made so
+    /// ([`Self::enemy_of_script`]) and those a crime did ([`Self::enemy_of_crimes`])
+    /// (`crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub enemy_of: BTreeSet<FormId>,
+    /// For each faction a crime made the player an enemy of: GameDaysPassed at the last
+    /// such crime. The flag ends iCoolDownTimerSetting game days after it
+    /// (`Game::expire_crimes`). Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub enemy_of_crimes: BTreeMap<FormId, f64>,
+    /// Factions a script made the player an enemy of (SetPCEnemyOfFaction 1): kept until
+    /// a script clears them [design].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub enemy_of_script: BTreeSet<FormId>,
     /// SetInCharGen.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub in_chargen: bool,
@@ -908,6 +919,11 @@ pub struct PlayerState {
     /// them (GetActorCrimePlayerEnemy; `crate::crime`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub crime_enemies: BTreeSet<FormId>,
+    /// For each of [`Self::crime_enemies`]: GameDaysPassed at the last crime that made it
+    /// one. It ends iCoolDownTimerSetting game days after it (`Game::expire_crimes`).
+    /// Absent in saves from before #2467 (`Game::date_crimes`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub crime_enemy_since: BTreeMap<FormId, f64>,
 }
 
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).
@@ -5922,6 +5938,8 @@ impl<'a> Game<'a> {
         for r in &s.fading_out {
             let _ = g.world.set_enabled(*r, false);
         }
+        // Crime enmities an older save holds undated start their cooldown now (#2467).
+        g.date_crimes();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
