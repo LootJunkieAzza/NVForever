@@ -88,6 +88,8 @@ counts them).
 
 ## 5. Scripting (Layer 5)
 
+World-coordinate NIF translation getter has an initial source candidate; current-port checks and rendered consumer qualification remain pending ([node translation](spec-notes/local-node-translation-world.md)).
+
 | System | State | Specifics | Notes |
 |---|---|---|---|
 | Script decoding, interpreter, quests, conditions, events | Done | Every compiled script decodes and decompiles (`fnv-script`); the runtime (`fnv-game`) runs quest, object, effect and result scripts in `--play`; L5 lab 28/32 against in-game captures (4 known fails). Disabled references run their object scripts' GameMode and an actor holds one script package (a second AddScriptPackage replaces the first), both confirmed in the original game 2026-10-18 (owner-decision-captures.md §4). Quest objective targets are marked only while their conditions pass, with the target as subject (claude/e17-quest-target-conditions, quests-dialogue.md §2). Every begin-block event of the shipped scripts runs except OnSell, which never ran in the original either: OnOpen, OnClose, OnActorEquip and OnMagicEffectHit since 2026-10-23 (claude/script-events-door-locks, script-functions.md §3.3). JIP AnimAction/PlayGroup required numeric codes compare literally, including zero; actor/unrelated wildcard policies remain intact. Five authored dispatch controls passed in a private engine-member host, with three baseline assertion failures; hosted fixture lint passed, while canonical targets, production library lint, automatic animation production and native behavior remain unqualified ([required-animation-codes](spec-notes/jip-required-animation-codes.md)) | [layer5](design/layer5.md), [layer5-play](design/layer5-play.md), [scripts](spec-notes/scripts.md) |
