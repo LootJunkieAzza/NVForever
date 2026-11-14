@@ -1408,7 +1408,7 @@ areas = ["ai", "dialogue-packages"]
 paths = ["crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor" }
 args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "SunnyRef: walks up to 0x00000014 to talk",
   "dialogue: conversation with SunnyRef started (topic GREETING)",
@@ -1423,7 +1423,7 @@ areas = ["ai", "dialogue-packages"]
 paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "20:activate:0x000BAE24" }
 args = ["--cell", "RocketLabBasement", "--play", "--pos=464,-2250,8260", "--heading", "180", "--npc-packages", "DavisonREF,HarlandREF", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   { re = 'DavisonREF: waits to talk to .* with something solid between', label = "Davison waits behind his closed door" },
   { re = 'dialogue: conversation with DavisonREF started', label = "he greets once the door is open" },
@@ -1512,7 +1512,7 @@ areas = ["ai", "furniture"]
 paths = ["crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Gomorrah00", "--play", "--hour", "21", "--npc-packages", "0011A2FB", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'furniture: 0011A2FB is on 0011A2F8', label = "the courtesan uses her dance marker" },
 ]
@@ -1765,7 +1765,7 @@ areas = ["alert", "detection"]
 paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/detection.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "1EFiendViolet 000F570B Normal → Alert: noticed the player",
   "NormalToAlert",
@@ -1830,7 +1830,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/residents.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "fights the player with WeapHuntingRifle (gun)",
   { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
@@ -1851,7 +1851,7 @@ areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "3:player.setav health 5000;3.3:close;42:player.getav PerceptionCondition;42.1:player.getav EnduranceCondition;42.2:player.getav LeftAttackCondition;42.3:player.getav RightAttackCondition;42.4:player.getav LeftMobilityCondition;42.5:player.getav RightMobilityCondition;42.8:close" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "fights the player with WeapHuntingRifle (gun)",
   { re = "combat: the player's (?:head|torso|left arm|right arm|left leg|right leg) takes [0-9.]+, condition (?P<n>[0-9.]+)", range = [0, 99.9], label = "a rifle shot takes player limb condition" },
@@ -1868,7 +1868,7 @@ areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "3:player.setav health 5000;3.3:close;42:player.getav PerceptionCondition;42.1:player.getav EnduranceCondition;42.2:player.getav LeftAttackCondition;42.3:player.getav RightAttackCondition;42.4:player.getav LeftMobilityCondition;42.5:player.getav RightMobilityCondition;42.8:close", NVF_PLAY_TEST_SCRIPT = "4:call:FiendVioletRef:Disable,6:moveto:0x000F573F:player:140:0:0,6.2:combat:0x000F573F:player" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef,000F573F"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat summary.*[1-9][0-9]* blows', label = "the dog lands blows" },
   { re = "combat: the player's (?:head|torso|left arm|right arm|left leg|right leg) takes [0-9.]+, condition (?P<n>[0-9.]+)", range = [0, 99.9], label = "a creature blow takes player limb condition" },
@@ -2051,7 +2051,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat: FiendVioletRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 2000\)', range = [2001, 5000], label = "her first shot is from beyond her rifle's reach" },
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 5000], label = "she aims down the sights from afar" },
@@ -2086,7 +2086,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/limping.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
   { re = 'npc combat: GSChetRef .* reloads WeapNV357Revolver round by round \(opens 1\.\d+ s, 0\.\d+ s a round', label = "Chet reloads round by round, timed by his rig's clips" },
@@ -2108,7 +2108,7 @@ areas = ["combat", "actors"]
 paths = ["engine/nvforever/src/locomotion.rs", "engine/nvforever/src/weapons.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:1300:0,5:combat:RingoRef:player,40:call:RingoRef:StopCombat" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'RingoRef: runs at the player, 1[0-9]{3} units away', label = "Ringo sets off running from beyond his range" },
   { re = 'actor weapons: .* 1hp: clips .*1hp moves: standing \[[^]]*"FastForward"', label = "the pistol stance's run clips are loaded with it" },
@@ -2183,7 +2183,7 @@ source = "CLAUDE.md: after furniture changes (docs/spec-notes/furniture.md §7)"
 areas = ["furniture"]
 paths = ["engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs", "crates/fnv-actor/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
 args = ["--cell", "Goodsprings", "--npc-sit", "EasyPeteRef=0010634A:8", "--follow-npc"]
-run_seconds = 45
+run_seconds = 35
 expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 
 # The issue's 180 s run, shortened: its stay of 90 s left 81 s after the release to watch;
@@ -3469,7 +3469,7 @@ areas = ["quest-messages", "hud"]
 paths = ["engine/nvf-play/src/quest_messages.rs", "engine/nvf-play/src/script_events.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   "quest message on screen: Quest added: BACK IN THE SADDLE",
   { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon." },
@@ -4965,7 +4965,7 @@ areas = ["alert", "voice"]
 paths = ["crates/fnv-game/src/awareness.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/npc_combat.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'alert: .* says ', min = 1, label = "a few 'alert: … says' lines" },
   { re = 'alert summary:.*\b(?P<n>\d+) held back by the group cooldown', range = [1, 1000000], label = "held back by the group cooldown above 0" },
@@ -6699,7 +6699,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "0.05:call:FiendCookCookRef:RemoveItem:WeapNVIncinerator:1,0.1:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
   { re = 'ai \[[\d:]+\] 000F5704: (runs|walks) at the player', label = "he closes in" },
@@ -6812,7 +6812,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapSniperRifle:1,3.5:call:FiendVioletRef:EquipItem:WeapSniperRifle,4:combat:FiendVioletRef:player" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapSniperRifle \(gun\)', label = "Violet fights with the sniper rifle" },
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away', range = [1800, 3548], label = "she fires from afar, down the sights" },
@@ -6841,7 +6841,7 @@ areas = ["combat", "combat-groups"]
 paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "14:weapon,16:aimactor,16.2:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-69850,5700,8650", "--hour", "12"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'npc combat: \S+ 0x\S+ flees from the player: group threat ratio [\d.]+ below its confidence 1000', label = "a cowardly creature hurt by the player flees" },
   { re = 'ai \[.*: flees from the player (to cover|away|through door)|is cornered by the player', label = "it runs to a flee spot (or is cornered)" },
@@ -7078,7 +7078,7 @@ areas = ["followers", "combat"]
 paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-game/src/followers.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:moveto:player:VeronicaREF:0:150:0,4:info:0x001467AC:VeronicaREF,5:info:0x00147789:VeronicaREF,16:moveto:0x000CE9E7:player:0:900:0", NVF_PLAY_TEST_GOTO = "26:32400:31600:5520" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'VeronicaREF: package FollowersVeronicaFollowPlayerDEFAULT', label = "hired: her Follow package" },
   { re = 'npc combat: VeronicaREF \S+ fights 0x000CE9E7 with WeapPowerFistVeronica \(melee\)', label = "she fights the ghoul with her power fist" },
@@ -7546,7 +7546,7 @@ areas = ["combat", "alert"]
 paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
 args = ["--cell", "Gomorrah01", "--pos=4461,4021,6420", "--play", "--hour", "12", "--no-messages"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   { re = 'provocation: .*0x00127950 warns the player inside its aggro radius \(warning 1;', label = "the guard's first warning" },
   { re = 'alert: .*00127950 draws its weapon \(it warns the player\)', label = "he draws his weapon to warn" },
@@ -9703,7 +9703,7 @@ areas = ["ai"]
 paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/residents.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1" }
 args = ["--play", "--pos=-82300,-101700,11100", "--heading", "180", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all,vMORangerGhostREF"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
@@ -9768,7 +9768,7 @@ areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00168CC2", NVF_PLAY_TEST_SCRIPT = "14:call:0x00168CC2:StartCombat:player" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'hit effect: CazadorPoison on the player by \S+: Poison -4\.0 Health/s for 30 s, ReduceActionPoints -25\.0 Action Points for 30 s', label = "a cazador's sting poisons the player: the player's lines of CazadorPoison, 5 health a second less its 20 % Poison Resistance (Endurance 5) for 30 s, and 25 AP" },
 ]
@@ -9918,7 +9918,7 @@ areas = ["actors", "combat"]
 paths = ["engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
 args = ["--play", "--plugins", "FalloutNV.esm", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'creature stance: .*00157B38 draws \(warning the player\)', label = "the coyote draws its stance to warn (head down)" },
   { re = 'creature stance: .*00157B38 Drawn', label = "... and holds it drawn" },
@@ -11749,7 +11749,7 @@ areas = ["ai", "packages"]
 paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:900:0:0,4:call:player:PlaceAtMe:MoleRatMeat,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood,7.5:call:GoodspringsSettler03Ref:SetActorsAI:0,13:call:GoodspringsSettler03Ref:SetActorsAI:1" }
 args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "GoodspringsSettler03Ref: package FFER24FindFood",
   { re = 'actor [0-9A-F]{8} AI off: walks on at heading', count = 1, label = "his AI off, he walks on" },
@@ -11845,7 +11845,7 @@ areas = ["pipboy", "fast-travel", "loading"]
 paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvf-play/src/loading.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:0,18:call:-:EnableFastTravel:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,22:key=use" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
   'fast travel: answered "OK"',
@@ -13568,7 +13568,7 @@ areas = ["physics", "rendering"]
 paths = ["engine/nvf-play/src/phys.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/script_draw.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:player.moveto 000D7D0A 0 0 400;15:close;30:player.getpos x;player.getpos y;player.getpos z;player.setpos x 22010.1;player.setpos y 1834.8;player.setpos z 5632;31:close;40:player.getpos x;player.getpos y;player.getpos z;41:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'console: GetPos on player >> 532[0-3]\.', count = 2, label = "both drops end on a row: on the plain one and on the flagged one" },
   { re = 'reference 0x000D7D(09|29) drawn \(enabled at run time\)', count = 0, label = "render streaming draws the flagged rows, so script_draw has nothing to draw" },
@@ -15010,7 +15010,7 @@ areas = ["scripts", "quests"]
 paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/object_anims.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_LOOK = "4:75:-5", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:info:0x00105201,8:activate:0x0010063A,10:button:0,13:activate:0x00100637,15:button:0,25:activate:0x0010063C", NVF_PLAY_TEST_CONSOLE = "19:player.MoveTo 0010063C;19.5:player.SetAngle Z 142.7;20:close", NVF_PLAY_TEST_SHOTS = "24:b29_rise_before.png,27.5:b29_rise_1.png,31:b29_rise_2.png,35.5:b29_rise_3.png,42:b29_rise_after.png" }
 args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'OnActivate of .*0x0010062D ran on Some\(0x0010063C\)', label = "the detonator's script runs" },
   { re = 'playgroup: VMS15RisingPlaneREF passes the sound key QSTBomberRaise of Forward', label = "Forward's sound key at its start plays (QSTBomberRaise)" },
@@ -21454,7 +21454,7 @@ areas = ["ui", "hud", "corner-messages", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloat \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloat \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloat \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloat \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   'tiles: Messages text "You are still dressed as a member of the NCR."',
   'tiles: Messages text "You are now Well Rested!"',
@@ -23632,7 +23632,7 @@ paths = [
 ]
 env = { NVF_PLAY_TEST_TILE_MENUS = "DialogMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "8:SunnyRef=leave", NVF_PLAY_TEST_TALK_DELAY = "60", NVF_PLAY_TEST_KEYS = "26:down,27:down,28:down,29:down,30:down,31:up,32:up,33:up,34:up,35:up", NVF_PLAY_TEST_SHOTS = "30.5:tiles_dialog_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'tiles: DialogMenu drawn from tiles: .* row heights \[(\d+), (?:\d+, )*(?!\1\b)\d+', label = "rows of different heights: one wrapped" },
   { re = 'tiles: DialogMenu painted: .* rows [1-5], dim \d+, frame 4 (plain|red), fill 1, bar 3, ', label = "rows in the window painted, framed, with the bar's arrows and marker" },
@@ -23712,7 +23712,7 @@ areas = ["ui", "dialogue", "menus"]
 paths = ["engine/nvf-play/src/tiles/dialog_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/pause.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "DialogMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "8:SunnyRef=leave", NVF_PLAY_TEST_TALK_DELAY = "90", NVF_PLAY_TEST_PAUSE = "24:27", NVF_PLAY_TEST_POINTER = "25:853:744:click,26:off,29:853:744:click,30:off" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'tiles: DialogMenu choice \d+ picked on its tiles', count = 1, label = "only the press after the pause picks" },
   { re = 'dialogue: choose Some\(\d+\) by tile click', count = 1, label = "accepted once, as a tile click" },
@@ -23726,7 +23726,7 @@ areas = ["ui", "dialogue"]
 paths = ["engine/nvf-play/src/tiles/dialog_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/script_hud.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "DialogMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "30", NVF_PLAY_TEST_TALK = "8:SunnyRef=leave", NVF_PLAY_TEST_TALK_DELAY = "90", NVF_PLAY_TEST_SCRIPT = "25:call:-:MessageBoxEx:\"nvf over|Yes|No\"", NVF_PLAY_TEST_KEYS = "28:enter", NVF_PLAY_TEST_POINTER = "26:853:744:click,27:853:744,28:853:744:click,29:off,32:853:744:click,33:off" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'script: test aid calls MessageBoxEx', label = "the box opens over the conversation" },
   { re = 'dialogue: choose Some\(\d+\) by tile click', count = 1, label = "of the three presses only the one after the box closed" },
@@ -25735,7 +25735,7 @@ areas = ["ui", "hotkeys", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/hotkeys.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,27:point=250:151,28:hotkey=3,29:click=250:151,30.5:hotkey=4,31:click=250:151,32:hotkey=2,32.5:click=250:151,33:hotkey=off,34:tab=4,35:hotkey=5,35.5:click=250:151,36.5:hotkey=off,37:close", NVF_PLAY_TEST_HOTKEYS = "40:tap:4", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_items_hotkeys.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages", "--size", "1280x720"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "pipboy hotkeys: key 3 held",
   { text = "tiles: InventoryMenu hotkey panel shown, key 3", label = "the panel shows while key 3 is held" },
@@ -26875,7 +26875,7 @@ areas = ["ai", "packages"]
 paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,40:call:GoodspringsSettler03Ref:GetIsCurrentPackage:DefaultFollowPlayerFar" }
 args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
@@ -27218,7 +27218,7 @@ areas = ["dialogue", "camera"]
 paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue_zoom.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=", NVF_PLAY_TEST_TALK_DELAY = "12" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--fov", "75"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'dialogue zoom: in on GSChetRef \(its head as drawn\)', label = "a drawn face supplies the zoom" },
   { re = 'dialogue look: framing after (?P<n>[\d.]+) s: GSChetRef offset', range = [6, 1000], all = true, label = "conversation held beyond five seconds" },
@@ -27235,7 +27235,7 @@ areas = ["dialogue", "camera"]
 paths = ["engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/test_aid.rs", "engine/nvf-play/src/dialogue_zoom.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=", NVF_PLAY_TEST_TALK_DELAY = "12", NVF_PLAY_TEST_LOOK = "14:90:20,16:180:-20,18:270:10" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--size", "1280x720", "--fov", "75"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   { re = 'dialogue zoom: in on GSChetRef \(its head as drawn\)', label = "a drawn face supplies the zoom" },
   { text = "ignored: dialogue view locked", count = 3, label = "every attempted look respects the lock" },
@@ -27424,7 +27424,7 @@ areas = ["actors", "animation", "dialogue"]
 paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/dialogue_look.rs", "engine/nvforever/src/weapons.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:SunnyRef:AddItem:WeapFlamer:1,2.5:call:SunnyRef:EquipItem:WeapFlamer,14:activate:ProspectorSaloonDoor", NVF_PLAY_TEST_TALK = "5:*=0", NVF_PLAY_TEST_TALK_DELAY = "3" }
 args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
-run_seconds = 45
+run_seconds = 35
 expect = [
   "dialogue: conversation with SunnyRef started (topic GREETING)",
   { re = 'dialogue look: SunnyRef stops facing the player: .*; its chest is (?P<n>[+-]?\d+)° off the player', range = [-20, 20], label = "Sunny's chest on the player after the conversation (holstered 2hh)" },
@@ -27499,7 +27499,7 @@ areas = ["dialogue", "scripts", "ai"]
 paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "3:player.setav repair 100;3.3:close", NVF_PLAY_TEST_SCRIPT = "6:activate:0x001572E6,8:button:1,10:button:1,12:button:1" }
 args = ["--play", "--cell", "PrimmNashResidence", "--pos=2018,1484,7649", "--no-voice", "--no-messages"]
-run_seconds = 45
+run_seconds = 35
 order = [[
   { text = "player controls: movement, Pip-Boy, fighting, POV disabled by scripts", label = "the repair script turns the controls off" },
   { text = "script: EDE1Ref enabled", label = "the working ED-E is enabled" },
@@ -27547,15 +27547,17 @@ expect = [
 [[scenario]]
 name = "lucky38-elevator-stay-here"
 source = "issue #2424 (crates/fnv-game/src/functions/actor.rs add_script_package): the Lucky 38 elevator Victor's OnActivate (Lucky38VictorElevatorScript, SCPT 0x0015725D) adds his Dialogue package Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation (MenuMode 1009) before its GameMode shows the floor box; Stay Here (button 0) does nothing more. A second talk before a package choice dropped the first, still current with its goal met, opened no conversation, and the script waited for one for ever: no floor box again (the owner's soft lock)"
-note = "the player starts on the casino floor by Victor at the elevator (as securitron-face-bright); he is activated at 6 s and again at 24 s; the menu aid closes the conversation after 1 s and answers the floor box with its first button, Stay Here"
+note = "the player starts on the casino floor by Victor at the elevator (as securitron-face-bright); he is activated at 6 s and again at 13 s, soon after Stay Here, before the 10 s package choice drops the finished package; the menu aid closes the conversation after 1 s and answers the floor box with its first button, Stay Here"
 areas = ["ai", "scripting"]
 paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/ai.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:Lucky38VictorElevatorREF,24:activate:Lucky38VictorElevatorREF" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:Lucky38VictorElevatorREF,13:activate:Lucky38VictorElevatorREF" }
 args = ["--cell", "Lucky38CasinoFloor01", "--play", "--pos=1087,-2290,7690", "--heading", "50", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
-run_seconds = 45
+run_seconds = 35
 order = [[
-  { re = 'dialogue: conversation with \S*Victor\S* started', label = "the first talk: Victor's package opens a conversation" },
-  { re = 'script: menu 1001 \(message \S*Lucky38ElevatorMessageVictor\S*\) answered', label = "the floor box shows after it, answered Stay Here" },
-  { re = 'dialogue: conversation with \S*Victor\S* started', label = "the second talk opens a conversation again (none without the fix)" },
-  { re = 'script: menu 1001 \(message \S*Lucky38ElevatorMessageVictor\S*\) answered', label = "and the floor box comes back" },
+  { text = "dialogue: conversation with Lucky38VictorElevatorREF started", label = "the first talk: Victor's package opens a conversation" },
+  { re = 'script: message Lucky38ElevatorMessageVictor .*buttons', label = "the floor box shows after it" },
+  { text = "script: menu 1001 (message Lucky38ElevatorMessageVictor) answered (OK)", label = "Stay Here (the first button) is picked" },
+  { text = "script: OnActivate of FalloutNV.esm|SCPT 0x0015725D ran on Some(0x0015725F)", label = "the second talk runs the elevator's OnActivate" },
+  { text = "dialogue: conversation with Lucky38VictorElevatorREF started", label = "and opens a conversation again (none without the fix)" },
+  { re = 'script: message Lucky38ElevatorMessageVictor .*buttons', label = "and the floor box comes back" },
 ]]
