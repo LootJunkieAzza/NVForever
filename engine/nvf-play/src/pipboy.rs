@@ -479,6 +479,20 @@ pub enum AidTarget {
     Canvas(Vec2),
 }
 
+/// The pointer on the Pip-Boy's screen moved this frame ([`drive_pointer`]). Only a pointer
+/// that moves takes a list's selection: a row redrawn or scrolled under a resting pointer
+/// leaves the choice the keys or the D-pad made alone [design, #2310: as the repair
+/// services menu, `crate::repair`, and the ITEMS page drawn from its file,
+/// `crate::tiles::container_menu::hover_selects`].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PointerMoved(pub bool);
+
+/// Whether a row the pointer comes onto (a `PointerOver`) takes the selection: the pointer
+/// moved this frame. Without the resource (tools, tests) it always does.
+pub fn hover_takes(moved: Option<&PointerMoved>) -> bool {
+    moved.is_none_or(|m| m.0)
+}
+
 /// The node a page fills, under the menus' root (canvas units from its top left).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageBody {
@@ -505,6 +519,7 @@ impl Plugin for PipBoyPlugin {
         app.init_resource::<PipBoy>()
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
+            .init_resource::<PointerMoved>()
             .init_resource::<frame::Kit>()
             .init_resource::<stats::Prepared>()
             .init_resource::<device_screen::ScreenFx>()
@@ -547,7 +562,7 @@ impl Plugin for PipBoyPlugin {
                     frame::draw,
                     (device_screen::draw, device_screen::sweep, transition::run).chain(),
                     (stats::draw, items::draw, data::draw),
-                    (hotkey_panel::draw_over_tiles, data::wave_moves).chain(),
+                    (hotkey_panel::draw_over_tiles, data::trace_over_tiles, data::popup_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
@@ -558,7 +573,7 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput));
         test_aid::setup(app);
         crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
@@ -567,7 +582,8 @@ impl Plugin for PipBoyPlugin {
                 key: SETTING_KEY,
                 group: crate::pause::GROUP_MENUS,
                 label: "Use Pip-Boy",
-                note: "On: the Pip-Boy and its glove are worn and the menus come up on the arm. Off: both are taken off and the menus show full screen. Without a Pip-Boy worn the menus are always full screen.",
+                note: "On: the Pip-Boy is worn and the menus come up on the arm. Off: it is taken off and the menus show full screen, as always without a Pip-Boy.",
+                switches: "",
                 get: |w| w.resource::<UsePipBoy>().on,
                 set: |w, on| w.resource_mut::<UsePipBoy>().set(on),
                 slider: None,
@@ -586,9 +602,12 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// page drawn from its tiles not in the frame a menu over it closes either: that key was the
 /// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
 /// `crate::tiles::repair_menu::RepairTiles::modal`, `crate::tiles::inventory_menu::InventoryTiles::modal`,
-/// `crate::tiles::map_menu::MapTiles::modal`).
-fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>) -> bool {
-    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal)
+/// `crate::tiles::map_menu::MapTiles::modal`, `crate::tiles::item_mod_menu::ItemModTiles::modal`). A question box over the DATA page (fast travel's,
+/// Place Marker's) holds none of them, whichever drawing shows it: Tab and Esc close the Pip-Boy
+/// and the box with it, as they always did; the box over the page drawn from its tiles holds only
+/// the tile input (`crate::tiles::map_menu::MapTiles::popup_owns`).
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>, item_mod: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>) -> bool {
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal) && !item_mod.is_some_and(|t| t.modal)
 }
 
 /// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
@@ -849,13 +868,14 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, fx: Res<device
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].
 fn close_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
     if prompt.held(&active) {
@@ -868,7 +888,8 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
@@ -993,12 +1014,13 @@ pub fn crop_point(cursor: Vec2, centre: Vec2, size: Vec2) -> Option<Vec2> {
     (p.x >= 0.0 && p.y >= 0.0 && p.x < SCREEN_CROP.x && p.y < SCREEN_CROP.y).then_some(p)
 }
 
-/// The pointer on the flat image: the test aid's point, else the window's cursor.
-fn flat_point(aid: &PipBoyAid, windows: &Query<&Window, With<PrimaryWindow>>, computed: &ComputedNode, at: &UiGlobalTransform) -> Option<Vec2> {
+/// The pointer on the flat image: the test aid's point, else the window's cursor unless it
+/// sleeps under the controller (`crate::pad::pointer`).
+fn flat_point(aid: &PipBoyAid, windows: &Query<&Window, With<PrimaryWindow>>, sleeping: bool, computed: &ComputedNode, at: &UiGlobalTransform) -> Option<Vec2> {
     if let Some(AidTarget::Canvas(p)) = aid.target {
         return Some(p);
     }
-    let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position())?;
+    let cursor = windows.single().ok().filter(|_| !sleeping).and_then(|w| w.physical_cursor_position())?;
     crop_point(cursor, at.translation, computed.size())
 }
 
@@ -1013,13 +1035,14 @@ pub fn flat_pointer(
     flat: Query<(&ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     aid: Res<PipBoyAid>,
+    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
     let Some(mut screen) = screen else { return };
     if pointer_source(pip.frame, screen.on_model) != PointerSource::Flat {
         return;
     }
     let Some((computed, at)) = flat.iter().next().filter(|_| pip.phase == Phase::Up) else { return };
-    let now = flat_point(&aid, &windows, computed, at);
+    let now = flat_point(&aid, &windows, crate::pad::pointer::asleep(pad_pointer.as_deref()), computed, at);
     if screen.pointer != now {
         screen.pointer = now;
     }
@@ -1034,10 +1057,12 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, switching): (MessageReader<WindowEvent>, Option<Res<crate::pad::SwitchingInput>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
+    mut moved: ResMut<PointerMoved>,
 ) {
+    moved.set_if_neq(PointerMoved(false));
     let Some(screen) = screen else { return };
     if !*spawned {
         commands.spawn(PIPBOY_POINTER);
@@ -1049,12 +1074,16 @@ fn drive_pointer(
     // Off the screen the pointer goes to a corner no node is in.
     let position = at.unwrap_or(Vec2::new(TARGET.x as f32 - 1.0, TARGET.y as f32 - 1.0));
     if Some(position) != *last {
+        moved.set_if_neq(PointerMoved(true));
         let delta = last.map_or(Vec2::ZERO, |l| position - l);
         out.write(PointerInput::new(PIPBOY_POINTER, Location { target: target.clone(), position }, PointerAction::Move { delta }));
         *last = Some(position);
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if switching.as_ref().is_some_and(|s| !s.allows_mouse(input)) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }
@@ -1190,6 +1219,24 @@ mod tests {
         world.resource_mut::<PipBoy>().warming = None;
         world.run_system_once(camera_on).unwrap();
         assert!(!world.get::<Camera>(camera).unwrap().is_active);
+    }
+
+    /// #2310: the screen's pointer counts as moved on the frame its place changes only.
+    #[test]
+    fn the_pointer_moved_only_on_the_frame_its_place_changed() {
+        let mut app = App::new();
+        app.add_message::<PointerInput>().add_message::<WindowEvent>().init_resource::<bevy::picking::pointer::PointerMap>();
+        app.insert_resource(PipBoy::default()).init_resource::<PipBoyAid>().init_resource::<PointerMoved>();
+        let camera = app.world_mut().spawn_empty().id();
+        app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1.0 });
+        app.add_systems(Update, drive_pointer);
+        app.update();
+        assert_eq!(*app.world().resource::<PointerMoved>(), PointerMoved(true), "the first place");
+        app.update();
+        assert_eq!(*app.world().resource::<PointerMoved>(), PointerMoved(false), "at rest");
+        assert!(!hover_takes(Some(&PointerMoved(false))));
+        assert!(hover_takes(Some(&PointerMoved(true))));
+        assert!(hover_takes(None), "tools without the resource keep the hover");
     }
 
     #[test]

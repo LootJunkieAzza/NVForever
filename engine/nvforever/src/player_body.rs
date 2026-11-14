@@ -320,13 +320,15 @@ fn no_arms_shade() -> bool {
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
+    performance: Res<crate::shadow_rate::PerformanceShadows>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
     mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
-    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade();
+    // Nor with Sun shadows on Performance (shadow_rate.rs): one shadow view less.
+    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade() && !performance.0;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
     if let Ok((e, mut light)) = shade.single_mut() {
         if !on {
@@ -476,6 +478,9 @@ struct WeaponPart {
     shown: Option<bool>,
 }
 
+/// kNVSE replacement files by a clip file's name, in lower case (`Rig::overrides`).
+type Overrides = Arc<HashMap<String, Vec<String>>>;
+
 /// One skeleton with its parts, clips and weapon.
 struct Rig {
     view: View,
@@ -490,6 +495,9 @@ struct Rig {
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
+    /// kNVSE's replacement files for this view ([`apply_anim_overrides`]): a clip's file
+    /// name, in lower case, to the replacement's path under meshes.
+    overrides: Overrides,
     /// Third person: the head bone and the eye in its space.
     head: Option<usize>,
     eye_local: Vec3,
@@ -674,7 +682,24 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A kNVSE replacement of a candidate's file comes first [documented:
+        // SetActorAnimationPath, "the anim group that is overridden is specified in the
+        // KF file"; hypothesis: a replacement file is named as the clip it replaces, as
+        // in the mods' folders (`mtfastforward.kf`)].
+        // A replacement whose path ends as the candidate does (`locomotion\female\
+        // mtforward.kf`) beats one that only shares the file's name, so a folder with
+        // `male` and `female` files gives each body its own; among equals the later file
+        // (the stack's top) wins.
+        let replaced = key.candidates().into_iter().find_map(|c| {
+            let c = c.to_ascii_lowercase();
+            let name = c.rsplit('\\').next().unwrap_or(&c);
+            let found = self.overrides.get(name)?;
+            let tail = format!("\\{c}");
+            let other_sex = if c.contains("female\\") { "\\male\\" } else { "\\female\\" };
+            let pick = found.iter().rev().find(|p| p.to_ascii_lowercase().ends_with(&tail)).or_else(|| found.iter().rev().find(|p| !p.to_ascii_lowercase().contains(other_sex)));
+            pick.map(|p| format!("meshes\\{p}"))
+        });
+        let mut path = replaced.filter(|p| ctx.models.data.vfs.exists(p)).or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
         // A grip clip may carry the weapon's name after its number
         // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
         if let (None, ClipKey::Grip(p, n)) = (&path, key) {
@@ -955,7 +980,14 @@ impl PlayerBody {
     /// The third-person rig as an actor's rig of the player's reference, for its ragdoll
     /// (`death_cam.rs`): its root entity and the rig.
     pub fn third_rig(&self) -> Option<(Entity, crate::limbs::ActorRig)> {
-        let r = &self.body.as_ref()?.third;
+        self.script_rig(false)
+    }
+
+    /// Each built player rig separately, including a hidden rig, for script model
+    /// selection. Its names and entities must stay with the same model (#2387).
+    pub fn script_rig(&self, first_person: bool) -> Option<(Entity, crate::limbs::ActorRig)> {
+        let body = self.body.as_ref()?;
+        let r = if first_person { body.first.as_ref()? } else { &body.third };
         let rig = crate::limbs::ActorRig {
             reference: FormId::PLAYER_REF.0,
             base: FormId::PLAYER_BASE.0,
@@ -966,6 +998,38 @@ impl PlayerBody {
             base_scale: 1.0,
         };
         Some((r.root, rig))
+    }
+
+    /// Authored CPU-only rigs for the real scene-mirror pipeline controls. This
+    /// bypasses asset loading, not script_rig/root/name/publication or edit dispatch.
+    #[cfg(test)]
+    pub(crate) fn synthetic_script_models(
+        third: (Entity, crate::limbs::ActorRig),
+        first: Option<(Entity, crate::limbs::ActorRig)>,
+    ) -> Self {
+        fn rig((root, actor): (Entity, crate::limbs::ActorRig), view: View) -> Rig {
+            Rig {
+                view, root, lens: None, folder: String::new(), skeleton: actor.skeleton,
+                animator: Animator::new(actor.skel, actor.nodes, None),
+                clips: HashMap::new(), variants: HashMap::new(), overrides: Arc::default(), head: None,
+                eye_local: Vec3::ZERO, looking: None, camera: None, translate: None,
+                weapon_node: None, weapon_parent: None, attached: None,
+                weapon_model: None, weapon_emitter: None, weapon_parts: Vec::new(),
+                idle_logged: false, sights_turned: None, muzzle: None, muzzle_entity: None,
+                casing: None, casing_entity: None, sighting: None, scope_eye: None,
+                use_lens: false, drawn: Vec::new(), shown: Some(false), seen: None,
+                furniture: None, since_attack: f32::INFINITY, attack_loop: None,
+                wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None,
+            }
+        }
+        Self {
+            body: Some(Body {
+                worn: Vec::new(), look: None, change: fnv_actor::Change::default(),
+                female: false, scale: 1.0, third: rig(third, View::Third),
+                first: first.map(|r| rig(r, View::First)),
+            }),
+            ..Self::default()
+        }
     }
 
     /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the
@@ -979,6 +1043,9 @@ impl PlayerBody {
         }
     }
 }
+
+#[path = "player_sequence_pose_aid.rs"]
+mod sequence_pose_aid;
 
 pub struct PlayerBodyPlugin {
     /// `--first-person-body`.
@@ -1009,9 +1076,11 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
             .init_resource::<WarmPose>()
-            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .init_resource::<crate::script_sequences::PlayerSequences>()
+            .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
             .add_systems(Update, toggle_iron_sights)
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+            .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
     }
 }
@@ -1460,7 +1529,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes and the Pip-Boy sleeve only.
+        // Upper-body models show their `Arms` shapes and the left forearm sleeve only
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
                 let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
@@ -1544,6 +1614,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
+        overrides: Arc::default(),
         head,
         eye_local,
         looking,
@@ -1639,6 +1710,7 @@ struct Posed<'a> {
     look_pitch: f32,
     /// The idles the rig plays (`idles.rs`).
     special: &'a IdleSlot<Arc<Clip>>,
+    sequences: &'a [crate::script_sequences::Sample],
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
     /// The sway of the arms (first person, `view_sway.rs`).
@@ -1665,7 +1737,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -1910,6 +1982,22 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             l.weight = w;
         }
         view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
+    }
+    for sequence in sequences {
+        let tag = 0x4000_0000 | sequence.request.serial;
+        if sequence.request.stopped.is_some() {
+            if let Some(layer) = a.layers.iter_mut().find(|l| l.tag == tag) {
+                layer.fade_out = sequence.request.ease_out;
+            }
+            continue;
+        }
+        let mode = if sequence.clip.cycle_type != 2 { Mode::Loop } else { Mode::Once };
+        let i = a.want(&sequence.clip, tag, sequence.weight, mode, sequence.fade_in);
+        let layer = &mut a.layers[i];
+        layer.rate = 0.0;
+        layer.time = sequence.time;
+        layer.sequence_priority = sequence.request.priority;
+        layer.fade_out = sequence.request.ease_out;
     }
     // The Pip-Boy: its clip at the time the Pip-Boy is at, over the rest (its tracks'
     // priority is above the others' [observed: 98]); it does not turn the view.
@@ -2264,6 +2352,17 @@ impl Seen {
         }
     }
 
+    /// Seen with the body in first person: the arms rig's arms stand in for the body's
+    /// own while they are up, with the weapon out (in hand, drawing or putting away) or
+    /// the Pip-Boy raised, so the body's arms and hands are hidden then and one pair of
+    /// hands is drawn (#1523) [hypothesis, from reading this file: the Pip-Boy clip plays
+    /// on the arms rig only, and the body's hands were still seen beside it]. The body's
+    /// weapon is hidden while the arms rig holds it.
+    fn upright(in_hand: bool, weapon_moving: bool, pipboy_up: bool) -> Self {
+        let arms_up = in_hand || weapon_moving || pipboy_up;
+        Seen { body: true, head: false, arms: !arms_up, weapon: !in_hand }
+    }
+
     /// The render layer of a drawn entity: the seen body's when the camera sees it, else
     /// the one only the sun's shadows are cast from. Neither is the world's, so the
     /// flashlight casts no shadow from the player (`flashlight.rs`).
@@ -2310,6 +2409,40 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 /// the clips hide (`NiVisController`) does not emit, nor does the rig the camera does not
 /// see: the third-person body stands behind the arms in first person, drawn for its
 /// shadow only.
+/// kNVSE's SetActorAnimationPath and AnimGroupOverride on the player
+/// (docs/design/knvse-anim.md): each frame the game says which replacement files apply
+/// now, conditions run (`Game::anim_overrides_now`); when that changes, each rig takes
+/// the new files and forgets the clips it chose, so the next pick finds them.
+fn apply_anim_overrides(mut script: Option<ResMut<nvf_play::script::ScriptState>>, sim: Option<ResMut<nvf_play::sim::SimState>>, mut state: ResMut<PlayerBody>, mut current: Local<[(Vec<String>, Overrides); 2]>) {
+    let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let empty = rt.game.anim_paths.actor.is_empty() && rt.game.anim_paths.weapon.is_empty() && rt.game.anim_folders.active.is_empty() && current.iter().all(|c| c.0.is_empty());
+    if empty {
+        return;
+    }
+    let now = nvf_play::script::with_world(rt, &mut sim, |rt| [rt.game.anim_overrides_now(FormId::PLAYER_REF, false), rt.game.anim_overrides_now(FormId::PLAYER_REF, true)]);
+    for (i, paths) in now.into_iter().enumerate() {
+        if current[i].0 != paths {
+            // By file name, in stack order (a later file wins, `Rig::clip`).
+            let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            for p in &paths {
+                map.entry(p.rsplit('\\').next().unwrap_or(p).to_ascii_lowercase()).or_default().push(p.clone());
+            }
+            info!("player {} rig: {} kNVSE replacement file(s){}", if i == 1 { "First" } else { "Third" }, paths.len(), if paths.is_empty() { String::new() } else { format!(": {}", paths.join(", ")) });
+            current[i] = (paths, Arc::new(map));
+        }
+    }
+    let Some(body) = state.body.as_mut() else { return };
+    let rigs = [Some(&mut body.third), body.first.as_mut()];
+    for (i, rig) in rigs.into_iter().enumerate() {
+        let Some(rig) = rig else { continue };
+        if !Arc::ptr_eq(&rig.overrides, &current[i].1) {
+            rig.overrides = current[i].1.clone();
+            rig.clips.clear();
+            rig.variants.clear();
+        }
+    }
+}
+
 fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate::particles::ModelEmitter>) {
     let Some(body) = state.body.as_ref() else { return };
     let first_seen = body.first.as_ref().is_some_and(|f| f.shown == Some(true));
@@ -2340,7 +2473,7 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),
+    (time, turbo, sim, mut told_scale, sequences): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -2359,7 +2492,7 @@ fn drive_body(
         ResMut<nvf_play::furniture::PlayerSeat>,
         Res<nvf_play::pipboy::PipBoy>,
         Query<&Projection, With<nvf_play::PlayerCamera>>,
-        Option<Res<nvf_play::free_cam::FirstPersonFov>>,
+        (Option<Res<nvf_play::free_cam::FirstPersonFov>>, Option<Res<crate::Args>>),
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
@@ -2593,7 +2726,7 @@ fn drive_body(
     // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
     // 2026-10-11; the opening's scripts leave looking on, so the original may let the
     // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() {
+    if !idles.holds_camera() {
         if let Some(h) = idles.held.take() {
             seat.hold = None;
             // The character stands where it stood before the idles held it, clear of what
@@ -2673,8 +2806,13 @@ fn drive_body(
         throw_held: anim.throw_held,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
-    // its eye counts from the feet as before.
+    // its eye counts from the feet as before: without the sink, and without the share of
+    // the lift that easing the body onto changes of the drawn ground put there (else a
+    // crack in a broken road's drawn floor moved the view at once and eased it back,
+    // feedback 2026-11-12; `step_lift::StepLift::ground_at`).
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
+    let ground_lift = phys.drawn_ground_lift_of(FormId::PLAYER_REF.0);
+    let eye_sink = sink - Vec3::Z * ground_lift;
     // A script's SetScale on the player sizes both rigs, so the view (the first-person
     // camera node) comes down with the body: Fallout 3's baby stage, CG01 stage 0,
     // `player.SetScale 0.4`, stage 100 `1` [observed: TTW's Fallout3.esm, fnvtool script
@@ -2687,8 +2825,8 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -2701,7 +2839,7 @@ fn drive_body(
         }
         lunge.carrying = true;
     }
-    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    let (held, pitch, mut at) = idles.held.map_or((player.heading, player.pitch, [feet[0], feet[1], feet[2] - ground_lift]), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
@@ -2792,7 +2930,7 @@ fn drive_body(
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences:&sequences.first, pipboy, sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
@@ -2802,8 +2940,10 @@ fn drive_body(
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
-        // The console's `fov` can ask for another first-person field of view.
-        let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
+        // The console's `fov` can ask for another first-person field of view; otherwise
+        // the settings page's (`--viewmodel-fov`).
+        let (asked_fov, args) = first_fov;
+        let first_fov = asked_fov.and_then(|f| f.0).or_else(|| args.map(|a| a.viewmodel_fov)).unwrap_or(FIRST_PERSON_FOV);
         let k = match (pip.on_arm() && pip.warming.is_none(), vfov) {
             (true, Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
@@ -2839,7 +2979,7 @@ fn drive_body(
         if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
             let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
             let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
-            let neck = Vec3::from(head.translation) + sink;
+            let neck = Vec3::from(head.translation) + eye_sink;
             e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
         }
         Some(e)
@@ -2849,9 +2989,11 @@ fn drive_body(
     // The third-person pivot: the head's height above the feet without the stride's
     // rise and fall (`head_bob.rs`).
     view.pivot = third_eye.or(eye).map(|e| {
-        let up = e.z - feet[2];
+        // From the feet without the drawn ground's share of the lift, as the eye.
+        let base = feet[2] - ground_lift;
+        let up = e.z - base;
         let up = if third_view { m.head.pivot_height(up, dt) } else { up };
-        [feet[0], feet[1], feet[2] + up + 5.0]
+        [feet[0], feet[1], base + up + 5.0]
     });
     if !third_view {
         m.head.pivot_reset();
@@ -2900,7 +3042,8 @@ fn drive_body(
     }
     // Which rig is seen; without a first-person rig the third-person head is hidden
     // from inside. With the body in first person, the arms rig's arms and weapon stand
-    // in for the body's own while they are up (weapon out, drawing or putting away).
+    // in for the body's own while they are up (weapon out, drawing or putting away, or
+    // the Pip-Boy raised: `Seen::upright`).
     let has_first = body.first.is_some();
     // The muzzle of the weapon in hand, for combat (shots are drawn from it;
     // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
@@ -2916,9 +3059,8 @@ fn drive_body(
     if seen.ejected && m.hands.in_hand {
         anim.ejects = anim.ejects.wrapping_add(1);
     }
-    let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let seen = if frame.upright {
-        Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+        Seen::upright(m.hands.in_hand, m.hands.phase != WeaponPhase::Holstered, pipboy.is_some())
     } else {
         Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
@@ -2986,6 +3128,17 @@ mod tests {
         assert!(world.get::<NoFrustumCulling>(existing).is_some());
         assert!(world.resource::<WarmPose>().transforms.is_empty());
         assert!(!world.resource::<nvf_play::pipboy::PipBoy>().pose_hidden);
+    }
+
+    #[test]
+    fn the_raised_pip_boy_hides_the_bodys_arms_in_first_person() {
+        // Weapon away, Pip-Boy down: the body's own arms are seen.
+        assert!(Seen::upright(false, false, false).arms);
+        // Weapon away, Pip-Boy up: the arms rig's raised arm stands in for them (#1523).
+        assert_eq!(Seen::upright(false, false, true), Seen { body: true, head: false, arms: false, weapon: true });
+        // Weapon out or moving, as before.
+        assert_eq!(Seen::upright(true, true, false), Seen { body: true, head: false, arms: false, weapon: false });
+        assert!(!Seen::upright(false, true, false).arms);
     }
 
     #[test]
@@ -3172,3 +3325,10 @@ mod tests {
         assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
+
+#[cfg(test)]
+#[path = "movement_camera_tests.rs"]
+mod movement_camera_tests;
+
+#[cfg(test)]
+mod sequence_consumer_tests;

@@ -3,7 +3,7 @@
 //! holds a lying actor down, and a pushed actor's inventory can be opened; on a synthetic
 //! plugin.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

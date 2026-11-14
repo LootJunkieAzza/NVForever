@@ -1,6 +1,6 @@
 //! A whole NIF/KF file: header, raw blocks, footer; schema decoding per block.
 
-use crate::codec::{Codec, CodecError, FileCtx};
+use crate::codec::{Codec, CodecError, FileCtx, Path};
 use crate::header::{Footer, Header, NifError};
 use crate::schema::Schema;
 use crate::value::Struct;
@@ -122,7 +122,7 @@ impl NifFile {
         let codec = Codec { schema, file: self.ctx(), lineage: &def.lineage };
         let mut out = Vec::with_capacity(b.range.len());
         codec
-            .encode_fields(&def.fields, &st, 0, None, &b.type_name, &mut out)
+            .encode_fields(&def.fields, &st, 0, None, &Path::Root(&b.type_name), &mut out)
             .map_err(BlockStatus::Error)?;
         Ok(out == data[b.range.clone()])
     }
@@ -158,5 +158,5 @@ fn decode_with(schema: &Schema, header: &Header, type_name: &str, c: &mut Cursor
         },
         lineage: &def.lineage,
     };
-    codec.decode_fields(&def.fields, c, 0, None, type_name).map_err(DecodeFailure::Codec)
+    codec.decode_fields(&def.fields, c, 0, None, &Path::Root(type_name)).map_err(DecodeFailure::Codec)
 }

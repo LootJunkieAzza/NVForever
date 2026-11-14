@@ -21,7 +21,8 @@
 //!   A/X to exit]: Left/Right or A/D lower/raise the page's attribute (on the review page
 //!   the chosen row's), Up/Down or W/S choose the row, Tab or Page Down the next page,
 //!   Shift+Tab or Page Up the previous one, Enter or E Done; the → button on the review
-//!   page is Done too. Clicks on the model's buttons, found by their outlines on the
+//!   page is Done too. A controller's D-pad and left stick are the arrow keys
+//!   (`crate::pad::menu_stick`, #2313). Clicks on the model's buttons, found by their outlines on the
 //!   screen.
 //! - Done only with every point given out (`SpecialSheet::complete`); then the sheet is
 //!   written to the player and the menu answered (`chargen::finish`).
@@ -234,8 +235,8 @@ fn read_clips(data: &GameData) -> HashMap<String, Clip> {
 
 #[allow(clippy::too_many_arguments)]
 fn input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     shapes: Query<(&Aabb, &GlobalTransform, &InheritedVisibility)>,
@@ -247,6 +248,8 @@ fn input(
     mut stats: ResMut<VigorStats>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     use KeyCode::*;
     let clips = menu.clips.clone().unwrap_or_default();
     let Some(o) = menu.open.as_mut() else { return };

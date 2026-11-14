@@ -3,7 +3,7 @@
 //! usage monitor, addiction and its cure, abilities in the permanent pool.
 //! docs/spec-notes/aid-items.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

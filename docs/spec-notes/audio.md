@@ -155,7 +155,14 @@ environment: §14.6.
   sound is not played when the file arrives, the marker plays on a later roll. The
   exit line `sfx files: …` counts the
   sounds that began in the frame they were asked for, those that waited, those decided
-  silent and the rolls skipped; at its end, the one-shots dropped as too late.
+  silent and the rolls skipped; at its end, the one-shots dropped as too late. The
+  frames are counted from the frame a sound was asked in to the frame it began,
+  whatever it waited for: its file, a voice slot's sound fading out (below), or both; a
+  one-shot waiting for a slot is counted when it starts there or is silenced, one
+  dropped while it waits for the slot is not in this line (`sfx voices: …` counts it).
+  At the line's end, apart, how soon the files were ready: `N requests found their file
+  ready in the frame they were asked for, M later (at most F frames)`, counted as each
+  file is ready, whatever became of the request.
 - A second chance late in each frame (`late_start`, `PostUpdate`, before the audio
   output takes up new players) starts the requests whose file finished decoding since
   the frame's requests were played, as they would have started then, so a file decoded
@@ -186,6 +193,59 @@ environment: §14.6.
   the original cuts a previous shot's sound is not known (observer check). The exit log
   names every SOUN that met a limit: `sfx: <EDID>: N started, S of them over its oldest
   voice, R refused at the voice limit`.
+- **Voice slots** (#2217, since stage 2) [design]: the limits count what is heard. Every
+  one-shot holds a slot until its sound has ended, also while it fades out after a stop
+  (below), so 8 of a SOUN and 64 in all are never passed, not even for a fade. A
+  one-shot beyond 8 of its SOUN has one slot's sound fade out (one fading already,
+  else the oldest voice) and waits for it: it starts once that sound has ended, about
+  5 ms and a frame or two after it was asked for, with the file and the pitch chosen
+  when it was asked for (a Random Frequency Shift is rolled once) and the listener as
+  it is then (its gain, pan and place worked out again). A
+  slot has one waiting replacement at most, so with every slot of the SOUN promised
+  one more is refused; nothing else (a placed sound, a late start) can take a promised
+  slot. A game event's one-shot whose wait for its file and its slot comes to more
+  than 150 ms is dropped; a script's sound is answered (its seconds) when it starts, a
+  StopSound drops the ones asked for before it. One-shots started in the same frame
+  have made no sound yet: one taken over among them goes at once and the new one starts
+  in its place. `S of them over its oldest voice` counts the one-shots started in a
+  slot taken over.
+- **Measurements of the mix and of stopped sounds** (#2217: crackle with many sounds)
+  [design]. Every sound reaches the device (or the drain without one) through one mix
+  bus (`nvf-play/src/audio_out.rs` `MixBus`), which counts, for the whole run, the
+  loudest sample and the samples over full scale (`abs(sample) > 1`, each channel apart;
+  exactly ±1 is not over), before the output's protection (a limiter, §18, since
+  stage 4) and after it, and the frames the limiter turned down; the raw overloads stay
+  measured, after the limiter none should be over. Every stop of a playing sound
+  before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
+  taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
+  fade, an ambient loop, a radio or a voice line no longer wanted, a holotape stopped
+  (by a script, or another note picked), a film skipped. Since stage 2 every
+  such stop fades the sound out over 5 ms (`audio_out::DECLICK_FADE`, a straight fall of
+  the amplitude, timed by the rate the player plays the sound at: its rate times the
+  sink's speed, as rodio's speed stage reports it, whatever that speed, slow motion's
+  and a script's time multiplier included) and the sound goes once the fade has
+  played (a skipped film's sound fades on what it has queued, silence after); a film
+  played to its end lets its sound play out; removing a playing sound at
+  once, which cut its waveform, is counted as a hard stop and should not happen any
+  more. One asked for but not attached to the output yet, or already over, is not
+  counted. The fades of their own (music's layers, a background loop giving way, a
+  script's fade) and natural ends are not stops. Whether the original limits its mix,
+  cuts or fades voices it stops, or what its limits are, is not known. Exit lines:
+  `audio mix: pre peak P, N samples over full scale; post peak Q, M samples over full
+  scale; K frames limited` (peaks to nine decimals), `sfx hard stops: S steals, L loop
+  stops, T script stops, A ambient stops, R radio stops, V voice stops, H holotape
+  stops, F film stops`, `sfx declicks: S steals, … V voice stops; C completed, W
+  pending; H holotape stops, F film stops` (the same reasons, for stops faded out; C
+  the fades played out, W those of every reason not over at the end; the holotape and
+  film reasons came later and close each line) and `sfx voices: at most V total, S of
+  one SOUN; Q replacements waiting, R replacements started, C replacements cancelled,
+  E replacements expired, M replacements silenced at start, P replacements still
+  waiting; I one-shots started at once over one not heard yet` (the most slots taken,
+  fading ones counted; Q the one-shots that waited for a slot, and what became of
+  them, Q = R + C + E + M + P: R started in their slot, C dropped by a StopSound, E
+  dropped past the 150 ms bound, M decided silent when their turn came, P waiting at
+  the end; I the one-shots that took over one of their SOUN started in the same frame,
+  with no wait; `S of them over its oldest voice` counts both kinds).
 
 ## 8. Tools
 
@@ -455,6 +515,13 @@ original] (`fnv-game/src/nvse_sound.rs` `SoundState::stop`, `nvf-play/src/sfx.rs
   at once: IsSoundPlaying reads 0 for it, as for a one-shot with no file.
 - `LoopSound` on then off for one SOUN in one frame leaves nothing playing (the off drops
   the start still waiting for its file).
+- A sound stopped while it plays (StopSound without a fade, LoopSound off or on again)
+  fades out over 5 ms instead of being cut (#2217, §7) [design]; it is no longer the
+  script's or the loop at once (a second StopSound or LoopSound off finds nothing of
+  it). A one-shot started earlier in the same frame has
+  made no sound and goes at once. StopSound with a fade time keeps its own fade. A
+  script's one-shot that waits for a voice slot (§7) is answered when it starts; a
+  StopSound drops it as one waiting for its file, so it never starts after the stop.
 
 ### 11.6 Checks and what is left
 
@@ -902,6 +969,19 @@ loops and random markers, objects' and creatures' sources, radios. Not panned: s
 the listener (the player's own, interface), background loops, music, voices (a
 recorded decision: voice plays flat, voice.md).
 
+**Pan easing** (#2217, since stage 3) [design: how the original moves a sound's pan is
+not known]. The listener's turn or a sound passing changes a playing sound's left and
+right gains once a game frame; set at once, the gains jump between two samples, which
+can click on a loud sound. Each panned sound's decoder (`PcmDecoder`, and
+`PanDecoder` for the other modules' panned streams: placed loops, radios, voices) keeps
+the gains it plays at, its own (the shared targets are the main thread's): its first
+frame plays at the targets as they are, then each gain moves toward its target by at
+most `1 / (rate × PAN_EASE)` a frame, `PAN_EASE` = 20 ms for a whole unit (the scale of
+the volume sliders' easing), `rate` the sound's own sample rate, so slowed playing
+stretches it with the sound. Both ears of a frame play one pair of gains. A sound
+swapping sides (a gain moving 0.7) gets there in 14 ms; a sound that moves follows
+slightly behind. A target that is not a number leaves the gain where it is.
+
 ### 14.6 Reverb
 
 **The records.**
@@ -983,6 +1063,9 @@ reverb indoors, owner-review.md].
   inputs are scaled so an impulse's late tail carries its level's energy. Density scales
   the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
   Rolloff Factor is 0 in every preset.
+- **A sound stopped before its end** (#2217, §7) [design]: its fade (5 ms) takes the
+  whole sound, reverb tail included, so a forced stop shortens the tail and frees the
+  voice slot promptly; a sound that ends by itself keeps its whole tail.
 - Not built: a reverb that changes under a sound already playing. (The `GNAM` reverb
   attenuation was built 2026-10-24, §15.5; voices in rooms 2026-11-01, above.)
 - Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
@@ -1323,3 +1406,46 @@ before is dropped. The siren's folder is `fx\npc\robotsecuritron\futz\`.
   music at 0.6 still louder than the original's in game; the in-game music level (music
   types' `ANAM` decibels, §13) was not measured. Owner checks:
   docs/handoff/observer-checks.md.
+
+## 18. Output protection (#2217, 2026-11-12)
+
+Whether the original game limits, compresses or clips its summed mix is not known; this
+is NVForever's own [design]. Many sounds at once (a minigun's shots, a pack of mantises)
+can add up past full scale, and what the device's conversion then does with them is not
+measured here [hypothesis: it clips them]. So the summed 48 kHz stereo mix, after the
+categories' and the master's volumes, goes through a look-ahead limiter on its way to
+the device (or to the drain without one) (`nvf-play/src/audio_out.rs` `Limiter`, in the
+run-long `MixBus`):
+
+- **Threshold** 0.98 (`LIMIT_THRESHOLD`): no sample leaves the bus louder; a little
+  below full scale, so nothing over it reaches the device, and ordinary sound below it is
+  not touched.
+- **Look-ahead** 144 frames, 3 ms (`LIMIT_LOOKAHEAD`): each frame needs a gain
+  `a = 0.98 / max(|left|, |right|)` when its louder sample is over 0.98, else 1. A frame
+  goes out 144 frames later at `min(ceiling, the last gain + release step)`, the ceiling
+  being the lowest of `a[n + k] + k / 144` over the next 144 frames and itself (at most
+  1): the gain starts down in a straight line within the look-ahead before a peak, from
+  the farthest frame whose `a + k / 144` is below 1 (the deeper the cut, the earlier: a
+  peak needing 0.49 is met 73 frames, 1.5 ms, ahead), so even a single frame over cannot
+  pass, and is never above what the frame itself needs. A frame turned down also has
+  its samples held to 0.98, so the product's rounding (one f32 step) cannot pass it.
+- **Release** 50 ms from no gain to unity at most (`LIMIT_RELEASE`, a step of 1/2400 a
+  frame), so the gain does not pump between peaks close together.
+- **One gain for both channels** of a frame: a sound's place in stereo is kept.
+- **Unity below the threshold**: a mix that stays at or below 0.98 comes out exactly as
+  it went in, 144 frames later. Around an overload the look-ahead and the release turn
+  some quieter samples down with it (less than 3 ms before a peak and up to 50 ms
+  after).
+- **Latency**: all sound reaches the device 3 ms later than it did.
+- A frame with a sample that is not a number (or infinite) goes out as silence (each
+  sound's own guard, `audio_out.rs` `GuardedSource`, turns such samples to silence
+  already).
+- The limiter's delay and gain belong to the bus, so a device reopened (`audio_out.rs`'s
+  watcher, on a change of device) goes on with them. Per frame it costs a few compares and two multiplies; its
+  buffers are allocated at the start; the audio thread allocates, locks and logs nothing
+  more for it.
+- **Measured** in the exit line `audio mix: pre peak P, N samples over full scale; post
+  peak Q, M samples over full scale; K frames limited`: `pre` before the limiter (the raw
+  mix's overloads stay counted), `post` after it (M should be 0 and Q at most 0.98), K
+  the frames it played below unity. It works on the 48 kHz bus; what the device's own
+  conversion does after it is not measured here.

@@ -681,7 +681,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, screen: Res<CaravanScreen>, mut out: MessageWriter<CaravanInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, wheel: Res<AccumulatedMouseScroll>, screen: Res<CaravanScreen>, mut out: MessageWriter<CaravanInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;
@@ -740,7 +741,8 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
 
 type Clicked<'a> = (&'a PointerState, AnyOf<(&'a screen::CaravanButton, &'a crate::lockpick::screen::LockButton)>);
 
-fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: Res<ButtonInput<MouseButton>>, mut out: MessageWriter<CaravanInput>) {
+fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: crate::pad::ActionButtons<MouseButton>, mut out: MessageWriter<CaravanInput>) {
+    let mouse = mouse.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.stage == Stage::Results && s.help.is_none() && mouse.just_pressed(MouseButton::Left) {
         out.write(CaravanInput::Continue);

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -68,7 +70,87 @@ def _load_oracle(s: Scenario, cfg: LabConfig) -> Any:
         return json.load(f)
 
 
-def _run_candidate(s: Scenario, cfg: LabConfig) -> Any:
+# Candidate kinds: "tool" (the default: a command whose output is the answer) and "game"
+# (a run of the engine, `nvforever --play`, driven by test aids, that writes its answer to
+# `output_file`). A game run takes one of the machine's smoke slots
+# (tools/smoke/smoke/slots.py), so it waits while the original game is captured and runs
+# beside at most the slots' other nvforever games, as the smoke runner's do.
+CANDIDATE_KINDS = ("tool", "game")
+# Test aids the lab's own environment may hold are not passed on to a game run: only the
+# scenario's `env` drives it (as the smoke runner's aid_free_environ).
+AID_PREFIXES = ("NVF_PLAY_TEST_", "NVF_PLAY_DEBUG_", "NVF_PLAY_AIDS_")
+
+
+def smoke_slot_gate(cfg: LabConfig):
+    """A context manager holding one smoke slot for a game run, from the smoke runner's
+    module beside the lab (`{lab_root}/../tools/smoke`); its lock paths are the smoke
+    runner's (NVF_SMOKE_LOCKS, else this machine's two game locks)."""
+    smoke_dir = (cfg.root / ".." / "tools" / "smoke").resolve()
+    if str(smoke_dir) not in sys.path:
+        sys.path.insert(0, str(smoke_dir))
+    from smoke import slots  # noqa: PLC0415 - the smoke runner's package, beside the lab
+    from smoke.runner import default_lock_paths  # noqa: PLC0415
+
+    class Gate:
+        def __enter__(self):
+            paths = default_lock_paths(cfg.root.resolve().parent)
+            self.pool = None
+            if not paths:
+                return self
+            self.pool = slots.Slots(paths[-1], paths[:-1], want=1,
+                                    say=lambda m: print(f"  [game slot] {m}", file=sys.stderr))
+            self.slot = self.pool.acquire()
+            return self
+
+        def __exit__(self, *exc):
+            if self.pool is not None:
+                self.pool.release(self.slot)
+                self.pool.finish()
+            return False
+    return Gate()
+
+
+def _run_game(s: Scenario, cfg: LabConfig, gate) -> Any:
+    """A "game" candidate: the engine run under a smoke slot with the scenario's test aids
+    (`env`), its answer read from `output_file` (removed first, so a stale answer is never
+    read), its log written beside it (`<output_file>.log`)."""
+    argv = [substitute(a, cfg.vars) for a in s.candidate["argv"]]
+    timeout = float(s.candidate.get("timeout_s", cfg.default_timeout_s))
+    out_file = s.candidate.get("output_file")
+    if not out_file:
+        raise RuntimeError("a game candidate needs output_file")
+    op = Path(substitute(out_file, cfg.vars))
+    op.parent.mkdir(parents=True, exist_ok=True)
+    op.unlink(missing_ok=True)
+    log = op.with_name(op.name + ".log")
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(AID_PREFIXES)}
+    env.update({k: substitute(str(v), cfg.vars) for k, v in s.candidate.get("env", {}).items()})
+    cwd = s.candidate.get("cwd")
+    cwd = substitute(cwd, cfg.vars) if cwd else str(op.parent)
+    with gate(cfg), open(log, "w", encoding="utf-8", errors="replace") as f:
+        try:
+            p = subprocess.Popen(argv, stdout=f, stderr=subprocess.STDOUT, cwd=cwd, env=env)
+        except FileNotFoundError as e:
+            raise RuntimeError(f"candidate executable not found: {argv[0]} ({e})") from e
+        try:
+            code = p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            p.kill()  # this run's own process, by its handle
+            p.wait()
+            raise RuntimeError(f"game candidate timed out after {timeout}s; log {log}") from e
+    if code != 0:
+        tail = log.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-20:]
+        raise RuntimeError(f"game candidate exited with code {code}; log {log}\n--- log tail ---\n" + "\n".join(tail))
+    try:
+        with op.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        raise RuntimeError(f"game candidate wrote no answer ({e}); log {log}") from e
+
+
+def _run_candidate(s: Scenario, cfg: LabConfig, gate=smoke_slot_gate) -> Any:
+    if s.candidate.get("kind", "tool") == "game":
+        return _run_game(s, cfg, gate)
     argv = [substitute(a, cfg.vars) for a in s.candidate["argv"]]
     timeout = float(s.candidate.get("timeout_s", cfg.default_timeout_s))
     cwd = s.candidate.get("cwd")

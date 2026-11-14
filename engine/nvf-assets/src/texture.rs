@@ -13,7 +13,7 @@ use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Loaded textures by (VFS path, sRGB); `None` remembers a failure.
 #[derive(Resource, Default)]
@@ -36,6 +36,8 @@ pub struct TextureCache {
 /// Seconds a texture read ahead waits to be loaded before it is dropped.
 const AHEAD_KEEP_SECS: f64 = 30.0;
 
+type TextureLoadGates = HashMap<(String, bool), Weak<Mutex<()>>>;
+
 /// The textures worker threads decoded, by (resolved path, sRGB): the handle reserved for
 /// each, its format, and the image until the main thread puts it in the image store
 /// ([`TextureCache::take_workers`]). A worker that needs a texture another one decoded
@@ -44,8 +46,12 @@ const AHEAD_KEEP_SECS: f64 = 30.0;
 #[derive(Default)]
 pub struct WorkerTextures {
     entries: Mutex<HashMap<(String, bool), WorkerTexture>>,
-    /// Textures a worker could not load, with why, until the cache remembers them.
-    failed: Mutex<HashMap<(String, bool), String>>,
+    /// Failed keys remain remembered after their one diagnostic is collected. Worker
+    /// snapshots contain successes only, so removing failures would retry them forever.
+    failed: Mutex<HashMap<(String, bool), Option<String>>>,
+    /// Only workers loading the same resolved texture wait for each other. Weak entries
+    /// do not keep a lock alive after its producer and waiters finish.
+    loading: Mutex<TextureLoadGates>,
     /// Whether a texture's alpha is a cut-out mask, by resolved path
     /// ([`Self::alpha_is_mask`]).
     masks: Mutex<HashMap<String, bool>>,
@@ -81,32 +87,65 @@ pub(crate) fn worker_texture(
     if let Some(found) = cached.get(&key) {
         return Some(found.clone());
     }
-    let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
-    if let Some(w) = workers.entries.lock().expect("worker textures").get(&key) {
-        return Some(shared(w));
-    }
-    if workers.failed.lock().expect("worker textures").contains_key(&key) {
-        return None;
-    }
-    let image = match data.read(&key.0).ok_or_else(|| "not in any archive".to_string()).and_then(|bytes| dds_image(&bytes, srgb, bc_supported)) {
-        Ok(mut image) => {
-            image.texture_descriptor.label = Some(folder_label(&key.0));
-            image
+    workers.load_once(key, images, |path| {
+        let bytes = data.read(path).ok_or_else(|| "not in any archive".to_string())?;
+        let mut image = dds_image(&bytes, srgb, bc_supported)?;
+        image.texture_descriptor.label = Some(folder_label(path));
+        Ok(image)
+    })
+}
+
+impl WorkerTextures {
+    fn load_gate(&self, key: &(String, bool)) -> Arc<Mutex<()>> {
+        let mut loading = self.loading.lock().expect("worker texture gates");
+        if let Some(gate) = loading.get(key).and_then(Weak::upgrade) {
+            return gate;
         }
-        Err(e) => {
-            workers.failed.lock().expect("worker textures").insert(key, e);
+        // Engineering budget: bound idle key metadata without scanning the map for
+        // every texture. Active gates must stay discoverable until all waiters leave.
+        if loading.len() >= 256 {
+            loading.retain(|_, gate| gate.strong_count() != 0);
+        }
+        let gate = Arc::new(Mutex::new(()));
+        loading.insert(key.clone(), Arc::downgrade(&gate));
+        gate
+    }
+
+    /// Reserve one handle and decode once for concurrent requests for this key. The
+    /// directory mutex is never held during I/O/decoding or while waiting on a key.
+    fn load_once(
+        &self,
+        key: (String, bool),
+        images: &AssetHandleProvider,
+        load: impl FnOnce(&str) -> Result<Image, String>,
+    ) -> Option<(Handle<Image>, TextureFormat)> {
+        let gate = self.load_gate(&key);
+        // The gate carries no data. A panicking producer has published no partial
+        // image, so a later request may safely retry under the recovered gate.
+        let _loading = gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
+        if let Some(w) = self.entries.lock().expect("worker textures").get(&key) {
+            return Some(shared(w));
+        }
+        if self.failed.lock().expect("worker textures").contains_key(&key) {
             return None;
         }
-    };
-    let mut entries = workers.entries.lock().expect("worker textures");
-    // Another worker may have decoded it meanwhile: its handle is the one to use.
-    let w = entries.entry(key).or_insert_with(|| WorkerTexture {
-        handle: images.reserve_handle().typed::<Image>(),
-        format: image.texture_descriptor.format,
-        image: Some(image),
-        stored_at: None,
-    });
-    Some(shared(w))
+        let image = match load(&key.0) {
+            Ok(image) => image,
+            Err(error) => {
+                self.failed.lock().expect("worker textures").insert(key, Some(error));
+                return None;
+            }
+        };
+        let mut entries = self.entries.lock().expect("worker textures");
+        let w = entries.entry(key).or_insert_with(|| WorkerTexture {
+            handle: images.reserve_handle().typed::<Image>(),
+            format: image.texture_descriptor.format,
+            image: Some(image),
+            stored_at: None,
+        });
+        Some(shared(w))
+    }
 }
 
 /// The archive path a NIF texture path loads from: normalised, the PC's own form of it if
@@ -161,11 +200,21 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, top_only: b
     let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            if w % 4 != 0 || h % 4 != 0 {
+                // The GPU takes block formats only at multiples of 4: such a texture
+                // (a mod's 179×196 DXT5, dds.md §3) is decoded here instead [#2164].
+                let mut out = Vec::new();
+                for (m, l) in levels.iter().enumerate() {
+                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
+                }
+                let format = if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
+                let mut img = checked_image(w, h, levels.len() as u32, format, out)?;
+                img.sampler = sampler();
+                return Ok(img);
+            }
             if !bc_supported {
                 return Err("GPU lacks BC texture support".into());
-            }
-            if w % 4 != 0 || h % 4 != 0 {
-                return Err(format!("{w}x{h} block-compressed texture is not a multiple of 4"));
             }
             let f = match (dds.format, srgb) {
                 (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
@@ -327,9 +376,10 @@ impl TextureCache {
             w.stored_at = Some(now);
         }
         drop(entries);
-        for (key, e) in self.workers.failed.lock().expect("worker textures").drain() {
+        for (key, error) in self.workers.failed.lock().expect("worker textures").iter_mut() {
+            let Some(e) = error.take() else { continue };
             crate::guard::failed(&mut self.failures, "texture", format!("{}: {e}", key.0));
-            self.map.entry(key).or_insert(None);
+            self.map.entry(key.clone()).or_insert(None);
         }
         self.generation += u64::from(n > 0);
         n
@@ -527,6 +577,92 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
 }
 
+/// A texture's top-level alpha, one byte per texel, rows from the top.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AlphaMap {
+    pub width: usize,
+    pub height: usize,
+    pub alpha: Vec<u8>,
+}
+
+/// The top-level alpha of a DDS file. `None` for files that do not parse and for layouts
+/// without alpha.
+pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
+    let dds = Dds::parse(bytes).ok()?;
+    let top = *dds.levels.first()?.first()?;
+    let (width, height) = (dds.header.width as usize, dds.header.height as usize);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let mut alpha = vec![0u8; width * height];
+    match dds.format {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            let size = dds.format.block_bytes()?;
+            let across = width.div_ceil(4);
+            let blocks = (across * height.div_ceil(4)).min(top.len() / size);
+            for (n, b) in top.chunks_exact(size).take(blocks).enumerate() {
+                let (bx, by) = (n % across * 4, n / across * 4);
+                for (i, a) in block_alpha(dds.format, b).into_iter().enumerate() {
+                    let (x, y) = (bx + i % 4, by + i / 4);
+                    if x < width && y < height {
+                        alpha[y * width + x] = a;
+                    }
+                }
+            }
+        }
+        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {
+            let rgba = to_rgba8(dds.format, top)?;
+            for (a, p) in alpha.iter_mut().zip(rgba.as_chunks::<4>().0) {
+                *a = p[3];
+            }
+        }
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 => return None,
+    }
+    Some(AlphaMap { width, height, alpha })
+}
+
+impl AlphaMap {
+    /// The part of a rectangular cell of the texture that holds every texel above
+    /// `clear` alpha, widened by `pad` texels: `[s0, s1, t0, t1]` in the cell's own
+    /// coordinates, s from its corner `origin` towards `s_end`, t towards `t_end`, each
+    /// 0..1 (texture coordinates, 0..1 over the texture, wrapping). `None` when the cell
+    /// holds nothing above `clear`. The cell's edges must follow the texture's axes.
+    pub fn kept_part(&self, origin: [f32; 2], s_end: [f32; 2], t_end: [f32; 2], clear: u8, pad: f32) -> Option<[f32; 4]> {
+        let (w, h) = (self.width as f32, self.height as f32);
+        let lo = [origin[0].min(s_end[0]).min(t_end[0]), origin[1].min(s_end[1]).min(t_end[1])];
+        let hi = [origin[0].max(s_end[0]).max(t_end[0]), origin[1].max(s_end[1]).max(t_end[1])];
+        let (ds, dt) = ([s_end[0] - origin[0], s_end[1] - origin[1]], [t_end[0] - origin[0], t_end[1] - origin[1]]);
+        let det = ds[0] * dt[1] - ds[1] * dt[0];
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        // Texels whose centres lie in the cell.
+        let (x0, x1) = ((lo[0] * w - 0.5).ceil() as i64, (hi[0] * w - 0.5).floor() as i64);
+        let (y0, y1) = ((lo[1] * h - 0.5).ceil() as i64, (hi[1] * h - 0.5).floor() as i64);
+        let mut kept: Option<[f32; 4]> = None;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let (tx, ty) = (x.rem_euclid(self.width as i64) as usize, y.rem_euclid(self.height as i64) as usize);
+                if self.alpha[ty * self.width + tx] <= clear {
+                    continue;
+                }
+                let (u, v) = ((x as f32 + 0.5) / w - origin[0], (y as f32 + 0.5) / h - origin[1]);
+                let s = (u * dt[1] - v * dt[0]) / det;
+                let t = (ds[0] * v - ds[1] * u) / det;
+                let k = kept.get_or_insert([s, s, t, t]);
+                *k = [k[0].min(s), k[1].max(s), k[2].min(t), k[3].max(t)];
+            }
+        }
+        // A texel's own half and the pad, in cell coordinates.
+        let s_texels = (ds[0] * w).abs().max((ds[1] * h).abs()).max(1.0);
+        let t_texels = (dt[0] * w).abs().max((dt[1] * h).abs()).max(1.0);
+        kept.map(|[s0, s1, t0, t1]| {
+            let (ps, pt) = ((0.5 + pad) / s_texels, (0.5 + pad) / t_texels);
+            [(s0 - ps).max(0.0), (s1 + ps).min(1.0), (t0 - pt).max(0.0), (t1 + pt).min(1.0)]
+        })
+    }
+}
+
 /// The 16 alphas of one DXT block [documented: the DXT1/3/5 block layouts; fnv-dds].
 fn block_alpha(format: Format, b: &[u8]) -> [u8; 16] {
     match format {
@@ -575,9 +711,162 @@ fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl F
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
-    use super::{alpha_shares, remembered, AlphaShares};
+    use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
+
+    fn owned_worker_image(srgb: bool) -> bevy::prelude::Image {
+        super::dds_image(&dds(b"DXT1", 4, 4, &[0; 8]), srgb, true).unwrap()
+    }
+
+    #[test]
+    fn worker_texture_contenders_decode_once_and_share_the_uploaded_handle() {
+        use std::sync::{atomic::{AtomicUsize, Ordering}, mpsc};
+        use std::time::{Duration, Instant};
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\owned.dds".to_string(), true);
+        let attempts = AtomicUsize::new(0);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let handles = std::thread::scope(|scope| {
+            let workers = &*cache.workers;
+            let (key_ref, provider_ref, attempts_ref) = (&key, &provider, &attempts);
+            let producer = scope.spawn(move || workers.load_once(key_ref.clone(), provider_ref, |_| {
+                attempts_ref.fetch_add(1, Ordering::Relaxed);
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let gate = workers.load_gate(&key);
+            let consumers: Vec<_> = (0..7).map(|_| scope.spawn(|| workers.load_once(key.clone(), &provider, |_| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Ok(owned_worker_image(true))
+            }))).collect();
+            // The producer and all seven consumers must have reached the same key's
+            // gate before it is released, rather than testing eight sequential hits.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while std::sync::Arc::strong_count(&gate) != 9 && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            let reached = std::sync::Arc::strong_count(&gate);
+            release_tx.send(()).unwrap();
+            let mut handles = vec![producer.join().unwrap().unwrap()];
+            handles.extend(consumers.into_iter().map(|t| t.join().unwrap().unwrap()));
+            assert_eq!(reached, 9, "all requests must contend with the held producer");
+            handles
+        });
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(handles.iter().all(|h| *h == handles[0]));
+        assert_eq!(cache.take_workers(&mut images, 1.0), 1);
+        assert!(images.get(&handles[0].0).is_some());
+        assert_eq!(cache.snapshot(&images)[&key], handles[0]);
+        assert_eq!(cache.take_workers(&mut images, 2.0), 0);
+    }
+
+    #[test]
+    fn worker_texture_different_keys_make_progress_while_one_is_loading() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let (workers_ref, images_ref) = (&workers, &images);
+            let first = scope.spawn(move || workers_ref.load_once(("first.dds".into(), true), images_ref, |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            // Its producer releases the first: a single global decode lock deadlocks
+            // until the bounded channel timeout and fails this regression.
+            let other = workers.load_once(("other.dds".into(), true), &images, |_| {
+                release_tx.send(()).unwrap();
+                Ok(owned_worker_image(true))
+            }).unwrap();
+            assert_ne!(first.join().unwrap().unwrap().0, other.0);
+        });
+    }
+
+    #[test]
+    fn worker_texture_failure_stays_cached_after_its_diagnostic_is_collected() {
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\missing-owned.dds".to_string(), true);
+        assert!(cache.workers.load_once(key.clone(), &provider, |_| Err("owned missing texture".into())).is_none());
+        assert_eq!(cache.take_workers(&mut images, 1.0), 0);
+        assert_eq!(cache.failures.len(), 1);
+        assert!(cache.workers.load_once(key, &provider, |_| panic!("stale success-only snapshots must not retry failed textures")).is_none());
+        cache.take_workers(&mut images, 2.0);
+        assert_eq!(cache.failures.len(), 1, "each failure is reported only once");
+    }
+
+    #[test]
+    fn worker_texture_color_spaces_keep_distinct_handles_and_formats() {
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let color = workers.load_once(("owned.dds".into(), true), &images, |_| Ok(owned_worker_image(true))).unwrap();
+        let linear = workers.load_once(("owned.dds".into(), false), &images, |_| Ok(owned_worker_image(false))).unwrap();
+        assert_ne!(color.0, linear.0);
+        assert_ne!(color.1, linear.1);
+    }
+
+    #[test]
+    fn worker_texture_gate_pruning_keeps_active_keys_and_releases_idle_keys() {
+        let workers = super::WorkerTextures::default();
+        let key = ("active.dds".to_string(), true);
+        let held = workers.load_gate(&key);
+        for n in 0..1024 {
+            drop(workers.load_gate(&(format!("idle{n}.dds"), true)));
+        }
+        let found = workers.load_gate(&key);
+        assert!(std::sync::Arc::ptr_eq(&held, &found));
+        assert!(workers.loading.lock().unwrap().len() <= 256);
+    }
+
+
+    #[test]
+    fn the_kept_part_of_a_cell_holds_its_visible_texels_and_the_pad() {
+        use super::AlphaMap;
+        // 8 x 8, visible texels at x 4..=5, y 2..=3 only.
+        let mut alpha = vec![0u8; 64];
+        for y in 2..=3 {
+            for x in 4..=5 {
+                alpha[y * 8 + x] = 255;
+            }
+        }
+        let map = AlphaMap { width: 8, height: 8, alpha };
+        // The whole texture, s along +u, t along +v: x 4..=5 is 4/8..6/8, y 2..=3 is 2/8..4/8.
+        let k = map.kept_part([0.0, 0.0], [1.0, 0.0], [0.0, 1.0], 8, 0.0).unwrap();
+        assert_eq!(k, [0.5, 0.75, 0.25, 0.5]);
+        // One texel of pad each way.
+        let k = map.kept_part([0.0, 0.0], [1.0, 0.0], [0.0, 1.0], 8, 1.0).unwrap();
+        assert_eq!(k, [0.375, 0.875, 0.125, 0.625]);
+        // A cell stored the other way round (t from the bottom up): the same texels.
+        let k = map.kept_part([0.0, 1.0], [1.0, 1.0], [0.0, 0.0], 8, 0.0).unwrap();
+        assert_eq!(k, [0.5, 0.75, 0.5, 0.75]);
+        // A cell with nothing visible.
+        assert_eq!(map.kept_part([0.0, 0.5], [0.5, 0.5], [0.0, 1.0], 8, 0.0), None);
+    }
+
+    #[test]
+    fn a_dxt5_alpha_map_reads_each_block_in_place() {
+        use super::alpha_map;
+        // 8 x 4: two DXT5 blocks, the first all alpha 0 (a0 = a1 = 0), the second 255.
+        let mut payload = Vec::new();
+        payload.extend([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        payload.extend([255u8, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let m = alpha_map(&dds(b"DXT5", 8, 4, &payload)).unwrap();
+        assert_eq!((m.width, m.height), (8, 4));
+        assert_eq!(m.alpha[0], 0);
+        assert_eq!(m.alpha[4], 255);
+        assert_eq!(m.alpha[3 * 8 + 7], 255);
+    }
 
     #[test]
     fn a_mask_is_worked_out_once_per_path() {
@@ -613,6 +902,28 @@ mod tests {
         blk[0] = a;
         blk[1] = a;
         blk
+    }
+
+    /// A block texture whose sides are not multiples of 4 becomes an RGBA image of its
+    /// own size; one with bytes after its last level loads as if they were not there [#2164].
+    #[test]
+    fn odd_sized_and_overlong_block_textures_load() {
+        // 6x5 DXT5 = 2x2 blocks, every texel opaque.
+        let payload: Vec<u8> = (0..4).flat_map(|_| dxt5_block(255)).collect();
+        let img = dds_image(&dds(b"DXT5", 6, 5, &payload), true, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!((img.width(), img.height()), (6, 5));
+        let data = img.data.as_ref().unwrap();
+        assert_eq!(data.len(), 6 * 5 * 4);
+        assert!(data.chunks(4).all(|t| t[3] == 255));
+        // Decoded on the CPU, so a GPU without BC formats shows it too.
+        assert!(dds_image(&dds(b"DXT5", 6, 5, &payload), true, false).is_ok());
+        // 8x8 with 8 bytes over: the blocks go to the GPU as they are.
+        let mut long = payload.clone();
+        long.extend_from_slice(&[0xAB; 8]);
+        let img = dds_image(&dds(b"DXT5", 8, 8, &long), false, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(img.data.as_ref().unwrap().len(), 64);
     }
 
     #[test]

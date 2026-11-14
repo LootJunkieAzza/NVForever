@@ -4,7 +4,7 @@
 //! mode, interaction by form type, GetPosEx and the NIF block values (materials, the
 //! translation and rotation into script variables).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

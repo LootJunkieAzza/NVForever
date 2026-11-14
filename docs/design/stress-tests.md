@@ -35,8 +35,12 @@ optional caller-supplied `--build-label TEXT`. Repetitions run serially in `run-
 - **Watched for progress.** Each test says which log lines count as progress. When no
   such line comes for `--hang` seconds, the run counts as hung: every thread's stack goes
   to `<launch>.stacks.txt` (tools/smoke `stacks.py`), and the process tree is killed.
-- **Memory.** On Windows, the runner reads the process's working set and private bytes
-  every few seconds (`<launch>.memory.csv`).
+- **Memory.** The runner reads the process's working set and private bytes every few
+  seconds (`<launch>.memory.csv`): on Windows through `K32GetProcessMemoryInfo`, elsewhere
+  from `/proc/<pid>/status` (`VmRSS`) and `smaps_rollup` (`Private_Clean` +
+  `Private_Dirty`, or `RssAnon` where smaps is not readable). CPU-busy seconds come from
+  `GetSystemTimes`/`GetProcessTimes` on Windows and `/proc/stat`/`/proc/<pid>/stat`
+  elsewhere.
 - **Status.** A launch ends `ok`, `crashed` (a crash report was written), `hung`, or
   `failed` (a non-zero exit with no report: a native crash, which no Rust hook sees).
 - **Shared code.** The locks (`Locks`, `default_lock_paths`), the aid-free environment

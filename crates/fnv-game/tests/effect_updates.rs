@@ -6,7 +6,7 @@
 //! by the second keeps its rate, and a call's trace carries its unit's key (#1389;
 //! docs/spec-notes/scripts.md §7.6, aid-items.md, hit-effects.md §4).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

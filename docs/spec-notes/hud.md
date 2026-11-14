@@ -257,7 +257,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - **Condition**: the equipped weapon's condition, 0 to 1 (`combat-rules.md` §17). With
   bare hands the label and bar are not shown [hypothesis].
 - **Ammo**: the magazine and what is carried besides, of the ammo type in use
-  (`combat.rs`). A thrown weapon shows its own count and 0. A weapon that uses no ammo
+  (`combat.rs`). A thrown weapon shows its own count and 0. A regenerating weapon (the
+  Recharger Rifle) shows its charge and what is carried of its ammo type, with nothing
+  taken off [hypothesis: observer check 106]. A weapon that uses no ammo
   shows nothing [hypothesis: the screenshot shows "0/0"; with which weapon is not
   known].
 
@@ -503,7 +505,10 @@ menu's (`dialogue_menu.rs`).
   discovered" over its name in large capitals, where and as "Quest added" is drawn
   (quest-messages.md), and "+10 XP" (`iXPRewardDiscoverMapMarker` is 10 in
   FalloutNV.esm). A place is found when the player comes within its marker's radius
-  (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); saves keep the places found.
+  (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); a marker without `XRDS` (65
+  of WastelandNV's 186 named ones, Coyote Den among them) within `iMapMarkerRevealDistance`,
+  1000 by default [documented: GECK wiki "Complete List of GameSettings"; that it is this
+  distance: hypothesis, #2338, observer check 128]; saves keep the places found.
   The sound is `UIPopUpMapMarkerAdded` [hypothesis: by its name].
 - [documented: `menus/prefabs/hudtemplates.xml`, `template_compass_icon_quest`] The
   quest target's icon is `glow_hud_compass_objective_marker.dds`, 40 x 50 at y 5 as the
@@ -1529,5 +1534,5 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   grenade whose explosion radius + 64 reaches the player's feet (the rule actors use to
   get away, combat-ai.md §17.7), the nearest 8; on the grenade upright while it is in
   view, else on the view's edge 90 pixels in, turned so the point faces it
-  [hypothesis: all of the placing; observer check 108]. Not the player's own grenade in
+  [hypothesis: all of the placing; observer check 144]. Not the player's own grenade in
   its first 0.5 s. The Tweaks tab's three grenade-indicator switches (tweaks.md).

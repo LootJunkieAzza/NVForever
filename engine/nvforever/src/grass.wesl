@@ -136,7 +136,9 @@ fn fragment(
         discard;
     }
     @if(!PREPASS_PIPELINE && !GRASS_COVERAGE) let coverage = 1.0;
-    @if(!PREPASS_PIPELINE && !GRASS_COVERAGE) if alpha < cutoff {
+    // PREPASS_COVERAGE (nvf_assets `grass_edges`): the depth prepass wrote the blade on the
+    // samples it covers and the depth test is for equality: nothing to test here.
+    @if(!PREPASS_PIPELINE && !GRASS_COVERAGE && !PREPASS_COVERAGE) if alpha < cutoff {
         discard;
     }
     pbr_input.material.base_color.a = 1.0;

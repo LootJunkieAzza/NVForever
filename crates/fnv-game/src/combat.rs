@@ -399,10 +399,17 @@ impl Game<'_> {
             self.count_kill(r);
             self.challenge_kill(r);
         }
+        // A body already lying knocked out is a ragdoll already [hypothesis].
+        let lying = self.knockout(r).is_some_and(|k| k.lying());
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;
         e.killing_hit = fatal;
+        // JIP's ragdoll handlers: any actor ragdolled on death [documented:
+        // SetOnRagdollEventHandler].
+        if !lying {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
@@ -700,6 +707,19 @@ impl Game<'_> {
         ran
     }
 
+    /// A hit that deals no damage: a Use Weapon package's or UseWeapon's Do No Damage
+    /// ("prevent all damage", "for scripted protracted fake combat" [documented: GECK
+    /// wiki UseWeapon, docs/spec-notes/use-weapon.md §1]). The target's OnHit and
+    /// OnHitWith blocks run with the attacker and the weapon, as for any hit; nothing else
+    /// changes: no Health, limb or fatigue damage, no hit lines, no last hit, no JIP hit
+    /// event. Returns whether a block ran. [observed: G.I. Blues' thugs fall only in their
+    /// OnHit block for Orris (SCPT 0x00118A77), whose Use Weapon packages are Always Hit and
+    /// Do No Damage, so the scene goes on only if such a hit runs it (#2433); hypothesis:
+    /// that is what the original does, observer check 134.]
+    pub fn harmless_hit(&mut self, target: FormId, info: HitInfo) -> bool {
+        self.hit_object(target, info)
+    }
+
     /// Tell the rules which weapon the animating side draws for `actor`
     /// (`RefExtra::held_weapon`).
     pub fn set_held_weapon(&mut self, actor: FormId, weapon: Option<FormId>) {
@@ -716,6 +736,18 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
             self.extra.entry(actor).or_default().weapon_out = out;
         }
+    }
+
+    /// Whether a living actor has its weapon out now, as IsWeaponOut reads it
+    /// (`functions::actor::is_weapon_out`): what the animating side told in the last second
+    /// ([`Game::set_weapon_out`]; the player's always), else the rule
+    /// ([`Game::wants_weapon_out`]).
+    pub fn weapon_is_out(&self, actor: FormId) -> bool {
+        let told = self.senses.weapon_told.get(&actor).is_some_and(|&t| (self.time - t).abs() < 1.0);
+        if actor == FormId::PLAYER_REF || told {
+            return self.extra.get(&actor).is_some_and(|e| e.weapon_out);
+        }
+        self.wants_weapon_out(actor)
     }
 
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its

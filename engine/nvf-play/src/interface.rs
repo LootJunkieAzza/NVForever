@@ -14,6 +14,8 @@ use nvf_assets::GameData;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod tga;
+
 /// The interface's colour [observed: the brightest text of the owner's screenshot,
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
@@ -132,8 +134,8 @@ pub fn ui_scale_row(group: &'static str) -> crate::settings::Setting {
     crate::settings::Setting::slider(
         "ui-scale",
         group,
-        "UI scale",
-        "The size of the HUD and the menus, as a part of the original's (100%): smaller leaves more of the picture free, each HUD piece kept at its edge of the screen and each menu in the middle. Above 100% only the HUD grows: the menus stay at the original's size, so they keep on the screen. Takes effect at the next start (loading a save starts the game again). Not in the original.",
+        "HUD scale",
+        "Size of the in-game HUD, independent of menu scale. Takes effect at the next start.",
         crate::settings::Slider::choice(UI_SCALE_CHOICES, |_| ui_scale_part(ui_scale_setting()), |_, v| set_ui_scale_setting(ui_scale_of_part(v)), |v| format!("{:.0}%", ui_scale_of_part(v) * 100.0)),
     )
 }
@@ -167,16 +169,16 @@ pub fn ui_scale() -> f32 {
     f32::from_bits(UI_SCALE.load(Ordering::Relaxed))
 }
 
-/// The scale the menus are drawn at: the UI scale, but never above the original's size.
+/// The independent menu scale this run draws at (#2519), at most the original's size.
 /// A menu is laid out for the whole view (its buttons and columns reach close to the
 /// view's edges, the pause menu's Back row 882 of 960 units down), so drawn larger in a
 /// frame kept to the middle it would run off the screen; it may shrink, not grow
-/// [design: #1631]. The HUD, whose pieces keep to their edges, takes the whole scale.
+/// [design: #1631, retained by #2519]. HUD scale is independent.
 pub fn menu_scale() -> f32 {
-    menu_scale_of(ui_scale())
+    crate::menu_scale::drawing()
 }
 
-/// [`menu_scale`] for a UI scale `ui`.
+/// The legacy shared-setting menu scale, used to migrate a missing menu key (#2519).
 pub fn menu_scale_of(ui: f32) -> f32 {
     ui.min(1.0)
 }
@@ -187,7 +189,7 @@ pub fn menu_scale_of(ui: f32) -> f32 {
 pub fn fix_ui_scale() {
     let s = ui_scale_setting();
     UI_SCALE.store(s.to_bits(), Ordering::Relaxed);
-    info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, s.min(1.0) * 100.0);
+    info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, menu_scale() * 100.0);
 }
 
 std::thread_local! {
@@ -198,8 +200,8 @@ std::thread_local! {
 
 /// While alive, [`u`] (and so [`at`], the text and picture helpers) on this thread draw
 /// at the scale it was made with; dropped, they go back to what they drew at before.
-/// Outside every scope they draw at the menus' scale ([`menu_scale`]: the UI scale, at
-/// most 100%) [design: #1631]; the HUD's systems take [`hud_units`], the whole scale. The screens drawn into a texture (the Pip-Boy's pages,
+/// Outside every scope they draw at the independent menus' scale ([`menu_scale`], at
+/// most 100%) [design: #2519]; the HUD's systems take [`hud_units`]. The screens drawn into a texture (the Pip-Boy's pages,
 /// the terminal's) take [`original_units`]: their texture keeps its size, the picture of
 /// it on the window is what scales.
 #[must_use]
@@ -412,7 +414,7 @@ fn texture_read(
     decode: fn(&[u8], bool, bool) -> Result<Image, String>,
 ) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match decode(&bytes, true, bc) {
+    match decode_texture(&bytes, bc, decode) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
@@ -423,6 +425,14 @@ fn texture_read(
             None
         }
     }
+}
+
+fn decode_texture(bytes: &[u8], bc: bool, decode_dds: fn(&[u8], bool, bool) -> Result<Image, String>) -> Result<Image, String> {
+    if bytes.starts_with(b"DDS ") || !tga::recognizable(bytes) {
+        return decode_dds(bytes, true, bc);
+    }
+    let decoded = tga::decode(bytes)?;
+    nvf_assets::texture::checked_image(decoded.width, decoded.height, 1, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, decoded.rgba)
 }
 
 /// A font's picture from its `.tex` file, read before the `.dds` (docs/spec-notes/fonts.md
@@ -579,8 +589,9 @@ pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
 /// [`set_line`] with `mark` on every coloured node (each glyph, or the stand-in text).
 pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
-        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251).
-        let text = line.text();
+        // The codes are the run's code page's, not Latin-1 (`Ж` is 0xC6 in Windows-1251);
+        // the spaces between the words are put back (#2298).
+        let text = line.text_spaced(&face.font);
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: font_units(size), ..default() }, TextColor(color), mark));
@@ -773,8 +784,23 @@ fn own_texture(path: &str) -> String {
 mod layout_tests;
 
 #[cfg(test)]
-mod tests {
+#[path = "interface/tga_consumer_tests.rs"]
+mod tga_consumer_tests;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
+
+    pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 128 + width as usize * height as usize * 4];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (at, value) in [(4, 124), (8, 0x100f), (12, height), (16, width),
+            (76, 32), (80, 0x41), (88, 32), (92, 0xff0000), (96, 0xff00),
+            (100, 0xff), (104, 0xff000000), (108, 0x1000)] {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
 
     #[test]
     fn an_atlas_index_is_read() {

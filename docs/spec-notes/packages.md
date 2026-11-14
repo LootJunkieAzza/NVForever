@@ -271,6 +271,14 @@ location, in cell (radius ignored), near reference; the radius is editable.
   19:00–01:00 and duration 6–10 h rolled when the package starts; breakfast 6–9, lunch
   11–14, dinner 17–20, meals 0.5–2 h (defaults of the fSandbox… settings); a sandbox
   near the start of a linked patrol route sandboxes at each point for its idle time.
+  Repeating an action: the setting `iSandBoxPreventRepeatedActionTime` (default 30)
+  keeps a sandboxing NPC from repeating an action on the same object until that many
+  seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime]. The
+  page does not say when the seconds start (the action's start or its end) or what the
+  NPC does in the meantime when nothing else is open. NVForever does not read this
+  setting: its own rule for the object just used, and for the only object open
+  (60 s, issue #1505), is a design choice under the maintainer's review
+  (docs/design/actor-behaviour.md §5.5, docs/owner-review.md; observer check 114 asks the original).
 - **Patrol**: walk the chain of linked references; repeatable patrols loop (or go back
   and forth) and start at the nearest point; non-repeatable ones start at the first point
   and are done at the last; data on the points (Idle Markers, XMarkerHeading: idle time,
@@ -293,7 +301,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
   DefaultGuardNPC (Strip securitrons, super mutant guards; 128), the Nellis Boomer tower
   guards (256 around a tower marker), PowderGangerGuardMixedPackage (linked reference,
   distance 0, radius 256 around the editor location) and V22MantisFemaleEggGuardPackage
-  (300) [observed: `fnvtool ai show`].
+  (300) [observed: `fnvtool ai show`]. **The wander, built 2026-11-11 (#2027)**: "If it
+  has a radius greater than 0, the actor will wander within that radius" [documented:
+  GECK wiki, Guard Package, Guard Location]; the location's radius, not the guarded
+  reference's guard radius (Count / Distance, for intruders). Of FalloutNV.esm's Guard
+  packages 115 have a location radius, used by 149 actor bases and 430 placed actors
+  [observed: the issue's census]. In the original two settlers on
+  DefaultGuardStayAtPosition01 (near editor location, 128) kept moving inside an area of
+  about that size, procedure 44 GUARD throughout [observed: AI observer 2026-11-10, issue
+  #2027]. Here (`fnv_ai::carry::guard_wander_radius`, `Sandbox::guard`) a guard that has
+  arrived wanders as a sandbox with only wandering on (actor-behaviour.md §5.5); a radius
+  of 0, and a Guard with Remain Near Reference to Guard (§7.7), stand as before
+  [design, #2027]. How often and how far it moves is ours (observer check 115).
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.
@@ -326,6 +345,14 @@ location, in cell (radius ignored), near reference; the radius is editable.
     HeadTracking**: speaker and target "will not be forced to look at each other by the
     package". FOV: the dialogue menu's zoom when the target is the player. Topic: the
     first topic of a conversation between two NPCs, or the Say To line.
+  - **A target other than the player** (an actor, or a talking activator, which speaks
+    for its talking actor): the actor goes up to it as to the player and starts a
+    conversation between actors (`Game::start_actor_conversation`, dialogue.md §5.1);
+    the package lasts while the two talk (issue #2451: Veronica's
+    FollowersVeronicaForceGreetIntercom, target HVIntercomREF). Only the player is
+    measured for a clear line. Before, such packages were parked "not carried out"; the
+    masters' others are the Strip's VStripSS1* street scenes and
+    CaptainParkerArrestKeith [observed: `fnvtool ai show`].
   - Must Complete: the package "will not reevaluate until actor has engaged in
     dialogue with the target".
   - **A wait location that is furniture**: the actor sits on it and talks from its
@@ -980,6 +1007,18 @@ listed record data the engine ignored. What each piece means, and what is built:
   - Immobile: the AI keeps the creature where it is, as one without movement clips
     (nvforever `residents`, log `ai: <name> cannot move (no movement animations, or
     flagged Immobile)`).
+  - Immobile with a Turning Speed (CREA TNAM) of 0: the creature never turns either, not
+    for a conversation, a line it says to someone, a script's Look or a combat target,
+    and the engine does not draw it aimed at a target (fnv-ai `Ai::fix_heading`,
+    nvforever `residents` `never_turns`, log `ai: <name> never turns`). In FalloutNV.esm
+    4 of the 50 Immobile creatures have 0: MrHouse, MrHouseOFFLINE and YesManMainframe
+    (the penthouse and basement screens) and CRVoid; the 46 others (turrets, spore
+    plants, Festus, NVCRMrHouse, NVCRPenthousemaincomputer) have 30 to 300 [observed:
+    the master's records]. An Immobile creature with a Turning Speed above 0 turns in
+    place to its combat target (a turret). [hypothesis: that the original reads the two
+    fields so; the owner saw the screen stay still in the original and turn here after a
+    conversation and in a fight, issues #1543 and #2150.] Whether the original's screen
+    enters combat at all is not observed (observer-checks.md).
   - The flags come through a template with "Use Model/Animation" [hypothesis: the
     Animation tab goes with the model]; Immobile is read off the base record only.
 - Not built: a creature that swims but neither walks nor flies keeping to water (none in
@@ -1032,7 +1071,8 @@ listed record data the engine ignored. What each piece means, and what is built:
   combat target. If the owning actor is the player, the target may also be any actor the
   player is currently aiming at, even outside of combat" [documented: GECK wiki
   Category:Conditions, Run On]. A condition run on it is evaluated on the subject's
-  combat target as GetCombatTarget gives it; with none (out of combat, or the player,
+  combat target as GetCombatTarget gives it (kept while out of sight, through Lost,
+  docs/design/alert.md §6); with none (out of combat, or the player,
   whose aim the engine does not hand to the conditions) the condition is run on nothing,
   as before.
 
@@ -1060,8 +1100,9 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   [documented: Category:Packages]; "said by actors on a random basis who aren't in
   combat" [documented: Conversation Tab]): one timer for the loaded area, drawn between
   `fIdleChatterCommentTimer` and `…Max` (15 and 60) [hypothesis: the settings'
-  meaning]; when due, an actor within 300 units of the player (the random conversations'
-  distance) is drawn and says its line. Log `ai … <actor>: chatters (<d> units from the
+  meaning]; when due, an actor within 200 units of the player (the hello distance) with a
+  clear line to it is drawn and says its line, under the waits and the memory of lines
+  that hellos have (dialogue.md §5.2; 300 units and neither until 2026-11-11, #2156). Log `ai … <actor>: chatters (<d> units from the
   player), line <info>`.
 - **Reaction To Player Actions** (the Topics Tab's "special topics used to get actors
   responding to player actions" [documented]): when the player's body starts a gun's
@@ -1120,6 +1161,14 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   LilyPsychoticBreakPACKAGE (a reference, 1,500), VHDMPStageGuardPackage (linked
   reference, 512) and VHDOliverNCRHeavyTrooperFireSupportHuntPlayerPackage (object type
   None: no reference, so its location stands) [observed: PKDT/PTDT of FalloutNV.esm].
+- **Guard type-specific flags, the unnamed bits**: of the 175 Guard packages in
+  FalloutNV.esm the raw value is 0 in 110, 2 in 31, 6 in 10, 4 in 9, 1 in 7 and 5, 16,
+  18, 21, 29 (twice) and 59 in the rest [observed: PKDT]. xEdit names bit 3 only. In the
+  original, of five Guard packages with Continue During Combat given to a knife trooper,
+  the two with raw value 2 held it inside the guard radius and the three with bit 2 set
+  (raw 6, 6, 4) did not [observed: AI observer 2026-11-12, observer-checks.md check 108;
+  that bit 2 is the cause is a hypothesis]. A spawned actor's editor location is the
+  spot PlaceAtMe put it at [observed, the same check].
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
   Location page names only Near Editor Location, Near Current Location, In Cell and Near
   Reference; how the other kinds choose a place is undocumented. Built (#961)
@@ -1183,3 +1232,39 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   actor exactly at the walk's end or somewhere part-way / within the package's radius;
   whether a short fast travel inside the loaded area moves anybody (ours: nobody,
   [design]); whether the hours a fast travel passes matter beyond choosing the package.
+
+## 9. A script moving the clock (issue #2353)
+
+- **The case** [documented: `fnvtool script decompile`, FalloutNV.esm]: Doc Mitchell's last
+  line (INFO 0x001057E7) ends by showing the Hardcore box (activating 0x0011F293, whose
+  script shows the message and reads the button in GameMode), giving the controls back and
+  starting the quest VGenericTimer (0x00168A86) with a 0.1 s timer counted with
+  GetSecondsPassed; at its end VGenericTimerSCRIPT sets VCG01 to stage 200, whose script
+  does `set GameHour to 8`. A player who answers the box and goes straight out of the door
+  arrives in Goodsprings before that stage runs, so the residents are placed on arrival
+  (§8) for the chargen clock's early morning (Easy Pete in his bed: EasyPeteSleepPackage,
+  00:00-08:00, in GSHouseInterior03 [documented: `fnvtool ai day`, `ai show`]), and then
+  the clock jumps to 08:00. A write to GameHour only stores the value
+  (`fnv_sim::World::set_global`); before #2353 nobody chose again until its periodic turn
+  (§3, up to 10 s on) and then walked from its night place [hypothesis from the code:
+  the issue's chain, not seen in a run; players reported Easy Pete out of place].
+- **What the original does**: not known. The GECK wiki's "How Are Packages Evaluated"
+  lists the periodic choice, EvaluatePackage, ResetAI and the end of a wait, and says
+  nothing about a script setting GameHour [documented: GECK wiki]. Observer check 132.
+- **What is built** [design, #2353]: a script's write to GameHour (`set GameHour to`, the
+  console's `set`, JIP's SetGameHour) that moves the clock face by more than
+  `fnv_game::ai::SCRIPT_HOUR_JUMP` (1 game hour; 23:00 to 01:00 is 2) is noted for the
+  engine (`Game::set_global_by_script`, `Game::take_hour_jump`; several writes before the
+  engine looks are one jump, from the first hour to the last). The engine handles it like
+  the end of a wait: every actor the periodic choice covers chooses its package now
+  (`Game::choose_packages_now`), and every resident the player cannot see (in the cell
+  buffer or an interior behind a door of the loaded cells, not in a drawn cell) is put
+  where its new package's walk ends, on its furniture, by §8's rule (`fnv_ai::Ai::hour_jumped`,
+  engine `residents.rs` `Core::after_hour_jump`). Residents in view are not moved: they set
+  off for their new packages in sight; a walk that would start in view is not skipped
+  either. Those left alone by §8 (dead, in combat, just moved by a script, …) are left
+  alone here too.
+- **Not changed**: a package's schedule duration ends by GameDaysPassed
+  (`Game::end_timed_packages`), which a GameHour write does not move, and a held package
+  (Must Complete, Must Reach Location until its goal) stays through the new choice. So the
+  Goodsprings night stalkers of #2279 are not obviously fixed by this.

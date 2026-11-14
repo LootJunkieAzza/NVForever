@@ -172,7 +172,13 @@ census of the winning REFR records]:
 walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
 activators out (they are culling volumes and script triggers by their bases [hypothesis];
 triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
-gets layer 0.
+is an Invisible Wall (#1545, #1665): it stops actors, and shots pass it
+(`layers::shot_ignores`). So is one whose XTRI is **Transparent** (#2223): TTW's load
+order has 277 references with XTRI, Transparent the commonest (96, then Invisible Wall
+60, Actor Zone 57, Static 31) [observed: `fnvtool esm fields`, 2026-11-12], and its
+Vault 101 BB gun range has a Transparent Portal Box marker across the hall between the
+player and the targets the birthday quest needs hit [hypothesis: the original lets
+shots through such a marker]. Other XTRI layers are kept as stored.
 
 **Bounds are read as half extents** (sphere: the first value is the radius). Evidence
 [observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
@@ -186,8 +192,9 @@ under. Still a [hypothesis] until checked in game (§6). Reproduce:
 CollisionMarker primitive without XTRI is on the **Invisible Wall** layer (27), not
 Unidentified (0). Characters collide with it, as before. Shots, VATS mode's line of fire
 and the aim ray pass it (`layers::shot_ignores`, the character's layers plus Invisible
-Wall), and so do sight (`detection.rs` `see_through`) and blast cover lines, which already
-passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
+Wall and, since #2340, Transparent; melee swings take `layers::melee_ignores`, without
+Transparent: docs/spec-notes/combat-rules.md), and so do sight (`detection.rs`
+`see_through`) and blast cover lines, which already passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
 stopped on it (smoke `shot-passes-collision-marker`).
 
 ### 4.2 Collision layer matrix (B11): design and predictions
@@ -2316,6 +2323,103 @@ z 506) are hard to walk up and usually need a jump.
   at (847, 4060, −127) with and without the fix: its path cuts under the stairs and never
   reaches them (NPC path following, not this controller).
 
+### 6.9.2 Caravan thresholds: lips with no top and ramp crests (issue #2494, 2026-11-14)
+
+Players reported that walking out of the wrecked caravans (STAT `MobileHomeASNV`
+0x000928F3, placed 46 times in WastelandNV) stops at the door: the player stands on the
+threshold or sits in its gap until a jump.
+
+- **The threshold** [observed: `fnvtool phys cell --ray` and the mesh's collision, issue
+  #2494]: the floor inside ends at the door, where the inner skin rises past it as a
+  zero-thickness lip 10.3 above the floor (no top face); between the inner and the outer
+  skin the space is open down to the terrain, about 10-22 wide and about 50 deep. At
+  0x001070C1 (cell −17, −1) the floor ends at y −2385.7 and the terrain outside lies 48
+  below it. Where a plank ramp stands at the door (0x00137E77, cell −8, −25, ramp
+  0x00177D7C) the ramp's upper end hangs over the gap about 17.5 above the floor and slopes
+  down outwards at about 24°.
+- **The original** [observed: capture of the original, 2026-11-14; the player placed on
+  the floor, facing out, Forward held, positions every 10 loops]: walks out of both
+  caravans without a jump at walk and at run pace. At 0x001070C1 the feet pass y −2384 at
+  z 8159 and peak at 8166.5 running (+14.2 over the floor at 8152.3) and 8167.6 walking
+  (+15.3), then drop to the terrain (8107.8) and walk on. At 0x00137E77 the feet peak at
+  6856.4 running (+8.7 over the floor at 6847.7) and 6863.7 walking (+16.0), then go down
+  the ramp to the terrain (6804). The feet rise about 9-16 over the floor while crossing.
+- **Cause** [observed: `fnvtool phys walk` and a debug trace of `move_character`]:
+  rapier's autostep refuses the lip (the cone meets its edge with its own 57.7° face,
+  §6.9), and the step-up (§6.9) climbs only onto a walkable top within 4 below to 26
+  above the feet under the axis or 19 ahead. Perched on the lip's edge the floor under the
+  axis lies more than 4 below the feet and 19 ahead is the gap; perched in the gap the
+  ramp 19 ahead lies more than 4 lower. So the cone rested on the lip's edge (0 of 30
+  walks out at 0x001070C1, 2 of 30 at 0x00137E77). Walking along a door jamb into the
+  corner it makes with the lip, the wedge rule (§6.1) also stopped the step's motion
+  before the step-up was tried.
+- **Fix** (`fnv_phys::character::on_crest`, `step_up_move`) [design]: the shape the
+  step-up puts down may also rest on a **crest**: the contact it came down on holds it up
+  (its normal points up), lies at most `step_height` above a base height
+  (`crest_base`), and 2 units beyond it along the motion the surface falls away by more
+  than 2 (steeper than 45°) or is walkable and no higher than the edge. A lip with no top,
+  the top edge of a thin board and a ramp's upper end count; a steep slope does not (it
+  goes on rising beyond the contact, and across it sideways the surface stays about as
+  high and is not walkable), nor a thin wall higher than `step_height`.
+  - **The base**: during a run of step-ups (`Character::perch_base`) the height the run
+    started from (or the feet less the gap, when lower), so feet that earlier steps of the
+    run raised onto an edge do not raise the limit. The run starts with the first step-up
+    taken and ends when a step starts on walkable ground, in the air or with a jump, or
+    with a placement. Outside a run: the walkable surface straight under the feet within
+    `step_height` (the floor under a cone placed, dropped or walked onto an edge), or,
+    with none so near, the feet less the gap (a cone that jumped or fell onto an edge high
+    above the ground steps on from where it rests).
+  - Measured from the step's own feet (the first version of this fix), a slow approach to
+    a 25-unit thin wall first perched 2-4 above the ground through the walkable top 19
+    ahead (the ground beyond the wall) and then climbed it; measured from the last walkable
+    support (the second version) the same climb remained after a placement or a drop onto
+    a low perch beside a 26-unit wall, and a jump onto an edge far above the ground
+    counted from the ground it left (reviews of the fix; tests
+    `thin_walls_are_stepped_over_up_to_the_step_height`, walls of 24, 25, 26 and 28 at 30,
+    115.5 and 344 units/s, `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge`
+    and `a_jump_onto_a_high_edge_steps_on_over_it`).
+- **Edges a little lower, wedges** [design]: an edge met by the cone's face (off the
+  flat tip by more than 0.5) that is a crest counts even when the shape comes down up to 2
+  lower than it was held: crossing the gap onto a ramp's end it sinks a little. A step the
+  wedge rule stopped is tried by the step-up too. The cone stays (§6.4.1's fence-edge fit),
+  as do the step height (24) and the other rules of §6.9. All of this applies to actors
+  and creatures as well: they walk with the same controller (`plan_move`) and
+  `npc_params` keeps the step height of 24 (§6.8, §6.8.1).
+- **Actors' slope limit** [observed: the test above on main and on this branch]: with
+  `npc_params`' slope limit of 60°, above the cone face's 57.7°, rapier's controller itself
+  walks an actor up a thin edge as far as its cone reaches, before and without the
+  step-up: a person-sized actor (radius 22, cone 29.7 high) walks over thin walls of 24 to
+  28, a small creature (radius 10, cone 10.7 high) over 24 to 26 but not 28. Not changed
+  here; it is not the step-up's (an open question for actors' thin walls).
+- **Checked** [observed: `fnvtool phys walk`, `CharacterParams::default()`, 5 offsets
+  across the door (−15 to +15) × 3 headings (−10°, 0, +10°), 6 s at walk (115.5) and run
+  (344) from the floor]:
+
+  | Run | Before | After | Peak over the floor (after) |
+  |---|---|---|---|
+  | 0x001070C1, walk | 0/15 out | 15/15 | 11.3-13.7 (straight 11.4) |
+  | 0x001070C1, run | 0/15 out | 15/15 | 11.3-14.8 (straight 11.4) |
+  | 0x001070C1, from the gap (3 offsets), walk and run | 0/6 out | 6/6 | |
+  | 0x00137E77 with the ramp, walk | 0/15 out | 15/15 | 15.4-17.7 (straight 17.5) |
+  | 0x00137E77 with the ramp, run | 2/15 out | 15/15 | 15.3-17.7 (straight 17.5) |
+
+  The peaks lie within the original's 9-16 at 0x001070C1 and up to 1.7 above it at the
+  ramp. With `npc_params` for a person (slope limit 60°) all 66 walks got out before and
+  after, the same peaks; for a creature drawn 30 tall (radius 10, `step_width` 10) 56 of
+  66 before and 65 after (the one left ran along the inside wall past the door at 10°). Unchanged: the parity lab's ten `L4.phys.walk.*` scripts and the `diag_fence_edge`
+  / `diag_fence_low` drops give byte-identical traces before and after; the camper's door
+  steps (§6.9) from x −53760 end at the same place, and from 5 starts further east the
+  player now steps over the corner of the floor mattress `BedMattress01FloorL` 0x0010771B
+  (13.6 high) inside the camper instead of stopping at it. Tests
+  `character_walks_out_over_a_threshold_lip` (fails before the fix; the player's, an
+  actor's and two small creatures' parameters) and
+  `thin_walls_are_stepped_over_up_to_the_step_height`,
+  `a_thin_wall_too_high_blocks_after_a_placement_or_a_drop_onto_its_edge` (fails on the
+  second version) and `a_jump_onto_a_high_edge_steps_on_over_it` (passes on the second
+  version too: in the landings built for it rapier's controller or the walkable floor
+  beyond the lip carried the character over, so it guards the rule without having failed);
+  smoke scenario `caravan-door-walk-out`.
+
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 
 - **Item 14** [observed: owner, "bodies glide along the floor ... like they are still
@@ -2452,6 +2556,63 @@ overshoot (4.8 / 2.7) but doubled the drawn height's RMS on the broken road lane
 (426 → 826 units/s², drawn/feet 0.20 → 0.40); smoother damping of the prediction
 (shorter filter while the body is ahead of the feet) cost rough ground as much for less.
 With the bound alone the road run gave 2086 / 426 (0.20), as before.
+
+**Easing onto curbs** (2026-11-12, player feedback that walking onto obstacles of
+varying height "seems a bit jarring") [design; `step_lift.rs`]: the spring started the
+lift back towards 0 at full acceleration in the very step a curb was climbed or dropped
+off, so the view went from still to about 50 units/s within one fixed step. The lift now
+goes back through three first-order stages of rate 22/s one after the other (a triple
+critically damped pole; the change beyond the prediction is taken into all three), so
+after a curb the drawn height starts with no vertical speed and no vertical acceleration
+and is within a tenth of the step after about 0.24 s. The stiffening with the size of the
+lift is gone; the prediction, its bounds, the air, swimming and placements are as
+before. Replayed [observed: synthetic replays in the module's tests, 2026-11-12;
+before / now]: on a 10-unit curb the largest change of the drawn vertical speed from one
+step to the next is 0.66 / 0.34 units a step at a walk and 0.73 / 0.42 at a run, and
+the first step on it moves the drawn height 0.5 / 0.06 units; over the top of a flight
+of stairs the body is drawn 4.2 / 2.6 units over the top step running, 1.2 / 0.5
+walking. The cost: running onto and over a 30° slope the body lags and then overshoots
+by up to 13.3 units (9.9 before), walking 6.6 (6.1). A rate of 18/s was gentler
+still on a curb but made a run up the stairs far rougher (RMS vertical acceleration of
+the drawn height 356 → 1838 units/s² in the replay); 22/s also kept the replayed road
+ripples a little smoother than before (218 → 205). In game on the broken road lane
+[observed: smoke `road-run-smooth`, 2026-11-12] the exit report gave 2083 for the feet and
+365 for the drawn height over 596 steps (427 before, drawn/feet 0.21 → 0.18), largest lift
+14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
+pass.
+
+**Small drops count as the ground** (2026-11-12, the same feedback, narrowed to walking
+off a road onto the terrain and over small rock clusters) [design; `step_lift::footing`]:
+running over rocks the controller leaves the ground for 2-4 fixed steps each time the feet
+come off one, dropping 16-20 units [observed: `fnvtool phys walk` running south-east over
+the desert south of Goodsprings, from (−70500, −2500) at (250, −150) units/s,
+2026-11-12]; drawn as a fall, the view dropped with the feet and stopped dead on landing.
+The lift now takes in a step in the air too while the character walked off an edge (the
+controller's `walked_off_z`, not set by a jump) and its feet are no more than the step
+height (24) below where it left the ground; a jump, swimming and any drop deeper than that
+are the air as before, so a real fall is not slowed. Replayed on that trace the drawn
+height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² and its
+largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
+that never leave the ground are unchanged.
+
+**The view and walking pace** (2026-11-12, the owner's video and save walking west over
+Novac's broken road, cell −13,−13, from (−52595, −52475) facing 269°) [design;
+`step_lift.rs`, `player_body.rs`]: two things still moved the view there. (1) The body is
+drawn on the drawn ground (`drawn_sink`) and the eye counts from the feet, but a change of
+the drawn ground went whole into the lift, which the eye includes: a crack in the road
+model's drawn floor moved the view at once and eased it back. The lift now keeps the
+drawn ground's share apart (`StepLift::ground_at`, eased the same way), and the eye, the
+first-person rig and the third-person pivot leave it out. (2) The feet drop off the
+broken road pieces' edges in quick 8-10 unit drops [observed: `fnvtool phys walk` on
+that line at 75 units/s, 2026-11-12]; eased in 0.24 s at a walk they showed as a dip.
+The stages' rate now follows the horizontal speed: 22/s at 250 units/s and faster, in
+proportion below, at least 10/s, so a step is eased over about the same distance walked.
+In game on that line at a walk [observed: smoke `novac-broken-road-walk`, 2026-11-12]
+the RMS vertical acceleration of the view fell from 203 to 61 units/s² (the body 203 →
+70, the feet 2534); replayed, a walk along the Goodsprings road 102 → 82, the broken lane
+walked 145 → 88. Runs are unchanged (the road run's view 290 for the body's 363). The
+cost: walking, the body is drawn up to 22 units off the feet for a moment after those
+drops, and 9.1 over the top of a 30° slope (6.6).
 
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 

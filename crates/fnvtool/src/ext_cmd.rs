@@ -47,6 +47,26 @@ pub enum ExtCmd {
         #[arg(long)]
         functions: Option<PathBuf>,
     },
+    /// What the game makes of the load order's extender scripts when it starts
+    /// (fnv.ext.report/1): per plugin, how many units run from their source text, which
+    /// kept their bytes because the source does not compile (unit, line and kind of the
+    /// first error), and the functions they call that NVForever has no entry for. The
+    /// build is the game's own (`fnv_game::source_compile`). No script text is printed
+    /// unless `--detail` is given.
+    Report {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Also print each error's detail, which may quote a line of the mod's script:
+        /// keep such output private.
+        #[arg(long)]
+        detail: bool,
+    },
     /// Run one probe set's quests headless (tools/capture/ext-probes/<set>) and collect
     /// the EXTPROBE lines they print, as the in-game collector does (fnv.ext.probes/1).
     Probes {
@@ -171,6 +191,18 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             scan(&order, &schema, &fp)
         }
+        ExtCmd::Report { lo, schema, functions, detail } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
+            let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let refs = fnv_sim::RefTable::build(&order, &schema);
+            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            Ok(source_report(&data.source_units, order.plugins.iter().map(|p| p.name.clone()).collect(), detail))
+        }
         ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky, save } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let plans = probe_plans(&probes_dir.join(&probes), risky)?;
@@ -186,7 +218,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let start = match &save {
                 Some(p) => {
                     let fos = fnv_save::fos::Fos::parse(&std::fs::read(p).with_context(|| p.display().to_string())?).with_context(|| p.display().to_string())?;
-                    Some(crate::ext_save::save_given(&fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?)
+                    Some(fnv_game::ext_save::save_given(&fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?)
                 }
                 None => None,
             };
@@ -267,7 +299,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             let mut save_notes = None;
             if let Some(fos) = &fos {
-                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins)?;
+                let (given, notes) = fnv_game::ext_save::save_given(fos, &fnv_game::ext_save::Loaded { data: &data, forms: &forms, refs: &refs }, &lo.plugins).map_err(anyhow::Error::msg)?;
                 input["given"] = json!(given);
                 input["new_game"] = json!(true);
                 save_notes = Some(notes);
@@ -295,6 +327,54 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             dump_units(&units, &table, plugin.as_deref(), all, &dump)
         }
     }
+}
+
+/// `ext report`'s document from what the game's source compile made of each unit. Error
+/// details (which may quote script text) only with `detail`.
+pub(crate) fn source_report(units: &[fnv_game::source_compile::SourceUnit], order: Vec<String>, detail: bool) -> Value {
+    let per: Vec<Value> = order
+        .iter()
+        .filter_map(|plugin| {
+            let mine: Vec<&fnv_game::source_compile::SourceUnit> = units.iter().filter(|u| u.plugin.eq_ignore_ascii_case(plugin)).collect();
+            if mine.is_empty() {
+                return None;
+            }
+            let failed: Vec<Value> = mine
+                .iter()
+                .filter_map(|u| {
+                    let e = u.error.as_ref()?;
+                    let mut row = json!({"unit": u.key, "line": e.line, "kind": e.kind});
+                    if detail {
+                        row["detail"] = json!(e.detail);
+                    }
+                    Some(row)
+                })
+                .collect();
+            let owned: Vec<fnv_game::source_compile::SourceUnit> = mine.iter().map(|u| (*u).clone()).collect();
+            let unknown: Vec<Value> = fnv_game::source_compile::unknown_functions(&owned).into_iter().map(|(name, n)| json!({"name": name, "units": n})).collect();
+            let enums: std::collections::BTreeSet<&str> = mine.iter().flat_map(|u| u.unknown_enums.iter().map(String::as_str)).collect();
+            Some(json!({
+                "plugin": plugin,
+                "units_from_source": mine.len() - failed.len(),
+                "units_kept_bytes": failed.len(),
+                "failed": failed,
+                "unknown_functions": unknown,
+                "unknown_enum_names": enums,
+            }))
+        })
+        .collect();
+    let failed = units.iter().filter(|u| u.error.is_some()).count();
+    json!({
+        "format": "fnv.ext.report/1",
+        "load_order": order,
+        "summary": {
+            "units_picked": units.len(),
+            "units_from_source": units.len() - failed,
+            "units_kept_bytes": failed,
+            "unknown_functions": fnv_game::source_compile::unknown_functions(units).into_iter().map(|(name, n)| json!({"name": name, "units": n})).collect::<Vec<_>>(),
+        },
+        "per_plugin": per,
+    })
 }
 
 /// The units `ext units` writes: with compiled bytes, without source unless `all`, of
@@ -338,23 +418,18 @@ fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>,
 /// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4); first a
 /// move to `start_cell` when given.
 pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Result<(String, Value)> {
-    anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
-    let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
+    let (set, steps) = fnv_game::ext_probes::query_steps(job).map_err(anyhow::Error::msg)?;
     let mut actions = Vec::new();
     if let Some(cell) = start_cell {
         actions.push(json!({"op": "go_to_cell", "cell": cell}));
     }
-    for s in job["steps"].as_array().context("job without steps")? {
-        let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
-        let label = s["label"].as_str().context("a step without a label")?;
-        actions.push(json!({"op": "query", "script": script, "label": label, "text": s["text"].as_bool().unwrap_or(false)}));
+    for s in steps {
+        actions.push(json!({"op": "query", "script": s.script, "label": s.label, "text": s.text}));
         actions.push(json!({"op": "wait_frames", "frames": 1}));
     }
     Ok((set, json!({"format": "fnv.script.actions/1", "new_game": false, "actions": actions})))
 }
 
-/// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
-/// it from the game's capture: numbers as `%.6g`, errors listed apart.
 /// `ext script-runner`: the Script Runner files of `roots` and Data, compiled (and run).
 fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool, no_data_files: bool) -> anyhow::Result<Value> {
     use fnv_game::script_runner::{Moment, SrRun};
@@ -402,63 +477,11 @@ fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, 
     Ok(doc)
 }
 
+/// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
+/// it from the game's capture: numbers as `%.6g`, errors listed apart
+/// (`fnv_game::ext_probes`, shared with the engine's query job).
 pub(crate) fn queries_doc(set: &str, trace: &Value) -> Value {
-    let mut rows = Vec::new();
-    let mut errors = Vec::new();
-    for o in trace["observations"].as_array().into_iter().flatten() {
-        let Some(id) = o["label"].as_str() else { continue };
-        if let Some(e) = o.get("error").or_else(|| o.pointer("/errors/action")) {
-            errors.push(json!({"id": id, "error": e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string())}));
-            continue;
-        }
-        let value = match &o["value"] {
-            Value::Number(n) => fmt_g6(n.as_f64().unwrap_or(f64::NAN)),
-            Value::String(s) => s.clone(),
-            Value::Null => String::new(),
-            v => v.to_string(),
-        };
-        rows.push(json!({"id": id, "value": value}));
-    }
-    json!({
-        "format": "fnv.ext.probes/1",
-        "set": set,
-        "version": "nvforever",
-        "sources": ["fnvtool ext queries"],
-        "rows": rows,
-        "files": [],
-        "duplicates": [],
-        "errors": errors,
-    })
-}
-
-/// A number as Python's `"%.6g" % x`: six significant digits, trailing zeros dropped,
-/// exponent form below 1e-4 and from 1e6 up.
-pub(crate) fn fmt_g6(x: f64) -> String {
-    if x.is_nan() {
-        return "nan".into();
-    }
-    if x.is_infinite() {
-        return if x > 0.0 { "inf".into() } else { "-inf".into() };
-    }
-    if x == 0.0 {
-        return if x.is_sign_negative() { "-0".into() } else { "0".into() };
-    }
-    let sci = format!("{x:.5e}");
-    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let exp: i32 = exp.parse().unwrap_or(0);
-    let trim = |s: &str| -> String {
-        if s.contains('.') {
-            s.trim_end_matches('0').trim_end_matches('.').to_string()
-        } else {
-            s.to_string()
-        }
-    };
-    if !(-4..6).contains(&exp) {
-        let sign = if exp < 0 { '-' } else { '+' };
-        format!("{}e{sign}{:02}", trim(mant), exp.abs())
-    } else {
-        trim(&format!("{x:.*}", (5 - exp).max(0) as usize))
-    }
+    fnv_game::ext_probes::probes_doc(set, trace["observations"].as_array().into_iter().flatten(), "fnvtool ext queries")
 }
 
 /// Extender function names and aliases (lower case) → (catalogue name, origin). A word that
@@ -928,26 +951,6 @@ End
         assert_eq!(input["actions"][2], json!({"op": "set_quest_var", "quest": "ExtProbeX02Q", "var": "iWhich", "value": 1}));
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn numbers_print_as_python_g6() {
-        for (x, s) in [
-            (1.0, "1"),
-            (0.5, "0.5"),
-            (44.99977, "44.9998"),
-            (-98.1, "-98.1"),
-            (10000.0, "10000"),
-            (0.039_999_999_105_930_33, "0.04"),
-            (6.49, "6.49"),
-            (1e6, "1e+06"),
-            (0.00001234, "1.234e-05"),
-            (0.0001, "0.0001"),
-            (-0.5294, "-0.5294"),
-            (0.0, "0"),
-        ] {
-            assert_eq!(fmt_g6(x), s, "{x}");
-        }
     }
 
     #[test]

@@ -406,14 +406,15 @@ pub fn keys(
     pip: Res<PipBoy>,
     (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
     active: Res<ActiveMenu>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
-    (pads, bindings): (Query<&Gamepad>, Option<Res<crate::bindings::Bindings>>),
+    (pads, bindings): (crate::pad::ActionPads, Option<Res<crate::bindings::Bindings>>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let keys = keys.snapshot();
     let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
     let drop_key = tweaks.as_ref().is_some_and(|t| t.drop_key);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -481,10 +482,12 @@ pub fn keys(
     }
 }
 
-/// The row the pointer comes onto takes the selection, unless the wheel holds it
+/// The row the pointer comes onto takes the selection, if the pointer moved onto it
+/// (`super::hover_takes`: the list redrawn under a resting pointer as the keys or the D-pad
+/// step it leaves their choice alone, #2310) and the wheel does not hold it
 /// (`crate::menu::WheelHold`: a list redrawn under a resting pointer would undo the wheel).
-fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
-    if hold.is_some_and(|h| h.held()) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, moved: Option<Res<super::PointerMoved>>, mut out: MessageWriter<MenuInput>) {
+    if hold.is_some_and(|h| h.held()) || !super::hover_takes(moved.as_deref()) {
         return;
     }
     let (Ok(r), Some(m)) = (rows.get(over.entity), active.0.as_ref()) else { return };
@@ -500,11 +503,12 @@ fn on_row_click(
     click: On<PointerClick>,
     rows: Query<&RowButton>,
     active: Res<ActiveMenu>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     mut out: MessageWriter<MenuInput>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let keys = keys.snapshot();
     let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
     // The player's tweak: a right click does not drop [design: docs/design/tweaks.md].
     let no_right_drop = tweaks.as_ref().is_some_and(|t| t.no_right_click_drop);
@@ -595,7 +599,7 @@ pub fn draw(
     // the player meets (worn armour at its condition and the DT actor value,
     // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
     // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
     let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());
@@ -864,6 +868,7 @@ mod tests {
             mods_value: 0,
             folder: None,
             reference: None,
+            live: false,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;
@@ -871,7 +876,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {

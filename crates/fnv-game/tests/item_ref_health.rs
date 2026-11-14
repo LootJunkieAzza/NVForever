@@ -3,7 +3,7 @@
 //! names): a placed weapon reads its XHLP condition, a condition set on it stays on the
 //! reference through a save, and picking it up carries it into the inventory.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

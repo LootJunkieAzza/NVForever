@@ -19,7 +19,8 @@
 //!   that sound at that place [design], following it as it moves.
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
 //!   so a long one costs no more memory than its file. Placed loops are panned
-//!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
+//!   ([`crate::sfx::Panned`], as the sound effects are, their gains eased over
+//!   [`crate::sfx::PAN_EASE`]), the background loop is not.
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
 //! - **SOUN flags** (audio.md §15.2): a 2D sound is not panned; a loop with Start at
@@ -37,6 +38,13 @@
 //!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
 //!   acoustic space's reverb ([`crate::reverb`]); the background loop does not.
 //!
+//! - **Stopped loops fade out** (#2217) [design]: a placed loop or a source no longer
+//!   heard, and every loop of a place left (another worldspace or interior), fade out over
+//!   `audio_out::DECLICK_FADE` instead of being cut (`audio_out::stop_sound`, counted as
+//!   ambient stops in `sfx declicks: …`); they leave [`Ambient`]'s map at once and are
+//!   neither held nor resumed with the loops while they fade. A background loop giving
+//!   way keeps its own [`BED_FADE`] and is removed once silent.
+//!
 //! Switched off with the sound effects (`nvforever --no-sound`). An `ambient summary`
 //! line at the end.
 
@@ -48,7 +56,7 @@ use crate::sim::SimState;
 use crate::sound_grid::FixedGrid;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::AudioSinkPlayback;
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, StopReason};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_world::audio::{self, SoundMarker};
@@ -179,26 +187,28 @@ fn marker_grid(markers: &[SoundMarker], max_distance: impl Fn(u32) -> Option<f32
     }))
 }
 
+/// Whether `sound`'s file is still coming off the IO pool (asking starts the read): its
+/// loop starts on a later frame, and a missing file is not taken for one (#1993).
+fn file_pending(amb: &mut Ambient, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, sound: u32) -> bool {
+    if folder_unlisted(sfx, FormId(sound)) {
+        return false;
+    }
+    let Some(Resolved { path, .. }) = resolve(sfx, vfs, FormId(sound)) else { return false };
+    matches!(amb.files.fetch(&path, vfs, "ambient"), crate::file_bytes::Got::Pending)
+}
+
 /// Start a SOUN going round, silent; the record's static gain with it. With `pan` it
 /// plays at a place.
 #[allow(clippy::too_many_arguments)]
-fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
+fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
     // A folder of loops not listed yet (sfx's folder index): tried again next frame.
     if folder_unlisted(sfx, FormId(sound)) {
         return None;
     }
     let Resolved { s, name, path } = resolve(sfx, vfs, FormId(sound))?;
-    let bytes = amb.files.get_or_read(&path, || match vfs.read(&path) {
-        Some(Ok(b)) => Some(b.into()),
-        Some(Err(e)) => {
-            warn!("ambient: {name}: {path}: {e}");
-            None
-        }
-        None => {
-            warn!("ambient: {name}: {path}: not in the archives");
-            None
-        }
-    })?;
+    // Read off the main thread (#1993): `file_pending` holds the start back until it is in.
+    let crate::file_bytes::Got::Ready(bytes) = amb.files.fetch(&path, vfs, "ambient") else { return None };
+    let bytes = bytes?;
     let Some((music, level)) = LayeredMusic::single(bytes, true) else {
         warn!("ambient: {name}: {path}: not decoded");
         amb.files.mark_broken(path);
@@ -230,7 +240,7 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
 /// The loops' stream assets: as they are (background loops) and panned (placed ones).
 pub(crate) type Streams<'a> = (ResMut<'a, Assets<LayeredMusic>>, ResMut<'a, Assets<Panned<LayeredMusic>>>);
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -245,7 +255,8 @@ fn play(
     mut pcm: ResMut<Assets<PcmSound>>,
     mut streams: Streams,
     mut sources: MessageReader<SoundSource>,
-    sinks: Query<&AudioSink, With<AmbientSound>>,
+    // Not the loops fading out after a stop: they play their fade out (audio_out).
+    sinks: Query<&AudioSink, (With<AmbientSound>, Without<Retiring>)>,
 ) {
     let (Some(places), Some(mut sfx), Some(player), Some(data)) = (places, sfx, player, data) else {
         sources.clear();
@@ -287,7 +298,7 @@ fn play(
     if amb.space != Some(space) {
         // Another worldspace or interior: nothing of the last one is heard here.
         for (_, p) in amb.loops.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         amb.busy_until.clear();
         amb.picks.clear();
@@ -353,6 +364,9 @@ fn play(
             } else if !held {
                 // A 2D sound is not panned (audio.md §15.2).
                 let pan = (!s.has("2D")).then(|| Pan::new(pan_gains(eye, player.heading, m.at)));
+                if file_pending(amb, sfx, &data.vfs, m.sound) {
+                    continue;
+                }
                 let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, pan) else { continue };
                 p.set(gain);
                 amb.loops.insert(m.key, p);
@@ -394,7 +408,7 @@ fn play(
     amb.loops.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         keep
     });
@@ -437,8 +451,9 @@ fn play(
 /// out, unless the loops are `held`. A bed naming a folder waits for sfx's folder index,
 /// tried again each frame (it would be remembered as having no file otherwise).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, streams: &mut Streams, wanted: Option<u32>, held: bool) {
-    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)));
+pub(crate) fn switch_bed(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &Arc<fnv_vfs::Vfs>, streams: &mut Streams, wanted: Option<u32>, held: bool) {
+    // A bed whose file is still being read waits the same way (#1993).
+    let listing = wanted.is_some_and(|s| folder_unlisted(sfx, FormId(s)) || file_pending(amb, sfx, vfs, s));
     if amb.bed.as_ref().map(|b| b.sound) != wanted && !held && !listing {
         if let Some(old) = amb.bed.take() {
             amb.beds_leaving.push(old);

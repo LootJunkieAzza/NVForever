@@ -19,7 +19,7 @@
 //!    screen from then on, alone. (Holding its script data build until then took the
 //!    swap's peak from 7.6 to 6.1 GB but the load from 6-12 s to 16 s: not done.) Only
 //!    the last step, making its game and putting the save back
-//!    (`nvf_play::script::ScriptState::held`), waits until the old run has taken the file
+//!    (`nvf_play::script::ScriptState::held`, set from the first frame: #2210), waits until the old run has taken the file
 //!    away as it ends, or [`ACK_WAIT_SECS`] after the file was written: on a busy machine
 //!    the screen's first frames were slow enough for the save to be put back before the
 //!    window was shown, while the old run still held its game (#1651).

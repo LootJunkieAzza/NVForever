@@ -23,6 +23,20 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **Automatic device switching (#2200).** [design, #2200] Switch the saved two-device
+  choice on fresh use, default ON with a Controls/INI opt-out; ignore only the switching
+  press edge, preserve all releases, and require the old device idle at frame start with
+  no release that frame (cancellations remain a backstop). Keep the current device on
+  simultaneous activity. Alternatives
+  from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
+  changes this selection policy ([controller section 1](design/controller.md)).
+- **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
+  `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
+  QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
+  `TileMenus=` restores the hand-built pages. Keep this default at PR review? Reverting
+  `DEFAULT_PIPBOY_MENUS` to an empty list restores the old default; other menus and the
+  existing maintainer choices stay as they are. ([ui-tile-tree section 6.2](design/ui-tile-tree.md#62-one-menu-at-a-time-nothing-broken))
+
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
    to that part" rule. The player flinches the same way: the view jumps up to 4°, the
@@ -46,6 +60,10 @@ the spec it links to.
      it. Cover is at most 1,024 units away.
    - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
      searches give up after two sweeps.
+   - [design, #2010] A Lost search with no completed share for 300 s gives up, even
+     with shares still pending; each completed share renews that safety deadline.
+     A different bound changes how long unavailable navigation/AI holds combat.
+     ([alert section 2](design/alert.md))
    - Fire only with the target within 30° ahead, turning at 240°/s.
    - Creatures start blows on the run from up to 200 units beyond reach (minimum
      closing speed 100 units/s).
@@ -117,13 +135,18 @@ the spec it links to.
     picked up, and you can only walk while holding over 25 kg. All guessed.
     ([grab](spec-notes/grab.md))
 14. **Steps and road bumps.** Body and view follow the ground through a 0.2 s speed
-    prediction and a spring (2026-11-07, after "every bump" on roads): road ripples are
-    about 2.5-3x smoother, but running onto a steep hill the body is drawn up to 8 units
-    below the feet for a moment (up to 24 units allowed; over 48 counts as a teleport). A
-    step-up counts from 0.25 units of rise. Where a slope or stairs end the body carries
-    on up: up to 9.9 units over the top of a 30° slope and 4.2 over the top stair at a
-    run (6.1 and 1.2 walking; the old rule never overshot) [observed: replays, physics
-    §6.11]; cutting it halves the slope's overshoot but doubles the road roughness. Smooth enough, or too floaty?
+    prediction and a three-stage ease (2026-11-07, after "every bump" on roads; eased
+    2026-11-12 after feedback that curbs felt jarring): road ripples are about 2.5-3x
+    smoother, a curb starts and ends without a jolt, settling in about 0.24 s, and walking
+    off a rock or a road edge (up to 24 units down) is eased the same way instead of drawn
+    as a fall; walking, steps ease more slowly (over about the same distance walked)
+    and the view no longer twitches with the drawn floor of broken roads, but
+    running onto a steep hill the body is drawn up to 13 units below the feet for a
+    moment (up to 24 units allowed; over 48 counts as a teleport). A step-up counts from
+    0.25 units of rise. Where a slope or stairs end the body carries on up: up to 13.3
+    units over the top of a 30° slope and 2.6 over the top stair at a run (9.1 and 0.5
+    walking) [observed: replays, physics §6.11]; cutting it halves the slope's overshoot
+    but doubles the road roughness. Smooth enough, or too floaty?
     ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
 15. **Third-person aim.** Shots and the activate prompt go to what is under the
     third-person crosshair, but the shot still leaves from the eye, so cover near you
@@ -143,6 +166,15 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
+55. **People walk slower with a pistol drawn outside combat (#2124).** A person in light
+    armour or clothes walking a package with a pistol out, not in combat, walks its walk
+    divided by fMoveNoWeaponMult (1.1): 85.3 / 1.1 = 77.5 units/s (the original's were
+    77.5-78.3). The other two ways to reach 77-78, the `1hm`/`h2h` walk clip (77.5) or
+    fMoveBaseSpeed (77), were not taken, and every other weapon stance, medium and heavy
+    armour and walks in combat keep the holstered walk until measured. If you rule
+    otherwise, the drawn walk takes the clip's or the setting's number, or reaches the
+    unmeasured stances too. (`fnv_ai::carry::drawn_walk_share`;
+    [actors §8.10](spec-notes/actors.md))
 38. **Variable refresh on your screen.** Display sync has a new "Variable refresh" choice
     for G-Sync: vsync stays on and the frame rate is held under your monitor's refresh rate
     (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
@@ -176,51 +208,112 @@ the spec it links to.
     face buttons; menu hints write the names (the game fonts have no symbols). Select and
     Start rather than Share/Create and Options. Right choices, and do the glyphs look
     right? ([controller §3a](design/controller.md))
-52. **Held menu keys repeat; explosions shake the view (#1891).** Both are on for
+65. **Held menu keys repeat; explosions shake the view (#1891).** Both are on for
     everyone, with no tweak turned on: an arrow key, W/A/S/D or Page Up/Down held in a
     menu (or the D-pad) presses again after 0.4 s and then 10 times a second; an
     explosion near the player turns the view up to about 0.8° for the same time the pad
     rumbles. The Tweaks tab's Key Repeat Acceleration and Scale Explosion Shake (0 turns
     it off) build on them. Our own numbers; if you rule otherwise, either goes back to off
     and its tweak waits. (`engine/nvf-play/src/key_repeat.rs`, `shake.rs`)
-53. **A grenade indicator on the HUD (#1891).** NVForever had none; it now draws the
+66. **A grenade indicator on the HUD (#1891).** NVForever had none; it now draws the
     menu files' own explosive indicator for every live grenade whose blast would reach
     you, on the grenade or on the view's edge pointing at it, for everyone. Where the
-    original puts it is a guess (observer check 108). The Tweaks tab's Hide Grenade
+    original puts it is a guess (observer check 144). The Tweaks tab's Hide Grenade
     Indicator turns it off. (`engine/nvf-play/src/grenade_indicator.rs`)
-54. **An idle vanity camera (#1891).** After 120 s with no input (the master's
+67. **An idle vanity camera (#1891).** After 120 s with no input (the master's
     `fVanityModeAutoDelay`), the camera goes to third person and slowly circles you (a
     turn in about 42 s, our number); any input ends it and the view stays third person,
     as after Toggle POV held. New for everyone. The Tweaks tab's Vanity Camera Returns to
     First Person puts a first-person view back. (`engine/nvf-play/src/vanity.rs`)
-55. **A heartbeat at low health (#1891).** Under a quarter of your health, the master's
+68. **A heartbeat at low health (#1891).** Under a quarter of your health, the master's
     `UIHealthHeartbeatALP` loops until you heal, for everyone. The threshold is ours (no
-    setting names one); observer check 110 asks the original's. The Tweaks tab's
+    setting names one); observer check 146 asks the original's. The Tweaks tab's
     Heartbeat Fades lets it fade. (`engine/nvf-play/src/heartbeat.rs`)
-56. **Loaded ammo marked (#1891).** The Pip-Boy's ammo list now gives the ammo your weapon
-    loads the equipped square, for everyone (observer check 111); the Tweaks tab's
+69. **Loaded ammo marked (#1891).** The Pip-Boy's ammo list now gives the ammo your weapon
+    loads the equipped square, for everyone (observer check 147); the Tweaks tab's
     Containers Show Equipped Ammo shows it in containers too. Terminals also fade out as
     they close now (the menu file's 0.25 s). (`menu/model.rs`, `terminal.rs`)
-57. **Critical-hit corner message (#1891).** A critical by the player now shows "Critical
+70. **Critical-hit corner message (#1891).** A critical by the player now shows "Critical
     hit on <name>" in the corner with the masters' critical icon (`sCriticalStrikeIcon`),
     for everyone; the words are ours (the original's are not in the data). The Tweaks
     tab's Critical Hit Messages Name the Limb adds the part. (`combat.rs`)
-58. **"Map marker added" (#1891).** When a script puts a place on your map (ShowMap), a
+71. **"Map marker added" (#1891).** When a script puts a place on your map (ShowMap), a
     corner message now says "Map marker added", for everyone (our words; the original's
     pop-up is only known from a mod's readme). The Tweaks tab's Map Marker Added Names
     the Place adds the name. (`engine/nvf-play/src/marker_added.rs`)
-59. **Hardcore need messages (#1891).** In Hardcore, a dehydration or sleep stage changing
+72. **Hardcore need messages (#1891).** In Hardcore, a dehydration or sleep stage changing
     now shows the masters' own line ("Your dehydration level has increased." and the
-    rest), for everyone; which change says which is our reading (observer check 112). The
+    rest), for everyone; which change says which is our reading (observer check 148). The
     Tweaks tab can turn each off. (`crates/fnv-game/src/needs.rs`)
-60. **World borders (#1891).** A region flagged Border Region now keeps the player inside
+73. **World borders (#1891).** A region flagged Border Region now keeps the player inside
     its areas: step past and you are put back with the masters' "You cannot proceed in
     that direction" line in the corner. No master flags a region of a played worldspace,
-    so only plugins meet it; how the original stops you is a guess (observer check 113).
+    so only plugins meet it; how the original stops you is a guess (observer check 149).
     The Tweaks tab's World Borders: Warning Only keeps the line without the stop.
     (`crates/fnv-game/src/borders.rs`, `engine/nvf-play/src/borders.rs`)
+58. **Followers come in once you stop (#2122).** A follower on its way now stops 150
+    units inside its package's distance (not nearer than 128): Boone 180 of his 330,
+    DefaultFollowPlayerFar 362 of 512, the usual 256 at 128; before, it stood near the
+    distance. The original's two recorded arrivals were about 150 inside (Boone 177, the
+    pack brahmin about 300 of 450); its rule is not known. Keep the fixed 150, take a
+    share of the distance, or the old stop at the distance?
+    ([actor-behaviour §5.1](design/actor-behaviour.md), `FOLLOW_STOP_INSET`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+- **NPC conversations go on past a Goodbye line that links on (#2451).** [hypothesis,
+  #2451] The editor's documentation says a Goodbye line ends a conversation between
+  NPCs; ours ends it only when the line links nowhere, because the data needs it:
+  Veronica and Ramos's exchange at the Hidden Valley intercom (all its lines Goodbye)
+  opens the bunker only at its third line, and Jason Bright's speech continues past a
+  Goodbye part. NPCs' Dialogue packages that talk to another NPC or an intercom are now
+  carried out too (also the Strip's street scenes). Check in game that Veronica walks
+  to the intercom, the exchange plays out and the inner door opens.
+  ([dialogue §5.1](spec-notes/dialogue.md))
+- **Trigger countdowns count game time once a frame, and wait under menus (#2455).**
+  [hypothesis, #2455] A trigger script runs once for each actor inside it; now only the
+  first of those runs in a frame counts the frame's time, and no trigger script runs
+  while a menu, message box or conversation holds the game. Ibsen's virus purge now
+  lasts its 20 s (his warning at 10 s left). Check in game that the purge gives you the
+  time to reach the terminals. ([scripts §5](spec-notes/scripts.md))
+- **Linux overlay GPU source priority (#2249).** [design, #2249] `GPU_SOURCE_ORDER`
+  prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
+  DRM first would make supporting Linux drivers show the game's contribution consistently.
+  [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Explosion-hit handlers on corpses (#2346).** [design, #2346] A blast now reaches a corpse
+  whose ragdoll has taken over, so ShowOff's OnExplosionHit handlers also run for corpses
+  it catches (no damage is taken). Whether the original calls them for a corpse is not
+  observed. Leave them out for corpses instead?
+  ([combat-rules §11](spec-notes/combat-rules.md))
+- **A script jumping the clock (#2353).** [design, #2353] A script's GameHour write of more
+  than `SCRIPT_HOUR_JUMP` (1 game hour) is handled like the end of a wait: everyone chooses
+  its package at once, residents out of sight are put at their new place, those in view
+  walk. The original's handling is unknown (observer check 132); a smaller threshold would
+  catch shorter jumps, a larger one fewer. ([packages §9](spec-notes/packages.md))
+- **Drinking from water holds nothing (#2349).** [design, #2349] Drinking from a sink or
+  pump now plays the tree's drinking idle (first or third person), but the player keeps
+  moving, looking and the HUD while it plays, and the water's healing and rads apply at
+  the activation, before it. Ruling otherwise would hold the player for the clip's 2.4 s
+  (as scripted first-person idles do) or apply the effect at its end. The original's
+  behaviour is observer check 131. ([idles section 16](spec-notes/idles.md))
+
+- **Goodbye lines finished in the world run their end script late (#2449).** [design,
+  #2449] With `goodbye_at_once` (the v0.7.0 rule, a switch that is off since #2157) a
+  chosen Goodbye line's end result script still runs when the actor finishes the line,
+  not when the menu closes. That is what kept the Boomers shelling the player in v0.7.0:
+  Pearl's last line (0x001050FD) starts Volare! from its end script about 40 s after the
+  menu closed, and a player back in the artillery field by then is never counted out
+  (NellisArtilleryScript passes over the player on leaving once Volare! runs). Kept as it
+  is because the switch is off; if you turn it back on, the end script should run as the
+  menu closes ([dialogue §5](spec-notes/dialogue.md)).
+- **Texture scrolls drive every shape sharing the property (#2450).** [design, #2450]
+  A sequence's texture offset, scale or rotation track now moves every shape that lists
+  the same `NiTexturingProperty`, as material tracks already did for a shared
+  `NiMaterialProperty`: the Hidden Valley storm's 18 dust sheets all scroll (only the
+  first did). This applies to every model whose sequences scroll a shared texture, not
+  only the storm; if some model should scroll one shape only, it would need its own
+  property, and ruling otherwise means a per-model exception. Check the storm in game at
+  night in HVDustStorm ([activators section 6.1](spec-notes/activators.md)).
 
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
@@ -289,8 +382,11 @@ the spec it links to.
     costs a second world render while aiming. Planned as a Gameplay switch, off = the
     original overlay. Should it be on by default, and should the view around the lens
     zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
-34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
-    which is where our own pause and settings pages are. Chosen (not built yet): our
+34. **MCM and the pause menu (UI tile tree).** Built 2026-11-12 and on by default (#976):
+    with MCM installed and an MCM mod loaded, the pause menu's Mods entry opens MCM's own
+    window, drawn from MCM's files where the original draws it; look at it beside the
+    original (your screenshots of 2026-11-12 are the reference). MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen: our
     column and settings stay as they are. The game's StartMenu is built from its files
     behind them while the pause or main menu is open, so MCM's scripts find their
     tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's
@@ -351,6 +447,88 @@ the spec it links to.
    went from 4.4–6.2 to 3.4–3.6 ms a frame. Say if re-shot corpses should move longer
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
+60. **Guards wander inside a location radius of 16 or more (#2027).** The GECK wiki says a
+   guard "will wander within that radius" when it is greater than 0, and guards now do. A
+   radius of 1 to 15 is left standing, as 0 is (`GUARD_WANDER_MIN_RADIUS`): its spots
+   would lie within a step of the guard, so the walk would only twitch it on the spot.
+   The pauses and walk pace are the sandbox's own. Say if every positive radius should
+   wander (that needs a finer arrival tolerance for guard walks), or if the floor should
+   differ. ([actor-behaviour §5.5](design/actor-behaviour.md),
+   [packages](spec-notes/packages.md))
+
+59. **A sandbox's only object comes back after 60 s (#1505).** Your handed-off rule: the
+    object just used stays out while any other seat or idle marker is open, and when it is
+    the only one it comes back 60 s after the actor began standing or wandering
+    (`SOLE_OBJECT_AGAIN_AFTER`). The GECK wiki documents a setting for this,
+    `iSandBoxPreventRepeatedActionTime`, default 30 s, which reads as a wait on every object
+    rather than a rule for the last one left; NVForever does not read it. Keep 60 s and the
+    sole-object rule, or follow the setting (30 s, from the data's GMST when a load order
+    sets one)? ([actor-behaviour §5.5](design/actor-behaviour.md),
+    [packages §3](spec-notes/packages.md); what the original does:
+    [observer check 114](handoff/observer-checks.md))
+57. **A Use Weapon package with Continue During Combat keeps firing at its own target
+    when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
+    anyone) stays at its stand and goes on firing its package's volleys at the package's
+    target, not at its attacker, for as long as the use is one the shooter can act on (in
+    place, its target among the drawn standing actors); with Repeat Fire that can be for
+    good. When it is not (a marker target, a target not drawn, not yet at its stand) it
+    turns on its attacker with the ordinary attacks, while its package still moves it (on
+    to its stand, or keeping it there), not the ordinary combat movement.
+    The alternative: it holds its position and fights its attacker from there. This is
+    [design]: the GECK wiki's Use Weapon Package page says only "Actor will continue to
+    fire and stand at the designated position, even during Combat. Great for setting up
+    immobile enemies", not at whom. 43 of FalloutNV.esm's 82 Use Weapon packages set the
+    flag, by the PR's count (sniper posts, scripted kills, the Ultra-Luxe kitchen's
+    flamers); one whose target the shooter does not fire at (a marker) fights its attacker
+    either way. The question is for the maintainer; what the original does is
+    [observer check 112](handoff/observer-checks.md).
+    ([use-weapon spec §3](spec-notes/use-weapon.md), [use-weapon design §3](design/use-weapon.md))
+56. **A planted explosive is "Armed" and stays in the pocket (#1640).** Each live plant
+    reserves one unit of the item. The victim's other units of that item stay usable.
+    Nothing takes the reserved unit until its blast: not the victim (equip, use, drop,
+    a grenade throw), not a script's RemoveItem or RemoveAllItems, and not the player
+    taking it back from the pocket (refused, no roll). The pocket lists it as
+    "<item> (Armed)". The data has no game setting for this word, and "Live" is seen
+    only on the original's screen, so the word is ours (`LIVE_NOTE`). If you rule
+    otherwise, the player could take it back (with or without a roll), scripts could
+    remove it, or the word could change. The victim looking around and spotting you
+    (item 5, second part) is not built yet.
+    ([pickpocket §5](spec-notes/pickpocket.md))
+
+61. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
+    weapon away now bite their nails, smoke and so on, by the idle tree's factions and
+    chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace
+    (`FIDGET_CHECK_SECONDS`); a merchant then begins a general fidget about every 200 s,
+    where the original's capture saw 3 in 360 s. The original's pace (an Energy timer) is
+    observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
+    double every tree fidget, the drawn-weapon and furniture ones too)?
+    ([idles §11.4](spec-notes/idles.md))
+64. **Scripts written for "not in the player's cell" now run there (#2445).** An actor
+    the AI processes out of the loaded cells runs its GameMode block at each low-process
+    update (about every 18 s, every 120 s beyond the cell buffer) and once in each waited
+    hour. This applies only when the block tests that the actor is not in the player's
+    cell (`GetInSameCell … == 0`). Eight object scripts in FalloutNV.esm do: Chauncey,
+    ED-E, the Hidden Valley scribe and Watkins, the Vault 22 spore carriers,
+    TecMineHostage and an SDO handler. Every other script runs in the loaded cells only,
+    as before. Beyond the Beef needs it: Chauncey reaches the steam room only through his
+    own script's warp. Running all far residents' scripts was the wider option, set aside
+    for now; observer check 135 asks what the original does. (`fnv_ai::process`)
+63. **Harmless hits run the target's hit scripts (#2433).** A Use Weapon package's or
+    UseWeapon's Do No Damage shot or blow now runs the target's OnHit and OnHitWith blocks,
+    and still deals no damage. G.I. Blues' ambush needs this: the thugs fall in their OnHit
+    block for Orris, and without it he fired once and stood for good. The other harmless
+    Use Weapon packages' targets now run their hit scripts too. Observer check 134 asks
+    whether the original does. His aim pose (the issue's "does not aim") was not changed.
+    ([use-weapon §3](spec-notes/use-weapon.md))
+62. **Freeside's missing residents (#2432, #2434) taken as fixed by #2239; please
+    retest on a build from 2026-11-13 or later.** Both reproduce in the engine only with
+    #2239's reset of the handed-over grid squares on a change of worldspace taken out
+    (Freeside's three worldspaces lie on the same squares): then the fort has 0 people
+    drawn and Orris and his bodyguard are missing at the north gate, as reported. Main
+    has them all, on your way there too (fast travel, King's School, bus door). v0.7.0
+    (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
+    no version]. No other engine change was made; the smoke scenarios
+    `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

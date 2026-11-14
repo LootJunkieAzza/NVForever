@@ -4,7 +4,9 @@
 //!
 //! **Which device works the controls** is the player's choice, `Input Device` in
 //! `[Controls]` of `NVForever.ini` and the first row of the settings page's Controls tab
-//! (`crate::bindings::InputDevice`) [design; owner 2026-10-16: keyboard and mouse, or a
+//! (`crate::bindings::InputDevice`). Automatic Input Switching selects that saved
+//! choice on use and consumes the switching input (`device`) [design, #2200].
+//! The single-device controls remain [design; owner 2026-10-16: keyboard and mouse, or a
 //! controller, "depending on a setting under controls"]. With Controller chosen the
 //! controls answer the controller only (`crate::bindings::ControlInput`), the left stick
 //! moves, the right stick looks; Esc and the console's key still work.
@@ -19,7 +21,9 @@
 //! [design]. On top of that each menu's own buttons press the key NVForever gives the
 //! same button there ([`menu_buttons`]), as the original's menu files assign them
 //! (`_xbox_button` on each button tile, e.g. `IM_DropButton` `&xbuttonx;`) [documented:
-//! the vanilla menu files, read with `fnvtool ui tree`]; a menu's own button wins over
+//! the vanilla menu files, read with `fnvtool ui tree`]. In the Vigor Tester, the SPECIAL
+//! page and the trait list the left stick is the D-pad too ([`menu_stick`], #2313); a
+//! menu's own button wins over
 //! the shared ones (on the ITEMS page LB is Mod, not Page Up). The pause menu's own: X
 //! Delete, LT F1 and RT Tab (the settings page's tab before and after), Y F6 (its rail);
 //! LB and RB stay Page Up and Page Down, its headings (`crate::pause`) [design: #1953].
@@ -27,6 +31,10 @@
 //! (`crate::pause::Listening`).
 
 use bevy::prelude::*;
+
+pub(crate) mod device;
+pub mod pointer;
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -48,7 +56,7 @@ pub enum StickDir {
 impl StickDir {
     pub const ALL: [StickDir; 4] = [StickDir::Up, StickDir::Down, StickDir::Left, StickDir::Right];
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self as usize
     }
 
@@ -927,8 +935,15 @@ impl StickButtons {
 
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
-pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
-    let v = pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
+pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
+    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), left)
+}
+
+// Physical history and filtered actions share the existing stick normalization
+// [design, #2200; stick, update_stick_buttons]; the dead zone is the player's
+// (`dead_zone`, the Stick Dead Zones tweak).
+fn stick_vector(sticks: impl Iterator<Item = Vec2>, left: bool) -> Vec2 {
+    let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
     if v.length() < dead_zone(left) {
         Vec2::ZERO
     } else {
@@ -936,8 +951,10 @@ pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
     }
 }
 
-fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
-    let v = stick(&pads, true);
+// Derived physical edges must not turn a continued stick hold into a fresh press
+// on the frame after switching [design, #2200].
+pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
+    let v = stick_vector(pads.iter().map(|g| g.left_stick()), true);
     s.before = s.now;
     for d in StickDir::ALL {
         s.now[d.index()] = d.amount(v) >= STICK_PRESS;
@@ -1004,6 +1021,7 @@ pub(crate) struct MenuPages<'w> {
     lockpick: Option<Res<'w, crate::lockpick::LockpickScreen>>,
     poker: Option<Res<'w, crate::poker::PokerScreen>>,
     stats: Option<Res<'w, crate::pipboy::stats::StatsView>>,
+    items: Option<Res<'w, crate::menu::ActiveMenu>>,
 }
 
 impl MenuPages<'_> {
@@ -1018,7 +1036,11 @@ impl MenuPages<'_> {
         let help = self.blackjack.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
             || self.roulette.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
             || self.slots.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
-            || self.lockpick.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()));
+            || self.lockpick.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
+            // "How many?" over an item menu: the D-pad steps the amount, LT and RT by ten, A
+            // is Ok and B Cancel, its keys through the shared buttons, not the menu's own
+            // (the container's D-pad changes the category) [design, #1827].
+            || self.items.as_ref().is_some_and(|a| a.0.as_ref().is_some_and(|m| m.quantity.is_some()));
         let tab = if help { HELP_PAGE } else { self.pip.as_ref().map_or(0, |p| p.tab()) };
         let rad = code == Some(fnv_game::game::menus::STATS) && tab == 0 && self.stats.as_ref().is_some_and(|s| s.status == 1);
         MenuAt { code, tab: if rad { STATS_RAD } else { tab } }
@@ -1030,7 +1052,7 @@ impl MenuPages<'_> {
 /// "file"], pressing the key NVForever's hand-built menu answers for that control.
 pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use fnv_game::game::menus;
-    use GamepadButton::{East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
+    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
     // A help box over a minigame: its own buttons rest, so A (Enter) and B (Esc) close
     // the box as its keys do (blackjack's A is otherwise its F) [design, #1662].
     if at.tab == HELP_PAGE {
@@ -1043,10 +1065,15 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use KeyCode::*;
     let Some(code) = at.code else { return &[] };
     match code {
-        // container_menu.xml: Take All X.
-        crate::script::MENU_CONTAINER => &[(West, KeyR)],
-        // barter_menu.xml: Accept X (B exits, as Esc).
-        menus::BARTER => &[(West, KeyA)],
+        // container_menu.xml: Take All X. LT and RT pick the player's list and the
+        // container's (the arrow keys), the hints under the lists (`CM_Items_TitleButton`
+        // LT, `CM_Container_TitleButton` RT); the D-pad's left and right change the picked
+        // list's category (`[` and `]`) [observed: the original, issue #1827].
+        crate::script::MENU_CONTAINER => &[(West, KeyR), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
+        // barter_menu.xml: Accept X (B exits, as Esc). LT, RT and the D-pad as the container
+        // menu's [documented: `BM_Items_TitleButton` LT and `BM_Container_TitleButton` RT;
+        // the D-pad: hypothesis, as the container menu, #1827].
+        menus::BARTER => &[(West, KeyA), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
         // inventory_menu.xml: Repair Y, Mod LB (Drop X: `crate::pipboy::items`, which has
         // no key for it; Hotkey RB: the hotkeys are held digits, not built for the pad).
         menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
@@ -1118,12 +1145,13 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
 /// button, which takes the buttons themselves.
 #[allow(clippy::type_complexity)]
 pub(crate) fn menu_keys(
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     bindings: Option<Res<crate::bindings::Bindings>>,
     (state, paused, listening): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Listening>>),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mk: ResMut<MenuKeys>,
-    (script, pages): (Option<Res<crate::script::ScriptState>>, MenuPages),
+    switching: Option<Res<SwitchingInput>>,
+    (script, pages, sticks): (Option<Res<crate::script::ScriptState>>, MenuPages, Option<Res<StickButtons>>),
 ) {
     let waiting = listening.is_some_and(|l| l.0.is_some());
     let on = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && !waiting;
@@ -1139,9 +1167,14 @@ pub(crate) fn menu_keys(
                 want.push(*k);
             }
         }
+        if in_menu {
+            if let Some(s) = sticks.as_ref() {
+                stick_keys(menu_stick(at), &pads.filter_sticks(s), &mk.held, &mut want);
+            }
+        }
     }
     for k in mk.held.clone() {
-        if !want.contains(&k) {
+        if !want.contains(&k) && !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
             keys.release(k);
         }
     }
@@ -1151,6 +1184,79 @@ pub(crate) fn menu_keys(
         }
     }
     mk.held = want;
+}
+
+/// The left stick's directions as the arrow keys, in the menus that take the stick as the
+/// D-pad ([`menu_stick`]).
+const STICK_ARROWS: [(StickDir, KeyCode); 4] =
+    [(StickDir::Up, KeyCode::ArrowUp), (StickDir::Down, KeyCode::ArrowDown), (StickDir::Left, KeyCode::ArrowLeft), (StickDir::Right, KeyCode::ArrowRight)];
+
+/// The menus where the left stick pushed one way presses that arrow key, as the D-pad does
+/// (issue #2313). The original's SPECIAL menus give their `increase_value` and
+/// `decrease_value` tiles the left stick's picture (`_xbox_button` `&xbuttonls;`), the
+/// menus' `xright` / `xleft` clicking them and `xup` / `xdown` the review rows [documented:
+/// `menus\chargen\love_tester_menu.xml`, `menus\chargen\specialbookmenu.xml`], and the
+/// trait questionnaire's Navigate hint is the left stick [documented:
+/// `menus\trait_select_menu.xml` `TSM_Callout_Scroll`]. That `xright` and the others answer
+/// the stick as well as the D-pad is a [hypothesis] the pictures fit; not captured.
+/// - The Vigor Tester (1074): left / right lower / raise the page's attribute (on the
+///   review page the chosen row's), up / down choose the review row.
+/// - The tag-skill menu (1048), whose attributes page is NVForever's SPECIAL book
+///   (`ShowSPECIALBookMenuParams`, AddSPECIALPoints): left / right lower / raise, up /
+///   down the rows; on the tag-skill list up / down the rows [design: the code is one].
+/// - The trait menu (1084): up / down the rows, left / right the description's scroll,
+///   as the D-pad [design: `trait_menu.xml` names no stick; it stands for the
+///   questionnaire the opening does not open, chargen.md §1].
+///
+/// A push counts past [`STICK_PRESS`] (the dead zone [`STICK_DEAD`] first), one step a
+/// push, no repeat while held, as the D-pad [design: the files' `repeathorizontal` is not
+/// followed for either].
+pub fn menu_stick(at: MenuAt) -> bool {
+    use fnv_game::game::menus;
+    at.tab != HELP_PAGE && matches!(at.code, Some(menus::LOVE_TESTER | menus::TAG_SKILLS | menus::TRAITS))
+}
+
+/// Add to `want` the arrow keys the left stick `s` holds down ([`menu_keys`]): a key goes
+/// down as its direction is pushed past [`STICK_PRESS`] and stays down while it is held
+/// (`held`, the keys down last frame), so a held push is one press. None where the menu
+/// does not take the stick (`on` false).
+fn stick_keys(on: bool, s: &StickButtons, held: &[KeyCode], want: &mut Vec<KeyCode>) {
+    if !on {
+        return;
+    }
+    for (d, k) in STICK_ARROWS {
+        let down = if held.contains(&k) { s.pressed(d) } else { s.just_pressed(d) };
+        if down && !want.contains(&k) {
+            want.push(k);
+        }
+    }
+}
+
+/// Left and Right pressed this frame for a menu row's value, in order (`true` Right):
+/// the keyboard's own presses, with its repeat while a key is held ([`KeyboardInput`]),
+/// and a press of the key with no keyboard press behind it, which is the controller's
+/// D-pad ([`menu_keys`] presses the arrow keys and sends no keyboard event) [issue #1910:
+/// in the original D-pad left removes a point and right adds one on the level-up skills
+/// page and the SPECIAL page, owner's play on a controller]. A held D-pad does not
+/// repeat [design].
+pub(crate) fn sideways(typed: &[bevy::input::keyboard::KeyboardInput], keys: &ButtonInput<KeyCode>) -> Vec<bool> {
+    use bevy::input::keyboard::Key;
+    let mut out: Vec<bool> = typed
+        .iter()
+        .filter(|k| k.state.is_pressed())
+        .filter_map(|k| match k.logical_key {
+            Key::ArrowRight => Some(true),
+            Key::ArrowLeft => Some(false),
+            _ => None,
+        })
+        .collect();
+    for (code, right) in [(KeyCode::ArrowLeft, false), (KeyCode::ArrowRight, true)] {
+        let typed_now = typed.iter().any(|k| k.state.is_pressed() && !k.repeat && k.key_code == code);
+        if keys.just_pressed(code) && !typed_now {
+            out.push(right);
+        }
+    }
+    out
 }
 
 /// The key a controller button stands in for in a menu ([`menu_keys`]'s tables), when the
@@ -1314,7 +1420,7 @@ pub fn at_menu(code: u16) -> MenuAt {
 /// Whether `button` went down this frame on a controller that works the controls: for a
 /// menu's own controller buttons beyond the keys [`menu_keys`] stands in for (the ITEMS
 /// page's X drop, `crate::pipboy::items`).
-pub(crate) fn menu_button(pads: &Query<&Gamepad>, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
+pub(crate) fn menu_button(pads: &crate::pad::ActionPads, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
     bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && pads.iter().any(|g| g.just_pressed(button))
 }
 
@@ -1333,12 +1439,16 @@ pub struct PadPlugin;
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
-        app.init_resource::<StickButtons>()
+        app.add_plugins(InputSwitchPlugin).init_resource::<StickButtons>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
-            .add_systems(PreUpdate, (update_stick_buttons, menu_keys, track_pad, sync_labels.after(track_pad)).after(InputSystems))
+            .init_resource::<pointer::PadPointer>()
+            .add_message::<bevy::window::CursorMoved>()
+            .add_systems(PreUpdate, (track_pad, update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems).after(device::automatic))
+            // The pointer sleeps with the controller (#2310): before UI focus and picking read it.
+            .add_systems(PreUpdate, pointer::follow.after(InputSystems).after(device::automatic).before(bevy::ui::UiSystems::Focus).before(bevy::picking::PickingSystems::ProcessInput))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,
@@ -1346,7 +1456,8 @@ impl Plugin for PadPlugin {
                 key: "button-style",
                 group: crate::aim_assist::GROUP,
                 label: "Button style",
-                note: "Which names and pictures the controller's buttons go by in prompts, menu hints and the Controls tab. Auto: a PlayStation controller's (Cross, Circle, Square, Triangle, L1, R2, Select…) when the controller in use says it is one, else an Xbox controller's. Xbox or PlayStation: always those. The INI keeps the Xbox names either way.",
+                note: "The names and pictures of the controller's buttons in prompts and hints. Auto: a PlayStation's when the controller says it is one, else an Xbox's.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,
@@ -1366,6 +1477,71 @@ impl Plugin for PadPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1910: the D-pad's Left and Right (arrow keys pressed with no keyboard
+    /// event) count once each; a keyboard press is not counted twice, and its repeats
+    /// count.
+    #[test]
+    fn sideways_takes_the_dpad_and_the_keyboard_once_each() {
+        use bevy::input::keyboard::{Key, KeyboardInput};
+        use bevy::input::ButtonState;
+        let typed = |code, key, repeat| KeyboardInput { key_code: code, logical_key: key, state: ButtonState::Pressed, text: None, repeat, window: Entity::PLACEHOLDER };
+        // The D-pad: keys pressed, nothing typed.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowRight);
+        assert_eq!(sideways(&[], &keys), vec![true]);
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowLeft);
+        assert_eq!(sideways(&[], &keys), vec![false]);
+        // The keyboard: its press is both typed and in the key state; counted once.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowRight);
+        assert_eq!(sideways(&[typed(KeyCode::ArrowRight, Key::ArrowRight, false)], &keys), vec![true]);
+        // A held key's repeats are typed only.
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ArrowLeft);
+        keys.clear();
+        assert_eq!(sideways(&[typed(KeyCode::ArrowLeft, Key::ArrowLeft, true)], &keys), vec![false]);
+        // A D-pad held from before presses nothing again.
+        assert!(sideways(&[], &keys).is_empty());
+    }
+
+    /// Issue #2313: in the Vigor Tester, the SPECIAL page (the tag-skill menu's code) and
+    /// the trait list the left stick is the D-pad's arrows; elsewhere it presses none.
+    #[test]
+    fn the_left_stick_is_the_d_pad_in_the_special_menus() {
+        use fnv_game::game::menus;
+        for code in [menus::LOVE_TESTER, menus::TAG_SKILLS, menus::TRAITS] {
+            assert!(menu_stick(at_menu(code)), "menu {code}");
+        }
+        // Menus that read the stick themselves, or have no file naming it, and a help
+        // box or the pause menu over the SPECIAL menus.
+        for at in [at_menu(menus::TUTORIAL), at_menu(menus::MAP), at_menu(menus::INVENTORY), at_menu(menus::LEVEL_UP), MenuAt::default(), PAUSE_AT, MenuAt { code: Some(menus::LOVE_TESTER), tab: HELP_PAGE }] {
+            assert!(!menu_stick(at), "{at:?}");
+        }
+        let push = |now: [bool; 4], before: [bool; 4], held: &[KeyCode]| {
+            let mut want = Vec::new();
+            stick_keys(true, &StickButtons { now, before }, held, &mut want);
+            want
+        };
+        // [Up, Down, Left, Right]. A push right presses Right once ...
+        assert_eq!(push([false, false, false, true], [false; 4], &[]), vec![KeyCode::ArrowRight]);
+        // ... held, the key stays down (no new press, no repeat) ...
+        assert_eq!(push([false, false, false, true], [false, false, false, true], &[KeyCode::ArrowRight]), vec![KeyCode::ArrowRight]);
+        // ... and let go, it comes up.
+        assert!(push([false; 4], [false, false, false, true], &[KeyCode::ArrowRight]).is_empty());
+        // A push held from before the key was taken (another menu's) presses nothing.
+        assert!(push([false, false, true, false], [false, false, true, false], &[]).is_empty());
+        assert_eq!(push([false, true, true, false], [false; 4], &[]), vec![KeyCode::ArrowDown, KeyCode::ArrowLeft]);
+        // A key the D-pad already holds is not doubled.
+        let mut want = vec![KeyCode::ArrowUp];
+        stick_keys(true, &StickButtons { now: [true, false, false, false], before: [false; 4] }, &[], &mut want);
+        assert_eq!(want, vec![KeyCode::ArrowUp]);
+        // Off in the other menus.
+        let mut want = Vec::new();
+        stick_keys(false, &StickButtons { now: [true; 4], before: [false; 4] }, &[], &mut want);
+        assert!(want.is_empty());
+    }
 
     #[test]
     fn menus_own_buttons_follow_the_files() {
@@ -1410,7 +1586,29 @@ mod tests {
         assert_eq!(menu_key_at(West, PAUSE_AT), Some(KeyCode::Delete));
         // Other menus keep theirs: the triggers are Page Up and Page Down where a menu has none.
         assert_eq!(menu_key_at(LeftTrigger2, MenuAt::default()), Some(KeyCode::PageUp));
-        assert_eq!(menu_key_at(RightTrigger2, at_menu(fnv_game::game::menus::BARTER)), Some(KeyCode::PageDown));
+        assert_eq!(menu_key_at(RightTrigger2, HELP_AT), Some(KeyCode::PageDown));
+    }
+
+    /// Issue #1827: in the container and barter menus LT and RT pick the player's list and
+    /// the other one, and the D-pad's left and right change the picked list's category.
+    #[test]
+    fn the_item_menus_triggers_pick_a_list_and_the_d_pad_its_category() {
+        use GamepadButton::*;
+        for at in [at_menu(crate::script::MENU_CONTAINER), at_menu(fnv_game::game::menus::BARTER)] {
+            assert_eq!(menu_key_at(LeftTrigger2, at), Some(KeyCode::ArrowLeft));
+            assert_eq!(menu_key_at(RightTrigger2, at), Some(KeyCode::ArrowRight));
+            assert_eq!(menu_key_at(DPadLeft, at), Some(KeyCode::BracketLeft));
+            assert_eq!(menu_key_at(DPadRight, at), Some(KeyCode::BracketRight));
+            // LB and RB still page the list; up and down still move the selection.
+            assert_eq!(menu_key_at(LeftTrigger, at), Some(KeyCode::PageUp));
+            assert_eq!(menu_key_at(DPadUp, at), Some(KeyCode::ArrowUp));
+            // The hints under the lists name the triggers.
+            assert_eq!(hint_as(&[KeyCode::ArrowLeft], at, Labels::Xbox), "LT)");
+            assert_eq!(hint_as(&[KeyCode::ArrowRight], at, Labels::PlayStation), "R2)");
+        }
+        // "How many?" over them: the shared buttons, the D-pad stepping the amount.
+        assert_eq!(menu_key_at(DPadLeft, HELP_AT), Some(KeyCode::ArrowLeft));
+        assert_eq!(menu_key_at(LeftTrigger2, HELP_AT), Some(KeyCode::PageUp));
     }
 
     #[test]

@@ -241,11 +241,12 @@ fn follow_pointer(
     monitor: Option<Res<Monitor>>,
     cams: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    mouse: nvf_play::pad::ActionButtons<MouseButton>,
     mut aid: ResMut<PowerAid>,
     mut pointer: ResMut<TerminalPointer>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    let mouse = mouse.snapshot();
     let Some(m) = monitor else { return };
     let Ok((cam, at)) = cams.get(m.camera) else { return };
     let Ok(window) = windows.single() else { return };

@@ -3,7 +3,7 @@
 use fnv_game::ui_hud::{self, Shown, Texts};
 use fnv_ui::{MemSource, Ui, Value};
 
-mod common;
+use crate::common;
 
 // Columns are 4:3, 16:10 and 16:9. The half-unit reticle offset follows the
 // truncated middle [hypothesis: hud.md §14, its child's 607.5/735.5/820.5].

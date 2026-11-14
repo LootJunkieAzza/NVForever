@@ -26,7 +26,13 @@ set_calls_quest_by_variable = 0
 
 [summary.scripts]
 total = 3488
-touched = 1199
+# 1199 -> 1194 (blocks.run 1652 -> 1647, lines.said 2490 -> 2477, actors.touched 268 -> 267):
+# issue 2157 takes back what issue 1606 added (b1a391568: +5, +5, +13, +1). A chosen Goodbye
+# line holds the player again, so game time stands still while it is said and the five quest
+# scripts (VMS04, VMS50, NVDLC01MQ02a, NVDLC04 Ulysses' barks and the Temple's marked men)
+# no longer run a block in that time, nor do Mobius, Ulysses, Colonel Moore, the Scribe
+# teacher and Dog say the extra lines. Every chain's own mq-* scenario passes.
+touched = 1194
 
 [summary.blocks]
 total = 5690
@@ -37,19 +43,31 @@ total = 5690
 # script's Say/SayTo say a fixed speaker's line when no line passes the speaker check, so
 # the Dead Money narrator and the Old World Blues intercoms say Elijah's (+2), Borous's
 # (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
-run = 1652
+run = 1647
 
 [summary.lines]
 total = 28896
-said = 2490
+# 2477 -> 2476 (2490 -> 2489 before #2158 merged): #2156 says DeathResponse at most once per 20 s. tops-ambush kills the four
+# goons back to back; Lucky38Marilyn answered more than one of them and now answers the
+# first only (0x001751AF, a Random DeathResponse line of GenericAdultCombat, is no longer said).
+# 2476 -> 2491: #2378, a quest's condition on the speaker lets a voice type without Allow
+# Default Dialog say the quest's lines. Newly said: ED-E's first greeting 0x001579D7 (the hire
+# line 0x001579C3 is now chosen in the conversation instead of said by say_info) and its death
+# sound 0x0015897C; the securitrons' "Engaging target." 0x0015EEFF and death sound 0x0015EF14
+# (vDialogueSecuritron); a first-generation super mutant's death line 0x0015CD35; the White
+# Legs' death sounds 0x020102DD-DF in place of GenericAdultCombat's 0x020112E4; the rest are
+# other picks from Random pools after those. No chain's stages changed.
+# claude/nvse-mod-tools with this main measures 2491 too [measured 2026-11-13].
+said = 2491
 
 [summary.actors]
 with_lines = 704
-touched = 268
+touched = 267
 
 [summary.results.info]
 total = 8639
-run = 1662
+# 1662 -> 1663: the begin script of ED-E's first greeting (EnablePlayerControls, #2378).
+run = 1663
 
 [summary.results.package]
 total = 558

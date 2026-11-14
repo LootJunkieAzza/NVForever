@@ -22,6 +22,7 @@
 //! fully drawn (it is pushed behind the loaded terrain), so the ground never shows holes.
 
 use crate::grass::GrassMaterial;
+use crate::terrain::TerrainMaterial;
 use crate::tree::{BarkMaterial, LeafMaterial};
 use crate::world::Streamer;
 use bevy::camera::visibility::VisibilityRange;
@@ -99,12 +100,14 @@ pub fn complement(k: u8) -> VisibilityRange {
 }
 
 /// Meshes whose materials dither (nif_material.wesl, Bevy's PBR fragment for trees and
-/// grass); water keeps its own shader and does not fade.
+/// grass, terrain.wesl for ground whose layers are folded into its base); water keeps its
+/// own shader and does not fade.
 type Fading = Or<(
     With<MeshMaterial3d<NifMaterial>>,
     With<MeshMaterial3d<LeafMaterial>>,
     With<MeshMaterial3d<BarkMaterial>>,
     With<MeshMaterial3d<GrassMaterial>>,
+    With<MeshMaterial3d<TerrainMaterial>>,
 )>;
 
 /// Give the meshes of every fading cell its current step (runs after `world::stream`,
@@ -146,6 +149,21 @@ mod tests {
             return false;
         }
         !((level >= 0 && level + threshold >= 16) || (level < 0 && 1 + level + threshold <= 0))
+    }
+
+    /// Every material that dithers by its range is given a cell's fade steps: the ground
+    /// with its layers folded in (terrain.rs `TerrainMaterial`) as much as the blended
+    /// layers and the objects (#2181 review: the folded ground appeared at once).
+    #[test]
+    fn the_fading_materials_include_folded_terrain() {
+        let mut world = World::new();
+        let ground = world.spawn(MeshMaterial3d::<TerrainMaterial>(Handle::default())).id();
+        let layer = world.spawn(MeshMaterial3d::<NifMaterial>(Handle::default())).id();
+        let other = world.spawn(Transform::default()).id();
+        let mut q = world.query_filtered::<Entity, Fading>();
+        let fading: Vec<Entity> = q.iter(&world).collect();
+        assert!(fading.contains(&ground) && fading.contains(&layer));
+        assert!(!fading.contains(&other));
     }
 
     #[test]

@@ -479,6 +479,12 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
     } else {
         error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
     }
+    if patched.matches(FRESNEL_EDIT.0).count() == 1 {
+        patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
+        info!("lights: the highlight's Fresnel factor stays at F0 in world views");
+    } else {
+        error!("{PBR_LIGHTING}: the highlight's Fresnel line not found once (Bevy changed?); highlights keep Bevy's Fresnel rise");
+    }
     let patched = crate::fog::with_source(shader, patched);
     let _ = shaders.insert(&state.handle, patched);
     info!("lights: game attenuation installed");
@@ -491,6 +497,26 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
 /// [observed: bevy_pbr 0.20.1 `pbr_lighting.wesl`; the helper goes in front of
 /// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
 /// Jacobstown's lodge that the original does not show.
+/// The Fresnel factor of the direct lights' isotropic highlight in a world view stays at
+/// F0, in place of Bevy's Schlick Fresnel, which raises it towards f90 (for a grey F0,
+/// saturate(49.5 × F0)), up to about 50 times, as the view grazes the surface
+/// (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`). The rest of the highlight (the GGX
+/// distribution, visibility and the multiscatter compensation) still varies with the
+/// angle. This covers the sun's highlight as well as the point and spot lights'. With that rise, a fire barrel in
+/// Primm drew a long orange streak on the shaded sidewalk where the original shows none
+/// [observed: #2266, a tester's run 2026-11-12, and both games at the same spots
+/// 2026-11-13; docs/spec-notes/world.md §8 "Highlights at grazing angles"]. The
+/// original's lighting is believed to have no Fresnel term on ordinary surfaces
+/// [hypothesis, nif.md "Specular"]. Only the direct lights' isotropic highlight
+/// (`specular`) changes: clearcoat, anisotropy, transmission and the environment keep
+/// Bevy's terms (no world material uses them), and views without the world mark (the
+/// minigame views) keep Bevy's Fresnel.
+const FRESNEL_EDIT: (&str, &str) = (
+    "    let F = fresnel(F0, LdotH);",
+    "    // NVForever (nvforever lights.rs FRESNEL_EDIT): F = F0 in a world view.
+    let F = select(fresnel(F0, LdotH), F0, view_bindings::lights.ambient_color.a < 0.0);",
+);
+
 const SPECULAR_EDITS: [(&str, &str); 3] = [
     (
         "fn getDistanceAttenuation(",
@@ -625,6 +651,22 @@ mod tests {
         }
         // Two lights out of step.
         assert_ne!(LightMotion::Pulse.factor(1.0, 0.1), LightMotion::Pulse.factor(1.0, 0.6));
+    }
+
+    #[test]
+    fn the_fresnel_line_is_in_bevys_shader_once() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_lighting.wesl");
+        let source = unix_lines(&std::fs::read_to_string(path).expect("vendored pbr_lighting.wesl"));
+        assert_eq!(source.matches(FRESNEL_EDIT.0).count(), 1, "the edit's anchor");
+        let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+        for (from, to) in SPECULAR_EDITS {
+            patched = patched.replace(from, to);
+        }
+        assert_eq!(patched.matches(FRESNEL_EDIT.0).count(), 1, "the anchor survives the other edits");
+        let patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
+        assert!(patched.contains("let F = select(fresnel(F0, LdotH), F0,"));
+        // The anisotropic and transmission callers keep Bevy's Fresnel.
+        assert!(patched.contains("let Fa = fresnel(F0, LdotH);"));
     }
 
     #[test]

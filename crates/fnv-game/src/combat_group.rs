@@ -460,7 +460,7 @@ impl Game<'_> {
     /// the other actors of the loaded cells where the world has them (not drawn yet, or
     /// out of the high process) [design: #972, the original's allies reached past the
     /// actors near the player; docs/spec-notes/combat-groups.md §1].
-    fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
+    pub(crate) fn alarm_hearers(&self, near: &BTreeMap<FormId, [f32; 3]>) -> BTreeMap<FormId, [f32; 3]> {
         let mut out = near.clone();
         for r in self.package_actors() {
             if out.contains_key(&r) || !self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
@@ -665,14 +665,46 @@ impl Game<'_> {
     /// being refreshed now (a hostile still noticed keeps its alarm) [documented: Combat
     /// Search, "N complete searches … before dropping out of combat (assuming the player
     /// remains below the detection threshold)"]. Returns whether it dropped them.
+    /// [design, #2010] Lost members wait for every member's shares and a hidden target;
+    /// a finished member may call again to check completion without adding a share.
     pub fn searched_once(&mut self, actor: FormId, about: FormId) -> bool {
         let needed = self.group_settings().remove_search_count;
+        let lost = self.awareness.state(actor) == State::Lost;
         let n = self.awareness.tactics.searched.entry((actor, about)).or_default();
-        *n += 1;
+        let progressed = !lost || *n < needed;
+        if progressed {
+            *n = n.saturating_add(1);
+        }
         let count = *n;
-        self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        if progressed {
+            self.awareness.tactics.notes.push(GroupNote::Searched { actor, about, count, needed });
+        }
         if count < needed {
+            self.renew_lost_search(actor, about);
             return false;
+        }
+        // [design, #2010; documented: GECK wiki Combat Search] A Lost party finishes
+        // together: every member must finish its shares, with the target hidden.
+        let lost_party: Vec<FormId> = self.awareness.actors.iter()
+            .filter(|(id, a)| {
+                a.state == State::Lost && self.comrades(actor, **id)
+                    && a.alarms.iter().any(|x| x.owner == about && x.cause == Cause::LostTarget)
+            })
+            .map(|(id, _)| *id).collect();
+        if lost_party.contains(&actor) {
+            if progressed {
+                self.renew_lost_search(actor, about);
+            }
+            if lost_party.iter().any(|id| self.searches_done(*id, about) < needed
+                || self.awareness.actors[id].targets.get(&about).is_some_and(|t| t.band != crate::detection::Band::Hidden)) {
+                return false;
+            }
+            for id in lost_party {
+                let a = self.awareness.actors.get_mut(&id).expect("listed");
+                a.forget(about);
+                self.awareness.tactics.searched.remove(&(id, about));
+            }
+            return true;
         }
         let now = self.time;
         if let Some(a) = self.awareness.actors.get_mut(&actor) {
@@ -683,6 +715,18 @@ impl Game<'_> {
         }
         self.awareness.tactics.searched.remove(&(actor, about));
         true
+    }
+
+    /// [design, #2010] A completed share renews only the stall deadline, not an alarm
+    /// timeout. An actor whose AI cannot complete a share still has a finite search.
+    fn renew_lost_search(&mut self, actor: FormId, about: FormId) {
+        if let Some(a) = self.awareness.actors.get_mut(&actor) {
+            for alarm in &mut a.alarms {
+                if alarm.owner == about && alarm.cause == Cause::LostTarget {
+                    alarm.expires = self.time + crate::awareness::LOST_SEARCH_STALL_SECONDS;
+                }
+            }
+        }
     }
 }
 

@@ -122,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
@@ -300,15 +300,58 @@ Goodsprings' settlers share GoodspringsFaction and have Assistance 2 [observed:
 `fnvtool actor values`], so shooting one brings the others that see it; Violet's dogs
 share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
+### 10.3.1 An Evil faction's area (#1538, owner decision 2026-11-13)
+
+**Owner decision** 2026-11-13, on #1538: "attacking the fiends should alert all fiends
+in the area that you are to be attacked". Witness or not, every Fiend in the area turns
+on the player as soon as the player attacks one. Built as `Game::evil_area_alert`
+(`fnv_game::provocation`), in these engine terms [design, from the ruling]:
+
+- **Who**: the members of each faction of the victim that is flagged **Evil** (FACT
+  DATA bit 2) [design: the ruling names the Fiends; the Evil flag is what kept the
+  usual rules from reaching them, below, so the rule goes with the flag and not with
+  one faction's name]. FiendsFactionNV is flagged Hidden, Evil and Track Crime
+  [observed: FalloutNV.esm]. The player's teammates are left out.
+- **The attack**: a hit by the player (`Game::attacked_by`, before the friendly-hit
+  allowance: an ally's first hits no longer pass) or the player's kill of it
+  (`Game::player_kills`, so a Fiend killed in one blow counts). Not a stray hit on a
+  victim already fighting someone else, as the owner's exception of §10.1.
+- **The area**: the loaded cells. Indoors the victim's own cell (Vault 3 is three
+  interior cells, Vault3a Recreation Area, Vault3b Living Quarters, Vault3c Maintenance
+  Wing [observed: `fnvtool world cells`], and only the one the player is in is loaded);
+  outdoors the exterior within the alarm radius (9,216 units, combat-groups.md §1) of
+  the victim.
+- **What they do**: each holds a grudge against the player (`Assist`) and gets an alarm
+  at the player's position (`Cause::Ally`), as an assisting ally does (§10.3), so it is
+  Alert at once and fights when it detects the player:
+  `provocation: … is alerted: the player attacked … of its faction`, then one line
+  `provocation: the player attacked … of … (Evil): N of its members in the area turn on
+  the player`. A faction that also tracks crime makes the player its enemy from then on
+  (`Game::crime_enemy`, as a witnessed murder does, spec-notes/crime-karma.md), so its members in the
+  cells not loaded are hostile too when the player gets there.
+
+Why the usual rules did not reach them [observed: FalloutNV.esm; crates/fnv-game]:
+Vault 3's entrance door (SCPT 0x000F2DF5, OnActivate) runs `SetAlly PlayerFaction
+FiendsFactionNV` when the player comes in with `iVault3Entrance` 2, so the Fiends are
+the player's allies; an ally lets iAllyHitNonCombatAllowed (3) hits pass out of combat
+(§10.1), assistance never fights a helper's own ally (§10.3), and the kill of an Evil
+NPC is no murder, so no witness turns (spec-notes/crime-karma.md). Karma is unchanged (killing an evil
+person stays good karma). Smoke `fiends-area-alert`.
+
 ### 10.4 Combat styles (`fnv_game::combat_style`, schema `ai.json` CSTY)
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
 meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
-its ZNAM, from the template that supplies its AI data [hypothesis], else
-`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+its ZNAM, from the template that supplies its traits, as the death item is
+[documented: GECK wiki Traits Tab - NPC and Traits Tab - Creatures list Combat Style
+among the tab's fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits
+of the ActorBase"; #2138], else `DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
 
 - **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
-  its fists. Ranged Only changes nothing yet (there is no weapon choice).
+  its fists. Ranged Only ("will always use ranged weapons as their primary weapon"
+  [documented: GECK wiki Combat Style]): people take up a ranged weapon by it (§22); a
+  creature takes up none of its melee body arms while one of its guns can be used, and
+  so steps back from a target too near instead of striking (§19, #2351).
 - **Ranged Weapon Max Range Mult** scales the weapon's max range in the distance the
   actor fights from (§5).
 - **Semi-Auto Firing Delay Mult (min, max)**: a semi-automatic gun waits a random time
@@ -446,9 +489,9 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Combat Style | Power attacks: chance, by movement or by % chance, fatigue modifier | have | combat-rules.md §10.1; the fatigue modifier §17.3 |
 | Combat Style | Maneuver decision: dodge chances and timers, fatigue and encumbrance modifiers | have | §17.1 (when and which way: hypotheses); Acrobatic Dodge not built |
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | missing | next (cover) |
-| Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4, §16: also the reach it fires within); min: no backing off (§12.6) |
+| Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4, §16: also the reach it fires within); min: a short-reach gun's step back (§12.6, #2351) |
 | Combat Style | Semi-Auto Firing Delay Min/Max Mult | have | §10.4 |
-| Combat Style | Weapon Restrictions | partial | Melee Only; Ranged Only needs weapon choice |
+| Combat Style | Weapon Restrictions | have | Melee Only; Ranged Only by people's weapon choice (§22) and creatures' body arms (§19, #2351) |
 | Combat Style | Max Targeting FOV | have | §17.5: no new target outside it |
 | Combat Style | Combat Radius: no pursuit beyond it | have | §17.4, from where the fight began or it was last hit |
 | Combat Style | Ignore Threats; Ignore Damaging Self / Group / Spectators; iAvoidHurtingNonTargetsResponsibility | have | §17.6, §17.7: live grenades only; the setting's value guessed |
@@ -462,16 +505,16 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Continue During Combat | wrong | built as "the package goes on in every combat state", which pins melee fighters (#2155). The original, by package type [documented, and observed 2026-11-12]: Travel holds only on the way, Guard only while the target is outside the guard radius; the rule to build is alert.md §5.2. No cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
-| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
+| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next, with #2155: Guard radius = package radius × 1.5, at least 384, measured from the post to the target [documented; observed for two Guard packages, not for three with type-flag bit 2]; Follow radius × 3, at least 512 [documented]; alert.md §5.2 |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount; the hidden-target timers | missing | next (search parties); our timers are alert.md §2's |
 | Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
 | Weapons | Sight Usage × fCombatIronSightsDistance: when an actor uses its sights | partial | the owner's 20 m rule instead (§10.6) |
 | Weapons | Semi-Auto Fire Delay Min/Max for actors | have | §10.4 |
 | Weapons | Max Range: actors beyond it do not fire until within it | have | §16 |
-| Weapons | Min Range: "they don't need to be closer than this value" | have | nothing to build: it never sends them back (§12.6) |
+| Weapons | Min Range: "they don't need to be closer than this value" | have | only a short-reach gun's step back (§12.6, #2351); it sends no other gun back |
 | Gun Spread Formula (New Vegas) | No unaimed penalty while aiming | have | player and NPCs (§10.6) |
 | Gun Spread Formula (New Vegas) | NPC spread × fNPCMaxGunWobbleAngle + spread | missing | [design]: NPCs keep the player's formula |
 
@@ -749,6 +792,19 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   weapon's Min Range is not used: it "tells combat AI they don't need to be closer than
   this value" [documented: GECK wiki Weapons], and the service rifle's 768 had the
   troopers backing away most of the fight (first run, 2026-10-16).
+  **Short-reach guns** [design, #2351; `combat_tactics::back_off_band`]: the step back
+  must end no farther than where the gun stops closing in (§16), or it steps back past
+  that and closes in again for ever: a bloatfly (Bloatfly1HP: Max Range 250, Min Range
+  100 [documented: fnvtool esm decode, FalloutNV.esm 0x00046BDD]) stops at 225 and went
+  back and forth between 225 and 320 [hypothesis from the arithmetic, #2351]. Where 256 +
+  64 would end beyond the stop, the gun steps back from a target nearer than its Min
+  Range times its style's Ranged Weapon Min Range Mult ("modify the minimum/maximum range
+  value on the combatant's weapon when doing range calculations" [documented: GECK wiki
+  Combat Style]), at most the stop less 64 (that without a Min Range), never nearer than
+  its blast's clearance, and goes on to 64 beyond, at most the stop. The bloatfly holds
+  at 225 and steps back only from a target within 100, to 164. Every gun whose stop is
+  at least 320 keeps 256 / 320; a launcher whose stop is its blast's clearance goes on
+  only to that stop.
 - **Keeping a target** [design]: a fighter keeps the target it fights while it detects
   it, unless another detected one is more than 50 above it in detection value
   (`awareness::TARGET_KEEP_MARGIN`). Before, it took the highest value at each
@@ -925,7 +981,7 @@ Smoke scenarios (`tools/smoke/scenarios.toml`), observed on this branch 2026-10-
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | have (§12.6) |
 | Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount | have, by sectors (§12.5); fCombatSearchTargetHiddenRemoveTime/MaxTime: alert.md §2's timers stand in |
 | Combat Search | Almost detected: the search centres midway | have (§12.5) |
-| Combat Package Flags | Continue During Combat: "using cover along the way" | partial: no cover on the way |
+| Combat Package Flags | Continue During Combat: "using cover along the way" | wrong reading built (#2155; the rule to build: alert.md §5.2); no cover on the way |
 | Combat Tab | Flee line | have (§12.2); the other combat barks: missing |
 
 Left for later: grenades and threats, blocking, dodging and power attacks, combat barks
@@ -1041,11 +1097,11 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 
 | Flag | Read from the template's source now | Before |
 |---|---|---|
-| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity; combat style (#2138; before it, from the AI Data source) | the placed base |
 | Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
 | Factions | factions | the same |
 | Actor Effect List | not read by the game layer | — |
-| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius | the same |
 | AI Packages | the package list | the same |
 | Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
 | Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |
@@ -1450,7 +1506,8 @@ first shot in a fight: `npc combat: … opens fire on … from … units (reach 
 **A step back** (§12.6): an explosive gun steps back from a target nearer than its
 blast's clearance (radius + 64) instead of 256 [design]. The weapon's Min Range is still
 not a back-off distance: "they don't need to be closer than this value" [documented:
-GECK wiki Weapons].
+GECK wiki Weapons], except for a short-reach gun whose stop leaves no room for the usual
+step back (§12.6, #2351); and no step back ends beyond the gun's stop.
 
 **Summary** at exit: `npc gun reach summary: held fire … times at a target beyond reach,
 … times within a blast; left cover … times to close in; the farthest shot … % of its
@@ -1774,8 +1831,14 @@ bloatfly and protectron folders also keep stance clips there.
   blast and kept it, so it stopped attacking. Now it fires its minigun at any distance
   (its damage per second is higher) and takes up the launcher only beyond 1000 units
   with the minigun lost to a crippled limb.
+- **Ranged Only** (#2351): a creature whose combat style is Ranged Only ("will always
+  use ranged weapons as their primary weapon" [documented: GECK wiki Combat Style])
+  leaves its melee arms out while one of its guns can be used
+  (`body_weapon::restrict_ranged`); with every gun lost to crippled limbs it fights with
+  them again [design: primary, not only].
 - The first choice in a fight is made at once, and a creature with a melee arm does not
-  step back from a target within `BACK_OFF_WITHIN` (256) [design]. Before (2026-10-25,
+  step back from a target within `BACK_OFF_WITHIN` (256) [design], unless its style is
+  Ranged Only. Before (2026-10-25,
   full smoke on main 8ec4062d): Mister Handy, drawn with its flamer, stepped back from the
   player at its feet before its first switch was allowed, kept 256 away, never came
   within the saw's 192 and never used it.

@@ -575,7 +575,7 @@ Notes on the most used:
   screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
   shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
   `textures\<texture>.dds` on the drawn shape of that name (nvforever `texture_swap.rs`);
-  `##` is dropped [hypothesis]. Not part of saves.
+  `##` is dropped [hypothesis], on both sides: the model keeps it on its shape names, so the end slides' `##gs01:0` matches gs01.nif's `##GS01:0` only with it dropped there too [observed: fnvtool nif decode; until 2026-11-12 it was dropped from the call only, and the model's own first slide stayed up, issue #2226]. Not part of saves.
 - **GetVATSValue** (250 conditions): implemented 2026-10-18 for VATS mode, NVForever's own
   mark and fire (docs/design/vats-mode.md §12): the marked shot leaving now, 0 otherwise.
   GetVATSMode with it (0 off, 1 marking, 4 firing).

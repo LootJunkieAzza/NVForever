@@ -2,7 +2,7 @@
 //! script functions over the combat AI (docs/design/script-stubs.md §3.6); on a synthetic
 //! plugin.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -93,10 +93,41 @@ def existing_run_folder(repo: Path, test: str, name: str) -> Path:
 
 # ---------------------------------------------------------------- memory
 
-def process_memory(pid: int) -> tuple[int, int] | None:
-    """(working set, private bytes) of a process, Windows only; None elsewhere or on error."""
-    if os.name != "nt":
+def _kb_field(text: str, key: str) -> int | None:
+    """The kB of a `/proc` line such as `VmRSS:    1234 kB`, or None."""
+    for line in text.splitlines():
+        if line.startswith(key):
+            try:
+                return int(line.split()[1])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def _linux_process_memory(pid: int) -> tuple[int, int] | None:
+    """(resident, private) bytes from /proc: `VmRSS`, and `smaps_rollup`'s private pages
+    (`Private_Clean` + `Private_Dirty`), falling back to `RssAnon` where smaps is not
+    readable (hidepid)."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
         return None
+    rss = _kb_field(status, "VmRSS:")
+    if rss is None:
+        return None
+    private = None
+    try:
+        rollup = Path(f"/proc/{pid}/smaps_rollup").read_text(encoding="utf-8")
+        private = (_kb_field(rollup, "Private_Clean:") or 0) + (_kb_field(rollup, "Private_Dirty:") or 0)
+    except OSError:
+        private = _kb_field(status, "RssAnon:")
+    return rss * 1024, (private if private is not None else rss) * 1024
+
+
+def process_memory(pid: int) -> tuple[int, int] | None:
+    """(working set, private bytes) of a process; None when it cannot be read."""
+    if os.name != "nt":
+        return _linux_process_memory(pid)
 
     class PMC(ctypes.Structure):
         _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong)] + [
@@ -119,11 +150,40 @@ def process_memory(pid: int) -> tuple[int, int] | None:
         k32.CloseHandle(h)
 
 
+def _proc_cpu_busy_secs(stat: str, hz: int) -> float | None:
+    """Busy seconds from `/proc/stat`'s `cpu` line: every core's total less idle and iowait
+    (user, nice, system, irq, softirq, steal)."""
+    for line in stat.splitlines():
+        if line.startswith("cpu "):
+            try:
+                ticks = [int(t) for t in line.split()[1:9]]
+            except ValueError:
+                return None
+            idle = ticks[3] + ticks[4]
+            return max(sum(ticks) - idle, 0) / hz
+    return None
+
+
+def _proc_pid_busy_secs(stat: str, hz: int) -> float | None:
+    """Seconds a process has used, from `/proc/<pid>/stat`: `utime` + `stime` (fields 14 and
+    15). The command name in field 2 can hold spaces and brackets, so the fields are counted
+    from after the last `)`."""
+    try:
+        fields = stat[stat.rindex(")") + 1:].split()
+        return (int(fields[11]) + int(fields[12])) / hz
+    except (ValueError, IndexError):
+        return None
+
+
 def system_busy_secs() -> float | None:
     """Processor time every core has spent busy since boot (kernel less idle, plus user),
-    seconds summed over the cores; Windows only."""
+    seconds summed over the cores; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path("/proc/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_cpu_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     ft = [ctypes.c_ulonglong() for _ in range(3)]
     if not ctypes.windll.kernel32.GetSystemTimes(*(ctypes.byref(x) for x in ft)):
         return None
@@ -132,9 +192,13 @@ def system_busy_secs() -> float | None:
 
 
 def process_busy_secs(pid: int) -> float | None:
-    """Processor time a process has used (kernel and user), seconds; Windows only."""
+    """Processor time a process has used (kernel and user), seconds; Windows and Linux."""
     if os.name != "nt":
-        return None
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return _proc_pid_busy_secs(stat, os.sysconf("SC_CLK_TCK"))
     k32 = ctypes.windll.kernel32
     h = k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
     if not h:

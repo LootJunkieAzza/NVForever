@@ -541,7 +541,7 @@ fn open(
 /// The keys and the mouse.
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: AidTime,
     screen: Res<LockpickScreen>,
@@ -550,6 +550,7 @@ fn keys(
     input: ControlInput,
     script: Option<Res<ScriptState>>,
 ) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;

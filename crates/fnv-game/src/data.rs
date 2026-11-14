@@ -57,6 +57,29 @@ impl Compiled {
         self.program.blocks.iter().any(|b| b.event == event)
     }
 
+    /// Whether a GameMode block of the script tests that a reference is not in the
+    /// player's cell: an If condition with `GetInSameCell … 0 ==` or `GetInSameCell … 1 !=`
+    /// (`Game::run_far_frame`'s rule). Such a branch can only do anything while the
+    /// actor is somewhere the player is not, so the script was written to run then.
+    pub fn tests_away_from_player(&self) -> bool {
+        use fnv_script::ir::{Op, Stmt, Token};
+        const GET_IN_SAME_CELL: u16 = 0x1020;
+        fn away(tokens: &[Token]) -> bool {
+            tokens.windows(3).any(|w| match w {
+                [Token::Call { call }, Token::Num { value, .. }, Token::Op { op }] if call.opcode == GET_IN_SAME_CELL => (*value == 0.0 && *op == Op::Eq) || (*value == 1.0 && *op == Op::Ne),
+                _ => false,
+            })
+        }
+        fn rec(body: &[Stmt]) -> bool {
+            body.iter().any(|st| match st {
+                Stmt::If { arms, otherwise } => arms.iter().any(|a| away(&a.cond.0) || rec(&a.body)) || otherwise.as_deref().is_some_and(rec),
+                Stmt::While { body, .. } | Stmt::ForEach { body, .. } => rec(body),
+                _ => false,
+            })
+        }
+        self.program.blocks.iter().filter(|b| b.event == crate::game::event::GAME_MODE).any(|b| rec(&b.body))
+    }
+
     /// Declared type of a local variable.
     pub fn var_type(&self, index: u16) -> Option<&VarType> {
         self.unit.var(index as u32).map(|v| &v.ty)
@@ -480,7 +503,9 @@ pub struct ActorDef {
     pub template_model: bool,
     pub template_inventory: bool,
     pub template_script: bool,
-    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM], from the
+    /// actor that supplies its traits (template flag "Traits") [documented: GECK wiki
+    /// Traits Tab - NPC and Traits Tab - Creatures list Combat Style; Template Data].
     pub combat_style: Option<FormId>,
     /// INAM "Death item": the leveled item list added to the actor's inventory when it
     /// dies, from the actor that supplies its traits (template flag "Traits")
@@ -1096,6 +1121,9 @@ pub struct GameData {
     /// wiki Activator, "Non scripted activators can serve as drinkable water sources"]
     /// (docs/spec-notes/activators.md §9).
     pub drink_waters: HashMap<FormId, FormId>,
+    /// Activators that name a radio station (ACTI RNAM): radio receivers, whose on and
+    /// off looks follow the radio rules (`crate::radio`), not their open state.
+    pub radio_receivers: HashSet<FormId>,
     /// DOBJ DATA "Default Objects", by their place in the list ([`DefaultObject`])
     /// [documented: xEdit DOBJ] (docs/spec-notes/default-objects.md).
     pub default_objects: Vec<Option<FormId>>,
@@ -1112,6 +1140,10 @@ pub struct GameData {
     pub class_services: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+    /// What the compile of mods' source text made of each unit it picked
+    /// (`crate::source_compile`): whether it compiled, and the names it calls that
+    /// nothing knows. For the engine's log and `fnvtool ext report`.
+    pub source_units: Vec<crate::source_compile::SourceUnit>,
 }
 
 /// An idle animation (IDLE) as far as playing it goes: the file it names and how often
@@ -1515,6 +1547,8 @@ struct Read {
     water_effect: Option<FormId>,
     /// An ACTI's WNAM: the water drunk from it.
     drink_water: Option<FormId>,
+    /// An ACTI with an RNAM (a radio station): a radio receiver.
+    radio_receiver: bool,
     /// DOBJ DATA: the default objects, by their place in the list (null: `None`).
     default_objects: Option<Vec<Option<FormId>>>,
     /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
@@ -1597,7 +1631,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 51] = [
+pub const FIELD_SIGS: [[u8; 4]; 56] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1612,6 +1646,9 @@ pub const FIELD_SIGS: [[u8; 4]; 51] = [
     *b"SPEL", *b"ENCH",
     // Lutana batch 3 (`crate::nvse_lu3`): the Anim Object's idle, the loading screen type.
     *b"ANIO", *b"LSCT",
+    // GetModelPath also reads these world objects' authored MODL. Keep the winning
+    // record handles here; their fields are still decoded only when a getter asks.
+    *b"STAT", *b"MSTT", *b"FURN", *b"DOOR", *b"TACT",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by
@@ -1949,12 +1986,14 @@ impl GameData {
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
             drink_waters: HashMap::new(),
+            radio_receivers: HashSet::new(),
             default_objects: Vec::new(),
             water_damage: HashMap::new(),
             radiation_markers,
             class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
+            source_units: Vec::new(),
         };
         // Decode every unit once.
         let mut all_units: Vec<ScriptUnit> = Vec::new();
@@ -1996,7 +2035,7 @@ impl GameData {
         let table = std::mem::take(&mut d.table);
         if long_way {
             let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
-            crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+            d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
             let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
@@ -2262,6 +2301,9 @@ impl GameData {
                 if let Some(water) = r.drink_water {
                     d.drink_waters.insert(id, water);
                 }
+                if r.radio_receiver {
+                    d.radio_receivers.insert(id);
+                }
                 if let Some(list) = r.default_objects {
                     d.default_objects = list;
                 }
@@ -2290,7 +2332,7 @@ impl GameData {
             recompiled
         });
         d.table = table;
-        crate::source_compile::apply(&mut units, recompiled, &mut d.issues);
+        d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         d.units = units;
         clock.lap("source compile results put in");
         for stages in d.need_stages.values_mut() {
@@ -2761,6 +2803,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
     if &sig == b"ACTI" {
         out.drink_water = subs.iter().find(|s| &s.sig == b"WNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
+        // RNAM: the radio station a receiver plays [documented: xEdit ACTI RNAM;
+        // `fnv_world::radio`].
+        out.radio_receiver = subs.iter().find(|s| &s.sig == b"RNAM").and_then(|s| word(&s.data)).is_some_and(|l| l != 0);
     }
     if &sig == b"DOBJ" {
         let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();

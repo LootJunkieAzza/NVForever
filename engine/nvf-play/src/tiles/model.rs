@@ -225,7 +225,7 @@ mod tests {
         // No longer kept hand-built.
         assert!(kept_pieces(&ui).is_empty());
         // With the switch off only the mods' tiles draw, and a nif tile never did.
-        assert!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0.is_empty());
+        assert!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None, by_locus: false }, false).0.is_empty());
         // Hidden again.
         write_breath(&mut ui, false, 0.0);
         ui.update();

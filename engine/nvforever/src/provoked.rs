@@ -36,6 +36,7 @@ struct Stats {
     aggro_warnings: usize,
     aggro_attacks: usize,
     stayed_out: usize,
+    area_alerted: usize,
 }
 
 /// The player put the weapon away: a yield.
@@ -110,6 +111,13 @@ fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) 
                 stats.stayed_out += 1;
                 info!("provocation: {} stays out of {}'s fight: its confidence is Cowardly", name(helper), name(victim));
             }
+            Note::Alerted { actor, victim } => {
+                stats.area_alerted += 1;
+                info!("provocation: {} is alerted: the player attacked {} of its faction", name(actor), name(victim));
+            }
+            Note::AreaAlert { victim, faction, alerted } => {
+                info!("provocation: the player attacked {} of {} (Evil): {alerted} of its members in the area turn on the player", name(victim), name(faction));
+            }
         }
     }
 }
@@ -120,7 +128,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<Stats>) {
     }
     let s = &*stats;
     info!(
-        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight, {} cowards stayed out; {} yields: {} accepted, {} ignored; aggro radius: {} warnings, {} attacks",
-        s.assaulted, s.tolerated, s.ignored, s.assisted, s.stayed_out, s.yields, s.forgiven, s.refused, s.aggro_warnings, s.aggro_attacks
+        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight, {} cowards stayed out, {} alerted by an attack on their Evil faction; {} yields: {} accepted, {} ignored; aggro radius: {} warnings, {} attacks",
+        s.assaulted, s.tolerated, s.ignored, s.assisted, s.stayed_out, s.area_alerted, s.yields, s.forgiven, s.refused, s.aggro_warnings, s.aggro_attacks
     );
 }

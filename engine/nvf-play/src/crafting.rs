@@ -313,7 +313,8 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
     })
 }
 
-/// The recipe menus scripts asked for, opened while playing.
+/// The recipe menus scripts asked for, opened while playing or over a conversation (a
+/// line's result script, as the repair services, #2308; `crate::repair::after_close`).
 #[allow(clippy::too_many_arguments)]
 fn scripts_open(
     script: Option<ResMut<ScriptState>>,
@@ -325,7 +326,8 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    if rt.game.recipe_requests.is_empty() || *state.get() != PlayState::Playing || menu.is_open() || active.0.is_some() {
+    let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
+    if rt.game.recipe_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
@@ -355,7 +357,7 @@ type EffectForms = crate::pipboy::stats::read::Forms;
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<RecipeAid>,
     mut menu: ResMut<RecipeMenu>,
@@ -371,6 +373,7 @@ fn keys(
     mut asked: MessageReader<RecipeInput>,
     mut commands: Commands,
 ) {
+    let keys = keys.snapshot();
     let asked: Vec<RecipeInput> = asked.read().copied().collect();
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
@@ -499,7 +502,7 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyX, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RecipeButton::Exit) || act("exit") {
         info!("recipe menu: exit");
         sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Back });
-        next.set(PlayState::Playing);
+        next.set(crate::repair::after_close(&rt.game));
         return;
     }
     if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {

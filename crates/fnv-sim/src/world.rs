@@ -101,6 +101,20 @@ enum Placing {
     Ring,
 }
 
+/// An inventory `new` rebuilt in place of `old`, with `old`'s live units (planted
+/// explosives, `Extra::live`) kept: a rebuild never takes a planted explosive away from its
+/// plant [design, #1640]. `None` stays `None` only when `old` had no live unit.
+fn with_live(old: Option<&Inventory>, new: Option<Inventory>) -> Option<Inventory> {
+    match old.filter(|o| o.has_live()) {
+        None => new,
+        Some(o) => {
+            let mut inv = new.unwrap_or_default();
+            inv.keep_live_of(o);
+            Some(inv)
+        }
+    }
+}
+
 /// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
 /// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
 fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
@@ -201,6 +215,16 @@ pub struct RefState {
     /// there picks this reference up ([`World::dropped_beside`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub dropped_by: Option<FormId>,
+    /// A reference created at run time ([`World::place`]): the cell and position it was
+    /// created at, its editor location for packages and `GetStartingPos`-like questions
+    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub made_at: Option<(Option<FormId>, [f32; 3])>,
+    /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
+    /// the shot's flying model along its flight, so this reference is neither drawn nor
+    /// given collision as a dropped item (#2186).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub shot: bool,
 }
 
 impl RefState {
@@ -235,6 +259,8 @@ pub enum SimError {
     UnknownRef(FormId),
     #[error("unknown base form {0}")]
     UnknownForm(FormId),
+    #[error("{0} is not a supported temporary scene base")]
+    UnsupportedTemporaryBase(FormId),
     #[error("{0} has no inventory")]
     NoInventory(FormId),
     #[error("{0} is not an inventory item")]
@@ -462,6 +488,14 @@ struct TimeGlobalIds {
     days_passed: Option<FormId>,
 }
 
+/// Session-only descriptor for a directly cloned non-actor scene base. It is not
+/// serialized; the Game layer refuses unsupported snapshots containing its refs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemporarySceneBase {
+    pub original: FormId,
+    pub model_override: Option<String>,
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -470,6 +504,7 @@ pub struct World<'a> {
     /// [`SimConfig::player_level`]. Not saved: the game sets it on a load and on each tick.
     roll_level: Option<u16>,
     refs: BTreeMap<FormId, RefState>,
+    temporary_scene_bases: BTreeMap<FormId, TemporarySceneBase>,
     /// Globals set at run time (scripts, the clock); others keep their authored value.
     globals: BTreeMap<FormId, f32>,
     /// The digits of the time globals their f32 cannot hold.
@@ -502,6 +537,9 @@ pub struct World<'a> {
     /// The inventory sources of references created at run time ([`World::give_items_of`]);
     /// saved.
     created_inventory_sources: BTreeMap<FormId, FormId>,
+    /// Items made at run time (TempCloneForm of an item), each with the item it copies:
+    /// a container takes them by their own ID ([`World::add_clone_item`]). Not saved.
+    clone_items: BTreeMap<FormId, FormId>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     /// Kept for the session, not saved ([`WorldSession`]).
@@ -564,6 +602,7 @@ impl<'a> World<'a> {
             cfg,
             roll_level: None,
             refs: BTreeMap::new(),
+            temporary_scene_bases: BTreeMap::new(),
             globals: BTreeMap::new(),
             fine_clock: clock::FineClock::default(),
             time_global_ids: TimeGlobalIds { hour: forms.by_edid(clock::GAME_HOUR), days_passed: forms.by_edid(clock::GAME_DAYS_PASSED) },
@@ -576,6 +615,7 @@ impl<'a> World<'a> {
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             created_inventory_sources: BTreeMap::new(),
+            clone_items: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             player_equips_broken: false,
@@ -745,12 +785,15 @@ impl<'a> World<'a> {
                 owner: placed.and_then(|p| p.owner),
                 equipped: false,
                 mods: 0,
+                live: false,
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
             scale: None,
             equip_locks: BTreeMap::new(),
             dropped_by: None,
+            made_at: None,
+            shot: false,
             outfitted: false,
         })
     }
@@ -963,7 +1006,7 @@ impl<'a> World<'a> {
         for (id, base) in due {
             let inv = self.roll_inventory(base, self.item_level(id))?;
             let s = self.get(id)?;
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
             s.last_restock = Some(day as f32);
         }
         Ok(())
@@ -977,7 +1020,23 @@ impl<'a> World<'a> {
         s.inventory.as_mut().ok_or(SimError::NoInventory(id))
     }
 
+    /// `clone`, made at run time from `item`, is an item a container takes by its own ID
+    /// [documented: TempCloneForm; observed: MCM marks the mods it listed by adding them
+    /// to a container, MCM Extender's menus by temporary clones of Caps001, MCM's script
+    /// source and MCM Extender's OnPauseMenuOpen.gek]. False when `item` is no item.
+    pub fn add_clone_item(&mut self, clone: FormId, item: FormId) -> bool {
+        let item = self.clone_items.get(&item).copied().unwrap_or(item);
+        let ok = self.forms.item(item).is_some();
+        if ok {
+            self.clone_items.insert(clone, item);
+        }
+        ok
+    }
+
     fn check_item(&self, item: FormId) -> Result<(), SimError> {
+        if self.clone_items.contains_key(&item) {
+            return Ok(());
+        }
         match self.forms.item(item) {
             Some(_) => Ok(()),
             None if self.forms.sig(item).is_some() => Err(SimError::NotAnItem(item)),
@@ -1069,7 +1128,9 @@ impl<'a> World<'a> {
         Ok(out)
     }
 
-    /// Remove up to `count`; returns how many were removed.
+    /// Remove up to `count`; returns how many were removed. A live unit (a planted
+    /// explosive, `Extra::live`) is not removed here, nor moved or dropped by the methods
+    /// below: no `Pick` names it [design, #1640].
     pub fn remove_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
@@ -1122,7 +1183,8 @@ impl<'a> World<'a> {
     /// ownership is cleared"].
     pub fn transfer_all_owned(&mut self, from: FormId, to: FormId, keep_owner: bool) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
-        let all: Vec<_> = self.inventory(from)?.iter().collect();
+        // A live unit (a planted explosive, `Extra::live`) stays with its holder.
+        let all: Vec<_> = self.inventory(from)?.free_iter().collect();
         let stacks: Vec<_> = all.into_iter().filter(|&(i, _)| !self.stays(from, i)).collect();
         for &(item, n) in &stacks {
             let groups = unequipped(self.inventory(from)?.take_at(item, n, Pick::ANY));
@@ -1145,13 +1207,14 @@ impl<'a> World<'a> {
     /// that other non-playable items and other holders behave alike is hypothesis]
     pub fn remove_all_items(&mut self, from: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
         let groups: Vec<_> = self.inventory(from)?.groups().collect();
-        let keep: Vec<_> = groups.into_iter().filter(|&(i, _, _)| self.stays(from, i)).collect();
+        // A live unit (a planted explosive, `Extra::live`) stays too [design, #1640].
+        let keep: Vec<_> = groups.into_iter().filter(|&(i, e, _)| e.live || self.stays(from, i)).collect();
         let inv = self.inventory(from)?;
         let mut kept = Inventory::new();
         for &(item, extra, n) in &keep {
             kept.add_extra(item, n, extra);
         }
-        let stacks: Vec<_> = inv.iter().filter(|&(i, _)| kept.count(i) == 0).collect();
+        let stacks: Vec<_> = inv.iter().map(|(i, n)| (i, n - kept.count(i))).filter(|&(_, n)| n > 0).collect();
         *inv = kept;
         Ok(stacks)
     }
@@ -1310,6 +1373,8 @@ impl<'a> World<'a> {
                     scale: None,
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
+                    made_at: None,
+                    shot: false,
                 },
             );
             out.push(id);
@@ -1414,7 +1479,8 @@ impl<'a> World<'a> {
         if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
             return Err(SimError::NotEquippable(item));
         }
-        if inv.count(item) == 0 {
+        // A live unit (a planted explosive, `Extra::live`) is not the actor's to equip.
+        if inv.free_count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
         }
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
@@ -1954,9 +2020,36 @@ impl<'a> World<'a> {
                 scale: None,
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
+                made_at: Some((cell, pos)),
+                shot: false,
             },
         );
         Ok(id)
+    }
+
+    /// Admit a known original's direct temporary alias without losing its identity.
+    /// Inventory/actor/clone chains and changed descriptors are outside this preview.
+    pub fn place_temporary_scene_base(&mut self, alias: FormId, descriptor: TemporarySceneBase, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], count: i32) -> Result<FormId, SimError> {
+        // Inert model admission only. Doors, furniture, activators and actors need
+        // additional interaction/script contracts beyond a selected model path.
+        let supported = self.forms.sig(descriptor.original).is_some_and(|sig| matches!(&sig, b"STAT" | b"MSTT" | b"PROJ"));
+        if !supported || self.forms.sig(alias).is_some() || self.temporary_scene_bases.get(&alias).is_some_and(|old| old != &descriptor) {
+            return Err(SimError::UnsupportedTemporaryBase(alias));
+        }
+        let reference = self.place(descriptor.original, cell, pos, rot, count)?;
+        self.refs.get_mut(&reference).expect("place inserted this reference").base = alias;
+        self.temporary_scene_bases.insert(alias, descriptor);
+        Ok(reference)
+    }
+
+    pub fn temporary_scene_base(&self, base: FormId) -> Option<&TemporarySceneBase> {
+        self.temporary_scene_bases.get(&base)
+    }
+
+    /// The preview freezes both a placed alias and the original it inherits from.
+    /// Descriptors remain for the session, including deleted-reference tombstones.
+    pub fn has_placed_temporary_base(&self, form: FormId) -> bool {
+        self.temporary_scene_bases.contains_key(&form) || self.temporary_scene_bases.values().any(|d| d.original == form)
     }
 
     /// The inventory of a reference, for callers that change extra data in place
@@ -1991,14 +2084,16 @@ impl<'a> World<'a> {
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
-        s.inventory = inv;
+        s.inventory = with_live(s.inventory.as_ref(), inv);
         s.outfitted = outfitted;
         Ok(())
     }
 
     /// A fresh roll of the base's carried items replaces the reference's inventory
-    /// (ResetInventory, Layer 5). `false` when the base carries no items. A death item
-    /// still owed is dropped: the actor starts again.
+    /// (ResetInventory, Layer 5; respawns and resurrections call it too). `false` when the
+    /// base carries no items. A death item still owed is dropped: the actor starts again.
+    /// A live unit (a planted explosive, `Extra::live`) stays: its plant still goes off
+    /// [design, #1640].
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         self.death_items.remove(&id);
         let base = self.get(id)?.base;
@@ -2010,9 +2105,18 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
         }
         Ok(had)
+    }
+
+    /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
+    /// explosives, `Extra::live`), which stay [design, #1640]: a resurrected actor whose
+    /// new pick carries nothing.
+    pub fn clear_inventory_but_live(&mut self, id: FormId) -> Result<(), SimError> {
+        let s = self.get(id)?;
+        s.inventory = with_live(s.inventory.as_ref(), None);
+        Ok(())
     }
 
     /// References created at run time (drops), in FormID order, taken ones included

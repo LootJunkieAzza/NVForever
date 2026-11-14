@@ -10,7 +10,7 @@
 //! test below runs both on that 1 MiB stack and on 384 KiB, where only those threads
 //! hold them.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_game::game::{Game, GameConfig, RunCtx, MAX_DEPTH, MAX_UDF_DEPTH};

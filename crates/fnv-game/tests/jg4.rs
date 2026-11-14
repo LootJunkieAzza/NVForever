@@ -2,7 +2,7 @@
 //! idle markers' animations and traits, regions' weather lists, race flags and faction
 //! members.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

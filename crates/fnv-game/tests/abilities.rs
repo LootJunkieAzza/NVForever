@@ -3,7 +3,7 @@
 //! enchanted armour while worn, conditions, RemoveSpell / Dispel / DispelAllSpells and
 //! saving. docs/spec-notes/aid-items.md §13.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -351,6 +351,27 @@ fn abilities_only_while_loaded() {
     g.tick();
     assert!(!g.effects.iter().any(|e| e.target == robot));
     assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 0.0);
+}
+
+/// With every ability dispelled the actor has no ability's effect left; leaving the
+/// loaded area still ends the dispels, so the abilities come back when it is loaded again
+/// (#1992: the frame's sync keeps such an actor until then).
+#[test]
+fn every_ability_dispelled_comes_back_after_a_stay_away() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    call(&mut g, robot, DISPEL, &[form(DT_ABILITY)]);
+    call(&mut g, robot, DISPEL, &[form(RAD_IMMUNITY)]);
+    g.tick();
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 0.0);
+    g.loaded_cells.remove(&FormId(CELL));
+    g.tick();
+    g.loaded_cells.insert(FormId(CELL));
+    g.tick();
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 1.0);
 }
 
 /// Dispel takes an ability off while the actor stays loaded; DispelAllSpells leaves the

@@ -2,7 +2,7 @@
 //! from scripts: rounding, points and angles, numbers in words, the actor finders and
 //! the topic getters.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

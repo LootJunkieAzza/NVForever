@@ -5,8 +5,8 @@
 //!   game's own file first and the engine-drawn screen as the fallback]; `[UI]
 //!   VatsMenuFile=0` in the home's `NVForever.ini` or the test aid
 //!   `NVF_PLAY_TEST_VATS_MENU_FILE=0` keeps the engine-drawn screen ([`VatsTiles::on`]).
-//!   It is its own key and not a name in `[UI] TileMenus=`: that list is empty by default
-//!   and turns menus on.
+//!   It is its own key and not a name in `[UI] TileMenus=`: that list defaults to the
+//!   Pip-Boy menus [design, #2215; super::vanilla] and turns menus on.
 //! - **The menu's life**: VATS is no `Game::menu` in NVForever, so the file is built only
 //!   while the classic style chooses targets (`Game::ui_vats`, [`write_system`]), at once
 //!   on the frame the screen comes up, and dropped on the frame it goes. While it is up

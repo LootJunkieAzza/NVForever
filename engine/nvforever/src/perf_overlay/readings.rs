@@ -3,7 +3,10 @@
 
 use std::collections::VecDeque;
 
+use bevy::math::UVec2;
+
 use crate::memory_budget::{GPU_PRESSURE, RAM_PRESSURE};
+use crate::upscaler::{DlssModel, DrawnUpscale, UpscalerChoice};
 /// The loaded row's counts, as the stress samples read them.
 pub use crate::stress_sample::Loaded;
 
@@ -34,13 +37,15 @@ pub struct Rows {
     pub vram: bool,
     pub ram: bool,
     pub loaded: bool,
+    /// The upscaler that draws and its sizes (#2242, off by default).
+    pub upscale: bool,
     /// The frame rate row's last figure (the settings' choice row).
     pub low: Low,
 }
 
 impl Default for Rows {
     fn default() -> Rows {
-        Rows { fps: true, graph: false, split: false, cpu: true, gpu: true, vram: true, ram: true, loaded: false, low: Low::OnePercent }
+        Rows { fps: true, graph: false, split: false, cpu: true, gpu: true, vram: true, ram: true, loaded: false, upscale: false, low: Low::OnePercent }
     }
 }
 
@@ -244,8 +249,10 @@ pub struct Readings {
     pub cpu: Option<f32>,
     /// The game's own processor use, cores ([`cores_busy`]).
     pub game_cores: Option<f32>,
-    /// The busiest GPU engine's use, percent.
+    /// [design, #2249] GPU use in percent, with scope given by `gpu_game` (`usage.rs`).
     pub gpu: Option<f32>,
+    /// [design, #2249] Whether this is game-only DRM client time (`usage::Shared`).
+    pub gpu_game: bool,
     /// This process's GPU memory and its budget, MB (`MemoryBudget::vram_use_mb`).
     pub vram_mb: Option<(u64, u64)>,
     /// The game's working set, MB.
@@ -259,6 +266,20 @@ pub struct Readings {
     pub split: Option<Split>,
     /// The loaded row's counts.
     pub loaded: Option<Loaded>,
+    /// The upscaling row's facts, read every frame while the row is on (`super::sample`).
+    pub upscale: Option<Upscale>,
+}
+
+/// What the upscaling row reads (#2242): the effective choice (`upscaler::effective_temporal`,
+/// main world), the DLSS model asked for (`Graphics::dlss_model`; which preset NGX then uses
+/// is not known to the engine), what the render world last drew the main camera with
+/// (`upscaler::UpscaleDrawn`) and the window's size in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Upscale {
+    pub effective: UpscalerChoice,
+    pub model: DlssModel,
+    pub drawn: Option<DrawnUpscale>,
+    pub window: Option<UVec2>,
 }
 
 /// A frame's main-thread, render-thread and GPU time, ms, each the mean over the
@@ -289,11 +310,12 @@ pub struct Row {
 
 /// The rows' labels, in the order they are shown (the graph row's is empty); the label
 /// column is as wide as the widest label shown.
-pub const LABELS: [&str; 8] = ["FPS", "", "SPLIT", "CPU", "GPU", "VRAM", "RAM", "LOADED"];
+pub const LABELS: [&str; 9] = ["FPS", "", "SPLIT", "CPU", "GPU", "VRAM", "RAM", "LOADED", "UPSCALING"];
 
 /// The rows to show: those switched on, in [`LABELS`]' order, each left out when it has
-/// nothing to read. The frame rate row shows `--` until its first reading, so a showing
-/// starts with something on screen, as the counter's `-- FPS` did; the graph row shows
+/// nothing to read except CPU/GPU, which explain unavailable readings [design, #2249].
+/// The frame rate row shows `--` until its first reading, so a showing starts with
+/// something on screen, as the counter's `-- FPS` did; the graph row shows
 /// from the start (its line grows as frames come).
 pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
     let fps = r.frame.as_ref().map_or_else(|| "--".to_string(), |f| fps_text(f, on.low));
@@ -301,11 +323,12 @@ pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
         (on.fps, Some(fps), false),
         (on.graph, Some(String::new()), false),
         (on.split, r.split.as_ref().map(split_text), false),
-        (on.cpu, cpu_text(r.cpu, r.game_cores), false),
-        (on.gpu, r.gpu.map(percent), false),
+        (on.cpu, Some(cpu_text(r.cpu, r.game_cores)), false),
+        (on.gpu, Some(gpu_text(r.gpu, r.gpu_game)), false),
         (on.vram, r.vram_mb.map(|(used, budget)| vram_text(used, budget)), r.vram_warn),
         (on.ram, ram_text(r.game_ram_mb, r.ram_share), r.ram_warn),
         (on.loaded, r.loaded.as_ref().map(loaded_text), false),
+        (on.upscale, r.upscale.as_ref().map(upscale_text), false),
     ];
     LABELS
         .iter()
@@ -359,6 +382,50 @@ pub fn loaded_text(l: &Loaded) -> String {
     format!("{:>2} cells  {:>5} refs  {:>3} actors  {:>6} entities", l.cells, l.refs, l.actors, l.entities)
 }
 
+/// `1280x720`.
+fn size(s: UVec2) -> String {
+    format!("{}x{}", s.x, s.y)
+}
+
+/// A choice as the upscaling row names it: `Off` and the mode in the language shown, the
+/// upscaler by its own name (`Upscaler::name`, a brand name): `FSR 3.1 Balanced`, `DLSS Quality`.
+fn choice_text(choice: UpscalerChoice) -> String {
+    match choice.quality() {
+        None => fnv_util::words::tr("Off").to_string(),
+        Some(q) => format!("{} {}", choice.upscaler().name(), fnv_util::words::tr(q.name())),
+    }
+}
+
+/// The upscaling row (#2242), two spaces between its parts [design: the issue's examples]:
+/// - drawn by the effective upscaler: the choice, render and output size, and for DLSS the
+///   model asked for: `DLSS Quality  853x480 -> 1280x720  model Default`,
+///   `FSR 3.1 Balanced  1129x635 -> 1920x1080`;
+/// - the effective upscaler's camera drawn natively (an unusable view, no render size from
+///   the backend): `Off  1280x720`, since native is what draws [design:
+///   #2242's "what actually draws"];
+/// - nothing effective: `Off` and the window's size;
+/// - else (a switch the render world has not drawn yet, no camera, a loading screen): the
+///   effective choice and `--`.
+pub fn upscale_text(u: &Upscale) -> String {
+    let off = || fnv_util::words::tr("Off").to_string();
+    match (u.effective, u.drawn) {
+        (e, Some(DrawnUpscale::Upscaled { choice, render, output })) if choice == e => {
+            let mut text = format!("{}  {} -> {}", choice_text(choice), size(render), size(output));
+            if choice.is_dlss() {
+                text += "  ";
+                text += &fnv_util::words::trf("model {model}", &[("model", &fnv_util::words::tr(u.model.name()))]);
+            }
+            text
+        }
+        (e, Some(DrawnUpscale::Native { choice, output })) if choice == e => format!("{}  {}", off(), size(output)),
+        (UpscalerChoice::Off, _) => match u.window {
+            Some(window) => format!("{}  {}", off(), size(window)),
+            None => off(),
+        },
+        (e, _) => format!("{}  --", choice_text(e)),
+    }
+}
+
 /// How old the last GPU time of a render pass may be for the frame split to count it,
 /// seconds: a pass that stopped running keeps its old figure in the diagnostics store
 /// [design].
@@ -386,12 +453,26 @@ pub fn percent(p: f32) -> String {
     format!("{p:>3.0}%")
 }
 
-/// ` 34%  game 1.6 cores`: the machine's use and the game's own, each when read.
-pub fn cpu_text(machine: Option<f32>, game_cores: Option<f32>) -> Option<String> {
-    let game = game_cores.map(|c| format!("game {c:.1} cores"));
-    match (machine.map(percent), game) {
-        (Some(m), Some(g)) => Some(format!("{m}  {g}")),
-        (m, g) => m.or(g),
+/// [design, #2249] Missing machine use remains explicit even when process time is read.
+pub fn cpu_text(machine: Option<f32>, game_cores: Option<f32>) -> String {
+    let mut text = machine.map_or_else(unavailable, percent);
+    if let Some(c) = game_cores {
+        text += &format!("  game {c:.1} cores");
+    }
+    text
+}
+
+/// [design, #2249] Own wording for unsupported host telemetry, translated like settings.
+fn unavailable() -> String {
+    fnv_util::words::tr("Not available").to_string()
+}
+
+/// [design, #2249] DRM time is the game's contribution; other GPU sources are device-wide.
+pub fn gpu_text(gpu: Option<f32>, game: bool) -> String {
+    match gpu {
+        None => unavailable(),
+        Some(p) if game => fnv_util::words::trf("game {percent}%", &[("percent", &format!("{p:>3.0}"))]),
+        Some(p) => percent(p),
     }
 }
 
@@ -720,10 +801,10 @@ mod tests {
 
     #[test]
     fn the_cpu_row_shows_what_was_read() {
-        assert_eq!(cpu_text(None, None), None);
-        assert_eq!(cpu_text(Some(34.4), Some(1.62)).as_deref(), Some(" 34%  game 1.6 cores"));
-        assert_eq!(cpu_text(Some(5.0), None).as_deref(), Some("  5%"));
-        assert_eq!(cpu_text(None, Some(0.04)).as_deref(), Some("game 0.0 cores"));
+        assert_eq!(cpu_text(None, None), "Not available");
+        assert_eq!(cpu_text(Some(34.4), Some(1.62)), " 34%  game 1.6 cores");
+        assert_eq!(cpu_text(Some(5.0), None), "  5%");
+        assert_eq!(cpu_text(None, Some(0.04)), "Not available  game 0.0 cores");
         assert_eq!(percent(100.0), "100%");
     }
 
@@ -745,14 +826,22 @@ mod tests {
     #[test]
     fn rows_are_those_switched_on_with_something_to_read() {
         let on = Rows::default();
-        // A showing's start: only the frame rate row, waiting.
+        // [design, #2249] A showing starts with waiting FPS and explicit unavailable usage.
         let waiting = rows(&Readings::default(), &on);
-        assert_eq!(waiting, vec![Row { label: "FPS", value: "--".into(), warn: false, graph: false }]);
+        assert_eq!(
+            waiting,
+            vec![
+                Row { label: "FPS", value: "--".into(), warn: false, graph: false },
+                Row { label: "CPU", value: "Not available".into(), warn: false, graph: false },
+                Row { label: "GPU", value: "Not available".into(), warn: false, graph: false }
+            ]
+        );
         let r = Readings {
             frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3, slowest_ms: 30.0, shown_fps: None }),
             cpu: Some(12.0),
             game_cores: Some(1.6),
             gpu: Some(71.0),
+            gpu_game: false,
             vram_mb: Some((2150, 11_673)),
             game_ram_mb: Some(4813),
             ram_share: Some(0.62),
@@ -760,31 +849,76 @@ mod tests {
             ram_warn: false,
             split: Some(Split { main_ms: 9.8, render_ms: Some(4.1), wait_ms: Some(1.5), gpu_ms: None }),
             loaded: Some(Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 }),
+            upscale: Some(Upscale { effective: UpscalerChoice::Off, model: DlssModel::Default, drawn: None, window: Some(UVec2::new(1280, 720)) }),
         };
         let defaults = rows(&r, &on);
         assert_eq!(defaults.iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", "CPU", "GPU", "VRAM", "RAM"]);
         assert_eq!(defaults[0].value, " 60  16.7 ms  1% low 21.3");
         assert_eq!(defaults[2].value, " 71%");
+        let game = rows(&Readings { gpu_game: true, ..r.clone() }, &on);
+        assert_eq!(game[2].value, "game  71%");
+        assert_eq!(gpu_text(None, true), "Not available");
         assert!(defaults[3].warn && !defaults[4].warn);
-        // Every row: the graph under the frame rate, the split under it, the counts last.
-        let every = Rows { graph: true, split: true, loaded: true, ..on };
+        // Every row: the graph under the frame rate, the split under it, the counts, then the
+        // upscaling row last.
+        let every = Rows { graph: true, split: true, loaded: true, upscale: true, ..on };
         let all = rows(&r, &every);
         assert_eq!(all.iter().map(|r| r.label).collect::<Vec<_>>(), LABELS);
-        assert_eq!(all.iter().map(|r| r.graph).collect::<Vec<_>>(), [false, true, false, false, false, false, false, false]);
+        assert_eq!(all.iter().map(|r| r.graph).collect::<Vec<_>>(), [false, true, false, false, false, false, false, false, false]);
         assert_eq!(all[2].value, "main  9.8  render  4.1 (wait  1.5) ms");
         assert_eq!(all[7].value, " 9 cells   2410 refs   12 actors   18240 entities");
+        assert_eq!(all[8].value, "Off  1280x720");
+        // The upscaling row is off by default.
+        assert!(!Rows::default().upscale);
+        assert!(!defaults.iter().any(|r| r.label == "UPSCALING"));
         // The slowest frame chosen.
         assert_eq!(rows(&r, &Rows { low: Low::Slowest, ..on })[0].value, " 60  16.7 ms  slowest 30.0");
         // Only the frame rate row: one line, as the counter was.
-        let none = Rows { fps: false, graph: false, split: false, cpu: false, gpu: false, vram: false, ram: false, loaded: false, low: Low::OnePercent };
+        let none = Rows { fps: false, graph: false, split: false, cpu: false, gpu: false, vram: false, ram: false, loaded: false, upscale: false, low: Low::OnePercent };
         let fps_only = Rows { fps: true, ..none };
         assert_eq!(rows(&r, &fps_only).len(), 1);
-        // No GPU budget (an integrated GPU) and nothing from Windows: those rows go; the
-        // split and the counts wait for their first reading.
+        // [design, #2249] Missing usage stays explicit; budget, split and counts await data.
         let bare = Readings { frame: r.frame, ..Readings::default() };
-        assert_eq!(rows(&bare, &every).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", ""]);
+        assert_eq!(rows(&bare, &every).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", "", "CPU", "GPU"]);
+        // The upscaling row before its first reading: left out like the counts.
+        assert!(!rows(&bare, &every).iter().any(|r| r.label == "UPSCALING"));
         // Every row off: nothing to draw.
         assert!(rows(&r, &none).is_empty());
+    }
+
+    #[test]
+    fn the_upscaling_row_says_what_draws_and_at_what_size() {
+        use crate::upscaler::UpscaleQuality::*;
+        let (render, output) = (UVec2::new(853, 480), UVec2::new(1280, 720));
+        let window = Some(output);
+        let reading = |effective, drawn| Upscale { effective, model: DlssModel::Default, drawn, window };
+        let upscaled = |choice, render| Some(DrawnUpscale::Upscaled { choice, render, output });
+        // Drawn by the effective upscaler: the sizes, and for DLSS the model.
+        let dlss = UpscalerChoice::Dlss(Quality);
+        assert_eq!(upscale_text(&reading(dlss, upscaled(dlss, render))), "DLSS Quality  853x480 -> 1280x720  model Default");
+        for model in DlssModel::ALL {
+            let text = upscale_text(&Upscale { model, ..reading(dlss, upscaled(dlss, render)) });
+            assert_eq!(text, format!("DLSS Quality  853x480 -> 1280x720  model {}", model.name()), "{model:?}");
+        }
+        let fsr = UpscalerChoice::Fsr(Balanced);
+        let fhd = Upscale { effective: fsr, model: DlssModel::K, drawn: Some(DrawnUpscale::Upscaled { choice: fsr, render: UVec2::new(1129, 635), output: UVec2::new(1920, 1080) }), window: Some(UVec2::new(1920, 1080)) };
+        assert_eq!(upscale_text(&fhd), "FSR 3.1 Balanced  1129x635 -> 1920x1080", "no model for FSR");
+        let native_aa = UpscalerChoice::Fsr(NativeAa);
+        assert_eq!(upscale_text(&reading(native_aa, upscaled(native_aa, output))), "FSR 3.1 Native AA  1280x720 -> 1280x720");
+        let dlaa = UpscalerChoice::Dlss(NativeAa);
+        assert_eq!(upscale_text(&reading(dlaa, upscaled(dlaa, output))), "DLSS Native AA  1280x720 -> 1280x720  model Default");
+        // The effective upscaler's camera drawn natively: native is what draws.
+        assert_eq!(upscale_text(&reading(dlss, Some(DrawnUpscale::Native { choice: dlss, output }))), "Off  1280x720");
+        // Nothing effective: Off and the window, whatever the render world drew last.
+        assert_eq!(upscale_text(&reading(UpscalerChoice::Off, None)), "Off  1280x720");
+        assert_eq!(upscale_text(&reading(UpscalerChoice::Off, upscaled(dlss, render))), "Off  1280x720", "switched off, not drawn yet");
+        assert_eq!(upscale_text(&Upscale { window: None, ..reading(UpscalerChoice::Off, None) }), "Off", "no window to measure");
+        // A switch not drawn yet, no camera: the effective choice and no sizes.
+        let performance = UpscalerChoice::Fsr(Performance);
+        assert_eq!(upscale_text(&reading(performance, upscaled(UpscalerChoice::Fsr(Quality), render))), "FSR 3.1 Performance  --", "another mode drawn");
+        assert_eq!(upscale_text(&reading(performance, upscaled(dlss, render))), "FSR 3.1 Performance  --", "another upscaler drawn");
+        assert_eq!(upscale_text(&reading(dlss, None)), "DLSS Quality  --", "no camera drawn");
+        assert_eq!(upscale_text(&reading(dlss, Some(DrawnUpscale::Native { choice: UpscalerChoice::Fsr(Quality), output }))), "DLSS Quality  --");
     }
 
     #[test]

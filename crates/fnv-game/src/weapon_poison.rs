@@ -16,7 +16,7 @@
 //!   NVForever's other confirmations]. The player's No Poison Confirmation tweak puts it on at
 //!   the first use.
 //! - **How long it lasts**: [`POISON_HITS`] hits that land [hypothesis: not in the data;
-//!   observer check 107]. A second poison on the same weapon replaces the first.
+//!   observer check 143]. A second poison on the same weapon replaces the first.
 //! - Kept with the save, for each weapon (`PlayerState::weapon_poisons`); the scripts'
 //!   GetEquippedWeaponPoison answers it for the player's weapon in hand.
 
@@ -24,7 +24,7 @@ use crate::game::Game;
 use crate::data::MagicEffectDef;
 use fnv_sim::FormId;
 
-/// Hits a poison lasts [hypothesis: observer check 107].
+/// Hits a poison lasts [hypothesis: observer check 143].
 pub const POISON_HITS: u32 = 5;
 
 /// The poison on one of the player's weapons and the hits it has left (named fields, so a

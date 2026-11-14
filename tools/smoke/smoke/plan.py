@@ -26,6 +26,7 @@ class Launch:
     env: dict[str, str] = field(default_factory=dict)
     run_seconds: float = 0.0
     notes: list[str] = field(default_factory=list)
+    front: bool = False  # the window held in front while it runs (every member asks for it)
 
     @property
     def shared(self) -> bool:
@@ -59,12 +60,14 @@ def merge(name: str, members: list[Scenario], timed: dict[str, Timed], untimed: 
     """One launch for `members` (raises ScenarioError when they cannot share)."""
     first = members[0]
     if len(members) == 1:
-        return Launch(first.name, first.kind, members, list(first.args), dict(first.env), first.run_seconds)
+        return Launch(first.name, first.kind, members, list(first.args), dict(first.env), first.run_seconds, front=first.front)
     for s in members:
         if s.kind != GAME:
             raise ScenarioError(f"launch {name}: {s.name} is not a game scenario")
         if s.args != first.args:
             raise ScenarioError(f"launch {name}: {s.name} starts differently ({s.args} vs {first.args})")
+        if s.front != first.front:
+            raise ScenarioError(f"launch {name}: {s.name} and {first.name} differ in front (a shared launch holds its window in front for every member or none)")
         if s.offset and untimed is not None:
             unknown = [k for k in s.env if k not in timed and k not in untimed]
             if unknown:
@@ -88,7 +91,7 @@ def merge(name: str, members: list[Scenario], timed: dict[str, Timed], untimed: 
         if others:
             notes.append(f"{var}={env[var]} also applies to {', '.join(others)}")
     run = max(s.run_seconds + s.offset for s in members)
-    return Launch(name, GAME, list(members), list(first.args), env, run, notes)
+    return Launch(name, GAME, list(members), list(first.args), env, run, notes, front=first.front)
 
 
 def groups(scenarios: list[Scenario]) -> dict[str, list[Scenario]]:

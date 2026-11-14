@@ -1018,6 +1018,7 @@ macro_rules! switch {
                 group: GROUP,
                 label: $label,
                 note: $note,
+                switches: "",
                 get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.$($f).+),
                 set: |w, on| {
                     if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
@@ -1063,6 +1064,7 @@ macro_rules! weightless {
                 group: GROUP,
                 label: $label,
                 note: $note,
+                switches: "",
                 get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.game.weightless_kinds & $bit != 0),
                 set: |w, on| {
                     if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
@@ -1108,7 +1110,7 @@ macro_rules! sound_list {
     ($app:expr, $key:literal, $label:literal, $note:literal, $f:ident) => {
         crate::settings::add_choice_list(
             $app,
-            Setting { key: concat!("tweak-", $key), group: GROUP, label: $label, note: $note, get: |_| false, set: |_, _| {}, slider: None },
+            Setting { key: concat!("tweak-", $key), group: GROUP, label: $label, note: $note, switches: "", get: |_| false, set: |_, _| {}, slider: None },
             crate::settings::ChoiceList {
                 names: sound_names,
                 chosen: |w| w.get_resource::<TweakSettings>().map(|t| t.$f.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| GAME_SOUND.to_string()),
@@ -1345,6 +1347,7 @@ impl Plugin for TweaksPlugin {
                 group: GROUP,
                 label: "Own Skill Points Rule",
                 note: "A level-up gives the base below plus Intelligence times the amount below (rounded up) instead of the game's rule. (Stewie's Tweaks bModifySkillPointsEarned)",
+                switches: "",
                 get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.game.skill_points.is_some()),
                 set: |w, on| {
                     if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {

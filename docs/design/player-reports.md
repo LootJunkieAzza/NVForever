@@ -27,12 +27,14 @@ What exists already and is reused, not rewritten:
 
 - Built: the popup and INI keys (§2), the session summary with plugin sizes and CRC32s
   (§3.1), crash reports with the run log, the flight recorder, the world snapshot and, on
-  Windows, a minidump (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
+  Windows, a minidump, on Linux a native crash's signal line and top frames in the run log
+  (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
   (§4.1), the structured events file (§4.1, local only, not sent), the flight recorder
   (§4.2, log events only), the world snapshot (§4.3) and the anomaly detectors in
-  `anomaly.rs` (§4.4).
+  `anomaly.rs` (§4.4), and the hand report form (§3.3, #2151).
 - Not yet:
-  - the hand report form (§3.3);
+  - the settings page's "Open reports folder" button and last-sent line (§1 point 3, §2.2:
+    the Reports rows are only Send reports and Delete my reports);
   - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
   - breadcrumbs the log does not already carry (§4.2);
   - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
@@ -71,7 +73,7 @@ menu, on a player's start only (not with `--data`, `NVFOREVER_DATA`, a test aid 
 > NVForever can send a report after each session: the build, your PC's hardware and
 > settings, your mod list, how it ran, the game's log and any problems it noticed.
 > No personal details, no saves.
-> You can change this at any time in Settings → General → Reports.
+> You can change this at any time in Settings → Gameplay → Reports.
 >
 > [ Send reports ]  [ Not now ]   *What is sent?* (opens §3 in the browser)
 
@@ -94,8 +96,10 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
-- Settings → General → Reports: a toggle (Send reports), "Open reports folder",
-  "Send a report now…" (§3.3), "Delete my reports" (§6), last sent time.
+- Settings → Gameplay → Reports (`engine/nvf-play/src/settings_layout.rs`): a toggle
+  (Send reports) and "Delete my reports" (§6); "Open reports folder" and the last sent
+  time are designed but not built. The hand report (§3.3) is opened from the
+  pause menu's "Report a bug", not from Settings.
 - `NVF_REPORTS=0` forces off for any run (developers, CI, the smoke tests set it).
 
 ## 3. What is captured
@@ -147,9 +151,37 @@ Not in it: save names, character name, screenshots, typed console text (console
   files by hand); sending it does. Symbols (PDBs) for each release are uploaded to the
   server's private store at release time (§5.4), never shipped.
 
+  Linux [documented: `engine/nvforever/src/native_crash_unix.rs`, #2167]: there is no
+  minidump; a `sigaction` handler for `SIGSEGV`, `SIGBUS`, `SIGABRT`, `SIGFPE` and
+  `SIGILL`, on a `sigaltstack` of its own (so a stack overflow is covered too), writes the
+  evidence into the session's run log at the moment of the signal — a line, then the top
+  frames:
+
+  ```
+  20261112-183005 ERROR nvforever::crash: native crash, signal SIGSEGV (11), fault address 0x10; at 0x7f2c1a0b2e40 /usr/lib/libc.so.6+0x2a2e0
+  20261112-183005 ERROR nvforever::crash:   frame 1: 0x7f2c1a0b2e40 /usr/lib/libc.so.6+0x2a2e0
+  ```
+
+  The line is written with `write(2)` from a fixed buffer (no allocation, no lock: the
+  log plugin itself may be what crashed); the module and offset come from
+  `/proc/self/maps`, the frames from libgcc's `_Unwind_Backtrace` (addresses only; the
+  release's line tables symbolise them later, §5.4). The handler is armed from
+  `.init_array`, before Rust's std installs its own SIGSEGV handler (std's per-thread
+  alternate stacks are too small for the unwinder); the alternate stack this module
+  installs is the main thread's, so a stack overflow there leaves the line, while one on
+  another thread (none of which has an alternate stack) does not. The handler then restores the
+  default disposition and re-raises, so the process still ends by the same signal (exit
+  status `-11`, which `tools/smoke` reports as a failed scenario rather than a pass). The
+  home folder and the removable-drive mounts under the player's name (`/run/media/<user>`,
+  `/media/<user>`) are written `~` as everywhere else. Because the evidence is in the run log,
+  a Linux `native` end is log-only (`native-nofile`) until a Linux dump pipeline exists;
+  nothing new is uploaded. (`native-nofile` is a server-side report kind: nothing in this
+  repo implements it yet — planned, and its home is the reports service, not the engine.)
+
 The crash is grouped server-side by a **signature**: for panics, the message with numbers
 stripped plus the top 3 frames inside NVForever's own crates; for dumps, the faulting
-module + offset bucket plus the top 3 symbolised frames.
+module + offset bucket plus the top 3 symbolised frames; for a Linux `native` end, the run
+log's signal line (module + offset) and its top frames.
 
 ### 3.3 Report by hand (any player, opted in or not)
 
@@ -166,6 +198,18 @@ none in release builds; F12-style keys are taken). It opens a small form:
 A player who has not opted in sees the same form; sending it is consent for that one
 report only and does not change `Send`. The form shows what will be sent and the total
 size before the Send button.
+
+[built, #2151] `engine/nvforever/src/reports/form.rs`. Opened from **Report a bug** at the
+pause menu's bottom left, over the version line, on its first page and the settings page
+(in a game; not under the main menu) [owner 2026-11-12: a pause-menu entry, not a settings
+row]; the pause-menu key is not built yet.
+It also sends the world snapshot and the flight recorder (§4.2, §4.3) under the summary's
+and the log's tick boxes; without reports on there is no summary, only the snapshot, and
+no install ID. Sending follows §8: never from a developer or test run without
+`NVF_REPORTS_ENDPOINT`, the project's server only from an official build. The screenshot
+is PNG, at most 1280 wide and halved until under 1.5 MiB; the save is written for the
+report under `<home>\reports\form\` and deleted once sent. Bevy's font draws the form
+[our choice: the player's text may be in any script].
 
 ## 4. Extending the logger for bug hunting
 

@@ -1589,6 +1589,30 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     under the same rule, are right; the attenuation's shape (1 − (d / r)², the falloff
     exponent unused) is the next candidate. Outdoors by day the frames came out a little
     bluer than the original (the weather's bluish ambient takes a larger share).
+- **Highlights at grazing angles** (2026-11-13, #2266): a fire barrel in Primm,
+  Barrel03Fire1024 (ref 000E89EF, a flickering LIGH of radius 1024 [documented:
+  FalloutNV.esm LIGH]) standing on the urban sidewalk kit (texture `sidewalkquad01`,
+  Specular flag set, glossiness 60, a normal map without alpha [documented: the kit's
+  NIFs]), drew a long orange glossy streak on the shaded sidewalk toward the camera
+  [observed: a tester's run, 2026-11-12]. The original, captured at the same spots by
+  night and by day (3, 6 and 12 m, standing and crouched, from the north and from the
+  casino's arcade), shows no streak at any of them [observed 2026-11-13]. NVForever with
+  Bevy's Fresnel drew it by day from the arcade side, crouched at 6 m [observed
+  2026-11-13]. A test aid that switched off in turn the Fresnel rise (F = F0, or
+  F90 = 0) or the whole GGX lobe (a Blinn-Phong lobe with the glossiness as exponent and
+  no Fresnel) removed the streak each time: the sidewalk's red and green means in the
+  streak, 165/124 with Bevy's Fresnel, came to 148/114 with each switch [observed
+  2026-11-13]. So the streak is Bevy's Fresnel rise: Schlick's curve towards
+  f90 (saturate(49.5 × F0) for a grey F0) (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`) lifts the
+  sidewalk's faint highlight (reflectance 35/255, F0 ≈ 0.003, nif_spawn.rs
+  `UNMASKED_SPECULAR`) up to about 50 times at a low view. NVForever's lights.rs
+  `FRESNEL_EDIT` now keeps the Fresnel factor of the direct lights' isotropic highlight
+  (the sun's included) at F0 in world views; the GGX distribution and visibility still
+  vary with the angle [design]. Highlights the original may show at low angles on glass
+  or metal lose the rise too; no scene of the original with such a highlight has been
+  compared yet. Open: whether the original's highlight is Blinn-Phong as nif.md "Specular"
+  supposes, which needs a scene where the original does show highlights (the casino
+  floor's captures failed: the capture plugin took no shots indoors).
 
 ## 9. Open questions
 

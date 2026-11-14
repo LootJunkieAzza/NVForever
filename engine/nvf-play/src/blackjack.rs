@@ -482,7 +482,8 @@ fn open(
 }
 
 /// The keys [documented: the menu file's `_PCButton_*`].
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<BlackjackScreen>, time: AidTime, mut out: MessageWriter<BlackjackInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<BlackjackScreen>, time: AidTime, mut out: MessageWriter<BlackjackInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;

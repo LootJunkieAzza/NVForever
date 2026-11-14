@@ -563,6 +563,40 @@ fn an_ambush_waits_hidden_until_its_target_comes_into_the_trigger() {
     assert!(s.goal_met(R_AMBUSHER));
 }
 
+/// A sprung ambusher taken off its wait location goes back there when the fight is over
+/// [documented: "When combat ends, the actor will return to the Wait Location", GECK
+/// wiki Ambush Package; issue #2137]; it stands there and does not lie in wait again.
+#[test]
+fn a_sprung_ambusher_goes_back_to_its_wait_location_after_the_fight() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_AMBUSHER]);
+    s.run(10.0);
+    let actor = FormId(R_AMBUSHER);
+    s.put(R_GUEST, [1000.0, 1550.0, 0.0]);
+    s.run(1.0);
+    assert!(s.goal_met(R_AMBUSHER), "{:?}", s.events(R_AMBUSHER));
+    // The fight ends in a search that takes it 500 units off; the guest is gone, and
+    // calm returns.
+    s.put(R_GUEST, [100.0, 100.0, 0.0]);
+    {
+        use fnv_game::awareness::{Cause, State, Timers};
+        let (now, t) = (s.game.time, Timers::default());
+        let a = s.game.awareness.actors.entry(actor).or_default();
+        *a = Default::default();
+        a.alarm(FormId::PLAYER_REF, [1500.0, 700.0, 0.0], -10.0, Cause::Noticed, now, &t);
+        a.settle(actor, now, &t, true);
+        assert_eq!(a.state, State::Alert);
+    }
+    s.run(10.0);
+    assert!(dist(s.feet(R_AMBUSHER), [1500.0, 1700.0, 0.0]) > 300.0, "the search takes it off: {:?}", s.events(R_AMBUSHER));
+    s.game.awareness.actors.remove(&actor);
+    s.run(40.0);
+    let ev = s.events(R_AMBUSHER);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).unwrap_or_else(|| panic!("search over: {ev:?}"));
+    assert!(dist(s.feet(R_AMBUSHER), [1500.0, 1700.0, 0.0]) < 70.0, "{ev:?}");
+    assert!(!ev[over..].iter().any(|e| matches!(e, AiEvent::AmbushWaits { .. })), "not re-armed: {ev:?}");
+}
+
 #[test]
 fn a_flee_package_runs_from_its_target_until_it_is_far_enough() {
     let f = fixture();

@@ -21,7 +21,7 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
 | Detection events | `Game::queue_detection_event` | CreateDetectionEvent, the impacts of the player's shots |
 | Barks | `Game::detection_bark` | the Detection topics on each change and now and then while searching (§4) |
 | Script functions | same module | IsInCombat, GetCombatTarget, CreateDetectionEvent, SetAlert, GetIsAlerted (§6) |
-| Searching | `fnv_ai::alert` | actors run on their packages (`--npc-packages`) search in Alert and Lost and stand facing their target in Combat; Continue During Combat packages go on (§5) |
+| Searching | `fnv_ai::alert` | actors run on their packages (`--npc-packages`) search in Alert and Lost and stand facing their target in Combat; Continue During Combat holds an actor only on the way of a Travel-kind package and on a Guard whose target is outside its radius (§5.2) |
 | How it looks | engine `alert.rs` | weapon drawn in a combat state; head turned to the alarm or the target |
 | Measuring | engine `detection.rs` | the detector's state enters the formula (alert, busy); events measured; `alert:` log lines and `alert summary` |
 
@@ -31,7 +31,7 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
        ▲  ╲______________hostile detected_______________________________________▲  │
        │                                                                           │ every target undetected
        │◀── alarms ran out ── Alert                    Lost ◀──────────────────────┘ for `lost` seconds
-       │◀── targets hidden and forgotten, alarms ran out ── Lost ──detected──▶ Combat
+       │◀── search party finished (or stalled) ── Lost ──detected──▶ Combat
        │◀── no targets and no alarms ── Combat
 
 [documented: Category:Detection, the transitions in actor-behaviour.md §2.3]. In words:
@@ -42,36 +42,66 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
   documented re-centring). Normal → **Alert**.
 - A hostile **detected** (above 0) goes on the target list. From any state → **Combat**.
 - **Events** (§4) the actor hears and **hurts** from a hostile are alarms too.
-- An alarm runs out `alarm` seconds after it was last raised or refreshed; with no alarm
-  left, Alert → Normal.
-- A target hidden (−20 or below) for `forget_target` seconds leaves the target list. In
-  Combat, when no target has been detected for `lost` seconds, the actor is **Lost**: an
-  alarm at each target's last known position, and it searches there. Lost → Combat when
-  one is detected again; Lost → Normal when every target is hidden or gone and the alarms
-  have run out. Combat → Normal when the target list and the alert list are empty
-  (targets dead, gone, no longer hostile).
+- [design: `Awareness::alarm`] An alarm (noticed, hurt, an ally's call, an event
+  heard) runs out `alarm` seconds after refresh. With no alarm left, Alert → Normal.
+- [design, #2010; documented: GECK wiki Combat Search] A previously detected target
+  stays on the target list while Combat waits to enter **Lost** and while its Lost
+  search remains active. After `lost` seconds without detecting any target, the actor
+  searches each target's last detected position. Ordinary alarm expiry and the forget
+  timer cannot interrupt that search. Lost -> Combat on re-detection, clearing the old
+  search count. Lost -> Normal after every member searching that target has completed
+  `iCombatTargetLostRemoveSearchCount` shares and the target is hidden (-20 or below).
+  A member that finishes early waits for the others. Dead or gone targets still leave
+  immediately; Combat -> Normal when both lists are empty.
+  [design, #2010: `fnv_ai::alert::Search`, `Ai::alert_step`] Walk/look point progress
+  belongs to the selected alarm's owner. Switching owners starts a fresh search even
+  when their positions are nearby. Completing the shares replaces that progress with
+  a waiting state, preserving the return to the actor's package after Normal.
 - Both timers count a target as detected while a member of the actor's combat group in
   Combat still detects it (#972, docs/spec-notes/combat-groups.md §3) [hypothesis].
 - An event heard while searching puts its owner on the target list, undetected
   [documented].
 - Back in Normal the lists are cleared.
 
-The timers [engineering choice: the documentation names them, gives no lengths, and
-FalloutNV.esm has no game setting for them]: `alarm` 20 s, `forget_target` 15 s, `lost`
-10 s (3 s until 2026-10-19: fighters said CombatToLost almost as soon as they broke line
-of sight; `lost` stays below `forget_target` so a target hidden the whole time is lost
-and searched for, not forgotten). They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
-again after a load).
+[design, #2010: `fnv_game::awareness::Timers::read`] Timer defaults and load-order
+settings (seconds of `Game::time`):
 
-In the original, the running game reports fCombatDetectionLostTime 15 and
-fCombatTargetLostRemoveTime 30 as built-in values (not set by FalloutNV.esm). A target
-hidden outright was kept 20.7 s at those values and 64.8 s with four combat timers ×4,
-with no search procedure [observed: npc-behaviour-compare.md §15.6]. In a second round
-only raising fCombatDetectionLostTime made a large shift (about its value plus 5 to 8 s);
-raising fCombatTargetLostRemoveTime, or the two search settings together, stayed inside
-the default runs' spread [observed: npc-behaviour-compare.md §16.1; that
-fCombatDetectionLostTime governs it is a hypothesis from one run per setting]. How the original's timers map onto `alarm`,
-`forget_target` and `lost` is not established; the engineering choice above stands (#2010).
+| Timer | Game setting | Fallback |
+|---|---|---|
+| `lost` | `fCombatDetectionLostTime` | 15 s |
+| `forget_target` (outside an active Lost search) | `fCombatTargetLostRemoveTime` | 30 s |
+
+`fDetectionEventExpireTime` (10 in the #2010 capture [observed]) is not read: by its name it is how
+long an event itself can be heard [hypothesis: the setting's name], and our events are
+heard in the round they are raised. Used as the hearer's alarm length it sent Cook-Cook,
+who heard the player's shot and called the camp, back to Normal at 12 s, before the
+camp's first shares, and the party searched without him [observed: smoke
+`group-search`, NVForever on the #2010 branch, 2026-11-13]; heard-event alarms keep the
+`alarm` length [design, #2010].
+
+[observed: issue #2010 capture; npc-behaviour-compare.md sections 15.6, 16.1] These names
+exist in the running original; the later captures identify the first two as built-in
+values, not FalloutNV.esm overrides. The setting-to-timer mapping above is our design,
+not a claim of matching the original's timing. Noticed, hurt, ally and heard-event alarms
+retain our existing 20 s expiry [design: `Awareness::alarm`]. The never-detected 10-in-20 s
+exception documented by Combat Search is separate from Lost searches; this change
+adds no new never-detected policy [documented: GECK wiki Combat Search; design, #2010].
+The state is not saved; the engine measures again after loading [design: `Awarenesses`].
+
+[design, #2010] `LOST_SEARCH_STALL_SECONDS` is 300 s without a completed share. A
+LostTarget alarm uses that safety deadline, renewed by each completed share, instead
+of ordinary alarm expiry. Thus unavailable navigation/AI cannot hold a fight forever;
+working searches survive the 20/30 s ordinary timers. This is an owner-review choice,
+not a measurement of the original.
+
+[observed: npc-behaviour-compare.md sections 15.6, 16.1] A hidden target in the original
+was kept 20.7 s at default timers and 64.8 s with four combat timers multiplied by four,
+with no search procedure. Only increasing fCombatDetectionLostTime made a large shift
+in the second round (about its value plus 5-8 s); the other settings stayed within the
+default spread. [observed: issue #2010, 2026-11-10 capture] Two of three fighters instead
+remained in COMBAT for the remaining 235 real seconds without walking a search. These
+unresolved original behaviors remain observer check 122; our completion rule follows
+the stated design and the wiki, rather than those durations [design, #2010].
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not
 become Alert; it still goes to Combat [hypothesis: the flag's name; no source describes
@@ -147,24 +177,28 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   actor leaves furniture, walks to its latest alarm, looks about there for 4 s, then
   searches on: at the alarm again if it has moved more than 64 units, else at a random
   point within fCombatSearchInteriorMinRadius (256) or fCombatSearchExteriorMinRadius
-  (512) of it [observed: the values in FalloutNV.esm; hypothesis: the nearest search
-  ring's radius; the Combat Search page is not in the export]. It walks. A walk that has
-  not arrived after 30 s ends where it is. [engineering choice for the times and
-  distances.]
+  (512) of it [design: `GroupSettings` fallback radii; documented: GECK wiki
+  Combat Search, minimum initial radius, medium radius for subsequent searches].
+  [design: `fnv_ai::alert`] It walks, looks for 4 s, and counts three points as its share
+  of one search. A walk that has not arrived after 30 s ends where it is; an unreachable
+  point becomes a look in place. Lost party members wait until all have finished (section 2).
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
   the combat AI's (docs/design/combat-ai.md). Cover and fleeing were built later (combat-ai.md §12.2, §12.6). A target
   it no longer detects (behind a rise, say) it keeps closing in on, whatever the
   distance, halving the gap each time the way is planned, until it sees it again or
   goes Lost; the combat AI keeps its distance to fight from meanwhile [design: below].
-- **Continue During Combat** (package flag 26, owner's request 2026-10-11): an actor
-  whose current package has it carries its package out in every combat state as if
-  nothing had happened: no search, no stand [hypothesis: the flag's name; no source
-  describes it. 399 of the 4,163 packages set it, among them sniper posts, "stand in
-  place" and "flee the scene" packages, observed 2026-10-11]. Its state, weapon and barks
-  are as for any other actor. Not for a teammate of the player on a Follow package:
-  every follower's Follow package sets the flag, and in the original a melee companion
-  goes after its targets [observed: the owner's playtest 2026-11-04, #1534], so such a
-  teammate fights as any other actor and follows again after the fight.
+- **Continue During Combat** (package flag 26, owner's request 2026-10-11): as built
+  today, an actor whose current package has it carries its package out in every combat
+  state as if nothing had happened: no search, no stand. That reading came from the
+  flag's name alone and **the original does not behave so** [observed: AI observer
+  2026-11-11 and 12, #2155]: §5.2 has what the original does and the rule to build in
+  its place. 399 of the 4,163 packages set the flag [observed 2026-10-11]; 251 of them
+  are on some actor's list, of 291 NPC bases and 85 creature bases [observed
+  2026-11-11]. Its state, weapon and barks are as for any other actor. Not for a
+  teammate of the player on a Follow package: every follower's Follow package sets the
+  flag, and in the original a melee companion goes after its targets [observed: the
+  owner's playtest 2026-11-04, #1534], so such a teammate fights as any other actor
+  and follows again after the fight.
 - Back in Normal the actor goes back to its package's place, as after a random
   conversation. Actors not run on their packages stand where they are and only turn
   their heads.
@@ -175,6 +209,22 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   had his chair package back at the fight's end and sat again about 5 real seconds
   later [observed: AI observer 2026-11-10]; the bed case is not settled by that capture
   [design]. Smoke: `resident-resettles-after-fight`, `resident-resettles-in-bed`.
+  Packages whose goal has no place to stay at (issue #2137) [design, unless tagged]:
+  - **Patrol.** A walk to a point cut off by the fight, or a wait at a point cleared by
+    the search, a warning or a flight: the patroller walks on to the point it was at or
+    going to. Standing at that point, it goes on to the next one. A route walked to its
+    end stays done ["Actor moves along patrol route continuously until another package
+    evaluates", documented: GECK wiki Patrol Package].
+  - **Ambush.** The ambusher walks back to its wait location ["When combat ends, the
+    actor will return to the Wait Location", documented: GECK wiki Ambush Package].
+    Sprung, it stands there and is not set to lie in wait again; whether the original
+    re-arms it is not known.
+  - **Escort, Find, Use Item At.** One not finished is taken up afresh at the next update
+    (log `… takes up <package> afresh`), as after a search that leaves the loaded area.
+    One whose goal was met stays done.
+
+  Which patrol point the original resumes at, and how soon, is not captured. Smoke:
+  `patrol-resumes-after-fight` (the issue's Nipton scene).
 
 ### Sandbox interruption [design]
 
@@ -222,17 +272,103 @@ Smoke scenarios `sandbox-combat-recovery`, `sandbox-combat-recovery-control` and
 `sandbox-combat-seated-recovery` use Chet's noon sandbox in GSGeneralStore at 1280×720.
 These test the engine's state handoff, not original-game timing or sandbox parity.
 
+### 5.2 Continue During Combat: the original, and the rule to build (#2155)
+
+**Built** (#2155, `fnv_ai` alert `Ai::package_holds`): the rule below, items 1 to 4
+and 6. Until then any actor on a package with the flag (but a teammate on a Follow
+package) was kept on its package in every combat state, which was wrong in every case
+measured: it was why a melee fighter such as Legate Lanius, on a Travel package to his
+marker, never reached the player. Choices where the rule leaves room [design]: a Use
+Weapon package with the flag still holds its actor (#2120, #2145); a Guard near a
+reference (Remain Near Reference), a Guard whose post is not known and a Follow package
+of a non-teammate do not hold; "on the way" is the actor still walking its package's
+walk with the fight not yet having taken it up, so an actor that has started fighting
+is not sent back by a package choice in the middle of the fight; the post of a "near
+current location" Guard with no wander area is where the actor last stood out of a
+combat state. Item 5 (the lenient Guard) is not built.
+
+**What the flag does depends on the package type.** [documented: GECK wiki export, page
+"Combat Package Flags" (`Combat.xml`); observed: AI observer 2026-11-11 and 12,
+observer-checks.md checks 107 to 111, campaigns `cdc_leash` and `cdc_lanius`.]
+
+| Package type | The wiki | Measured in the original |
+|---|---|---|
+| Travel | The actor goes on to its destination, firing at its target if it can. Once there its packages are evaluated again: a new package with the flag sends it on, one without lets it "resume normal combat behavior" | An actor **already at its destination** fights as any other: a knife trooper ran 500, 1,000 and 2,000 units to its enemy and fought up to 2,043 units from its post; Lanius ran 760 and 1,461 units and fought up to 2,557 units from his marker. No leash. When the fight ended Lanius had his Travel package again at the next sample and stood on the marker 3 to 5 s later. **On the way**: Lanius, made hostile 1,225 units from his marker with the player out of his sight, kept on toward the marker for 10 s before he went for the player (one capture; a search for a target he could not see would look the same) |
+| Patrol | Travel behaviour to each patrol point, then on to the next | not measured |
+| Find, Ambush, Use Item At | Travel behaviour on the way; at the object or place the actor "will drop out of combat and perform the normal package behavior" | not measured |
+| Guard | The actor engages its target but "will not move outside the guard radius in order to pursue" it. Guard radius: package radius × fCombatGuardRadiusMult (1.5) or fCombatGuardRadiusMin (384), whichever is higher | Two packages held their knife trooper so: with the enemy inside that radius of the post (167 of 384; 154 to 502 of 768) it closed in and fought; with the enemy outside (654; 1,001 to 2,000) it stayed in combat, **stood where it was and never attacked**. It does not walk to the edge. Three other Guard packages did not hold theirs at 1.6 to 4.9 times the radius; all three have bit 2 of the Guard type-specific flags set [hypothesis that this is why]. After the fight the guards were back within their radius of the post |
+| Follow | The actor fights but "will always try to stay within the follow radius of the leader": package radius × fCombatFollowRadiusMult (3.0) or fCombatFollowRadiusMin (512), whichever is higher | Not measured here. The owner's playtest (#1534): a melee companion goes after its targets. FalloutNV.esm sets fCombatFollowRadiusMult and fCombatTeammateFollowRadiusMult to 3.0 [observed: the GMST records] |
+| Accompany, Dialogue, Eat, Escort, Sandbox, Sleep, Wander | "The flags do not work" | not measured |
+| Use Weapon | not in the wiki's chart | #2120, #2145 |
+
+Neither the wiki nor the captures tell melee from ranged: a rifle trooper on the same
+Travel and Guard packages fired from 892 to 2,040 units and moved about as the trooper
+with no package did (check 109). None of the 399 packages pins an actor "because it
+is a sniper post".
+
+**The rule to build** [design, following the original where it was measured; combat is
+not a parity target, so where the original leaves a fighter useless the engine may be
+kinder, item 5]:
+
+1. **When the flag holds an actor.** Only in two cases; in every other the actor fights
+   as any other actor does (closes in, its combat style's combat radius the only
+   limit), whatever its weapon:
+   - *On the way*: its package is a Travel, Patrol, Find, Ambush or Use Item At and it
+     has not arrived yet. It keeps walking and attacks what it can from there: a gun
+     fires, a melee fighter strikes only what comes within reach. On arrival the
+     package choice runs again; when the choice is a package it is already at the place
+     of (a stand-at-marker Travel such as Lanius's), it is free to fight.
+   - *Guard radius*: its package is a Guard and its target is outside the guard radius.
+2. **What the distance is measured from**: the package's place (the marker, the editor
+   location, or the spot where "near current location" was resolved when the package
+   started), to the **target**, flat. Not from the actor: inside the radius the actor
+   may go wherever its target is.
+3. **How large**, for a Guard: the package radius × 1.5, at least 384 (the two game
+   settings above, read from the load order when a plugin sets them). A Guard whose
+   type-specific flags have bit 2 set is not held [hypothesis from three packages; a
+   Guard with no type-specific flags, the commonest kind, was not measured beyond 259
+   units. Until settled, hold only Guards without bit 2, so no fighter is pinned on a
+   guess]. Travel
+   and the others: no radius, see item 1.
+4. **When it goes back**: when the fight is over (no target left: dead, lost, or
+   StopCombat) the package choice runs again and the actor walks back to its place and
+   settles there as on arrival (`Ai::back_to_package`, already built). A Guard whose
+   target leaves the radius stops pursuing; it stays in combat, stands and faces the
+   target (a gun may still fire), and goes back to its post when the fight ends. Our
+   choice for that case, since it was not measured: it returns to the post at once
+   rather than standing at the edge.
+5. **Kinder than the original** [design, for the owner]: a melee Guard whose enemy
+   stands outside the radius and shoots it does nothing in the original. The owner's
+   lenience fits here and only here: a Guard hit from outside its radius may treat the
+   attacker as inside for as long as the hits keep coming. Not needed for Lanius.
+6. **A teammate on a Follow package** stays as #1553 built it (fights as any other
+   actor, follows again after). The wiki's follow radius (× 3, at least 512) is the
+   measure to use if a leash is wanted there.
+
+Smoke scenarios: `cdc-lanius-leaves-marker` (Lanius leaves `VLegateWaitPlayerMarker`
+for a hostile player and is back on it after StopCombat) and `cdc-guard-radius` (a melee
+actor on a Guard package engages a near player and stands for a far one).
+
 ## 6. What scripts see
 
 | Function | Now | Source |
 |---|---|---|
 | IsInCombat | 1 in Alert, Combat and Lost; for the player, 1 while an actor in a combat state has the player on its target or alert list | [documented: Category:Detection; GECK wiki IsInCombat, "will return 1 if enemies are actively searching for the player"] |
-| GetCombatTarget | in Combat, the detected target with the highest value; else none | which of several: [engineering choice] |
+| GetCombatTarget | in Combat and Lost: ITR's ForceCombatTarget, else the detected target with the highest value; while it detects none, the target it fought last, kept while that lives and is on its target or alert list (let go on death, `forget`, StopCombat, a new target, Normal); else none. Conditions run on Combat Target and the extender queries that ask for it read the same (`Game::combat_target_of`) | which of several: [engineering choice]; kept while unseen: [observed: npc-behaviour-compare.md §11, the original kept the player as combat target with GetDetected player 0]; when it lets go: [design, #2121], how long the original keeps it: #2010 |
+| GetCurrentAIProcedure / GetCurrentAIPackage | Combat and Lost read COMBAT 13 / 5 (our Lost searches underneath); Alert reads SEARCH 36 / SEARCH_FOR_ATTACKER 29 | Combat and Lost: [observed: npc-behaviour-compare.md §11, SEARCH and SEARCH_FOR_ATTACKER never appeared, an unseen target kept procedure COMBAT]; Alert: left as it was, no capture shows an Alert alone [design, #2121] |
 | CreateDetectionEvent | queues an event at the calling reference (§4) | [documented] |
-| SetAlert / GetIsAlerted | SetAlert's flag is kept on the reference (savebaked); GetIsAlerted is 1 with it or in a combat state | [documented: "purely an animation state"]; the combat state drawing it: [hypothesis] |
+| SetAlert / GetIsAlerted | SetAlert's flag is kept on the reference (savebaked); GetIsAlerted is 1 with it or ITR's SetAlertNS, nothing else: not for a combat state (`Game::is_alerted`) | [documented: "purely an animation state"]; not in combat: [observed: GetIsAlerted 0 in every sample, 14,312 of them in combat, npc-behaviour-compare.md §11; owner-decision-captures.md od_15] |
 
-Furniture's fast getting-up set, chosen under `GetIsAlerted == 1` (furniture.md §2), now
-applies to alerted actors.
+What actors look like still counts the combat states: the weapon drawing and the
+creatures' stance read `Game::alert_stance` (alerted or a combat state) [hypothesis: Alert
+is "weapon out", Category:Detection], so a fight looks as it did before #2121. The IDLE
+tree's own conditions read GetIsAlerted as scripts do: a node gated on `GetIsAlerted == 1`
+alone (the mirelurk's and sentry bot's warnings, idles.md §14.1) no longer passes in a
+fight; the gecko's combat idles, which also take procedure 13, still do (Lost too).
+
+Furniture's fast getting-up set is chosen under `GetIsAlerted == 1` (furniture.md §2); the
+engine's furniture picker answers GetIsAlerted 0 for now (`engine/nvforever/src/furniture.rs`,
+`User::alerted`), so it is not reached.
 
 Not yet when this was written: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby,
 GetPCDetectionState, combat groups, crimes. Built since: OnStartCombat and OnCombatEnd

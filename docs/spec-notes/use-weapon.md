@@ -49,7 +49,29 @@ next to StartCombat, and ResetAI is used to end it.
 - In the masters: 173 Use Weapon packages; 9 have a location 2; target 2 is always a
   specific reference; target 1 is an object type in 52 ("Weapons: None" 32, "None" 10,
   melee 7, …) [observed: `fnvtool ai survey`, packages.md §2]. The type's own page (Use
-  Weapon Package) is not in the owner's export.
+  Weapon Package) is not in the owner's export; the offline GECK wiki copy has it.
+- "Continue During Combat: Actor will continue to fire and stand at the designated
+  position, even during Combat. Great for setting up immobile enemies." [documented: GECK
+  wiki page "Use Weapon Package", section Flags, revision 35491 of 2024-08-04,
+  https://geckwiki.com/index.php?oldid=35491]. The page does not say at whom it fires
+  once in combat; the general flag page says a Travel package with the flag fires "at
+  their target" on the way [documented: GECK wiki page "Combat Package Flags", revision
+  34683 of 2024-02-17, https://geckwiki.com/index.php?oldid=34683], and its
+  per-type chart has no Use Weapon row. We keep the package's target 2 [design;
+  docs/design/use-weapon.md §3, #2120]. 43 of FalloutNV.esm's 82 Use Weapon packages set
+  the flag (sniper posts, scripted kills, the Ultra-Luxe kitchen's flamers, the Hoover Dam
+  Securitrons); 38 of them carry conditions [observed: `fnvtool ai packages` and `ai
+  show`, 2026-11-11].
+
+- A Do No Damage hit (a shot or a blow) runs the target's OnHit and OnHitWith blocks with
+  the shooter as attacker and deals no damage of its own (`Game::harmless_hit`, #2433)
+  [hypothesis from the data, observer check 134: G.I. Blues' staged ambush. Orris's
+  VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, one volley of 1 to 6
+  shots, Once Per Day, each conditioned on his `shootingthugsstate` and the thug not
+  unconscious. Each thug's OnHit block for Orris (SCPT 0x00118A77) knocks it out
+  (SetUnconscious 1, PushActorAway) and moves the state on, the third adds his
+  after-fight Dialogue package. Without OnHit the first package ended after its shot
+  and none followed: the owner's soft lock].
 
 ## 4. SetRestrained
 

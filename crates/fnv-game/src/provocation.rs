@@ -69,13 +69,30 @@
 //!   whole package, also once at the destination; the player's teammates are left to
 //!   `crate::followers`. Follow and Accompany (the same exception) are not built here.
 //!
+//! - **An Evil faction's area** [design: owner decision 2026-11-13 on #1538, "attacking
+//!   the fiends should alert all fiends in the area that you are to be attacked";
+//!   docs/design/combat-ai.md §10.3.1]: when the player attacks (hits or kills) a member of
+//!   a faction flagged Evil, every member of that faction in the area turns on the
+//!   player at once, whether or not it saw the attack: it holds a grudge against the
+//!   player and is alarmed at the player's position. The area is the loaded cells: the
+//!   victim's own cell when that is an interior, else the exterior within
+//!   [`crate::combat_group::ALARM_RADIUS`] of the victim. A faction that tracks crime
+//!   also makes the player its enemy from then on (`Game::crime_enemy`), so its members
+//!   elsewhere are hostile too. Before this an ally's first hits were tolerated,
+//!   assistance never fought the helper's own ally, and an Evil victim's kill was no
+//!   murder for witnesses (`crate::crime`), so the Fiends of Vault 3, allied by its
+//!   door script's SetAlly, never turned [observed: FalloutNV.esm SCPT 0x000F2DF5;
+//!   FiendsFactionNV flagged Hidden, Evil, Track Crime]. Not when the victim is already
+//!   fighting someone else (a stray hit in a shared fight, as the owner's exception
+//!   above), and not the player's teammates.
+//!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
 //! (`crate::combat_group`, NPC against NPC).
 
 use crate::awareness::{Cause, State};
 use crate::detection::Band;
-use crate::functions::actor::{actor_value, faction_relation};
+use crate::functions::actor::{actor_value, faction_relation, factions_of};
 use crate::game::Game;
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, HashMap};
@@ -182,6 +199,12 @@ pub enum Note {
     AggroAttacks { actor: FormId, distance: f64, radius: f64 },
     /// `helper` stays out of `victim`'s fight: its confidence is Cowardly (module notes).
     StaysOut { helper: FormId, victim: FormId },
+    /// The player attacked `victim`, of the Evil faction `faction`: `alerted` of its
+    /// members in the area turn on the player (module notes, "An Evil faction's area"),
+    /// each noted before as [`Note::Alerted`].
+    AreaAlert { victim: FormId, faction: FormId, alerted: u32 },
+    /// `actor` turns on the player, who attacked `victim` of its Evil faction.
+    Alerted { actor: FormId, victim: FormId },
 }
 
 /// The grudges, friendly hits and forgiveness of every actor. The grudges and the
@@ -310,7 +333,9 @@ impl Game<'_> {
         let state = self.awareness.state(actor);
         let in_combat = state.in_combat();
         let relation = self.reaction_to(actor, by);
+        let area = self.evil_area_alert(actor);
         let hits = match relation {
+            _ if area => 1,
             ALLY | FRIEND => {
                 if self.extra.get(&actor).is_some_and(|e| e.ignore_friendly_hits) {
                     self.provocations.notes.push(Note::Ignored { actor, by, why: "it ignores friendly hits" });
@@ -348,6 +373,55 @@ impl Game<'_> {
         self.provocations.notes.push(Note::Assaulted { actor, by, relation, hits });
         self.player_assaulted(actor);
         self.detection_bark(actor, Some(by), "Assault");
+        true
+    }
+
+    /// The player attacked `victim` (a hit, or the kill, `Game::player_kills`): when it is
+    /// in a faction flagged Evil, every member of that faction in the area turns on the
+    /// player (module notes, "An Evil faction's area"). Returns whether the rule applied
+    /// (the victim is such a member and was not fighting someone else).
+    pub fn evil_area_alert(&mut self, victim: FormId) -> bool {
+        use crate::crime::faction_flags::{EVIL, TRACK_CRIME};
+        let flags = |g: &Game, f: FormId| g.data.faction_flags.get(&f).copied().unwrap_or(0);
+        let evil: Vec<FormId> = factions_of(self, victim).into_iter().filter(|&f| flags(self, f) & EVIL != 0).collect();
+        if evil.is_empty() || self.is_teammate(victim) {
+            return false;
+        }
+        // A stray hit in a fight the victim has with someone else.
+        if self.awareness.get(victim).is_some_and(|a| a.state == State::Combat && a.combat_target().is_some_and(|(t, _)| t != FormId::PLAYER_REF)) {
+            return false;
+        }
+        let cell = self.cell_of(victim);
+        let indoors = cell.is_some_and(|c| !crate::functions::fo3::exterior(self, c));
+        let hearers = self.alarm_hearers(&BTreeMap::new());
+        let victim_at = hearers.get(&victim).copied().or_else(|| self.world.peek(victim).map(|s| s.pos)).unwrap_or_default();
+        let player_at = self.world.peek(FormId::PLAYER_REF).map_or(victim_at, |s| s.pos);
+        let now = self.time;
+        let t = self.awareness.timers.unwrap_or_default();
+        for faction in evil {
+            let mut alerted = 0;
+            for (&m, &at) in &hearers {
+                if m == FormId::PLAYER_REF || m == victim || self.is_dead(m) || !self.present(m) || self.is_teammate(m) {
+                    continue;
+                }
+                let near = if indoors {
+                    self.cell_of(m) == cell
+                } else {
+                    self.cell_of(m).is_some_and(|c| crate::functions::fo3::exterior(self, c)) && (at[0] - victim_at[0]).hypot(at[1] - victim_at[1]) <= crate::combat_group::ALARM_RADIUS
+                };
+                if !near || !factions_of(self, m).contains(&faction) || self.provocations.holds(m, FormId::PLAYER_REF) {
+                    continue;
+                }
+                self.provocations.grudges.insert((m, FormId::PLAYER_REF), Grudge { why: Why::Assist { victim }, since: now });
+                self.awareness.actors.entry(m).or_default().alarm(FormId::PLAYER_REF, player_at, 0.0, Cause::Ally, now, &t);
+                self.provocations.notes.push(Note::Alerted { actor: m, victim });
+                alerted += 1;
+            }
+            if flags(self, faction) & TRACK_CRIME != 0 {
+                self.make_player_enemy_of(faction);
+            }
+            self.provocations.notes.push(Note::AreaAlert { victim, faction, alerted });
+        }
         true
     }
 

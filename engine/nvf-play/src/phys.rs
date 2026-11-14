@@ -813,6 +813,18 @@ impl PhysState {
         }
     }
 
+    /// The share of [`PhysState::drawn_lift_of`] that changes of the drawn ground under
+    /// the feet put there ([`step_lift::StepLift::ground_at`]): the view leaves it out, as
+    /// it leaves out the drawn sink.
+    pub fn drawn_ground_lift_of(&self, id: u32) -> f32 {
+        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        if id == fnv_sim::FormId::PLAYER_REF.0 {
+            if self.player.is_some() { self.player_lift.ground_at(a) } else { 0.0 }
+        } else {
+            self.npcs.get(&id).map_or(0.0, |b| b.lift.ground_at(a))
+        }
+    }
+
     /// Whether the player is placed and every cell asked for around them is in (the
     /// loading screen waits for this, `crate::loading`).
     pub fn loading_done(&self) -> bool {
@@ -1329,7 +1341,7 @@ impl PhysState {
     pub fn add_created(&mut self, ctx: &LoadCtx, id: u32) -> bool {
         let Some(s) = ctx.sim.world.peek(FormId(id)).filter(|s| dropped::present(s)) else { return false };
         let counts = &mut self.stats.counts;
-        let Some(path) = dropped::model_path(ctx.d, s.base, s.extra.mods) else {
+        let Some(path) = dropped::created_model_path(ctx.d, &ctx.sim.world, s.base, s.extra.mods) else {
             *counts.entry("created_no_model").or_default() += 1;
             return false;
         };
@@ -2013,6 +2025,8 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         info!("physics: the player's drawn height took up {} steps and bumps, lifted {:.1} units at most", l.taken_up, l.most);
         let (feet, drawn) = l.rough.rms();
         info!("physics: walking on the ground for {} steps, vertical acceleration {feet:.0} units/s2 of the feet and {drawn:.0} of the drawn height (rms), drawn/feet {:.2}", l.rough.steps, drawn / feet.max(1.0));
+        // The view counts from the feet: the lift without the drawn ground's share.
+        info!("physics: the view's vertical acceleration while walking {:.0} units/s2 (rms)", l.rough.view_rms());
     }
     // Loose items in water (`fnv_phys::buoyancy`): floating at the surface or sunk.
     let wet = phys.world.loose_in_water();

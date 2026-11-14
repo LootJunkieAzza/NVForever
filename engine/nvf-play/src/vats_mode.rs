@@ -1166,6 +1166,7 @@ fn read_keys(
     mut sounds: Sounds,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     tiles: Option<Res<crate::tiles::vats_menu::VatsTiles>>,
+    menu_key: Option<ResMut<crate::flashlight::MenuKeyHold>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     SHIFT_HELD.store(input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), std::sync::atomic::Ordering::Relaxed);
@@ -1213,17 +1214,19 @@ fn read_keys(
             vats.keys.special = button(GamepadButton::North);
             pad_return = button(GamepadButton::East);
             // The right stick, pushed left or right: the target before or after, once a push.
-            let x = if playing { crate::pad::stick(&input.pads, false).x } else { 0.0 };
-            let way = if x >= crate::pad::STICK_PRESS { 1 } else if x <= -crate::pad::STICK_PRESS { -1 } else { 0 };
-            if way != vats.stick_was {
-                vats.keys.target_step = way;
+            // Retain physical history; filter only the action so a switching hold
+            // cannot become a delayed target step [design, #2200; pad::update_stick_buttons].
+            let direction = |x: f32| if x >= crate::pad::STICK_PRESS { 1 } else if x <= -crate::pad::STICK_PRESS { -1 } else { 0 };
+            let way = direction(if playing { input.pads.physical_stick(false).x } else { 0.0 });
+            if playing && way != vats.stick_was {
+                vats.keys.target_step = direction(crate::pad::stick(&input.pads, false).x);
             }
             vats.stick_was = way;
             // The left stick, pushed any way: the part that lies that way on the screen
             // from the selected one [design: the file names the stick, not the rule]; where
             // none does, the part before (up, left) or after (down, right).
             use crate::pad::StickDir;
-            let pushed = input.sticks.as_ref().filter(|_| playing).and_then(|s| StickDir::ALL.into_iter().find(|d| s.just_pressed(*d)));
+            let pushed = input.stick_buttons().as_ref().filter(|_| playing).and_then(|s| StickDir::ALL.into_iter().find(|d| s.just_pressed(*d)));
             if let Some(d) = pushed {
                 let (dir, step) = match d {
                     StickDir::Up => ((0.0, -1.0), -1),
@@ -1277,6 +1280,16 @@ fn read_keys(
     // With a controller none of the game's controls leaves the classic screen: its
     // buttons are the screen's own, and B returns.
     let pad_screen = classic_marking && vats.pad;
+    // A Menu Mode press made in the mode is the mode's own: it leaves (below), or on the
+    // controller's classic screen, where B is both Menu Mode and the screen's Return, it
+    // returns. Used up, so its release opens no Pip-Boy and its hold switches no
+    // flashlight (`crate::flashlight`) [design, #2311: B, a controller's back button, left
+    // the mode and opened the Pip-Boy on its release; Tab the same].
+    if vats.phase != Phase::Off && pressed(Control::MenuMode) {
+        if let Some(mut hold) = menu_key {
+            hold.consume();
+        }
+    }
     if let Some(c) = leaving_press(vats.phase, vats.queue.len(), |c| pressed(c) && !pad_screen && !(classic_marking && c == Control::ReadyItem)) {
         vats.now = now;
         vats.keys = Keys::default();
@@ -3446,6 +3459,142 @@ mod tests {
         let parts = [part(Some(26)), part(None), part(Some(fnv_game::combat::HEAD)), part(Some(27))];
         assert_eq!(head_part(&parts), Some(2));
         assert_eq!(head_part(&parts[..2]), None);
+    }
+
+    #[test]
+    fn switching_with_the_right_stick_does_not_delay_a_vats_target_step() {
+        use bevy::input::gamepad::{Gamepad, GamepadAxis};
+        use crate::{bindings::{Bindings, InputDevice}, pad::device::tests::playing_app};
+        for x in [-0.8, 0.8] {
+            let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
+            app.insert_resource(VatsMode { phase: Phase::Marking, style: VatsStyle::Classic, ..default() })
+                .init_resource::<ControlLocks>().init_resource::<MoveIntent>()
+                .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .add_message::<PlaySound>().add_message::<LoopSound>().add_message::<ActorFire>()
+                .add_systems(Update, read_keys.after(crate::control::read_controls));
+            app.update();
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::RightStickX, x);
+            app.update();
+            assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+            assert_eq!(app.world().resource::<VatsMode>().keys.target_step, 0, "the switching edge is filtered");
+            for _ in 0..2 {
+                app.update();
+                assert_eq!(app.world().resource::<VatsMode>().keys.target_step, 0, "the continued physical hold is not a new push");
+            }
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::RightStickX, 0.0);
+            app.update();
+            assert_eq!(app.world().resource::<VatsMode>().keys.target_step, 0);
+            app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::RightStickX, x);
+            app.update();
+            assert_eq!(app.world().resource::<VatsMode>().keys.target_step, if x > 0.0 { 1 } else { -1 });
+            app.update();
+            assert_eq!(app.world().resource::<VatsMode>().keys.target_step, 0);
+        }
+    }
+
+    #[test]
+    fn block_release_and_pad_press_in_one_frame_cannot_unmark_across_a_switch() {
+        use crate::{bindings::{Bindings, InputDevice}, pad::device::tests::{button, control_button, playing_app}};
+        let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
+        app.insert_resource(VatsMode { phase: Phase::Marking, style: VatsStyle::DeadEye, ..default() })
+            .init_resource::<ControlLocks>().init_resource::<MoveIntent>()
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .add_message::<PlaySound>().add_message::<LoopSound>().add_message::<ActorFire>()
+            .add_systems(Update, read_keys.after(crate::control::read_controls));
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Block, true);
+        app.update();
+        assert!(app.world().resource::<VatsMode>().block_at.is_some());
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(!app.world().resource::<VatsMode>().keys.unmark);
+        button(&mut app, pad, false);
+        app.update();
+        control_button(&mut app, pad, InputDevice::KeyboardMouse, Control::Block, false);
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+        assert!(app.world().resource::<VatsMode>().keys.unmark, "the original device's release remains available");
+        assert!(app.world().resource::<VatsMode>().block_at.is_none());
+        button(&mut app, pad, false);
+        app.update();
+        button(&mut app, pad, true);
+        app.update();
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+        assert!(!app.world().resource::<VatsMode>().keys.unmark);
+    }
+
+    /// `read_keys` after the Menu Mode key's hold (`crate::flashlight::menu_key`), as the
+    /// game runs them, with the mode at `vats` (50 ms frames).
+    fn menu_key_app(device: crate::bindings::InputDevice, vats: VatsMode) -> (App, Entity) {
+        use crate::flashlight::{menu_key, Flashlight, MenuKeyHold};
+        let (mut app, pad) = crate::pad::device::tests::playing_app(device);
+        app.insert_resource(vats)
+            .init_resource::<ControlLocks>().init_resource::<MoveIntent>()
+            .init_resource::<Flashlight>().init_resource::<MenuKeyHold>()
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .add_message::<PlaySound>().add_message::<LoopSound>().add_message::<ActorFire>().add_message::<crate::menu::OpenInventory>()
+            .add_systems(Update, (menu_key, read_keys).chain().after(crate::control::read_controls));
+        app.update();
+        (app, pad)
+    }
+
+    /// Menu Mode down for `frames` frames, then let go: the Pip-Boy opens asked for
+    /// meanwhile, and whether the first frame asked the mode to unmark.
+    fn menu_mode_press(app: &mut App, pad: Entity, device: crate::bindings::InputDevice, frames: usize) -> (usize, bool) {
+        use crate::pad::device::tests::control_button;
+        let opened = |app: &App| app.world().resource::<Messages<crate::menu::OpenInventory>>().iter_current_update_messages().count();
+        let mut opens = 0;
+        let mut unmark = false;
+        control_button(app, pad, device, Control::MenuMode, true);
+        for i in 0..frames {
+            app.update();
+            opens += opened(app);
+            unmark |= i == 0 && app.world().resource::<VatsMode>().keys.unmark;
+        }
+        control_button(app, pad, device, Control::MenuMode, false);
+        app.update();
+        (opens + opened(app), unmark)
+    }
+
+    #[test]
+    fn menu_mode_leaving_the_mode_opens_no_pip_boy_and_switches_no_light() {
+        use crate::{bindings::InputDevice, flashlight::{Flashlight, HOLD_SECONDS}};
+        // B on a controller, Tab on the keyboard (#2311): a tap, then a hold past the
+        // light's time. Dead Eye leaves on either; the classic style on the keyboard (B on
+        // the controller's classic screen is the screen's Return, the next test).
+        let held = (HOLD_SECONDS / 0.05) as usize * 2;
+        for (style, device) in [(VatsStyle::DeadEye, InputDevice::Controller), (VatsStyle::DeadEye, InputDevice::KeyboardMouse), (VatsStyle::Classic, InputDevice::KeyboardMouse)] {
+            for frames in [1, held] {
+                let (mut app, pad) = menu_key_app(device, VatsMode { phase: Phase::Marking, style, ..default() });
+                let (opens, _) = menu_mode_press(&mut app, pad, device, frames);
+                let case = format!("{style:?}, {device:?}, {frames} frames");
+                assert_eq!(app.world().resource::<VatsMode>().phase, Phase::Off, "{case}: the press leaves");
+                assert_eq!(opens, 0, "{case}: no Pip-Boy on the release");
+                assert_eq!(app.world().resource::<Flashlight>().toggles, 0, "{case}: no light");
+                // Out of the mode the key is the Pip-Boy's again: a tap opens it, a hold
+                // switches the light.
+                assert_eq!(menu_mode_press(&mut app, pad, device, 1).0, 1, "{case}: a second press opens it");
+                assert_eq!(menu_mode_press(&mut app, pad, device, held).0, 0, "{case}");
+                assert_eq!(app.world().resource::<Flashlight>().toggles, 1, "{case}: a hold out of the mode switches the light");
+            }
+        }
+    }
+
+    #[test]
+    fn b_returning_on_the_controllers_classic_screen_opens_no_pip_boy() {
+        use crate::{bindings::InputDevice, flashlight::{Flashlight, HOLD_SECONDS}};
+        // B is both Menu Mode and the classic screen's Return: the press is the screen's
+        // (it unmarks, or with nothing marked leaves, in `update`), not the Pip-Boy's.
+        let device = InputDevice::Controller;
+        for frames in [1, (HOLD_SECONDS / 0.05) as usize * 2] {
+            let (mut app, pad) = menu_key_app(device, VatsMode { phase: Phase::Marking, style: VatsStyle::Classic, ..default() });
+            let (opens, unmark) = menu_mode_press(&mut app, pad, device, frames);
+            assert!(unmark, "{frames} frames: B is the screen's Return");
+            assert_eq!(app.world().resource::<VatsMode>().phase, Phase::Marking, "{frames} frames: no game control leaves the screen");
+            assert_eq!(opens, 0, "{frames} frames: no Pip-Boy on the release");
+            assert_eq!(app.world().resource::<Flashlight>().toggles, 0, "{frames} frames: no light");
+        }
     }
 
     #[test]

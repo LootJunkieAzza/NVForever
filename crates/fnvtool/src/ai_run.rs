@@ -251,6 +251,9 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ar
                 "travelled": sim.ai.agents[&a].walker.travelled,
                 "event_counts": counts,
                 "furniture": furniture_json(data, refs, &sim.ai, a, args.furniture_facts.is_some()),
+                // Choices in a meal window with no free seat, so no meal (#2011): null
+                // when the actor ends the run without a sandbox.
+                "seatless_meal_choices": sim.ai.agents[&a].sandbox.as_ref().map(|s| s.seatless_meal_choices()),
                 "hourly": hourly.get(&a),
                 "events": events,
             })

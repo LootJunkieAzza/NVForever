@@ -3,7 +3,7 @@
 //! player's perks changes it (Swift Learner by rank, Skilled), hacked terminals and
 //! disarmed mines give their XP. docs/spec-notes/experience.md §2.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

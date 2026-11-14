@@ -831,5 +831,48 @@ class LaunchTest(unittest.TestCase):
             self.assertTrue(r.stacks and r.stacks.exists())
 
 
+class ProcSamplesTest(unittest.TestCase):
+    """The Linux readers behind the memory and CPU columns (the Windows arms are unchanged)."""
+
+    def test_kb_field_reads_the_second_column(self):
+        self.assertEqual(lib._kb_field("VmRSS:\t   20480 kB\nVmHWM:\t 30720 kB\n", "VmRSS:"), 20480)
+        self.assertIsNone(lib._kb_field("VmRSS:\n", "VmRSS:"))
+        self.assertIsNone(lib._kb_field("VmHWM: 1 kB\n", "VmRSS:"))
+
+    def test_process_memory_is_rss_and_private_pages(self):
+        # A pid that is not there: the reader must say None, not raise.
+        self.assertIsNone(lib._linux_process_memory(2 ** 22 + 7))
+
+    def test_the_cpu_line_counts_every_core_less_idle_and_iowait(self):
+        stat = "cpu  100 10 50 800 40 5 5 0 0 0\ncpu0 1 2 3 4 5 6 7 8 9 10\n"
+        # user 100 + nice 10 + system 50 + idle 800 + iowait 40 + irq 5 + softirq 5 + steal 0
+        busy = lib._proc_cpu_busy_secs(stat, 100)
+        self.assertIsNotNone(busy)
+        self.assertAlmostEqual(busy or 0.0, (100 + 10 + 50 + 5 + 5) / 100)
+        self.assertIsNone(lib._proc_cpu_busy_secs("cpu0 1 2 3\n", 100), "no whole-machine line")
+
+    def test_a_process_stat_survives_a_command_name_with_spaces(self):
+        # Fields after the command name: state ppid pgrp session tty tpgid flags minflt
+        # cminflt majflt cmajflt utime stime. utime 250, stime 50 at 100 Hz.
+        stat = "1234 (nvforever (dev)) S 1 1234 1234 0 -1 4194560 1 2 3 4 250 50 0 0 20 0\n"
+        busy = lib._proc_pid_busy_secs(stat, 100)
+        self.assertIsNotNone(busy)
+        self.assertAlmostEqual(busy or 0.0, 3.0)
+        self.assertIsNone(lib._proc_pid_busy_secs("1234 (truncated", 100))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "rss and private pages are the same accounting on Linux only")
+    def test_a_live_process_reports_bytes(self):
+        # This interpreter's own pid: real /proc, so the reader is exercised end to end.
+        sample = lib.process_memory(os.getpid())
+        self.assertIsNotNone(sample)
+        assert sample is not None
+        rss, private = sample
+        self.assertGreater(rss, 0)
+        self.assertGreater(private, 0)
+        self.assertGreaterEqual(rss, private, "private pages are part of the resident set")
+        self.assertIsNotNone(lib.process_busy_secs(os.getpid()))
+        self.assertIsNotNone(lib.system_busy_secs())
+
+
 if __name__ == "__main__":
     unittest.main()

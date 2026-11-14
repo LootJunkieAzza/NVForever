@@ -1,5 +1,8 @@
 //! Reader and writer for Bethesda archives (BSA) as shipped with Fallout 3 and
-//! Fallout: New Vegas (archive version 104).
+//! Fallout: New Vegas (archive version 104), and reader of the older version 103
+//! (Oblivion's), which the original game also loads (#2092): the same layout, read by
+//! its own flag rules ([`flags::known`], [`Archive::embeds_names`]). Its archives are
+//! rewritten as 103.
 //!
 //! Format knowledge: see `docs/spec-notes/bsa.md` (clean-room description with
 //! confidence tags). Every structural claim used here was checked against the
@@ -17,6 +20,10 @@ use std::path::Path;
 
 pub const MAGIC: [u8; 4] = *b"BSA\0";
 pub const HEADER_SIZE: u32 = 36;
+/// Fallout 3's and New Vegas' archive version, the one written by default.
+pub const VERSION: u32 = 104;
+/// Oblivion's archive version, read as well (#2092; docs/spec-notes/bsa.md, Version 103).
+pub const VERSION_103: u32 = 103;
 
 /// Archive flag bits. Names follow public community documentation; meanings marked
 /// "unconfirmed" have not been verified against FNV behaviour.
@@ -29,8 +36,21 @@ pub mod flags {
     pub const RETAIN_FILE_NAME_OFFSETS: u32 = 0x20; // unconfirmed effect
     pub const XBOX360: u32 = 0x40; // big-endian hashes/numbers on Xbox 360; not supported
     pub const UNKNOWN_0X80: u32 = 0x80; // set on NIF/texture archives; no layout effect observed
-    pub const EMBED_FILE_NAMES: u32 = 0x100; // data blocks prefixed by a bstring path (not seen in FNV)
+    pub const EMBED_FILE_NAMES: u32 = 0x100; // v104: data blocks prefixed by a bstring path; v103: no layout effect
     pub const KNOWN: u32 = 0x1FF;
+    /// Set on every official version 103 archive with meanings unknown, no layout effect
+    /// (as 0x100 there) [documented: UESP "Oblivion Mod:BSA File Format"].
+    pub const V103_0X200: u32 = 0x200;
+    pub const V103_0X400: u32 = 0x400;
+
+    /// The flag bits known for archive `version` (others are reported).
+    pub fn known(version: u32) -> u32 {
+        if version == super::VERSION_103 {
+            KNOWN | V103_0X200 | V103_0X400
+        } else {
+            KNOWN
+        }
+    }
 }
 
 /// Size field bit 30: inverts the archive's default compression for this file.
@@ -52,7 +72,7 @@ pub enum BsaError {
     Io(io::Error),
     #[error("not a BSA archive (bad magic)")]
     NotBsa,
-    #[error("unsupported BSA version {0} (expected 104)")]
+    #[error("unsupported BSA version {0} (expected 104, or Oblivion's 103)")]
     UnsupportedVersion(u32),
     #[error("Xbox 360 (big-endian) archives are not supported")]
     BigEndian,
@@ -234,17 +254,18 @@ impl Archive {
             file_flags: c.u16().unwrap(),
             file_flags_padding: c.u16().unwrap(),
         };
-        if header.version != 104 {
+        if header.version != VERSION && header.version != VERSION_103 {
             return Err(BsaError::UnsupportedVersion(header.version));
         }
         if header.archive_flags & flags::XBOX360 != 0 {
             return Err(BsaError::BigEndian);
         }
         let mut warnings = Vec::new();
-        if header.archive_flags & !flags::KNOWN != 0 {
+        let known = flags::known(header.version);
+        if header.archive_flags & !known != 0 {
             warnings.push(Warning {
                 code: "unknown_archive_flags",
-                detail: format!("0x{:x}", header.archive_flags & !flags::KNOWN),
+                detail: format!("0x{:x}", header.archive_flags & !known),
             });
         }
         if header.folder_records_offset != HEADER_SIZE {
@@ -464,8 +485,12 @@ impl Archive {
         (self.header.archive_flags & flags::COMPRESSED_DEFAULT != 0) ^ r.toggles_compression()
     }
 
+    /// Whether each data block starts with the file's path: flag 0x100 in a version 104
+    /// archive; never in a version 103 one, where 0x100 is set on every official archive
+    /// with another meaning [documented: UESP "Oblivion Mod:BSA File Format" and "Skyrim
+    /// Mod:Archive File Format"].
     pub fn embeds_names(&self) -> bool {
-        self.header.archive_flags & flags::EMBED_FILE_NAMES != 0
+        self.header.version != VERSION_103 && self.header.archive_flags & flags::EMBED_FILE_NAMES != 0
     }
 
     /// The exact stored bytes of a file's data block (still compressed, with any
@@ -739,6 +764,9 @@ pub struct LayoutExtras {
     /// Order of the data blocks as `(folder, file)` indices into the `folders` given;
     /// `None` = record order. Must list every file exactly once.
     pub data_order: Option<Vec<(usize, usize)>>,
+    /// The header's version; `None` = [`VERSION`] (104). A version 103 archive is
+    /// rewritten as 103.
+    pub version: Option<u32>,
 }
 
 /// [`write_archive_streaming`] with [`LayoutExtras`]. Records and names are always in
@@ -799,7 +827,7 @@ pub fn write_archive_layout<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8>, 
 
     let mut buf: Vec<u8> = Vec::new();
     buf.extend_from_slice(&MAGIC);
-    for v in [104u32, HEADER_SIZE, archive_flags, folder_count, file_count, total_folder_name_length, total_file_name_length] {
+    for v in [extras.version.unwrap_or(VERSION), HEADER_SIZE, archive_flags, folder_count, file_count, total_folder_name_length, total_file_name_length] {
         buf.extend_from_slice(&v.to_le_bytes());
     }
     buf.extend_from_slice(&file_flags.to_le_bytes());
@@ -901,7 +929,7 @@ pub fn rewrite(archive: &mut Archive, out: &mut impl Write) -> Result<(), BsaErr
     let mut data_order: Vec<(usize, usize)> =
         recs.iter().enumerate().flat_map(|(fi, f)| (0..f.len()).map(move |ri| (fi, ri))).collect();
     data_order.sort_by_key(|&(fi, ri)| recs[fi][ri].offset);
-    let extras = LayoutExtras { name_block_tail: archive.name_block_tail.clone(), data_order: Some(data_order) };
+    let extras = LayoutExtras { name_block_tail: archive.name_block_tail.clone(), data_order: Some(data_order), version: Some(h.version) };
     write_archive_layout(out, h.archive_flags, h.file_flags, h.file_flags_padding, &meta, &extras, |fi, ri| {
         archive.read_raw(&recs[fi][ri])
     })
@@ -1027,6 +1055,62 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// #2092: a version 103 archive (Oblivion's layout) reads as a version 104 one: names,
+    /// uncompressed and compressed files, with and without compression by default, and
+    /// rewrites byte-identically as 103. Flags 0x100, 0x200 and 0x400 (set on every
+    /// official 103 archive) are known there, and 0x100 does not strip a path.
+    #[test]
+    fn version_103_archives_read_by_their_own_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("old.bsa");
+        let official = flags::EMBED_FILE_NAMES | flags::V103_0X200 | flags::V103_0X400;
+        for default_compressed in [false, true] {
+            let mut folders = sample();
+            let mut archive_flags = flags::DIR_NAMES | flags::FILE_NAMES | official;
+            if default_compressed {
+                // Compressed by default: the two .nif files compressed, c.dds toggled off.
+                archive_flags |= flags::COMPRESSED_DEFAULT;
+                folders[0].files[0].data = encode_block(b"BBBB", true, None);
+                folders[0].files[1].data = encode_block(b"AAAAAA", true, None);
+                folders[1].files[0].data = encode_block(&[7u8; 1000], false, None);
+            }
+            let mut bytes = Vec::new();
+            let extras = LayoutExtras { version: Some(VERSION_103), ..Default::default() };
+            let meta: Vec<LayoutFolder> = folders
+                .iter()
+                .map(|f| LayoutFolder {
+                    name: f.name.clone(),
+                    files: f.files.iter().map(|x| LayoutFile { name: x.name.clone(), size_flag_bits: x.size_flag_bits, len: x.data.len() as u64 }).collect(),
+                })
+                .collect();
+            write_archive_layout(&mut bytes, archive_flags, 0x3, 0, &meta, &extras, |fi, ri| Ok(folders[fi].files[ri].data.clone())).unwrap();
+            assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 103);
+            std::fs::write(&p, &bytes).unwrap();
+            let mut a = Archive::open(&p).unwrap();
+            assert!(a.warnings.is_empty(), "{:?}", a.warnings);
+            assert_eq!((a.header.version, a.header.file_count), (103, 3));
+            assert!(!a.embeds_names());
+            for (path, want, compressed) in [("meshes\\test\\a.nif", b"AAAAAA".to_vec(), default_compressed), ("meshes\\test\\b.nif", b"BBBB".to_vec(), default_compressed), ("textures\\c.dds", vec![7u8; 1000], !default_compressed)] {
+                let (fi, ri) = a.find(path).unwrap();
+                let r = a.folders[fi].files[ri].clone();
+                assert_eq!(a.is_compressed(&r), compressed, "{path}");
+                assert_eq!(a.extract(&r).unwrap(), want, "{path}");
+            }
+            let mut again = Vec::new();
+            rewrite(&mut a, &mut again).unwrap();
+            assert_eq!(again, bytes, "rewritten as 103, byte for byte");
+            assert!(check(&p).is_ok());
+        }
+        // The same flags in a version 104 archive: 0x200 and 0x400 are unknown there, and
+        // 0x100 strips a path.
+        let mut bytes = Vec::new();
+        write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES | official, 0x3, 0, &sample()).unwrap();
+        std::fs::write(&p, &bytes).unwrap();
+        let a = Archive::open(&p).unwrap();
+        assert!(a.embeds_names());
+        assert!(a.warnings.iter().any(|w| w.code == "unknown_archive_flags" && w.detail == "0x600"), "{:?}", a.warnings);
+    }
+
     #[test]
     fn reports_trailing_bytes_and_trailer_status() {
         let dir = std::env::temp_dir().join(format!("fnv-bsa-trail-{}", std::process::id()));
@@ -1121,9 +1205,9 @@ mod tests {
             .collect();
         let reversed: Vec<(usize, usize)> = vec![(1, 0), (0, 1), (0, 0)];
         for (extras, expect) in [
-            (LayoutExtras { name_block_tail: vec![0; 5], data_order: None }, "name_block_slack"),
-            (LayoutExtras { name_block_tail: vec![], data_order: Some(reversed.clone()) }, "data_not_in_record_order"),
-            (LayoutExtras { name_block_tail: b"xy\0".to_vec(), data_order: Some(reversed.clone()) }, "name_block_slack"),
+            (LayoutExtras { name_block_tail: vec![0; 5], data_order: None, version: None }, "name_block_slack"),
+            (LayoutExtras { name_block_tail: vec![], data_order: Some(reversed.clone()), version: None }, "data_not_in_record_order"),
+            (LayoutExtras { name_block_tail: b"xy\0".to_vec(), data_order: Some(reversed.clone()), version: None }, "name_block_slack"),
         ] {
             let mut bytes = Vec::new();
             write_archive_layout(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x3, 0, &meta, &extras, |fi, ri| {
@@ -1144,7 +1228,7 @@ mod tests {
             rewrite(&mut a, &mut again).unwrap();
             assert_eq!(again, bytes);
         }
-        let bad = LayoutExtras { name_block_tail: vec![], data_order: Some(vec![(0, 0), (0, 0), (1, 0)]) };
+        let bad = LayoutExtras { name_block_tail: vec![], data_order: Some(vec![(0, 0), (0, 0), (1, 0)]), version: None };
         assert!(write_archive_layout(&mut Vec::new(), 3, 0, 0, &meta, &bad, |_, _| Ok(vec![])).is_err());
     }
 
@@ -1169,8 +1253,9 @@ mod tests {
         let mut bad = good.clone();
         bad[0] = b'X';
         assert!(matches!(check_bytes(&bad), Err(BsaError::NotBsa)));
-        // Bad version (Oblivion's 103, Skyrim SE's 105).
-        for v in [103u32, 105] {
+        // Bad version (Skyrim SE's 105, Morrowind-era and unknown ones); Oblivion's 103
+        // is read (#2092).
+        for v in [105u32, 102, 0, 0x100] {
             let mut bad = good.clone();
             bad[4..8].copy_from_slice(&v.to_le_bytes());
             assert!(matches!(check_bytes(&bad), Err(BsaError::UnsupportedVersion(x)) if x == v));

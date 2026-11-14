@@ -77,6 +77,16 @@ fn release_swapped(time: Res<Time<Real>>, mut swapped: ResMut<Swapped>, mut sinc
     }
 }
 
+/// Whether a model's shape name is the shape a swap names: the call's name comes with its
+/// leading `#`s dropped and in lower case (`fnv_game::functions::misc::texture_swap_names`),
+/// the model's keeps them. The end slides swap `"##gs01:0"` on `gs01.nif`, whose shape is
+/// `##GS01:0` [observed: fnvtool nif decode of meshes\interface\endgame\gs01.nif]; compared
+/// with its `##` kept the swap never matched and the model's own first slide stayed up
+/// (issue #2226).
+fn same_shape(model_name: &str, swap: &str) -> bool {
+    model_name.trim_start_matches('#').eq_ignore_ascii_case(swap)
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn apply(
     mut commands: Commands,
@@ -106,7 +116,7 @@ pub(crate) fn apply(
             let targets: Vec<AssetId<NifMaterial>> = model
                 .iter()
                 .flat_map(|m| m.shapes.iter())
-                .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape)))
+                .filter(|s| s.name.as_deref().is_some_and(|n| same_shape(n, shape)))
                 .map(|s| s.material.id())
                 .collect();
             for (e, rv, mat, name, mut faded, fading) in &mut drawn {
@@ -121,7 +131,7 @@ pub(crate) fn apply(
                     (None, None) => mat.id(),
                 };
                 let original = swapped.original.get(&own).copied().unwrap_or(own);
-                if !targets.contains(&original) && name.is_none_or(|n| n.0 != *shape) {
+                if !targets.contains(&original) && name.is_none_or(|n| !same_shape(&n.0, shape)) {
                     continue;
                 }
                 let key = (original, texture.clone());
@@ -160,5 +170,19 @@ pub(crate) fn apply(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_shape;
+
+    #[test]
+    fn a_swap_finds_shapes_named_with_or_without_hashes() {
+        // The end slides' shape keeps its `##` in the model; the call's name has none.
+        assert!(same_shape("##GS01:0", "gs01:0"));
+        assert!(same_shape("PipBoyCard01:0", "pipboycard01:0"));
+        assert!(!same_shape("##GS01:1", "gs01:0"));
+        assert!(!same_shape("GS01", "gs01:0"));
     }
 }

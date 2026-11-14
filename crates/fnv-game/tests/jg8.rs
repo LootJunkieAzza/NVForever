@@ -2,7 +2,7 @@
 //! the event handlers fired by the game, file hashes, texture and bitmap headers, arrays,
 //! the system colours and the sleep/wait menu's state.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

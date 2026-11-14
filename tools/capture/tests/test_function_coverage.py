@@ -53,6 +53,11 @@ USES = {"quests": [
 
 
 class Coverage(unittest.TestCase):
+    def test_the_default_audit_exists(self):
+        # The tool reads docs/design/script-function-audit.md by default; a docs change
+        # that renames it is caught here, which the docs-only CI skip still runs (#2000).
+        self.assertTrue(os.path.isfile(fc.AUDIT), fc.AUDIT)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         d = self.tmp.name

@@ -357,15 +357,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       entry's rule, a reskin), `pause` (the entries, the page), fnv-game
       `a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu`; smoke
       `pause-mods-page` (MCM's own 1013 block clears its `iInstallCheck`).
-    - **Blocked: MCM's own page** (step 5). MCM's ESP shows MCM only when
-      `StartMenu/NOGLOW_BRANCH/main_container/childcount` is 8 (the original's pause
-      column, filled in by the game's code; NVForever's column is hand-built and the
-      rule is not documented), places its trigger from that column's x/y/width, and
-      fills its mod list with MCM.dll functions no source describes (SetMCMModList,
-      GetMCMListWidth, SetMCMFloatMass, SetMCMStringMass: `{{Incomplete}}` wiki stubs,
-      not in functions.json). Until a source for those turns up (an observer capture of
-      the start menu's `main_container` traits, the functions' effects on the tree), the
-      Mods page shows only what a mod's own MenuMode script draws.
+    - **MCM's own page, built 2026-11-12** (claude/mcm-mods-default, issue #976): the
+      two blockers were observed in the original (menu-xml.md §10.1, §10.2; observer check
+      73): the pause column's code traits (`childcount` 8, `_alpha` 255, `_enabled` 1),
+      which the Mods page now writes with one code `lb_item_hotrect` row, and MCM.dll's
+      list functions (SetMCMFloatMass, SetMCMStringMass, SetMCMModList, GetMCMListWidth),
+      now in the catalogue (`script_functions.py` `PAGELESS`) and `fnv_game::ui_functions`.
+      The page clicks MCM's trigger once so it opens on MCM's window, and closes when MCM's
+      window does. The switch is on by default (`[UI] TileMenus=-StartMenu` turns it off).
+      Left: observer check 118 (one SetMCMFloatMass range), the main menu's column.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

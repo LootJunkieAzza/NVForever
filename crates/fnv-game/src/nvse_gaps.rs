@@ -74,8 +74,11 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
-    /// JohnnyGuitar's actor value change handlers: (the function, the code it waits for).
-    pub av_handlers: Vec<(XVal, Option<u16>)>,
+    /// JohnnyGuitar's actor value change handlers: (the function, the code it waits for,
+    /// whether it takes the values as they are rather than rounded: flag bit 0).
+    pub av_handlers: Vec<(XVal, Option<u16>, bool)>,
+    /// An actor value change handler runs: the changes it makes are not told again.
+    pub av_telling: bool,
     /// SetMapMarkerName's names, by marker reference.
     pub marker_names: HashMap<FormId, String>,
     /// JohnnyGuitar's quest handlers: (on start, the function, the quest it waits for).
@@ -158,21 +161,26 @@ impl Game<'_> {
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+                self.handler_failed("JohnnyGuitar perk handler".into(), error);
             }
         }
     }
 
-    /// JohnnyGuitar's actor value change handlers on a change of one of the actor's
-    /// values: (code, old value, new value) (`functions::actor` tells them).
+    /// JohnnyGuitar's actor value change handlers on a change of one of the player's
+    /// values: (code, old value, new value), rounded to whole numbers unless the handler
+    /// was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler]
+    /// (`functions::actor` tells them).
     pub(crate) fn av_event(&mut self, _actor: FormId, code: u16, old: f64, new: f64) {
-        let hs: Vec<XVal> = self.gaps.av_handlers.iter().filter(|(_, c)| c.is_none_or(|c| c == code)).map(|(f, _)| f.clone()).collect();
-        for f in hs {
-            let args = vec![XVal::Num(f64::from(code)), XVal::Num(old), XVal::Num(new)];
+        let hs: Vec<(XVal, bool)> = self.gaps.av_handlers.iter().filter(|(_, c, _)| c.is_none_or(|c| c == code)).map(|(f, _, exact)| (f.clone(), *exact)).collect();
+        let was = std::mem::replace(&mut self.gaps.av_telling, true);
+        for (f, exact) in hs {
+            let v = |x: f64| XVal::Num(if exact { x } else { x.round() });
+            let args = vec![XVal::Num(f64::from(code)), v(old), v(new)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar actor value handler".into(), error });
+                self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }
         }
+        self.gaps.av_telling = was;
     }
 
     /// JohnnyGuitar's quest handlers on a quest starting or stopping: (quest)
@@ -181,7 +189,7 @@ impl Game<'_> {
         let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar quest handler".into(), error });
+                self.handler_failed("JohnnyGuitar quest handler".into(), error);
             }
         }
     }

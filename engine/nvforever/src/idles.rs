@@ -34,6 +34,18 @@
 //!   for a fidget from the IDLE tree (`Game::fidget`); the tree's own random
 //!   percentages decide whether one plays. A fidget ends when its actor moves, puts the
 //!   weapon away, or (the player) aims, fires, reloads or goes to first person.
+//! - **Fidgets with the weapon away** (idles.md §11.4, #2026). An NPC standing still with
+//!   its weapon away (not drawing it), not alerted and under no package flagged No Idle
+//!   Anims is checked as often for a fidget from the tree's branches that want the weapon
+//!   away (`FidgetKind::WeaponAway`): the general fidgets, smoking and the Pip-Boy look,
+//!   and the drinking idles while it eats; the tree's own factions and random
+//!   percentages decide who plays which, and how often, rolled on the tree's own
+//!   generator (`Game::fidget`), not the scripts'. Not the player [design]. It ends
+//!   when its actor moves, draws its weapon, is alerted, dies, is drawn into a
+//!   conversation, or something with idles of its own takes over (furniture, a package
+//!   with a collection or No Idle Anims, an idle marker's collection); one waiting for
+//!   its clip is dropped then. The run summary names each NPC looked at and what it
+//!   played (`holstered fidgets: …`). Test aid `NVF_PLAY_TEST_HOLSTERED_ROLL`.
 //! - **Fidgets on furniture** (furniture.md §8). An actor on a chair, a bench, a bed or
 //!   other furniture (`GetSitting` or `GetSleeping` 3: not getting on or off) is
 //!   checked the same way for a fidget from the tree's furniture branch (a seated man
@@ -75,13 +87,22 @@
 //!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
 //!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
 //!
+//! - **Activating** (idles.md §16, #2349). The player's activation asks the tree's
+//!   activation root (`Game::activate_idles`, `Game::activate_idle`: `ActivateIdles`,
+//!   whose conditions choose): drinking from placeable water plays `1stPersonActWater`
+//!   on the first-person rig in first person, `3rdPersonActWater` on the body in third.
+//!   It holds nothing: unlike a scripted idle that drives the camera node, the player
+//!   keeps mouse look, movement and the HUD [design, #2349].
+//!
 //! - **Creatures' combat idles** (idles.md §14). A creature standing still with its
 //!   stance drawn (`Game::draws_weapon`: fighting, alerted, or warning the player) is
 //!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
 //!   names GetIsAlerted (the gecko's hiss and side hops, the mirelurk's and sentry bot's
 //!   warnings); the tree's own conditions decide: the gecko's want alerted, combat or
-//!   flee, so a gecko hisses standing in a fight and not while it warns (GetIsAlerted 0,
-//!   procedure 44 then, as observed in the original). It ends when the creature moves
+//!   flee, so a gecko hisses standing in a fight (procedure 13, Lost too) and not while
+//!   it warns (GetIsAlerted 0, procedure 44 then, as observed in the original). The
+//!   warnings that want GetIsAlerted alone play only for an actor SetAlert alerted: a
+//!   fight does not set GetIsAlerted (#2121, `Game::is_alerted`). It ends when the creature moves
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!
@@ -97,7 +118,8 @@
 //!   only, and over the fight's aim and attacks: it walks and runs while it injects.
 //!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
-//! conditions: other fidgets), the sounds and other text keys of idle clips,
+//! conditions: other fidgets; how often the original asks its tree, #2026), the sounds
+//! and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
 //! drawn by `anim_objects.rs`.
 
@@ -143,7 +165,11 @@ const CLIP_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Seconds between two looks at the idle tree for an actor's drawn-weapon fidget
 /// [design: how often the original evaluates its tree is not known; with the rifle
-/// branch's three 5% leaves a standing rifleman fidgets about every 14 s].
+/// branch's three 5% leaves a standing rifleman fidgets about every 14 s]. The fidgets
+/// with the weapon away use it too [design, #2026: not calibrated; the general fidgets'
+/// node passes 1 check in 100, about one general fidget in 200 s here, where the
+/// original's AI observer saw three to six fidgets begun per NPC in 360 s (#2026);
+/// observer check 116, docs/owner-review.md].
 pub const FIDGET_CHECK_SECONDS: f32 = 2.0;
 
 /// Seconds between two looks at the idle tree for a fleeing actor's cower idle: short,
@@ -158,6 +184,10 @@ pub const STANDING_CHECK_SECONDS: f32 = 1.0;
 /// After the tree gave an actor in a conversation no gesture, seconds until it is asked
 /// again in the same part (a new response asks at once) [engineering choice].
 pub const GESTURE_RETRY_SECONDS: f32 = 1.0;
+
+/// The most NPCs the run summary names one by one with their fidgets with the weapon
+/// away [engineering choice: a smoke run looks at a few; a long run crosses many cells].
+const HOLSTERED_LINES: usize = 200;
 
 /// The player moved when their feet went further than this in a frame, game units
 /// [engineering choice: above the collision's settling].
@@ -186,6 +216,8 @@ pub struct Playing<C> {
     fresh: bool,
     /// Holds its actor in place until it ends ([`holds_in_place`]).
     pub holds: bool,
+    /// The normalized source file, when this is an IDLE loaded from a file.
+    file: Option<String>,
 }
 
 /// The idles of one rig: the one playing and, while that fades in, the one before it.
@@ -215,8 +247,12 @@ impl<C> IdleSlot<C> {
     /// fidget started in the step the scripted idle ended and the next line's speaker
     /// idle, asked for a frame later, handed the mirror over a second time].
     fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) -> bool {
+        self.start_file(idle, source, owner, clip, play, None)
+    }
+
+    fn start_file(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay, file: Option<String>) -> bool {
         let asked = matches!(source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
-        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone();
+        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.file == file && c.group.is_none() && !c.play.gone();
         let picked = |c: &Playing<C>| !matches!(c.source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
         if asked && self.cur.as_ref().is_some_and(picked) && self.prev.as_ref().is_some_and(same) {
             self.cur = self.prev.take();
@@ -230,7 +266,7 @@ impl<C> IdleSlot<C> {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
-        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false });
+        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true, holds: false, file });
         true
     }
 
@@ -404,6 +440,19 @@ pub struct PlayerIdles {
     pub held: Option<Held>,
 }
 
+/// Movement camera overlays animate the view without owning position; other
+/// sections retain the scene hold (docs/spec-notes/movement-camera-holds.md).
+fn camera_idle_holds(section: u8) -> bool {
+    section != 1 // IDLE Animation Group Section: Movement (fnv_actor::idle::SECTIONS).
+}
+
+impl PlayerIdles {
+    pub fn holds_camera(&self) -> bool {
+        self.first.playing().is_some_and(|p| p.holds)
+            || self.first.shown().any(|(p, weight)| weight > 0.0 && p.holds)
+    }
+}
+
 /// The player as an idle that turns the view found them. While such idles play, the
 /// first-person rig stands at `feet` with that heading, the character is held there
 /// (`nvf_play::furniture::PlayerSeat`), and only the view's own turning since then is
@@ -467,6 +516,8 @@ pub struct Stats {
     /// Drawn-weapon fidgets started on actors and on the player.
     pub actor_fidgets: u32,
     pub player_fidgets: u32,
+    /// Fidgets started on NPCs standing with their weapon away (#2026).
+    pub holstered_fidgets: u32,
     /// Creatures' combat idles started (alerted, standing).
     pub combat_idles: u32,
     pub calm_idles: u32,
@@ -537,6 +588,13 @@ pub struct Idles {
     fidget_last: HashMap<(u32, u32), f32>,
     /// The actors in a conversation.
     gesturing: HashMap<u32, Gesturing>,
+    /// The NPCs looked at for a fidget with the weapon away: their name for the run
+    /// summary (their base's Editor ID and their own ID) and the fidgets started on each.
+    holstered: HashMap<u32, (String, HashMap<String, u32>)>,
+    /// Test aid `NVF_PLAY_TEST_HOLSTERED_ROLL=N` (0 to 99): every `GetRandomPercent` in
+    /// the walks for fidgets with the weapon away reads N, so a smoke run can make the
+    /// tree's random branches pass and see their clips play (#2026).
+    holstered_roll: Option<u32>,
     clock: f32,
     /// The player's feet the frame before.
     player_feet: Option<[f32; 3]>,
@@ -558,10 +616,99 @@ impl Default for Idles {
             standing_check: HashMap::new(),
             fidget_last: HashMap::new(),
             gesturing: HashMap::new(),
+            holstered: HashMap::new(),
+            holstered_roll: holstered_roll_aid(),
             clock: 0.0,
             player_feet: None,
             told: HashMap::new(),
             waiting: Vec::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
+    }
+}
+
+/// A sequence a script played on an NPC that [`play_npc_sequences`] started: the actor,
+/// the path and the idle's serial in its slot (0: its clip could not be played).
+#[derive(Debug, Clone)]
+pub struct NpcSequence {
+    actor: u32,
+    path: String,
+    serial: u32,
+}
+
+/// kNVSE's PlayAnimationPath on the drawn NPCs (docs/design/knvse-anim.md §5): the
+/// sequence starts as a script's idle does on the actor's idle slot, bound to its
+/// skeleton; once if the clip says so (cycle type Clamp), else looping until DeactivateAnim
+/// takes it back or another idle replaces it. An actor not drawn waits; one that goes out
+/// of view starts it again when drawn. ActivateAnim's layered sequences are not played on
+/// NPCs yet.
+pub fn play_npc_sequences(mut commands: Commands, script: Option<Res<ScriptState>>, mut parts: ResMut<ActorParts>, mut models: ModelCtx, mut actors: Query<Drawn>, mut started: Local<Vec<NpcSequence>>) {
+    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let me = FormId::PLAYER_REF;
+    let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
+    let wanted: Vec<(u32, &String)> = game
+        .anim_paths
+        .played
+        .iter()
+        .filter(|(a, _)| **a != me)
+        .flat_map(|(a, ps)| ps.iter().map(move |p| (a.0, p)))
+        // ActivateAnim's requests (they stay until taken back, `auto_finish` false) are
+        // layered sequences, not idles.
+        .filter(|(a, p)| !game.anim_paths.sequences.get(&(FormId(*a), false, p.replace('/', "\\").to_ascii_lowercase())).is_some_and(|s| !s.auto_finish))
+        .collect();
+    if wanted.is_empty() && started.is_empty() {
+        return;
+    }
+    let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
+    // Taken back: its idle stops; out of view: forgotten, so it starts again when drawn.
+    started.retain(|s| {
+        let kept = wanted.iter().any(|(a, p)| *a == s.actor && same(p, &s.path));
+        let Some(&e) = drawn.get(&s.actor) else { return false };
+        if kept {
+            return true;
+        }
+        if let Ok((_, _, _, Some(mut slot), ..)) = actors.get_mut(e) {
+            if let Some(c) = slot.0.cur.as_mut().filter(|c| c.serial == s.serial && s.serial != 0) {
+                c.play.stop();
+            }
+        }
+        info!("anim sequence: {:08X}'s {} stops", s.actor, s.path);
+        false
+    });
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    for (actor, p) in wanted {
+        if started.iter().any(|s| s.actor == actor && same(&s.path, p)) {
+            continue;
+        }
+        let Some(&e) = drawn.get(&actor) else { continue };
+        let path = meshes_path(p);
+        if !ctx.clip_ready(&path) {
+            continue;
+        }
+        let Ok((e, _, rig, slot, ..)) = actors.get_mut(e) else { continue };
+        let bound = ctx.clip(&path).map(|clip| (bind_clip(&rig.skel, clip.clone()), clip));
+        let Some((bound, clip)) = bound.filter(|(b, _)| !b.tracks.is_empty()) else {
+            warn!("anim sequence: {actor:08X}'s {p} does not load or drives no node of its skeleton");
+            started.push(NpcSequence { actor, path: p.clone(), serial: 0 });
+            continue;
+        };
+        let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+        let once = clip.cycle_type == 2;
+        let play = IdlePlay::new(keys, once.then_some(1));
+        let bound = Arc::new(bound);
+        let serial = match slot {
+            Some(mut s) => {
+                s.0.start(0, IdleSource::Script, None, bound, play);
+                s.0.serial
+            }
+            None => {
+                let mut s = ActorIdle::default();
+                s.0.start(0, IdleSource::Script, None, bound, play);
+                let serial = s.0.serial;
+                commands.entity(e).insert(s);
+                serial
+            }
+        };
+        info!("anim sequence: {actor:08X} plays {p} ({})", if once { "once" } else { "looping" });
+        started.push(NpcSequence { actor, path: p.clone(), serial });
     }
 }
 
@@ -582,7 +729,8 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
 
 /// The KF file an idle plays, as its record names it.
 fn clip_path(game: &Game, idle: FormId) -> Option<String> {
-    Some(meshes_path(game.data.idles.get(&idle)?.model.as_deref()?))
+    let model = game.idle_animation_path(idle)?;
+    (!model.trim().is_empty()).then(||meshes_path(model))
 }
 
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
@@ -692,6 +840,18 @@ pub fn drive(
     let talk_parts = game.talk_parts();
     // Scripts' StopIdle and ForceStopIdle (`fnv_game::nvse_plugins`).
     let stops = std::mem::take(&mut game.gaps.idle_stops);
+    // The actors whose fidgets with the weapon away end now (`away_fidget_ends`): the
+    // one playing, and one still waiting for its clip.
+    let away_off: HashSet<u32> = actors
+        .iter()
+        .filter(|(_, v, _, _, lo, hold)| {
+            let moving = lo.is_some_and(|l| l.velocity != [0.0; 2]);
+            let talking = talk_parts.iter().any(|p| p.actor.0 == v.0);
+            holstered_off(game, v.0, moving, talking, standing.get(&v.0).copied().flatten(), *hold)
+        })
+        .map(|(_, v, ..)| v.0)
+        .collect();
+    drop_holstered_waits(&mut st.waiting, &away_off);
     for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
@@ -712,6 +872,8 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && (moving || !weapon_out(game, v.0))) {
             c.play.stop();
         }
+        // A fidget with the weapon away ends as `away_fidget_ends` says.
+        end_holstered(&mut idle.0, away_off.contains(&v.0));
         // A creature's combat idle ends when it moves or is calm again [design].
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CombatIdle && (moving || !game.draws_weapon(FormId(v.0)))) {
             c.play.stop();
@@ -923,12 +1085,13 @@ pub fn drive(
         game.ask_idle(FormId(actor), idle, IdleSource::Cower);
     }
 
-    // Fidgets: NPCs on furniture, or standing still with a weapon out; the player too.
+    // Fidgets: NPCs on furniture, or standing still with a weapon out or away; the
+    // player on furniture or with a weapon out.
     let mut still: Vec<(u32, String, FidgetKind)> = actors
         .iter()
         // An actor in a conversation has its talking gestures instead (idles.md §12).
         .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)) && !talk_parts.iter().any(|p| p.actor.0 == v.0) && !cowering.iter().any(|(c, _)| *c == v.0))
-        .filter_map(|(_, v, rig, _, lo, _)| {
+        .filter_map(|(_, v, rig, _, lo, hold)| {
             let folder = skeleton_folder(&rig.skeleton)?;
             let still = lo.is_some_and(|l| l.velocity == [0.0; 2]);
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
@@ -936,8 +1099,13 @@ pub fn drive(
             } else if folder.split('\\').any(|p| p == "creatures") {
                 // Alerted: the combat idles; calm: the tree's ordinary idles (#2051).
                 still.then_some(if game.draws_weapon(FormId(v.0)) { FidgetKind::Alerted } else { FidgetKind::Calm })?
+            } else if still && weapon_out(game, v.0) {
+                FidgetKind::WeaponOut
             } else {
-                (still && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
+                // The weapon away, not alerted, and nothing with idles of its own (a
+                // package's collection or No Idle Anims: `Game::fidget_held_off`; a
+                // marker's collection keeps its actor in `live`) (#2026).
+                (still && holstered(game, v.0, hold) && !game.draws_weapon(FormId(v.0)) && !game.fidget_held_off(FormId(v.0))).then_some(FidgetKind::WeaponAway)?
             };
             Some((v.0, folder, kind))
         })
@@ -949,9 +1117,12 @@ pub fn drive(
     }
     let mut fidgets: Vec<(u32, FormId, FidgetKind)> = Vec::new();
     let mut stop_gesture: Vec<u32> = Vec::new();
-    st.fidget_check.retain(|a, _| still.iter().any(|(s, ..)| s == a));
+    let still_set: HashSet<u32> = still.iter().map(|(s, ..)| *s).collect();
+    st.fidget_check.retain(|a, _| still_set.contains(a));
     for (actor, folder, kind) in still {
-        let check = st.fidget_check.entry(actor).or_insert(FIDGET_CHECK_SECONDS);
+        // The first look: one period after the actor stood still; for the weapon-away
+        // fidgets spread over the second half of it by the actor's ID (`first_check`).
+        let check = st.fidget_check.entry(actor).or_insert_with(|| first_check(actor, kind));
         *check -= dt;
         if *check > 0.0 || busy.get(&actor).copied().unwrap_or(false) {
             continue;
@@ -969,7 +1140,24 @@ pub fn drive(
             delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
         };
         let mut pick = None;
-        with_world(game, &mut |game| pick = game.fidget(FormId(actor), &folder, kind, &held_back));
+        let mut label = None;
+        let away = kind == FidgetKind::WeaponAway;
+        let new_away = away && !st.holstered.contains_key(&actor);
+        let roll = st.holstered_roll.filter(|_| away);
+        with_world(game, &mut |game| {
+            // Test aid NVF_PLAY_TEST_HOLSTERED_ROLL: the walk's GetRandomPercent reads it.
+            game.fixed_random_percent = roll;
+            pick = game.fidget(FormId(actor), &folder, kind, &held_back);
+            game.fixed_random_percent = None;
+            // The run summary names each actor looked at by its base (a created one has
+            // no Editor ID of its own).
+            if new_away {
+                label = Some(game.world.peek(FormId(actor)).map_or_else(|| game.data.name(FormId(actor)), |s| format!("{} {}", game.data.name(s.base), FormId(actor))));
+            }
+        });
+        if let Some(label) = label {
+            st.holstered.insert(actor, (label, HashMap::new()));
+        }
         if let Some(idle) = pick {
             fidgets.push((actor, idle, kind));
         }
@@ -1127,6 +1315,33 @@ pub fn drive(
         }
     }
 
+    // Activating: the player's activation asks the idle tree's activation root, whose
+    // conditions choose (`Game::activate_idle`: drinking from placeable water; idles.md
+    // §16, #2349). Played as any idle asked for: a clip that drives the first-person
+    // camera node on the first-person rig, any other on the third-person body.
+    for actor in std::mem::take(&mut game.activate_idles) {
+        let folder = if actor.0 == player_ref { Some(PEOPLE_FOLDER.to_string()) } else { actors.iter().find(|(_, v, ..)| v.0 == actor.0).and_then(|(_, _, rig, ..)| skeleton_folder(&rig.skeleton)) };
+        let Some(folder) = folder else { continue };
+        let what = game.activating(actor).map_or_else(|| "nothing".to_string(), |t| t.to_string());
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor.0, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.activate_idle(actor, &folder, &held_back));
+        let name = game.data.name(actor);
+        match pick {
+            Some((idle, way)) => {
+                let way: Vec<String> = way.iter().map(|i| game.data.name(*i)).collect();
+                info!("activate idle: {name} activating {what}: {} by {}", game.data.name(idle), way.join(" > "));
+                st.fidget_last.insert((actor.0, idle.0), st.clock);
+                game.ask_idle(actor, idle, IdleSource::Activate);
+            }
+            None => debug!("activate idle: {name} activating {what}: the tree has no idle for it"),
+        }
+    }
+
     // Start what was asked for: those that waited for their clip first, in the order
     // asked. An actor's later asks wait behind one that waits, so its idles start in
     // the order asked, as they did in one frame.
@@ -1141,7 +1356,7 @@ pub fn drive(
             let IdleRequest { actor, idle, source } = request;
             // Counted once, when asked for (not again after waiting for its clip).
             if since.is_none() {
-                if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
+                if !matches!(source, IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
                     st.stats.asked += 1;
                 }
                 match source {
@@ -1149,7 +1364,7 @@ pub fn drive(
                     IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                     IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                     IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                    IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic => {}
+                    IdleSource::Fidget | IdleSource::HolsteredFidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic | IdleSource::Activate => {}
                 }
             }
             let name = game.data.name(actor);
@@ -1192,13 +1407,25 @@ pub fn drive(
                 }
             };
             let owner = owner_now(game, actor.0, source).filter(|_| source.of_package());
+            let file = clip_path(game, idle);
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-                if first && pi.held.is_none() {
+                // An activation's idle (the drink) holds nothing: mouse look, movement
+                // and the HUD stay with the player while the camera node moves the view
+                // (`Camera1st` hangs under `Bip01 Looking`, so the player's pitch still
+                // applies) [design, #2349: whether the original holds the player is
+                // observer check 131; documented: `_1stperson\skeleton.nif`].
+                let holds = first && source != IdleSource::Activate && camera_idle_holds(game.data.idles.get(&idle).map_or(0, |d| d.section));
+                if holds && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
-                let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
+                let started = if first { &mut pi.first } else { &mut pi.third }.start_file(idle.0, source, owner, clip, play, file);
+                if first {
+                    if let Some(current) = pi.first.cur.as_mut() {
+                        current.holds = holds;
+                    }
+                }
                 match source {
                     IdleSource::Fidget => st.stats.player_fidgets += 1,
                     IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
@@ -1227,7 +1454,7 @@ pub fn drive(
             let bound = Arc::new(bound);
             let started = match slot {
                 Some(mut s) => {
-                    let started = s.0.start(idle.0, source, owner, bound, play);
+                    let started = s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1235,7 +1462,7 @@ pub fn drive(
                 }
                 None => {
                     let mut s = ActorIdle::default();
-                    s.0.start(idle.0, source, owner, bound, play);
+                    s.0.start_file(idle.0, source, owner, bound, play, file);
                     if let Some(c) = s.0.cur.as_mut() {
                         c.holds = holds;
                     }
@@ -1245,6 +1472,12 @@ pub fn drive(
             };
             match source {
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
+                IdleSource::HolsteredFidget => {
+                    st.stats.holstered_fidgets += 1;
+                    if let Some((_, by_idle)) = st.holstered.get_mut(&actor.0) {
+                        *by_idle.entry(game.data.name(idle)).or_default() += 1;
+                    }
+                }
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
                 IdleSource::CombatIdle => st.stats.combat_idles += 1,
                 IdleSource::CalmIdle => st.stats.calm_idles += 1,
@@ -1322,6 +1555,85 @@ fn on_furniture(game: &Game, actor: u32) -> bool {
     game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
 }
 
+/// Whether a fidget with the weapon away ends: its actor moves, its weapon is no longer
+/// away (drawn, or coming out), it is alerted, it is dead, it is drawn into a
+/// conversation (so it can turn to the other and gesture, as a collection's idle does),
+/// or something with idles of its own takes it over (`taken`: furniture, a package with
+/// an idle collection or flagged No Idle Anims, `Game::fidget_held_off`; an idle marker
+/// with a collection) [design, #2026]. The drawn-weapon fidgets' rule (the weapon away
+/// ends them) is not this one.
+fn away_fidget_ends(moving: bool, holstered: bool, alerted: bool, dead: bool, talking: bool, taken: bool) -> bool {
+    moving || !holstered || alerted || dead || talking || taken
+}
+
+/// The fidget with the weapon away playing on `slot` fades out when `ends`; nothing
+/// else is touched. Returns whether one was stopped.
+fn end_holstered<C>(slot: &mut IdleSlot<C>, ends: bool) -> bool {
+    match slot.cur.as_mut().filter(|c| ends && c.source == IdleSource::HolsteredFidget && !c.play.ended()) {
+        Some(c) => {
+            c.play.stop();
+            true
+        }
+        None => false,
+    }
+}
+
+/// Fidgets with the weapon away still waiting for their clip, of the actors in `off`,
+/// are dropped: what took over is not held up behind them.
+fn drop_holstered_waits(waiting: &mut Vec<(IdleRequest, std::time::Instant)>, off: &HashSet<u32>) {
+    waiting.retain(|(r, _)| !(r.source == IdleSource::HolsteredFidget && off.contains(&r.actor.0)));
+}
+
+/// Whether the idle marker `marker` has idles to play: a script's
+/// SetIdleMarkerAnimation(s), else the record's.
+fn marker_has_idles(game: &Game, marker: FormId) -> bool {
+    match game.other.idle_markers.get(&marker) {
+        Some(c) => !c.idles.is_empty(),
+        None => game.data.idle_markers.get(&marker).is_some_and(|c| !c.idles.is_empty()),
+    }
+}
+
+/// Seconds to an actor's first look for a fidget of `kind` once it stands still: one
+/// [`FIDGET_CHECK_SECONDS`], as before #2026, for every kind but the weapon-away
+/// fidgets. Those, asked of every NPC standing holstered (a town's people stop
+/// together when the player arrives), come within the second half of the period, spread
+/// by the actor's ID (the same each run), so they do not all walk the tree in one frame
+/// and a brief stop does not get a look much sooner than a full period [engineering
+/// choice, #2026].
+fn first_check(actor: u32, kind: FidgetKind) -> f32 {
+    if kind != FidgetKind::WeaponAway {
+        return FIDGET_CHECK_SECONDS;
+    }
+    let spread = (actor.wrapping_mul(0x9E37_79B1) >> 22) as f32 / 1024.0;
+    FIDGET_CHECK_SECONDS * (0.5 + 0.5 * spread)
+}
+
+/// Whether the fidget with the weapon away of `actor` (playing, or waiting for its clip)
+/// ends now, as `drive` judges it each frame (`away_fidget_ends`): `moving` and
+/// `talking` as the animating layer sees them, `marker` the idle marker it stands at,
+/// `hold` its weapon hand.
+fn holstered_off(game: &Game, actor: u32, moving: bool, talking: bool, marker: Option<FormId>, hold: Option<&WeaponHold>) -> bool {
+    let a = FormId(actor);
+    let taken = game.fidget_held_off(a) || marker.is_some_and(|m| marker_has_idles(game, m));
+    away_fidget_ends(moving, holstered(game, actor, hold), game.draws_weapon(a), game.is_dead(a), talking, taken)
+}
+
+/// `NVF_PLAY_TEST_HOLSTERED_ROLL` ([`Idles`]), logged when set.
+fn holstered_roll_aid() -> Option<u32> {
+    let roll = std::env::var("NVF_PLAY_TEST_HOLSTERED_ROLL").ok().and_then(|v| v.trim().parse::<u32>().ok()).map(|v| v.min(99));
+    if let Some(r) = roll {
+        info!("test aid: GetRandomPercent reads {r} in the walks for fidgets with the weapon away (NVF_PLAY_TEST_HOLSTERED_ROLL)");
+    }
+    roll
+}
+
+/// Whether `actor` stands with its weapon away: the rules do not hold it out
+/// (`IsWeaponOut` 0) and its hand is not drawing it, holding it or putting it away
+/// (no weapon at all counts as away).
+fn holstered(game: &Game, actor: u32, hold: Option<&WeaponHold>) -> bool {
+    !weapon_out(game, actor) && hold.is_none_or(|h| !h.drawn && h.anim.stage == Stage::Holstered)
+}
+
 /// Whether the rules hold `actor`'s weapon out (`IsWeaponOut`).
 fn weapon_out(game: &Game, actor: u32) -> bool {
     game.extra.get(&FormId(actor)).is_some_and(|e| e.weapon_out)
@@ -1346,6 +1658,19 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
         s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
+    info!("holstered fidget summary: {} fidgets started on NPCs standing with their weapon away; {} NPCs looked at", s.holstered_fidgets, st.holstered.len());
+    // One line per NPC looked at, so a run can tell who fidgeted and who did not.
+    let mut each: Vec<(&String, &HashMap<String, u32>)> = st.holstered.values().map(|(l, b)| (l, b)).collect();
+    each.sort_by(|a, b| a.0.cmp(b.0));
+    if each.len() > HOLSTERED_LINES {
+        info!("holstered fidgets: {} NPCs looked at; the first {HOLSTERED_LINES} by name follow", each.len());
+    }
+    for (label, by_idle) in each.into_iter().take(HOLSTERED_LINES) {
+        let mut picks: Vec<(&String, &u32)> = by_idle.iter().collect();
+        picks.sort();
+        let list: Vec<String> = picks.iter().map(|(i, n)| format!("{i} {n}")).collect();
+        info!("holstered fidgets: {label}: {} started{}", by_idle.values().sum::<u32>(), if list.is_empty() { String::new() } else { format!(" ({})", list.join(", ")) });
+    }
     info!("creature combat idle summary: {} combat idles started on alerted creatures", s.combat_idles);
     info!("creature calm idle summary: {} idles from the tree started on calm creatures standing still", s.calm_idles);
     info!(
@@ -1368,6 +1693,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn renderer_idle_path_reads_the_script_setter_override() {
+        use fnv_script::vm::XVal;
+        let empty = crate::outfits::tests::empty_world_data();
+        let forms = crate::outfits::tests::actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let functions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = fnv_script::FunctionTable::load(&functions).unwrap();
+        let json = serde_json::from_str(&std::fs::read_to_string(functions).unwrap()).unwrap();
+        let mut data = fnv_game::GameData::build(empty.lo,empty.schema,table,&json,&refs);
+        let idle = FormId(0x7A00);
+        data.idles.insert(idle,fnv_game::data::IdleDef {model:Some("Owned/Loop.kf".into()),..Default::default()});
+        let mut game = Game::new(&data,fnv_sim::World::new(&forms,&refs,Default::default()),Default::default());
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Stop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\stop.kf"));
+        fnv_game::nvse::call(&mut game,&Default::default(),"setidleanimpath",None,&[XVal::Ref(idle.0),XVal::Str("Owned/Loop.kf".into())]).unwrap().unwrap();
+        assert_eq!(clip_path(&game,idle).as_deref(),Some("meshes\\owned\\loop.kf"));
+    }
+
+    #[test]
+    fn a_fidget_with_the_weapon_away_plays_on_while_its_actor_stands_holstered() {
+        // Standing still, the weapon away, calm, alive, not talking, nothing taking over:
+        // it plays on (the drawn-weapon fidgets' rule would end it, the weapon being away).
+        assert!(!away_fidget_ends(false, true, false, false, false, false));
+        // Each of these ends it.
+        assert!(away_fidget_ends(true, true, false, false, false, false), "it walks");
+        assert!(away_fidget_ends(false, false, false, false, false, false), "it draws its weapon");
+        assert!(away_fidget_ends(false, true, true, false, false, false), "it is alerted");
+        assert!(away_fidget_ends(false, true, false, true, false, false), "it dies");
+        assert!(away_fidget_ends(false, true, false, false, true, false), "it is drawn into a conversation");
+        assert!(away_fidget_ends(false, true, false, false, false, true), "furniture or a package with idles of its own takes over");
+        // Its own source: the drawn-weapon fidgets' and the stimpaks' rules know it apart.
+        assert_eq!(FidgetKind::WeaponAway.source(), IdleSource::HolsteredFidget);
+        assert_ne!(FidgetKind::WeaponAway.source(), FidgetKind::WeaponOut.source());
+    }
+
+    #[test]
     fn an_idle_waits_for_its_clip_for_a_bounded_time() {
         use std::time::Duration;
         assert!(waits_for_clip(false, Duration::ZERO));
@@ -1383,6 +1745,174 @@ mod tests {
 
     fn weights(s: &IdleSlot<u8>) -> Vec<(u8, f32)> {
         s.shown().map(|(p, w)| (p.clip, w)).collect()
+    }
+
+    /// What `drive` does when a package with an idle collection (or furniture, or No
+    /// Idle Anims) takes over a smoking NPC: its fidget fades out, one waiting for its
+    /// clip is dropped, so the actor is no longer busy and the collection's idle starts
+    /// at once over the fading fidget. Other idles and other actors are not touched.
+    #[test]
+    fn a_holstered_fidget_gives_way_when_something_takes_over() {
+        let mut s: IdleSlot<u8> = IdleSlot::default();
+        assert!(s.start(5, IdleSource::HolsteredFidget, None, 5, play(8.4, 0.3, Some(4))));
+        s.advance(1.0);
+        s.check_owner(|_| None);
+        // Nothing takes over: it plays on, and the actor is busy.
+        assert!(!end_holstered(&mut s, false));
+        assert!(s.playing().is_some());
+        // The package changes: it ends; the actor is free (`busy` reads `playing`).
+        assert!(end_holstered(&mut s, true));
+        assert!(s.playing().is_none(), "the collection no longer waits behind it");
+        assert!(!end_holstered(&mut s, true), "stopped once");
+        assert!(s.start(9, IdleSource::PackageIdles, Some(FormId(0xB02)), 9, play(3.0, 0.2, Some(1))));
+        assert_eq!(s.playing().map(|p| (p.idle, p.source)), Some((9, IdleSource::PackageIdles)));
+        // Another source on the slot is left alone.
+        let mut t: IdleSlot<u8> = IdleSlot::default();
+        t.start(1, IdleSource::Fidget, None, 1, play(2.0, 0.0, Some(1)));
+        assert!(!end_holstered(&mut t, true));
+        assert!(t.playing().is_some());
+        // Waiting for their clips: the taken-over actor's fidget goes, its script idle and
+        // another actor's fidget stay.
+        let now = std::time::Instant::now();
+        let req = |actor: u32, idle: u32, source: IdleSource| (IdleRequest { actor: FormId(actor), idle: FormId(idle), source }, now);
+        let mut waiting = vec![req(7, 5, IdleSource::HolsteredFidget), req(7, 6, IdleSource::Script), req(8, 5, IdleSource::HolsteredFidget)];
+        drop_holstered_waits(&mut waiting, &HashSet::from([7]));
+        let left: Vec<(u32, IdleSource)> = waiting.iter().map(|(r, _)| (r.actor.0, r.source)).collect();
+        assert_eq!(left, [(7, IdleSource::Script), (8, IdleSource::HolsteredFidget)]);
+    }
+
+    #[test]
+    fn the_first_fidget_looks_are_spread_over_one_period() {
+        let away = FidgetKind::WeaponAway;
+        let firsts: Vec<f32> = (0..64u32).map(|i| first_check(0xFF00_0000 + i, away)).collect();
+        assert!(firsts.iter().all(|t| *t >= FIDGET_CHECK_SECONDS / 2.0 && *t <= FIDGET_CHECK_SECONDS));
+        let (lo, hi) = firsts.iter().fold((f32::MAX, 0.0f32), |(lo, hi), t| (lo.min(*t), hi.max(*t)));
+        assert!(hi - lo > FIDGET_CHECK_SECONDS / 4.0, "not all in one frame: {lo}..{hi}");
+        assert_eq!(first_check(0x0012_CB7B, away), first_check(0x0012_CB7B, away), "the same each run");
+        // The other kinds keep one full period, as before #2026 (the player too).
+        for kind in [FidgetKind::WeaponOut, FidgetKind::OnFurniture, FidgetKind::Alerted, FidgetKind::Calm] {
+            assert_eq!(first_check(0x14, kind), FIDGET_CHECK_SECONDS);
+            assert_eq!(first_check(0xFF00_0003, kind), FIDGET_CHECK_SECONDS);
+        }
+    }
+
+    /// `drive`'s judgement of a holstered NPC's fidget (`holstered_off`), on a game
+    /// built from a plugin written for the test, through a package and a furniture
+    /// change, with a fidget playing and one waiting for its clip: each change takes
+    /// both away (`end_holstered`, `drop_holstered_waits`), as `drive` does with them.
+    mod holstered_take_over {
+        use super::*;
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        use fnv_esm::{LoadOrder, Plugin, Schema};
+        use fnv_game::functions::Ctx;
+        use fnv_game::game::{FurnitureUse, GameConfig};
+        use fnv_game::GameData;
+        use fnv_script::vm::{ArgValue, Value};
+        use fnv_script::FunctionTable;
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+
+        const IDLE: u32 = 0xA01;
+        const P_PLAIN: u32 = 0xB01;
+        const P_COLLECTION: u32 = 0xB02;
+        const P_QUIET: u32 = 0xB03;
+        const NPC: u32 = 0xC01;
+        const ACTOR: u32 = 0xD01;
+        const CELL: u32 = 0xE01;
+
+        fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+            Subrecord { sig: *sig, data, extended: false }
+        }
+
+        fn record(sig: &[u8; 4], fid: u32, subs: &[Subrecord]) -> Vec<u8> {
+            let payload = write_subrecords(subs);
+            [&sig[..], &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+        }
+
+        fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+            [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+        }
+
+        /// A Travel package (PKDT type 6) with PKDT flags `flags`, and an idle collection
+        /// of one idle when `collection`.
+        fn pack(fid: u32, edid: &str, flags: u32, collection: bool) -> Vec<u8> {
+            let mut subs = vec![
+                sub(b"EDID", [edid.as_bytes(), &[0]].concat()),
+                sub(b"PKDT", [&flags.to_le_bytes()[..], &[6, 0], &[0; 6]].concat()),
+                sub(b"PLDT", [0i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+                sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+            ];
+            if collection {
+                subs.extend([sub(b"IDLF", vec![1]), sub(b"IDLC", vec![1]), sub(b"IDLT", 0f32.to_le_bytes().to_vec()), sub(b"IDLA", IDLE.to_le_bytes().to_vec())]);
+            }
+            record(b"PACK", fid, &subs)
+        }
+
+        fn plugin_bytes() -> Vec<u8> {
+            let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x900u32.to_le_bytes()].concat();
+            let tes4 = {
+                let payload = write_subrecords(&[sub(b"HEDR", hedr)]);
+                [&b"TES4"[..], &(payload.len() as u32).to_le_bytes(), &1u32.to_le_bytes(), &[0; 4], &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+            };
+            let idle = record(
+                b"IDLE",
+                IDLE,
+                &[sub(b"EDID", b"TestCollectionIdle\0".to_vec()), sub(b"MODL", b"Characters\\_Male\\IdleAnims\\Test.kf\0".to_vec()), sub(b"ANAM", vec![0; 8]), sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0])],
+            );
+            let packs = [pack(P_PLAIN, "TestPlain", 0, false), pack(P_COLLECTION, "TestCollection", 0, true), pack(P_QUIET, "TestQuiet", fnv_game::package::flags::NO_IDLE_ANIMS, false)].concat();
+            let npcs = [record(b"NPC_", 0x7, &[sub(b"EDID", b"Player\0".to_vec())]), record(b"NPC_", NPC, &[sub(b"EDID", b"TestSmoker\0".to_vec())])].concat();
+            let actor = record(b"ACHR", ACTOR, &[sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+            let cell = [record(b"CELL", CELL, &[sub(b"EDID", b"TestCell\0".to_vec())]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &actor))].concat();
+            [tes4, group(*b"NPC_", 0, &npcs), group(*b"IDLE", 0, &idle), group(*b"PACK", 0, &packs), group(*b"CELL", 0, &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)))].concat()
+        }
+
+        fn game() -> Game<'static> {
+            let plugins: &'static [Plugin] = Box::leak(vec![Plugin::parse(&plugin_bytes(), "Holstered.esm".into()).unwrap()].into_boxed_slice());
+            let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).unwrap()));
+            let schema: &'static Schema = Box::leak(Box::new(Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()));
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+            let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+            let refs: &'static RefTable = Box::leak(Box::new(RefTable::build(lo, schema)));
+            let data: &'static GameData = Box::leak(Box::new(GameData::build(lo, schema, FunctionTable::load(&path).unwrap(), &json, refs)));
+            Game::new(data, World::new(forms, refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() })
+        }
+
+        fn add_script_package(g: &mut Game, package: u32) {
+            let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(FormId(ACTOR)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+            g.call_function(&ctx, &[ArgValue::Value(Value::Ref(package))]);
+            assert_eq!(g.extra[&FormId(ACTOR)].current_package, Some(FormId(package)));
+        }
+
+        /// A fidget playing on the actor's slot and one of the actor's waiting for its
+        /// clip; then `drive`'s step: judge, end, drop. Returns whether they went.
+        fn step(g: &Game) -> (bool, bool) {
+            let mut slot: IdleSlot<u8> = IdleSlot::default();
+            slot.start(5, IdleSource::HolsteredFidget, None, 5, play(8.4, 0.3, Some(4)));
+            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget }, std::time::Instant::now())];
+            let off: HashSet<u32> = holstered_off(g, ACTOR, false, false, None, None).then_some(ACTOR).into_iter().collect();
+            drop_holstered_waits(&mut waiting, &off);
+            end_holstered(&mut slot, off.contains(&ACTOR));
+            (slot.playing().is_none(), waiting.is_empty())
+        }
+
+        #[test]
+        fn a_package_or_furniture_with_idles_of_its_own_ends_a_holstered_fidget() {
+            let mut g = game();
+            assert_eq!(step(&g), (false, false), "standing holstered, no package: both stay");
+            add_script_package(&mut g, P_PLAIN);
+            assert_eq!(step(&g), (false, false), "a package without idles of its own");
+            add_script_package(&mut g, P_COLLECTION);
+            assert_eq!(step(&g), (true, true), "a package with an idle collection takes over");
+            add_script_package(&mut g, P_QUIET);
+            assert_eq!(step(&g), (true, true), "a package flagged No Idle Anims");
+            add_script_package(&mut g, P_PLAIN);
+            assert_eq!(step(&g), (false, false));
+            g.set_furniture_use(FormId(ACTOR), Some(FurnitureUse { reference: FormId(CELL), marker_id: 1, state: 2 }));
+            assert_eq!(step(&g), (true, true), "getting on furniture");
+            g.set_furniture_use(FormId(ACTOR), None);
+            g.set_weapon_out(FormId(ACTOR), true);
+            assert_eq!(step(&g), (true, true), "the weapon drawn");
+        }
     }
 
     #[test]
@@ -1450,6 +1980,21 @@ mod tests {
     }
 
     #[test]
+    fn replacing_an_idle_file_restarts_but_repeating_that_file_does_not() {
+        let mut slot: IdleSlot<u8> = IdleSlot::default();
+        assert!(slot.start_file(7,IdleSource::Script,None,1,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        slot.advance(0.5);
+        assert!(!slot.start_file(7,IdleSource::Script,None,2,play(3.0,0.0,None),Some("owned\\loop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,1);
+        assert_eq!(slot.playing().unwrap().play.time(),0.5);
+        assert!(slot.start_file(7,IdleSource::Script,None,3,play(0.75,0.0,Some(1)),Some("owned\\stop.kf".into())));
+        assert_eq!(slot.playing().unwrap().clip,3);
+        assert_eq!(slot.playing().unwrap().play.time(),0.0);
+        slot.advance(0.8);
+        assert!(slot.playing().is_none());
+    }
+
+    #[test]
     fn asked_again_by_a_line_an_idle_is_not_started_over() {
         // The opening: stage 30's PlayIdle, then 3 s later the next line's speaker idle,
         // the same, while the first holds its last pose and fades out.
@@ -1510,5 +2055,66 @@ mod tests {
         // Where it was held (the opening's bed marker), or no placement: stays held there.
         assert_eq!(h.moved(Some([2036.4, 1946.0, 7608.7]), 1.0, 0.1), None);
         assert_eq!(h.moved(None, 1.0, 0.1), None);
+    }
+
+    #[test]
+    fn a_movement_camera_overlay_does_not_hold_the_player() {
+        // Owned camera-track fixture: a camera track alone is not a position lock.
+        use fnv_nif::anim::{Channel, TransformTrack};
+        let clip = Arc::new(Clip {
+            name: "OwnedMovement".into(), start: 0.0, stop: 0.7, frequency: 1.0, cycle_type: 0,
+            tracks: vec![(CAMERA_NODE.into(), Arc::new(TransformTrack {
+                translation: Channel::Static(Some([0.0, 0.0, 70.0])),
+                rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None,
+            }))], priorities: vec![50], skipped: 0, accum_root: None,
+            text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(),
+            free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
+        });
+        let mut p = PlayerIdles::default();
+        p.first.start(1, IdleSource::Script, None, clip.clone(), play(0.7, 0.0, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(1);
+        p.first.advance(2.0);
+        assert!(p.first.playing().is_some(), "the movement overlay keeps looping");
+        assert!(!p.holds_camera(), "walking must remain under physics control");
+        // A scene using the same track still holds position; repeated requests do
+        // not turn its hold off, and fading it out eventually releases it.
+        p.first.start(2, IdleSource::Script, None, clip.clone(), play(1.0, 0.3, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(7);
+        assert!(p.holds_camera(), "a new cinematic holds even at zero fade-in weight");
+        p.first.advance(0.1);
+        assert!(p.holds_camera());
+        p.first.start(2, IdleSource::Script, None, clip.clone(), play(1.0, 0.0, None));
+        assert!(p.holds_camera());
+        p.first.advance(0.1);
+        p.first.check_owner(|_| None); // The next frame clears the request's fresh flag.
+        p.first.start(3, IdleSource::Script, None, clip, play(0.7, 0.3, None));
+        p.first.cur.as_mut().unwrap().holds = camera_idle_holds(1);
+        assert!(p.holds_camera(), "the outgoing scene still contributes during its fade");
+        p.first.advance(0.5);
+        assert!(!p.holds_camera());
+    }
+
+    #[test]
+    fn only_the_movement_section_releases_a_camera_position_hold() {
+        assert!(!camera_idle_holds(1));
+        for section in [0, 2, 3, 4, 5, 6, 7, 20, 21, 63, 255] {
+            assert!(camera_idle_holds(section), "section {section} keeps its existing hold");
+        }
+    }
+
+    #[test]
+    fn third_person_idles_do_not_acquire_a_camera_hold() {
+        let mut p = PlayerIdles::default();
+        assert!(!p.holds_camera());
+        let clip = Arc::new(Clip {
+            name: "OwnedThirdPerson".into(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0,
+            tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None,
+            text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(),
+            free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
+        });
+        p.third.start(1, IdleSource::Script, None, clip, play(1.0, 0.0, None));
+        p.third.cur.as_mut().unwrap().holds = true;
+        assert!(p.third.playing().is_some());
+        assert!(!p.holds_camera());
     }
 }

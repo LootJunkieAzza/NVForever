@@ -325,13 +325,15 @@ fn open(
 
 /// The pointer, the keys and clicks.
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     exit: Query<&PointerState, (Changed<PointerState>, With<ExitButton>)>,
     mut screen: ResMut<WheelScreen>,
     mut out: MessageWriter<WheelInput>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     use KeyCode::*;
     let Some(s) = screen.0.as_mut() else { return };
     if s.fresh {

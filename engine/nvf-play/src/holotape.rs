@@ -20,8 +20,13 @@
 //! Log lines: `holotape: <note> plays <line> said by <speaker>, <n> responses`, then
 //! `holotape: playing <path> (<seconds> s) response <k>/<n>` per response, `holotape:
 //! paused <note>` / `holotape: <note> goes on` and `holotape: <note> is over`.
+//!
+//! A response stopped before its end (the tape stopped by a script, or another note
+//! picked) fades out as every stopped sound does (`crate::audio_out::stop_sound`, #2217,
+//! counted as a holotape stop in `sfx declicks: …`); the tape no longer holds it, so its
+//! pause leaves it alone while the fade plays out.
 
-use crate::audio_out::SoundCategory;
+use crate::audio_out::{stop_sound, Retiring, SoundCategory, StopReason};
 use crate::script::ScriptState;
 use crate::sfx::PlaySound;
 use crate::voice::{VoiceSettings, VoiceState};
@@ -63,7 +68,8 @@ pub struct HolotapeSound;
 impl Holotape {
     fn stop(&mut self, commands: &mut Commands) {
         if let Some(e) = self.entity.take() {
-            commands.entity(e).try_despawn();
+            // Faded out, not cut (#2217); gone at once if it has made no sound yet.
+            stop_sound(commands, e, StopReason::Holotape);
         }
         self.playing = None;
         self.queue.clear();
@@ -90,7 +96,7 @@ fn play(
     mut script: ResMut<ScriptState>,
     paused: Res<crate::pause::Paused>,
     mut sounds: Option<ResMut<Assets<AudioSource>>>,
-    sinks: Query<&AudioSink, With<HolotapeSound>>,
+    sinks: Query<&AudioSink, (With<HolotapeSound>, Without<Retiring>)>,
     mut effects: MessageWriter<PlaySound>,
 ) {
     let st = &mut *tape_state;

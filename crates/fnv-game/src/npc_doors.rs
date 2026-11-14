@@ -11,6 +11,24 @@
 //!   doors.md §5.1]; the GECK
 //!   wiki's own IsActionRef example refuses the player and calls `Activate` for anyone
 //!   else [documented: GECK wiki IsActionRef].
+//! - **The extender hears every attempt, before the block.** Its OnActivate event
+//!   (target the door, action reference the actor) "Runs BEFORE the OnActivate block
+//!   occurs. Runs even if activation will be prevented" [documented: GECK wiki NVSE Event
+//!   Handling, OnActivate row]; so it is dispatched as the actor is asked, whether the
+//!   door has a block or not, is destroyed, refuses the actor or has a block for the
+//!   player only (#2123). HVLevel1To2Door and vCCHQDoor, where the original's events
+//!   named NPCs, are among the scripted doors with no OnActivate block [observed: the
+//!   door survey, doors.md §5.1, read with script-function-coverage.md §3.3]. Heard once
+//!   per crossing: the AI asks the door every step while the actor comes up to it and
+//!   tells [`Game::npc_door_left`] on the step that goes through the door, or when the
+//!   crossing is called off (the way changed or ended, another package), so its next crossing
+//!   is heard again, kept answer or not; [`ASKED_SECONDS`] after it was heard a crossing
+//!   the AI never closed counts as a new one. A block's `Activate` of the door for the
+//!   actor is that same activation, not heard again; an extender handler is no part of
+//!   the block, so its own `Activate` of the door is heard and does not let the actor
+//!   through [design]. Whether the original fires it at doors with no script at all is
+//!   not known [hypothesis: as at those two, whose scripts have no block; observer
+//!   check 117].
 //! - **The block decides.** An OnActivate block runs instead of the default activation;
 //!   the door opens only when the block calls `Activate` [documented: GECK wiki Activate,
 //!   "The OnActivate block of the object will be run instead of the default
@@ -92,10 +110,13 @@ impl Game<'_> {
         self.ref_script(door).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE))
     }
 
-    /// `actor` (an NPC the AI walks) is about to go through `door`: run the door's
-    /// OnActivate block for it, unless it was asked lately, and say whether it may go
-    /// through.
+    /// `actor` (an NPC the AI walks) is about to go through `door`: unless it was asked
+    /// lately, the extender hears the activation and the door's OnActivate block runs for
+    /// it; say whether it may go through.
     pub fn npc_door(&mut self, actor: FormId, door: FormId) -> DoorAnswer {
+        // The extender hears the crossing first, block or none, refused or not, answer
+        // kept or not (module notes), before the block's run is set up [design, #2123].
+        self.hear_npc_door(actor, door);
         if let Some(g) = self.door_gates.get(&(actor, door)).filter(|g| self.time < g.until) {
             return g.answer;
         }
@@ -116,6 +137,32 @@ impl Game<'_> {
         tracing::info!("npc doors: {} at door {door} ({base}): {answer:?}", self.data.name(actor));
         self.door_gates.insert((actor, door), Gate { answer, until: self.time + keep });
         answer
+    }
+
+    /// The extender's OnActivate for `actor` at `door`, unless this crossing was heard
+    /// already: until [`Game::npc_door_left`], or [`ASKED_SECONDS`] as a safety net. Kept
+    /// apart from the answers ([`Game::door_gates`], which a door without a block does
+    /// not get); expired crossings are dropped here [design, #2123].
+    fn hear_npc_door(&mut self, actor: FormId, door: FormId) {
+        let now = self.time;
+        if self.door_heard.get(&(actor, door)).is_some_and(|&until| now < until) {
+            return;
+        }
+        self.door_heard.retain(|_, until| now < *until);
+        self.door_heard.insert((actor, door), now + ASKED_SECONDS);
+        self.activation_heard(actor, door);
+    }
+
+    /// `actor`'s crossing of `door` is over: the AI found the door no longer the next of
+    /// its way (gone through, or the way changed or ended). A later walk through it is a
+    /// new crossing, heard again; the door's kept answer is untouched [design, #2123].
+    pub fn npc_door_left(&mut self, actor: FormId, door: FormId) {
+        self.door_heard.remove(&(actor, door));
+    }
+
+    /// Whether [`Game::npc_door`] is running `target`'s block for `actor`.
+    pub(crate) fn in_npc_door_run(&self, actor: FormId, target: FormId) -> bool {
+        self.npc_door_run.is_some_and(|r| r.actor == actor && r.door == target)
     }
 
     /// Inside [`Game::npc_door`]'s block run: the block's `Activate` of the door for the

@@ -401,7 +401,7 @@ fn write_meters(ui: &mut Ui, rows: &[RowTile<RowKey>], shown: &[RowShown]) {
 /// Supply the picture dimensions the file can read, including hidden button pictures. Walk the
 /// whole page so its icon, brackets, cards and rows get the same writes. Atlas pieces have no own
 /// file size. Keep file texels cached, applying the current zoom on every pass.
-fn write_file_sizes(ui: &mut Ui, menu: TileId, pictures: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
+pub(super) fn write_file_sizes(ui: &mut Ui, menu: TileId, pictures: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
     let mut stack = vec![menu];
     while let Some(t) = stack.pop() {
         let tile = ui.tile(t);
@@ -429,10 +429,15 @@ fn write_file_sizes(ui: &mut Ui, menu: TileId, pictures: &mut HashMap<String, Op
 /// height is the row's less one [documented: the file; observed: private job run07c_repair_menu,
 /// 1280x720, 51 on a row of 52, y 0; hypothesis: they move with the scroll, no long list was seen].
 fn write_brackets(ui: &mut Ui, rows: &[RowTile<RowKey>], value: f64) {
+    write_brackets_of(ui, LIST, [LEFT_BRACKET, RIGHT_BRACKET], rows, value);
+}
+
+/// [`write_brackets`] for the list `list` and its brackets: on the first row, scrolled with it.
+pub(super) fn write_brackets_of<K>(ui: &mut Ui, list: &str, brackets: [&str; 2], rows: &[RowTile<K>], value: f64) {
     let Some(item) = rows.first() else { return };
     let height = ui.tile(item.tile).get("height").map_or(0.0, Value::num);
-    let delta = ui.find_tile(LIST).and_then(|l| ui.tile(l).get("_scroll_delta")).map_or(0.0, Value::num);
-    for bracket in [LEFT_BRACKET, RIGHT_BRACKET] {
+    let delta = ui.find_tile(list).and_then(|l| ui.tile(l).get("_scroll_delta")).map_or(0.0, Value::num);
+    for bracket in brackets {
         set(ui, bracket, "y", Value::Num(-value * delta));
         set(ui, bracket, "height", Value::Num((height - 1.0).max(0.0)));
     }
@@ -448,12 +453,19 @@ pub fn pulse(secs: f64) -> f64 {
 /// the window and taking the pointer at their middle, for every row that shows whole, and Cancel's.
 /// The reason for the hand-built list otherwise.
 pub fn usable(ui: &Ui, menu: TileId, tiles: &RepairTiles, pieces: &[Piece]) -> Result<(), String> {
+    usable_of(ui, menu, (&tiles.written.rows, ROW_TEXT), CANCEL, pieces, (RepairTile::Row, RepairTile::Cancel), |t| tiles.clicked(ui, t))
+}
+
+/// [`usable`] for a page of one list's `rows` (their words the child `row_text`) and a Cancel
+/// button `cancel`: `what` names a row's and Cancel's meaning, `clicked` what a tile stands for on
+/// the page as written (the weapon mod menu's too, `super::item_mod_menu`).
+pub(super) fn usable_of<K, T: Copy + PartialEq + std::fmt::Debug>(ui: &Ui, menu: TileId, (rows, row_text): (&[RowTile<K>], &str), cancel: &str, pieces: &[Piece], what: (fn(usize) -> T, T), clicked: impl Fn(TileId) -> Option<T>) -> Result<(), String> {
     let is_text = |x: &&Piece| matches!(x.look, Look::Text { .. });
-    let mut wanted: Vec<(RepairTile, (f64, f64))> = Vec::new();
-    for (i, row) in tiles.written.rows.iter().enumerate() {
-        let text = list::child(ui, row.tile, ROW_TEXT);
+    let mut wanted: Vec<(T, (f64, f64))> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        let text = list::child(ui, row.tile, row_text);
         if let Some(middle) = pieces.iter().filter(is_text).find(|x| Some(x.tile) == text).and_then(shows_whole) {
-            wanted.push((RepairTile::Row(i), middle));
+            wanted.push(((what.0)(i), middle));
         }
     }
     if wanted.is_empty() {
@@ -462,12 +474,12 @@ pub fn usable(ui: &Ui, menu: TileId, tiles: &RepairTiles, pieces: &[Piece]) -> R
     // [design: fnv_ui::input::hit_candidates; documented: repair.md §5.1] Cancel is an image,
     // so its children do not inherit its target. Probe its button words explicitly: the shortcut
     // label stands outside the button and may sort before them by depth.
-    let cancel_text = ui.find_tile(&format!("{CANCEL}/button_text"));
+    let cancel_text = ui.find_tile(&format!("{cancel}/button_text"));
     let words = pieces.iter().filter(is_text).find(|x| Some(x.tile) == cancel_text).ok_or("Cancel is not shown")?;
-    wanted.push((RepairTile::Cancel, shows_whole(words).ok_or("Cancel does not fit")?));
+    wanted.push((what.1, shows_whole(words).ok_or("Cancel does not fit")?));
     for (what, at) in wanted {
         let hit = fnv_ui::input::hit(ui, &[menu], at, &fnv_ui::input::no_measure);
-        if hit.and_then(|h| tiles.clicked(ui, h.tile)) != Some(what) {
+        if hit.and_then(|h| clicked(h.tile)) != Some(what) {
             let took = hit.map_or_else(|| "nothing does".into(), |h| format!("{} takes it under {}", ui.path_of(h.tile), ui.path_of(h.under)));
             return Err(format!("{what:?} does not take the pointer: {took}"));
         }
@@ -663,7 +675,7 @@ pub(crate) struct Feed {
 /// What the row under the pointer asks, `under`, against the one it last came onto (`acted`).
 /// `settled`: the pointer has moved since the page came up. Returns the row, or `Some(None)` for
 /// the pointer leaving the rows; `None` for nothing new.
-fn follow_hover(acted: &mut Option<usize>, under: Option<usize>, settled: bool) -> Option<Option<usize>> {
+pub(super) fn follow_hover(acted: &mut Option<usize>, under: Option<usize>, settled: bool) -> Option<Option<usize>> {
     match under {
         Some(i) if settled && *acted != Some(i) => {
             *acted = Some(i);

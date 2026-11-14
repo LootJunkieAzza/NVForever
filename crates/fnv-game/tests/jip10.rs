@@ -3,7 +3,7 @@
 //! script variables added at run time, scripts and event blocks switched off,
 //! FakeScriptEvent, linked and enable children, extra data, map markers and text files.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

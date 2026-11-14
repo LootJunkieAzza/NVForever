@@ -26,13 +26,15 @@
 //!   real time (`Game::tick` advances them in menu mode too).
 //!   What the picture does is the switch for every menu, [`MenuPause`] (`--menu-pause`,
 //!   `crate::pause`): `living` (the default) keeps everything that is only presentation
-//!   running (animations, wind, water, sky, effects) and lets the player look around
-//!   with the mouse while the actor speaks ([`FreeLook`]; the cursor comes back when
-//!   choices are offered [owner decision 2026-10-10]); `original` stops the virtual
-//!   clock, so the picture stands still, with the cursor free throughout [owner
-//!   preference 2026-10-10 for `living`: a deliberate departure from the original's look
-//!   that keeps what scripts see]. A message box a result script shows holds the
-//!   conversation until it is answered (the runtime's rule); Esc opens the pause menu,
+//!   running (animations, wind, water, sky, effects). A zoomed conversation locks the view
+//!   on the speaker [owner decision 2026-11-13, #2254; `crate::dialogue_look::view_locked`];
+//!   without the zoom the player looks around with the mouse while the actor speaks
+//!   ([`FreeLook`]; the cursor comes back when choices are offered [owner decision
+//!   2026-10-10]); `original` stops the virtual clock, so the picture stands still,
+//!   with the cursor free throughout [owner preference 2026-10-10 for `living`: a
+//!   deliberate departure from the original's look that keeps what scripts see]. A
+//!   message box a result script shows holds the conversation until it is answered (the
+//!   runtime's rule); Esc opens the pause menu,
 //!   which holds everything, the actor's voice included.
 //! - **The actor speaks.** The response being said is shown on a dark band, the actor's
 //!   name at the top right (`crate::dialogue_menu`); the log's `subtitle:` line has it as
@@ -43,11 +45,16 @@
 //!   Space or Activate pick the selected one, a click picks the one under the cursor. A
 //!   choice the actor has answered before is dimmed (`Choice::darkened`); a skill or perk
 //!   line carries its tag, and the frame of one the player falls short of is red.
-//! - **Leaving.** Tab says goodbye: it picks the offered Goodbye choice. A Goodbye
-//!   choice (by Tab or picked like any other) closes the conversation at once and the
-//!   actor finishes its goodbye line [observed: owner's playtest 2026-11-05, against the
-//!   original: choosing a Goodbye closes the menu at once and the actor finishes the line
-//!   as the player walks away; the runtime's rule, `Game::choose`]. The screen goes and
+//! - **Leaving.** Tab says goodbye: it picks the offered Goodbye choice. A chosen line
+//!   with the Goodbye flag is said on this screen like the lines before it, the player
+//!   held, and ends the conversation when it is over [owner statement 2026-11-11, issue
+//!   #2157: the last line of a conversation must hold the player like the rest; said in
+//!   the world, a quest's line can be interrupted in play]. The runtime keeps #1606's
+//!   rule behind a switch nothing here sets (`GameConfig::goodbye_at_once`): with it a
+//!   Goodbye choice closes the conversation at once and the actor finishes the line
+//!   [observed: owner's playtest 2026-11-05, against the original: choosing a Goodbye
+//!   closes the menu at once and the actor finishes the line as the player walks away;
+//!   the runtime's rule, `Game::choose`]. Then the screen goes and
 //!   the player is free; the line is heard where the actor stands with a subtitle, as a
 //!   SayTo line is [design: a line said in the world], and its end script runs when it is
 //!   over [hypothesis, docs/spec-notes/dialogue.md §7 item 18]. A log line says so
@@ -90,8 +97,8 @@
 //!
 //! Log, one line each (`dialogue: …`, [`log_event`]): a conversation started, every
 //! response said (speaker, topic, line, text), the choices offered, the choice made, a
-//! topic added, the conversation ended (reason, lines), and after a Goodbye choice that
-//! the actor finishes the line in the world. The trace log
+//! topic added, the conversation ended (reason, lines), and, with the runtime's switch,
+//! after a Goodbye choice that the actor finishes the line in the world. The trace log
 //! (`NVF_PLAY_SCRIPT_TRACE`) has the same as trace events, and a `talk_input` line for
 //! each thing the player or the aid did.
 
@@ -421,7 +428,8 @@ pub(crate) fn log_event(data: &GameData, e: &Event) {
 }
 
 /// The log line of a conversation that ended at once on the player's Goodbye choice
-/// (`Game::choose`): its actor finishes the line in the world (`Speech::farewell`).
+/// (`Game::choose` with `GameConfig::goodbye_at_once`, off by default since #2157): its
+/// actor finishes the line in the world (`Speech::farewell`).
 /// Called for every trace event after its own log line. The runtime notes the line as
 /// the conversation closes (`Game::farewell_said`), which this takes on that
 /// conversation's goodbye `dialogue_ended`, so the line is logged even when something
@@ -680,8 +688,9 @@ impl ViewInput {
 pub struct WorldHeld(pub bool);
 
 /// The player may look around with the mouse although not `Playing`: while an actor
-/// speaks in a conversation, in [`MenuPause::Living`] (`player::mouse_look`,
-/// `player::grab_cursor`).
+/// speaks in a conversation that is not zoomed, in [`MenuPause::Living`]
+/// (`player::mouse_look`, `player::grab_cursor`; a zoomed one locks the view [owner
+/// decision 2026-11-13, #2254]).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreeLook(pub bool);
 
@@ -726,7 +735,7 @@ pub fn held(g: &Game) -> bool {
 /// The test aid's due steps and the player's keys and clicks, as actions on the runtime.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn input(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     controls: ControlInput,
     scroll: Res<AccumulatedMouseScroll>,
     time: (crate::pause::AidTime, Res<Time<Real>>),
@@ -739,6 +748,7 @@ pub(crate) fn input(
     mut sim: ResMut<SimState>,
     mut view_input: ResMut<ViewInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // Taken whatever happens below: what a view asked is for this frame only.
     let asked = std::mem::take(&mut *view_input);
@@ -973,26 +983,32 @@ pub(crate) fn input(
 /// game clock, activation, combat. Runs after `script::hold_player`
 /// (which would put the player in `Menu` for a message box): in a conversation the box
 /// is answered from the `Dialogue` state, and when the conversation ends under an open
-/// box the player goes to `Menu`.
+/// box the player goes to `Menu`. The repair services and the recipe menu a line's result
+/// script opens (#2308) are `Menu` over the conversation, which waits under them: their
+/// own close goes back to `Dialogue` (`crate::repair::after_close`), and a conversation
+/// that ends as one opens (a Goodbye line's end script) leaves the player in `Menu`.
 #[allow(clippy::too_many_arguments)]
 fn sync_state(
     script: Option<Res<ScriptState>>,
     active: Res<ActiveMenu>,
+    services: (Option<Res<crate::repair::RepairServices>>, Option<Res<crate::crafting::RecipeMenu>>),
     paused: Res<Paused>,
     mode: Res<MenuPause>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
+    zoom: Res<crate::dialogue_zoom::DialogueZoom>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
     let boxed = game.and_then(|g| g.menu).is_some_and(is_script_menu);
-    let own_menu = active.0.is_some() || paused.0;
+    let service = services.0.is_some_and(|r| r.is_open()) || services.1.is_some_and(|r| r.is_open());
+    let own_menu = active.0.is_some() || paused.0 || service;
     match (*state.get(), talking) {
         (PlayState::Playing, true) => next.set(PlayState::Dialogue),
         (PlayState::Menu, true) if !own_menu => next.set(PlayState::Dialogue),
-        (PlayState::Dialogue, false) => next.set(if boxed { PlayState::Menu } else { PlayState::Playing }),
+        (PlayState::Dialogue, false) => next.set(if boxed || service { PlayState::Menu } else { PlayState::Playing }),
         _ => {}
     }
     world_held.set_if_neq(WorldHeld(talking));
@@ -1000,7 +1016,9 @@ fn sync_state(
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
     // Whether the picture stands still meanwhile is `crate::pause::freeze_picture`'s.
-    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue));
+    // The pointer stays free throughout a zoomed conversation: the zoom locks the view
+    // [owner decision 2026-11-13, #2254].
+    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue && !crate::dialogue_look::view_locked(&zoom)));
 }
 
 // ---- drawing ----------------------------------------------------------------------------

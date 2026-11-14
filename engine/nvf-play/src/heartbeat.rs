@@ -22,7 +22,7 @@ use fnv_sim::FormId;
 
 /// The heartbeat [observed: the SOUN's Editor ID].
 pub const SOUND: &str = "UIHealthHeartbeatALP";
-/// The share of the maximum health under which it beats [hypothesis: observer check 110].
+/// The share of the maximum health under which it beats [hypothesis: observer check 146].
 pub const LOW: f32 = 0.25;
 
 pub struct HeartbeatPlugin;

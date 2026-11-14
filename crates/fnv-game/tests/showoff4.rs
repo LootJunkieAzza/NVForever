@@ -3,7 +3,7 @@
 //! examples, JSON and the INI cache through NVForever's in-memory file layer, the
 //! switches, SetOwnershipTemp kept out of the save, and the enable-parent functions.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -20,11 +20,13 @@ pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
+pub mod clutter_pose;
 pub mod creator;
 pub mod combat;
 pub mod compass;
 pub mod compass_strip;
 pub mod console;
+pub mod editor;
 pub mod container_anim;
 pub mod control;
 pub mod corner_messages;
@@ -47,6 +49,7 @@ pub mod drowning;
 pub mod falls;
 pub mod file_bytes;
 pub mod key_repeat;
+pub mod query_job;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
@@ -75,6 +78,7 @@ pub mod knockouts;
 pub mod loading;
 pub mod loading_look;
 pub mod main_menu;
+pub mod menu_scale;
 pub mod location_markers;
 pub mod lockpick;
 pub mod roulette;
@@ -86,6 +90,7 @@ pub mod caravan;
 pub mod challenges;
 pub mod poker;
 pub mod menu;
+pub mod mod_log;
 pub mod mines;
 pub mod thrown;
 pub mod perk_marks;
@@ -93,6 +98,7 @@ pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
+pub mod full_screen_key;
 pub mod pause;
 pub mod graphics_resume;
 pub mod phys;
@@ -403,6 +409,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
+            .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)
@@ -435,6 +442,7 @@ impl Plugin for PlayPlugin {
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);
+        full_screen_key::setup(app);
     }
 }
 

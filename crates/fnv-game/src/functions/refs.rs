@@ -220,6 +220,15 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
         s.pos = pos;
         if r != FormId::PLAYER_REF {
             s.rot = rot;
+        } else if marker != FormId::PLAYER_REF {
+            // The player turns to the marker's heading and keeps the view's pitch (its X
+            // angle): the ending moves the player to an XMarkerHeading (0x001639F6,
+            // heading 0) whose heading faces the slide (0x001680A7, straight ahead along
+            // +Y) [observed: the slide room's references, fnvtool world refs; the owner's
+            // playtest 2026-11-12, issue #2226: ours faced 90 degrees away while the
+            // original faces the slide]. The GECK wiki's MoveTo page does not say
+            // [hypothesis: MoveTo to any reference turns the player to its heading].
+            s.rot[2] = rot[2];
         }
     }
     g.note_relocated(r, cell, pos);
@@ -597,10 +606,11 @@ pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     none()
 }
 
-/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState].
+/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState], or an activator
+/// with Open and Close sequences, which plays them (`Game::set_ref_open`).
 pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.world.get(r).map_err(|e| e.to_string())?.open = a.num(0)? != 0.0;
+    g.set_ref_open(r, a.num(0)? != 0.0)?;
     none()
 }
 

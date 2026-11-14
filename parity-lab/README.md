@@ -28,15 +28,15 @@ python -m fnvlab --config selftest/lab.json run     # shows pass, fail, error an
 | Term | Meaning |
 |---|---|
 | Oracle | Ground truth from the user's own install or a trusted tool, as a JSON golden (or `inline` for invariants such as "rewrite is byte-identical") |
-| Candidate | `fnvtool …` printing JSON in the golden's schema (`docs/cli-contract.md`) |
-| Scenario | JSON entry: `id`, `layer`, `oracle`, `candidate.argv`, `comparator`, `tags`, optional `holdout` |
+| Candidate | `fnvtool …` printing JSON in the golden's schema (`docs/cli-contract.md`), or (`"kind": "game"`) a run of the engine, `nvforever --play` driven by the test aids in `candidate.env`, that writes its answer to `output_file`; a game run takes one of the machine's smoke slots (`tools/smoke/smoke/slots.py`), so it waits while the original game is captured, and its log goes to `<output_file>.log` |
+| Scenario | JSON entry: `id`, `layer`, `oracle`, `candidate.argv` (and for a game: `candidate.kind`, `candidate.env`, `candidate.output_file`), `comparator`, `tags`, optional `holdout` |
 | Holdout | Failure details are redacted from reports, `list` and `next_work`; only a human at a terminal can `--reveal` (writes `runs/revealed.md` only) |
 
 ## Configuration
 
 `lab.json` is committed and contains no private paths. Private values come from
 `lab.local.json` (gitignored overlay) or `FNVLAB_<VAR>` environment variables:
-`candidate`, `data_dir`, `goldens_dir`, `schema_dir`. `{var}` placeholders expand inside
+`candidate`, `engine_candidate` (the nvforever build of the game candidates), `data_dir`, `goldens_dir`, `schema_dir`, `save_path` (the owner's save the extender goldens were recorded in, only read). `{var}` placeholders expand inside
 scenario argv and golden paths.
 
 ## Comparators

@@ -30,13 +30,15 @@ pub type WorldCamera = (With<Camera3d>, With<FlyCam>, Without<crate::reflection:
 
 pub fn fly(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    keys: nvf_play::pad::ActionButtons<KeyCode>,
+    buttons: nvf_play::pad::ActionButtons<MouseButton>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     auto: Res<AutoFly>,
     mut cams: Query<(&mut Transform, &mut FlyCam)>,
 ) {
+    let keys = keys.snapshot();
+    let buttons = buttons.snapshot();
     let Ok((mut t, mut c)) = cams.single_mut() else { return };
     if buttons.pressed(MouseButton::Right) {
         c.yaw -= motion.delta.x * 0.003;

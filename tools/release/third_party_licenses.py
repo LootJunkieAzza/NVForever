@@ -11,6 +11,11 @@ the licence texts found in the packages. MIT, BSD and Apache-2.0 ask for their n
 to travel with the binaries; MPL-2.0 asks that users are told where the source is.
 The capture plugin has its own list (tools/capture/package_plugin.py).
 
+Code translated from sources that are not Cargo packages is not found that way: each such
+source is listed in NOTICES with the licence file kept beside the translation, and its text
+follows with the packages' (DLSS's FFI declarations, translated from NVIDIA Streamline's
+MIT headers). The notices ship no third-party program or library.
+
 Some packages ship no licence file, only the licence name in their manifest; they are
 listed with that name and marked, and the same licence's text from other packages
 follows. Exits non-zero only when a package names no licence at all.
@@ -23,12 +28,37 @@ import json
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 # (workspace folder, the release packages built from it)
 WORKSPACES = ((REPO, ("fnvtool",)), (REPO / "engine", ("nvforever", "nvf-viewer")))
 LICENSE_FILE = re.compile(r"^(licen[sc]e|copying|unlicense|notice)", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Notice:
+    """Code in NVForever's own sources translated from a source that is no Cargo package."""
+
+    name: str
+    what: str
+    licence: str
+    source: str
+    file: Path  # the licence text kept beside the translation
+
+
+# Listed for every target: the Streamline declarations are compiled on Windows, the DLSS mode
+# values they come with on every system.
+NOTICES = (
+    Notice(
+        name="NVIDIA Streamline 2.14.16",
+        what="FFI declarations translated from its headers, in engine/nvforever/src/dlss/",
+        licence="MIT",
+        source="https://github.com/NVIDIA-RTX/Streamline",
+        file=REPO / "engine" / "nvforever" / "src" / "dlss" / "LICENSE-MIT",
+    ),
+)
 
 
 def metadata(folder: Path, target: str) -> dict:
@@ -92,7 +122,7 @@ def licence_files(folder: Path) -> list[tuple[str, str]]:
     ]
 
 
-def render(pkgs: list[dict], rustc: str) -> tuple[str, list[str]]:
+def render(pkgs: list[dict], rustc: str, notices: tuple[Notice, ...] = NOTICES) -> tuple[str, list[str]]:
     """The file's text and the packages that name no licence and ship no licence file."""
     lines = [
         "NVForever's programs (fnvtool, nvforever, nvf-viewer) are built from the following",
@@ -116,6 +146,12 @@ def render(pkgs: list[dict], rustc: str) -> tuple[str, list[str]]:
         lines.append(f"- {name}: {p.get('license') or 'see its files'}" + (f" ({source}{note})" if source else note))
         for file, text in found:
             texts.setdefault(text, []).append(f"{name} ({file})")
+    if notices:
+        lines += ["", "They also hold code translated from these sources, which are not Rust packages:", ""]
+    for n in notices:
+        lines.append(f"- {n.name} ({n.what}): {n.licence} ({n.source})")
+        text = n.file.read_text(encoding="utf-8").replace("\r\n", "\n").strip()
+        texts.setdefault(text, []).append(f"{n.name} ({n.file.relative_to(REPO).as_posix()})")
     for text, users in texts.items():
         lines += ["", "=" * 78, "From: " + ", ".join(users), "=" * 78, "", text]
     return "\n".join(lines) + "\n", missing
