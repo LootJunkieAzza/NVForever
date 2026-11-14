@@ -910,6 +910,9 @@ struct Resident {
     last_drawn: Option<(f32, [f32; 3])>,
     /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
     moved: bool,
+    /// Not yet looked at for furniture its package names, as it first joins the AI
+    /// ([`Core::first_seats`]).
+    first_look: bool,
     /// Whether it cannot walk ([`cannot_walk`]), once looked up.
     rooted: Option<bool>,
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
@@ -1715,6 +1718,7 @@ impl Core {
             perched: false,
             immobile: false,
             moved: false,
+            first_look: true,
             last_space: None,
             aim_heading: None,
             lock_held: None,
@@ -2016,6 +2020,38 @@ impl Core {
         self.trip = Some(Trip { before, seen: HashSet::new(), settled: 0, put: [0; 2], doors: None });
     }
 
+    /// Each resident as it first joins the AI, not drawn yet, whose current package names
+    /// a furniture reference as its place (`fnv_ai::Ai::package_names_furniture`: the
+    /// crucified at Nipton, linked to their crosses) is put on it at once, as a trip puts
+    /// the actors near the player's arrival (`arrive`), not walked up to it and got on in
+    /// sight [observed, owner, item 204b: in the original they hang on their crosses from
+    /// the start; ours walked 46-81 units to them and played the enter clip as the
+    /// player came]. Not while a trip is under way (that puts them), nor one a script
+    /// has just moved; others walk as before.
+    fn first_seats(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer) {
+        if self.trip.is_some() {
+            return;
+        }
+        // Joined here, before the AI's first think sets it walking.
+        self.join(game);
+        let near = |p: fnv_nav::Place| drawn(world, streamer, p.space, p.pos) || streamer.buffer.holds(p.space, p.pos);
+        for r in self.list.iter_mut().filter(|r| r.joined && !r.failed && r.first_look) {
+            r.first_look = false;
+            if r.spawned || r.moved || r.seat != Seat::None || !self.ai.agents.contains_key(&r.actor) || game.ai_off(r.actor) {
+                continue;
+            }
+            if fnv_ai::Ai::package_names_furniture(game, r.actor).is_none() {
+                continue;
+            }
+            let Some(arr) = self.ai.arrive(game, &nav.graph, r.actor, &near) else { continue };
+            let Some(f) = arr.furniture else { continue };
+            r.wants = Some(f.0);
+            r.seat = Seat::Wanted(f.0, true);
+            self.arrivals[1] += 1;
+            info!("ai [{}] {}: on {} from the start: put on it at once ({:.0} units from where it stood)", self.clock_text, r.label, game.data.name(f), arr.skipped);
+        }
+    }
+
     /// While a trip is under way: the residents near the player (in the loaded area, the
     /// cell buffer, or an interior behind a door of the loaded cells) whose package's
     /// walk starts there are put where that walk ends, on its furniture (seated at once),
@@ -2048,6 +2084,7 @@ impl Core {
             if trip.before.contains(&r.actor) || !trip.seen.insert(r.actor) || r.moved {
                 continue;
             }
+            r.first_look = false;
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             if !near(fnv_nav::Place { space: a.walker.space, pos: a.walker.feet }) {
                 continue;
@@ -3287,6 +3324,7 @@ pub fn drive(
             }
             res.core.process_levels(game, &world, &streamer);
             res.core.arrive(game, &nav, &world, &streamer, None);
+            res.core.first_seats(game, &nav, &world, &streamer);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, false, &nav, &world, &mut doors, None, None, dt, now, 0);
@@ -3325,6 +3363,7 @@ pub fn drive(
                 drop(span);
                 let span = info_span!("ai::arrive").entered();
                 core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
+                core.first_seats(&mut rt.game, &nav, world_ref, streamer_ref);
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
