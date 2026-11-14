@@ -230,7 +230,7 @@
 use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
 use crate::settings_layout::{ResolvedLayout, CONTROLS_TAB};
-use crate::settings_view::{ControlRow, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH, WINDOW_ROWS};
+use crate::settings_view::{ControlRow, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH};
 use fnv_util::words::{tr, tr_str};
 use crate::start_menu::{color, highlight_colors, text as sm_text, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
@@ -832,12 +832,6 @@ const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
 /// The keep question's answers [design].
 const KEEP_ANSWERS: [&str; 2] = ["Keep", "Revert"];
 
-/// The settings page's rows: this many shown at once [documented: `options_container`
-/// `_number_of_visible_items` 9], each this high [observed: 39 of 720 pixels], the list
-/// this wide and its left edge this far left of the view's middle, the switch's state
-/// centred this far into a row [design: the original's list is 520 wide and centred, its
-/// values at 360; NVForever's labels are longer].
-const OPTION_ROWS: usize = WINDOW_ROWS;
 /// What an empty tab shows, a search that finds nothing and an empty Changed list
 /// [design: #1953].
 const NO_ROWS: &str = "No settings here.";
@@ -868,6 +862,13 @@ const SENSITIVITY_ROWS: [&str; 2] = ["Mouse Sensitivity", "Stick Sensitivity"];
 /// The Controls tab's slider under the sensitivity, each device's own (#2201).
 const VERTICAL_ROW: &str = "Vertical Sensitivity";
 
+/// The settings page's rows: each this high [observed: 39 of 720 pixels], the list this
+/// wide and its left edge this far left of the view's middle, the switch's state centred
+/// this far into a row [design: the original's list is 520 wide and centred, its values at
+/// 360; NVForever's labels are longer]. How many lines show at once is the layout's
+/// ([`window_lines`]): the original shows nine [documented: `options_container`
+/// `_number_of_visible_items` 9], NVForever's page as many as fit over the note [design:
+/// #2377].
 const OPTION_ROW: f32 = 52.0;
 /// The scroll bar right of the settings page's rows when not all of them fit, 32 wide
 /// with 16-high arrows at its ends, its marker 6 wide, 12 in [design: as the barter
@@ -892,6 +893,15 @@ const LINKS_TOP: f32 = OPTIONS_TOP - ITEM - 8.0;
 /// line [design].
 const NOTE_STEP: f32 = 26.0;
 const NOTE_BOTTOM: f32 = 900.0;
+/// The note's room under the window, in lines: two for a row's note and one for what it
+/// stands for or a choice's reason (#2377) [design]; never more are drawn.
+const NOTE_LINES: usize = 3;
+/// The top of "Report a bug" at the bottom left ([`report_entry`]), over the version's line:
+/// the window and its note end above it, so the note never runs into it where the list
+/// starts near the view's left edge [design: #2377].
+const REPORT_TOP: f32 = 960.0 - 60.0 - ITEM;
+/// The room between the window's last line and the note [design].
+const NOTE_GAP: f32 = 20.0;
 /// The room between the band's right edge and the categories [design: #1210, the scroll
 /// bar and band ran under them at 16:9].
 const TABS_GAP: f32 = 20.0;
@@ -1016,6 +1026,9 @@ struct PauseView {
     /// The settings page's first line shown (headings count), counted from its tab's
     /// first; on the load page, the saves' first row shown.
     scroll: usize,
+    /// The settings page's window's lines ([`window_lines`]), set before the keys and the
+    /// pointer are read each frame; 0 until then (taken as [`window_lines`]).
+    lines: usize,
     /// What the settings page lists: a tab (or the search, the Changed list).
     scope: SettingsScope,
     /// Where the settings page's keys are: the rows or the rail.
@@ -1049,6 +1062,31 @@ struct PauseView {
     found: Found,
     /// The Changed list's rows when last logged (the log says when they change).
     changed_logged: Option<Vec<RowId>>,
+}
+
+impl PauseView {
+    /// The settings page's window's lines: as set this frame ([`PauseView::set_lines`]), else
+    /// the layout's.
+    fn lines(&self) -> usize {
+        if self.lines == 0 {
+            window_lines()
+        } else {
+            self.lines
+        }
+    }
+
+    /// The window's lines from the layout, before the keys and the pointer are read; a new
+    /// count is logged, and the first line shown is brought into the new window by
+    /// `settings_now` (`settings_view::follow`) [design: #2377].
+    fn set_lines(&mut self) {
+        let lines = window_lines();
+        if lines != self.lines {
+            info!("pause menu: settings window of {lines} lines");
+            self.lines = lines;
+            // A drag of the scroll bar's marker was for the window before.
+            self.bar_dragging = false;
+        }
+    }
 }
 
 /// The settings page's search (module notes) [design: #1953].
@@ -1163,6 +1201,8 @@ struct Drawn {
     vertical: f32,
     /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
+    /// The settings page's window's lines ([`PauseView::lines`]).
+    lines: usize,
     /// The list rows: each one's row, choices and chosen one.
     lists: Vec<(usize, Vec<String>, String)>,
     /// The list rows that show their choices by other words or hold some out of reach
@@ -1247,8 +1287,20 @@ struct Window {
     row: f32,
 }
 
-/// The settings page's (and the Controls tab's) window of rows.
-const SETTINGS_WINDOW: Window = Window { shown: OPTION_ROWS, row: OPTION_ROW };
+/// How many lines the settings page's window shows at once (headings count): as many as fit
+/// between the rows' top and a note of [`NOTE_LINES`] lines over [`REPORT_TOP`], at least
+/// one; 12 with today's layout [design: #2377]. Worked out here only and carried as a value
+/// ([`PauseView::lines`], [`Drawn::lines`]) to everything that draws, scrolls or points at
+/// the window, so a later layout can make it depend on the view.
+fn window_lines() -> usize {
+    let room = REPORT_TOP - OPTIONS_TOP - NOTE_GAP - NOTE_LINES as f32 * NOTE_STEP;
+    ((room / OPTION_ROW).floor().max(1.0)) as usize
+}
+
+/// The settings page's (and the Controls tab's) window of `lines` rows.
+fn settings_window(lines: usize) -> Window {
+    Window { shown: lines.max(1), row: OPTION_ROW }
+}
 /// The load page's window of saves.
 const LOAD_WINDOW: Window = Window { shown: LOAD_ROWS, row: ITEM };
 
@@ -1259,22 +1311,26 @@ impl Window {
     }
 
     /// The scroll bar's marker for a list of `rows` from `first`: its top in the track
-    /// and its height, or `None` when all the rows fit.
+    /// and its height, or `None` when all the rows fit. A track shorter than the marker's
+    /// least height (a window of a line or two) is filled by the marker, which then stays
+    /// at the top.
     fn marker(self, rows: usize, first: usize) -> Option<(f32, f32)> {
         let last = rows.checked_sub(self.shown).filter(|l| *l > 0)?;
-        let track = self.track();
-        let h = (track * self.shown as f32 / rows as f32).clamp(BAR_MARKER_MIN, track);
-        Some((first.min(last) as f32 / last as f32 * (track - h), h))
+        let track = self.track().max(0.0);
+        let h = (track * self.shown as f32 / rows as f32).max(BAR_MARKER_MIN.min(track)).min(track);
+        let travel = track - h;
+        Some((if travel > 0.0 { first.min(last) as f32 / last as f32 * travel } else { 0.0 }, h))
     }
 
     /// The first row shown with the marker's middle at `y` down the track (0 its top, 1
-    /// its bottom).
+    /// its bottom); with no room for the marker to move, `y` as a part of the list.
     fn first_at(self, rows: usize, y: f32) -> usize {
         let Some((_, h)) = self.marker(rows, 0) else { return 0 };
         let last = rows - self.shown;
-        let track = self.track();
-        let at = ((y * track - h / 2.0) / (track - h)).clamp(0.0, 1.0);
-        ((at * last as f32).round() as usize).min(last)
+        let track = self.track().max(0.0);
+        let travel = track - h;
+        let at = if travel > 0.0 { (y * track - h / 2.0) / travel } else { y };
+        ((at.clamp(0.0, 1.0) * last as f32).round() as usize).min(last)
     }
 
     /// Row `i` of a list shown from `first` is in the window (a row the pointer can take).
@@ -1578,7 +1634,7 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
 struct KeepLine;
 
 /// The settings page (module notes): the rail left of the column, the heading links over
-/// the rows, the listed lines (headings and rows) in a window of [`OPTION_ROWS`] round the
+/// the rows, the listed lines (headings and rows) in a window of [`Drawn::lines`] round the
 /// chosen row, the chosen row's note under them, the version at the bottom left.
 fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: Option<RowId>, left: f32, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
@@ -1595,9 +1651,10 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         search_line(root, f, query, *typing, left, links - 10.0 - left);
     }
     let crumbs = !matches!(d.scope, SettingsScope::Tab(_));
-    let first = d.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    let drawn = crate::settings_view::drawn_slots(entries, first);
-    scroll_bar(root, look, entries.len(), first, top, left);
+    let lines = d.lines.max(1);
+    let first = d.scroll.min(entries.len().saturating_sub(lines));
+    let drawn = crate::settings_view::drawn_slots(entries, first, lines);
+    scroll_bar(root, look, entries.len(), first, top, left, lines);
     for (n, k) in drawn.clone().enumerate() {
         let y = top + n as f32 * OPTION_ROW;
         match entries[k] {
@@ -1613,8 +1670,8 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         None => selected.map_or_else(String::new, |id| note_of(list, id, d)),
     };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
-    let shown = (entries.len() - first.min(entries.len())).min(OPTION_ROWS) as f32;
-    note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
+    let shown = (entries.len() - first.min(entries.len())).min(lines) as f32;
+    note_lines(root, f, &note, left, top + shown * OPTION_ROW + NOTE_GAP);
     version(root, f);
     // The open dropdown over the rows under its own (over those above near the bottom).
     let Some((o, names)) = d.dropdown.and_then(|o| Some((o, d.list(o.row)?.0))) else { return };
@@ -1862,7 +1919,7 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
 }
 
 /// The note under the settings page's rows from `top`, wrapped to the rows' width and cut
-/// to the lines that fit above [`NOTE_BOTTOM`].
+/// to the lines that are drawn ([`note_fit`]).
 fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32, top: f32) {
     let width = OPTIONS_WIDTH - 20.0;
     let lines = f.small.font.lines(note, Some(width));
@@ -1875,9 +1932,10 @@ fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32,
     });
 }
 
-/// How many of a note's `lines` fit from `top` above [`NOTE_BOTTOM`].
+/// How many of a note's `lines` are drawn from `top`: at most [`NOTE_LINES`], and only those
+/// above [`NOTE_BOTTOM`].
 fn note_fit(lines: usize, top: f32) -> usize {
-    lines.min(((NOTE_BOTTOM - top) / NOTE_STEP).max(0.0) as usize)
+    lines.min(NOTE_LINES).min(((NOTE_BOTTOM - top) / NOTE_STEP).max(0.0) as usize)
 }
 
 /// The rail's width: its widest line's, translated ([`rail_column`]).
@@ -1904,10 +1962,11 @@ fn options_left(view_w: f32, tabs_w: f32) -> f32 {
     OPTIONS_LEFT.min(clear).max(BAND_MARGIN - half)
 }
 
-/// The settings page's scroll bar, right of its rows.
-fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, left: f32) {
-    let bar = from_middle(left + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, SETTINGS_WINDOW.shown as f32 * SETTINGS_WINDOW.row);
-    window_bar(root, look, rows, first, SETTINGS_WINDOW, bar);
+/// The settings page's scroll bar, right of its window of `lines` rows.
+fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, left: f32, lines: usize) {
+    let w = settings_window(lines);
+    let bar = from_middle(left + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, w.shown as f32 * w.row);
+    window_bar(root, look, rows, first, w, bar);
 }
 
 /// A list's scroll bar in `bar` when not all `rows` fit in `w`, from `first`: its arrows
@@ -1944,7 +2003,7 @@ fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
 fn report_entry(root: &mut ChildSpawnerCommands, f: &Faces, hovered: bool, glyphs: &crate::pad::PadGlyphs) {
     let label = tr(REPORT_LABEL);
     let w = crate::pad::hint_width(&f.entry, label, glyphs) + 20.0;
-    let node = Node { position_type: PositionType::Absolute, left: u(20.0), top: u(960.0 - 60.0 - ITEM), width: u(w), height: u(ITEM), ..default() };
+    let node = Node { position_type: PositionType::Absolute, left: u(20.0), top: u(REPORT_TOP), width: u(w), height: u(ITEM), ..default() };
     let look = if hovered { BoxLook::Outline } else { BoxLook::None };
     right_entry_look(root, &f.entry, label, node, w, if hovered { Shade::Bright } else { Shade::Dim }, look, PauseButton::Report, glyphs);
 }
@@ -2675,8 +2734,9 @@ fn log_layout(list: &[Setting], layout: &ResolvedLayout) {
 
 /// `inspect`: what the settings page lists and shows (module notes).
 fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entries: &[ViewEntry], rail: &[RailItem], controller: bool) {
-    let first = view.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    let drawn = crate::settings_view::drawn_slots(entries, first);
+    let lines = view.lines();
+    let first = view.scroll.min(entries.len().saturating_sub(lines));
+    let drawn = crate::settings_view::drawn_slots(entries, first, lines);
     let focus = match view.focus {
         SettingsFocus::Rows => "rows".to_string(),
         SettingsFocus::Rail(r) => format!("rail ({})", r.name()),
@@ -2684,6 +2744,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     };
     let chosen = selected.map_or_else(|| "none".to_string(), |id| id.name(list));
     info!("pause menu: inspect: {}, keys on the {focus}, selected {chosen}, lines {}-{} of {}", view.scope.name(), drawn.start + usize::from(!drawn.is_empty()), drawn.end, entries.len());
+    info!("pause menu: inspect: window {lines} lines, {} drawn", drawn.len());
     let line = |e: &ViewEntry| match e {
         ViewEntry::Heading(p) => format!("[{}]", p.path()),
         ViewEntry::Row(id) => id.name(list),
@@ -2756,6 +2817,8 @@ fn choose(
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
         return;
     }
+    view.set_lines();
+    let lines = view.lines();
     // Under the main menu the first page is the main menu's own (`crate::main_menu`): its
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
@@ -3152,7 +3215,7 @@ fn choose(
     // left over from the window before (or one drawn past it) never moves the window or
     // takes a press.
     let load_first = view.scroll.min(menu.list.saves.len().saturating_sub(LOAD_WINDOW.shown));
-    let drawn = sv::drawn_slots(&rows, view.scroll.min(rows.len().saturating_sub(OPTION_ROWS)));
+    let drawn = sv::drawn_slots(&rows, view.scroll.min(rows.len().saturating_sub(lines)), lines);
     let on_settings = matches!(*page, Page::Settings { .. });
     let on_load = matches!(*page, Page::Load { .. });
     let in_window = |b: &PauseButton| match b {
@@ -3817,7 +3880,7 @@ fn choose(
     // window; else the window follows the choice (the keys'; the pointer takes only rows in
     // the window, so it never moves it).
     let window = match *page {
-        Page::Settings { .. } => Some((rows.len(), SETTINGS_WINDOW)),
+        Page::Settings { .. } => Some((rows.len(), settings_window(lines))),
         Page::Load { .. } if view.delete_ask.is_none() => Some((menu.list.saves.len(), LOAD_WINDOW)),
         Page::Load { selected } => {
             view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
@@ -3856,11 +3919,11 @@ fn choose(
         }
         match &mut *page {
             Page::Settings { selected } if scrolled => {
-                *selected = sv::clamp_into_window(&rows, first, *selected);
+                *selected = sv::clamp_into_window(&rows, first, *selected, w.shown);
                 view.followed = *selected;
             }
             Page::Settings { selected } => {
-                first = sv::window_first(&rows, first, *selected, view.followed);
+                first = sv::window_first(&rows, first, *selected, view.followed, w.shown);
                 view.followed = *selected;
             }
             Page::Load { selected } if scrolled => *selected = (*selected).clamp(first, (first + w.shown).min(n) - 1),
@@ -4055,9 +4118,11 @@ fn settings_now(world: &mut World, list: &[Setting], selected: Option<RowId>) ->
     } else {
         view.changed_logged = None;
     }
+    view.set_lines();
+    let lines = view.lines();
     let at = sel.and_then(|id| sv::slot_of(&entries, id));
-    let first = view.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    view.scroll = if at.is_some_and(|k| !sv::drawn_slots(&entries, first).contains(&k)) { sv::follow(&entries, first, at) } else { first };
+    let first = view.scroll.min(entries.len().saturating_sub(lines));
+    view.scroll = if at.is_some_and(|k| !sv::drawn_slots(&entries, first, lines).contains(&k)) { sv::follow(&entries, first, at, lines) } else { first };
     if view.dropdown.is_some_and(|o| sv::slot_of(&entries, RowId::Setting(o.row)).is_none()) {
         view.dropdown = None;
     }
@@ -4167,6 +4232,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
         vertical: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.vertical_sensitivity()),
         scroll: view.scroll,
+        lines: view.lines(),
         lists,
         looks,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
@@ -4552,11 +4618,16 @@ mod tests {
         // Wide views keep the old place; a 4:3 view keeps the band on it.
         assert_eq!(options_left(2240.0, 220.0), OPTIONS_LEFT);
         assert_eq!(options_left(1280.0, 220.0), BAND_MARGIN - 640.0);
-        // Nine rows and a note of up to eleven lines fit above the version's line.
-        let note_top = OPTIONS_TOP + OPTION_ROWS as f32 * OPTION_ROW + 20.0;
-        assert_eq!(note_fit(4, note_top), 4);
-        assert_eq!(note_fit(30, note_top), 11);
-        assert!(note_top + 11.0 * NOTE_STEP <= NOTE_BOTTOM && NOTE_BOTTOM < 960.0);
+        // The window's lines (12 today) and a note of three lines fit above "Report a bug"
+        // and the version's line, and one more line would not (#2377).
+        let lines = window_lines();
+        assert_eq!(lines, 12);
+        let note_top = OPTIONS_TOP + lines as f32 * OPTION_ROW + NOTE_GAP;
+        assert_eq!(note_fit(2, note_top), 2);
+        assert_eq!(note_fit(30, note_top), NOTE_LINES);
+        assert_eq!(note_fit(30, OPTIONS_TOP + NOTE_GAP), NOTE_LINES, "a short list's note is no longer either");
+        assert!(note_top + NOTE_LINES as f32 * NOTE_STEP <= REPORT_TOP && REPORT_TOP < NOTE_BOTTOM && NOTE_BOTTOM < 960.0);
+        assert!(note_top + OPTION_ROW + NOTE_LINES as f32 * NOTE_STEP > REPORT_TOP, "a 13th line would leave no room for the note");
     }
 
     /// The systems that read or write the world aids' clock (directly or through
@@ -5227,32 +5298,51 @@ mod tests {
     fn the_window_moves_only_as_far_as_keeps_the_choice_in_view() {
         // A list of rows without headings (the Controls tab's): as before #1953.
         let e: Vec<ViewEntry> = (0..20).map(|i| ViewEntry::Row(RowId::Setting(i))).collect();
-        let follow = |first, sel| crate::settings_view::follow(&e, first, Some(sel));
-        // Down past the window's foot: it moves one row; back up inside it: it stays.
-        assert_eq!(follow(0, 8), 0);
-        assert_eq!(follow(0, 9), 1);
-        assert_eq!(follow(1, 5), 1);
-        assert_eq!(follow(5, 2), 2);
-        // Never past the last full window, nor anywhere when all rows fit.
-        assert_eq!(follow(15, 19), 11);
-        assert_eq!(crate::settings_view::follow(&e[..6], 3, Some(2)), 0);
+        for lines in [9, window_lines()] {
+            let follow = |first, sel| crate::settings_view::follow(&e, first, Some(sel), lines);
+            // Down past the window's foot: it moves one row; back up inside it: it stays.
+            assert_eq!(follow(0, lines - 1), 0);
+            assert_eq!(follow(0, lines), 1);
+            assert_eq!(follow(1, 5), 1);
+            assert_eq!(follow(5, 2), 2);
+            // Never past the last full window, nor anywhere when all rows fit.
+            assert_eq!(follow(15, 19), 20 - lines);
+            assert_eq!(crate::settings_view::follow(&e[..6], 3, Some(2), lines), 0);
+        }
     }
 
     #[test]
     fn the_scroll_bar_shows_only_when_rows_are_hidden_and_its_marker_follows_the_list() {
-        let w = SETTINGS_WINDOW;
-        assert_eq!(w.marker(9, 0), None);
-        assert_eq!(w.marker(4, 0), None);
-        let (top, h) = w.marker(30, 0).unwrap();
-        assert_eq!(top, 0.0);
-        assert!((h - w.track() * 9.0 / 30.0).abs() < 1e-3);
-        let (end, _) = w.marker(30, 21).unwrap();
-        assert!((end + h - w.track()).abs() < 1e-3);
-        // A press at the track's ends scrolls to the list's ends, its middle halfway.
-        assert_eq!(w.first_at(30, 0.0), 0);
-        assert_eq!(w.first_at(30, 1.0), 21);
-        assert_eq!(w.first_at(30, 0.5), 11);
-        assert_eq!(w.first_at(5, 0.7), 0);
+        for lines in [9, window_lines()] {
+            let w = settings_window(lines);
+            assert_eq!(w.marker(lines, 0), None);
+            assert_eq!(w.marker(4, 0), None);
+            let (top, h) = w.marker(30, 0).unwrap();
+            assert_eq!(top, 0.0);
+            assert!((h - w.track() * lines as f32 / 30.0).abs() < 1e-3);
+            let last = 30 - lines;
+            let (end, _) = w.marker(30, last).unwrap();
+            assert!((end + h - w.track()).abs() < 1e-3);
+            // A press at the track's ends scrolls to the list's ends, its middle halfway.
+            assert_eq!(w.first_at(30, 0.0), 0);
+            assert_eq!(w.first_at(30, 1.0), last);
+            assert_eq!(w.first_at(30, 0.5), (last as f32 / 2.0).round() as usize);
+            assert_eq!(w.first_at(5, 0.7), 0);
+        }
+        // A window of a line or two: the track is shorter than the marker's least height
+        // (or none); the marker fills it and a press still picks a place in the list.
+        for lines in [1, 2] {
+            let w = settings_window(lines);
+            let (top, h) = w.marker(30, 10).unwrap();
+            assert!(h > 0.0 && top >= 0.0 && top + h <= w.track() + 1e-3, "{lines}: {top} {h} in {}", w.track());
+            if lines == 1 {
+                assert!(top == 0.0 && (h - w.track()).abs() < 1e-3, "one line: a 20-unit track, the marker fills it");
+            }
+            assert_eq!(w.first_at(30, 0.0), 0);
+            assert_eq!(w.first_at(30, 1.0), 30 - lines);
+            assert!(w.first_at(30, 0.5) <= 30 - lines);
+        }
+        assert_eq!(settings_window(0).shown, 1, "never a window of no lines");
         // The load page's bar shows past eight saves and reaches the last eight.
         assert_eq!(LOAD_WINDOW.marker(8, 0), None);
         assert!(LOAD_WINDOW.marker(21, 0).is_some());
@@ -5264,7 +5354,8 @@ mod tests {
         // Rows 5-12 shown: a row drawn before the window moved (4 or 13) is not taken.
         assert!(LOAD_WINDOW.holds(5, 5) && LOAD_WINDOW.holds(5, 12));
         assert!(!LOAD_WINDOW.holds(5, 4) && !LOAD_WINDOW.holds(5, 13));
-        assert!(SETTINGS_WINDOW.holds(0, 8) && !SETTINGS_WINDOW.holds(0, 9));
+        let w = settings_window(window_lines());
+        assert!(w.holds(0, w.shown - 1) && !w.holds(0, w.shown));
     }
 
     #[test]
