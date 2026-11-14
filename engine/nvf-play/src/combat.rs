@@ -212,11 +212,13 @@ pub struct WeaponAnim {
     /// Counted up by the body when the attack clip of the rig in view passes its
     /// `Eject` key; combat throws a casing from [`Self::casing`] then.
     pub ejects: u32,
-    /// Set by combat: the weapon in hand has nothing loaded for its next shot and no
-    /// reload is under way (`fnv_combat::attack::Cycle::empty`). The body does not draw
-    /// the round seen in the weapon then (`##NifRound`: the missile launcher's missile,
-    /// the Fat Man's mini nuke), which the first-person aim clips show (#2470).
-    pub empty: bool,
+    /// Set by combat after the frame's shot, reload and refills ([`publish_empty`]): the
+    /// weapon in hand when it has nothing loaded for its next shot and no reload is under
+    /// way (`fnv_combat::attack::Cycle::empty`); `None` otherwise. The body does not draw
+    /// the round seen in that weapon (`##NifRound`: the missile launcher's missile, the
+    /// Fat Man's mini nuke), which the first-person aim clips show (#2470), and only on
+    /// the model of this weapon: another weapon drawn is never taken for empty.
+    pub empty: Option<FormId>,
 }
 
 /// The player fired a shot this frame: the PROJ it fires. The renderer shows the
@@ -1305,6 +1307,12 @@ impl Combat {
         Some(if self.equipped.flatten() == Some(id) && self.mods != 0 { w.modded(self.mods) } else { w.clone() })
     }
 
+    /// The weapon in hand when it has nothing loaded and no reload is under way
+    /// (`fnv_combat::attack::Cycle::empty`, [`WeaponAnim::empty`]).
+    pub fn empty_weapon(&self) -> Option<FormId> {
+        self.weapon.filter(|_| self.cycle.as_ref().is_some_and(Cycle::empty))
+    }
+
     /// The Fists (WEAP `Fists`), the unarmed weapon.
     pub fn fists_id(&self) -> Option<FormId> {
         self.fists
@@ -1601,7 +1609,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, (fire, publish_empty).chain(), melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, watch_hit_effects, leave_space_shots).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -2773,6 +2781,16 @@ fn weapon_sounds(
     }
 }
 
+/// Tell the body whether the weapon in hand is empty ([`WeaponAnim::empty`]), from the
+/// cycle as [`fire`] left it this frame: after its shot, its reload's end, a magazine
+/// following the inventory and god mode's refill.
+fn publish_empty(c: Res<Combat>, mut anim: ResMut<WeaponAnim>) {
+    let empty = c.empty_weapon();
+    if anim.empty != empty {
+        anim.empty = empty;
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn fire(
     time: Res<Time>,
@@ -2833,8 +2851,6 @@ pub(crate) fn fire(
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
     // those made with no gun out (or for other actors) do not pile up or fire later.
     let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
-    // The body hides the round in an empty weapon (`WeaponAnim::empty`).
-    anim.empty = c.cycle.as_ref().is_some_and(Cycle::empty);
     if c.melee {
         c.vats_cone = None;
         return;
@@ -5400,6 +5416,133 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
         assert_eq!(app.world().resource::<CombatStats>().swings, 1);
+    }
+
+    /// The missile launcher and the Fat Man, their ammo, and an app running the
+    /// player's `fire` and [`publish_empty`] chained as the plugin chains them, over a
+    /// simulation whose player carries `missiles` of the launcher's ammo and one mini
+    /// nuke, with the launcher in hand and `loaded` rounds in it (#2470).
+    const LAUNCHER: FormId = FormId(0x4340);
+    const MISSILE: FormId = FormId(0x29383);
+    const FAT_MAN: FormId = FormId(0x432C);
+    const NUKE: FormId = FormId(0x20799);
+
+    fn one_round() -> WeaponStats {
+        WeaponStats { clip_size: 1, ammo_use: 1, attack_mult: 1.0, anim_mult: 1.0, attack_shots_per_sec: 1.0, anim_type: Some("Launcher (2 Hand)".into()), ..WeaponStats::default() }
+    }
+
+    fn launcher_app(missiles: i32, loaded: u32) -> App {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm, Item, ItemKind};
+        let item = |id: FormId| BaseForm {
+            id,
+            sig: *b"AMMO",
+            edid: None,
+            name: None,
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Item(Item { kind: ItemKind::Ammo, value: Some(1), money: None, weight: Some(0.0), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false, weapon_traits: None }),
+        };
+        let mut forms = fnv_sim::FormStore::default();
+        let player = BaseForm { id: FormId::PLAYER_BASE, sig: *b"NPC_", edid: None, name: Some("Courier".into()), script: None, prompt: None, voice_filter: false, data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None }) };
+        for b in [player, item(MISSILE), item(NUKE)] {
+            forms.bases.insert(b.id, b);
+        }
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(forms));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default()) };
+        if missiles > 0 {
+            sim.world.add_item(FormId::PLAYER_REF, MISSILE, missiles).unwrap();
+        }
+        sim.world.add_item(FormId::PLAYER_REF, NUKE, 1).unwrap();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(50)))
+            .insert_resource(sim)
+            .insert_resource(PlayWorld(crate::PlayData {
+                lo: Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).unwrap())), schema: Box::leak(Box::default()), index: Box::leak(Box::default()),
+                world: 1, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false, packages: false,
+            }))
+            .insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+            .init_resource::<PhysState>().init_resource::<PlayerControl>().init_resource::<WeaponAnim>()
+            .init_resource::<CombatStats>().init_resource::<PlayerLimbs>()
+            .add_message::<ShotFired>().add_message::<PlaySound>().add_message::<CasingFx>().add_message::<LoopSound>()
+            .add_systems(Startup, init_combat)
+            .add_systems(Update, (fire, publish_empty).chain());
+        app.update();
+        let timing = Timing::of(&one_round(), &ClipTiming::default(), &CombatTuning::default());
+        {
+            let mut c = app.world_mut().resource_mut::<Combat>();
+            c.forms.weapons.insert(LAUNCHER, one_round());
+            c.forms.weapons.insert(FAT_MAN, one_round());
+            c.weapon = Some(LAUNCHER);
+            c.ammo = Some(MISSILE);
+            c.cycle = Some(Cycle::new(&one_round(), timing, false, loaded));
+        }
+        app.world_mut().resource_mut::<WeaponAnim>().ready = true;
+        app
+    }
+
+    fn published(app: &App) -> Option<FormId> {
+        app.world().resource::<WeaponAnim>().empty
+    }
+
+    #[test]
+    fn god_mode_refilling_an_empty_launcher_is_published_in_the_same_frame() {
+        let mut app = launcher_app(2, 0);
+        app.update();
+        assert_eq!(published(&app), Some(LAUNCHER), "fired, nothing loaded");
+        // God mode fills the magazine inside `fire`; what the body reads is the cycle
+        // after that, not before it.
+        set_god_mode(true);
+        app.update();
+        let after = published(&app);
+        let magazine = app.world().resource::<Combat>().cycle.as_ref().map(|c| c.magazine);
+        set_god_mode(false);
+        assert_eq!(magazine, Some(1));
+        assert_eq!(after, None, "refilled this frame: not empty");
+    }
+
+    #[test]
+    fn a_reload_finishing_is_published_as_loaded_and_stays_so() {
+        let mut app = launcher_app(2, 0);
+        app.update();
+        assert_eq!(published(&app), Some(LAUNCHER));
+        // A reload under way (as a pull on the empty launcher starts one): not empty
+        // while its clip plays, and loaded from the frame it ends.
+        app.world_mut().resource_mut::<Combat>().cycle.as_mut().unwrap().phase = Phase::Reloading { left: 0.12 };
+        for _ in 0..2 {
+            app.update();
+            assert!(app.world().resource::<Combat>().cycle.as_ref().unwrap().reloading());
+            assert_eq!(published(&app), None, "reloading");
+        }
+        app.update();
+        let c = app.world().resource::<Combat>();
+        assert!(!c.cycle.as_ref().unwrap().reloading());
+        assert_eq!(c.cycle.as_ref().map(|c| c.magazine), Some(1), "the reload took a missile");
+        assert_eq!(published(&app), None, "loaded");
+        app.update();
+        assert_eq!(published(&app), None, "and stays loaded");
+    }
+
+    #[test]
+    fn switching_from_an_empty_launcher_to_a_loaded_fat_man_clears_the_flag() {
+        // Nothing carried: the launcher stays empty.
+        let mut app = launcher_app(0, 0);
+        app.update();
+        assert_eq!(published(&app), Some(LAUNCHER));
+        // The Fat Man comes into the hand loaded (as the equip sync leaves it): the flag
+        // is not left naming anything, and never names the Fat Man.
+        {
+            let timing = Timing::of(&one_round(), &ClipTiming::default(), &CombatTuning::default());
+            let mut c = app.world_mut().resource_mut::<Combat>();
+            c.weapon = Some(FAT_MAN);
+            c.ammo = Some(NUKE);
+            c.cycle = Some(Cycle::new(&one_round(), timing, false, 1));
+        }
+        app.update();
+        assert_eq!(published(&app), None);
+        assert_eq!(app.world().resource::<Combat>().cycle.as_ref().map(|c| c.magazine), Some(1));
     }
 
     #[test]

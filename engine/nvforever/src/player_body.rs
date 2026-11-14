@@ -496,6 +496,13 @@ fn part_shown(never: bool, tags: &[(String, bool)], empty: bool) -> bool {
     !never && tags.iter().all(|(name, on)| *on && !(empty && name.eq_ignore_ascii_case(ROUND_NODE)))
 }
 
+/// Whether the weapon drawn (`drawn`, the model's weapon) is the empty one combat names
+/// (`WeaponAnim::empty`): a flag for another weapon, or none, is "loaded" [design: a
+/// loaded weapon is never hidden by a stale flag, #2470].
+fn drawn_empty(empty: Option<FormId>, drawn: Option<FormId>) -> bool {
+    empty.is_some() && empty == drawn
+}
+
 /// One skeleton with its parts, clips and weapon.
 struct Rig {
     view: View,
@@ -2875,15 +2882,18 @@ fn drive_body(
 
     // The weapon nodes' parents, and the weapon parts the clips show or hide (a part
     // no playing clip speaks for stays as it was), less the round of an empty weapon.
+    // Combat's flag counts only for the weapon whose model is drawn (`m.weapon`): a flag
+    // left from the launcher just put away never hides a loaded Fat Man's mini nuke.
+    let empty = drawn_empty(anim.empty, m.weapon);
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
-        let held = anim.empty && rig.weapon_parts.iter().any(|p| p.tags.iter().any(|(n, _)| n.eq_ignore_ascii_case(ROUND_NODE)));
+        let held = empty && rig.weapon_parts.iter().any(|p| p.tags.iter().any(|(n, _)| n.eq_ignore_ascii_case(ROUND_NODE)));
         for p in &mut rig.weapon_parts {
             for (tag, on) in &mut p.tags {
                 if let Some(v) = rig.animator.visible(tag) {
                     *on = v;
                 }
             }
-            let shown = part_shown(p.never, &p.tags, anim.empty);
+            let shown = part_shown(p.never, &p.tags, empty);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
@@ -3025,6 +3035,22 @@ mod tests {
         // The name as the files spell it, in any case; a part never shown stays hidden.
         assert!(!part_shown(false, &[tag("##nifround", true)], true));
         assert!(!part_shown(true, &barrel, false));
+    }
+
+    #[test]
+    fn a_flag_for_another_weapon_never_hides_the_drawn_ones_round() {
+        let (launcher, fat_man) = (Some(FormId(0x4340)), Some(FormId(0x432C)));
+        let nuke = vec![("##NifRound".to_string(), true)];
+        // The empty launcher drawn: its missile is not.
+        assert!(drawn_empty(launcher, launcher));
+        assert!(!part_shown(false, &nuke, drawn_empty(launcher, launcher)));
+        // Switched to a loaded Fat Man: the body runs before combat, so for a frame the
+        // flag still names the launcher; the Fat Man's mini nuke shows all the same.
+        assert!(!drawn_empty(launcher, fat_man));
+        assert!(part_shown(false, &nuke, drawn_empty(launcher, fat_man)));
+        // No flag, or no weapon drawn: loaded.
+        assert!(!drawn_empty(None, launcher));
+        assert!(!drawn_empty(None, None));
     }
 
     #[test]
