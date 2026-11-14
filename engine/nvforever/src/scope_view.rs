@@ -357,8 +357,10 @@ fn lens_camera(
 }
 
 /// Hold the night-vision scope's modifier on the screen while it gives night vision.
-fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool, bool)>) {
-    let night = sky.as_deref().is_some_and(|s| s.interior.is_some() || is_night(s.hour, s.climate.sunrise.0, s.climate.sunset.1));
+fn night_vision(scope: Res<Scope>, sky: Option<Res<SkyState>>, world: Option<Res<WorldData>>, mut mods: ResMut<ScreenModifiers>, mut state: Local<(Option<Option<u32>>, bool, bool)>, tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>) {
+    // The player's Night Vision Toggle tweak's By Day Too [design: docs/design/tweaks.md].
+    let by_day = tweaks.as_ref().is_some_and(|t| t.night_vision_toggle && t.night_vision_by_day);
+    let night = by_day || sky.as_deref().is_some_and(|s| s.interior.is_some() || is_night(s.hour, s.climate.sunrise.0, s.climate.sunset.1));
     let on = scope.on && scope.night_vision && night;
     // A 3D scope gives its night vision in the lens only [design].
     let lens = on && scope.lens_3d;

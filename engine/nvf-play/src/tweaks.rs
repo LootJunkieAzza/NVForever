@@ -563,6 +563,12 @@ pub struct TweakSettings {
     /// `bVATSStopFollowingDeadTargets`: a kill camera stops following its target once it
     /// is dead.
     pub vats_stop_following_dead: bool,
+    /// `bAddNightVisionToggle` (`bDisableVisionByDefault`, `bAllowNightVisionDuringDay`):
+    /// the light's key switches a night-vision scope's night vision; off until switched
+    /// on; by day too.
+    pub night_vision_toggle: bool,
+    pub night_vision_off_first: bool,
+    pub night_vision_by_day: bool,
     pub weather_trip_distance: f32,
     /// `bCustomLocationDiscoveredSound` (`sEditorID`): the sound a discovered place plays,
     /// by Editor ID; empty: the game's own.
@@ -939,6 +945,9 @@ impl Default for TweakSettings {
             double_tap_ammo: false,
             improved_weather: false,
             vats_stop_following_dead: false,
+            night_vision_toggle: false,
+            night_vision_off_first: false,
+            night_vision_by_day: false,
             weather_trip_distance: 30000.0,
             discovered_sound: String::new(),
             level_sound_every_a: 0.0,
@@ -2122,6 +2131,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second, the wait for a second tap. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
         switch!(app, "improved-weather", "Improved Weather", "A short fast travel keeps the weather instead of rolling a new one for the trip. (Stewie's Tweaks bImprovedWeather)", improved_weather);
         switch!(app, "vats-stop-following-dead", "V.A.T.S. Stops Following the Dead", "A kill camera stops turning after its target once it is dead, holding where it last saw it alive. (Stewie's Tweaks bVATSStopFollowingDeadTargets)", vats_stop_following_dead);
+        switch!(app, "night-vision-toggle", "Night Vision Toggle", "With a night-vision scope up, the light's key (holding Tab, or its own key) switches the scope's night vision on and off. (Stewie's Tweaks bAddNightVisionToggle)", night_vision_toggle);
+        switch!(app, "night-vision-off-first", "Night Vision Toggle: Off Until Switched On", "A night-vision scope gives no night vision until you switch it on. (bDisableVisionByDefault)", night_vision_off_first);
+        switch!(app, "night-vision-by-day", "Night Vision Toggle: By Day Too", "A night-vision scope gives its night vision by day as well. (bAllowNightVisionDuringDay)", night_vision_by_day);
         amount!(app, "weather-trip-distance", "Improved Weather: Short Trip", "How far a fast travel may go and keep the weather, in game units (about 4,100 to a cell). (Stewie's Tweaks bImprovedWeather, fFastTravelWeatherChangeDistanceThreshold)", 100000.0, f32, weather_trip_distance);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);

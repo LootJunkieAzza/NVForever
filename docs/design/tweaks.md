@@ -644,6 +644,7 @@ unless the player binds them, so nothing changes until then.
 | Improved Weather | `bImprovedWeather` | `pipboy::data::travel::depart` sets `WeatherHold` for a short trip; nvforever `sky_follows_game` asks `SkyState::keep_weather_once`, and the next `follow_climate` keeps the weather. The switches: `TweakSettings::improved_weather`, `weather_trip_distance` |
 | V.A.T.S. Stops Following the Dead | `bVATSStopFollowingDeadTargets` | `kill_cam::update` leaves `show.seen` (the followed place) as it was once the target is dead. The switch: `TweakSettings::vats_stop_following_dead` |
 | Weapon Impact Effects | `bWeaponImpactEffects` | the projectile hit path in `combat.rs` picks the impact data set's metal impact for a hit on `hitvol::WEAPON_PART` and refuses its blood. The switch: `Tweaks::weapon_impacts` |
+| Night Vision Toggle | `bAddNightVisionToggle` | `flashlight::menu_key` switches `aim_zoom::switch_night_vision` while `night_scope_up`; `aim_zoom::zoom` gives the `Scope` night vision only when wanted; nvforever `scope_view::night_vision` counts day as night under By Day Too. The switches: `TweakSettings::night_vision_toggle`, `night_vision_off_first`, `night_vision_by_day` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -665,8 +666,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 580 |
-| to do | 14 |
+| done | 581 |
+| to do | 13 |
 | unsure, skipped | 24 |
 | n/a | 17 |
 | skipped: fix | 10 |
@@ -906,6 +907,7 @@ game's Data folder, read-only).
 | `bSkipIntroVideo` | done | yes |  | already so: the intro plays only after New Game and any key skips it |
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
 | `bActivatingDoesntStandUp` | done |  |  | Activate Doesn't Stand Up (moving already stood up) |
+| `bAddNightVisionToggle` | done |  | 4 | Night Vision Toggle (with Off Until Switched On and By Day Too): with a night-vision scope up, the light's key (holding Tab, or the Tweaks tab's light key; the original's iTogglePipboyLight) switches its night vision; the sounds options (sToggleOnSound, sToggleOffSound) are not built |
 | `bAllowActivateWhileAnimPlays` | done |  |  | already so: activating is never refused for a clip playing |
 | `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
 | `bAllowOpenPipboyDuringCameraShake` | done |  |  | already so: no camera shake blocks the Pip-Boy |
@@ -985,7 +987,6 @@ game's Data folder, read-only).
 | `bWeaponCycleUpDownHotkeys` | done |  |  | D-Pad Changes Weapon: with a controller the D-pad's right takes out the next hotkeyed weapon and its left the one before (the Mouse Wheel Changes Weapon stepping); while it is on, those two presses are not Ammo Swap and hotkey 4 |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
-| `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 

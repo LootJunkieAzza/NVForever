@@ -101,18 +101,29 @@ fn menu_key(
     mut hold: ResMut<MenuKeyHold>,
     mut light: ResMut<Flashlight>,
     mut inventory: MessageWriter<OpenInventory>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's Night Vision Toggle tweak: with a night-vision scope up, the light's
+    // key switches its night vision instead [design: docs/design/tweaks.md].
+    let nv = tweaks.as_ref().filter(|t| t.night_vision_toggle && crate::aim_zoom::night_scope_up()).map(|t| t.night_vision_off_first);
+    let toggle = |light: &mut Flashlight| match nv {
+        Some(off_first) => {
+            let on = crate::aim_zoom::switch_night_vision(off_first);
+            info!("scope: night vision switched {} (tweak)", if on { "on" } else { "off" });
+        }
+        None => light.toggle(),
+    };
     let playing = *state.get() == PlayState::Playing;
     match hold.step(input.pressed(Control::MenuMode), input.just_pressed(Control::MenuMode), time.delta_secs(), playing) {
         KeyOutcome::Nothing => {}
         KeyOutcome::OpenInventory => {
             inventory.write(OpenInventory);
         }
-        KeyOutcome::ToggleLight => light.toggle(),
+        KeyOutcome::ToggleLight => toggle(&mut light),
     }
     // The Tweaks tab's own light key [design: docs/design/tweaks.md].
     if playing && input.just_pressed(Control::ToggleLight) {
-        light.toggle();
+        toggle(&mut light);
     }
 }
 

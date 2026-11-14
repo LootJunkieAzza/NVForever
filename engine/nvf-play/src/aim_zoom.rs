@@ -91,6 +91,35 @@ pub fn zoomed_fov(base: f32, sight: f32, blend: f32) -> f32 {
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct TrueSights(pub bool);
 
+
+/// A night-vision scope is up now (whatever the player chose), for the flashlight's key
+/// under the player's Night Vision Toggle tweak (`crate::flashlight`).
+static NIGHT_SCOPE_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The player's choice under that tweak: 0 none yet, 1 on, 2 off.
+static NIGHT_VISION_CHOICE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Whether a night-vision scope is up.
+pub fn night_scope_up() -> bool {
+    NIGHT_SCOPE_UP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether the player wants the scope's night vision: as last switched, else on unless
+/// the tweak's Off Until Switched On is set.
+pub fn night_vision_wanted(off_first: bool) -> bool {
+    match NIGHT_VISION_CHOICE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => !off_first,
+    }
+}
+
+/// Switch the scope's night vision (the tweak); whether it is on now.
+pub fn switch_night_vision(off_first: bool) -> bool {
+    let on = !night_vision_wanted(off_first);
+    NIGHT_VISION_CHOICE.store(if on { 1 } else { 2 }, std::sync::atomic::Ordering::Relaxed);
+    on
+}
+
 /// The weapon's scope is up (weapon-scopes.md §2): a scoped gun aimed in first person and
 /// zoomed all the way to its Sight FOV.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
@@ -196,7 +225,12 @@ pub(crate) fn zoom(
     // The scope: up at full zoom in first person, down as soon as the aim is let go.
     let scoped = sight.filter(|_| !control.third_person_view()).and_then(|(w, deg)| {
         let stats = combat.as_deref()?.player_stats(w)?;
-        Some(Scope { on: true, weapon: Some(w), model: stats.scope_model().map(str::to_string), night_vision: stats.night_vision_scope(), sight_fov: deg, lens_3d: lens.on && lens.lens })
+        // The player's Night Vision Toggle tweak can switch the scope's night vision off
+        // [design: docs/design/tweaks.md].
+        let capable = stats.night_vision_scope();
+        NIGHT_SCOPE_UP.store(capable, std::sync::atomic::Ordering::Relaxed);
+        let wanted = !tweaks.as_ref().is_some_and(|t| t.night_vision_toggle) || night_vision_wanted(tweaks.as_ref().is_some_and(|t| t.night_vision_off_first));
+        Some(Scope { on: true, weapon: Some(w), model: stats.scope_model().map(str::to_string), night_vision: capable && wanted, sight_fov: deg, lens_3d: lens.on && lens.lens })
     });
     let scoped = scoped.filter(|s| s.model.is_some());
     // A 3D scope zooms the main view only a little, from the start of the aim.
