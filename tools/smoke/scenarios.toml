@@ -15606,11 +15606,11 @@ expect = [
 
 [[scenario]]
 name = "fuller-fire"
-source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) burns a volumetric flame in place of its flame squares (fire_volume.rs) and emits embers and ADDN 35's smoke made from the game's own systems (fuller_fire.rs; docs/design/graphics-enhanced.md §3.12). The Abandoned Shack's fire barrel burns ADDN 14"
+source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) burns a volumetric flame in place of its flame squares (fire_volume.rs) and emits embers and ADDN 35's smoke made from the game's own systems (fuller_fire.rs; docs/design/graphics-enhanced.md §3.12). Off by default since 2026-11-14 (a lit campfire powered off the owner's PC), so the run turns it on. The Abandoned Shack's fire barrel burns ADDN 14"
 areas = ["effects"]
 paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/fire_volume.rs", "engine/nvforever/src/fire_volume.wesl", "engine/nvforever/src/particles.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fuller_fire.png" }
-args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720", "--graphics-only", "fuller-fire"]
 run_seconds = 10
 manual = "fuller_fire.png: the barrel burns a volumetric flame with ragged tongues, embers rising over it"
 expect = [

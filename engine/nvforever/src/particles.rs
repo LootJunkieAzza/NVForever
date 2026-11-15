@@ -813,7 +813,7 @@ fn emit(
     body: Option<Res<crate::player_body::PlayerBody>>,
 ) {
     let Ok((root, root_t)) = root.single() else { return };
-    let fuller = graphics.as_ref().is_none_or(|g| g.fuller_fire);
+    let fuller = graphics.as_ref().is_some_and(|g| g.fuller_fire);
     // The camera in game space: emitters nearest it are served first.
     let eye = camera.single().ok().map(|c| Vec3A::from(root_t.compute_affine().inverse().transform_point3(c.translation)));
     let dt = time.delta_secs();
