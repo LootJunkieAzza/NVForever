@@ -695,7 +695,11 @@ fn update_grade(
         // orange"]: Dead Eye's grade. The classic style has no colour over the picture:
         // the fourth figure is how dark it goes instead (`vats_classic::DARKEN`; 0 for
         // the grade).
-        vats_tint: vats_tint(nvf_play::interface::AMBER_RGB).with_w(if vats.as_deref().is_some_and(|v| v.style() == nvf_play::vats_classic::VatsStyle::Classic) { nvf_play::vats_classic::DARKEN } else { 0.0 }),
+        // Only while classic VATS itself is on: a duel's swipe (the look above, when VATS
+        // mode gives none) is always the amber grade, whatever the VATS style, or the
+        // classic style's darkening (none at full strength, `DARKEN` 1) would hide it
+        // [ship20 playtest: no duel flash for host or guest].
+        vats_tint: vats_tint(nvf_play::interface::AMBER_RGB).with_w(if vats_look[3] > 0.0 && vats.as_deref().is_some_and(|v| v.style() == nvf_play::vats_classic::VatsStyle::Classic) { nvf_play::vats_classic::DARKEN } else { 0.0 }),
         dof: Vec4::new(dof.strength, dof.distance, dof.range, focus),
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
