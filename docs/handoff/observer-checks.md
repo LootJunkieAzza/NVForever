@@ -2064,7 +2064,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      FalloutNV.esm holds the wording of the item-added line [observed: no GMST whose
      Editor ID names adding or removing items, fnvtool esm inventory]. NVForever writes
      "<name> (<n>) added" for its own lines and, for a co-op guest, "<host> handed out
-     <name> (<n>)": one line per item for everything one network batch brings, the counts
+     <name> (<n>)": one line per item for the hand-outs taken until none has come for half a second, the counts
      added up, so Doc Mitchell's 25 single 9mm adds are one "9mm Round (25)" line
      (`nvf_play::coop_progress::gift_lines`) [design]. To check, in the original: on a
      new game, let Doc Mitchell hand over his gear at the exit (VCG01: 6 bobby pins, 4
