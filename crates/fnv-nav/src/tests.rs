@@ -424,6 +424,49 @@ fn routes_chain_interiors_and_worldspaces_and_respect_locks() {
     assert!(g.can_reach(from, to, &open));
 }
 
+/// A load door not in the world (disabled by a script or by its enable parent) is no way
+/// through, and the game's presence states brought in report what changed (issue #2566:
+/// Loyal put in the Nellis hangar behind a disabled door).
+#[test]
+fn disabled_load_doors_take_no_part_in_routes() {
+    let (a, b) = (Space::Interior(0xA), Space::Interior(0xB));
+    let spaces = [W, a, b];
+    let mut meshes: Vec<NavMeshRecord> = (0..3).map(|i| grid(10 + i as u32, [i as f32 * 10_000.0, 0.0], 4, 4, 100.0, &[], flat)).collect();
+    let corner = |m: &NavMeshRecord| {
+        let x0 = m.vertices[0][0];
+        (0..m.triangles.len()).find(|&t| m.triangles[t].v.iter().all(|&i| m.vertices[i as usize][0] >= x0 + 300.0 && m.vertices[i as usize][1] >= 300.0)).unwrap()
+    };
+    for (i, m) in meshes.iter_mut().enumerate().take(2) {
+        let t = corner(m);
+        m.door_links.push(DoorLink { door: 0xD0 + i as u32, triangle: t as u16 });
+    }
+    let input: Vec<_> = meshes.iter().zip(spaces).map(|(m, s)| (m, Some(0), Some(s))).collect();
+    let mut g = NavGraph::assemble(&input);
+    g.join_doors(&input, |door| {
+        let i = (door - 0xD0) as usize;
+        let next = (i + 1) as f32 * 10_000.0;
+        Some((0xE0 + i as u32, [next + 50.0, 50.0, 0.0], 0.0, spaces[i + 1]))
+    });
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: b, pos: [20_350.0, 350.0, 0.0] };
+    let p = PathParams::default();
+    assert_eq!(g.door_route(from, to, &p).unwrap().len(), 2);
+    // A's door on to B disabled: B is out of reach, A is not; a door the graph has no load
+    // door for is passed over.
+    let changes = g.sync_door_presence([(0xD0, true), (0xD1, false), (0xFF, false)]);
+    assert_eq!(changes, crate::graph::DoorPresenceChanges { gone: vec![0xD1], back: vec![] });
+    assert!(!g.disabled_doors.contains(&0xFF));
+    assert!(!g.can_reach(from, to, &p));
+    assert!(matches!(g.find_path(from, to, &p), Err(PathError::Unreachable { .. })));
+    assert!(g.can_reach(from, Place { space: a, pos: [10_200.0, 200.0, 0.0] }, &p));
+    // Not even an actor that opens every lock goes through it.
+    assert!(!g.can_reach(from, to, &PathParams { open_locked: true, ..Default::default() }));
+    assert!(g.sync_door_presence([(0xD1, false)]).is_empty(), "nothing new");
+    // Enabled again: the way is open and the door is reported.
+    assert_eq!(g.sync_door_presence([(0xD1, true)]).back, vec![0xD1]);
+    assert!(g.can_reach(from, to, &p));
+}
+
 #[test]
 fn walker_follows_the_surface_on_a_slope() {
     let slope = |x: f32, _y: f32| x * 0.25;

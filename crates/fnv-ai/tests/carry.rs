@@ -1009,6 +1009,34 @@ fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A load door the game disables (a script's Disable, an enable parent's) is no way: the
+/// actor sets its package aside rather than going through it. Enabled again, the graph
+/// learns it, the package is chosen again at once and the actor gets through
+/// (`Ai::apply_door_presence`; issue #2566, Loyal put behind a disabled Nellis hangar door).
+#[test]
+fn a_door_disabled_and_enabled_in_the_game_reaches_the_paths() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // The first poll learns the doors as they are, all there: nothing changed.
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None);
+    s.game.world.set_enabled(FormId(DOOR_A), false).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![]));
+    assert!(s.nav.disabled_doors.contains(&DOOR_A));
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None, "applied once");
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Enabled: the package is chosen again and the way is open.
+    s.game.world.set_enabled(FormId(DOOR_A), true).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![actor]));
+    assert!(!s.nav.disabled_doors.contains(&DOOR_A));
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?}", s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 /// A scripted door that does not let the actor through (its OnActivate block called no
 /// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
 /// actor comes near, it plans again without the door and, with no other way, sets the
@@ -3174,6 +3202,37 @@ fn a_rooted_actor_in_combat_turns_to_its_target_in_place() {
     assert!(off(heading).abs() < 0.05, "{heading} against {want}");
     assert_eq!(s.feet(R_TRAVEL), start);
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
+}
+
+/// A rooted actor given a script's UseWeapon (HELIOS One's ARCHIMEDES turret, #2544)
+/// uses it from where it stands: the use is in place at once, and it turns to the use's
+/// target, out of combat too, where it stays. Before, a rooted actor's use never got in
+/// place, so the engine's shooter never fired.
+#[test]
+fn a_rooted_actor_uses_a_weapon_from_where_it_stands_and_turns_to_the_target() {
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut s = sim(&f, &[R_LONER]);
+    let actor = FormId(R_LONER);
+    let start = s.feet(R_LONER);
+    s.ai.root(&s.game, actor);
+    let target = s.game.world.placed.get(FormId(R_HERE)).unwrap().pos;
+    let want = fnv_nav::follow::heading_of([target[0] - start[0], target[1] - start[1]]);
+    let off = |h: f32| (h - want + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    s.ai.agents.get_mut(&actor).unwrap().walker.heading = want + 2.5;
+    let opcode = s.game.data.table.by_name("UseWeapon").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let r = |x: u32| ArgValue::Value(Value::Ref(x));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    // As ARCHIMEDES's: the weapon, standing on itself, the target, one shot, always hit.
+    s.game.call_function(&ctx, &[r(STAT), r(R_LONER), r(R_HERE), n(1.0), n(0.0), n(0.0), n(1.0)]);
+    assert!(!s.game.awareness.state(actor).in_combat());
+    s.run(0.5);
+    assert!(s.game.weapon_use(actor).unwrap().in_place, "in place where it stands");
+    s.run(5.0);
+    let heading = s.ai.agents[&actor].walker.heading;
+    assert!(off(heading).abs() < 0.05, "{heading} against {want}");
+    assert_eq!(s.feet(R_LONER), start);
 }
 
 /// A rooted actor that never turns (an Immobile creature with a Turning Speed of 0, Mr.

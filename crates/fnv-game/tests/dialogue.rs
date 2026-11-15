@@ -60,6 +60,13 @@ const K_HELLO: u32 = 0xF46;
 const K_HELLO_PLAYER: u32 = 0xF48;
 const K_REPLY_TOPIC: u32 = 0xF49;
 const CONV: u8 = topic_type::CONVERSATION;
+/// #2548: a topic whose lines name Chatter as fixed speaker; one also tests the
+/// TestCrew faction on the subject (Talker is in it), the other nothing.
+const T_GROUP: u32 = 0x9F1;
+const GR_CREW: u32 = 0xF6E;
+const GR_FIXED: u32 = 0xF6F;
+const CREW: u32 = 0x9F0;
+const GET_IN_FACTION: u16 = 0x47;
 const T_SOURCE: u32 = 0x950;
 const T_SHARED: u32 = 0x951;
 const T_LINKS: u32 = 0x952;
@@ -357,7 +364,7 @@ fn plugin_bytes() -> Vec<u8> {
     let quests =
         [quest(QA, "QA", true, 50), quest(QHI, "QHi", true, 80), quest(QOFF, "QOff", false, 90), quest(QEQ, "QEq", true, 50), repeat_quest, tick_quest].concat();
     let npcs = [
-        record(b"NPC_", 0, NPC1, &[sub(b"EDID", z("Talker"))]),
+        record(b"NPC_", 0, NPC1, &[sub(b"EDID", z("Talker")), sub(b"SNAM", [&CREW.to_le_bytes()[..], &[0, 0, 0, 0]].concat())]),
         record(b"NPC_", 0, NPC2, &[sub(b"EDID", z("Chatter"))]),
     ]
     .concat();
@@ -664,6 +671,18 @@ fn plugin_bytes() -> Vec<u8> {
         // TestChat in its Link From, its first (an opener) does not.
         topic(T_CHAT, "TestChat", "TestChat", topic_type::CONVERSATION, 0, 50.0, vec![L { id: C_CHAT, quest: QA, ty: CONV, speaker: me, responses: one("Chat"), ..L::default() }]),
         topic(
+            T_GROUP,
+            "TestGroup",
+            "Group",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![
+                L { id: GR_CREW, quest: QA, speaker: Some(NPC2), conds: vec![ctda(EQ, 1.0, GET_IN_FACTION, CREW, 0)], responses: one("Halt"), ..L::default() },
+                L { id: GR_FIXED, quest: QA, speaker: Some(NPC2), responses: one("Mine alone"), ..L::default() },
+            ],
+        ),
+        topic(
             T_ANSWER,
             "TestAnswer",
             "TestAnswer",
@@ -806,6 +825,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"GLOB", &globs),
         top(b"SCPT", &tick_script),
         top(b"AVIF", &avif),
+        top(b"FACT", &record(b"FACT", 0, CREW, &[sub(b"EDID", z("TestCrew"))])),
         top(b"NPC_", &npcs),
         top(b"QUST", &quests),
         top(b"NOTE", &note),
@@ -3304,4 +3324,18 @@ fn the_debugger_shows_pools_and_why_a_line_is_held_back() {
     assert_eq!(e.winners, vec![FormId(A_LATER)]);
     let text = g.explain_topic_text(actor(), listener, greeting, true);
     assert!(text.iter().any(|l| l.contains("Say Once, and it has been said")), "{text:?}");
+}
+
+#[test]
+fn a_group_condition_on_the_speaker_lets_others_than_the_fixed_speaker_say_a_line() {
+    // #2548: Cottonwood Cove's "Halt!" greeting names the AAM explorer as fixed speaker
+    // (ANAM) and tests the explorers' faction; all four explorers say it. A line with
+    // a fixed speaker and no condition naming who says it stays the fixed speaker's.
+    let f = fixture();
+    let mut g = game(&f);
+    let (talker, chatter, player) = (actor(), FormId(NPC2_REF), Some(FormId::PLAYER_REF));
+    assert!(g.can_say(talker, player, FormId(GR_CREW)), "in the faction the line tests");
+    assert!(!g.can_say(talker, player, FormId(GR_FIXED)), "not the fixed speaker");
+    assert!(!g.can_say(chatter, player, FormId(GR_CREW)), "the fixed speaker, but not in the faction");
+    assert!(g.can_say(chatter, player, FormId(GR_FIXED)));
 }

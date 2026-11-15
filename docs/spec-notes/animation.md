@@ -659,8 +659,25 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
     [design]. It is not seen from the player's cameras [observed: NVForever on main,
     2026-11-14, pictures kept privately: first person after the shot, third person after
     the shot and an empty launcher drawn in third person, the back of the tube dark].
-    NPC weapons play no clips on their parts (`nvforever::weapons`): an NPC's launcher
-    always shows its round.
+  - NPC rule [design, #2512, owner decision]: `nvforever::weapons::reparent` applies
+    the current attack/reload clip's visibility tracks to matching targets in the
+    held weapon model, with the advanced time supplied by `attack_anims::CombatPose`.
+    A frame crossing the clip's end samples its exact end, including a final show key.
+    A missing track (the `_male` aim clip's round track, as documented above) keeps
+    the last state. Entering equip, unequip or holster restores the model default
+    before applying that stage's visibility tracks. `PreparedPart` omits model-hidden
+    geometry (`nvf-assets/src/actor.rs::prepare_part`), so all retained shapes start
+    shown. Visibility of every named ancestor and the shape itself is combined; shared
+    nodes change all their shapes together. Package hiding masks this combined state
+    without changing the retained clip state, including for parts on separate back
+    bones [design, #2512]. `alert::show` runs before `weapons::reparent`, which reads
+    its package-hidden marker and writes the final model-shape visibility; clearing
+    the marker restores the retained clip state. No attack/reload transform tracks are
+    applied to NPC weapon parts. A state change logs `npc weapon part: <actor> <node>
+    hidden/shown` once per model target, independent of the number of shapes below it.
+    Original-game parity of the persistent state and reset rule is [hypothesis];
+    observer check 167 covers it. Synthetic regressions are in `weapons.rs` and
+    `attack_anims.rs`, with the game smoke `npc-launcher-round`.
 
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 

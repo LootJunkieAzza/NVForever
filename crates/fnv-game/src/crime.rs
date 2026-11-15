@@ -595,7 +595,9 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.ignore_crime) {
             return false;
         }
-        self.player.crime_enemies.contains(&actor) || (!self.player.enemy_of.is_empty() && factions_of(self, actor).iter().any(|f| self.player.enemy_of.contains(f)))
+        // A faction's flag yields to a faction disguise (`player_enemy_of_factions`).
+        self.player.crime_enemies.contains(&actor)
+            || (!self.player.enemy_of.is_empty() && crate::functions::actor::player_enemy_of_factions(self, &factions_of(self, actor), &factions_of(self, FormId::PLAYER_REF)))
     }
 
     fn count_crime(&mut self, victim: FormId, kind: Kind) {

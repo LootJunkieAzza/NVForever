@@ -105,6 +105,13 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   "will be attacked by Very Aggressive actors"; Friends and Allies cannot attack each
   other. Aggression codes: 0 Unaggressive, 1 Aggressive, 2 Very Aggressive, 3 Frenzied
   [documented: xEdit].
+- Ours bounds the Neutral rule by the aggro radius [hypothesis, #2547; observer checks
+  144 and 163]: a Very Aggressive actor whose AI data turns on Aggro Radius Behavior
+  (and whose package allows it) attacks a Neutral actor it detects only inside its
+  aggro radius; a fight once begun, a hit (a grudge) and an Enemy are not bounded, and
+  the player is left to the aggro radius rules (combat-ai.md §13). HELIOS One's guard
+  dogs (CrDogNCRAggressive, radius 2,000) no longer go for the troopers 2,800 units
+  west of their yard (`crates/fnv-game/src/awareness.rs` neutral_out_of_reach).
 - The two lists of a pair often differ [observed]: of the 975 entries naming another
   faction, Enemy is answered by Enemy 178 times, by Neutral 5 times and by no entry 81
   times; Ally by Friend 21 times. One-way enemies include `CentaurFaction → PlayerFaction`,
@@ -117,6 +124,9 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   factions an enemy itself [observed: 0].
 - `GetFactionRelation` for actors in several factions (enemy first, then friend, then
   ally) stays a [hypothesis] (actor-behaviour.md §3).
+- The player's faction enemy flags (SetPCEnemyOfFaction, a witnessed crime) make the
+  player an enemy of a flagged faction's members unless another of the member's factions
+  is the player's ally or friend: a faction disguise (disguises.md §3) [hypothesis, #2611].
 
 ## 5. The player, and why a Fiend reads as neutral
 

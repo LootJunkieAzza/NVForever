@@ -226,9 +226,11 @@ pub(crate) struct Link {
 /// function catalogue) (docs/spec-notes/actor-flags.md §9).
 pub(crate) const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
 
-/// GetIsID (function 0x48) on the subject: a line's own condition naming who says it.
-fn is_own_id_condition(c: &crate::cond::Condition) -> bool {
-    c.function == 0x48 && matches!(c.run_on, crate::cond::RunOn::Subject)
+/// A line's own condition on the subject naming who says it: GetIsID, or one of the
+/// others of [`VOICE_GATE_FUNCTIONS`] (GetInFaction, GetIsClass, GetIsRace,
+/// GetIsVoiceType, IsInList), which name a group of speakers (#2548).
+fn is_own_speaker_condition(c: &crate::cond::Condition) -> bool {
+    VOICE_GATE_FUNCTIONS.contains(&c.function) && matches!(c.run_on, crate::cond::RunOn::Subject)
 }
 
 /// Why a speaker cannot say a line now ([`Game::line_verdict`]), in the order the rules
@@ -299,8 +301,13 @@ impl<'a> Game<'a> {
     ///   greeting; hypothesis: one case, and the two may count as one speaker] (#1113);
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
-    ///   the line has a GetIsID condition on the subject of its own: then that condition
-    ///   decides. The wiki has the field act like GetIsID "when dialogue is exported";
+    ///   the line has a condition on the subject of its own that names who says it
+    ///   (GetIsID, or GetInFaction, GetIsClass, GetIsRace, GetIsVoiceType, IsInList):
+    ///   then that condition decides [hypothesis, #2548: Cottonwood Cove's "Halt!"
+    ///   greeting 0x0013AC97 names the AAM explorer and tests the explorers' faction,
+    ///   and the three other explorers have force-greet packages of their own on
+    ///   GREETING that would end on "Move along." otherwise; 19 lines of FalloutNV.esm
+    ///   have a fixed speaker and such a group condition without GetIsID]. The wiki has the field act like GetIsID "when dialogue is exported";
     ///   262 lines of FalloutNV.esm name a fixed speaker other than the actor of their
     ///   own GetIsID condition, 167 of them the end slides (fixed speaker a Boomer or
     ///   another character, GetIsID Narrator), which the narrator says
@@ -322,10 +329,11 @@ impl<'a> Game<'a> {
     }
 
     /// The fixed-speaker (ANAM) check alone, from the data: the line names a fixed speaker
-    /// that is neither `speaker` nor its base, and has no GetIsID condition of its own
+    /// that is neither `speaker` nor its base, and has no condition of its own naming
+    /// who says it (GetIsID, GetInFaction …)
     /// ([`Game::can_say`]). It does not look at run-time state (Say Once, conditions).
     pub(crate) fn fixed_speaker_refuses(&self, def: &InfoDef, speaker: FormId) -> bool {
-        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_id_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
+        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_speaker_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
     }
 
     /// Whether every line of `topic` ([`GameData::lines_tried`]) fails the fixed-speaker

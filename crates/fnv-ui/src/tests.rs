@@ -1252,3 +1252,120 @@ fn trait_write_serial_removal_slot_reuse_and_tree_identity() {
     assert_eq!(other.trait_write_serial(root, "_n"), None);
     assert_eq!(ui.trait_write_serial(other_root, "_n"), None);
 }
+
+
+// [documented: ui-neg-operator.md] Public XML loading/update, no installed assets.
+fn neg_fixture(xml: &str) -> Ui {
+    let source = MemSource::default().with("owned-neg.xml", xml);
+    let mut ui = Ui::new();
+    ui.load_menu(&source, "owned-neg.xml").unwrap();
+    ui.update();
+    ui
+}
+
+#[test]
+fn neg_uses_its_literal_argument_instead_of_the_incoming_accumulator() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_positive><copy>123</copy><neg>7</neg></_positive>
+      <_negative><copy>99</copy><NeG>-2.5</NeG></_negative>
+      <_zero><copy>31</copy><neg>0</neg></_zero>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_positive"), Some(-7.0));
+    assert_eq!(ui.get_float("OwnedNeg/_negative"), Some(2.5));
+    assert_eq!(ui.get_float("OwnedNeg/_zero"), Some(0.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_evaluates_a_nested_argument_before_subsequent_arithmetic() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_answer><copy>103</copy><neg><copy>3</copy><mul>2</mul></neg><add>1</add></_answer>
+      <_neighbor><copy>103</copy><sub>3</sub><mul>2</mul><add>1</add></_neighbor>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_answer"), Some(-5.0));
+    assert_eq!(ui.get_float("OwnedNeg/_neighbor"), Some(201.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_live_argument_dependencies_recompute_after_source_mutation() {
+    let mut ui = neg_fixture(r#"<menu name="OwnedNeg"><_source>3</_source>
+      <rect name="Child">
+        <x><copy>111</copy><neg src="parent()" trait="_source"/></x>
+        <width><copy>999</copy><neg src="parent()" trait="_source"/><mul>2</mul></width>
+      </rect>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(-3.0));
+    assert_eq!(ui.get_float("OwnedNeg/Child/width"), Some(-6.0));
+    assert!(ui.set_float("OwnedNeg/_source", -4.0));
+    ui.update();
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(4.0));
+    assert_eq!(ui.get_float("OwnedNeg/Child/width"), Some(8.0));
+    ui.update();
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(4.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_minus_one_then_sub_one_composes_without_changing_boolean_not() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_difference><copy>731</copy><neg>-1</neg><sub>1</sub></_difference>
+      <_predicate><copy>731</copy><neg>-1</neg><sub>1</sub><eq>0</eq></_predicate>
+      <_boolean><copy>731</copy><not>-1</not></_boolean>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_difference"), Some(0.0));
+    assert_eq!(ui.get_float("OwnedNeg/_predicate"), Some(1.0));
+    assert_eq!(ui.get_float("OwnedNeg/_boolean"), Some(0.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+/// [documented] Degree-input trig; current source paths retain main's counted policy.
+#[test]
+fn four_uio_operators_degree_arguments_recompute_from_live_sources() {
+    let src = MemSource::default().with("uio-four.xml", r#"<menu name="Four"><angle>0</angle><s><copy>37</copy><sin src="me()" trait="angle"/></s><c><copy>42</copy><cos src="me()" trait="angle"/></c></menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "uio-four.xml").unwrap();
+    for (angle, sin, cos) in [(0.,0.,1.),(90.,1.,0.),(180.,0.,-1.),(270.,-1.,0.),(-90.,-1.,0.)] {
+        assert!(ui.set_float("Four/angle", angle));
+        ui.update();
+        assert!((ui.get_float("Four/s").unwrap()-sin).abs()<1e-12);
+        assert!((ui.get_float("Four/c").unwrap()-cos).abs()<1e-12);
+    }
+}
+
+#[test]
+fn four_uio_operators_nested_natural_log_uses_argument_not_accumulator() {
+    let src = MemSource::default().with("uio-log.xml", r#"<menu name="Logs"><identity><copy>999</copy><log>1</log></identity><ratio><log>64</log><div><log>4</log></div></ratio><constant><log>2.718281828459045</log></constant></menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src,"uio-log.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_float("Logs/identity"),Some(0.));
+    assert!((ui.get_float("Logs/ratio").unwrap()-3.).abs()<1e-12);
+    assert!((ui.get_float("Logs/constant").unwrap()-1.).abs()<1e-12);
+}
+
+#[test]
+fn four_uio_operators_pow_raises_the_accumulated_value() {
+    let src = MemSource::default().with("uio-pow.xml", r#"<menu name="Powers"><a><copy>3</copy><pow>4</pow></a><b><copy>2</copy><mul>3</mul><pow>2</pow></b><c><copy>-2</copy><pow>6</pow></c></menu>"#);
+    let mut ui = Ui::new();ui.load_menu(&src,"uio-pow.xml").unwrap();ui.update();
+    assert_eq!(ui.get_float("Powers/a"),Some(81.));assert_eq!(ui.get_float("Powers/b"),Some(36.));assert_eq!(ui.get_float("Powers/c"),Some(64.));
+}
+
+#[test]
+fn four_uio_operators_invalid_and_overflow_results_have_explicit_zero_policy() {
+    let src = MemSource::default().with("uio-domain.xml",r#"<menu name="Domain"><input>1</input><a><log src="me()" trait="input"/></a><b><copy src="me()" trait="input"/><pow>2</pow></b><c><sin src="me()" trait="input"/></c></menu>"#);
+    let mut ui=Ui::new();let root=ui.load_menu(&src,"uio-domain.xml").unwrap();
+    for input in [f64::NAN,f64::INFINITY,f64::NEG_INFINITY] {
+        ui.set_trait(root,"input",Value::Num(input));ui.update();
+        for name in ["a","b","c"] {assert_eq!(ui.tile(root).get(name),Some(&Value::Num(0.)));}
+    }
+    ui.set_trait(root,"input",Value::Num(-1.));ui.update();assert_eq!(ui.tile(root).get("a"),Some(&Value::Num(0.)));
+    ui.set_trait(root,"input",Value::Num(1e308));ui.update();assert_eq!(ui.tile(root).get("b"),Some(&Value::Num(0.)));
+}
+
+#[test]
+fn four_uio_operator_names_are_case_insensitive_and_unknown_tags_stay_unknown() {
+    use crate::expr::OpKind;
+    for (tag, op) in [("SiN",OpKind::Sin),("COS",OpKind::Cos),("log",OpKind::Log),("pow",OpKind::Pow)] {assert_eq!(OpKind::from_tag(tag),Some(op));}
+    for tag in ["sine","cosine","log_base"] {assert_eq!(OpKind::from_tag(tag),None);}
+}

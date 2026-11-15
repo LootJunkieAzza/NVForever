@@ -143,11 +143,17 @@ fn retained_copy_metadata_or_aliases_do_not_turn_the_save_into_a_refusal() {
 
 #[test]
 fn checked_style_snapshots_warn_without_clearing_session_state() {
-    use std::sync::{Arc, Mutex};
-    use tracing::{field::{Field, Visit}, Event, Subscriber};
+    use std::cell::RefCell;
+    use tracing::{field::{Field, Visit}, level_filters::LevelFilter, subscriber::Interest, Event, Metadata, Subscriber};
     use tracing_subscriber::{layer::{Context, Layer}, prelude::*};
-    #[derive(Clone, Default)]
-    struct Warnings(Arc<Mutex<Vec<String>>>);
+    // A subscriber set only on this thread (`with_default`) misses the warning now and then:
+    // while it is the only one registered, tracing caches a callsite's interest from the
+    // default of whichever thread reaches it first, and other tests here reach the same
+    // `warn!` on threads with no subscriber, which caches it as never. A global subscriber is
+    // every thread's default, so the interest is always computed from it; it keeps only the
+    // warnings raised on a thread that is capturing them.
+    thread_local! { static CAPTURED: RefCell<Option<Vec<String>>> = const { RefCell::new(None) }; }
+    struct Warnings;
     struct Message(String);
     impl Visit for Message {
         fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
@@ -155,26 +161,33 @@ fn checked_style_snapshots_warn_without_clearing_session_state() {
         }
     }
     impl<S: Subscriber> Layer<S> for Warnings {
+        fn register_callsite(&self, meta: &'static Metadata<'static>) -> Interest {
+            if *meta.level() == tracing::Level::WARN { Interest::always() } else { Interest::never() }
+        }
+        fn max_level_hint(&self) -> Option<LevelFilter> { Some(LevelFilter::WARN) }
         fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
             let mut text = Message(String::new());
             event.record(&mut text);
-            if *event.metadata().level() == tracing::Level::WARN && text.0.contains("combat-style") {
-                self.0.lock().unwrap().push(text.0);
+            if text.0.contains("combat-style") {
+                CAPTURED.with(|c| if let Some(v) = c.borrow_mut().as_mut() { v.push(text.0) });
             }
         }
     }
-    let f = fixture(); let mut g = game(&f);
-    let warnings = Warnings::default();
-    tracing::subscriber::with_default(tracing_subscriber::registry().with(warnings.clone()), || {
-        g.checked_snapshot().unwrap();
-        assert!(warnings.0.lock().unwrap().is_empty(), "a clean session needs no warning");
-        g.run_query("Begin Function { }\nSetCombatStyleTraitNumeric OwnedStyle 42 7\nEnd\n", Default::default()).unwrap();
-        g.checked_snapshot().unwrap();
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        tracing::subscriber::set_global_default(tracing_subscriber::registry().with(Warnings))
+            .expect("no other fnv-game unit test sets a global tracing subscriber");
     });
-    let messages = warnings.0.lock().unwrap();
+    let taken = || CAPTURED.with(|c| c.borrow_mut().replace(Vec::new()).unwrap_or_default());
+    let f = fixture(); let mut g = game(&f);
+    taken();
+    g.checked_snapshot().unwrap();
+    assert!(taken().is_empty(), "a clean session needs no warning");
+    g.run_query("Begin Function { }\nSetCombatStyleTraitNumeric OwnedStyle 42 7\nEnd\n", Default::default()).unwrap();
+    g.checked_snapshot().unwrap();
+    let messages = CAPTURED.with(|c| c.borrow_mut().take().unwrap_or_default());
     assert_eq!(messages.len(), 1);
     assert!(messages[0].contains("session-only") && messages[0].contains("loading resets"));
-    drop(messages);
     assert_eq!(g.combat_style_form(STYLE).unwrap().rushing_attack_distance_mult, 7.0);
     assert_eq!(restored_roundtrip(&g).combat_style_form(STYLE).unwrap().rushing_attack_distance_mult, 0.0);
 }

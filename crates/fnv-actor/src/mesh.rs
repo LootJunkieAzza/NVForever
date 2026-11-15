@@ -7,12 +7,14 @@
 //!   without `Prn` attach to `Bip01 Head` [hypothesis: every such part used by a placed
 //!   NPC is headgear or a mouth part, with vertices around the head bone].
 //!
-//! A rigid part on `Bip01 Head` has its vertices in the skeleton's axes with the origin
+//! A skeleton-axis rigid part on `Bip01 Head` has its vertices in those axes with the origin
 //! at the bone [observed: hair spans z −0.7…15.3 above `Bip01 Head`, whose own x axis
 //! points up]; attached to the bone it therefore needs the inverse of the bone's bind
 //! rotation. A rigid part on another bone is in that bone's own axes [observed: the
 //! Pip-Boy models name `Bip01 L ForeTwist` and reach 4.4…17.1 units along its x axis,
 //! down the 18.1-unit forearm]; it is an ordinary child of the bone.
+//! Bone-local head meshes keep the bone's full frame instead [hypothesis: #2529,
+//! docs/spec-notes/actors.md §1.2; design: nvf-assets `actor::rigid_part_frame`].
 
 use std::collections::BTreeSet;
 

@@ -454,6 +454,9 @@ fn register_display(app: &mut App) {
         },
     );
     register_counter_rows(app);
+    // The physics rate (nvf_play::phys_rate) after the renderer's own Display rows, so their
+    // order in the registry and the INI is as it was before the row.
+    nvf_play::phys_rate::register_setting(app);
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;
     }
@@ -680,10 +683,14 @@ fn fov_part(deg: f32) -> f32 {
     degrees_part(deg, FOV_MIN, FOV_MAX)
 }
 
-/// A new field of view: kept in `Args` and put on the camera.
+/// A new field of view: kept in `Args` and put on the camera, where it takes the place of
+/// a console `fov`'s world angle, so scripts no longer read that one (GetCameraFOV 0).
 fn set_fov(world: &mut World, v: f32) {
     let deg = fov_degrees(v);
     world.resource_mut::<Args>().fov = deg;
+    if let Some(rt) = world.get_resource_mut::<nvf_play::script::ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        rt.game.ui.camera.fov_set.0 = None;
+    }
     let mut cams = world.query_filtered::<&mut Projection, With<FlyCam>>();
     for mut p in cams.iter_mut(world) {
         if let Projection::Perspective(p) = &mut *p {
@@ -705,6 +712,22 @@ fn viewmodel_fov_part(deg: f32) -> f32 {
 /// A new viewmodel field of view: kept in `Args`, where `player_body` reads it each frame.
 fn set_viewmodel_fov(world: &mut World, v: f32) {
     world.resource_mut::<Args>().viewmodel_fov = viewmodel_fov_degrees(v);
+}
+
+/// The two fields of view as the player set them (`--fov`, `--viewmodel-fov` and their
+/// sliders), told to the scripts (GetCameraFOV, GetPlayerCamFOV) before they run: at start,
+/// after a slider's change and for each new game state. A console `fov` still wins there,
+/// as on the screen.
+pub fn script_fov(args: Res<Args>, script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let Some(mut script) = script else { return };
+    let told = (Some(args.fov), Some(args.viewmodel_fov));
+    // Compared first, so an unchanged frame leaves the script state unchanged for Bevy.
+    if script.rt.as_ref().is_some_and(|rt| rt.game.ui.camera.settings_fov != told) {
+        if let Some(rt) = script.rt.as_mut() {
+            rt.game.ui.camera.settings_fov = told;
+            info!("settings: scripts read the field of view {:.0}, the viewmodel's {:.0}", args.fov, args.viewmodel_fov);
+        }
+    }
 }
 
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the

@@ -250,6 +250,17 @@ Those plan new paths and, if none helps, end as before.
 
 ## 5. Tests and tools
 
+- [design, #2511] Actors use the shared `fnv_phys::character::ACTOR_MAX_SLOPE_DEG`
+  of 56° (`nvf_play::phys::npc_params`), below their cone face's roughly 57.7°
+  (`atan(1.58)`, physics.md §6.4.1/§6.9). The previous 60° was an engine choice:
+  it let actors climb thin walls higher than their 24-unit step height (issue #2511's
+  headless measurements). The 56° choice retains room above the 46–49° slopes cited
+  below. Synthetic physics test `actors_walk_navmesh_grade_slopes_below_the_cone_face_angle`
+  exercises that range with person-sized and small-creature parameters. The existing
+  `nav-walks` smoke keeps its default 45°; `nav-walks-actor-slope` repeats the seven
+  routes with `--max-slope 56` and requires every arrival. These real-route runs are
+  deferred to the main session; no game data was accessed for #2511.
+
 - Unit tests (`crates/fnv-nav/src/tests.rs`, synthetic navmeshes): internal edges and
   outline, straight paths, a wall with clearance, a seam between navmeshes whose grids
   differ, unreachable goals and opt-in ledges, doors between spaces with a walker going

@@ -41,8 +41,11 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
     // it [observed: MenuMode 1001 while the pack plugins' boxes were open,
     // layer5-captures.md §10.1]; other messages are corner notifications.
+    // `--no-messages` answers a box that asks nothing as it is shown (`Game::answer_ok_box`).
     if is_box || !buttons.is_empty() {
-        g.show_box(m);
+        if !g.answer_ok_box(m, buttons.len()) {
+            g.show_box(m);
+        }
     } else {
         let icon = match icon.and_then(|i| crate::nvse::record_value(g, i, "ICON", "")) {
             Some(fnv_script::vm::XVal::Str(p)) => p,

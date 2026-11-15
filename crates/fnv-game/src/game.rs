@@ -171,6 +171,14 @@ pub struct GameConfig {
     /// it [owner statement 2026-11-11, issue #2157].
     #[serde(default)]
     pub goodbye_at_once: bool,
+    /// `nvforever --play --no-messages`: a message box a script shows that asks nothing
+    /// (one button or none) is answered with OK as it is shown and never opens
+    /// ([`Game::answer_ok_box`]): no MenuMode 1001 frame, game time runs on. The add-on
+    /// packs' start-up boxes held GameMode for a frame each and came over several
+    /// seconds, so test aids timed in that span missed (smoke `impact-decals-bullets`)
+    /// [decision: test runs only; boxes with a choice still wait for the player].
+    #[serde(default)]
+    pub answer_ok_boxes: bool,
 }
 
 fn yes() -> bool {
@@ -179,7 +187,7 @@ fn yes() -> bool {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None, goodbye_at_once: false }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None, goodbye_at_once: false, answer_ok_boxes: false }
     }
 }
 
@@ -1240,6 +1248,13 @@ impl Speech {
     pub fn goodbye_at_player(&self) -> bool {
         (self.greeting || self.farewell) && self.target == Some(FormId::PLAYER_REF)
     }
+
+    /// A line started by Say or SayTo (a script's, or a combat or package bark said the
+    /// same way): not a line of a conversation between actors, a greeting, a farewell or
+    /// a hello (`Game::say_by_script`, #2582).
+    pub fn said_by_script(&self) -> bool {
+        self.conversation.is_none() && !self.greeting && !self.farewell && !self.hello
+    }
 }
 
 /// One actor turning to another while a line is said ([`Game::facings`]).
@@ -1317,6 +1332,8 @@ pub struct Game<'a> {
     /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
     /// "SUB/path", and the names SetName gave.
     pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    /// Owner witness for bounded diagnostic restoration; never part of a save.
+    pub(crate) projectile_launch_restore_owner: std::sync::Arc<()>,
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
@@ -1749,6 +1766,9 @@ pub struct Game<'a> {
     pub queued: Vec<QueuedBox>,
     /// The last [`QueuedBox::serial`] given.
     pub box_serial: u64,
+    /// Boxes [`Game::answer_ok_box`] answered without opening them since the engine last
+    /// took them ([`Game::take_answered_boxes`]), for its log. Not saved.
+    pub answered_boxes: Vec<FormId>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
@@ -1801,6 +1821,14 @@ pub struct Game<'a> {
     /// next one [observed: OnLoad after Enable had not run on the line after Enable and
     /// had run by the next frame, layer5-captures.md §8.3 d].
     pub pending_onload: Vec<FormId>,
+    /// References whose GameMode and MenuMode blocks wait: the engine has not placed
+    /// them yet. A trigger whose model is not read has no volumes, so an actor standing
+    /// in it at the start gets no OnTriggerEnter before the script's first GameMode run;
+    /// Davison's trigger (SCPT 0x000CE554) keeps the antler's place in OnTriggerEnter and
+    /// starts combat from GameMode when it differs, from 0 before the first Enter (issue
+    /// #2571) [hypothesis: the original runs a reference's script once its 3D is in
+    /// place]. Set each frame by the engine (`nvf_play::script_trigger`); not saved.
+    pub scripts_held: BTreeSet<FormId>,
     /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
     /// (`crate::npc_doors`). Not part of the saved state.
     pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
@@ -2394,6 +2422,7 @@ impl<'a> Game<'a> {
             delayed: Vec::new(),
             ref_walk: Vec::new(),
             field_overrides: std::collections::HashMap::new(),
+            projectile_launch_restore_owner: std::sync::Arc::new(()),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
             note_edits: BTreeMap::new(),
@@ -2545,6 +2574,7 @@ impl<'a> Game<'a> {
             boxes: Vec::new(),
             queued: Vec::new(),
             box_serial: 0,
+            answered_boxes: Vec::new(),
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
@@ -2560,6 +2590,7 @@ impl<'a> Game<'a> {
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
+            scripts_held: BTreeSet::new(),
             door_gates: Default::default(),
             door_heard: Default::default(),
             npc_door_run: None,
@@ -3016,7 +3047,7 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         let data = self.data;
         let table = &data.table;
-        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx, seconds: None };
         let mut vm = Vm::new(table, &mut ex, opts);
         let r = match resume {
             Some(at) => vm.resume(stmts, at),
@@ -3171,7 +3202,7 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         self.udf.push(UdfFrame { value: None, caller: None });
         self.open_run();
-        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
+        let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx, seconds: None };
         let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
         if let Locals::Temp(m) = &ex.locals {
             for (&index, v) in m {
@@ -3317,10 +3348,16 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
-        self.nested(move |g| g.run_function_here(f, on, args, caller, ctx))
+        self.run_function_with_seconds(f, on, args, caller, (ctx, None))
     }
 
-    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+    /// An elapsed value belongs to this UDF invocation and its nested calls only.
+    /// JIP callbacks supply it; ordinary calls and result scripts do not.
+    pub(crate) fn run_function_with_seconds(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, (ctx, seconds): (RunCtx, Option<f64>)) -> Result<fnv_script::vm::XVal, String> {
+        self.nested(move |g| g.run_function_here(f, on, args, caller, (ctx, seconds)))
+    }
+
+    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, (ctx, seconds): (RunCtx, Option<f64>)) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
         let id = match f {
             XVal::Ref(id) => *id,
@@ -3355,7 +3392,7 @@ impl<'a> Game<'a> {
         self.udf.push(UdfFrame { value: None, caller });
         self.open_run();
         let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
-        let mut ex = Exec { game: self, unit, locals, ctx };
+        let mut ex = Exec { game: self, unit, locals, ctx, seconds };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
         let mut result = Ok(());
         for (p, a) in params.iter().zip(args) {
@@ -3592,6 +3629,9 @@ impl<'a> Game<'a> {
     pub fn put_session(&mut self, s: Session) {
         self.handlers = s.handlers;
         self.jip.main_loop = s.main_loop;
+        for callback in &mut self.jip.main_loop {
+            callback.last_clock = functions::clock_now(self.time);
+        }
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
         self.pp_put_session(s.pp);
@@ -3677,7 +3717,7 @@ impl<'a> Game<'a> {
             Arg::Float(f) => Value::Num(*f),
             Arg::Enum(c) => Value::Num(*c as f64),
             Arg::Ref(r) => {
-                let mut ex = Exec { game: self, unit, locals: Locals::Instance(key), ctx: RunCtx::default() };
+                let mut ex = Exec { game: self, unit, locals: Locals::Instance(key), ctx: RunCtx::default(), seconds: None };
                 match ex.ref_value(*r) {
                     Ok(v) => v,
                     Err(_) => return false,
@@ -4072,6 +4112,10 @@ impl<'a> Game<'a> {
             if held(self) {
                 break;
             }
+            // Not placed by the engine yet (`Game::scripts_held`).
+            if self.scripts_held.contains(&r) {
+                continue;
+            }
             let Some(script) = self.ref_script(r) else { continue };
             if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
                 let key = InstKey::Ref { reference: r };
@@ -4430,6 +4474,28 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// With [`GameConfig::answer_ok_boxes`], a box a script shows that asks nothing
+    /// (`buttons` declared, 0 or 1) is answered with OK at once instead of being shown:
+    /// it never opens or waits in the queue, and [`Game::message_box`] of `message` gets
+    /// button 0, as OK on the open box gives it ([`Game::close_menu`]), so the script's
+    /// next GetButtonPressed returns 0. Returns whether the box was answered; when not,
+    /// the caller shows it ([`Game::show_box_buttons`]).
+    pub fn answer_ok_box(&mut self, message: FormId, buttons: usize) -> bool {
+        if !self.cfg.answer_ok_boxes || !self.cfg.modal_message_boxes || buttons > 1 {
+            return false;
+        }
+        if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == message && mb.pressed.is_none()) {
+            mb.pressed = Some(0);
+        }
+        self.answered_boxes.push(message);
+        true
+    }
+
+    /// The boxes [`Game::answer_ok_box`] answered since the last call, in order.
+    pub fn take_answered_boxes(&mut self) -> Vec<FormId> {
+        std::mem::take(&mut self.answered_boxes)
+    }
+
     /// A box of a message not known, put in front of the others (a scenario's `given`
     /// menu): its buttons not known.
     pub fn put_box_in_front(&mut self, message: FormId) {
@@ -4633,7 +4699,7 @@ impl<'a> Game<'a> {
 
     /// [`Game::say`] for the script functions Say and SayTo: when no line of the topic
     /// passes the fixed-speaker check (the speaker is not the line's fixed speaker, and
-    /// the line has no GetIsID condition of its own), judged from the data alone
+    /// the line has no condition of its own naming who says it), judged from the data alone
     /// ([`Game::no_line_for_speaker`]; a line refused at run time by Say Once or a
     /// condition does not count), the lines are tried without that check, so the speaker the script names says the fixed speaker's line in its
     /// stead ([`crate::dialogue::Says::InStead`]); a topic with a line the speaker passes
@@ -4643,7 +4709,21 @@ impl<'a> Game<'a> {
     /// narrator saying Elijah's and Vera's slide lines among them; docs/spec-notes/
     /// dialogue.md §4, issue #965]. Combat barks, package and patrol topics keep
     /// [`Game::say`]: an actor with no Hit line does not say another's.
+    ///
+    /// A Say or SayTo of the topic its speaker is already saying by Say or SayTo (not a
+    /// line of a conversation, a greeting, a farewell or a hello) leaves that line playing
+    /// and returns it, as if said again [observed: observer batch o30, PR #2580: a repeat
+    /// renews the speaker's talking state from the call, a queue never builds, and a SayTo
+    /// every frame keeps it talking without a break; hypothesis: that the voice and the
+    /// subtitle do not restart with each call, observer check 144 open]. FalloutNV's Strip
+    /// gate kill zone (SCPT 0x00119786) SayTos its topic every frame the player is inside,
+    /// and the line restarted every frame before (#2582). Another topic cuts the line and
+    /// takes over, as o30 saw ([`Game::say_line`]). NVForever's talking state ends with
+    /// the line, not about 4.9 s after it as o30 measured in the original.
     pub fn say_by_script(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
+        if let Some(s) = self.speech.iter().find(|s| s.speaker == speaker && s.topic == topic && s.said_by_script()) {
+            return Some(s.info);
+        }
         self.say_with(speaker, target, topic, say_to, true)
     }
 
@@ -6013,6 +6093,10 @@ impl<'a> Game<'a> {
 
     /// Dispatch a function by opcode (scripts and conditions share it).
     pub fn call_function(&mut self, ctx: &Ctx, args: &[ArgValue]) -> Value {
+        self.call_function_with_seconds(ctx, args, None)
+    }
+
+    fn call_function_with_seconds(&mut self, ctx: &Ctx, args: &[ArgValue], seconds: Option<f64>) -> Value {
         let data = self.data;
         let name = || data.table.get(ctx.opcode).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", ctx.opcode));
         // A console function (a number of ours, no opcode of the game's) by the function's catalogue name.
@@ -6020,7 +6104,10 @@ impl<'a> Game<'a> {
         match functions::lookup(ctx.opcode).or_else(console) {
             Some(Kind::Impl(f)) => {
                 let outer = functions::begin_unread();
-                let r = f(self, ctx, &Args(args));
+                // GetSecondsPassed in a callback UDF has no persistent instance.
+                // Keep instance clocks and the normal dispatch/result bookkeeping.
+                let elapsed = seconds.filter(|_| ctx.opcode == 0x100C && ctx.inst.is_none());
+                let r = elapsed.map_or_else(|| f(self, ctx, &Args(args)), |dt| Ok(Value::Num(dt)));
                 self.call_result(ctx, r, functions::end_unread(outer))
             }
             Some(Kind::NoOp(_)) => Value::ZERO,
@@ -6280,6 +6367,13 @@ impl<'a> Game<'a> {
         for r in &s.fading_out {
             let _ = g.world.set_enabled(*r, false);
         }
+        // A save from before the player could not be disabled may hold the player
+        // disabled (VHDIntakeTowerLegionaryDespawnScript's trigger, #2617): enabled again,
+        // as Disable now leaves the player (`functions::refs::disable_ref`) [design].
+        if g.world.peek(FormId::PLAYER_REF).is_some_and(|p| !p.enabled()) {
+            tracing::info!("load: the save holds the player disabled; enabled again (doors.md §6)");
+            let _ = g.world.set_enabled(FormId::PLAYER_REF, true);
+        }
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
@@ -6399,6 +6493,7 @@ struct Exec<'g, 'a> {
     unit: &'a Compiled,
     locals: Locals,
     ctx: RunCtx,
+    seconds: Option<f64>,
 }
 
 impl Exec<'_, '_> {
@@ -6604,7 +6699,7 @@ impl Host for Exec<'_, '_> {
             inst: self.inst_key(),
             in_condition: false,
         };
-        Ok(self.game.call_function(&ctx, args))
+        Ok(self.game.call_function_with_seconds(&ctx, args, self.seconds))
     }
 
     fn no_reference_call(&mut self, name: &str, on: Option<Value>, call: &fnv_script::ir::XCall) {
@@ -6688,7 +6783,9 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
             // Its own buttons: no Message form to count them from (`Game::queued`).
-            self.game.show_box_buttons(none, count);
+            if !self.game.answer_ok_box(none, count) {
+                self.game.show_box_buttons(none, count);
+            }
         } else {
             self.game.queue_corner_message(text, "", crate::nvse_hud::CORNER_SECONDS);
         }
@@ -6769,7 +6866,7 @@ impl Host for Exec<'_, '_> {
             }
             _ => None,
         };
-        let r = self.game.run_function(f, on, args, caller, ctx);
+        let r = self.game.run_function_with_seconds(f, on, args, caller, (ctx, self.seconds));
         if let (Some(i), Locals::Temp(m)) = (mine, &mut self.locals) {
             if let Some(c) = self.game.lambdas.get(i).and_then(|d| d.captured.clone()) {
                 *m = c;

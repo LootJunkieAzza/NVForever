@@ -77,6 +77,13 @@ angles are degrees unless a name says otherwise.
     fits the page's statement that New Vegas uses DT, not DR.
   - Example: buckshot multiplies damage by 1.2, and the microfusion cell subtracts 2
     from the target's DT [observed].
+- AMEF `FULL` supplies the ammo card's label [design, #2502]. All 54 AMEF records
+  in FalloutNV.esm have FULL, including 0x00157B54 AmmoEffectHPDamageBonus
+  ("Damage Bonus") and 0x0017BA42 AmmoEffectOCDTBypass ("DT Bypass")
+  [documented: fnvtool esm inventory, FalloutNV.esm, main session 2026-11-14,
+  #2502 writer brief]. Empty FULL in mods uses NVForever's short kind label;
+  presentation details are in [pipboy.md](pipboy.md#ammo-effect-card-lines-2502)
+  [design, #2502].
 
 ### 1.3 PROJ
 

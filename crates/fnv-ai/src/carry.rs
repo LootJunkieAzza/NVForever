@@ -710,6 +710,9 @@ pub struct Ai {
     /// The world's presence serial and the graph's obstacle stamp after the obstacles
     /// were last brought into the graph ([`Ai::obstacles_in_line`]).
     applied_obstacles: Option<(u64, u64)>,
+    /// The world's presence serial last brought into the graph's load doors
+    /// ([`Ai::apply_door_presence`]).
+    applied_presence: Option<u64>,
     /// The graph's locked doors as last brought in ([`Ai::apply_door_locks`]): the ones an
     /// actor owns are open to its paths ([`Ai::path_params`]).
     locked_doors: Vec<u32>,
@@ -795,7 +798,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -883,6 +886,56 @@ impl Ai {
         }
         if !changes.locked.is_empty() {
             again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.locked))).map(|(id, _)| *id));
+        }
+        again.sort();
+        again.dedup();
+        for actor in &again {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some(again)
+    }
+
+    /// Bring the graph's load doors in line with whether the game has them in the world
+    /// now ([`Game::present`]: a script's Enable or Disable, an enable parent's), when the
+    /// world's presence serial moved since the last call (`fnv_sim::World::presence_serial`,
+    /// which every such change moves; a new world starts from a number of its own). A door
+    /// that is not there takes no part in paths (`fnv_nav::NavGraph::disabled_doors`), as
+    /// a locked one an actor cannot open: Nellis's hangar has a door into each of its two
+    /// versions on the same spot, one disabled until the B-29 is up, and Loyal, whose
+    /// package after a failed Volare! is in the B-29's hangar, was walked through the
+    /// disabled one into a hangar the player cannot enter (issue #2566).
+    ///
+    /// A door gone: the actors whose way goes through it plan again. A door back: the
+    /// packages set aside as out of reach may be chosen again (`Game::unblock_packages`)
+    /// [design: as for a door locked and unlocked, [`Ai::apply_door_locks`]]. Returns the
+    /// actors sent to plan again, `None` when no door changed.
+    pub fn apply_door_presence(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
+        let serial = game.world.presence_serial();
+        if self.applied_presence == Some(serial) {
+            return None;
+        }
+        self.applied_presence = Some(serial);
+        // A door the world does not know (no placed reference) is left as the graph has it.
+        let states: Vec<(u32, bool)> = nav.door_refs_through().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        let changes = nav.sync_door_presence(states);
+        if changes.is_empty() {
+            return None;
+        }
+        let mut again: Vec<FormId> = Vec::new();
+        if !changes.back.is_empty() {
+            again.extend(game.unblock_packages());
+        }
+        if !changes.gone.is_empty() {
+            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.gone))).map(|(id, _)| *id));
         }
         again.sort();
         again.dedup();
@@ -1462,6 +1515,15 @@ impl Ai {
             return;
         }
         if self.agents[&actor].rooted {
+            // A rooted actor's weapon use (a script's UseWeapon, or its Use Weapon
+            // package) is used from where it stands: it cannot walk to a place [design,
+            // as `weapon_step` does with no way there]. Before, a rooted turret's use
+            // never reached `weapon_step`, so it never fired: ARCHIMEDES at HELIOS One
+            // drew and holstered for good and That Lucky Old Sun's strike never came
+            // (#2544).
+            if game.active_weapon_use(actor).is_some_and(|w| !w.in_place) && !game.ai_off(actor) {
+                game.weapon_use_in_place(actor);
+            }
             self.rooted_turn(game, actor, dt);
             return;
         }
@@ -2105,11 +2167,21 @@ impl Ai {
     /// detects, else the one detected last) or to the place of its alarm (Alert, Lost), as
     /// a fighter standing its ground does (`crate::alert`). Before, it never turned, so a
     /// HELIOS One ceiling turret kept its placed heading and the player stayed out of its
-    /// view (#1537). SetActorsAI 0 holds it as any other actor. One that never turns
-    /// ([`Ai::fix_heading`], Mr. House's screen) does not here either (#2150).
+    /// view (#1537). A weapon use's target comes before the fight's (#2544). SetActorsAI 0
+    /// holds it as any other actor. One that never turns ([`Ai::fix_heading`], Mr.
+    /// House's screen) does not here either (#2150).
     fn rooted_turn(&mut self, game: &mut Game, actor: FormId, dt: f32) {
         if game.ai_off(actor) || game.extra.get(&actor).is_some_and(|e| e.restrained) {
             return;
+        }
+        // Its weapon use's target first, unless the fight took the use over (#2544): the
+        // shooter fires only once it faces the target (`USE_FACING`).
+        let space = self.agents[&actor].walker.space;
+        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && !w.taken).map(|w| w.target) {
+            if let Some(to) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
+                self.combat_face(game, actor, to, dt);
+                return;
+            }
         }
         let state = game.awareness.state(actor);
         if !state.in_combat() {
@@ -2123,7 +2195,6 @@ impl Ai {
             aw.search_alarm().map(|a| a.at)
         };
         let Some(at) = at else { return };
-        let space = self.agents[&actor].walker.space;
         self.combat_face(game, actor, Place { space, pos: at }, dt);
     }
 

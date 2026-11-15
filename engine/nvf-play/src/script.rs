@@ -73,8 +73,10 @@
 //!   [`UNATTENDED_MENU_SECONDS`], so a check that does not answer the boxes is not held by
 //!   them [decision]; other runs to off.
 //! - `nvforever --play --no-messages` ([`NoMessages`]): a message box that asks nothing
-//!   (an OK button only) closes as soon as it is on screen, as OK would; a box with two
-//!   or more buttons stays for the player [decision: the flag never chooses an answer].
+//!   (an OK button only, or none) is answered with OK: one a script shows never opens
+//!   (`fnv_game::GameConfig::answer_ok_boxes`, so game time does not stop for it), one
+//!   the engine shows closes as soon as it is on screen; a box with two or more buttons
+//!   stays for the player [decision: the flag never chooses an answer].
 
 use crate::activate::outcome::{self, Destination, Effect};
 use crate::control::ControlLocks;
@@ -168,8 +170,8 @@ pub const UNATTENDED_MENU_SECONDS: f32 = 0.25;
 /// The game's periodic package choice, seconds [documented: GECK wiki; packages.md §3].
 pub const PACKAGE_INTERVAL: f64 = 10.0;
 
-/// `nvforever --play --no-messages`: message boxes that ask nothing close at once
-/// (inserted before the play plugin).
+/// `nvforever --play --no-messages`: message boxes that ask nothing are answered at once;
+/// scripts' never open (inserted before the play plugin).
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct NoMessages;
 
@@ -375,7 +377,7 @@ impl ScriptState {
             info!("test aid: menus and message boxes that scripts open close themselves after {s} s");
         }
         if no_messages {
-            info!("--no-messages: message boxes without a choice close at once");
+            info!("--no-messages: message boxes without a choice close at once; scripts' never open");
         }
         let trace = std::env::var_os("NVF_PLAY_SCRIPT_TRACE").map(PathBuf::from).and_then(|p| match TraceLog::create(&p) {
             Ok(t) => {
@@ -1963,6 +1965,8 @@ pub(crate) fn run_scripts(
             Some(Ok((data, secs))) => {
                 st.loader = None;
                 let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                // A save loaded later keeps the game's configuration (`Runtime::restore_save`).
+                rt.game.cfg.answer_ok_boxes = st.no_messages;
                 rt.start = st.start.clone();
                 // Before any script runs, so the restart's and the load's questions count.
                 if crate::mod_log::on() {
@@ -2280,11 +2284,14 @@ pub(crate) fn run_scripts(
         // since the last frame before it, again every frame, so a countdown kept in an
         // OnTrigger block ran down while the game stood still (Hidden Valley's virus
         // purge, issue #2455) [hypothesis: OnTrigger is a game-mode block, as GameMode's
-        // are held under menus, scripts.md §7.7].
+        // are held under menus, scripts.md §7.7]. This frame's loading state is set first:
+        // on the first frame after a loading screen the triggers are looked at before the
+        // GameMode blocks run (a trigger waiting for its model holds its script,
+        // `script_trigger::update`, #2571).
+        rt.game.loading = loading;
         if !rt.game.paused() {
             crate::script_trigger::update(rt, &play, &phys, player_capsule);
         }
-        rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
         rt.game.gaps.air_times = phys
@@ -2309,6 +2316,9 @@ pub(crate) fn run_scripts(
     st.walks.extend(walks);
     st.console_out.extend(console_out);
     st.query_job = query_job;
+    for m in rt.game.take_answered_boxes() {
+        info!("--no-messages: answered message box {m} without opening it");
+    }
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     rt.stats.frames += 1;
     rt.stats.total_ms += ms;

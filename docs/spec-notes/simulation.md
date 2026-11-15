@@ -335,6 +335,13 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
     and the psychic nullifier (MOD2 = MODL) and `MountedVaultSuit101Armored`
     (`ArmorMounted.NIF`); 44 have no MOD2 (none of them has a MOD4, 8 have no MODL
     either) [observed].
+    An ARMO with no MOD2 that is flagged Non-Playable (BMDT general flags bit 6) is armour
+    only ever worn: it has no world model and a placed or dropped reference of it is not
+    drawn or collided (`fnv_world::placed::worn_only`) [design, #2439: the Fort's two
+    placed NVSlaveBackpack references, 0x0013732C and 0x0013732D, sit 565 and 913 units
+    above the ground with nothing under them, and their biped model, skinned to Bip01
+    Spine2 and authored at body height, hung in the sky; observer check 142]. Playable
+    ARMO without MOD2 still lies as its MODL.
   - WEAP (261): MODL "Model", MOD2 "Shell Casing Model", MOD3 "Scope Model", MOD4 "World
     Model", MWD1–MWD7 "Model - Mod 1" … "Model - Mod 1, 2 and 3" [documented: xEdit
     `wbDefinitionsFNV.pas` WEAP]. Counts: MODL 207, MOD2 78, MOD3 26, MOD4 57, MWD1 34

@@ -29,7 +29,8 @@
 
 use crate::anim_blend::Animator;
 use crate::anim_play::{cycle_time, BlendPlayer, MaterialTarget, MaterialTrack, Playing};
-use crate::nif_material::{display_emissive, emissive_in_display, NifMaterial};
+use crate::nif_material::{display_emissive, emissive_in_display, plain_material, MaterialOverride, NifMaterial};
+use bevy::ecs::system::SystemParam;
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use std::sync::Arc;
@@ -227,15 +228,23 @@ impl RigMaterials {
     /// emissive, so the jukebox's light tubes stayed at full brightness while off; the
     /// original's go dark [observed: owner 2026-10-30, #1079; activators.md §3]. The
     /// additive notes and bubbles vanish with it.
-    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
+    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, drawing: &mut RigMaterialDrawing) {
         let values = sample(&self.slots, tracks, t, clock, dark);
         let fade = self.fade.clamp(0.0, 1.0);
         for (slot, v) in self.slots.iter_mut().zip(values) {
             let unlit_dark = dark && tracks.iter().any(|tr| tr.shape == slot.shape);
-            if !slot.own || (slot.last == Some(v) && slot.faded == fade && slot.unlit_dark == unlit_dark) {
+            if !slot.own {
                 continue;
             }
-            let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
+            let Ok((current, override_)) = drawing.shapes.get(slot.entity) else { continue };
+            let source = plain_material(&current.0, override_);
+            if slot.last == Some(v) && slot.faded == fade && slot.unlit_dark == unlit_dark {
+                continue;
+            }
+            // [design, #2557] Keep animating the bound private plain source. Another
+            // owner's replacement (e.g. a fade) keeps ownership until it restores us.
+            let publish = source == &slot.handle;
+            let Some(mut m) = drawing.materials.get_mut(&slot.handle) else { continue };
             let unlit = m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply);
             if unlit && slot.unlit_base.is_none() {
                 slot.unlit_base = Some(m.base.base_color.to_linear());
@@ -253,39 +262,49 @@ impl RigMaterials {
             slot.last = Some(v);
             slot.faded = fade;
             slot.unlit_dark = unlit_dark;
+            // [design, #2557] Publication dirties only this mesh's cloak derivation.
+            if publish {
+                drawing.commands.entity(slot.entity).insert(MeshMaterial3d(slot.handle.clone()));
+            }
         }
     }
+}
+
+/// [design, #2557] Shared plain-source ownership and publication for rig animation.
+#[derive(SystemParam)]
+pub struct RigMaterialDrawing<'w, 's> {
+    commands: Commands<'w, 's>,
+    shapes: Query<'w, 's, (&'static MeshMaterial3d<NifMaterial>, Option<&'static MaterialOverride>)>,
+    materials: ResMut<'w, Assets<NifMaterial>>,
 }
 
 /// Give each newly drawn rig's driven shapes their own copy of their material.
 pub fn bind_rig_materials(
     mut rigs: Query<&mut RigMaterials, Added<RigMaterials>>,
-    mut materials: ResMut<Assets<NifMaterial>>,
-    mut shapes: Query<&mut MeshMaterial3d<NifMaterial>>,
+    mut drawing: RigMaterialDrawing,
 ) {
     for mut rig in &mut rigs {
         for slot in &mut rig.slots {
-            let Some(copy) = materials.get(&slot.handle).cloned() else { continue };
-            let own = materials.add(copy);
-            if let Ok(mut m) = shapes.get_mut(slot.entity) {
-                m.0 = own.clone();
-                slot.handle = own;
-                slot.own = true;
-            }
+            let Ok((current, override_)) = drawing.shapes.get(slot.entity) else { continue };
+            let Some(copy) = drawing.materials.get(plain_material(&current.0, override_)).cloned() else { continue };
+            let own = drawing.materials.add(copy);
+            drawing.commands.entity(slot.entity).insert(MeshMaterial3d(own.clone()));
+            slot.handle = own;
+            slot.own = true;
         }
     }
 }
 
 /// Pose the materials of rigs playing their idle clip at its time (or dark), and fade
 /// those that fade.
-pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut materials: ResMut<Assets<NifMaterial>>) {
+pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut drawing: RigMaterialDrawing) {
     for (p, mut rig) in &mut rigs {
         if rig.idle.is_empty() && rig.fade >= 1.0 {
             continue;
         }
         let idle = rig.idle.clone();
         let dark = rig.dark;
-        rig.apply(&idle, p.sequence_time(), p.time - p.start, dark, &mut materials);
+        rig.apply(&idle, p.sequence_time(), p.time - p.start, dark, &mut drawing);
     }
 }
 

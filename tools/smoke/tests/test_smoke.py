@@ -330,6 +330,34 @@ class PlanTests(unittest.TestCase):
             merge("L", s, {}, untimed=set())  # an offset member with an aid of unknown kind
 
 
+class MessagesTests(unittest.TestCase):
+    """`--play` scenarios get --no-messages unless `messages = true` (smoke/scenarios.py)."""
+
+    def test_play_gets_no_messages(self):
+        [a] = load_text(game("a", args='["--cell", "X", "--play"]')).scenarios
+        self.assertEqual(a.args, ["--cell", "X", "--play", "--no-messages"])
+        self.assertFalse(a.messages)
+        # Given already: not twice.
+        [b] = load_text(game("b", args='["--play", "--no-messages", "--cell", "X"]')).scenarios
+        self.assertEqual(b.args.count("--no-messages"), 1)
+        # Not a --play run: untouched.
+        [c] = load_text(game("c")).scenarios
+        self.assertEqual(c.args, ["--cell", "X"])
+
+    def test_messages_true_keeps_the_boxes(self):
+        [a] = load_text(game("a", args='["--cell", "X", "--play"]', extra="messages = true")).scenarios
+        self.assertEqual(a.args, ["--cell", "X", "--play"])
+        self.assertTrue(a.messages)
+        for bad in [
+            game("a", args='["--play", "--no-messages"]', extra="messages = true"),  # contradicts itself
+            game("a", extra="messages = true"),  # no --play
+            game("a", args='["--play"]', extra='messages = "yes"'),
+            '[[scenario]]\nname = "t"\nkind = "tool"\npaths = ["x"]\ncommands = [["a"]]\nmessages = true\n',
+        ]:
+            with self.assertRaises(ScenarioError):
+                load_text(bad)
+
+
 class FrontTests(unittest.TestCase):
     """`front = true`: the launch's window held in front (smoke/front.py)."""
 

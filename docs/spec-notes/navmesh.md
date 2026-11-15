@@ -126,6 +126,21 @@ the actor jumps or drops over them (actor-jumps.md §3).
   locked [hypothesis, as `fnv_sim::world` assumes]. Paths go through a locked door only
   for an actor holding its key (or allowed to open locks). Example: the Freeside gate to
   the Strip (0x00116425) has lock level 255 and key 0x00119875 [observed].
+- **Disabled load doors**: a teleport door that is not in the world (disabled by its own
+  "Initially Disabled" flag, by its enable parent, or by a script's Disable, or deleted)
+  takes no part in paths, for any actor, keys or not [hypothesis: the original's actors do
+  not walk through a disabled door; issue #2566]. The graph starts from the load order's
+  state (the flag at the end of the XESP chain, each "opposite" link turning it over
+  [documented: xEdit REFR XESP]) and the engine brings it in line as references are
+  enabled and disabled (`fnv_ai::Ai::apply_door_presence`, polled on the world's presence
+  serial). Example: Nellis's hangar has two pairs of doors on the same spots outdoors,
+  0x00104A3E/0x00104A3F into NellisHangar1 and 0x001093DC/0x001093DB into NellisHangar1b
+  (the hangar with the B-29), the second pair Initially Disabled with the first as its
+  enable parent, opposite; SCPT 0x001093CB swaps them once the B-29 is up [observed].
+  Loyal's first package, NellisLoyalB29SandboxAIPackage, is in NellisHangar1b and needs
+  GetQuestCompleted VMS15 1, which a failed Volare! also gives (layer5-captures.md §5.3);
+  before this the arrival rule put him there through the disabled pair, where the player
+  cannot follow.
 - "Preferred" triangles are ones actors favour [documented: GECK wiki, Toolbar, "Toggle
   Preferred Pathing"]; by how much is not documented.
 - The GECK can cut navmesh round a selected object, with uneven results [documented:

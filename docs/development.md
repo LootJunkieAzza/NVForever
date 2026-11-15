@@ -97,8 +97,11 @@ playtests, `tools/play/Play.ps1` starts the game at named places
 - `--cell <EditorID or x,y>`: where to start; `--pos x,y,z`, `--heading` and `--hour`
   refine it. `--new-game` (with `--play`) starts the opening instead, `--load <save>` a
   saved game (saves live in `Documents\My Games\NVForever\saves`).
-- `--no-messages` (with `--play`): message boxes with only an OK button close at once;
-  their text is still logged.
+- `--no-messages` (with `--play`): message boxes with only an OK button (or none) are
+  answered with OK; a script's never opens, so game time does not stop for it (the
+  add-on packs' start-up boxes, at the start and once the player leaves Doc Mitchell's
+  house). Their text is still logged; a box with a choice still waits for the player.
+  Every `--play` smoke scenario runs with it unless it sets `messages = true`.
 - `--graphics enhanced`: the optional modern look
   ([design/graphics-enhanced.md](design/graphics-enhanced.md)). The default, `vanilla`, is
   the original's look and the one every test compares. `--sun-shadows` turns on sun

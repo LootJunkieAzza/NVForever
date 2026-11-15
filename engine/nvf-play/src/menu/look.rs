@@ -642,8 +642,11 @@ fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, w: f32, title
     c.line(p, x, y, w, THICK, bright);
     c.fade(p, x + w - THICK, y, false, bright);
     c.text(p, false, title, x + 5.0, y + 20.0, Align::Left, bright);
-    if !value.is_empty() {
-        c.text(p, false, value, x + w - 10.0, y + 20.0, Align::Right, bright);
+    // A value too long for the room beside the title goes on in lines under it, as on the
+    // Pip-Boy's cards (#2537).
+    let pitch = c.kit.body.font.size;
+    for (i, l) in crate::pipboy::frame::card_value_lines(&c.kit.body.font, title, w, value).iter().enumerate() {
+        c.text(p, false, l, x + w - 10.0, y + 20.0 + pitch * i as f32, Align::Right, bright);
     }
 }
 

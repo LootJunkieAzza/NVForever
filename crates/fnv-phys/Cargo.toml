@@ -11,7 +11,7 @@ fnv-esm = { path = "../fnv-esm" }
 fnv-world = { path = "../fnv-world" }
 # Pinned exactly: traces are compared bit for bit, and rapier may change results between
 # patch releases.
-rapier3d = { version = "=0.36.0", features = ["enhanced-determinism"] }
+rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -20,6 +20,10 @@ thiserror.workspace = true
 tracing = "0.1"
 
 [features]
+default = ["debug-lines"]
+# The collision wireframe (`debug_lines`, the engine's collision view): rapier's
+# debug-render pipeline, which adds no crates and only reads the world.
+debug-lines = ["rapier3d/debug-render"]
 # rapier's own stage timers, summed in `Stats::solver_us` (the engine's profile build turns
 # it on; results are unchanged, only timers are read).
 solver-timers = ["rapier3d/profiler"]

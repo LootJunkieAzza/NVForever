@@ -1,0 +1,173 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "o30c_say",
+ "title": "o30 third round: screenshots of the subtitle for one Kill said alone, and while SayTo Kill is called every sample",
+ "save": "nvfairport",
+ "defaults": {
+  "fields": "fight",
+  "events": "fight",
+  "every": 1,
+  "depth": 0,
+  "settle_frames": 200,
+  "hours": 0.15,
+  "max_actors": 6,
+  "track": [
+   "0x00119793"
+  ],
+  "go": {
+   "cow": [
+    "FreesideWorld",
+    -2,
+    -3
+   ]
+  },
+  "console_first": [
+   "CloseAllMenus",
+   "tgm"
+  ],
+  "extra_header": [
+   [
+    "calls",
+    "num",
+    "player.GetAV Variable08"
+   ],
+   [
+    "last_call",
+    "num",
+    "player.GetAV Variable09"
+   ]
+  ]
+ },
+ "sessions": [
+  {
+   "name": "s_one",
+   "do": [
+    [
+     "{0}.Disable",
+     "0x00119797"
+    ],
+    [
+     "{0}.Disable",
+     "0x0011CB42"
+    ],
+    [
+     "{0}.Disable",
+     "0x00119876"
+    ],
+    [
+     "player.MoveTo {0} 0 300 0",
+     "0x00119793"
+    ],
+    {
+     "frames": 200
+    },
+    [
+     "{0}.StopCombat",
+     "0x00119793"
+    ],
+    {
+     "frames": 60
+    },
+    "player.SetAV Variable08 0",
+    "player.SetAV Variable09 0"
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "ref rG",
+       "ref rT",
+       "float fN"
+      ],
+      "lines": [
+       "let rG := GetFormFromMod \"FalloutNV.esm\" \"119793\"",
+       "let rT := GetFormFromMod \"FalloutNV.esm\" \"11CB39\"",
+       "let fN := (player.GetAV Variable08) + 1",
+       "player.SetAV Variable08 fN",
+       "if fN >= 60 && fN < 61",
+       "  rG.SayTo player rT 1",
+       "  player.SetAV Variable09 fN",
+       "endif"
+      ]
+     }
+    }
+   ],
+   "note": "one SayTo Kill at sample 60, shots every 6 samples for 300",
+   "shots": {
+    "label": "one",
+    "when": [
+     "player.GetAV Variable08 > 55"
+    ],
+    "gap": 6,
+    "max": 50
+   }
+  },
+  {
+   "name": "s_every",
+   "do": [
+    [
+     "{0}.Disable",
+     "0x00119797"
+    ],
+    [
+     "{0}.Disable",
+     "0x0011CB42"
+    ],
+    [
+     "{0}.Disable",
+     "0x00119876"
+    ],
+    [
+     "player.MoveTo {0} 0 300 0",
+     "0x00119793"
+    ],
+    {
+     "frames": 200
+    },
+    [
+     "{0}.StopCombat",
+     "0x00119793"
+    ],
+    {
+     "frames": 60
+    },
+    "player.SetAV Variable08 0",
+    "player.SetAV Variable09 0"
+   ],
+   "timed": [
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "ref rG",
+       "ref rT",
+       "float fN"
+      ],
+      "lines": [
+       "let rG := GetFormFromMod \"FalloutNV.esm\" \"119793\"",
+       "let rT := GetFormFromMod \"FalloutNV.esm\" \"11CB39\"",
+       "let fN := (player.GetAV Variable08) + 1",
+       "player.SetAV Variable08 fN",
+       "if fN >= 60 && fN < 420",
+       "  rG.SayTo player rT 1",
+       "  player.SetAV Variable09 fN",
+       "endif"
+      ]
+     }
+    }
+   ],
+   "note": "SayTo Kill every sample from 60 to 420, shots every 6 samples",
+   "shots": {
+    "label": "every",
+    "when": [
+     "player.GetAV Variable08 > 55"
+    ],
+    "gap": 6,
+    "max": 80
+   }
+  }
+ ]
+}

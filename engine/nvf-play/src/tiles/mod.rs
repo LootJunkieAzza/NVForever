@@ -46,6 +46,7 @@ pub mod runtime_images;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
+mod global_image_metrics;
 pub mod input;
 pub mod inventory_menu;
 pub mod item_card;
@@ -1059,6 +1060,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, selection_menu::write_system::<{ fnv_game::game::menus::TAG_SKILLS }>.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
+            .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;

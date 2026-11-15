@@ -360,6 +360,10 @@ Settings rows that are not improvements and do not change the vanilla picture un
   30 to 90 in steps of 5. `player_body` reads it each frame for the arms' magnification
   (`arms_magnification`), so it takes effect at once; the world's view is left alone, the
   Pip-Boy keeps its own 47, and the console's `fov` with a first-person angle still wins
+  [design]. Scripts read both rows' angles, `settings::script_fov` telling them to the game
+  state before the scripts run (`CameraRequests::settings_fov`): GetCameraFOV and
+  GetPlayerCamFOV answer a SetCameraFOV (console `fov`) value first, then these, then the
+  INI's; moving Field of view drops a console world angle, which the camera no longer shows
   [design].
 - **Display sync** (`display-sync`, a dropdown; #1082): Vertical sync, on as Bevy's default
   (`PresentMode::AutoVsync`); Off is `AutoNoVsync`; Variable refresh (G-Sync, FreeSync) is

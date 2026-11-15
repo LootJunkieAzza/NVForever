@@ -827,6 +827,46 @@ impl<'a> Gen<'a> {
 
     // ------------------------------------------------------------------ expressions
 
+    /// A grouped argument belongs to this call, while the surrounding expression keeps
+    /// the vanilla operator stack (vanilla-inline-call-operands.md). Editor compilation
+    /// without the source/extender bridge retains its original byte emission.
+    fn inline_call_operand(&mut self, toks: &[Tok], at: usize, head: Option<&str>, f: &FnInfo) -> Option<(Vec<u8>, usize)> {
+        if !(self.extended || self.unknown_calls) || f.params.is_none()
+            || !toks[at + 1..].iter().any(|t| t.kind == Kind::Open)
+        {
+            return None;
+        }
+        // Keep the vanilla head binding. In particular its lexer already joined a
+        // spaced dot, and Gen::form resolves a quoted EditorID before a hex FormID.
+        let (all, spans) = lex::spanned_tokens(&self.text);
+        let first = all.len().checked_sub(toks.len())?;
+        if all.get(first..)? != toks { return None; }
+        let chars: Vec<char> = self.text.chars().collect();
+        let from = spans[first + at].end;
+        let original: String = chars[from..].iter().collect();
+        let args = lex::xtokens(&original);
+        // A later operand may contain parentheses while this call has none. Probe
+        // with the existing argument parser, then undo all name/diagnostic effects
+        // if its actual consumed range is not a grouped call operand.
+        let saved = (self.refs.clone(), self.claims.clone(), self.vars.clone(), self.ref_vars.clone(), self.lambda_seq, self.diags.len());
+        let operand = (|| {
+            let (e, consumed) = self.inline_bound_call(head, f.opcode, f.params?, &args)?;
+            if consumed == 0 { return None; }
+            let end = (at + 1..=toks.len()).find(|&end| {
+                let to = spans[first + end - 1].end;
+                let prefix: String = chars[from..to].iter().collect();
+                lex::xtokens(&prefix) == args[..consumed]
+            })?;
+            if !toks[at + 1..end].iter().any(|t| t.kind == Kind::Open) { return None; }
+            Some((self.xbytes(&e), end))
+        })();
+        if operand.is_none() {
+            (self.refs, self.claims, self.vars, self.ref_vars, self.lambda_seq) = (saved.0, saved.1, saved.2, saved.3, saved.4);
+            self.diags.truncate(saved.5);
+        }
+        operand
+    }
+
     fn expr(&mut self, toks: &[Tok]) -> Vec<u8> {
         let mut out = Vec::new();
         let mut ops: Vec<&'static str> = Vec::new();
@@ -873,6 +913,12 @@ impl<'a> Gen<'a> {
                 Kind::Punct => self.diag("stray_punctuation", false, t.text.clone()),
                 Kind::Word | Kind::Str => {
                     if let Some((head, f)) = self.function(t) {
+                        if let Some((operand, end)) = self.inline_call_operand(toks, i, head.as_deref(), &f) {
+                            out.extend_from_slice(&operand);
+                            i = end;
+                            prev_operand = true;
+                            continue;
+                        }
                         let mut args = Vec::new();
                         while f.params.is_none_or(|n| args.len() < n)
                             && toks.get(i + 1).is_some_and(|n| !matches!(n.kind, Kind::Op | Kind::Open | Kind::Close))

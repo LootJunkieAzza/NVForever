@@ -324,6 +324,8 @@ struct Show {
     /// Up (+) or down from the actor's middle the camera looks, game units: the part a
     /// kill struck under the player's Focus on the Hit Location tweak ([`part_rise`]).
     focus: f32,
+    /// How the target's drawn place moved while it played (the log, [`TargetMoved`]).
+    moved: TargetMoved,
 }
 
 /// How far above (+) or below the actor's middle the part with condition `code` is, game
@@ -333,6 +335,46 @@ pub fn part_rise(code: Option<u16>) -> f32 {
         Some(25 | 31) => 22.0,
         Some(29 | 30) => -38.0,
         _ => 0.0,
+    }
+}
+
+/// A kill camera's target counts as moving at this speed of its ragdoll's heaviest body,
+/// game units a second (`TargetMoved::still`) [design: well over a resting corpse's creep].
+const STILL_SPEED: f32 = 5.0;
+
+/// How a kill camera's target was drawn while it played, frame by frame (the `kill
+/// camera:` lines at its end and in the frame after it): whether the slowed corpse moved
+/// all along, never stood still while its ragdoll was awake, and never jumped.
+#[derive(Debug, Clone, Copy, Default)]
+struct TargetMoved {
+    /// Its drawn place last frame.
+    last: Option<Vec3>,
+    /// Units along its drawn path, the most in one frame, frames counted.
+    path: f32,
+    most: f32,
+    frames: u32,
+    /// Frames its drawn place did not move while its ragdoll's heaviest body went at
+    /// [`STILL_SPEED`] or faster: a body that should move but stood (a freeze).
+    still: u32,
+    /// The world's steps when it was first seen.
+    steps_at: u64,
+}
+
+impl TargetMoved {
+    /// This frame's drawn place; `moving`: its ragdoll is in the world, awake, and its
+    /// heaviest body goes at [`STILL_SPEED`] or faster.
+    fn frame(&mut self, at: Vec3, moving: bool, steps: u64) {
+        match self.last {
+            Some(was) => {
+                let d = was.distance(at);
+                self.path += d;
+                self.most = self.most.max(d);
+                self.frames += 1;
+                self.still += u32::from(moving && d == 0.0);
+            }
+            None => self.steps_at = steps,
+        }
+        self.last = Some(at);
     }
 }
 
@@ -365,6 +407,9 @@ pub struct KillCam {
     /// Game seconds before a kill outside VATS mode may play a camera again (the
     /// player's Kill Camera Outside V.A.T.S. tweak).
     outside_wait: f32,
+    /// A kill camera's target just after it ended, and its drawn place in the camera's last
+    /// frame: the next frame logs how far it moved as the clock came back.
+    after: Option<(FormId, Vec3)>,
 }
 
 /// When kill cameras play: the settings page's Kill camera (`kill-camera` in
@@ -553,7 +598,10 @@ fn middle(phys: &PhysState, player: &Player, actor: FormId) -> Option<Vec3> {
     if actor == FormId::PLAYER_REF {
         return Some(player_middle(player));
     }
-    phys.world.actor_aim_point(actor.0).or_else(|| phys.world.ragdoll_center(actor.0)).map(Vec3::from_array)
+    // The corpse as drawn between the last two physics steps (`fnv_phys::drawn`): under
+    // the slowed clock a step comes every few frames, and the view would follow the
+    // stepped centre in jumps [hypothesis: not compared in play].
+    phys.world.actor_aim_point(actor.0).or_else(|| phys.world.drawn_ragdoll_center(actor.0, phys.draw_alpha())).map(Vec3::from_array)
 }
 
 /// Watch the last mark, start and run the kill camera.
@@ -580,6 +628,13 @@ fn update(
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
     let player_dead = rt.game.is_dead(FormId::PLAYER_REF);
+    // The frame after a kill camera: how far its target's drawn place moved as the clock
+    // came back (`TargetMoved`; a jump would show here).
+    if let Some((target, was)) = cam.after.take() {
+        if let Some(at) = middle(&phys, &player, target) {
+            info!("kill camera: in the frame after it the target's drawn place moved {:.1} units (the clock at {:.2})", was.distance(at), virt.relative_speed());
+        }
+    }
     // No kill camera has the view: none, or an attack's, which a kill's takes over. (The
     // last attack leaves a moment into its own camera, so a near target dies while that
     // still plays; waiting for it to end, the target was dead before it was watched and
@@ -685,7 +740,7 @@ fn update(
                 cam.linger = None;
                 // The player's Focus on the Hit Location tweak [design: docs/design/tweaks.md].
                 let focus = if tweaks.as_ref().is_some_and(|t| t.kill_cam_hit_location) { part_rise(shot.condition) } else { 0.0 };
-                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus });
+                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus, moved: TargetMoved::default() });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
@@ -740,7 +795,7 @@ fn update(
                         None => "no path with such a shot, NVForever's own clocks".to_string(),
                     }
                 );
-                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None, focus: 0.0 });
+                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None, focus: 0.0, moved: TargetMoved::default() });
                 cam.attacks += 1;
             }
         }
@@ -768,7 +823,13 @@ fn update(
         && tweaks.as_ref().is_some_and(|t| t.vats_stop_following_dead)
         && rt.game.is_dead(show.target);
     let focus = show.focus;
-    if let Some(at) = middle(&phys, &player, show.target).map(|m| m + Vec3::new(0.0, 0.0, focus)).filter(|_| !frozen) {
+    if let Some(at) = middle(&phys, &player, show.target).filter(|_| !frozen) {
+        if show.kind == Kind::Kill {
+            let id = show.target.0;
+            let moving = !phys.world.ragdoll_asleep(id) && phys.world.ragdoll_center_speed(id).is_some_and(|v| v >= STILL_SPEED);
+            show.moved.frame(at, moving, phys.world.steps());
+        }
+        let at = at + Vec3::new(0.0, 0.0, focus);
         show.seen = Some(match show.seen {
             Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
             _ => at,
@@ -874,6 +935,18 @@ fn update(
             }
             None => {
                 info!("{label}: done ({:.1} s{}), input held {} frames", show.real, stop.map_or_else(String::new, |w| format!("; {w}")), show.held);
+                if show.kind == Kind::Kill {
+                    let m = show.moved;
+                    info!(
+                        "kill camera: the target's drawn place moved {:.0} units over {} frames and {} physics steps, at most {:.1} units in a frame; {} frames it stood still while its body went at {STILL_SPEED:.0} units/s or more",
+                        m.path,
+                        m.frames,
+                        phys.world.steps().saturating_sub(m.steps_at),
+                        m.most,
+                        m.still
+                    );
+                    cam.after = m.last.map(|at| (show.target, at));
+                }
                 let linger = show.angle.filter(|_| stop.is_none()).map(|(angle, side)| Linger { angle, side, target: show.target, left: ANGLE_LINGER });
                 cam.show = None;
                 cam.linger = linger;
@@ -1137,7 +1210,7 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
         assert!(app.world().resource::<PlayerControl>().trigger);
-        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus: 0.0 });
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus: 0.0, moved: TargetMoved::default() });
         ask(&mut app);
         app.update();
         let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());

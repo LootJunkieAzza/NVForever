@@ -130,6 +130,12 @@ the spec it links to.
 
 ## Tier 2: movement and controls feel
 
+- **Darting movement clips (#2352).** [design, #2352] `ROOT_EXCURSION_RATIO = 1.5`
+  selects moves whose sampled root excursion exceeds 1.5 times net travel; their
+  drawn x/y stays at the track's start. A different ratio changes which moves lose
+  their in-cycle sway. Actor movement is unchanged; original dart behavior awaits
+  observer check 169. ([actors §8.2](spec-notes/actors.md#82-root-motion))
+
 13. **Grab.** Z held, or E held for 0.4 s, picks up an object or a corpse. It drops when
     lagging 90 units and is thrown at up to 600 units/s. Nothing over 100 kg can be
     picked up, and you can only walk while holding over 25 kg. All guessed.
@@ -260,6 +266,22 @@ the spec it links to.
     ([actor-behaviour §5.1](design/actor-behaviour.md), `FOLLOW_STOP_INSET`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+- **Grass fires: size, speed and regrowth (#2567).** [design] Burning weapons and blasts
+  light generated grass; a fire spreads in 64-unit patches (0.5-1.5 s a step, faster
+  downwind), each patch burns 6 s, and a fire stops at 1,024 units from its start or 500
+  patches, at most 8 fires at once. Anyone standing in it catches the source's burn,
+  credited to whoever started it. Burnt grass grows back whenever its cell reloads (not
+  kept in saves). Bigger reach, a slower front, fires that leave the ground scorched for a
+  game day, or trees and shrubs that burn too are each a figure or a follow-up away.
+  [grass-fire](design/grass-fire.md)
+
+- **Rigid headgear frame detection (#2529).** [design, #2529] Choose bone-local axes
+  when a rigid head part's combined authored bounds straddle skeleton Z=0 and their
+  centre aligns at least 0.9 with bone-local up (`BONE_LOCAL_HEAD_ALIGNMENT`);
+  otherwise retain the skeleton-axis rule. This fixes Oliver's supplied +X cap layout
+  without naming a model. Keep this conservative geometry rule, or require explicit
+  model-frame metadata for ambiguous mod meshes? ([actors §1.2](spec-notes/actors.md#12-meshes))
 
 - **NPC conversations go on past a Goodbye line that links on (#2451).** [hypothesis,
   #2451] The editor's documentation says a Goodbye line ends a conversation between
@@ -495,6 +517,16 @@ the spec it links to.
     (item 5, second part) is not built yet.
     ([pickpocket §5](spec-notes/pickpocket.md))
 
+71. **Armour only ever worn has no look on the ground (#2439).** The two floating
+    backpacks at the Fort were not the slaves' packs. They are two placed references of
+    the Slave Backpack armour (0x0013732C and 0x0013732D), 565 and 913 units up with
+    nothing under them; the record has no ground model, so its worn model was drawn there.
+    Ours now: Non-Playable armour without a ground model is not drawn or collided as a
+    world object (the player can never pick it up). It is still drawn on the slaves who
+    wear it. Playable armour without a ground model still lies as its worn model. If you
+    would rather see these two packs, they would have to be dropped to the ground (they
+    have no collision of their own). Observer check 142 asks what the original shows.
+    ([simulation §3 Item models](spec-notes/simulation.md))
 72. **A sprung trap stays sprung when drawn again (#2420).** Ranger Station Charlie's
     door and tripwire come in with an enable parent the station's trigger script turns
     on. The door was drawn without its door animation, so it looked shut while it was
@@ -506,6 +538,15 @@ the spec it links to.
     explosions on a second pass, note where you stand (the frag mines at the entrance
     and the bottle-cap mine behind the door are separate placed mines). Observer check
     143. ([doors §2](spec-notes/doors.md), [activators §5](spec-notes/activators.md))
+74. **An actor whose package lies behind a disabled door stays where it is (#2566).**
+    With Volare! failed (a Boomer elder killed), Loyal's only valid package is the
+    B-29 hangar (NellisHangar1b), whose doors stay disabled until the B-29 is raised;
+    ours had put him in there, out of the player's reach, and the quest marker looped
+    between the hangar door and its inside. Now no path and no quest marker goes
+    through a disabled door: Loyal sets that package aside and stays in NellisHangar2
+    (the mess hall hangar), where the marker leads. If you would rather the engine
+    let him in anyway and open the way for the player, say so. Observer check 160.
+    ([navmesh §4](spec-notes/navmesh.md), [quests §2](spec-notes/quests-dialogue.md))
 61. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
     weapon away now bite their nails, smoke and so on, by the idle tree's factions and
     chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace
@@ -540,6 +581,75 @@ the spec it links to.
     (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
+78. **A turret that cannot move fires a script's weapon use from where it stands
+    (#2544).** ARCHIMEDES at HELIOS One (an Immobile turret) is told by the control
+    panel's script to shoot each NCR trooper in turn; ours never let a rooted actor's
+    weapon use start, so it drew and holstered forever and the strike never came. Ours
+    now: such a use starts at once where the turret is, and it turns to the target at
+    its combat turn rate (ARCHIMEDES turns 375 degrees a second) before firing; the
+    troopers' places do not matter to the script. The NCR troopers turning on the player
+    before the beam is the script's own SetEnemy (23 intervals after arming), not a
+    fault. Check the strike's pace looks right to you: one shot every 1-4 s, five
+    troopers, then the big beam. Observer check 164 asks the original's timing.
+    ([use-weapon §2](design/use-weapon.md))
+76. **A line's group condition on the speaker wins over its fixed speaker (#2548).**
+    Cottonwood Cove's "Halt! What business have you in Cottonwood Cove, outsider?"
+    (0x0013AC97) names the AAM explorer as its fixed speaker but tests the explorers'
+    faction, which all four explorers are in; the other three force-greeted the player
+    with the generic "Move along." and could never be shown the Mark of Caesar. Ours
+    now: a condition on the speaker naming a group (faction, class, race, voice type,
+    form list) decides who may say the line, as GetIsID already did. Nineteen lines
+    change: the explorers' greeting and its six answers, the Tops' random bartender (3)
+    and the Strip's Securitron messenger (9, still said by the messenger). The other
+    explorers speak the AAM explorer's recorded voice (the only file there is), so one
+    voice comes from four men; the other choice is silent subtitles. Say if you would
+    rather keep the fixed speaker. Observer check 162 asks the original.
+    ([dialogue §4](spec-notes/dialogue.md))
+77. **A Very Aggressive actor attacks a Neutral on sight only inside its aggro radius
+    (#2547).** HELIOS One's guard dogs are in no NCR faction (Neutral to the troopers)
+    and Very Aggressive, so by the wiki's rule they attack any Neutral they see; they
+    went for the troopers 2,800 units away again and again and pulled them off their
+    marks. Ours now: an actor with Aggro Radius Behavior on (the dogs' radius is 2,000)
+    starts such a fight only inside that radius; once fighting it chases anywhere, and a
+    hit or an Enemy still starts a fight at any range. This reaches 227 actor records of
+    FalloutNV.esm (226 creatures: night stalkers, geckos, Mister Gutsys, fire ant queens,
+    Legion mongrels …) that are Very Aggressive with a radius on; the 796 without one
+    still attack every Neutral they see. The player is not affected.
+    If you saw wild creatures and patrols ignore each other more than in the original,
+    say where. Observer checks 144 and 163 ask the original.
+    ([factions §4](spec-notes/factions.md))
+79. **Companions are knocked out, not killed, outside Hardcore (#2623).** No companion
+    carries the Essential flag in the data and no script sets it, so Cass, Veronica and
+    Boone died in the quest pilot's fights outside Hardcore (and Veronica's death left
+    the Hidden Valley bunker locked). Ours now: outside Hardcore every player teammate
+    falls unconscious at zero health and gets up after the fight, still hired; in
+    Hardcore it dies, as before. A mod's JIP ToggleTeammateKillable 1 makes one killable
+    again. IsEssential still reads only the flag (0 for Cass). If a companion should
+    still die in some case outside Hardcore, say which. Observer check 165 asks the
+    original. ([unconscious §2.2a](spec-notes/unconscious.md))
+81. **A faction disguise outranks the player's bad standing with that faction (#2611).**
+    In NCR armour on the Legion route, every NCR soldier at Hoover Dam attacked: the
+    player's enemy flag with NCRFactionNV (a crime, SetPCEnemyOfFaction) won over the
+    friendship the armour's script sets up with ArmorNCRFactionNV, so nobody was fooled.
+    Ours now: such a flag does not count while the actor is also in a faction that is
+    the player's ally or friend (the disguise faction); only sniffers (the rangers, MPs,
+    Captain Graham) within the disguise pulse's 25 ft, about 533 units, and in sight see
+    through it, and then a fight they start blows the cover for the dam. A flag on the
+    disguise faction itself (a murder seen while disguised) still counts. The soldiers
+    it fools take the player for a friend, so a sniffer's alarm (a glimpse or a fight)
+    no longer turns them on the player. If the disguise now seems too
+    forgiving (it fools after any crime but one done in disguise), say so. Observer
+    check 173 asks the original. ([disguises §3, §4](spec-notes/disguises.md))
+
+80. **Scripts cannot disable the player (#2617).** On the Legion route the intake tower
+    trigger VHDIntakeTowerLegionaryDespawnScript disables whoever walks in once the
+    Legion's intake tower strategy is 2, the player too; a disabled player's scripted
+    load doors do nothing, so the Power Plant 01 elevator never took the player through.
+    Ours now: Disable of the player does nothing, and a save holding the player disabled
+    loads with the player enabled. The other choice is to let the player be disabled and
+    only lift the Activate rule for the player (the player would then be hidden and
+    "gone" to scripts that test it). Observer check 172 asks the original.
+    ([doors §6](spec-notes/doors.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

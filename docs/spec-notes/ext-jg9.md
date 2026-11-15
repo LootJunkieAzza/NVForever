@@ -101,7 +101,7 @@ controls are read.
 | GetGrenadeHoldTime | seconds the player has held a thrown weapon's trigger, kept after the throw until the next hold [documented] (`nvf-play` combat.rs) |
 | GetNearestCompassHostileDirection `[skipInvisible]` | 0 front … 7 front left [documented], eight equal sectors about the heading [hypothesis]; -1 with no hostile mark [observed, §7]; invisible is Invisibility or Chameleon above 0 (`nvf-play` compass.rs) |
 | GetCurrentSkyColor `type rOut gOut bOut` | the sky's colour of that type now [documented: 0 sky upper … 9 clouds upper], 0-255, by the weather colour types' order [hypothesis: the page's ids are NAM0's]; 0 in an interior [hypothesis] (`nvforever` sky.rs) |
-| GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them; the first person's until the engine tells the view [observed: 55 in the probe's save, §7] |
+| GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them (a SetCameraFOV value, else the settings page's Field of view / Viewmodel field of view, else the INI's); the first person's until the engine tells the view [observed: 55 in the probe's save, §7] |
 
 ## 7. Observed (set jg9 at 5d1ab3447, 2026-11-10)
 

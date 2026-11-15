@@ -39,9 +39,9 @@
 //!
 //! Every constant here is [design]: how the original's death camera moves, how slow its
 //! slow motion is and which image space modifier it plays, if any, are not known; the
-//! fade's timing is the owner's. The original reloads the last save some seconds after
-//! the death; that is not built, and how long the original waits, and whether it fades,
-//! is not in our notes.
+//! fade's timing is the owner's. `nvf_play::save` reloads the newest eligible save after
+//! the live fPlayerDeathReloadTime delay; its one-shot recovery keeps the Load menu
+//! usable when no save can be loaded. The original's precise fade remains unobserved.
 //!
 //! Log lines: `death camera: the player died in first person: …` when it starts,
 //! `death camera: the body is on the ground …` when the ragdoll comes to rest,

@@ -58,7 +58,13 @@ total = 28896
 # Legs' death sounds 0x020102DD-DF in place of GenericAdultCombat's 0x020112E4; the rest are
 # other picks from Random pools after those. No chain's stages changed.
 # claude/nvse-mod-tools with this main measures 2491 too [measured 2026-11-13].
-said = 2491
+# 2491 -> 2489: #2582, a script's Say/SayTo of the topic its speaker is saying leaves the line
+# playing. In the four lonesome-road chains, ED-E's NVDLC04EDEHappy line 0x01008A37 is no
+# longer cut by a second SayTo of its topic for the topic's other Random line 0x01008A38, and
+# with one Random pick fewer, a robot killed later says another Death variant than
+# GenericRobot's "Bzzzt." 0x00080DAE. The chains' stages, observations and final state are the
+# same with and without the change [measured 2026-11-14, lonesome-road-launch, fnvtool script run].
+said = 2489
 
 [summary.actors]
 with_lines = 704

@@ -261,13 +261,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     let v = match name {
         // ---- Anh ----
-        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the INI's
-        // default (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV,
-        // "Returns the FOV value for the camera"; hypothesis: 75 and 55 when the INI
-        // names none, the shipped Fallout_default.ini's values].
+        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the one the
+        // player set on the engine's settings page, else the INI's default
+        // (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV, "Returns
+        // the FOV value for the camera"; decision: the settings page stands for the
+        // original's INI values, which its own FOV setting writes; hypothesis: 75 and 55
+        // when the INI names none, the shipped Fallout_default.ini's values].
         "getcamerafov" => {
             let first = num(args, 0, 0.0) != 0.0;
-            let set = if first { g.ui.camera.fov_set.1 } else { g.ui.camera.fov_set.0 };
+            let c = &g.ui.camera;
+            let set = if first { c.fov_set.1.or(c.settings_fov.1) } else { c.fov_set.0.or(c.settings_fov.0) };
             match set {
                 Some(v) => XVal::Num(f64::from(v)),
                 None => {

@@ -297,8 +297,13 @@ commands that touch the menus, the sky or the minimap ran one per launch].
 
 **Answers NVForever does not match**, with what the original gave:
 - **GetCollisionNodes**: an array of 18 for Doc; NVForever gives an empty one.
-- **CalculateShotsPerSec** (a weapon form or the player), **ProjectUITile** and
-  **ExecuteScript** (no arguments) failed the call; NVForever answers 0.
+- **CalculateShotsPerSec** (a weapon form or the player) and **ExecuteScript**
+  (no arguments) failed the call; NVForever answers 0.
+- **ProjectUITile**: the historical six-number probe failed in the original; the
+  former generic NVForever stub answered 0. The typed source-command handler now
+  also refuses that wrong argument shape with a script error, rather than returning
+  0. The old capture probe and its steps remain historical inputs, unchanged; a
+  future lab result may differ. This is not renderer or native-call qualification.
 - **GetBodyPartVATSTarget** did not compile into a number; NVForever gives "".
 
 **No argument pattern compiled**, so the shape is unknown. These get optional arguments

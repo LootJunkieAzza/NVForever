@@ -15,8 +15,11 @@
 //!
 //! A shape gets its own copy of the material it wears when first driven; when another
 //! system gives it a new one (a swapped texture), that is copied in turn. A shape drawn
-//! see-through (`Faded`, `Fading`) already wears a copy of its own, which is written as
-//! it is.
+//! see-through for a fade (`Fading`) already wears a private copy, written in place.
+//! [design, #2557; nif_material::plain_material] Shared actor-alpha copies are cloned
+//! privately before animation writes. Actor stealth fields are derived over the plain
+//! material; animation writes and resets never target the cloak. Cached values are
+//! reapplied when the plain handle changes.
 
 use bevy::prelude::*;
 use nvf_assets::actor::ShapeName;
@@ -28,8 +31,6 @@ use std::collections::HashMap;
 use nvf_assets::NifMaterial;
 use nvf_play::fade::Fading;
 use nvf_play::RefVisual;
-
-use crate::effect_shaders::Faded;
 
 /// Frames between looks for named shapes that appeared on an actor since.
 const RESCAN_FRAMES: u32 = 60;
@@ -54,7 +55,7 @@ impl ActorMaterials {
     /// One driven shape, nothing written yet (tests).
     #[cfg(test)]
     pub(crate) fn with_shape(entity: Entity) -> Self {
-        ActorMaterials { slots: vec![Slot { shape: String::new(), entity, mine: None, last: None }], searched: Vec::new() }
+        ActorMaterials { slots: vec![Slot { shape: String::new(), entity, mine: None, last: None, posed_on: None }], searched: Vec::new() }
     }
 }
 
@@ -72,6 +73,8 @@ struct Slot {
     mine: Option<Handle<NifMaterial>>,
     /// What was written last, and which members.
     last: Option<(Look, Driven)>,
+    /// [design, #2557] Cached values apply only to this plain material.
+    posed_on: Option<AssetId<NifMaterial>>,
 }
 
 /// Find the drawn shapes named `name` (lower case) below `root`.
@@ -89,7 +92,7 @@ fn find(root: Entity, name: &str, children: &Query<&Children>, names: &Query<&Sh
 
 /// A driven shape: what it wears, what its model stores, and whether it is drawn
 /// see-through (wearing a copy of its own already).
-type DrivenShape = (&'static MeshMaterial3d<NifMaterial>, &'static StoredLook, Has<Fading>, Has<Faded>);
+type DrivenShape = (&'static MeshMaterial3d<NifMaterial>, &'static StoredLook, Has<Fading>, Option<&'static nvf_assets::nif_material::MaterialOverride>);
 
 /// What posing the driven materials of an actor needs.
 #[derive(SystemParam)]
@@ -124,7 +127,7 @@ impl Posing<'_, '_> {
             find(actor, shape, &self.children, &self.names, &mut self.found);
             for &entity in self.found.iter() {
                 if !am.slots.iter().any(|s| s.entity == entity) {
-                    am.slots.push(Slot { shape: shape.clone(), entity, mine: None, last: None });
+                    am.slots.push(Slot { shape: shape.clone(), entity, mine: None, last: None, posed_on: None });
                     let r = self.refs.get(actor).map_or(0, |r| r.0);
                     info!("actor materials: reference {r:08X} shape {shape} driven by its clips");
                 }
@@ -132,10 +135,11 @@ impl Posing<'_, '_> {
         }
         let mut gone = false;
         for slot in &mut am.slots {
-            let Ok((current, stored, fading, faded)) = self.shapes.get(slot.entity) else {
+            let Ok((current, stored, fading, drawing)) = self.shapes.get(slot.entity) else {
                 gone = true;
                 continue;
             };
+            let source = nvf_assets::nif_material::plain_material(&current.0, drawing);
             let mut look = stored.0;
             let mut driven = Driven::default();
             for (_, target, v, _) in values.iter().filter(|(s, ..)| s.eq_ignore_ascii_case(&slot.shape)) {
@@ -144,22 +148,28 @@ impl Posing<'_, '_> {
             }
             let write = match slot.last {
                 None if !driven.any() => continue,
-                Some(last) if last == (look, driven) => continue,
+                Some(last) if last == (look, driven) && slot.posed_on == Some(source.id()) => continue,
                 Some((_, before)) => driven.or(before),
                 None => driven,
             };
             slot.last = driven.any().then_some((look, driven));
-            if fading || faded || slot.mine.as_ref().is_some_and(|m| m.id() == current.id()) {
-                if let Some(mut m) = self.materials.get_mut(&current.0) {
+            // [design, #2557] Write animation and resets to the plain private source.
+            // Installing it also tells the top layer to derive its cloak again.
+            let handle = if fading || slot.mine.as_ref() == Some(source) {
+                if let Some(mut m) = self.materials.get_mut(source) {
                     pose_material(&mut m, &look, write, true);
                 }
-            } else if let Some(mut m) = self.materials.get(&current.0).cloned() {
-                // Its own copy of what it wears now (the model's, or a swapped texture's).
+                source.clone()
+            } else if let Some(mut m) = self.materials.get(source).cloned() {
                 pose_material(&mut m, &look, write, true);
                 let h = self.materials.add(m);
-                self.commands.entity(slot.entity).insert(MeshMaterial3d(h.clone()));
-                slot.mine = Some(h);
-            }
+                slot.mine = Some(h.clone());
+                h
+            } else {
+                continue;
+            };
+            slot.posed_on = Some(handle.id());
+            self.commands.entity(slot.entity).insert(MeshMaterial3d(handle));
         }
         if gone {
             // A part or weapon was taken away.

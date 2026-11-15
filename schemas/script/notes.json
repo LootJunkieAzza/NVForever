@@ -3040,6 +3040,12 @@
    "bugs": []
   },
   {
+   "page": "ProjectUITile",
+   "summary": "Source-command request for a UI subtree on a named model target; native opcode decoding and rendered admission are separate.",
+   "notes": [],
+   "bugs": []
+  },
+  {
    "page": "PurgeCellBuffers",
    "summary": "Forcibly unloads all cells in the cell buffers that are not currently attached.",
    "notes": [],

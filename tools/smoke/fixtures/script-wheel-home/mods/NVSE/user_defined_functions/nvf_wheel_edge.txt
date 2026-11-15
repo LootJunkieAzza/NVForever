@@ -1,0 +1,5 @@
+scn NVFSmokeWheelEdge
+int key
+Begin Function {key}
+    PrintC "nvf physical wheel edge %g" key
+End

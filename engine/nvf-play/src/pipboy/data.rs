@@ -902,6 +902,15 @@ pub fn draw(
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
     }
+    // While a press is held (the mouse's left button, or the test aid's click between its
+    // press and its release) a playing audio note's meter alone does not draw the page
+    // again: the redraw replaced the hints and rows under the pointer every frame or two,
+    // so the release fell on another node than the press and no click came (the
+    // Challenges hint under a playing voice note, issue #2571).
+    let pressing = input.buttons.pressed(MouseButton::Left) || input.aid.click == 1;
+    if added.get(body).is_err() && pressing && st.shown.as_ref().is_some_and(|s| meter_only_moved(s, &view)) {
+        return;
+    }
     let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
     st.button_rects = (view.tab, button_boxes(&c, &view.buttons));
     // The question box's answers are spawned anew with the page: the answer the pointer was
@@ -912,6 +921,18 @@ pub fn draw(
     }
     commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
     st.shown = Some(view);
+}
+
+/// Whether `now` differs from `shown` only in a playing audio note's time and meter.
+fn meter_only_moved(shown: &View, now: &View) -> bool {
+    fn still(v: &View) -> View {
+        let mut v = v.clone();
+        if let Body::List { right: Right::Audio { left, played }, .. } = &mut v.body {
+            (*left, *played) = (0, 0);
+        }
+        v
+    }
+    matches!(now.body, Body::List { right: Right::Audio { .. }, .. }) && still(shown) == still(now)
 }
 
 /// The page's preparation, a frame's: keep track of the quests and markers, and while the page is
@@ -3853,6 +3874,24 @@ mod tests {
         assert_eq!(door(None).picture(), DOOR_ICON);
         assert_eq!(door(Some(true)).picture(), DOOR_ICON_OUTSIDE);
         assert_eq!(door(Some(false)).picture(), DOOR_ICON_INSIDE);
+    }
+
+    /// #2571: a playing audio note's time and meter alone are what a held press does not
+    /// redraw the page for; any other change is.
+    #[test]
+    fn only_the_audio_meter_moving_is_held_under_a_press() {
+        let view = |right: Right, first: usize| View {
+            tab: NOTES,
+            place: "Goodsprings".into(),
+            when: "12:05".into(),
+            buttons: Vec::new(),
+            body: Body::List { rows: Vec::new(), first, boxed: Some(0), right },
+            popup: None,
+        };
+        let a = view(Right::Audio { left: 265, played: 120 }, 0);
+        assert!(meter_only_moved(&a, &view(Right::Audio { left: 264, played: 123 }, 0)));
+        assert!(!meter_only_moved(&a, &view(Right::Audio { left: 264, played: 123 }, 1)), "the list scrolled");
+        assert!(!meter_only_moved(&a, &view(Right::Text { text: "x".into(), first: 0.0 }, 0)), "another note");
     }
 
     /// #2310: a row that comes under a resting pointer (the list redrawn as the D-pad or the

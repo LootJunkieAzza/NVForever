@@ -97,7 +97,7 @@ impl PhysWorld {
     }
 
     /// The body at index `body` of what `on` names, now.
-    fn grip_handle(&self, on: GripOn, body: usize) -> Option<RigidBodyHandle> {
+    pub(crate) fn grip_handle(&self, on: GripOn, body: usize) -> Option<RigidBodyHandle> {
         match on {
             GripOn::Ref(id) => self.refs.get(&id)?.get(body).copied(),
             GripOn::Ragdoll(id) => *self.ragdolls.get(&id)?.bodies.get(body)?,

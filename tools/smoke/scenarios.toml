@@ -41,11 +41,12 @@ masters = [
 untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
-  "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
+  "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_PROJECTILE_LAUNCH", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
   "NVF_PLAY_AIDS_FROM_SCRIPTS", "NVF_PLAY_TEST_HELD_GRENADE",
   "NVF_PLAY_TEST_SANDBOX_INTERRUPT",
   "NVF_PLAY_TEST_MELEE_KNOCKBACK",
   "NVF_PLAY_TEST_RAGDOLL_FAIL",
+  "NVF_PLAY_TEST_DEATH_RECOVERY",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -112,6 +113,25 @@ sep = ","
 # ------------------------------------------------------------------ checks before every push
 # Engine workspace uses the crates/ workspace, so crate changes call for its clippy too.
 
+[[scenario]]
+name = "ui-four-extra-operators"
+kind = "tool"
+source = "[documented] GECK UIO Extra XML Operators; docs/spec-notes/uio-four-operators.md. Authored portable numeric XML, no game data."
+note = "UNRUN source-only proposal. The actual fnvtool ui tree consumer settles a referenced degree argument, cosine, nested natural logs and accumulated power. Nonzero expected values, sentinel and ordinary arithmetic prevent default-zero or ignored-operator false passes; no installed UI/native rendering acceptance."
+areas = ["ui"]
+paths = ["crates/fnv-ui/", "crates/fnvtool/src/ui_cmd.rs", "docs/spec-notes/uio-four-operators.md", "tools/smoke/fixtures/uio-four/"]
+commands = [["ui", "tree", "--data", "tools/smoke/fixtures/uio-four", "--menu", "menus/uio-four.xml"]]
+expect = [
+  { json = "tree.name", schema = "fnv.ui.tree/1", equals = "UIOFour", count = 1 },
+  { json = "tree.traits.sine", schema = "fnv.ui.tree/1", range = [0.999999999999, 1.000000000001], count = 1 },
+  { json = "tree.traits.cosine", schema = "fnv.ui.tree/1", range = [-1.000000000001, -0.999999999999], count = 1 },
+  { json = "tree.traits.ratio", schema = "fnv.ui.tree/1", range = [2.999999999999, 3.000000000001], count = 1 },
+  { json = "tree.traits.power", schema = "fnv.ui.tree/1", equals = 81, count = 1 },
+  { json = "tree.traits.ordinary", schema = "fnv.ui.tree/1", equals = 21, count = 1 },
+  { json = "tree.traits.sentinel", schema = "fnv.ui.tree/1", equals = 23, count = 1 },
+  { json = "warnings.#", schema = "fnv.ui.tree/1", equals = 0, count = 1 },
+]
+
 [[check]]
 name = "root cargo test"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
@@ -175,6 +195,35 @@ paths = [".github/workflows/", "tools/release/"]
 cmd = ["python", "-m", "unittest", "discover", "-s", "tools/release/tests"]
 
 # ------------------------------------------------------------------ renderer, sky, image space
+
+[[scenario]]
+name = "death-recovery-handoff"
+source = "original death reload observed in campaign o29_dmg (2026-11-08, #1858), docs/handoff/observer-checks.md item 89; bounded recovery policy in docs/spec-notes/player-death-recovery.md"
+note = "UNRUN: an isolated NVForever home saves a living player before KillActor; the existing load handoff must take over once, without overwriting that save. This is separate from the unchanged camera-only fade timing scenario."
+areas = ["save", "combat"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/save/death_recovery.rs", "engine/nvf-play/src/loading.rs", "engine/nvforever/src/handoff.rs"]
+env = { NVFOREVER_HOME = "death-recovery-home", NVF_PLAY_TEST_DEATH_RECOVERY = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:save death-recovery-living;21:close;24:player.killactor;25:close", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 90
+ends = "test aid NVF_PLAY_TEST_HANDOFF_EXIT: the new run took over and its world is in"
+expect = [
+  { re = 'save: wrote .*death-recovery-living\.nvfsave', count = 1, label = "one living save is written" },
+  { re = 'death recovery: loading .*death-recovery-living\.nvfsave after', count = 1, label = "death selects the living save once" },
+  { re = 'load: handing over to a new run with --load .*death-recovery-living\.nvfsave', count = 1, label = "one existing load handoff starts" },
+  { re = 'load: restored .*death-recovery-living\.nvfsave: \d+ changed references', count = 1, label = "the new run restores the living save" },
+  { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown" },
+  { text = "the new run took over and its world is in; ending it", label = "the restored world comes in" },
+  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends after takeover" },
+  { text = "No living save could be loaded", count = 0, label = "the usable living save is not rejected" },
+  { re = 'before the world was in|before it was ready|the previous run did not end normally', count = 0, label = "no handoff timeout or crash" },
+]
+order = [[
+  { re = 'save: wrote .*death-recovery-living\.nvfsave', label = "save first" },
+  { re = 'death recovery: loading .*death-recovery-living\.nvfsave after', label = "then recover" },
+  { re = 'handoff: window shown after [\d.]+ s$', label = "new window shows" },
+  { re = 'load: restored .*death-recovery-living\.nvfsave', label = "restore after handoff" },
+  { text = "the new run took over and its world is in; ending it", label = "restored world ready" },
+]]
 
 [[scenario]]
 name = "memory-budget-capped"
@@ -621,6 +670,107 @@ note = "The controller moves range [1, 1000] holds only on the walking path, whe
 expect = [
   { re = '\bframe time: \d', min = 1, label = "frame-time logging is enabled" },
   { re = 'physics: [\d.]+ ticks a frame \(max \d+\) over [1-9]\d* frames, (?P<n>[\d.]+) controller moves a tick \(max \d+\), [\d.]+ blocks, [\d.]+ ms a frame in player::step, [\d.]+ ms a tick', range = [1, 1000], label = "the physics line: at least the player's controller moves each tick" },
+]
+
+[[scenario]]
+name = "physics-rate-152"
+source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz sets the rate for a run over the settings page's Physics rate; the start's log names it, the physics line carries it, and the steps a second of a run follow it"
+areas = ["physics", "profiling"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys_load.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvforever/src/frame_pace.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/character.rs"]
+# A test aid makes the run unattended, so the player's own NVForever.ini is not read.
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5", "--physics-hz", "152"]
+run_seconds = 25
+note = "The walking-steps range counts the steps of the 5 s run on the ground (step_lift's roughness tally, walking over 30 units/s): about 760 at 152 Hz, about 300 at 60. A guard fallback in this light scene would be a fault of its own (the exit line counts the switches)"
+expect = [
+  { re = 'phys: physics rate 152 Hz \(--physics-hz 152\)', count = 1, label = "the start names the rate and that the command line set it" },
+  { re = 'physics: [\d.]+ ticks a frame \(max \d+\) over [1-9]\d* frames, .* ms a tick, at 152 Hz', min = 1, label = "the physics line carries the rate" },
+  { re = 'physics: walking on the ground for (?P<n>\d+) steps', range = [450, 1200], label = "5 s of running at 152 steps a second, not 60" },
+  { re = 'physics rate: 152 Hz at exit, 152 Hz asked for; 0 switches by the guard', count = 1, label = "no fallback in Goodsprings at 152 Hz" },
+]
+
+[[scenario]]
+name = "physics-rate-display"
+source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz display follows the frame rate the display's pace holds (the cap in effect, else the refresh rate), within 60 to 160"
+areas = ["physics"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "display"]
+run_seconds = 15
+note = "The display's rate is the machine's: the line checks that Match FPS found one and held it to 60-160, not which"
+expect = [
+  { re = 'phys: physics rate (?P<n>\d+) Hz( -> \d+ Hz)? \(--physics-hz fps, Match FPS: up to the display.s \d+ fps\)', min = 1, label = "Match FPS found the display's frame rate" },
+  { re = 'physics rate: (?P<n>\d+) Hz at exit', range = [60, 160], label = "held to 60-160" },
+]
+
+[[scenario]]
+name = "physics-rate-fps"
+source = "the owner 2026-11-11 (rename the Match Display to Match FPS and implement it): Match FPS follows the game's own frame rate down when it stays low and back up when it recovers, between 60 and the display's ceiling (engine/nvf-play/src/phys_rate.rs `FpsFollow`, docs/spec-notes/physics.md §5.4)"
+note = "The test aid NVF_PLAY_TEST_SLOW_FRAMES holds every frame 30 ms longer from 25 to 35 real seconds after the start: under 34 frames a second, so Match FPS steps down to 60 after 2 s of it, and back up once the frames have recovered for 5 s (their rate depends on the machine, so only that it rises is checked). The cost guard is not what moves it"
+areas = ["physics"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SLOW_FRAMES = "25:35:30" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "fps"]
+run_seconds = 55
+order = [[
+  { re = 'phys: physics rate \d+ Hz \(--physics-hz fps, Match FPS: ', label = "Match FPS from the command line" },
+  { re = 'test aid NVF_PLAY_TEST_SLOW_FRAMES: frames held 30 ms longer from 25\.0 s to 35\.0 s', label = "the frames are held" },
+  { re = 'phys: physics rate \d+ Hz -> 60 Hz: the frame rate held \d+ fps over 2 s \(Match FPS, up to \d+ Hz\)', label = "Match FPS steps down to 60 with the frames" },
+  { re = 'test aid NVF_PLAY_TEST_SLOW_FRAMES: frames no longer held', label = "the frames recover" },
+  { re = 'phys: physics rate 60 Hz -> \d+ Hz: the frame rate held \d+ fps over \d+ s \(Match FPS, up to \d+ Hz\)', label = "and Match FPS goes back up" },
+]]
+expect = [
+  { re = 'physics rate: \d+ Hz at exit, \d+ Hz asked for; 0 switches by the guard, (?P<n>\d+) by Match FPS', range = [2, 20], label = "Match FPS switched, the cost guard did not" },
+]
+
+[[scenario]]
+name = "physics-rate-setting"
+source = "docs/spec-notes/physics.md §5.4 (the physics rate): the settings page's Physics rate changes the rate in play, at once, keeping the share of a step the clock is into"
+areas = ["physics", "settings"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/settings_layout.rs", "lang/*.toml"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:physics-rate=144 Hz", NVF_PLAY_TEST_MOVE = "12:1:0,15:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14"]
+run_seconds = 18
+expect = [
+  { re = 'phys: physics rate 60 Hz \(the setting\)', count = 1, label = "60 at the start" },
+  { re = 'settings: physics-rate 144 Hz', count = 1, label = "the page takes the choice" },
+  { re = 'phys: physics rate 60 Hz -> 144 Hz \(the setting\)', count = 1, label = "and the rate follows it" },
+  { re = 'physics rate: 144 Hz at exit, 144 Hz asked for', count = 1, label = "still 144 at the end" },
+]
+
+[[scenario]]
+name = "physics-rate-default"
+source = "docs/spec-notes/physics.md §5 (the physics rate): without --physics-hz and with no INI (an unattended run) the rate is the setting's default, 60"
+areas = ["physics"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'phys: physics rate 60 Hz \(the setting\)', count = 1, label = "60 by default" },
+  { re = 'physics rate: 60 Hz at exit, 60 Hz asked for; 0 switches by the guard', count = 1, label = "and no fallback" },
+]
+
+[[scenario]]
+name = "collision-view"
+source = "docs/spec-notes/physics.md §9 (the collision view, tcg): NVF_COLLISION_VIEW switches it on at start and the collider outlines around the camera are drawn (terrain, static collision, actors' hit volumes); tcg switches it off, on, and on with a radius; the game keeps stepping physics and logging frame times"
+areas = ["physics", "console"]
+paths = ["crates/fnv-phys/src/debug_lines.rs", "engine/nvf-play/src/collision_view.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_COLLISION_VIEW = "2500", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "14:tcg;14.5:tcg;15:tcg 1500;15.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5"]
+run_seconds = 25
+expect = [
+  "collision view: on (NVF_COLLISION_VIEW, radius 2500 units)",
+  { re = 'collision view: (?P<n>\d+) segments within 2500 units', range = [100, 200000], label = "segments are drawn around the camera" },
+  { re = 'collision view: \d+ segments within 2500 units .*: terrain (?P<n>\d+),', range = [1, 200000], label = "the terrain is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, static (?P<n>\d+),', range = [1, 200000], label = "Goodsprings' static collision is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, hit volumes (?P<n>\d+),', range = [1, 200000], label = "actors' hit volumes are outlined" },
+  "console: Collision geometry off",
+  "console: Collision geometry on (within 2500 units of the camera)",
+  "console: Collision geometry on (within 1500 units of the camera)",
+  { re = 'collision view: (?P<n>\d+) segments within 1500 units', range = [1, 200000], label = "tcg <radius> draws within the new radius" },
+  { re = '\bframe time: \d', min = 2, label = "frames go on with the view on" },
+  { re = 'physics: (?P<n>[\d.]+) ticks a frame \(max \d+\) over [1-9]\d* frames', range = [0.01, 100], label = "physics keeps stepping with the view on" },
 ]
 
 [[scenario]]
@@ -1349,9 +1499,11 @@ expect = [
   { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1571, known_failing = "main 2026-10-11: 1,602" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 2810, known_failing = "main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 177, known_failing = "main 2026-10-11: 182" },
-  { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
+  # 127 since fe707658d (2026-11-14, #2451): a Dialogue package talking to another actor or a talking activator is carried out; the 3 pairs "not carried out yet: a conversation between two actors" became 1 talks + 2 reachable (checked by putting that one goal.rs rule back: 126, 3, and reachable 10,590; issue #2571)
+  { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 127 },
   # issue #909 item 9 (2026-10-30): pairs unreachable from the editor placement but reached from a place a script MoveTo's the actor to (Yes Man's penthouse marker 0x00166304)
-  { json = "verdicts.reachable from where a script moves it (MoveTo)", schema = "fnv.ai.reach/1", equals = 120, label = "reached from a script's MoveTo target: 120 pairs" },
+  # 122 since 3ceeb49ff (2026-11-14, #2566): a disabled load door is no way through; 4 pairs reachable only through one became 2 reached from a MoveTo target + 2 with no way there (checked by letting disabled doors through again: 120, 183 no way, 10,596 reachable; issue #2571)
+  { json = "verdicts.reachable from where a script moves it (MoveTo)", schema = "fnv.ai.reach/1", equals = 122, label = "reached from a script's MoveTo target: 122 pairs" },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
   { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main 2026-10-17 (6a53e8e7): 10,403; with every package type carried out (Escort, Find, Use Item At, Ambush, Flee, actor-behaviour.md §5.10): 10,620" },
@@ -1825,6 +1977,23 @@ expect = [
 manual = "the 24th 'sleep: hour' line ends one date later at the time of day the menu opened at"
 
 # ------------------------------------------------------------------ detection, alert, combat
+[[scenario]]
+name = "projectile-launch-physical-session-traits"
+source = "docs/spec-notes/projectile-launch-session-traits.md: authored opt-in two-stage physical launch consumer"
+note = "UNRUN authored diagnostic; loaded Weap10mmPistol EditorID must resolve uniquely to a finite typed nonbeam one-projectile weapon/ammo chain. Uses only a fresh b42-launch-probe-home under this smoke output; rejects prior save files, temporary aliases and unsupported original representations. Real compiled script setters and player FireWeapon reach actual Flying insertions before any acceptance. Script FireWeapon preserves ammo count; normal attack debit remains a separate CPU control. Exact prior field entries and captured item counts must be restored. This is not B42 startup, physical input, native or temporary-reference-spawn proof."
+areas = ["combat", "script"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/nvse_jip7.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/projectile_launch*.rs"]
+env = { RUST_LOG = "info", NVFOREVER_HOME = "b42-launch-probe-home", NVF_PLAY_TEST_PROJECTILE_LAUNCH = "Weap10mmPistol", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 90
+expect = [
+  { text = "projectile launch probe: armed loaded=Weap10mmPistol", count = 1, label = "actual loaded identities and staged sentinel captured" },
+  { re = 'projectile launch probe: physical stage=FirstPending .*velocity=.*speed=.*force=', count = 1, label = "edited values observed only after real insertion" },
+  { re = 'projectile launch probe: physical stage=SecondPending .*velocity=.*speed=.*force=', count = 1, label = "exact prior entries restored before the second real insertion" },
+  { text = "projectile launch probe: PASS stages=2 requests=2 physical_insertions=2 exact_fields_restored=true inventory_restored=true", count = 1, label = "strict physical oracle and cleanup both complete" },
+]
+order = [["projectile launch probe: physical stage=FirstPending", "projectile launch probe: physical stage=SecondPending", "projectile launch probe: PASS stages=2"]]
+forbid = [{ text = "projectile launch probe: FAIL", label = "configuration, script admission, identity, physical oracle, timeout and cleanup failures remain visible" }]
 
 [[scenario]]
 name = "detection-table"
@@ -2000,6 +2169,7 @@ areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 30
 expect = [
   { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "main 2026-10-23 (origin/main cd54601d+, 13 blows): the add-ons' load message boxes hold the game for about 8 s of the 30 (list 7 W4: 12 and 14 on its branch)" },
@@ -3209,6 +3379,24 @@ expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped tex
 # ------------------------------------------------------------------ messages and menus
 
 [[scenario]]
+name = "ui-hidden-global-image-metrics"
+source = "[design] docs/spec-notes/global-image-metrics.md: a hidden own image under globals() supplies live fileheight before expression settling; authored injected XML, no installed mod text copied"
+note = "Opt in with NVF_GLOBAL_IMAGE_METRICS_TEXTURE naming a real readable own-image path relative to textures, using forward slashes. No texture is included. The console injects an invisible authored global image, records its positive height, halves numeric zoom, and then clears its filename. This checks actual scheduled metadata through the public UI functions; it does not claim rendered pixels, native parity or a full Pip-Boy fix. This new scenario has not run."
+areas = ["ui", "images"]
+paths = ["engine/nvf-play/src/tiles/global_image_metrics.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/interface.rs", "crates/fnv-ui/src/tree.rs", "docs/spec-notes/global-image-metrics.md"]
+requires = ["NVF_GLOBAL_IMAGE_METRICS_TEXTURE"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = '10:PrintC "nvf global metrics injected %g", (InjectUIComponent "globals()" "<image name=%qNVFSmokeGlobalMetrics%q><visible>0</visible><filename>{env:NVF_GLOBAL_IMAGE_METRICS_TEXTURE}</filename><zoom>100</zoom><_initialheight>0</_initialheight></image>");10.4:close;12:PrintC "nvf global metrics height %.3f", (GetUIFloat "globals()/NVFSmokeGlobalMetrics/fileheight");12.1:SetUIFloat "globals()/NVFSmokeGlobalMetrics/_initialheight" (GetUIFloat "globals()/NVFSmokeGlobalMetrics/fileheight");12.4:close;14:SetUIFloat "globals()/NVFSmokeGlobalMetrics/zoom" 50;14.4:close;16:PrintC "nvf global metrics half %.3f", ((GetUIFloat "globals()/NVFSmokeGlobalMetrics/fileheight") / (GetUIFloat "globals()/NVFSmokeGlobalMetrics/_initialheight"));16.4:close;18:SetUIString "globals()/NVFSmokeGlobalMetrics/filename" "";18.4:close;20:PrintC "nvf global metrics cleared %g %g", (GetUIFloat "globals()/NVFSmokeGlobalMetrics/filewidth"), (GetUIFloat "globals()/NVFSmokeGlobalMetrics/fileheight");20.4:close' }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = 'script: print "nvf global metrics injected 1"', count = 1, label = "the hidden authored global image is actually inserted" },
+  { re = 'script: print "nvf global metrics height ([0-9.]+)"', range = [0.001, 100000000], count = 1, label = "the real own file supplies a positive height despite visibility zero" },
+  { text = 'script: print "nvf global metrics half 0.500"', count = 1, label = "a live zoom change halves its image metric" },
+  { text = 'script: print "nvf global metrics cleared 0 0"', count = 1, label = "clearing its filename cannot retain stale dimensions" },
+]
+order = [["nvf global metrics injected", "nvf global metrics height", "nvf global metrics half", "nvf global metrics cleared"]]
+
+[[scenario]]
 name = "corner-messages"
 launch = "house-messages"
 source = "CLAUDE.md: after changes to the messages at the top left (docs/spec-notes/corner-messages.md §7); the messages at 1 s, done before the add-ons' start-up message boxes (from about 5 s of the scripts' time) hold the queue"
@@ -3216,6 +3404,7 @@ areas = ["corner-messages", "hud"]
 paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/script_events.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 order = [[
   'corner message: "You are still dressed as a member of the NCR." for 2 s, icon glow_message_vaultboy_ncr.dds',
@@ -3368,6 +3557,7 @@ areas = ["chargen", "menus"]
 paths = ["engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs", "crates/fnv-game/src/chargen.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1048,8:menu:1048", NVF_PLAY_TEST_CHARGEN = "5:pick:Guns,5.1:pick:Speech,5.2:pick:Survival,6:done,10:reset,10.1:done,10.2:pick:Lockpick,10.3:pick:Medicine,10.4:pick:Repair,11:done" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 14
 order = [[
   "done, tag skills: Guns, Speech, Survival",
@@ -3383,6 +3573,7 @@ areas = ["chargen", "menus"]
 paths = ["engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs", "engine/nvf-play/src/chargen/name.rs", "engine/nvf-play/src/chargen/draw.rs", "crates/fnv-game/src/chargen.rs", "engine/nvf-play/src/tiles/trait_menu.rs", "engine/nvf-play/src/tiles/selection_menu.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1051,8:menu:1048,13:menu:1084", NVF_PLAY_TEST_CHARGEN = "5:clear,5.1:done,5.2:type:Courier Six,6:done,10:pick:Lockpick,10.1:done,10.2:pick:Guns,10.3:pick:Speech,10.4:pick:Survival,10.5:pick:Lockpick,10.6:pick:Survival,11:done,15:pick:Four Eyes,15.2:pick:Early Bird,15.4:pick:Wild Wasteland,16:done" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 order = [[
   "Ok refused: no name",
@@ -3534,6 +3725,7 @@ areas = ["chargen", "menus", "scripts"]
 paths = ["crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/revision.rs", "engine/nvf-play/src/chargen/lists.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:activate:0x001164A3,3.1:button:1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 14
 order = [[
   { re = 'revision: keeps the S\.P\.E\.C\.I\.A\.L\. \(\d+ points, not 40\) on the attributes page', label = "SetSPECIALPoints keeps the player's attributes" },
@@ -3551,6 +3743,7 @@ areas = ["chargen", "vigor", "menus"]
 paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/chargen.rs", "engine/nvforever/src/vigor_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 expect = [
   "Done refused: points still to give out",
@@ -3567,6 +3760,7 @@ areas = ["chargen", "vigor", "menus", "ui-sounds"]
 paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/ui_sounds.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.15:lower,8.2:raise:L,8.3:raise:endurance,8.4:raise:L,8.5:click:P1_RT_Btn:0" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 expect = [
   "ui sounds: vigor tester category changed: OBJBookSpecialPageTurn",
@@ -3586,6 +3780,7 @@ areas = ["vigor", "streaming", "render"]
 paths = ["engine/nvforever/src/world.rs", "engine/nvf-play/src/chargen/vigor*", "engine/nvforever/src/vigor_view.rs"]
 env = { NVF_PLAY_TEST_UPLOAD_BYTES = "2000000", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_SHOTS = "6" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 9
 expect = [
   "test aid NVF_PLAY_TEST_UPLOAD_BYTES: 2000000 bytes sent to the GPU a frame while playing",
@@ -4216,6 +4411,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "bloatfly-combat-layers"
+source = "[design, #2352] docs/spec-notes/actors.md sections 8.2-8.3: darting moves stay at the actor; creatures keep their idle on bones omitted by movement, aim, attack and special-idle clips"
+note = "[design] Reuses bloatfly-holds-distance's combat setup and record identities; combat starts at 6 s and lasts about 20 s. Frames at 10, 18 and 25 s support manual wing/body comparison. [hypothesis] Original root-driven actor displacement awaits observer check 169"
+areas = ["combat", "creatures", "animation"]
+paths = ["engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:VERGSCoyote1REF:Disable,2.1:call:VERGSCoyote2REF:Disable,2.2:call:VERGSCoyote3REF:Disable,2.3:call:VERGSCoyote4REF:Disable,2.4:call:VERGSCoyote5REF:Disable,2.5:call:VERGSCoyote6REF:Disable,3:call:0x00122CCA:PlaceAtMe:CrBloatFly:1,6:combat:0xFF000000:player", NVF_PLAY_TEST_SHOTS = "10:bloatfly_layers_10.png,18:bloatfly_layers_18.png,25:bloatfly_layers_25.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 27
+manual = "[design, #2352] Compare saved frames through combat: the body stays at its actor during strafing and wings continue beating during aim, attack and hover. Still frames and the log confirm coverage only; inspect a recording for continuous wing motion and root/actor alignment"
+expect = [
+  { re = 'actor idle under movement: [1-9]\d* actor frames', label = "the creature idle supplies bones omitted by active clips" },
+  { re = 'npc combat: (\S+ )?0xFF[0-9A-F]{6} opens fire on the player from \d+ units \(reach 250\)', label = "the bloatfly fires in combat" },
+  { re = 'test aid: screenshot .*bloatfly_layers_10\.png', label = "first comparison frame saved" },
+  { re = 'test aid: screenshot .*bloatfly_layers_18\.png', label = "middle comparison frame saved" },
+  { re = 'test aid: screenshot .*bloatfly_layers_25\.png', label = "last comparison frame saved" },
+]
+
+[[scenario]]
 name = "bloatfly-holds-distance"
 source = "issue #2351 (engine/nvforever/src/combat_tactics.rs back_off_band; docs/design/combat-ai.md §12.6): a short-reach gun's step back ends short of where it stops closing in. A bloatfly (Bloatfly1HP: Max Range 250, Min Range 100) stops 225 units from its target; it stepped back from any target within 256 to 320 and closed in again beyond 225, back and forth for the whole fight. Now it holds and fires, and steps back only from a target within its Min Range"
 note = "a bloatfly (CrBloatFly 0x0009189C, the first created reference 0xFF000000) created at 3 s at a Joshua tree about 580 units from the god-mode player (TreeJoshBNV 0x00122CCA, as npc-burst-fire places its sentry bot) and set on the player at 6 s; the coyotes (VERGSCoyote1-6REF) are disabled first, so it fights the player alone (in the first run two of them helped the player and killed it before it fired). The player stands still for the rest of the 25 s run, so on main every stop at 225 was followed by a step back (each logged once as it begins). A created reference has no Editor ID: the combat log names it by its base's Editor ID or by its FormID, then its FormID (`combat_tactics::who`). Its distance is in its `opens fire on` line; the steps back are counted by their log lines"
@@ -4338,6 +4551,7 @@ paths = ["engine/nvforever/src/object_anims.rs", "engine/nvforever/src/actor_gro
 note = "the gecko hunters 0x00165185-0x00165187 and the geckos 0x00157B3D/E are disabled at 1 s: since creatures spring traps (8f2b0f92) a hunter walked into the other trap 0x0015834C, a second group sound, and they killed the player"
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1" }
 args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 expect = [
   { text = "playgroup: 0x00165495 passes the sound key TRPBearFire of Forward at 0.033 s", count = 1 },
@@ -4367,6 +4581,7 @@ areas = ["traps", "scripts"]
 paths = ["engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-game/src/traps.rs"]
 env = { NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1,17:moveto:player:0x0015834D" }
 args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 22
 expect = [
   { re = 'script: trigger 0x0015834D has 1 trigger volume\(s\) in its model', label = "the bear trap's model box is its trigger" },
@@ -4400,6 +4615,7 @@ areas = ["traps", "scripts", "combat"]
 paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/traps.rs", "crates/fnv-sim/src/refs.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapplateskillreq:0,17:activate:0x00139521,17.1:button:1,21:moveto:player:0x00139522,25:moveto:player:0x00139521" }
 args = ["--cell", "NiptonHouse8Paranoid", "--play", "--hour", "12", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 29
 expect = [
   { re = 'script: message .*"[^"]*disarm[^"]*"', label = "the second tripwire is disarmed" },
@@ -4772,6 +4988,36 @@ expect = [
 order = [["terminal 0x0014B0A7 plays Open before its screen", "terminal: open 0x0014B0A7", "terminal 0x0014B0A7 closes"]]
 
 [[scenario]]
+name = "dam-elevator-disabled-player"
+source = "#2617: on the Legion route, once VHDLegionBattle.IntakeTowerStrategy is 2, VHDIntakeTowerLegionaryDespawnScript (SCPT 0013CA2C) disables whoever enters its trigger, the player too; a disabled actor's Activate does nothing, so the Power Plant 01 elevator VHDODeckElevREF (0013151C, SCPT 0014659A, OnActivate ending in a bare Activate) played its sound and never took the player through. Disable now leaves the player enabled (functions::refs::disable_ref, doors.md section 6)"
+note = "Strategy 2 by the console at 3 s (the result script of INFO 0013CA26 sets it in play); the script aid moves the player into VHDIntakeTowerLegionaryDespawnTriggerREF (0013CA72) at 5 s, back to the elevator at 11 s and activates it at 15 s as the player's own E would [observed: fnvtool script decompile, esm decode]"
+areas = ["scripts", "quests"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/game.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "3:set VHDLegionBattle.IntakeTowerStrategy to 2;3.3:close", NVF_PLAY_TEST_SCRIPT = "5:moveto:player:VHDIntakeTowerLegionaryDespawnTriggerREF,11:moveto:player:VHDODeckElevREF,15:activate:VHDODeckElevREF" }
+args = ["--cell", "HooverDamIntODeck", "--play", "--no-voice"]
+run_seconds = 24
+order = [[
+  { text = "script: OnTriggerEnter of FalloutNV.esm|SCPT 0x0013CA2C ran", label = "the intake tower trigger's block runs for the player" },
+  { text = "script: activating 0x0013151C runs its OnActivate block instead of the default action", label = "then the elevator's OnActivate block runs" },
+  { re = 'script: travel to Some\(1181400\) / None at', label = "and its bare Activate takes the player through the load door to HooverDamIntPowerPlant01 (001206D8)" },
+]]
+expect = [{ text = "script: Disable of the player ignored", label = "the trigger's Disable leaves the player enabled" }]
+
+[[scenario]]
+name = "door-scripted-activate-battle"
+source = "#2617: the same elevator during the battle (vHDBattleController.iBattleState 2, the state of the owner's report): the block's battle branch enables six references and sets VHDLegionBattle's respawners once, then its bare Activate still takes the player through"
+note = "iBattleState set by the console at 4 s, the door activated by the script aid at 8 s; VHDLegionPowerPlant01EnableMarker (001465C5) is the first reference the branch enables [observed: fnvtool script decompile SCPT 0014659A, esm decode]"
+areas = ["scripts", "quests"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set vHDBattleController.iBattleState to 2;4.3:close", NVF_PLAY_TEST_SCRIPT = "8:activate:VHDODeckElevREF" }
+args = ["--cell", "HooverDamIntODeck", "--play", "--no-voice"]
+run_seconds = 18
+expect = [
+  { text = "script: OnActivate of FalloutNV.esm|SCPT 0x0014659A ran on Some(0x0013151C)", label = "the elevator's OnActivate block runs" },
+  { re = 'script: travel to Some\(1181400\) / None at', label = "its bare Activate sends the player through the load door to HooverDamIntPowerPlant01 (001206D8)" },
+]
+
+[[scenario]]
 name = "terminal-from-message-box"
 source = "#2459: EastPumpStationTerminal's script (SCPT 0x000E8FA3) shows EastPumpStationTermMsg on activation and its GameMode block answers the button \"Activate the terminal.\" (2) with a bare Activate. An answered box closes after that frame's scripts (ScriptState::answer, Runtime::finish_answer), the player is back in the world in the next frame (hold_player), and only there does the GameMode block read the button: the terminal's screen opens. A box closed before the frame's scripts instead lets the block run while the box still holds PlayState::Menu, and the request is dropped (the quest pilot's own answer did that, #2365)"
 note = "East Pump Station (interior 1EEastPumpStation 000E8F6F), the terminal REFR 000FAA48 (base EastPumpStationTerminal 000E8FA2, not locked) [observed: FalloutNV.esm, fnvtool world refs / script decompile]. Activated at 6 s by the script aid, as the player's own activation; at 8 s the real key 2 picks the second button drawn (script_hud.rs menu_keys, the path of a click too): the record's button 2, since \"Repair the network connection.\" is hidden below Science 50; the terminal left at 12 s. Used by the quest Hard Luck Blues (VES34Vault)"
@@ -4836,6 +5082,7 @@ areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
 paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power", NVF_PLAY_TEST_SCRIPT = "35:objective:VCG02:3" }
 args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 52
 order = [[
   { text = "quest message: Talk to Sunny Smiles in the Prospector Saloon.", label = "the line pushed while the terminal is open" },
@@ -5359,6 +5606,26 @@ expect = [
 order = [[{ re = 'GetItemCount on .*>> 1\.00' }, { re = 'death item: 0x00168D1A' }, { re = 'GetItemCount on .*>> 2\.00' }, { re = 'GetItemCount on player >> [2-9]\.' }]]
 
 # ------------------------------------------------------------------ script stubs
+
+[[scenario]]
+name = "vanilla-inline-call-operands"
+source = "[hypothesis: docs/spec-notes/vanilla-inline-call-operands.md] Authored scalar QueryJob exercises ordinary and grouped call operands with actual game dispatch; no Auto-loader/native/pixel or named-mod acceptance. NOT RUN."
+areas = ["scripts"]
+paths = ["crates/fnv-script/src/compile/gen.rs", "crates/fnv-script/src/compile/gen/x.rs", "crates/fnv-script/src/compile/lex.rs", "tools/smoke/fixtures/vanilla-inline-call-operands.steps.json", "tools/smoke/fixtures/vanilla-inline-call-owned.gek"]
+env = { NVFOREVER_HOME = "{env:NVF_PLAY_TEST_INLINE_SOURCE_HOME}", NVF_PLAY_TEST_QUERIES = "{repo}/tools/smoke/fixtures/vanilla-inline-call-operands.steps.json", NVF_PLAY_TEST_QUERIES_AT = "7" }
+requires = ["NVF_PLAY_TEST_INLINE_SOURCE_HOME"]
+note = "UNRUN: seed only a dedicated writable HOME/mods/NVSE/user_defined_functions/NVFInlineOperands/owned_self_distance.gek from tools/smoke/fixtures/vanilla-inline-call-owned.gek; never point HOME at the repository fixture folder. No installed Data writes. See spec for contract."
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+ends = "run log: the game exited normally"
+expect = [
+  { re = 'script: print "nvf inline ordinary distance 0"', count = 1, label = "ordinary public self-distance neighbor returns zero" },
+  { re = 'script: print "nvf inline grouped receiver 1"', count = 1, label = "grouped receiver condition takes its authored true branch" },
+  { re = 'script: print "nvf inline grouped set 98"', count = 1, label = "grouped call preserves surrounding Set subtraction" },
+  { re = 'script: print "nvf inline mixed precedence 20"', count = 1, label = "vanilla outer OR-before-AND precedence is preserved" },
+  { re = 'script: print "nvf inline compiled call 1"', count = 1, label = "CompileScript plus Call reaches the post-target return sentinel" },
+  { re = 'query job: vanilla-inline-call-operands: 5 steps, 5 rows, 0 errors, written to ', count = 1, label = "five actual game query dispatches finish without errors" },
+]
 
 [[scenario]]
 name = "script-stubs"
@@ -5998,6 +6265,7 @@ areas = ["aid", "actor-values", "perks", "menus"]
 paths = ["crates/fnv-game/src/books.rs", "crates/fnv-sim/src/forms.rs", "engine/nvf-play/src/aid.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0003403E:2", NVF_PLAY_TEST_SCRIPT = "10:perk:Comprehension", NVF_PLAY_TEST_DROP = "6:0003403E:use,14:0003403E:use" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 22
 # The house's start-up message boxes can hold the inventory shut for about 2 s after the
 # first read is asked for (seen 2026-10-30): the perk comes 4 s after it, so the first
@@ -6163,19 +6431,21 @@ manual = "the frame at 20 s shows the ITEMS page clearly on the screen, under th
 
 [[scenario]]
 name = "no-messages"
-source = "engine/nvf-play/src/script.rs module doc: --no-messages closes message boxes that ask nothing at once; the twelve add-on start-up boxes of a Goodsprings start are such boxes"
+source = "engine/nvf-play/src/script.rs module doc: --no-messages answers message boxes that ask nothing with OK; a script's never opens (fnv_game GameConfig::answer_ok_boxes); the twelve add-on start-up boxes of a Goodsprings start are such boxes"
+note = "since 2026-11-14 the add-on boxes are answered as the scripts show them and never open (no MenuMode 1001 frame): the count moved from 'closed message box' to 'answered message box', and no box is left to close"
 areas = ["scripts", "menus"]
 # No `paths`: script.rs and main.rs change on most branches; run with --area or --only.
 paths = []
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--no-messages"]
 run_seconds = 35
 order = [[
-  "--no-messages: message boxes without a choice close at once",
+  "--no-messages: message boxes without a choice close at once; scripts' never open",
   "message box shown: Classic Pack items added to inventory.",
-  "--no-messages: closed message box",
+  "--no-messages: answered message box",
 ]]
 expect = [
-  { text = "--no-messages: closed message box", min = 12 },
+  { text = "--no-messages: answered message box", min = 12 },
+  { text = "--no-messages: closed message box", max = 0, label = "no add-on box opened, so none was left to close" },
 ]
 
 # ------------------------------------------------------------------ karma and crime (docs/spec-notes/crime-karma.md)
@@ -6906,12 +7176,12 @@ order = [[
 [[scenario]]
 name = "cook-cook-flamer-hands"
 source = "owner spot check 2026-11-01 (#1309): Cook-Cook held his flamer below his hands while firing, again after PR #322 (animation.md §9.7)"
-note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 24 s (SetForceSneak) to fire crouched. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 32 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
+note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 40 s (SetForceSneak) to fire crouched: since NPC automatic weapons fire in bursts (2bf39e51c, 2026-11-05) his 60 rounds last from about 6 s to 28-34 s (3-round bursts about a second apart, cut by his cover and step-back moves), so the crouch at 24 s came before his reload. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 44 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
 areas = ["combat", "animation"]
 paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,24:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,31.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,31.6:release,31.65:zoom=250,31.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,32:cook_flamer_hands_03.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,40:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,43.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,43.6:release,43.65:zoom=250,43.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,44:cook_flamer_hands_03.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
-run_seconds = 34
+run_seconds = 46
 expect = [
   { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
   { re = 'weapon grip: 000F5704 .*: right hand (?P<n>[\d.]+) units from the Weapon node', range = [0, 10], all = true, label = "his right hand stays on the flamer's rear grip while he fires" },
@@ -7335,12 +7605,46 @@ areas = ["messages", "menus"]
 paths = ["crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script_events.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.5", NVF_PLAY_TEST_SCRIPT = "3:activate:scripted:GSChemistrySetScript,6:activate:scripted:GSBrokenSMGScript" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 12
 order = [[
   { re = 'script: message GSChemistrySetMsg .* \(hidden by their conditions: \[1, 2\]\)' },
   { re = 'message box shown: .* \["Leave it alone\."\]$' },
   { re = 'script: message GSBrokenSMGMsg .* \(hidden by their conditions: \[1\]\)' },
 ]]
+
+[[scenario]]
+name = "archimedes-strike"
+source = "issue #2544: That Lucky Old Sun with ARCHIMEDES armed: the Reflector Control Panel's script (SCPT 0x000E07CE) has ARCHIMEDESMarkerREF2 (0x000E07DD, an Immobile ARCHIMEDESTurret) UseWeapon ARCHIMEDESI on TestTrooperREF1-5 one at a time and waits for each to die. A rooted actor's weapon use never got in place, so the turret drew and holstered for good. It now uses it from where it stands and turns to the target (crates/fnv-ai/src/carry.rs step_actor_inner, rooted_turn)"
+note = "the player on the observation deck beside the panel 0x000E07DF in god mode at noon (the panel wants 9-15 h and objective 70 shown). The strike starts about 36 s after the activation (fOffset 11.5 + 25 intervals), one target every 1-4 s, then the finale (a beam, KillActor on all, about 27 s)"
+areas = ["ai", "combat", "scripts", "quests"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "15:startquest VMS03;setobjectivedisplayed VMS03 70 1;set VMS03.bArchimedesArmed to 1;set VMS03.nPowerConfiguration to 4;16:close;125:TestTrooperREF1.getdead;TestTrooperREF5.getdead;126:close", NVF_PLAY_TEST_SCRIPT = "18:activate:0x000E07DF" }
+args = ["--play", "--world", "WastelandNV", "--pos=21050,-600,7900", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 128
+expect = [
+  { re = 'use weapon: \S* ?ARCHIMEDESMarkerREF2.* uses ARCHIMEDESI', min = 1, label = "the turret fires ARCHIMEDES" },
+  { re = 'combat: NCR Trooper 0x000E35D[1-5] killed by 0x000E07DD', count = 5, label = "the turret kills TestTrooperREF1-5 one by one" },
+  { re = 'reference 0x00122A69 drawn \(enabled at run time\)', label = "the finale's beam is drawn" },
+  { re = 'reputation: NCR .* -> ', min = 1, label = "the strike costs the player NCR reputation" },
+  { re = 'console: GetDead on \S+ >> 1\.00', count = 2, label = "the first and the last target are dead without a console kill" },
+  { re = 'use weapon: ARCHIMEDESMarkerREF2 0x000E07DD has fired its 1 shots at TestTrooperREF[1-5]', min = 5, label = "it fires one shot at each target" },
+]
+
+[[scenario]]
+name = "helios-dogs-troopers"
+source = "issue #2547: at HELIOS One the guard dogs (CrDogNCRAggressive: Very Aggressive, aggro radius 2,000, in no NCR faction, Neutral to the troopers) went into combat with the NCR troopers about 2,800 units west, and the troopers fought back. A Very Aggressive actor with an aggro radius now attacks a Neutral on sight only inside that radius (crates/fnv-game/src/awareness.rs neutral_out_of_reach)"
+note = "the dogs 0x000A695E/0x000A695F/0x000A6944 stand about (25700, 2050, 5230), TestTrooperREF4/5 about (22950, 1200, 5232); the player is put 3,000+ units south of both, in god mode, so that the dogs (GeneralHostileToPlayerFaction) leave him out"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/aggro.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--world", "WastelandNV", "--pos=24300,-2200,5600", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+expect = [
+  { re = 'detection: CrDogNCRAggressive 000A69(5E|5F|44) → ', label = "the dogs are loaded and measure someone" },
+  { re = 'alert: CrDogNCRAggressive \S+ \S+ → Combat: detects (?!the player)', count = 0, label = "no dog goes into combat with a trooper" },
+  { re = 'alert: \S+ \S+ \S+ → Combat: detects CrDogNCRAggressive', count = 0, label = "no trooper goes into combat with a dog" },
+]
 
 [[scenario]]
 name = "goodbye-after-caravan"
@@ -7352,6 +7656,27 @@ commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/
 expect = [
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "CaravanOffer" },
   { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "GOODBYE" },
+]
+
+[[scenario]]
+name = "cc-explorers-halt"
+kind = "tool"
+source = "issue #2548: at Cottonwood Cove three of the four Legion explorers force-greeted with the generic \"Move along.\" (0x00175608): the Halt line 0x0013AC97 names the AAM explorer as fixed speaker (ANAM) and was refused to the others, although its condition is the faction all four are in. A condition on the speaker naming a group now decides (docs/spec-notes/dialogue.md §4)"
+note = "each command is a headless new game talking to one explorer (NVCCExplorer2REF 0x00138A92, 3 0x00138A91, 4 0x00138A93); each prints its trace on one line. The Mark of Caesar choice (Topic001) is not offered: the new-game player has no Mark"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+commands = [
+  ["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/cc-explorer2-halt.actions.json", "{data}", "FalloutNV.esm"],
+  ["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/cc-explorer3-halt.actions.json", "{data}", "FalloutNV.esm"],
+  ["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/cc-explorer4-halt.actions.json", "{data}", "FalloutNV.esm"],
+]
+expect = [
+  { json = "events.?kind=line_started.info", equals = "0x0013AC97", count = 3, label = "all three open with the Halt line" },
+  { json = "events.?kind=line_started.speaker", equals = "0x00138A92", count = 1, label = "Explorer 2 (CM2) speaks" },
+  { json = "events.?kind=line_started.speaker", equals = "0x00138A91", count = 1, label = "Explorer 3 (AM) speaks" },
+  { json = "events.?kind=line_started.speaker", equals = "0x00138A93", count = 1, label = "Explorer 4 (CM) speaks" },
+  { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "VFreeformCottonwoodCoveNVCCLegionaryGuardAAMExplorerTopic000", count = 3, label = "each offers the Halt line's choices (the Speech check among them)" },
+  { json = "events.?kind=line_started.info", equals = "0x00175608", count = 0, label = "none says the generic \"Move along.\"" },
 ]
 
 [[scenario]]
@@ -7658,10 +7983,10 @@ expect = [
 [[scenario]]
 name = "creature-no-talk"
 source = "playtest list 4 item 19 (engine/nvf-play/src/activate.rs): a creature with nothing to say shows only its name, no Talk"
-note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line)"
+note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line). The face aid stands the player 100 units from it looking level, which passes over a young bighorner's back; the look aid at 7 s, once the start-up message boxes are gone, tips the view 25 degrees down onto it (issue #2354: the level look only met its bounds in the frame of the move, and not at all once the message boxes came in that frame)"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs", "crates/fnv-game/src/dialogue.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63", NVF_PLAY_TEST_LOOK = "7:270:-25" }
 args = ["--play", "--pos=-69700,-714,8300", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'target 0x0015EF63 Young Bighorner \(\) ', label = "the bighorner: name only" }]
@@ -8015,6 +8340,7 @@ areas = ["save", "scripts"]
 paths = ["engine/nvf-play/src/save.rs", "crates/fnv-game/src/functions/misc.rs"]
 env = { NVFOREVER_HOME = "save-box-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "20:MessageBoxEx \"nvf answered box|Ok\";20.3:close;24:save nvf-after-box;25:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 27
 expect = [
   { re = 'script: menu 1001 .*answered', label = "the box is answered" },
@@ -8051,6 +8377,7 @@ source = "issue #1572: every way of saving is refused from the player's death on
 areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs"]
 note = "player.kill at 14 s; the QuickSave key at 15.5 s and 17 s (the second while the screen is going black) and a console save at 19 s are all refused, and nothing is written. NVFOREVER_HOME keeps the run off the real quicksave."
+forbid = [{ text = "death recovery:", label = "assisted death remains in this run without opening recovery or loading another save" }]
 env = { NVFOREVER_HOME = "save-dead-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:player.kill;14.3:close;19:save dead-save;19.5:close", NVF_PLAY_TEST_KEYS = "15.5:f5,17:f5" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
 run_seconds = 22
@@ -8174,6 +8501,7 @@ areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/script.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/handoff.rs", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
 env = { NVFOREVER_HOME = "save-refused-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--play", "--load", "smoke-refused", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 12
 expect = [
   { re = 'load: --load smoke-refused: .*unsupported snapshot format "fnv\.game\.state/2"; opening the main menu', count = 1, label = "the save is refused and the main menu opens instead" },
@@ -8192,6 +8520,7 @@ areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/script.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/handoff.rs"]
 env = { NVFOREVER_HOME = "save-refused-home", NVF_PLAY_TEST_LOAD_FAILS_LATE = "1", NVF_PLAY_TEST_HANDOFF_EXIT = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--play", "--load", "smoke-good", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 90
 ends = "test aid NVF_PLAY_TEST_HANDOFF_EXIT: the new run took over and its main menu is in"
 expect = [
@@ -8590,6 +8919,7 @@ areas = ["save"]
 paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/main_menu.rs"]
 env = { NVFOREVER_HOME = "handoff-refused-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = '20:load C:\Windows\win.ini', NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 90
 ends = "test aid NVF_PLAY_TEST_HANDOFF_EXIT: the new run took over and its main menu is in"
 expect = [
@@ -8612,6 +8942,7 @@ areas = ["save"]
 paths = ["engine/nvforever/src/main.rs", "engine/nvforever/src/handoff.rs", "engine/nvf-play/src/main_menu.rs"]
 env = { NVFOREVER_HOME = "bad-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--play", "--load", 'C:\Windows\win.ini']
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 12
 expect = [
   { re = 'load: --load .*win\.ini.*; opening the main menu', count = 1, label = "the file is not loaded and the main menu opens instead" },
@@ -8966,6 +9297,7 @@ areas = ["pipboy", "combat"]
 paths = ["engine/nvf-play/src/pipboy/item_mod.rs", "crates/fnv-combat/src/data.rs", "crates/fnv-actor/src/records.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,18.6:mod=use,19.2:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 25
 expect = [
   { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "Mod X) bright: the player carries a mod that fits" },
@@ -9970,10 +10302,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-npc"
 source = "owner's playtest 2026-10-16: the player's flamer sets an NPC on fire; the burn has No Death Dispel, so a corpse burns on for the rest of its time (docs/spec-notes/hit-effects.md §4)"
-note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 11 s. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
+note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his head from 11 s, aimed again each second while he steps back: at his torso the flame met the flamer he holds before his chest (a hit on the held weapon wears it and leaves the actor unhurt, combat.rs strike_weapon), and no burn was put on him in some runs. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc,11:fire,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc=0.92,11:fire,12:aimnpc=0.92,13:aimnpc=0.92,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -11171,7 +11503,7 @@ name = "death-cam-first"
 source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
 paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/imagespace.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/audio_out.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+env = { NVFOREVER_HOME = "death-cam-first-recovery-delay-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:setgs fPlayerDeathReloadTime 120;9.5:close;10:player.killactor;11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 order = [[
@@ -11179,11 +11511,13 @@ order = [[
   { re = 'sound speed: 0\.\d\d -> 1\.00', label = "and come back to speed when it ends" },
 ]]
 expect = [
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
   "death camera: 1 death(s) shown, the player dead at exit",
 ]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }]
 
 [[scenario]]
 name = "death-fade"
@@ -11191,27 +11525,31 @@ source = "owner todo 6 item 3 (2026-10-17): 2 s after the player dies the screen
 note = "killed at 10 s as death-cam-first; the fade starts 2 s of real time after the death and is black 4 s later; the slow motion runs meanwhile, so these are not game seconds"
 areas = ["combat", "camera"]
 paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/imagespace.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+env = { NVFOREVER_HOME = "death-fade-recovery-delay-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "9:setgs fPlayerDeathReloadTime 120;9.5:close;10:player.killactor;11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'death camera: the screen starts fading to black (?P<n>[\d.]+) s after the death', range = [2.0, 2.3], label = "the fade starts about 2 s after the death" },
   { re = 'death camera: the screen is black (?P<n>[\d.]+) s after the death', range = [6.0, 6.3], label = "the screen is black about 6 s after the death" },
 ]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }]
 
 [[scenario]]
 name = "death-cam-third"
 source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred; owner 2026-10-25: the camera keeps its place and only turns to the body (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
 paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONTROL = "8:view", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+env = { NVFOREVER_HOME = "death-cam-third-recovery-delay-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONTROL = "8:view", NVF_PLAY_TEST_CONSOLE = "9:setgs fPlayerDeathReloadTime 120;9.5:close;10:player.killactor;11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays put and looks at it",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }]
 
 [[scenario]]
 name = "g5-self-kill-1"
@@ -11227,6 +11565,7 @@ expect = [
   { re = 'combat: the player died, killed by Player', label = "the player dies of it", known_failing = "#1581: the blast misses the player on some runs" },
 ]
 forbid = [
+  { text = "death recovery:", label = "assisted death remains in this run without opening recovery or loading another save" },
   { re = 'xp: \S+ XP from a kill', label = "no kill XP" },
   { re = 'challenge: (Lord Death|Kaboom|The Rifleman) ', label = "no kill challenge" },
 ]
@@ -11244,6 +11583,7 @@ order = [[
   { re = 'test aid: the player hits 0x00000014 for \d+ with ' },
 ]]
 forbid = [
+  { text = "death recovery:", label = "assisted death remains in this run without opening recovery or loading another save" },
   { re = 'XP from a kill', label = "no XP for their own death" },
   { re = 'challenge: (Lord Death|The Rifleman|Kaboom) ', label = "no challenge for their own death" },
 ]
@@ -11254,14 +11594,15 @@ source = "owner 2026-10-25: anything ragdolled floats to the surface in water (d
 note = "the player swims out from the Boulder Beach shore as wade-in-swim (on to x about 59300), is killed under the lake's surface (2600) at 19 s, and its body rises and comes to rest floating there"
 areas = ["ragdoll", "physics"]
 paths = ["crates/fnv-phys/src/buoyancy.rs", "crates/fnv-phys/src/ragdoll.rs", "crates/fnv-phys/src/water.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/death_cam.rs"]
-env = { NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "19:player.killactor;20:close" }
+env = { NVFOREVER_HOME = "ragdoll-floats-recovery-delay-home", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "18:setgs fPlayerDeathReloadTime 120;18.5:close;19:player.killactor;20:close" }
 args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 expect = [
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
 ]
-forbid = [{ re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
 
 [[scenario]]
 name = "loose-items-float"
@@ -11616,6 +11957,7 @@ areas = ["chargen", "menus", "actors"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:tab:hair,22.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png,21.8:creator_hair_tab.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 30
 order = [[
   "creator: open on Male Caucasian (115 sliders, 4 races",
@@ -11757,13 +12099,13 @@ order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRi
 
 [[scenario]]
 name = "grab-corpse"
-source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with Grab, Z: VMS18CarlyleStClairREF into the dumpster, ProperBurialCorpseref into the grave): Ringo killed in the gas station is picked up with Z by his ragdoll and carried 6 s while the view turns 180°, longer than the 3 s after which a moving ragdoll is held at rest; it is not held at rest while carried, so it is dropped when Z comes up, away from where it lay, and comes to rest"
-note = "#1154: the player stands 80 units south of Ringo (-y), where the back room leaves the half turn free: 135-182 units in 3 runs of 2026-11-01; from the east (+x) the wall or counter stopped the swing at 41-118 units"
+source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with Grab, Z: VMS18CarlyleStClairREF into the dumpster, ProperBurialCorpseref into the grave): Ringo killed in the gas station is picked up with Z by his ragdoll and carried 6 s while the view turns 180°, past the time limit after which a moving ragdoll is held at rest counted from its start (3 s until 2026-11-11, 8 s since, engine/nvforever/src/ragdoll.rs MAX_AWAKE); it is not held at rest while carried, so it is dropped when Z comes up, away from where it lay, and comes to rest"
+note = "#1154: the player stands south of Ringo (-y), where the back room leaves the half turn free: 135-182 units in 3 runs of 2026-11-01 at 80 units; from the east (+x) the wall or counter stopped the swing at 41-118 units. 40 units since 2026-11-14: grab reaches 150 units (activate::pick::REACH); at 80 the corpse lay 138-158 units off depending on how it fell (true joint limits, #2370), out of reach in some runs, and at 60 138-146; at 40 it is 136 away in 3 runs of 3, dropped 133 units away, so neither end of a range is within 13 units"
 areas = ["grab", "physics", "ragdoll"]
 paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvforever/src/ragdoll.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "1:00104C7D.killactor;10:player.moveto 00104C7D 0 -80 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "1:00104C7D.killactor;10:player.moveto 00104C7D 0 -40 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
-run_seconds = 24
+run_seconds = 30
 expect = [
   { re = 'grab: picked up corpse .*00104C7D\) by Aid', label = "Z picks up Ringo's corpse" },
   { re = 'grab: carrying .*00104C7D\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 40], label = "held where it is wanted" },
@@ -11824,6 +12166,7 @@ areas = ["chargen", "menus", "controls"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "8", NVF_PLAY_TEST_SHOTS = "103:opening_creator_103.png,106:opening_creator_106.png" }
 args = ["--play", "--new-game", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 130
 order = [[
   "script: menu 1036 open",
@@ -11862,6 +12205,7 @@ areas = ["combat", "knockouts"]
 paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:SunnyRef:SetActorRefEssential:1,3:moveto:SunnyRef:player:0:300:0,3:moveto:RingoRef:player:0:600:0,6:combat:RingoRef:player,40:call:RingoRef:StopCombat", NVF_PLAY_TEST_HIT = "6:SunnyRef:1000" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 60
 order = [[
   "knockout: Sunny Smiles … knocked out (essential)",
@@ -11940,6 +12284,7 @@ areas = ["combat", "knockouts"]
 paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_HIT = "6:EasyPeteRef:1:WeapNVBoxingGloves,7:EasyPeteRef:1:WeapNVBoxingGloves" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 85
 expect = [
   { re = 'test aid: the player hits \S+ for 1 with \S+', count = 2, label = "two hits with the gloves" },
@@ -12528,6 +12873,171 @@ forbid = [
 ]
 
 [[scenario]]
+name = "vats-kill-cam-slowed-60"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion slows the ragdoll and the gore until it ends, at every physics rate: nothing stands still, rests or jumps before it is over (engine/nvf-play/src/kill_cam.rs `TargetMoved`, engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam's setup at the default 60 Hz. The kill camera logs how its target's drawn place moved over the camera (its path, the most in one frame, the frames it stood still while its ragdoll was awake) and in the frame after it. Under the slowed clock the step is never shorter than 1/240 s (`SHORTEST_STEP`): shorter ones left slow bodies standing still far from the worldspace's origin. The ranges are wide against a jump or a freeze, not tuned to one run: which camera path plays varies. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "engine/nvforever/src/wrecks.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 60 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 60 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 60 Hz)" },
+]]
+expect = [
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 60 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 60 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 60 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 60 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 60 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 60 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 60 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-152"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 152 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 at 152 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/152 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "152"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 152 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 152 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 152 Hz)" },
+]]
+expect = [
+  { re = 'phys: physics rate 152 Hz \(--physics-hz 152\)', count = 1, label = "at 152 Hz" },
+  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 152 Hz)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 152 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 152 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 152 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 152 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 152 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 152 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 152 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-display"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion with --physics-hz display (the display's frame rate) slows the ragdoll and the gore until it ends (docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 with Match FPS: the rate is the machine's (60 to 160), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/frame_pace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "display"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at Match FPS)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at Match FPS)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at Match FPS)" },
+]]
+expect = [
+  { re = 'phys: physics rate \d+ Hz( -> \d+ Hz)? \(--physics-hz fps, Match FPS: up to the display.s \d+ fps\)', min = 1, label = "Match FPS found the display's frame rate (at Match FPS)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at Match FPS)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at Match FPS)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at Match FPS)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at Match FPS)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at Match FPS)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at Match FPS)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at Match FPS)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-120"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 120 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 at 120 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/120 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "120"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 120 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 120 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 120 Hz)" },
+]]
+expect = [
+  { re = 'phys: physics rate 120 Hz \(--physics-hz 120\)', count = 1, label = "at 120 Hz" },
+  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 120 Hz)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 120 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 120 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 120 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 120 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 120 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 120 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 120 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-144"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 144 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 at 144 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/144 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "144"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 144 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 144 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 144 Hz)" },
+]]
+expect = [
+  { re = 'phys: physics rate 144 Hz \(--physics-hz 144\)', count = 1, label = "at 144 Hz" },
+  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 144 Hz)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 144 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 144 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 144 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 144 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 144 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 144 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 144 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-160"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 160 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 at 160 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/160 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "160"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 160 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 160 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 160 Hz)" },
+]]
+expect = [
+  { re = 'phys: physics rate 160 Hz \(--physics-hz 160\)', count = 1, label = "at 160 Hz" },
+  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 160 Hz)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 160 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 160 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 160 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 160 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 160 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 160 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 160 Hz)" },
+]
+
+[[scenario]]
 name = "vats-kill-cam-others-fighting"
 source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
 note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered (2026-11-11: Violetta was marked and the check named the other dog), so the view is turned to the Fiend Guard Dog itself (aimref=000F573F) and not to the nearest unmarked actor (aimvats)"
@@ -12805,10 +13315,10 @@ forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
 [[scenario]]
 name = "bean-bag-fatigue"
 source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
-note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes 2,150 units away, issue #2513, as sneak-attack-critical's does); the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
@@ -13294,6 +13804,7 @@ areas = ["scripts", "console", "inventory"]
 paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/forms.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.additem 00014E13 1;14.3:player.equipitem 00014E13;14.6:player.getequipped 00014E13;15:setpccanusepowerarmor 1;15.3:player.equipitem 00014E13;15.6:player.getequipped 00014E13;16:close" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 22
 expect = [
   { re = 'message box shown: You lack the specialized training needed to move in Power Armor', label = "the game's refusal message" },
@@ -13720,6 +14231,38 @@ expect = [
 ]
 
 [[scenario]]
+name = "session-lighting-reentry"
+source = "docs/spec-notes/session-cell-lighting.md; Part of #2272: actual console session template/trait/inheritance writes reach the existing camera Projection when the cell is entered again. Application and zero-clip fallback are engine policy, not native timing observations."
+note = "Requires a non-null LoadOrder-backed template on 2ETopsPresidentialSuite and an initial GSDocMitchellHouse camera clip unequal to the authored 32123. These are checked admission conditions, not a silently substituted template. A real COC exit/return tests positive clip; then same-cell COC reapplies zero while the camera still has the positive clip, making the fallback transition observable without a new diagnostic. No immediate live-refresh, pixel or installed-mod assertion."
+areas = ["scripts", "sky", "world"]
+paths = ["crates/fnv-world/src/lighting.rs", "crates/fnv-game/src/nvse_jg1.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/sky.rs"]
+requires = ["NVF_PLAY_TEST_LIGHTING_HOME"]
+env = { NVFOREVER_HOME = "{env:NVF_PLAY_TEST_LIGHTING_HOME}", NVF_REPORTS = "0", RUST_LOG = "info,nvf_play::script=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = '8:PrintC "lighting-smoke template %i" (GetCellLightingTemplate 2ETopsPresidentialSuite);9:SetCellLightingTemplate GSDocMitchellHouse (GetCellLightingTemplate 2ETopsPresidentialSuite);10:SetCellFlag GSDocMitchellHouse 15 1;11:SetLightingTemplateTraitNumeric (GetCellLightingTemplate GSDocMitchellHouse) 15 32123;12:PrintC "lighting-smoke positive clip %g" (GetLightingTemplateTraitNumeric (GetCellLightingTemplate GSDocMitchellHouse) 15);13:PrintC "lighting-smoke inherit %g" (GetCellFlag GSDocMitchellHouse 15);14:close;20:coc Goodsprings;20.5:close;30:coc GSDocMitchellHouse;30.5:close;39:SetLightingTemplateTraitNumeric (GetCellLightingTemplate GSDocMitchellHouse) 15 0;40:PrintC "lighting-smoke zero clip %g" (GetLightingTemplateTraitNumeric (GetCellLightingTemplate GSDocMitchellHouse) 15);41:close;46:coc GSDocMitchellHouse;46.5:close' }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 58
+timeout = 180
+order = [[
+  { re = '''sky: the camera's far plane at (?!32123\b)(?P<n>\d+) units \(the cell's fog clip distance\)''', range = [500, 100000], label = "ordinary cold camera clipping is present and differs from the authored target" },
+  { re = 'console: lighting-smoke template (?!00000000\b)[0-9A-Fa-f]{8}$', label = "the donor cell resolves a non-null LoadOrder template" },
+  { text = 'console: SetCellLightingTemplate GSDocMitchellHouse (GetCellLightingTemplate 2ETopsPresidentialSuite) >> ran', label = "the real console compiles the template assignment" },
+  { re = 'console: lighting-smoke positive clip 32123(?:\.0+)?$', label = "the selected template trait getter sees the authored positive clip" },
+  { re = 'console: lighting-smoke inherit 1(?:\.0+)?$', label = "clip inheritance is enabled" },
+  { text = "console: Travelling to Goodsprings", label = "leave through the real console travel path" },
+  { text = "sky: the camera's far plane at 400000 units", label = "outdoor camera fallback remains intact" },
+  { text = "console: Travelling to GSDocMitchellHouse", label = "re-enter the edited cell" },
+  { text = "sky: the camera's far plane at 32123 units (the cell's fog clip distance)", label = "the actual camera consumer applies the session clip after re-entry" },
+  { re = 'console: lighting-smoke zero clip 0(?:\.0+)?$', label = "the template getter sees zero before the second cycle" },
+  { text = "console: Travelling to GSDocMitchellHouse", label = "same-cell COC reapplies zero while the camera still has the positive clip" },
+  { text = "sky: the camera's far plane at 400000 units", label = "the interior's zero clip keeps the existing engine fallback" },
+]]
+forbid = [
+  { re = 'script: .* failed in .*console', label = "no console CallFailed event is hidden by a zero result" },
+  { re = 'script error in .*console', label = "no compiled console script error" },
+  { re = 'script: unhandled .* in .*console|script: .* in .*console.*could not read parameter', label = "no unsupported call or argument-default fallback" },
+  { re = 'console: .*not built|console: No cell named|console: .*has no marker or door to arrive at', label = "no unsupported function or invalid travel admission" },
+]
+
+[[scenario]]
 name = "region-sounds"
 source = "ESM audit group 8 (docs/spec-notes/default-objects.md §2): in Doc Mitchell's house the sounds of the region its acoustic space names (AudioIntMitchellHouse, REGN RDSD) are tried every 10 s at their chance and some play"
 areas = ["audio"]
@@ -13735,13 +14278,14 @@ name = "death-music-dobj"
 source = "ESM audit group 8 (docs/spec-notes/default-objects.md §1): the default objects' Death Music (DefaultDeath, special\\death.mp3) is not shipped, so when the player dies the SOUN MUSDeath plays as before"
 areas = ["audio", "music"]
 paths = ["engine/nvf-play/src/music.rs", "crates/fnv-world/src/audio.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "8:player.kill;8.3:close" }
+env = { NVFOREVER_HOME = "death-music-dobj-recovery-delay-home", NVF_PLAY_TEST_CONSOLE = "7:setgs fPlayerDeathReloadTime 120;7.5:close;8:player.kill;8.3:close" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
+  { re = 'console: fPlayerDeathReloadTime: \S+ -> 120', count = 1, label = "explicit loaded-GMST camera-only fixture delay is applied" },
   { re = 'music: the player died: the music stops, MUSDeath \(0x[0-9A-F]{8}\) plays', label = "the SOUN fallback plays: the DOBJ's death music names no shipped file" },
 ]
-forbid = [{ text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
 
 [[scenario]]
 name = "anim-state-throw"
@@ -14285,10 +14829,10 @@ manual = "ash_pile_burning.png: Chet glowing (the disintegration shaders); ash_p
 [[scenario]]
 name = "goo-pile-roach"
 source = "#2030 (ash-piles.md §3): a plasma rifle's critical kill outdoors applies PlasmaEffect (00092C48), whose PlasmaGooificationEffectScript calls AttachAshPile 2: a goo pile (DefaultAshPile2, GooPile01.NIF) replaces the Radroach's body on open ground. The pile passes through the ragdoll it came from, so it drops to the ground where the body lay and stays there"
-note = "the Wasteland south-southwest of Goodsprings, beside the gecko vs. roach fight at noon; the hit aid kills the Radroach VERT1GSRoachHuntedREF with a critical plasma rifle hit at 8 s; the pile's pose is logged 1, 3 and 10 s after its collision is added"
+note = "the Wasteland south-southwest of Goodsprings, beside the gecko vs. roach fight at noon; the hit aid kills the Radroach VERT1GSRoachHuntedREF with a critical plasma rifle hit at 8 s; the pile's pose is logged 1, 3 and 10 s after its collision is added. The script aid kills the gecko VERT1GSGeckoRoachHunterREF (00168D1C) at 3 s: some runs it killed the Radroach first (4.5 s), so no plasma kill and no pile came"
 areas = ["combat", "effects", "physics"]
 paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/dropped.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:VERT1GSRoachHuntedREF:500:WeapPlasmaRifle:crit" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:kill:0x00168D1C", NVF_PLAY_TEST_HIT = "8:VERT1GSRoachHuntedREF:500:WeapPlasmaRifle:crit" }
 args = ["--world", "WastelandNV", "--pos=-60100,-38300,6000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 26
 expect = [
@@ -14423,10 +14967,10 @@ expect = [
 
 [[scenario]]
 name = "grab-skull"
-source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 90°, dropped; its OnGrab and OnRelease blocks run"
+source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 120°, dropped clear of the top it lay on and was carried along (at 90° it was let go on that top's edge and tumbled off it spinning, a roll on the floor that passed 300 units in about one run in three on the physics-tickrate branch, 2026-11-15); its OnGrab and OnRelease blocks run"
 areas = ["grab", "physics"]
 paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-game/src/functions/senses.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10,22:e:3:90:at=00104C10" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10,22:e:3:120:at=00104C10" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 36
 order = [[
@@ -14444,6 +14988,25 @@ order = [[
 expect = [
   { re = 'grab: .*\(it caught on something\)', count = 0, label = "never caught while carried" },
 ]
+
+[[scenario]]
+name = "physics-drawn-between-steps"
+source = "docs/spec-notes/physics.md §5.2-§5.3: what physics moves is drawn between its last two fixed steps (fnv_phys::drawn, PhysState::draw_alpha); the tutorial's brahmin skull in Doc Mitchell's house (ref 00104C10) picked up with Grab (Z), carried and let go is placed clutter physics moves, so it is drawn between steps while it moves, and the exit report counts it; no body or collider goes NaN (rapier's quarantine, reported once each)"
+areas = ["physics", "grab"]
+paths = ["crates/fnv-phys/src/drawn.rs", "crates/fnv-phys/src/quarantine.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/moved.rs", "engine/nvf-play/src/dropped.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { re = 'grab: picked up loose object .*00104C10\) by Aid', label = "Z picks up the skull" },
+  { re = 'grab: dropped .*00104C10\) after', label = "let go" },
+  { re = 'grab: .*00104C10\) came to rest at', label = "it comes to rest" },
+]]
+expect = [
+  { re = 'physics: drawn between steps: (?P<n>\d+) references at most in a frame, over [1-9]\d* frames', range = [1, 20], label = "the carried and dropped skull is drawn between steps while it moves" },
+  { re = 'physics: drawn between steps: .*; quarantined 0 bodies and 0 colliders', label = "no NaN state in the run" },
+]
+forbid = [{ re = 'physics: quarantined ', label = "no body or collider quarantined" }]
 
 [[scenario]]
 name = "weather-roll"
@@ -14917,7 +15480,7 @@ manual = "blood_spray_hit.png: a dark red puff and drops at Chet's chest; blood_
 [[scenario]]
 name = "mantis-egg-spawn"
 source = "playtest list 7 item 4 (docs/design/frame-rate-audit.md §1-§2): shooting the Goodsprings schoolhouse's mantis ootheca dropped the frame rate to about one frame a second"
-note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). From about 24 s they reach the player and die at its feet (their script kills a nymph within 50 units of the player); the heap of corpses is set at rest after 3 s (ragdoll.rs). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
+note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). From about 24 s they reach the player and die at its feet (their script kills a nymph within 50 units of the player); the heap of corpses is set at rest after 3 s (ragdoll.rs MAX_AWAKE_CROWDED; the 4 youngest still moving get up to 8 s, MAX_AWAKE). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
 areas = ["actors", "physics", "audio", "performance"]
 paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIPT = "10:call:0x0010AC54:DamageObject:5" }
@@ -15138,12 +15701,12 @@ order = [[
 [[scenario]]
 name = "ragdoll-under-a-box"
 source = "#1049 (owner's playtest): a corpse falls even when a message box opens right after the kill (the faction reputation box after a fight's last kill); its calm and awake timers count physics time, which stands still under the box (engine/nvforever/src/ragdoll.rs)"
-note = "Chet in the general store is killed by a test-aid hit at 6 s; a script's message box (VCG04Message) opens at 6.05 s and stays 3 s (longer than the 1.5 s calm that sets a body at rest), then closes; the base game alone, so that no add-on's start-up boxes are held 3 s too"
+note = "Chet in the general store is killed by a test-aid hit at 6 s; a script's message box (VCG04Message) opens at 6.05 s and stays 3 s (longer than the 1.5 s calm that sets a body at rest), then closes; the base game alone, so that no add-on's start-up boxes are held 3 s too. Goodsprings' reputation box opens with it, so the world stands still about 6 s; 22 s leaves the corpse the 8 s it may move (ragdoll.rs MAX_AWAKE, 3 s until 2026-11-11)"
 areas = ["ragdoll", "combat", "menus"]
 paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "3", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000", NVF_PLAY_TEST_SCRIPT = "6.05:call:player:ShowMessage:VCG04Message" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
-run_seconds = 16
+run_seconds = 22
 order = [[
   { re = 'script: menu 1001 \(message VCG04Message\)', label = "the box is up after the kill" },
   { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet comes to rest lying down, not standing" },
@@ -15152,12 +15715,12 @@ order = [[
 [[scenario]]
 name = "ragdoll-kill-and-corpse-hit"
 source = "#2218 (owner's playtest): actors killed by grenade rifle rounds stood upright, dead, instead of falling; a blast kill sends more than one hit on the actor in a frame (the round's impact and its blast, or several blasts), and engine/nvforever/src/deaths.rs read only the last, which landed on the corpse and did not kill"
-note = "Chet in the general store is killed by a test-aid hit at 6 s and hit again on his corpse in the same frame; the base game alone"
+note = "Chet in the general store is killed by a test-aid hit at 6 s and hit again on his corpse in the same frame; the base game alone. 20 s: a corpse may move for up to 8 s and then eases to a stop (docs/spec-notes/ragdoll.md), so at 14 s it was still moving at the exit"
 areas = ["ragdoll", "combat"]
 paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000,6:0x00104C79:5" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
-run_seconds = 14
+run_seconds = 20
 expect = [
   { re = 'combat: .* 0x00104C79 killed', label = "the first hit kills Chet" },
   { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet falls and comes to rest lying down, not standing" },
@@ -15490,6 +16053,7 @@ areas = ["console", "scripts"]
 paths = ["crates/fnv-script/src/vm.rs", "engine/nvf-play/src/console.rs"]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:MessageEx \"nvf corner %g\", 7;10.5:DebugPrint \"nvf hidden\";11:SetDebugMode 1;11.5:DebugPrint \"nvf shown\";12:MessageBoxEx \"nvf box|Ok|Cancel\"" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 16
 expect = [
   { re = 'script: message .*"nvf corner 7"', label = "MessageEx shows its formatted text" },
@@ -16368,6 +16932,22 @@ expect = [
 ]
 forbid = [
   { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "nellis-loyal-stays-reachable"
+source = "issue #2566: with Volare! failed (a Boomer elder killed), Loyal was put in NellisHangar1b, behind the B-29 hangar doors 001093DB/001093DC that stay disabled until the B-29 is up, and the quest marker looped between the hangar door and its inside"
+note = "SetStage VMS15 (000FF5DF) 116 at 8 s fails Volare!, which GetQuestCompleted reads as 1: Loyal's first package, NellisLoyalB29SandboxAIPackage (In cell NellisHangar1b), is valid and every other one of his is not. No path goes through a disabled load door (fnv_nav::NavGraph::disabled_doors, fnv_ai::Ai::apply_door_presence), so he sets it aside and stays in NellisHangar2, where the player starts; before the fix his walk went out through 00105488 and in through the disabled 001093DB"
+areas = ["ai", "nav", "quests"]
+paths = ["crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/path.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/quest_targets.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:setstage 000FF5DF 116;8.3:close" }
+args = ["--cell", "NellisHangar2", "--play", "--no-voice", "--no-messages", "--hour", "12", "--npc-packages", "all,NellisLoyalREF"]
+run_seconds = 30
+expect = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: cannot reach the place of NellisLoyalB29SandboxAIPackage', label = "Loyal sets the B-29 hangar package aside: its doors are disabled" },
+]
+forbid = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: .*in NellisHangar1b', label = "Loyal walked or put into the B-29 hangar" },
 ]
 
 [[scenario]]
@@ -21809,6 +22389,7 @@ areas = ["ui", "hud", "corner-messages", "quest-messages"]
 paths = ["engine/nvf-play/src/tiles/notices.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:message:FactionReminderNCR,1.1:message:AbilityWellRestedStartMsg,3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5", NVF_PLAY_TEST_CONSOLE = "15:PrintC \"tiles notices %g %g %g %g\", (GetUIFloatAlt \"HUDMainMenu/Messages/*:1/x\"), (GetUIFloatAlt \"HUDMainMenu/Messages/*:1/depth\"), (GetUIFloatAlt \"HUDMainMenu/Messages/*:0/width\"), (GetUIFloatAlt \"HUDMainMenu/Subtitles/*:0/x\");15.4:close", NVF_PLAY_TEST_SHOTS = "5:tiles_hud_notices_banner.png,12.5:tiles_hud_notices_objectives.png" }
 args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 45
 order = [[
   'tiles: Messages text "You are still dressed as a member of the NCR."',
@@ -21893,6 +22474,7 @@ paths = [
 ]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf lifetime|Ok\";24.2:PrintC \"nvf message width %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\");26:PrintC \"nvf message closed %g\", (GetUIFloat \"MessageMenu/_MinMenuWidth\")" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 29
 expect = [
   { re = 'ui: built MessageMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the message menu builds from its indexed file" },
@@ -21954,6 +22536,7 @@ paths = [
 ]
 env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:1165:457:click,14:off", NVF_PLAY_TEST_SHOTS = "14.5:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15.5:w" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 35
 expect = [
   { re = 'tiles: \[UI\] TileMenus=SleepWaitMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): SleepWaitMenu drawn from tiles', label = "the switch is read from the test aid" },
@@ -22583,6 +23166,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "script-camera-fov-settings"
+source = "GetCameraFOV and GetPlayerCamFOV read the settings page's Field of view and Viewmodel field of view (docs/spec-notes/ext-small.md, ext-jg9.md; settings::script_fov): the switches' values at start, the sliders' after a change, a console fov over both, and a moved Field of view over the console's world angle"
+areas = ["scripts", "settings", "player"]
+paths = ["crates/fnv-game/src/nvse_small.rs", "crates/fnv-game/src/functions/camera.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "9:PrintC \"nvf fov start %g %g %g\", (GetCameraFOV 0), (GetCameraFOV 1), (player.GetPlayerCamFOV 2);9.2:close;16:PrintC \"nvf fov slid %g %g\", (player.GetPlayerCamFOV 0), (player.GetPlayerCamFOV 1);16.2:close;17:fov 100 60;17.2:close;18:PrintC \"nvf fov console %g %g\", (GetCameraFOV 0), (GetCameraFOV 1);18.2:close;24:PrintC \"nvf fov moved %g %g\", (GetCameraFOV 0), (GetCameraFOV 1);24.2:close", NVF_PLAY_TEST_PAUSE = "11:15,19:23", NVF_PLAY_TEST_SETTINGS = "12:field-of-view=0.5,13:viewmodel-field-of-view=0.25,20:field-of-view=0.75" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--fov", "90", "--viewmodel-fov", "70"]
+run_seconds = 26
+order = [[
+  { re = 'script: print "nvf fov start 90 70 70"', label = "the switches' angles from the start, the viewmodel's in first person" },
+  { re = 'script: print "nvf fov slid 80 45"', label = "the sliders' new angles once changed" },
+  { re = 'script: print "nvf fov console 100 60"', label = "a console fov wins over the settings" },
+  { re = 'script: print "nvf fov moved 95 60"', label = "a moved Field of view takes the console's world angle's place; its first-person angle stays" },
+]]
+
+[[scenario]]
 name = "jip-projectiles"
 source = "JIP's live-projectile functions over the engine's shots (fnv_game::nvse_proj): a FireWeapon shot is a reference of type 51 while in flight, and gone after; a player's FireWeapon does not hit the player [observed: proj1]"
 areas = ["scripts", "combat"]
@@ -23141,6 +23739,7 @@ areas = ["ui", "menus", "fonts"]
 paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/terminal/screen.rs", "engine/nvf-play/src/creator/view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"NVF box without buttons\";24.2:close", NVF_PLAY_TEST_SHOTS = "24.6:font_glyph_baseline.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 27
 expect = [
   "message box shown: NVF box without buttons",
@@ -23667,6 +24266,21 @@ order = [[
   { text = "script: player left trigger NellisArtilleryActivatorREF", label = "travelling away (the field's cells unload) runs the trigger's OnTriggerLeave: the script counts the player out" },
   { text = "script: player entered trigger NellisArtilleryActivatorREF", label = "back in the field once Volare! runs" },
 ]]
+
+[[scenario]]
+name = "fort-slave-packs-not-floating"
+source = "issue #2439 (owner): at the Fort two slave backpacks hung in the sky with no NPC near. They are placed references of NVSlaveBackpack (0x0013732C, 0x0013732D; ARMO 0x00127C6A, Non-Playable, no world model MOD2) 565 and 913 units above the ground; their biped model was drawn at the reference. Armour only ever worn has no world look now (fnv_world::placed::worn_only; engine/nvforever/src/world.rs spawn_model)"
+note = "the owner's spot on the rise west of the camp, looking south-east at 17:00 as in the report's screenshot; frames in target/smoke (fort_packs.png). The two backpack slaves (LvlFortSlaveBackpack 0x00154414, 0x00154415) still wear theirs"
+areas = ["world"]
+paths = ["crates/fnv-world/src/placed.rs", "engine/nvforever/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "6:120:5", NVF_PLAY_TEST_SHOTS = "14:fort_packs.png", NVF_PLAY_TEST_CONSOLE = "12:00154414.getitemcount 00127C6A;00154415.getitemcount 00127C6A;12.5:close" }
+args = ["--world", "WastelandNV", "--pos=89242,46819,8095", "--play", "--hour", "17", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'world: 0x0013732C NVSlaveBackpack: armour only ever worn', label = "the lower floating pack is not drawn on its own" },
+  { re = 'world: 0x0013732D NVSlaveBackpack: armour only ever worn', label = "the upper floating pack is not drawn on its own" },
+  { re = 'console: GetItemCount on 0x0015441[45] >> 1\.00', count = 2, label = "both backpack slaves still carry their pack" },
+]
 
 [[scenario]]
 name = "rs-charlie-door-and-tripwire"
@@ -27555,6 +28169,7 @@ areas = ["activation", "hud"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00153FCE", NVF_PLAY_TEST_SCRIPT = "8:call:0x00153FCE:SetDestroyed:0", NVF_PLAY_TEST_ACTIVATE = "12" }
 args = ["--cell", "HooverDamIntPowerPlant01b", "--play", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
 run_seconds = 20
 order = [[
   "script: test aid calls SetDestroyed on …",
@@ -28339,4 +28954,493 @@ order = [[
 ]]
 expect = [
   { re = 'far script summary: (?P<n>\d+) GameMode runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
+]
+
+
+[[scenario]]
+name = "pipboy-ammo-effects"
+source = "[design, #2502] docs/spec-notes/pipboy.md, Ammo effect card lines: the hand-built ITEMS > Ammo card shows each RCIL effect below WG/VAL and clears them when a round without effects is selected. [documented: #2502 round-w2 writer brief, fnvtool esm decode, FalloutNV.esm, main session 2026-11-14] Ammo357MagnumHollowPoint has Damage Bonus Multiply 1.75 and Dam. Thresh. Increase Multiply 3.0; Ammo357Magnum has no RCIL."
+note = "[design / file refs] As perk-jury-rigging, RemoveAllItems at 11 s clears the starting kit before AddItem. menu/model.rs::sort_rows puts .357 Magnum Round before .357 Magnum, Hollow Point; Down selects the latter, Up returns. pipboy/items.rs::draw logs Info with an escaped newline. [hypothesis] Timing follows neighbouring Pip-Boy scenarios, pending runtime smoke."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy.rs", "crates/fnv-combat/src/data.rs", "docs/spec-notes/pipboy.md"]
+env = { NVFOREVER_HOME = "", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "11:call:player:RemoveAllItems,11.3:call:player:AddItem:Ammo357MagnumHollowPoint:24,11.6:call:player:AddItem:Ammo357Magnum:24", NVF_PLAY_TEST_PIPBOY = "15:open,16:page=items,17:tab=4,18:key=down,20:key=up,22:close", NVF_PLAY_TEST_SHOTS = "19:pipboy_ammo_effects.png,21:pipboy_ammo_no_effects.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  "pipboy: ITEMS Ammo",
+  { re = 'pipboy items: \.357 Magnum, Hollow Point selected: .*effects: Some\("Damage Bonus x1\.75\\nDam\. Thresh\. Increase x3\.00"\), ammo_effects: true', label = "hollow point: both FULL labels, exact multipliers and RCIL order" },
+  { re = 'pipboy items: \.357 Magnum Round selected: .*effects: None, ammo_effects: true', label = "ordinary round: no effect lines" },
+  { re = 'tiles: InventoryMenu page from tiles:', count = 0, label = "the hand-built card path is exercised" },
+  { re = 'pipboy items: \.357 Magnum Round selected: .*effects: Some', count = 0, label = "ordinary round never retains the hollow-point effects" },
+]
+order = [[
+  "pipboy: ITEMS Ammo",
+  { re = 'pipboy items: \.357 Magnum Round selected: .*effects: None, ammo_effects: true' },
+  "test aid: pipboy Key(Down)",
+  { re = 'pipboy items: \.357 Magnum, Hollow Point selected: .*effects: Some\("Damage Bonus x1\.75\\nDam\. Thresh\. Increase x3\.00"\)' },
+  "test aid: pipboy Key(Up)",
+  { re = 'pipboy items: \.357 Magnum Round selected: .*effects: None, ammo_effects: true' },
+]]
+
+[[scenario]]
+name = "tiles-items-ammo-effects"
+source = "[design, #2502] docs/spec-notes/pipboy.md, Ammo effect card lines: the default tile ITEMS > Ammo card shows both hollow-point effects and clears them on the ordinary round. [documented: #2502 round-w2 writer brief, fnvtool esm decode, FalloutNV.esm, main session 2026-11-14] Ammo357MagnumHollowPoint RCIL 0x00157B54 and 0x00157B56 supply Damage Bonus Multiply 1.75 and Dam. Thresh. Increase Multiply 3.0; Ammo357Magnum has no RCIL."
+note = "[design / file refs] Same setup and keyboard steps as pipboy-ammo-effects. As tiles-pipboy-default, empty NVFOREVER_HOME and no tile override select the default menus. inventory_menu.rs::describe logs the selected row and item_card.rs::describe logs visible values, preserving a literal newline between effects. Require only two WG/VAL figures after Up. [hypothesis] Timing pending runtime smoke; logs do not prove pixels, screenshots are supplied for review."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy.rs", "crates/fnv-combat/src/data.rs", "docs/spec-notes/pipboy.md"]
+env = { NVFOREVER_HOME = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "11:call:player:RemoveAllItems,11.3:call:player:AddItem:Ammo357MagnumHollowPoint:24,11.6:call:player:AddItem:Ammo357Magnum:24", NVF_PLAY_TEST_PIPBOY = "15:open,16:page=items,17:tab=4,18:key=down,20:key=up,22:close", NVF_PLAY_TEST_SHOTS = "19:tiles_items_ammo_effects.png,21:tiles_items_ammo_no_effects.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu \(from default\):', label = "the default tile path is exercised" },
+  "pipboy: ITEMS Ammo",
+  { re = 'tiles: InventoryMenu page from tiles: 2 rows, "\.357 Magnum, Hollow Point \(24\)" selected, tab 4, .*figures: [^\r\n]*, Damage Bonus x1\.75$', label = "hollow point: first effect with its exact FULL label and multiplier, no heading" },
+  { re = '^Dam\. Thresh\. Increase x3\.00, device$', label = "hollow point: second effect with its exact FULL label and multiplier" },
+  { re = 'tiles: InventoryMenu page from tiles: 2 rows, "\.357 Magnum Round \(24\)" selected, tab 4, .*figures: [^,\r\n]+, [^,\r\n]+, device$', label = "ordinary round: only WG and VAL, no effect block" },
+  { text = "pipboy items: ", count = 0, label = "the tile card draws without the hand-built body" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "the tile card does not fall back" },
+  { re = 'tiles: InventoryMenu page from tiles: .*"\.357 Magnum Round \(24\)" selected, tab 4, .*figures: .*(Damage Bonus|Dam\. Thresh\. Increase)', count = 0, label = "ordinary round never retains the hollow-point effects" },
+]
+order = [[
+  "pipboy: ITEMS Ammo",
+  { re = 'tiles: InventoryMenu page from tiles: 2 rows, "\.357 Magnum Round \(24\)" selected, tab 4, .*figures: [^,\r\n]+, [^,\r\n]+, device$' },
+  "test aid: pipboy Key(Down)",
+  { re = 'tiles: InventoryMenu page from tiles: 2 rows, "\.357 Magnum, Hollow Point \(24\)" selected, tab 4, .*figures: [^\r\n]*, Damage Bonus x1\.75$' },
+  { re = '^Dam\. Thresh\. Increase x3\.00, device$' },
+  "test aid: pipboy Key(Up)",
+  { re = 'tiles: InventoryMenu page from tiles: 2 rows, "\.357 Magnum Round \(24\)" selected, tab 4, .*figures: [^,\r\n]+, [^,\r\n]+, device$' },
+]]
+
+[[scenario]]
+name = "nav-walks-actor-slope"
+kind = "tool"
+source = "[design, #2511] docs/design/navmesh.md section 5: all seven headless routes must arrive with the actor slope limit of 56 degrees (physics.md section 6.9.2)"
+areas = ["nav", "physics"]
+paths = ["crates/fnv-nav/", "crates/fnvtool/src/nav_*.rs", "crates/fnv-phys/", "crates/fnv-collide/", "engine/nvf-play/src/phys.rs"]
+commands = [
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "EasyPeteRef", "--to", "TrudyRef", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "GSChetRef", "--to", "SunnyRef", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "GSChetRef", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "SunnyRef", "--to", "DocMitchellREF", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "0x0013BB0D", "--keys", "0x00119875", "--speed", "344", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "TrudyRef", "--to=-193,600,3456", "--space", "GSProspectorSaloonInterior", "--max-slope", "56"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=1000,3400,-120", "--space", "RocketLabMid", "--to", "0x000CD684", "--max-slope", "56"],
+]
+expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 7, label = "all seven walks arrived with the actor slope limit" }]
+
+[[scenario]]
+name = "mq-fort-gear-returned"
+kind = "tool"
+source = "[documented: #2534 owner brief, fnvtool decode/decompile and headless run, main session 2026-11-14] Entrance confiscation followed by Caesar's bunker task and the weather-station guard's GREETING 0015BCA2 / Topic000 INFO 0015BCA1. [design] Regression chain in crates/fnv-game/walkthrough/fort-gear-returned.actions.json."
+areas = ["quests", "scripts", "dialogue", "inventory"]
+paths = ["crates/fnv-game/walkthrough/fort-gear-returned.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/items.rs", "crates/fnv-game/src/functions/quest.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fort-gear-returned.actions.json"]]
+expect = [
+  { json = "observations.?label=pistol before confiscation.count", equals = 1, label = "one test pistol carried initially" },
+  { json = "observations.?label=pistol on player after confiscation.count", equals = 0, label = "pistol taken from the player" },
+  { json = "observations.?label=pistol in storage after confiscation.count", equals = 1, label = "pistol held in remote storage" },
+  { json = "observations.?label=weather guard greets.info", equals = "0x0015BCA2", label = "the return greeting is selected" },
+  { json = "observations.?label=weather guard returns equipment.info", equals = "0x0015BCA1", label = "the return choice runs its result scripts" },
+  { json = "observations.?label=pistol on player after return.count", equals = 1, label = "pistol returned to the player" },
+  { json = "observations.?label=pistol in storage after return.count", equals = 0, label = "pistol removed from storage" },
+  { json = "observations.?label=quest after return.running", equals = false, label = "equipment quest stopped after return" },
+  { json = "observations.?label=quest after return.var.bFortEquipmentStored", equals = 0, label = "stored flag cleared" },
+  { json = "observations.?label=quest after return.var.bGimme", equals = 0, label = "return flag cleared" },
+  { json = "steps.*.error", count = 0, label = "no action fails" },
+  { json = "given_errors.*", count = 0, label = "no setup fails" },
+]
+manual = "[design, #2534] Inspect the labeled counts and result scripts on failure; fort-gear-returned isolates the engine quest/inventory bridge without the dialogue chain."
+
+[[scenario]]
+name = "fort-gear-returned"
+source = "[documented: #2534 owner brief, fnvtool decode/decompile, main session 2026-11-14] FortEquipmentConfiscationQuest (00164762, script 00164763, delay 0.1) returns NVCCPlayerStorageREF's items when bFortEquipmentStored and bGimme are 1, clears both flags and stops. Storage REFR 00139B6B is persistent in Cottonwood Cove."
+note = "[design, #2534] Stay in Goodsprings with Cottonwood Cove unloaded. Stop the equipment quest, clear only the test pistol from both inventories, give one pistol and confiscate weapons into remote storage. Read 0/1, seed the return flags and start the quest, then close the console so GameMode can run. Read 1/0 and the stopped quest/reset flags after the return. This isolates the quest and shared inventory; mq-fort-gear-returned covers the dialogue result scripts."
+areas = ["quests", "scripts", "inventory", "console"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/console.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/items.rs", "crates/fnv-game/src/functions/quest.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StopQuest FortEquipmentConfiscationQuest;player.RemoveItem Weap10mmPistol 9999;NVCCPlayerStorageREF.RemoveItem Weap10mmPistol 9999;player.AddItem Weap10mmPistol 1;player.RemoveAllTypedItems NVCCPlayerStorageREF 1 0 40;player.GetItemCount Weap10mmPistol;NVCCPlayerStorageREF.GetItemCount Weap10mmPistol;9:set FortEquipmentConfiscationQuest.bFortEquipmentStored to 1;set FortEquipmentConfiscationQuest.bGimme to 1;StartQuest FortEquipmentConfiscationQuest;GetQuestRunning FortEquipmentConfiscationQuest;9.5:close;14:player.GetItemCount Weap10mmPistol;NVCCPlayerStorageREF.GetItemCount Weap10mmPistol;GetQuestRunning FortEquipmentConfiscationQuest;sqv FortEquipmentConfiscationQuest;14.5:close" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'console: GetItemCount on player >> 0\.00', label = "pistol confiscated from player" },
+  { re = 'console: GetItemCount on NVCCPlayerStorageREF >> 1\.00', label = "remote storage holds the pistol" },
+  { re = 'console: GetQuestRunning >> 1\.00', label = "return quest started while console holds GameMode" },
+  { re = 'console: GetItemCount on player >> 1\.00', label = "quest returned the pistol to the played inventory" },
+  { re = 'console: GetItemCount on NVCCPlayerStorageREF >> 0\.00', label = "remote storage emptied" },
+  { re = 'console: GetQuestRunning >> 0\.00', label = "return quest stopped" },
+]]
+expect = [
+  { re = 'console: +bFortEquipmentStored = 0(?:\.0+)?$', label = "stored flag reset" },
+  { re = 'console: +bGimme = 0(?:\.0+)?$', label = "return flag reset" },
+]
+manual = "[design, #2534] If this passes but the reported conversation fails, run the full guard conversation in-game and inspect INFO begin/end execution and open menus; no engine cause was established by source inspection."
+
+[[scenario]]
+name = "pipboy-repair-enter"
+source = "[design, #2553] Real Enter through the repair and ITEMS key systems, using pipboy-repair's existing two-pistol setup; the last part closes the repair list without toggling the repaired row's worn state."
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/tiles/repair_menu.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-enter-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,20:close", NVF_PLAY_TEST_KEYS = "18:enter" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "the repair list opens with the other pistol as its part" },
+  { text = "test aid: real input Key(Enter) pressed", label = "Enter enters the real key handlers" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', count = 1, label = "Enter repairs once" },
+  { text = "pipboy repair: closed:", label = "using the last part closes the repair list" },
+]
+forbid = [
+  { re = 'menu: .*: (Equipped|Unequipped) 10mm Pistol', label = "the repair key must not toggle equipment" },
+]
+order = [["pipboy repair: open", "test aid: real input Key(Enter) pressed", "pipboy repair: 10mm Pistol", "pipboy repair: closed:"]]
+
+[[scenario]]
+name = "npc-launcher-round"
+source = "[design, #2512] NPC attack/reload visibility on weapon-model targets (docs/spec-notes/animation.md section 9.7): the round stays hidden after the shot until reload shows it"
+note = "[design] Reuses melee-reach-lead-pipe's Violet combat setup on open ground, moved 2200 units from the god-mode player, with the launcher/ammo IDs from missile-explosion (00004340 / 00029383) [documented: those scenario setups]. No existing human NPC launcher setup was found; body-weapons-sentry-blast uses an embedded gun without this held model. Equipment reconciliation draws the launcher. Not yet run."
+areas = ["animation", "combat"]
+paths = ["engine/nvforever/src/weapons.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/attack_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:FiendVioletRef:player:0:2200:0,4:call:FiendVioletRef:RemoveAllItems,4.5:call:FiendVioletRef:AddItem:0x00004340:1,4.5:call:FiendVioletRef:AddItem:0x00029383:12,5:call:FiendVioletRef:EquipItem:0x00004340,7:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  { re = 'outfit: actor 000F570B: weapon 0x00004340.*now held', label = "the launcher model is equipped on Violet" },
+  { re = 'attack anims: 000F570B plays .*2hlattack(right|left)\.kf', label = "Violet plays a launcher attack with a round visibility track" },
+  { re = 'attack anims: 000F570B plays .*2hlreload[ae]\.kf', label = "Violet plays a launcher reload with a round visibility track" },
+]
+order = [[
+  { re = 'npc weapon part: Actor 000F570B .* ##NifRound hidden', label = "the fired round is hidden" },
+  { re = 'npc weapon part: Actor 000F570B .* ##NifRound shown', label = "the reload shows the round again" },
+  { re = 'npc weapon part: Actor 000F570B .* ##NifRound hidden', label = "the next shot hides the round again" },
+]]
+
+[[scenario]]
+name = "nightkin-stealth-field"
+source = "[documented: issue #2557, supplied FalloutNV.esm records] CrSuperMutantNightkin (0x0007EA29) carries CrNightkinSCRIPT (0x0007EA22), which adds StealthBoyInvisibilitySpell (0x0007E474) on load: StealthBoyInvis (0x00043E95), Chameleon 95; [design, #2557] loaded living actors with Chameleon >= 1 get refracting material copies"
+note = "[design, #2557] Place the scripted Nightkin beside an unseen player, then restrain it to keep this cloak-on check out of an attack transition. The log must identify its base and dynamic reference; no game data fixture is shipped. Player regression scenarios retain their expectations unchanged."
+areas = ["aid", "actors"]
+paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/actor_materials.rs", "engine/nvforever/src/actors.rs", "crates/fnv-game/src/functions/magic.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrSuperMutantNightkin:1,3.2:call:0xFF000000:SetRestrained:1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'ai \[[^\]]*\] CrSuperMutantNightkin 0xFF000000: created by a script \(PlaceAtMe\)', label = "the scripted Nightkin is the first created reference" },
+  { re = 'stealth field: CrSuperMutantNightkin 0xFF000000 on \(Chameleon 95\)', label = "the Nightkin gets the actor stealth field" },
+]
+manual = "[design, #2557] Inspect the refracting body and weapon. Unrestrain the actor and provoke an attack: plain during attack, cloaked after combat; a killed actor restores. Compare the player's Stealth Boy and Pip-Boy using aid-stealth-boy, stealth-boy-refraction and stealth-boy-pipboy. Original-game comparisons remain observer check 170."
+
+[[scenario]]
+name = "grass-fire"
+source = "owner request 2026-11-14 (#2567, docs/design/grass-fire.md): fire from a burning weapon spreads across grass, sets the actors in it alight and goes out within a hard limit; the grass blackens and sinks away and grows back when its cell reloads"
+note = "the player (god mode) fires the Flamer (0000432D, fuel 00029371) north at the grass by the Prospector Saloon (nearest tufts about 230 units north) for a second from 26 s (message boxes off: one open stops the trigger), then looks at the fire; Easy Pete is held in place and put 250 units in front, in the fire's path, at 27 s; the fire runs to its end. Frames for the eye: the front spreading, the black grass sinking, the scorched ground left behind"
+areas = ["combat", "grass"]
+paths = ["engine/nvf-play/src/grass_fire.rs", "engine/nvforever/src/grass_fire_fx.rs", "engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:200", NVF_PLAY_TEST_LOOK = "9:5:-24,27.5:5:-14", NVF_PLAY_TEST_SCRIPT = "26.5:call:EasyPeteRef:SetRestrained:1,27:moveto:EasyPeteRef:player:0:250:0", NVF_PLAY_TEST_CONTROL = "9:weapon,26:fire,27:fire", NVF_PLAY_TEST_SHOTS = "29:grassfire_0.png,33:grassfire_1.png,39:grassfire_2.png,47:grassfire_3.png,60:grassfire_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 80
+expect = [
+  { re = 'grass fire 1: started at .* by the player with .*\(00044B30\)', label = "the Flamer's burn lights the grass where its flame lands" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiresmall01.nif: ', label = "the small flame model is loaded" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiremed01.nif: ', label = "the larger flame model is loaded" },
+  { re = 'particles: born in meshes.mps.mpsfiremed01.nif: \S+ [1-9]', label = "the larger flames emit" },
+  { re = 'grass fire fx summary: .* (?P<n>\d+) smoke, (?P<m>\d+) lights', range = [1, 1000], label = "burnt-out patches smoulder" },
+  { re = 'particles: born in meshes.mps.mpsfiresmall01.nif: \S+ [1-9]', label = "the flames emit their particles" },
+  { re = 'grass fire: EasyPeteRef \(00104C80\) caught fire from fire 1', label = "Easy Pete, put in the fire's path, catches fire" },
+  { re = 'grass fire: the player caught fire', count = 0, label = "the player in god mode takes no burn" },
+  { re = 'grass fire 1: out after .*: (?P<n>\d+) patches burnt', range = [2, 500], label = "the fire spread and went out within its patch limit" },
+  { re = 'grass fire 1: out after .* reached (?P<n>\d+) units of 1024', range = [0, 1024], label = "it never reached past its limit" },
+  { re = 'grass fire fx summary: [1-9]\d* flames drawn', label = "flames were drawn" },
+  { re = 'failed to process shader', count = 0, label = "the grass and terrain shaders compile (a broken grass.wesl drew no grass at all)" },
+]
+
+[[scenario]]
+name = "stalkers-new-game-morning"
+source = "issue #2279 (21 of 32 player installs, v0.7.0): a new game's opening sets GameHour to 23 (VCG00 stage 0) and later to 8 (VCG01 stage 200); the south night stalkers spawned at 23:00 by VERStalkersSouth01 tried their 23:00 raid route VSpecialWBStalkerHuntersRaidMWF3 at 08:00 from the rest cell the quest had put them in, and could not reach it"
+note = "a new game; SetStage VCG01 200 at 12 s puts the clock at 08:00. The quest's night branch has spawned the stalkers by then (StalkersOn 1); its day branch, 18 s later, moves them to VStalkerSouthRestMarker and sets StalkersOn 0"
+areas = ["ai", "schedule"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "12:call:-:SetStage:VCG01:200" }
+args = ["--play", "--new-game", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  "new game: VCG00 started at stage 0",
+]
+order = [[
+  { re = 'ai \[23:\d\d\] VERT2NightStalkerSmallWalkingBox01REF: put at .+ by a script \(MoveTo\)', label = "the night branch puts the stalkers out at 23:00" },
+  { re = 'ai \[08:00\] the clock was set from 23:\d\d to 08:00 by a script: packages chosen again', label = "the clock set to 08:00 has everyone choose a package again (#2353)" },
+  { re = 'ai \[08:\d\d\] VERT2NightStalkerSmallWalkingBox01REF: put at .+ by a script \(MoveTo\)', label = "the day branch takes the stalkers to their rest marker" },
+  { re = 'ai summary at 08:[23]\d: .* 0 unreachable', label = "half an hour into the morning nobody has failed to reach a place" },
+]]
+forbid = [{ re = 'cannot reach the place of VSpecial\w*StalkerHunters', label = "a night stalker tries a raid route it cannot reach" }]
+
+[[scenario]]
+name = "script-physical-wheel-delivery"
+source = "[hypothesis: engineering input bridge] docs/spec-notes/script-wheel-input.md: authored public JIP handlers observe physical wheel264/265; no MCM navigation model"
+note = "Manual opt-in only: set NVF_SCRIPT_WHEEL_MANUAL=1, focus the primary game window after loading, roll the wheel up then wait and roll down during the24second run. Do not use synthetic Tap/Hold codes as physical input proof. This checks delivery to actual published script callbacks, not native per-notch parity, pane focus or left-list selection. The scenario and authored scripts are unrun."
+areas = ["input", "scripts"]
+paths = ["engine/nvf-play/src/script_input.rs", "engine/nvf-play/src/script_input_wheel_tests.rs", "crates/fnv-game/src/script_input.rs", "crates/fnv-game/src/jip_events.rs", "docs/spec-notes/script-wheel-input.md", "tools/smoke/fixtures/script-wheel-home/"]
+requires = ["NVF_SCRIPT_WHEEL_MANUAL"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/script-wheel-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = 'script: print "nvf wheel up handler 1"', count = 1, label = "wheel-up callback registration succeeds" },
+  { text = 'script: print "nvf wheel down handler 1"', count = 1, label = "wheel-down callback registration succeeds" },
+  { text = 'script: print "nvf physical wheel edge 264"', min = 1, label = "actual physical up reaches its public script handler" },
+  { text = 'script: print "nvf physical wheel edge 265"', min = 1, label = "actual physical down reaches its public script handler" },
+]
+manual = "Keep the primary game window focused; scroll up and down after loading. This manual scenario has no selection or scroll-offset expectation and provides no GPU/native visual comparison."
+
+[[scenario]]
+name = "heck-securitron-arrest"
+source = "issue #2574 (crates/fnv-game/src/combat.rs Game::harmless_hit; engine/nvf-play/src/combat.rs; fixed by #2492): Beyond the Beef's arrest scene. The Securitron's fire package VMS18SecuritronFire1 (0x001299B3, added by the begin script of line 0x00129992) is Do No Damage, and Heck Gunderson dies only in his OnHit block for the Securitron (SCPT 0x00125AF0: KillActor, then the Securitron says VMS18SecuritronHeckDeathReaction 0x00129986). Before #2492 a harmless shot ran no OnHit, so Heck lived and could still be talked to (the tester's 0.7.0 build)"
+note = "the player in ULCasino at 14:00 beside Heck; the Securitron (initially disabled) is enabled at 3 s and put beside Heck at 3.5 s, and line 0x00129992 is said by it at 5 s: Heck goes alert and the Securitron takes up its fire package"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:start:VMS18,3:enable:VMS18SecuritronREF,3.5:moveto:VMS18SecuritronREF:VMS18HeckGundersonREF:250:0:0,5:info:0x00129992:VMS18SecuritronREF" }
+args = ["--play", "--cell", "ULCasino", "--pos=2483,2000,7568", "--hour", "14", "--no-voice", "--no-messages", "--npc-packages", "all,VMS18SecuritronREF,VMS18HeckGundersonREF"]
+run_seconds = 40
+order = [[
+  { re = 'use weapon: VMS18SecuritronREF 0x001299AB uses WeapNVSecuritronSubmachineGun on VMS18HeckGundersonREF \(its package VMS18SecuritronFire1\): 6 shots; always hit, no damage', label = "the Securitron opens fire on Heck with its Do No Damage package" },
+  { text = "combat: a harmless shot by 0x001299AB hits 0x0010D4EF: its hit blocks ran, no damage", label = "a harmless shot runs Heck's OnHit for the Securitron" },
+  { text = "script: OnDeath of FalloutNV.esm|SCPT 0x00125AF0 ran on Some(0x0010D4EF)", label = "its KillActor kills Heck: his OnDeath block runs" },
+  { text = "script: VMS18SecuritronREF says 0x00129988", label = "the Securitron says its death reaction (VMS18SecuritronHeckDeathReaction)" },
+]]
+expect = [
+  { text = "use weapon: VMS18SecuritronREF 0x001299AB stops: VMS18HeckGundersonREF is dead or gone", label = "the Securitron stops firing at the dead Heck (same frame as its line: not ordered)" },
+  { text = "script: VMS18 stage 255 set", label = "Heck's OnDeath sets VMS18 255 (objective 180 not done in this setup)" },
+]
+
+[[scenario]]
+name = "strip-gate-kill-zone-lines"
+source = "#2582: FalloutNV's Strip gate kill zone (VFSVegasAnnihilationVolumeREF, SCPT 0x00119786) SayTos VFSSecuritronKill every frame the player is inside (its target2 is never set); a script's Say/SayTo of the topic its speaker is already saying leaves that line playing (Game::say_by_script; observer batch o30, PR #2580). Before, the Securitron Gatekeeper restarted its line every frame: 2,231 lines in about 40 s"
+note = "The player starts inside the kill zone at the Freeside gate with no passport, in god mode; the zone's OnTriggerEnter sets the five gate Securitrons on the player and the Gatekeeper (VFSSecuritronGreeterREF) says its Kill lines one after another"
+areas = ["scripts", "dialogue", "combat"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--world", "FreesideWorld", "--pos=-6300,-9700,1040", "--heading", "40", "--hour", "13", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { text = "script: player entered trigger VFSVegasAnnihilationVolumeREF", label = "the player is in the gate's kill zone" },
+  { text = "OnStartCombat of FalloutNV.esm|SCPT 0x0017934D ran on Some(0x00119793)", label = "the Gatekeeper starts its fight" },
+  { re = 'script: VFSSecuritronGreeterREF says 0x', min = 3, max = 60, label = "the Gatekeeper says its lines one after another, not one a frame (2,231 in 40 s before #2582)" },
+]
+
+[[scenario]]
+name = "turret-base-stays"
+source = "#2561 (owner's screenshots 2026-11-14, engine/nvforever/src/turret_aim.rs): a floor turret turned its whole model to the player, base and feet included; the skeleton hangs Bip01 Yaw from the base by a hinge, so the base stays as placed and the yaw bone carries the turn"
+note = "a Mark VI floor turret (SVFloorTurret, sentryturret skeleton) placed at the player (GOD) at 3 s and set on the player; the player is put 300 units east of it at 6 s, a quarter turn from the heading it was placed with. The log line measures both bones on the drawn skeleton: their world rotations against those they had before the turn"
+areas = ["combat", "creatures", "actors"]
+paths = ["engine/nvforever/src/turret_aim.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:SVFloorTurret:1:300:0,4:call:0xFF000000:StartCombat:player", NVF_PLAY_TEST_GOTO = "6:-60700:4500:8500" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'turret aim: meshes\\creatures\\sentryturret\\skeleton\.nif: the base stays as placed, Bip01 Yaw turns', label = "the floor turret's skeleton has the yaw bone" },
+  { re = 'turret aim: FF000000: turned (?P<n>\d+)° from where it was placed: its base [01]°, its Bip01 Yaw \d+°', range = [45, 180], label = "turned to the player, its base has not moved" },
+  { re = 'turret aim: FF000000: turned \d+° from where it was placed: its base \d+°, its Bip01 Yaw (?P<n>\d+)°', range = [45, 180], label = "the yaw bone carries the turn" },
+]
+
+[[scenario]]
+name = "quiet-missing-starfield"
+source = "#2408 (engine/nvforever/src/sky.rs cloud_layers, official_plugin): FalloutNV.esm's NVWastelandClearNight names sky/NVWastelandStarfieldSky.dds for its first cloud layer and no base archive has it; the player reports' missing_asset for it came from 25 of 43 installs. A texture the base game's own weather names and nobody has is no failure and logs no warning"
+note = "Goodsprings at 23:00: the climate rolls NVWastelandClearNight at the start"
+areas = ["sky", "reports"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs", "engine/nvf-assets/src/texture.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [{ text = "weather: NVWastelandClearNight at 23:00", label = "the night weather is the one shown" }]
+forbid = [{ re = 'texture not loaded: .*nvwastelandstarfieldsky', label = "a warning for the starfield texture the game does not have" }]
+
+[[scenario]]
+name = "teammate-knockout-not-hardcore"
+source = "#2623: outside Hardcore the player's teammate is knocked out at zero health, not killed, though no companion carries the Essential flag; in Hardcore it dies (docs/spec-notes/unconscious.md §2.2a, a hypothesis: observer-checks.md check 165)"
+note = "in Goodsprings: Easy Pete (not essential) is made the player's teammate by console at 14 s, the hit aid hits him for 1,000 at 15 s (the combat path the quest pilot's companions died by), so he is knocked out (essential) and GetDead reads 0 at 17 s; at 19 s Hardcore goes on and KillActor kills him"
+areas = ["combat", "knockouts"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/followers.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:EasyPeteRef.setplayerteammate 1;EasyPeteRef.getplayerteammate;14.5:close;17:EasyPeteRef.getdead;EasyPeteRef.isessential;17.5:close;19:sethardcore 1;EasyPeteRef.killactor;EasyPeteRef.getdead;20:close", NVF_PLAY_TEST_HIT = "15:EasyPeteRef:1000" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 24
+order = [[
+  { re = 'console: GetPlayerTeammate on EasyPeteRef >> 1\.00' },
+  { re = 'knockout: Easy Pete \S+ knocked out \(essential\)' },
+  { re = 'console: GetDead on EasyPeteRef >> 0\.00', label = "alive after the knockout" },
+  { re = 'console: GetDead on EasyPeteRef >> 1\.00', label = "dead after Hardcore's KillActor" },
+]]
+expect = [
+  { re = 'console: GetPlayerTeammate on EasyPeteRef >> 1\.00', label = "Easy Pete is the player's teammate" },
+  { re = 'knockout: Easy Pete \S+ knocked out \(essential\)', label = "the killing hit knocks the teammate out" },
+  { re = 'console: GetDead on EasyPeteRef >> 0\.00', label = "outside Hardcore the teammate is not dead" },
+  { re = 'console: IsEssential on EasyPeteRef >> 0\.00', label = "IsEssential still reads his flag" },
+  { re = 'console: GetDead on EasyPeteRef >> 1\.00', label = "in Hardcore KillActor kills him" },
+]
+
+[[scenario]]
+name = "enable-disabled-actor-talks"
+source = "#2616: an actor disabled when its cell loads and enabled by a script while a menu holds the game (the hatch terminal's result script) is drawn at once, body, head and face rig, and fades in; the conversation the same script starts shows it speaking, its mouth moving with the line (docs/spec-notes/enable-disabled-actor.md)"
+note = "Hoover Dam intake tower (HooverDamIntIntakeTower01 0x00133FB1): VHDIntakeTowerCenturionREF 0x0013CA6B (NPC_ VHDIntakeTowerCenturion, on the leveled template EncVHDCLCenturion) is placed persistent and initially disabled [observed: fnvtool world refs]. The player is put next to the hatch terminal VHDIntakeTowerHatchUnlockTerminalREF 0x0013CA6D at 5 s, opens it at 8 s and takes Unlock Maintenance Hatch at 10 s: its result script enables the Centurion and his Dialogue package starts the conversation in the same frame, about 70 units away. On main before the fix he was never drawn: the residents read who is enabled only after the AI's update, which a held game (terminal, conversation) skips"
+areas = ["scripts", "actors", "dialogue"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "5:1925:2410:8260", NVF_PLAY_TEST_TERMINAL = "8:open:0013CA6D,10:item:0,12:exit" }
+args = ["--cell", "HooverDamIntIntakeTower01", "--play"]
+run_seconds = 16
+expect = [
+  { re = 'terminal: its result script: .*RefEnabled \{ reference: 0x0013CA6B, fade: true \}.*DialogueSta', label = "the terminal enables the Centurion and starts his conversation" },
+  { re = 'fade: 0x0013CA6B in over 2 s', count = 1, label = "the Centurion fades in" },
+  { text = "dialogue look: VHDIntakeTowerCenturionREF faces the player", label = "the Centurion is drawn and faces the player in the conversation" },
+  { text = "dialogue zoom: in on VHDIntakeTowerCenturionREF (its head as drawn)", label = "the view zooms in on his drawn head" },
+  { re = 'lip: animating \S*vhdlegionbattle_greeting_0013ca2a_1\.lip .*speaker VHDIntakeTowerCenturionREF', label = "his mouth moves with his first line" },
+  { re = 'lip: skipped \S*0013ca2a_1\.lip: speaker VHDIntakeTowerCenturionREF has no face rig', count = 0, label = "his first line is not left without lip sync" },
+]
+order = [["dialogue: conversation with VHDIntakeTowerCenturionREF started", "dialogue look: VHDIntakeTowerCenturionREF faces the player"]]
+
+[[scenario]]
+name = "rigid-headgear-oliver"
+source = "[documented: #2529 writer brief, fnvtool FalloutNV.esm + Fallout - Meshes.bsa] VHDGeneralOliver 001300A9 wears rigid NVGenOliverCap 00134490, identity-root GenOliverCap:5 with bounds centre (13.30,1.64,0). [hypothesis: actors.md section 1.2] The mesh uses the head bone's own axes. [design, #2529] Preserve the full head transform for that layout at spawn and equipment changes."
+note = "PlaceAtMe follows hitvol-marked-created-actor. The sole created actor is Oliver; restrain him, move him near the player and use Look with rotateBody 0 while the player moves to change the head pose. The read-only probe logs cap world and head-relative centres and full-frame error after transform propagation. This does not assume any quest-conditioned Oliver greeting; observer check 168 requests a repeatable conversation setup."
+areas = ["actors", "head-tracking"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/outfits.rs", "engine/nvforever/src/rigid_head_probe.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_RIGID_HEAD = "001300A9|GenOliverCap:5", NVF_PLAY_TEST_SCRIPT = "2:call:player:PlaceAtMe:VHDGeneralOliver:1,3:call:0xFF000000:SetRestrained:1,4:moveto:0xFF000000:player:0:160:0,5:call:0xFF000000:Look:player:0,10:moveto:player:0xFF000000:100:0:0,18:moveto:player:0xFF000000:-100:0:0,25:call:0xFF000000:StopLook" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+expect = [
+  { re = 'ai \[[^\]]*\] VHDGeneralOliver 0xFF[0-9A-F]{6}: created by a script \(PlaceAtMe\)', count = 1, label = "Oliver is spawned from his base record" },
+  { re = 'ai \[[^\]]*\] .*: created by a script \(PlaceAtMe\)', count = 1, label = "the dynamic reference used by the aid is the only created actor" },
+  { re = 'rigid head check: .*parent_head=false', count = 0, label = "the rigid cap is parented directly to the head bone" },
+  { text = 'rigid head check: actor=', min = 10, label = "cap placement is logged throughout the run" },
+  { re = 'rigid head check: .*relative=\((?P<n>[-\d.]+),', range = [13.25, 13.35], all = true, label = "the cap stays above the head along its local X" },
+  { re = 'rigid head check: .*relative=\([-\d.]+,(?P<n>[-\d.]+),', range = [1.59, 1.69], all = true, label = "the authored local Y offset is kept" },
+  { re = 'rigid head check: .*relative=\([-\d.]+,[-\d.]+,(?P<n>[-\d.]+)\)', range = [-0.05, 0.05], all = true, label = "the authored local Z offset is kept" },
+  { re = 'rigid head check summary: samples=(?P<n>\d+)', range = [60, 100000000], label = "the probe sampled the moving head" },
+  { re = 'rigid head check summary: .*max_error=(?P<n>[\d.]+)', range = [0, 0.02], label = "every sampled centre follows the full head transform" },
+  { re = 'rigid head check summary: .*max_frame_error=(?P<n>[\d.]+)', range = [0, 0.001], label = "every sampled cap frame follows head rotation and scale" },
+  { re = 'rigid head check summary: .*turn_deg=(?P<n>[\d.]+)', range = [0.5, 180], label = "the head actually turned during the check" },
+]
+
+[[scenario]]
+name = "helipad-ladder-top-crosshair"
+source = "[documented: writer brief #2528 round w3] Hoover Dam helipad ladder endpoints 00164C63/00164C64 and top-to-bottom arrival near (68084,19354,4806); [design: docs/spec-notes/cells-refs.md section 5] isolate crosshair picking from direct hand activation"
+note = "[design, #2528; fnv-world transform.rs::ref_rotation] Eight OBND corners transformed by position + 0.15 * Rx(1.601) Ry(-0.287) Rz(-1.562) * local give world min (67903.61,19374.57,5009.27), max (67927.56,19444.40,5183.48): 82.48 above deck z5101. OBND does not establish actual render/collision geometry or a deck opening. [documented: supplied w3 brief] OBND (-1037,-109,0)..(112,-84,445), rotation (-1.601,0.287,1.562), position (67939.5,19439.3,5028). [observed: supplied main-session run 2026-11-14 22:50] Old top look hit STAT 0012CE4B/base 0012CE4A. [observed: supplied main-session run 2026-11-14 23:14, ov15/smoke-2528b/*.log] All four helipad scenarios passed. Original looks 11/23 (pitch -60, yaw 121/54) targeted 00164C63 from the deck; original looks 25-27 at spot 3 (settled feet z4802) targeted plain ladder 00164C65 with Open / Ladder. [design, #2528; test_aid/activation_sweep.rs] Retain heading +/-30 at pitch -60 at all three spots (9 looks), including both successful deck views (now 3/6) and the plain ladder view (now 7). Each look logs actual feet/view, GetCrosshairRef/base/type, target/base/type, drawn prompt and hit DOOR refs within 400 of the ladder. Finish every look, replay first successful view and press E on its current target; no explicit-ref activation. Misses and unrelated doors remain diagnostics."
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/test_aid.rs", "engine/nvf-play/src/test_aid/activation_sweep.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/activate/outcome.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/world.rs", "docs/spec-notes/cells-refs.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_ACTIVATION_SWEEP = "00164C63|67900:19440:5101:91,67915:19385:5101:24,67950:19440:5101:266" }
+args = ["--play", "--pos=67900,19440,5101", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 38
+expect = [
+  { re = 'activation sweep: look=\d+ spot=\d+ feet=\([^)]+\) yaw=[\d.]+ pitch=-?[\d.]+ GetCrosshairRef=0x[0-9A-F]{8} base=0x[0-9A-F]{8} type=\S+ target=0x[0-9A-F]{8} target_base=0x[0-9A-F]{8} target_type=\S+ prompt=.* nearby_DOOR_collision=\S+ nearby_DOOR_target=\S+ nearby_DOOR_far=\S+$', count = 9, label = "top crosshair: every look records collision query, selected target, drawn prompt and nearby hit doors" },
+  { text = "activation sweep: complete looks=9 replay=first-success press=E", label = "top crosshair: sweep completes before replaying a successful view" },
+  { re = 'activation sweep: look=.* target=0x00164C63 ', label = "top crosshair: the ladder itself is the activation target" },
+  { re = '(?:activate 0x00164C63 .*Teleported \{ to_door: 0x00164C64|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C64")', label = "top crosshair: activation teleports to the reciprocal ladder rather than toggling a door" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "top crosshair: exterior travel is requested" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()(?P<n>-?\d+(?:\.\d+)?)', range = [68079, 68089], label = "top crosshair: arrival x is near the supplied lower landing" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()-?\d+(?:\.\d+)?, (?P<n>-?\d+(?:\.\d+)?)', range = [19349, 19359], label = "top crosshair: arrival y is near the supplied lower landing" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()-?\d+(?:\.\d+)?, -?\d+(?:\.\d+)?, (?P<n>-?\d+(?:\.\d+)?)', range = [4801, 4811], label = "top crosshair: arrival z is near the supplied lower landing" },
+]
+order = [[
+  { re = 'activation sweep: complete looks=9 replay=first-success press=E', label = "top crosshair: diagnostics before activation" },
+  { re = '(?:activate 0x00164C63 .*Teleported \{ to_door: 0x00164C64|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C64")', label = "top crosshair: reciprocal teleport after diagnostics" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "top crosshair: exterior travel after teleport" },
+]]
+forbid = [
+  { re = 'activate 0x00164C63 .*DoorToggled', label = "top crosshair: the ladder must never toggle open or closed" },
+]
+
+[[scenario]]
+name = "helipad-ladder-top-direct"
+source = "[documented: writer brief #2528 round w2] Hoover Dam helipad ladder endpoints 00164C63/00164C64 and top-to-bottom arrival near (68084,19354,4806); [design: docs/spec-notes/cells-refs.md section 5] isolate crosshair picking from direct hand activation"
+note = "[hypothesis, #2528] Top standing point/pitch need a game run; GOTO settles on the floor and LOOK faces the supplied endpoint. SCRIPT activate directly uses 0x00164C63 through the hand-activation path, independently of the crosshair. [design: activate.rs::find_target] Target/reticle logs show the chosen ref and displayed prompt; PrintC additionally logs the collision-query ref, base and XATO, which may differ from a bounds-picked target. Separate launches keep travel from one path from masking the other."
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/activate/outcome.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/world.rs", "docs/spec-notes/cells-refs.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "1:67900:19440:5101", NVF_PLAY_TEST_LOOK = "4:91:-60", NVF_PLAY_TEST_CONSOLE = "6:PrintC \"helipad crosshair ref %i\", (GetCrosshairRef);PrintC \"helipad crosshair base %i xato [%z]\", ((GetCrosshairRef).GetBaseObject), ((GetCrosshairRef).GetRefActivationPromptOverride);6.5:close", NVF_PLAY_TEST_SCRIPT = "8:activate:0x00164C63" }
+args = ["--play", "--pos=67900,19440,5101", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'console: helipad crosshair ref [0-9A-F]{8}$', label = "top direct: collision-query reference logged before activation, including zero when nothing collides" },
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "top direct: collision-query base and reference prompt logged" },
+  { text = "test aid: script Activate(\"0x00164C63\")", label = "top direct: the explicit reference is activated by hand independently of picking" },
+  { re = '(?:activate 0x00164C63 .*Teleported \{ to_door: 0x00164C64|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C64")', label = "top direct: activation teleports to the reciprocal ladder rather than toggling a door" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "top direct: exterior travel is requested" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()(?P<n>-?\d+(?:\.\d+)?)', range = [68079, 68089], label = "top direct: arrival x is near the supplied lower landing" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()-?\d+(?:\.\d+)?, (?P<n>-?\d+(?:\.\d+)?)', range = [19349, 19359], label = "top direct: arrival y is near the supplied lower landing" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()-?\d+(?:\.\d+)?, -?\d+(?:\.\d+)?, (?P<n>-?\d+(?:\.\d+)?)', range = [4801, 4811], label = "top direct: arrival z is near the supplied lower landing" },
+]
+order = [[
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "top direct: diagnostics before activation" },
+  { re = '(?:activate 0x00164C63 .*Teleported \{ to_door: 0x00164C64|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C64")', label = "top direct: reciprocal teleport after diagnostics" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "top direct: exterior travel after teleport" },
+]]
+forbid = [
+  { re = 'activate 0x00164C63 .*DoorToggled', label = "top direct: the ladder must never toggle open or closed" },
+]
+
+[[scenario]]
+name = "helipad-ladder-bottom-crosshair"
+source = "[documented: writer brief #2528 round w2] Hoover Dam helipad ladder endpoints 00164C63/00164C64 and top-to-bottom arrival near (68084,19354,4806); [design: docs/spec-notes/cells-refs.md section 5] isolate crosshair picking from direct hand activation"
+note = "[hypothesis, #2528] Bottom standing point/pitch need a game run; GOTO settles on the floor and LOOK faces the supplied endpoint. E activates whatever the actual activation target is. [design: activate.rs::find_target] Target/reticle logs show the chosen ref and displayed prompt; PrintC additionally logs the collision-query ref, base and XATO, which may differ from a bounds-picked target. Separate launches keep travel from one path from masking the other."
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/activate/outcome.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/world.rs", "docs/spec-notes/cells-refs.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "1:67942.7:19320.5:4806", NVF_PLAY_TEST_LOOK = "4:0:-40", NVF_PLAY_TEST_CONSOLE = "6:PrintC \"helipad crosshair ref %i\", (GetCrosshairRef);PrintC \"helipad crosshair base %i xato [%z]\", ((GetCrosshairRef).GetBaseObject), ((GetCrosshairRef).GetRefActivationPromptOverride);6.5:close", NVF_PLAY_TEST_ACTIVATE = "8" }
+args = ["--play", "--pos=67942.7,19320.5,4806", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'console: helipad crosshair ref [0-9A-F]{8}$', label = "bottom crosshair: collision-query reference logged before activation, including zero when nothing collides" },
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "bottom crosshair: collision-query base and reference prompt logged" },
+  { re = 'target 0x00164C64 .*by (?:Collision|Bounds)', label = "bottom crosshair: the ladder itself is the activation target" },
+  { text = "reticle: prompt \"Climb Ladder\"", label = "bottom crosshair: the ladder reference supplies its displayed action" },
+  { re = '(?:activate 0x00164C64 .*Teleported \{ to_door: 0x00164C63|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C63")', label = "bottom crosshair: activation teleports to the reciprocal ladder rather than toggling a door" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "bottom crosshair: exterior travel is requested" },
+]
+order = [[
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "bottom crosshair: diagnostics before activation" },
+  { re = '(?:activate 0x00164C64 .*Teleported \{ to_door: 0x00164C63|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C63")', label = "bottom crosshair: reciprocal teleport after diagnostics" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "bottom crosshair: exterior travel after teleport" },
+]]
+forbid = [
+  { re = 'activate 0x00164C64 .*DoorToggled', label = "bottom crosshair: the ladder must never toggle open or closed" },
+]
+
+[[scenario]]
+name = "helipad-ladder-bottom-direct"
+source = "[documented: writer brief #2528 round w2] Hoover Dam helipad ladder endpoints 00164C63/00164C64 and top-to-bottom arrival near (68084,19354,4806); [design: docs/spec-notes/cells-refs.md section 5] isolate crosshair picking from direct hand activation"
+note = "[hypothesis, #2528] Bottom standing point/pitch need a game run; GOTO settles on the floor and LOOK faces the supplied endpoint. SCRIPT activate directly uses 0x00164C64 through the hand-activation path, independently of the crosshair. [design: activate.rs::find_target] Target/reticle logs show the chosen ref and displayed prompt; PrintC additionally logs the collision-query ref, base and XATO, which may differ from a bounds-picked target. Separate launches keep travel from one path from masking the other."
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/pick.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/activate/outcome.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/world.rs", "docs/spec-notes/cells-refs.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "1:67942.7:19320.5:4806", NVF_PLAY_TEST_LOOK = "4:0:-40", NVF_PLAY_TEST_CONSOLE = "6:PrintC \"helipad crosshair ref %i\", (GetCrosshairRef);PrintC \"helipad crosshair base %i xato [%z]\", ((GetCrosshairRef).GetBaseObject), ((GetCrosshairRef).GetRefActivationPromptOverride);6.5:close", NVF_PLAY_TEST_SCRIPT = "8:activate:0x00164C64" }
+args = ["--play", "--pos=67942.7,19320.5,4806", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'console: helipad crosshair ref [0-9A-F]{8}$', label = "bottom direct: collision-query reference logged before activation, including zero when nothing collides" },
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "bottom direct: collision-query base and reference prompt logged" },
+  { text = "test aid: script Activate(\"0x00164C64\")", label = "bottom direct: the explicit reference is activated by hand independently of picking" },
+  { re = '(?:activate 0x00164C64 .*Teleported \{ to_door: 0x00164C63|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C63")', label = "bottom direct: activation teleports to the reciprocal ladder rather than toggling a door" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "bottom direct: exterior travel is requested" },
+]
+order = [[
+  { re = 'console: helipad crosshair base [0-9A-F]{8} xato \[.*\]$', label = "bottom direct: diagnostics before activation" },
+  { re = '(?:activate 0x00164C64 .*Teleported \{ to_door: 0x00164C63|script: \S+ activated by \S+: .*"result":"teleported".*"to_door":"0x00164C63")', label = "bottom direct: reciprocal teleport after diagnostics" },
+  { re = '(?:script: travel to None / Some\(\d+\) at \[|travel to worldspace [0-9A-F]{8} .*: feet \()', label = "bottom direct: exterior travel after teleport" },
+]]
+forbid = [
+  { re = 'activate 0x00164C64 .*DoorToggled', label = "bottom direct: the ladder must never toggle open or closed" },
+]
+
+[[scenario]]
+name = "ncr-disguise-dam"
+source = "#2611 (Arizona Killer): in NCR ranger combat armour the player passes the NCR at Hoover Dam though the NCR take the player for an enemy (SetPCEnemyOfFaction NCRFactionNV 1, a stand-in for the Legion route's bad standing): the armour's script makes ArmorNCRFactionNV, which every NCR soldier of the dam is in, the player's friend, and only the sniffers (VNCRSnifferFaction) the disguise pulse reaches (25 ft, about 533 units, in sight) leave it (docs/spec-notes/disguises.md §3)"
+note = "the player stands at VHDAssassinationSetupREF on the dam road below the podium, among the pre-battle engineers (no sniffers, 600-1,800 units off); the nearest sniffers, rangers 04 and 05, about 2,000 units off by the vertibird pad. Console at 4 s: the armour and helmet given and worn (its OnEquip makes the disguise and starts the pulse quest); at 7 s the NCR enemy flag. Before the fix the flag outranked the disguise: every soldier near attacked at once (53 hits in 40 s) and the alarm brought troopers 8,000 units off"
+areas = ["ai", "combat", "factions"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/area_effects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "4:player.additem 00129254 1;player.equipitem 00129254;player.additem 00145EC5 1;player.equipitem 00145EC5;4.5:close;7:setpcenemyoffaction 000A46E7 1;7.3:close;40:VHDPreBattleNCRTrooper4REF.getfactionrelation player;VHDPreBattleRanger04REF.getfactionrelation player;40.5:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=67805,22301,4530", "--hour", "10", "--no-voice", "--no-messages"]
+run_seconds = 45
+expect = [
+  { text = 'script: message NCRFactionOutfitWarning', label = "the armour's OnEquip runs the disguise" },
+  { text = 'area effect: DisguiseFactionPulseActorEffect around the player', label = "the disguise pulse runs" },
+  { text = 'console: SetPCEnemyOfFaction >> 0.00', label = "the NCR enemy flag is set" },
+  { re = 'console: GetFactionRelation on VHDPreBattleNCRTrooper4REF >> 3\.00', label = "a trooper takes the disguised player for a friend" },
+  { re = 'console: GetFactionRelation on VHDPreBattleRanger04REF >> 3\.00', label = "so does a sniffer out of the pulse's reach" },
+]
+forbid = [
+  { re = 'combat: .* hits the player', label = "the NCR shoot the disguised player" },
+  { re = 'alert: .* → Combat: detects the player', label = "an NCR soldier starts fighting the disguised player" },
+  { re = 'combat group: .* about the player', label = "an alarm about the player goes round" },
 ]

@@ -84,14 +84,28 @@ pub fn merge(own: CellLighting, template: CellLighting, flags: u32) -> CellLight
 }
 
 pub fn cell_lighting(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<CellLighting> {
+    cell_lighting_with(lo, schema, cell, None, None, |_, _| {})
+}
+
+/// The same immutable CELL/template reader with explicit session choices at a
+/// cell-application boundary. `Some(0)` removes the template; `None` retains LTMP.
+/// The caller may edit the selected template's typed fields before the existing
+/// inheritance merge. Ordinary callers retain the exact reader above.
+pub fn cell_lighting_with(
+    lo: &LoadOrder, schema: &Schema, cell: u32,
+    template_override: Option<u32>, flags_override: Option<u32>,
+    mut edit_template: impl FnMut(u32, &mut CellLighting),
+) -> Option<CellLighting> {
     let (pi, r) = winner(lo, cell)?;
     let f = Fields::new(r, pi, schema).ok()?;
     let own = f.get(b"XCLL").map(|v| parse(&v));
-    let template = f.formid(b"LTMP", lo).and_then(|t| {
+    let template = template_override.or_else(|| f.formid(b"LTMP", lo)).filter(|&t| t != 0).and_then(|t| {
         let (tpi, tr) = winner(lo, t)?;
-        Fields::new(tr, tpi, schema).ok()?.get(b"DATA").map(|v| parse(&v))
+        let mut light = Fields::new(tr, tpi, schema).ok()?.get(b"DATA").map(|v| parse(&v))?;
+        edit_template(t, &mut light);
+        Some(light)
     });
-    let flags = f.get(b"LNAM").and_then(|v| num(&v, "value")).unwrap_or(0.0) as u32;
+    let flags = flags_override.unwrap_or_else(|| f.get(b"LNAM").and_then(|v| num(&v, "value")).unwrap_or(0.0) as u32);
     match (own, template) {
         (Some(o), Some(t)) => Some(merge(o, t, flags)),
         (Some(o), None) => Some(o),

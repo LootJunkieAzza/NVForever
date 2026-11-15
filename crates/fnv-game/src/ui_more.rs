@@ -54,6 +54,8 @@ pub struct UiExtra {
     pub cache: crate::ui_cache::Cache,
     pub bars: crate::ui_hudbar::Bars,
     pub attached: Vec<Attachment>,
+    /// Bounded model-projection requests; transient and cleared with this UI tree.
+    pub projections: crate::ui_projection::Requests,
     /// The engine's text measure for GetStringUIDimensions; `None` headless (the function
     /// then writes zero dimensions [design: deterministic unavailable-font policy]).
     pub measure: Option<Measure>,
@@ -561,6 +563,7 @@ pub fn tree_rebuilt(g: &mut Game) {
     g.ui_gradients.clear();
     g.ui_extra.cache.clear();
     g.ui_extra.attached.clear();
+    g.ui_extra.projections.clear();
     crate::ui_hudbar::rebuilt(g);
 }
 
