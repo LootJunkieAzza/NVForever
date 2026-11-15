@@ -83,7 +83,7 @@ import bevy_pbr::{
     render::shadow_sampling::sample_shadow_map,
 };
 
-import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
+import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel, scorch_texel};
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -497,6 +497,43 @@ fn fragment(
     return nif_fragment(in, is_front);
 }
 
+// Scorch (nvf_play grass_fire, docs/design/grass-fire.md; upstream #2572's terrain.wesl
+// "Scorch", here on the landscape's NIF materials, NifSurface::scorch_map): the ground
+// under grass that burns turns black and stays so until its cell unloads. The burn map
+// holds a byte per 64-unit patch: above 0 the patch has caught, and by 0.5 it is fully
+// charred. Read between the patches' middles (so the mark has no square edges) and
+// broken up with noise at its edge [chosen].
+const BURN_PATCH: f32 = 64.0;
+// How dark scorched ground gets (a factor on its colour) [chosen].
+const SCORCHED: f32 = 0.16;
+
+// How scorched the ground is at a point (Bevy world space; game (x, y) is Bevy (x, -z)).
+fn scorch(instance_index: u32, world: vec3<f32>) -> f32 {
+    let game = vec2<f32>(world.x, -world.z);
+    let p = game / BURN_PATCH - 0.5;
+    let base = vec2<i32>(floor(p));
+    let f = fract(p);
+    let a = saturate(scorch_texel(instance_index, base) * 2.0);
+    let b = saturate(scorch_texel(instance_index, base + vec2(1, 0)) * 2.0);
+    let c = saturate(scorch_texel(instance_index, base + vec2(0, 1)) * 2.0);
+    let d = saturate(scorch_texel(instance_index, base + vec2(1, 1)) * 2.0);
+    let s = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    if s <= 0.0 {
+        return 0.0;
+    }
+    // Value noise about 20 units across, so the edge is ragged.
+    let q = game / 20.0;
+    let i = floor(q);
+    let g = fract(q);
+    let h = g * g * (3.0 - 2.0 * g);
+    let n = mix(mix(scorch_hash(i), scorch_hash(i + vec2(1.0, 0.0)), h.x), mix(scorch_hash(i + vec2(0.0, 1.0)), scorch_hash(i + vec2(1.0, 1.0)), h.x), h.y);
+    return smoothstep(0.2, 0.7, s + (n - 0.5) * 0.45);
+}
+
+fn scorch_hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
 fn nif_fragment(
     in: VertexOutput,
     is_front: bool,
@@ -540,6 +577,10 @@ fn nif_fragment(
         @if(PIPBOY_SCREEN && VERTEX_UVS_A && VERTEX_COLORS) factor *= in.color.rgb;
         let picture = pipboy_picture(in.instance_index, screen_uv, screen_dx, screen_dy, surface.pipboy_a, surface.pipboy_b, in.position.xy);
         pbr_input.material.base_color = vec4(factor * picture, pbr_input.material.base_color.a);
+    }
+    if surface.soft.y > 0.5 {
+        let s = scorch(in.instance_index, in.world_position.xyz);
+        pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * mix(1.0, SCORCHED, s), pbr_input.material.base_color.a);
     }
     @if(REFRACT) var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
     @if(REFRACT && STANDARD_MATERIAL_NORMAL_MAP && VERTEX_UVS_A) if surface.fire_period != 0.0 {
