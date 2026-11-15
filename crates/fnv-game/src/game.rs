@@ -1758,6 +1758,10 @@ pub struct Game<'a> {
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
+    /// Actors out of the loaded area the AI gave an update since the last GameMode
+    /// ([`Game::note_far_update`]): their GameMode block runs once at the next one. Not
+    /// saved.
+    far_scripts_due: BTreeSet<FormId>,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
     /// References other than the player that a script put somewhere (MoveTo or a door) since the
@@ -2681,6 +2685,7 @@ impl<'a> Game<'a> {
             guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
+            far_scripts_due: BTreeSet::new(),
             moved: BTreeSet::new(),
             teleported: BTreeSet::new(),
             rotations: BTreeMap::new(),
@@ -4307,6 +4312,30 @@ impl<'a> Game<'a> {
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
             }
         }
+        // Actors out of the loaded area run their GameMode when the AI updates them
+        // (`note_far_update`), not every frame [hypothesis, from the documented outcome of
+        // Beyond the Beef: Chauncey's own GameMode (SCPT 0x0011689F) is the only thing that
+        // moves him from the casino to the bathhouse, by MoveToMarkerWithFade when GameHour
+        // is past 15 and he is neither in the player's cell nor in ULBath, and "shortly
+        // after" 4 p.m. he comes to the player waiting in the steam room (Fallout Wiki,
+        // Beyond the Beef); scripts.md §7.2]. In a menu they wait for the next GameMode.
+        if !in_menu && !held(self) {
+            let due = std::mem::take(&mut self.far_scripts_due);
+            for r in due {
+                if held(self) {
+                    break;
+                }
+                if !scripts || !world_logic || !self.present(r) || self.cell_of(r).is_none_or(|c| self.loaded_cells.contains(&c)) {
+                    continue;
+                }
+                let Some(script) = self.ref_script(r) else { continue };
+                if self.data.script(script).is_some_and(|u| u.has_block(ev)) && !self.host_runs_script_of(r, ev) {
+                    let key = InstKey::Ref { reference: r };
+                    self.mark_run(key, Some(script));
+                    self.run_event(key, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
+                }
+            }
+        }
         let holder = FormId::PLAYER_REF;
         for (item, script) in if scripts { self.carried_scripts(holder, ev) } else { Vec::new() } {
             if held(self) {
@@ -5279,6 +5308,12 @@ impl<'a> Game<'a> {
     /// export: object scripts run even for disabled references; observed: capture job
     /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell
     /// load runs for disabled references too, except actors (`Game::set_loaded`).
+    /// The AI gave `actor`, out of the loaded area, an update (`fnv_ai::process`): its
+    /// GameMode block runs once at the next GameMode (see [`Game::tick`]).
+    pub fn note_far_update(&mut self, actor: FormId) {
+        self.far_scripts_due.insert(actor);
+    }
+
     fn active_refs(&self) -> Vec<FormId> {
         self.scripted_refs_in(&self.loaded_cells)
     }
