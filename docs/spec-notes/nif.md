@@ -1335,10 +1335,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Tried and not the cause: Bevy's Fresnel rise at grazing angles. With it taken out of
   lights' specular for NIF surfaces the rim was unchanged (desktop run d1, 2026-11-15),
   and the change was withdrawn.
-  [hypothesis, to test with `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES`]: the highlight's height.
-  At gloss 100 the GGX lobe this renderer uses peaks near 16 (the game's Blinn-Phong
-  power peaks at 1), and the mask enters F0 squared, so where the mask is high a close
-  light's highlight is tens of times the dark rock's diffuse.
+  The cause is the highlight [observed: desktop runs e1/e2, `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES=
+  caverockwall`: with the rocks' specular off the rim is plain rock, brightest 1 % of its area
+  199 -> 97]. The same holds for Dr. Borous's screen glow (item 207): with the glass layer's
+  specular off (`brainbotscrn`, run e3) the screens are flat, centre 154 against edges
+  126-160, as in the original (wiki screenshot, full size: centre 192, edges 163-208, no
+  glow); with it on, centre 187 against edges 128-184. [hypothesis] What differs is the
+  lobe's tail, not its peak: at equal gloss GGX's peak is 0.02 x (gloss + 2) x mask times
+  Blinn-Phong's (F0 = 0.16 mask^2, V ~ 1/4 at normal incidence), but 20 degrees off the
+  mirror direction GGX keeps 2.1 % of its peak at gloss 100 and 0.6 % at 200, where
+  (N.H)^gloss keeps 0.2 % and 0.0004 %. Close strong lights then light whole facets. A
+  Blinn-Phong lobe for NIF surfaces would change every lit model's highlights and waits
+  for the owner's review (morning report, specular-model-review.md).
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha
