@@ -258,6 +258,17 @@ are at the end.
 - Command-line switches: `--viewmodel-fov`
 - Registered in `engine/nvforever/src/settings.rs`
 
+## Gameplay › World
+
+### `grass-fire`: Grass fires
+
+- On the page: On: flamers, incendiary rounds and fire blasts set grass alight; the fire
+  spreads and burns whoever stands in it. Off: fire stays where it hits.
+- In full: On: flamers, incendiary rounds and fire blasts set grass alight; the fire spreads
+  a short way, burns anyone standing in it and goes out, and the grass grows back once you
+  leave the area. Off: fire stays where it hits, as in the original.
+- Registered in `engine/nvf-play/src/grass_fire.rs`
+
 ## Display › Screen
 
 ### `resolution`: Resolution

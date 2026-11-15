@@ -11041,7 +11041,7 @@ order = [[
   { text = "pause menu: tab Display; selected resolution", label = "Tab: Display, on its first row" },
   { text = "pause menu: heading Display > Interface; selected hud-colour", label = "Page Down: under Interface" },
   { text = "pause menu: inspect: Display, keys on the rows, selected hud-colour", label = "the row is chosen with the keys on the rows" },
-  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected ui-scale", label = "Up from the heading's first row passes the heading to the row above it" },
+  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected menu-scale", label = "Up from the heading's first row passes the heading to the row above it (menu-scale, the last row under Screen since #2524)" },
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
