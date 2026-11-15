@@ -1321,6 +1321,37 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever. Check the size of the drops against the basin, how high the spray goes, and
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+    A second case, sharper (2026-11-15, mods-1114): Nova Arizona places
+    `effects\nv\fxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
+    AZMalpaisMarket, (91398, -23471, 4975) in WastelandNV. The file's particles have
+    radius 394 and rise at 118 units/s for 20 s from a 197-unit box [observed: `fnvtool
+    nif decode`]. With §7.7 (the reference's scale on speed and box, not on size) the
+    smoke is a black ball about 800 units across sitting on the chimney (laptop frame
+    s1-nova-arizona, 2026-11-14); with the scale on size too it is a column about 80
+    wide and 470 high. A frame of the original there, with the mod, settles which; the
+    mod's author presumably placed it to look like the second [hypothesis].
+
+## Added 2026-11-15 (a cave exit's rocks drawn as chrome, mods-1114 bug 3)
+
+123. **Do the rocks around a lit cave exit glint in the original?** (P2; nif.md §6 "Cave exit
+    rocks drawn as chrome", specular-model-review.md.) In NVForever, the walls around the
+    exit of Pulse Dungeons' Goodsprings Water Source Cave draw as black-and-white chrome:
+    fine glints all over the rim, lit from behind by the exit's bright light. The walls are
+    CaveRockWall01-04, with the Specular flag, gloss 20-100 and normal-map masks of 20-45 of
+    255 in both vanilla and the texture replacer [observed: desktop runs e1/e2 and A/B,
+    2026-11-15]. Take a frame of the original from the same place:
+    - The load order is the owner's mods-1114 list with "Pulse Dungeons - More Dungeons.esm",
+      and its texture replacer's loose CaveRockWall*_n.dds in place.
+    - `coc 0PDGoodspringsWaterCave` puts the player at the cell's own marker (0x22002735 in
+      that order; about (-147, -33, 17), facing west, 270 degrees). From there the exit is
+      straight ahead. Wait 5 s, then take a frame without moving. A second frame, after
+      stepping about 200 units toward the exit, shows the rim larger.
+    - If possible, the same two frames with an ENB or ReShade off.
+
+    **What it settles**: if the original's rim is matte, or has only a few small highlights,
+    the original weights or caps a light's highlight in a way neither of our lobes does (the
+    N.L weighting, or the light's reach, specular-model-review.md "What follows"). If the
+    original glints the same way, the bug is not ours.
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 
@@ -2153,3 +2184,31 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      take screenshots every 0.5 s for 20 s. Note each line's text, how long each shows
      and whether the HUD shows them while a slideshow or a fade to black holds the screen
      (the Sierra Madre bunker's own call, from a save just before it).
+## Added 2026-11-15 (the Strip's street lights coming on, the owner's "lighting flickers")
+
+125. **How do the Strip's street lights come on at 20:00 in the original?** (P2; the owner's
+     "lighting flickers" on the Strip, strip-rendering item 5.) The quest VStreetLighting (0x00127E9D, DATA delay 2.0 s, flags Start Game Enabled and
+     Default Script Processing Delay) runs VStreetLightingScript (0x00127E9E) [observed:
+     fnvtool esm decode]. On the Strip (TheStripWorldNew) after 20:00 it switches three
+     enable-parent markers (VStreetLightStarterOne/Two/ThreeREF, 0x0013BAE3/2/1, XMarkers
+     at about 2996-2999, 1704-1932, 2248-2250) in turn. For each one it sets the quest
+     delay to 0.1 s and enables it at 0.3 s, disables at 0.5, enables at 0.7, disables at
+     0.9, enables at 1.4, disables at 2.1 and enables for good at 3.1 s. At 4.7 s the next
+     marker waits a quest delay of 25 s; after the third, 15 s. Off the Strip the three are
+     enabled at once; from 6:00 to 20:00 all three are disabled. NVForever follows this
+     to within one 0.1 s step (strip-flicker run, 2026-11-15, Lucky 38 front, from 19:54):
+       - marker one changes at 0, 0.21, 0.42, 0.63, 1.15, 1.87 and 2.80 s, against the
+         script's 0, 0.2, 0.4, 0.6, 1.1, 1.8 and 2.8 s;
+       - marker two starts 26.96 s after marker one's last change (script about 27.0 s),
+         and marker three 26.96 s after marker two's;
+       - our `Enable` fades each marker in over 2 s (`(fading in)` in the log), so each
+         short "on" step is a partial fade.
+     To check, in the original, with no mods: on the Strip in front of the Lucky 38 at
+     19:55 (`set GameHour to 19.9` and stand still), record video
+     from 19:58 until 20:02 game time (about 90 s real time at timescale 30).
+     1. Do the lamps blink on and off in three groups about 27 s apart, each for about
+        3 s, as in the script? Or do they come on at once, or flicker without end?
+     2. Does each short "on" step come up to full brightness at once, or fade in?
+     3. Note the frame times of each on/off change for one group.
+     Video goes in `observer-runs\125\`. If the original blinks hard (no fade), the
+     difference is our default fade on `Enable` with no argument, not the timing.

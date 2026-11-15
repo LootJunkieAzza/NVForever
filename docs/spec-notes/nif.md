@@ -891,6 +891,58 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   SRC_ALPHA / INV_SRC_ALPHA shapes of lit shaders are still blended in linear light
   (they agree with the game at alpha 0 and 1 and differ between; unlit ones: "Alpha
   blend of unlit shapes"); ONE / ONE shapes are drawn as SRC_ALPHA / ONE, as before.
+- **Lit additive shapes** (an additive NiAlphaProperty on a BSShaderPPLightingProperty
+  shape). The Think Tank brains' screens (`nvdlc03\creatures\brainbot\
+  nvdlc03_brainbot_eyel_lg.nif`, `_eyer_lg`, `_m`, `_sm`, `_mouth_lg`, `_mouth_m`, ...)
+  stack, front to back [observed, `fnvtool nif decode`, textures decoded from
+  `OldWorldBlues - Main.bsa`]: `MonitorL_ScreenGlass:0` (lit, ONE / ONE 0x1001,
+  `NVDLC03_BrainBotScrn.dds` of mean 13/255, flat normal map with alpha 142-169,
+  environment cube `shinybright_e.dds` at scale 0.6, specular white, glossiness 200,
+  emissive black), `MonitorL_Static:0` (unlit, ONE / ONE, `whitenoise01.dds`: 90% black
+  texels, emissive 0.568 × 5, scaled UVs), `MonitorL_ScanLine:0` (unlit, SRC_ALPHA /
+  INV_SRC_ALPHA, emissive teal × 1.75), the opaque unlit eye or mouth picture and a black
+  backing. Mobius's screens (`_moebius`) blend their glass instead.
+
+  Drawn with the display-value sum ("Additive blend"), the glass washed all three screens
+  near white and the pictures showed only faintly under the static (queue item 207, frame
+  of 2026-11-14 at Dr. Borous). The same view with each layer left out
+  (`NVF_PLAY_TEST_HIDE_TEXTURES`, 2026-11-15, 960 × 540) [observed]: without the static
+  or the scanline the wash stays; without the glass it is gone and the eyes are clear
+  grey-blue pictures with the static over them. Between the two frames the glass added
+  (41, 59, 57) grey levels at the left screen's centre over an eye of (111, 133, 150), and
+  (11, 18, 22) at the right screen's edge: in the display-value sum about 0.018 of linear
+  light. The original shows the eyes and mouth clearly, with only a light static and
+  scanline (owner's report of item 207).
+
+  Rule since 2026-11-15 [hypothesis]: a lit shape that adds (`AlphaMode::Add`) adds its
+  lit colour as linear light (`NifSurface::add_linear`, `nif_spawn.rs` `adds_light`),
+  not by the display-value sum. That sum treats the added colour as a display colour,
+  which an unlit shape's texture × emissive colour is; a lit shape's colour is the light
+  Bevy computes, and over a picture of display 0.44 the sum turns 0.018 of it into 0.16.
+  Unlit additive shapes are unchanged.
+
+  After the rule (same run, 2026-11-15) [observed]: at the screens' edges the glass adds
+  0 to 2 grey levels over the frame without it (it added 11 to 31), and the wash is gone.
+  Left: one soft highlight per screen, about centre-left, from a light of the room on the
+  glass (glossiness 200 read as GGX, `gloss_roughness`), +11 to +29 at the left screen's
+  centre. Open: whether the original shows that highlight. A small screenshot of the
+  original (Nukapedia's Doctor Borous infobox image) shows bright white-cyan screens with
+  the eyes' dark rings clear and no distinct glint, from another angle. The game's
+  highlight is taken as unnormalised Blinn-Phong ("Specular" below), whose tail falls far
+  faster than GGX's; the environment map, which the game adds on this glass, is not drawn.
+  A Securitron's face (Victor, Goodsprings, `screenglare.dds` lit ONE / ONE) looks the same
+  before and after.
+
+  What the rule reaches [observed, `crates/fnv-nif/examples/blend_survey.rs` over
+  `Fallout - Meshes.bsa`, `Update.bsa` and the Main archives of Dead Money, Honest Hearts,
+  Old World Blues, Lonesome Road and Gun Runners' Arsenal, 2026-11-15]: 56 visible lit
+  ONE / ONE shapes and 185 lit SRC_ALPHA / ONE shapes (against 187 and 2,113 unlit). The
+  ONE / ONE ones by texture: 20 `pipboy3000\screenglare.dds` glare layers over screens
+  (the Securitrons' faces, Yes Man, House's screens, the wall control panels), 11
+  `MZGrateLighting01`, 9 the Think Tank screens' glass, 3 each `ShinyBright_e` and
+  `MZGlass03`, and single jars, maps and pods. The lit SRC_ALPHA / ONE ones include the
+  plasma rifles' glass tubes (`##PLRGlassTube:0`). Those were not compared after the
+  change except the Securitron face named in the item 207 run notes.
 - **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
   BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
   system, which `nvf_assets::particles` draws with the same material). The blend is
@@ -1277,6 +1329,33 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   sheen, brighter at night with the brighter night ambient; in game the panes are dark
   [observed, owner's screenshot]. The windows' environment map (slot 4
   `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is not drawn yet.
+  **Cave exit rocks drawn as chrome** (2026-11-15, mods-1114 bug 3, open): in More
+  Dungeons' Goodsprings Water Source Cave (`0PDGoodspringsWaterCave`) the rocks around
+  the exit (`dungeons\caves\rocks\rockcave01/03/05.nif`, vanilla meshes; CaveRockWall02/03,
+  Specular flag, specular colour white, gloss 100, specular mask mean 52 and 42 of 255,
+  the same as vanilla's: the overlay's replacement textures change only the colour) stand
+  by an ExtLightBright (0x0017222A: radius 200, fade 2.5, colour (254, 255, 204)) and a
+  CaveLightKeyWarm (0x0004DFE6: radius 200, fade 2.2, colour (186, 226, 228)). From the
+  tunnel they draw as black rock with white and cyan streaks; with the `caverockwall`
+  shapes hidden the chrome goes, with the forcefield door's hidden it stays [observed:
+  laptop runs m1-m4, `NVF_PLAY_TEST_HIDE_TEXTURES`, ship20 and borous207b]. FalloutNV.esm
+  places no ExtLightBright in any interior [observed: `fnvtool world refs --interiors`],
+  so the mod's lighting is what put bright lights this close to gloss-100 rock.
+  Tried and not the cause: Bevy's Fresnel rise at grazing angles. With it taken out of
+  lights' specular for NIF surfaces the rim was unchanged (desktop run d1, 2026-11-15),
+  and the change was withdrawn.
+  The cause is the highlight [observed: desktop runs e1/e2, `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES=
+  caverockwall`: with the rocks' specular off the rim is plain rock, brightest 1 % of its area
+  199 -> 97]. The same holds for Dr. Borous's screen glow (item 207): with the glass layer's
+  specular off (`brainbotscrn`, run e3) the screens are flat, centre 154 against edges
+  126-160, as in the original (wiki screenshot, full size: centre 192, edges 163-208, no
+  glow); with it on, centre 187 against edges 128-184. [hypothesis] What differs is the
+  lobe's tail, not its peak: at equal gloss GGX's peak is 0.02 x (gloss + 2) x mask times
+  Blinn-Phong's (F0 = 0.16 mask^2, V ~ 1/4 at normal incidence), but 20 degrees off the
+  mirror direction GGX keeps 2.1 % of its peak at gloss 100 and 0.6 % at 200, where
+  (N.H)^gloss keeps 0.2 % and 0.0004 %. Close strong lights then light whole facets. A
+  Blinn-Phong lobe for NIF surfaces would change every lit model's highlights and waits
+  for the owner's review (morning report, specular-model-review.md).
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha

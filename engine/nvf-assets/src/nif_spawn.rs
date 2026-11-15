@@ -954,6 +954,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
+    material.extension.add_linear = adds_light(props, alpha_mode);
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
     // z: the loaded glow map alone gives the emitted light (`glow_emits_alone`).
     if material.base.emissive_texture.is_some() && glow_emits_alone(props) {
@@ -972,7 +973,78 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
+    shape_aids(props, &mut material);
     (material, missing)
+}
+
+/// A lit additive shape adds its lit colour as linear light, not by the display-value sum
+/// of unlit additive shapes (`nif_material::add_display`): that sum takes an emitted colour
+/// for a display colour, and Bevy's lighting of a lit shape is light. Summed in display
+/// values, the Think Tank screens' glass (`nvdlc03_brainbot_eyel_lg.nif` and the other
+/// screens, `MonitorL_ScreenGlass:0`: lit, ONE / ONE, a texture of 13/255) added about
+/// 0.018 of linear light as 41 grey levels over the eye picture and washed it white; with
+/// the glass left out the eyes are clear, as the original shows them [observed, item 207
+/// frames, 2026-11-15; hypothesis: the rule; docs/spec-notes/nif.md §6 "Lit additive
+/// shapes"].
+pub(crate) fn adds_light(props: &Props, alpha_mode: AlphaMode) -> bool {
+    !props.unlit && matches!(alpha_mode, AlphaMode::Add)
+}
+
+/// A shape's base texture path matches one of `parts` (any case, `/` or `\`).
+fn texture_matches(props: &Props, parts: &[String]) -> bool {
+    let Some(t) = props.textures.first().filter(|t| !t.is_empty()) else { return false };
+    let t = t.replace('/', "\\").to_ascii_lowercase();
+    parts.iter().any(|p| t.contains(p.as_str()))
+}
+
+fn parse_parts(v: &str) -> Vec<String> {
+    v.split(';').map(|p| p.trim().replace('/', "\\").to_ascii_lowercase()).filter(|p| !p.is_empty()).collect()
+}
+
+/// Test aids for looking at one model's layers: `NVF_PLAY_TEST_HIDE_TEXTURES="<part>;…"`
+/// draws nothing of a shape whose base texture path contains a part (any case), and
+/// `NVF_PLAY_TEST_LOG_TEXTURES="<part>;…"` logs the material such a shape is drawn with,
+/// and `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES="<part>;…"` draws such a shape without
+/// specular (reflectance 0, no mask). Nothing changes without them.
+fn shape_aids(props: &Props, material: &mut NifMaterial) {
+    static AIDS: std::sync::OnceLock<(Vec<String>, Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    let (hide, log, no_specular) = AIDS.get_or_init(|| {
+        let read = |k: &str| std::env::var(k).map(|v| parse_parts(&v)).unwrap_or_default();
+        (read("NVF_PLAY_TEST_HIDE_TEXTURES"), read("NVF_PLAY_TEST_LOG_TEXTURES"), read("NVF_PLAY_TEST_NO_SPECULAR_TEXTURES"))
+    });
+    if !no_specular.is_empty() && texture_matches(props, no_specular) {
+        info!("test aid: no specular on the shape with textures {:?}", props.textures);
+        material.base.reflectance = 0.0;
+        material.base.specular_texture = None;
+    }
+    if !log.is_empty() && texture_matches(props, log) {
+        let b = &material.base;
+        info!(
+            "test aid: material of {:?}: unlit {}, alpha {:?} (flags {:?}), emissive {:?} x {:?} -> {:?}, glow {}, specular flag {}, gloss {:?} -> roughness {:.3}, reflectance {:?}, mask {}, normal map {}, add_whole {}, emissive_rule {:?}",
+            props.textures,
+            b.unlit,
+            b.alpha_mode,
+            props.alpha,
+            props.emissive,
+            props.emissive_mult,
+            b.emissive,
+            b.emissive_texture.is_some(),
+            props.specular,
+            props.glossiness,
+            b.perceptual_roughness,
+            b.reflectance,
+            b.specular_texture.is_some(),
+            b.normal_map_texture.is_some(),
+            material.extension.add_whole,
+            material.extension.emissive_rule,
+        );
+    }
+    if !hide.is_empty() && texture_matches(props, hide) {
+        info!("test aid: hiding the shape with textures {:?}", props.textures);
+        material.base.base_color = Color::NONE;
+        material.base.emissive = LinearRgba::BLACK;
+        material.base.alpha_mode = AlphaMode::Mask(2.0);
+    }
 }
 
 /// The alpha from which a blended hair-shader shape (hair, beards, brows) writes depth;
@@ -1383,6 +1455,33 @@ mod tests {
         assert!(loads_glow(&sign, false));
         assert!(!loads_glow(&Props { external_emittance: false, ..sign.clone() }, false));
         assert!(!loads_glow(&Props { unlit: true, ..sign }, false));
+    }
+
+    #[test]
+    fn a_lit_additive_shape_adds_linear_light_and_an_unlit_one_the_display_sum() {
+        // The Think Tank screens' glass: lit, ONE / ONE (0x1001).
+        let glass = Props { alpha: Some((0x1001, 0)), specular: true, glossiness: Some(200.0), shader: true, has_properties: true, textures: vec!["NVDLC03_BrainBotScrn.dds".into()], ..Default::default() };
+        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(m.extension.add_linear);
+        // The static over it: unlit, ONE / ONE, keeps the display-value sum.
+        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(!m.extension.add_linear);
+        // A lit blended shape is not additive.
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures);
+        assert!(!m.extension.add_linear);
+    }
+
+    #[test]
+    fn the_layer_aids_match_a_shape_by_its_base_texture() {
+        let parts = parse_parts(" WhiteNoise01 ; ;textures/nvdlc03/creatures/brainbot/NVDLC03_BrainBotScrn");
+        assert_eq!(parts.len(), 2);
+        let tex = |t: &str| Props { textures: vec![t.into()], ..Default::default() };
+        assert!(texture_matches(&tex("textures\\clutter\\whitenoise01.dds"), &parts));
+        assert!(texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBotScrn.dds"), &parts));
+        assert!(!texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBot_ScanLine.dds"), &parts));
+        assert!(!texture_matches(&Props::default(), &parts));
     }
 
     impl TextureSource for NoTextures {
