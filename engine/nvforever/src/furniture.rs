@@ -156,6 +156,9 @@ struct Order {
 /// Counts for the run summary.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
+    /// Uses begun (an actor took a seat and went to it or was put back on it), from any
+    /// source: `--npc-sit` orders, packages, scripts, a reload.
+    pub started: u32,
     pub sat: u32,
     pub stood: u32,
     /// Refusals logged; `repeated` were the same as the one before and were not.
@@ -660,6 +663,7 @@ pub fn drive_actors(
                     plan.stay.as_ref().map_or("none", |c| c.name.as_str())
                 );
                 f.take(&plan, rig.reference);
+                f.stats.started += 1;
                 let get_on = Arc::new(bind_clip(&rig.skel, plan.get_on.clone()));
                 let stay = plan.stay.clone().map(|c| Arc::new(bind_clip(&rig.skel, c)));
                 let from = Frame { pos: at.to_array(), heading: heading_of(&t) };
@@ -1056,7 +1060,9 @@ pub fn report(mut exit: MessageReader<AppExit>, f: Res<Furnishings>) {
     info!(
         "furniture summary: {} of {} actors sat down, {} got up again, {} could not; the player sat down {} times and got up {}",
         s.sat,
-        f.orders.len(),
+        // Uses begun, not `--npc-sit` orders: an actor its package sends counts too
+        // (ship20 run: "1 of 0" for Easy Pete going back to his chair on his own).
+        s.started,
         s.stood,
         s.failed,
         s.player_sat,
