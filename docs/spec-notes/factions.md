@@ -122,8 +122,19 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   with the documentation above. For the player it never matters in FalloutNV.esm: no
   placed actor is named an enemy by the player's factions without naming the player's
   factions an enemy itself [observed: 0].
-- `GetFactionRelation` for actors in several factions (enemy first, then friend, then
-  ally) stays a [hypothesis] (actor-behaviour.md §3).
+- `GetFactionRelation` for actors in several factions: any Friend or Ally reaction of
+  the first actor's factions towards the second's wins over an Enemy pair, since Allies and Friends "cannot
+  attack each other under any circumstances" [documented: wiki
+  GetFactionCombatReaction]; Friend before Ally stays a [hypothesis]. The data is built
+  for this rule [observed, FalloutNV.esm]: FortVulpesInculta is in VCaesarsLegionFaction
+  (which names itself an Ally) and in ArmorNCRFactionNVEnemy (which VCaesarsLegionFaction
+  names an Enemy), and he lives among the Legion in the original (#2560, owner); he and
+  VLegionaryVulpesInculta are in VCrVoidCritterFaction, a faction that names 31
+  factions Friend (animals, raiders, Vipers, Jackals, super mutants, nightkin, feral
+  ghouls; DogFaction among those naming it Friend back) and does nothing else; 188GeneralFaction (Ally to itself and to
+  NCRFactionNV) is shared by the 188 Trading Post's troopers and BattlegearLegionary.
+  Under the earlier enemy-first rule (2026-10 to 2026-11-15) the Legion in Caesar's tent
+  killed Vulpes on sight. The player's crime enemies still come first (§5).
 - The player's faction enemy flags (SetPCEnemyOfFaction, a witnessed crime) make the
   player an enemy of a flagged faction's members unless another of the member's factions
   is the player's ally or friend: a faction disguise (disguises.md §3) [hypothesis, #2611].

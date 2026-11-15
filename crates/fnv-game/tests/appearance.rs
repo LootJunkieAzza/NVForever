@@ -66,6 +66,14 @@ fn acbs(female: bool) -> fnv_esm::raw::Subrecord {
     sub(b"ACBS", d)
 }
 
+/// AIDT with a Confidence code (byte 1: 0 Cowardly … 4 Foolhardy), the rest as an NPC
+/// with none (Aggression 0).
+fn aidt_confidence(confidence: u8) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0, confidence, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    d.extend(0i32.to_le_bytes());
+    sub(b"AIDT", d)
+}
+
 fn npc(fid: u32, edid: &str, race: u32, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), acbs(false), sub(b"RNAM", race.to_le_bytes().to_vec()), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())];
     subs.extend(extra);
@@ -110,7 +118,10 @@ fn plugin_bytes() -> Vec<u8> {
     );
     let npcs = [
         npc(0x7, "Player", HUMAN, vec![]),
-        npc(JOE, "Joe", HUMAN, vec![sub(b"CNTO", [BLADES.to_le_bytes(), 1i32.to_le_bytes()].concat())]),
+        // Confidence 2 (Average): with no AIDT his confidence reads 0, Cowardly, and a coward
+        // flees every fight from its start (#2520), so he would not stand as the adult
+        // that fights in `a_child_in_a_fight_only_flees`.
+        npc(JOE, "Joe", HUMAN, vec![sub(b"CNTO", [BLADES.to_le_bytes(), 1i32.to_le_bytes()].concat()), aidt_confidence(2)]),
         npc(GHOUL_NPC, "Gus", GHOUL, vec![]),
     ]
     .concat();

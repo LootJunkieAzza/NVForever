@@ -317,8 +317,10 @@ caller branches and native/physical execution remain separately unqualified.
   actor's factions towards the other's (factions.md §2–§5, which also has the counts of
   who is an enemy of the player); faction ranks with −1 for a non-member [hypothesis];
   crime-enemy flags kept for GetActorFactionPlayerEnemy; GetDisposition is a stub.
-  How several factions of one actor combine in GetFactionRelation (enemy, then friend,
-  then ally) is a runtime [hypothesis] the documentation does not settle.
+  How several factions of one actor combine in GetFactionRelation: a friend or an ally
+  pair wins over an enemy pair, as allies "cannot attack each other under any
+  circumstances" [documented: GECK wiki GetFactionCombatReaction]; friend before ally is
+  a [hypothesis] (factions.md §4, #2560).
 - Observed: in the gunfight, Goodsprings animals fought on the settlers' side
   [observed: ai-observer.md §7]; which faction relation or Assistance setting caused it is
   not known.

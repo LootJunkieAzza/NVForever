@@ -21,6 +21,12 @@
 //!   third-person body, it floated in front of the view while that body's arms were
 //!   hidden]. Which of the two an actor wears is decided where the parts are assembled
 //!   ([`crate::mesh::hidden_for_pipboy`]), which leaves the other out.
+//! - An upper-body model with no `Arms…` shape keeps its sleeves in shapes named for
+//!   other things, beside the torso (the NCR Trooper Fatigues' `hest:0`, `objdefault01:0`,
+//!   `objdefault02:0`, #2457). Of such a model the arm partitions of the skins are drawn
+//!   ([`is_arm_body_part`], [`arms_by_partition`]) [observed: their partitions' bones and
+//!   extents, docs/spec-notes/actors.md §1.2; hypothesis: the original draws those
+//!   sleeves in first person, as it draws a jumpsuit's].
 
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
@@ -54,6 +60,29 @@ pub fn is_arms_shape(name: &str) -> bool {
 /// [`crate::mesh::hidden_for_pipboy`] leaves out the one not worn).
 pub fn is_first_person_shape(name: &str) -> bool {
     is_arms_shape(name) || crate::mesh::pipboy_sleeve(name).is_some()
+}
+
+/// Whether a skin partition of body part `bp` (nif.xml `BSDismemberBodyPartType`,
+/// documentation only; docs/spec-notes/dismemberment.md §2.5) is of an arm: BP_LEFTARM,
+/// BP_LEFTARM2, BP_RIGHTARM, BP_RIGHTARM2 (3–6) and their torso sections (part × 1000)
+/// [documented: the type's names; observed: in the NCR Trooper Fatigues those partitions
+/// are skinned to the arm bones, the left one's 3000 from the shoulder down the upper arm
+/// and 3 to the elbow, actors.md §1.2].
+pub fn is_arm_body_part(bp: u16) -> bool {
+    matches!(bp, 3..=6 | 3000 | 4000 | 5000 | 6000)
+}
+
+/// Whether an upper-body model whose shapes are named `names` is drawn in first person
+/// by its arm partitions rather than by its shapes' names: it has no `Arms…` shape.
+pub fn arms_by_partition<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
+    !names.any(is_arms_shape)
+}
+
+/// Whether a shape named `name` with partitions of body parts `parts` is drawn, with its
+/// arm partitions only, in first person by a model drawn [`arms_by_partition`]: a shape
+/// that has one and is no forearm sleeve (those go by their names).
+pub fn partition_arm_shape(name: &str, parts: impl IntoIterator<Item = u16>) -> bool {
+    crate::mesh::pipboy_sleeve(name).is_none() && parts.into_iter().any(is_arm_body_part)
 }
 
 /// How part `p` appears in first person, if at all.
@@ -149,6 +178,26 @@ mod tests {
             assert_eq!(drawn, [if wears { "PipBoyOn" } else { "PipBoyOff" }]);
             assert!(drawn.iter().all(|n| shape_shows(Some(Show::Arms), Some(n))), "wears {wears}");
         }
+    }
+
+    #[test]
+    fn an_outfit_without_arms_shapes_draws_its_arm_partitions() {
+        // armor	roupersrmornvncrtrooperplain.nif (#2457): no `Arms…` shape; the
+        // sleeves are partitions 3/3000 and 5/5000 of shapes named for other things.
+        let names = ["meathead:0", "body:0", "upperbody2:0", "pipboyoff:0", "hest:0", "objdefault01:0", "objdefault02:0", "pipboyon:0"];
+        assert!(arms_by_partition(names.iter().copied()));
+        assert!(!arms_by_partition(["UpperBody", "Arms", "PipBoyOn", "PipBoyOff"].into_iter()), "a jumpsuit goes by its names");
+        assert!(partition_arm_shape("hest:0", [0, 5000, 3000, 3]));
+        assert!(partition_arm_shape("objdefault01:0", [3000, 5000]));
+        assert!(partition_arm_shape("objdefault02:0", [0, 5]));
+        assert!(!partition_arm_shape("body:0", [0, 7000, 10000, 10, 7]), "legs and torso");
+        assert!(!partition_arm_shape("upperbody2:0", [0]));
+        assert!(!partition_arm_shape("meatcap1:0", [103]), "a section cap");
+        assert!(!partition_arm_shape("meatcap2:0", [203]), "a torso cap");
+        assert!(!partition_arm_shape("pipboyoff:0", [3]), "the forearm sleeves go by their names");
+        assert!(!partition_arm_shape("pipboyon:0", [3]));
+        assert!((3..=6).all(is_arm_body_part) && [3000, 4000, 5000, 6000].into_iter().all(is_arm_body_part));
+        assert!(![0, 1, 2, 7, 10, 103, 203, 1000, 7000, 65535].into_iter().any(is_arm_body_part));
     }
 
     #[test]
