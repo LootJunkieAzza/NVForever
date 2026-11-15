@@ -269,6 +269,12 @@ impl Plugin for CoopProgressPlugin {
     }
 }
 
+/// The name a hand-out's line shows: the item's FULL, as the player sees it elsewhere;
+/// its Editor ID only when it has none (b19: "Host handed out WeapNV9mmPistol").
+fn item_label(full_names: &std::collections::HashMap<FormId, String>, item: FormId, edid: impl FnOnce() -> String) -> String {
+    full_names.get(&item).filter(|n| !n.is_empty()).cloned().unwrap_or_else(edid)
+}
+
 fn say(corner: &mut Option<ResMut<crate::corner_messages::CornerMessages>>, n: String) {
     info!("co-op: {n}");
     if let Some(c) = corner.as_mut() {
@@ -324,7 +330,7 @@ fn take_inbox(
                     warn!("co-op: a hand-out came before the scripts run: {count} of {} lost", FormId(item));
                     continue;
                 };
-                let name = rt.game.data.name(FormId(item));
+                let name = item_label(&rt.game.data.full_names, FormId(item), || rt.game.data.name(FormId(item)));
                 // Caravan cards (Ringo's deck: 54 of them) join the player's cards; one
                 // corner line for the first, not one per card.
                 let card = rt.game.data.caravan_cards.contains_key(&FormId(item));
@@ -524,6 +530,17 @@ mod tests {
 
     fn path(s: &str) -> PathBuf {
         PathBuf::from(s)
+    }
+
+    #[test]
+    fn hand_outs_show_the_items_name_not_its_editor_id() {
+        let mut full = std::collections::HashMap::new();
+        full.insert(FormId(0x000E3778), "9mm Pistol".to_string());
+        full.insert(FormId(0x0000000F), String::new());
+        assert_eq!(item_label(&full, FormId(0x000E3778), || "WeapNV9mmPistol".into()), "9mm Pistol");
+        // No name to show: the Editor ID, as before.
+        assert_eq!(item_label(&full, FormId(0x00001234), || "SomeItem".into()), "SomeItem");
+        assert_eq!(item_label(&full, FormId(0x0000000F), || "Caps001".into()), "Caps001");
     }
 
     #[test]
