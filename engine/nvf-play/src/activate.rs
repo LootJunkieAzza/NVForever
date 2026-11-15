@@ -176,6 +176,11 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         return None;
     }
     let id = FormId(form_id);
+    // A base-game pool table standing in for the pool mod's activator (`crate::pool`):
+    // offered by the activator's name.
+    if let Some(table) = crate::pool::stand_in(sim, form_id) {
+        return Some((sim.name(table)?.to_string(), Action::Activate));
+    }
     let base = sim.forms.get(sim.base_of(form_id)?)?;
     let name = sim.name(base.id)?.to_string();
     let state = sim.world.peek(id);
@@ -836,6 +841,13 @@ pub(crate) fn activate(
     }
     if t.action == Action::Inaccessible {
         info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
+        return;
+    }
+    // A base-game pool table standing in for the mod's: a static, nothing of its own to
+    // run; the pool game opens on the activation (`crate::pool`).
+    if crate::pool::stand_in(&sim, t.form_id).is_some() {
+        sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+        info!("activate 0x{:08X} {}: a base-game pool table, played as the pool mod's", t.form_id, t.name);
         return;
     }
     // The actor's place before, to put back if a teleport cannot be followed.

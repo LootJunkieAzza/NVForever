@@ -444,7 +444,7 @@ pub fn kind_of(sim: &crate::sim::SimState, r: u32) -> Option<Kind> {
     let is = |edid: &str| sim.world.forms.by_edid(edid) == Some(base);
     if is(crate::minigames::DARTS_BOARD) {
         Some(Kind::Darts)
-    } else if is(crate::pool::TABLE_NEW) || is(crate::pool::TABLE_RUINED) {
+    } else if crate::pool::is_table(sim, r) {
         Some(Kind::Pool)
     } else if is(crate::minigames::FILLET_KNIFE) {
         Some(Kind::Fillet)
