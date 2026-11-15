@@ -92,6 +92,67 @@ pub struct PartShape {
     /// (`fnv_nif::scene::geometry_order`): what a record's alternate textures name it by
     /// besides its name (docs/spec-notes/texture-swaps.md §2).
     pub geometry_index: usize,
+    /// The skin's inverse bind poses as numbers (the same as `skin`'s asset), for
+    /// placing bones the skeleton lacks (NV SMP physics, `smp_physics.rs`).
+    pub inverse_binds: Option<Arc<Vec<Mat4>>>,
+    /// The shape's SMP physics extra data, if it has any ([`SmpExtra`]).
+    pub smp: Option<Arc<SmpExtra>>,
+}
+
+/// A shape's SMP physics data [documented: NV SMP Physics README, "What New Vegas needs
+/// that Skyrim does not"; docs/spec-notes/smp-physics.md §1]: the physics XML that the
+/// `HDT Skinned Mesh Physics Object` string extra data names (on the shape or on the
+/// file's root), and the `SMP Bones` list (`name|parent;...` in skin-instance order,
+/// continued in `SMP Bones 2`, `SMP Bones 3`... [observed: the Vanilla NV SMP pack's
+/// long lists]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SmpExtra {
+    pub xml: Option<String>,
+    /// (bone, parent) pairs; the parent is empty for a bone the skeleton has.
+    pub bones: Vec<(String, String)>,
+}
+
+/// Name of the extra data naming a shape's physics XML [documented: README].
+pub const SMP_XML_EXTRA: &str = "HDT Skinned Mesh Physics Object";
+
+/// Whether `name` is an `SMP Bones` list or one of its continuations (`SMP Bones 2`...),
+/// and its place in the order (1 for the first).
+pub fn smp_bones_part(name: &str) -> Option<u32> {
+    let l = name.to_ascii_lowercase();
+    let rest = l.strip_prefix("smp bones")?;
+    let rest = rest.trim();
+    if rest.is_empty() {
+        Some(1)
+    } else {
+        rest.parse::<u32>().ok().filter(|&n| n >= 2)
+    }
+}
+
+/// Whether a shape is an SMP collision proxy (`SMP Proxy:...`).
+pub fn is_smp_proxy(name: &str) -> bool {
+    name.get(..9).is_some_and(|p| p.eq_ignore_ascii_case("SMP Proxy"))
+}
+
+/// The `name|parent;...` pairs of an `SMP Bones` list; empty entries are skipped.
+pub fn parse_smp_bones(list: &str) -> Vec<(String, String)> {
+    list.split(';')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(|e| match e.split_once('|') {
+            Some((n, p)) => (n.trim().to_string(), p.trim().to_string()),
+            None => (e.to_string(), String::new()),
+        })
+        .collect()
+}
+
+/// The SMP data of a shape from its string extra data `(name, value)` and the root's
+/// physics XML, if either is there.
+pub fn smp_extra(shape_extra: &[(String, String)], root_xml: Option<&str>) -> Option<SmpExtra> {
+    let mut lists: Vec<(u32, &str)> = shape_extra.iter().filter_map(|(n, v)| smp_bones_part(n).map(|k| (k, v.as_str()))).collect();
+    lists.sort_by_key(|&(k, _)| k);
+    let bones: Vec<(String, String)> = lists.iter().flat_map(|(_, v)| parse_smp_bones(v)).collect();
+    let xml = shape_extra.iter().find(|(n, _)| n.eq_ignore_ascii_case(SMP_XML_EXTRA)).map(|(_, v)| v.clone()).or_else(|| root_xml.map(str::to_string));
+    (xml.is_some() || !bones.is_empty()).then_some(SmpExtra { xml, bones })
 }
 
 impl PartShape {
@@ -164,6 +225,9 @@ pub struct PreparedPart {
     /// The weapon parts (`##` nodes) the file's own visibility controllers hide or show
     /// at rest (`model::part_rest_visibility`): a revolver's speed loader, hidden.
     pub part_rest: Vec<(String, bool)>,
+    /// The archive path it was read from (normalized), for rules that pick parts by file
+    /// (the SMP generator's, `smp_physics.rs`).
+    pub path: String,
 }
 
 /// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
@@ -832,6 +896,7 @@ impl ActorCtx<'_, '_> {
                 || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
         };
         let mut out = PreparedPart::default();
+        let mut root_xml: Option<String> = None;
         // `Prn` on the root node (actors.md §1.2).
         if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
             out.root = affine(&r.transform);
@@ -841,8 +906,12 @@ impl ActorCtx<'_, '_> {
                 if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("Prn"))) {
                     out.prn = x.text("string_data").map(str::to_string);
                 }
+                if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case(SMP_XML_EXTRA))) {
+                    root_xml = x.text("string_data").map(str::to_string);
+                }
             }
         }
+        out.path = fnv_vfs::normalize(path);
         if objects.iter().any(|o| o.is_node && o.name.as_deref().is_some_and(is_projectile_node)) {
             let (nodes, _) = crate::model::model_nodes(&objects);
             for (i, n) in nodes.iter().enumerate() {
@@ -916,10 +985,20 @@ impl ActorCtx<'_, '_> {
             if !cap && caps > 0 && first_mixed_report(path, o.block) {
                 info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
             }
+            let extra: Vec<(String, String)> = shape
+                .refs("extra_data")
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|&e| dec.get(e))
+                .filter_map(|x| Some((x.text("name")?.to_string(), x.text("string_data")?.to_string())))
+                .collect();
+            let smp = smp_extra(&extra, root_xml.as_deref()).map(Arc::new);
+            let mut inverse_binds = None;
             let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
                 let names: Option<Vec<String>> = skin.bones.iter().map(|b| by_block.get(b).and_then(|o| o.name.clone())).collect();
                 let names = names?;
                 let binds = skin.insert_into(&mut mesh);
+                inverse_binds = Some(Arc::new(binds.clone()));
                 Some((m.bindposes.add(binds), names))
             });
             let mesh = if skin.is_some() {
@@ -945,6 +1024,8 @@ impl ActorCtx<'_, '_> {
                 ancestors,
                 own,
                 geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
+                inverse_binds,
+                smp,
             });
         }
         Ok(out)
@@ -1089,6 +1170,32 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub struct ShapeName(pub String);
 
+/// On a drawn shape that NV SMP physics may move (`smp_physics.rs` in nvforever): what
+/// it needs to give the shape its own bones and simulate them. Put on shapes with SMP
+/// data ([`SmpExtra`]) and on the shapes the generator rigs ([`smp_candidate`]).
+#[derive(Component, Clone)]
+pub struct SmpCandidate {
+    pub part: Arc<PreparedPart>,
+    /// The shape's index in `part.shapes`.
+    pub shape: usize,
+    pub skel: Arc<PreparedSkeleton>,
+    /// The actor's skeleton node entities, in `skel` order (`nodes[0]` the root).
+    pub nodes: Arc<Vec<Entity>>,
+    /// A rigid shape: the skeleton node it hangs from and its transform there.
+    pub rigid: Option<(usize, Affine3A)>,
+}
+
+/// Whether a shape is one NV SMP physics may move: it has SMP data, or the generator rigs
+/// it: a rigid hair-shader shape of Character Kit Remake's hair (`meshes\bale\hair\`) or
+/// a skinned shape of Qwib's accessories (`meshes\qwib\`) [design: owner decision
+/// 2026-11-14 for item 215, docs/spec-notes/smp-physics.md §6]. The vanilla hair has no
+/// SMP data and stays rigid, as it does in the original with the plugin.
+pub fn smp_candidate(part: &PreparedPart, s: &PartShape) -> bool {
+    s.smp.is_some()
+        || (s.skin.is_none() && s.is_hair() && part.path.starts_with("meshes\\bale\\hair\\"))
+        || (s.skin.is_some() && part.path.starts_with("meshes\\qwib\\"))
+}
+
 /// Spawn every part's shapes on the skeleton nodes of `out` (an actor spawned already:
 /// [`spawn_actor`], or parts put on later, as armour taken off shows the body), adding
 /// them to its `drawn`, `part_of` (indices into `parts`) and `shape_of`.
@@ -1186,10 +1293,19 @@ pub struct LimbShape {
 
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
     let nodes = &out.nodes;
+    let mut shared: Option<(Arc<PreparedSkeleton>, Arc<Vec<Entity>>)> = None;
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
             if s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
+                continue;
+            }
+            // An SMP item's collision proxies (`SMP Proxy:<shape>`) are shapes for the
+            // physics to collide with, not to draw [documented: NV SMP Physics' Nexus
+            // page, "proxies, which are collisions"; observed: named so in the Vanilla
+            // NV SMP pack]. The physics here collides with fitted capsules instead
+            // (docs/spec-notes/smp-physics.md §4).
+            if s.smp.is_some() && s.name.as_deref().is_some_and(is_smp_proxy) {
                 continue;
             }
             // Caps are spawned with no triangles (`PartShape::cap`); a cap that cannot
@@ -1251,6 +1367,14 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                 if let Some(n) = &s.name {
                     commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
                 }
+                if smp_candidate(&u.part, s) {
+                    let (sk, ns) = shared.get_or_insert_with(|| (Arc::new(skel.clone()), Arc::new(nodes.clone()))).clone();
+                    let rigid = match (&s.skin, bone) {
+                        (None, Some(b)) if !u.by_ancestor => Some((b, rigid_local(skel, b, &u.part.root, &s.transform))),
+                        _ => None,
+                    };
+                    commands.entity(e).insert(SmpCandidate { part: u.part.clone(), shape: i, skel: sk, nodes: ns, rigid });
+                }
                 commands.entity(e).insert(limb.clone());
                 out.drawn.push(e);
                 out.part_of.push(pi);
@@ -1293,6 +1417,28 @@ pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smp_bones_lists_join_in_order_and_name_the_xml() {
+        let extra = vec![
+            ("SMP Bones 2".to_string(), "SMP Coat C00 R2|SMP Coat C00 R1;".to_string()),
+            ("SMP Bones".to_string(), "Bip01 Pelvis|;SMP Coat C00 R0|Bip01 Pelvis;SMP Coat C00 R1|SMP Coat C00 R0;".to_string()),
+            ("HDT Skinned Mesh Physics Object".to_string(), r"Meshes\armor\coat_smp.xml".to_string()),
+            ("Prn".to_string(), "Bip01 Head".to_string()),
+        ];
+        let s = smp_extra(&extra, None).expect("smp data");
+        assert_eq!(s.xml.as_deref(), Some(r"Meshes\armor\coat_smp.xml"));
+        let names: Vec<&str> = s.bones.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["Bip01 Pelvis", "SMP Coat C00 R0", "SMP Coat C00 R1", "SMP Coat C00 R2"]);
+        assert_eq!(s.bones[0].1, "");
+        assert_eq!(s.bones[3].1, "SMP Coat C00 R1");
+        assert_eq!(smp_extra(&[], Some("x.xml")).unwrap().xml.as_deref(), Some("x.xml"));
+        assert!(smp_extra(&[("Prn".into(), "Bip01 Head".into())], None).is_none());
+        assert_eq!(smp_bones_part("smp bones"), Some(1));
+        assert_eq!(smp_bones_part("SMP Bones 3"), Some(3));
+        assert_eq!(smp_bones_part("SMP Bonesx"), None);
+        assert!(is_smp_proxy("SMP Proxy:Arms:1") && !is_smp_proxy("UpperBody"));
+    }
 
     #[test]
     fn a_skinned_mesh_made_rigid_keeps_its_vertices_and_triangles_but_no_joints() {
@@ -1406,6 +1552,8 @@ mod tests {
             ancestors,
             own,
             geometry_index: 0,
+            inverse_binds: None,
+            smp: None,
         };
         let mut part = PreparedPart::default();
         // Screen01 (not a bone) under the part's copy of Bip01 Head: hangs from the head
@@ -1458,6 +1606,8 @@ mod tests {
             ancestors: Vec::new(),
             own: Affine3A::IDENTITY,
             geometry_index: 0,
+            inverse_binds: None,
+            smp: None,
         };
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 1);

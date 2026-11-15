@@ -92,6 +92,25 @@ def licence_files(folder: Path) -> list[tuple[str, str]]:
     ]
 
 
+# Work whose documented behaviour NVForever reimplements in its own code (no code of
+# theirs is in the programs), credited with the release.
+ACKNOWLEDGEMENTS = [
+    "NV SMP physics (engine/nvforever/src/smp_physics) reads the SMP physics XML and the",
+    "SMP Bones lists of items made for these, and follows the behaviour their authors",
+    "document. Thanks to:",
+    "- NV SMP Physics by Balebandro (https://github.com/Balebandro/NV-SMP-Physics), the",
+    "  New Vegas plugin whose README describes the SMP Bones list, the ground plane, the",
+    "  virtual legs and the settings NVForever reads from NVSMPPhysics.ini;",
+    "- FSMP (Faster HDT-SMP) by DaymareOn and contributors (https://github.com/DaymareOn/hdtSMP64),",
+    "  from HydrogensaysHDT's HDT-SMP, whose physics XML format the items use;",
+    "- Bullet Physics by Erwin Coumans (https://github.com/bulletphysics/bullet3), the",
+    "  physics engine FSMP's constraint values are given for;",
+    "- Zombocrom, for Vanilla Outfits for Skinned Mesh Physics (Nexus Mods, Fallout New",
+    "  Vegas mod 100489), the SMP versions of the vanilla outfits NVForever simulates.",
+    "",
+]
+
+
 def render(pkgs: list[dict], rustc: str) -> tuple[str, list[str]]:
     """The file's text and the packages that name no licence and ship no licence file."""
     lines = [
@@ -104,6 +123,7 @@ def render(pkgs: list[dict], rustc: str) -> tuple[str, list[str]]:
         "Apache-2.0, https://github.com/rust-lang/rust).",
         "",
     ]
+    lines += ACKNOWLEDGEMENTS
     texts: dict[str, list[str]] = {}
     missing = []
     for p in pkgs:

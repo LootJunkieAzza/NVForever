@@ -180,6 +180,7 @@ mod imagespace;
 mod imposters;
 mod distant_lights;
 mod sky;
+mod smp_physics;
 mod start_times;
 mod weather_fx;
 mod limping;
@@ -1682,6 +1683,8 @@ fn main() -> AppExit {
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
         // --npc-travel walkers' too, without --play.
         app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
+        // NV SMP physics: items' cloth and hair bones (smp_physics/).
+        app.add_plugins(smp_physics::SmpPhysicsPlugin);
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
