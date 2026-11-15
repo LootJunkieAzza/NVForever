@@ -77,6 +77,8 @@ pub fn lip_coverage(bank: &VoiceBank, lengths: bool) -> Value {
     let mut with_text = 0u64;
     // Animation against sound.
     let mut with_sound = 0u64;
+    // The first lip files whose sound is not found (or does not read), for a failing check.
+    let mut without_sound: Vec<String> = Vec::new();
     let mut end_vs_sound: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut speech_vs_sound: BTreeMap<&'static str, u64> = BTreeMap::new();
     let (mut anim_seconds, mut sound_seconds) = (0.0f64, 0.0f64);
@@ -148,6 +150,9 @@ pub fn lip_coverage(bank: &VoiceBank, lengths: bool) -> Value {
 
         if lengths {
             let sound = crate::path::SOUND_EXTENSIONS.iter().find_map(|ext| bank.seconds(&format!("{}.{ext}", &p[..p.len() - 4])));
+            if sound.is_none() && without_sound.len() < 10 {
+                without_sound.push(p.to_string());
+            }
             if let Some(secs) = sound {
                 with_sound += 1;
                 sound_seconds += secs;
@@ -232,6 +237,7 @@ pub fn lip_coverage(bank: &VoiceBank, lengths: bool) -> Value {
     if lengths {
         out["against_sound"] = json!({
             "files_with_a_sound": with_sound,
+            "without_sound_first": without_sound,
             "frames_per_second": FRAMES_PER_SECOND,
             "animation_seconds": (anim_seconds * 10.0).round() / 10.0,
             "sound_seconds": (sound_seconds * 10.0).round() / 10.0,

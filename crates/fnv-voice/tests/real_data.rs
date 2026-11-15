@@ -135,7 +135,11 @@ fn every_lip_file_decodes() {
         // 30 frames a second: the last mouth shape ends within a frame of the sound's end
         // for three files in four.
         let s = &c["against_sound"];
-        assert_eq!(s["files_with_a_sound"], 60702);
+        // Two shipped sounds have an Ogg length of nothing (the last page's granule
+        // position 0; roboteyebot genericrobot_hit_00080dde_1, robotmisterhandy
+        // genericrobot_hit_00080ddf_1, 3430 bytes each), which is no voice line's length
+        // since b6b1f5704 (`VoiceBank::seconds`).
+        assert_eq!(s["files_with_a_sound"], 60700, "without a sound: {}", s["without_sound_first"]);
         assert_eq!(s["last_mouth_shape_against_sound_end"]["within 1 frame"], 45042);
     });
 }
