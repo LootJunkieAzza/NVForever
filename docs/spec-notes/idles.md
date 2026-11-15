@@ -202,7 +202,12 @@ below 30).
 - **Collections** (`IdlePicker`) [documented unless tagged]: Random picks any listed
   idle, with the idle timer between two idles; Run In Sequence goes from the top, with
   the timer between whole sequences; Do Once plays the sequence once (a random collection
-  then plays one idle [hypothesis]). The first idle is not waited for [hypothesis].
+  then plays one idle [hypothesis]). The first idle is not waited for [hypothesis]. A package's Run
+  In Sequence collection that lists its begin idle counts that idle as its first pick:
+  it goes on from the entry after it, and one the begin idle ends plays nothing more while
+  the package lasts [hypothesis, awaiting observer check 122: Dead Money's wake-up,
+  begin idle and whole collection alike, is seen once in the original (queue item 209);
+  `fnv_game::idles::BEGIN_IDLE_COUNTS_IN_SEQUENCE` switches it off].
 - **A collection's idle must pass its own conditions** [hypothesis]: every package of
   Doc Mitchell lists `NPCSmokingIdle`, whose conditions he does not meet, and he does not
   smoke in the game [owner's capture: he sits with his hands on his knees]. Conditions
