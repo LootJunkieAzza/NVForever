@@ -29444,3 +29444,21 @@ forbid = [
   { re = 'alert: .* → Combat: detects the player', label = "an NCR soldier starts fighting the disguised player" },
   { re = 'combat group: .* about the player', label = "an alarm about the player goes round" },
 ]
+
+[[scenario]]
+name = "vats-classic-melee-reach"
+source = "#2656 (GECK wiki VATS Settings: fVATSMeleeReachMult 2, fVATSMeleeMaxDistance 300; crates/fnv-combat/src/damage.rs vats_melee_reach): in the classic style a melee or unarmed weapon's targets are within the swing's reach doubled, at most 300, not Dead Eye's flat 350"
+note = "the Fists, no fight. Easy Pete is put 320 units in front of the player at 4 s and held: inside the old 350, outside the Fists' 214 plus the capsule (236 from the eye), so V at 8 s is refused. He is put 150 units in front at 10 s: V at 13 s starts on him; V at 15 s leaves"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs", "crates/fnv-combat/src/tuning.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:moveto:EasyPeteRef:player:0:320:0,4.2:call:EasyPeteRef:SetRestrained:1,10:moveto:EasyPeteRef:player:0:150:0", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_KEYS = "8:v,13:v,15:v", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: classic melee reach (?P<n>\d+) units from the eye \(swing \d+, in place of 350\)', range = [230, 242], label = "the Fists reach 214 from the body, 236 from the eye" },
+  { re = 'vats mode: refused: no target in sight \(classic\): \d+ beyond the reach of \d+ \(the nearest (?P<n>\d+) away\)', range = [300, 349], label = "Easy Pete at 320 units, inside the old 350: refused" },
+  { text = "vats mode: classic: 1 targets, 00104C80 selected", label = "at 150 units V starts on him" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
+]

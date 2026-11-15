@@ -1427,6 +1427,18 @@ fn melee_reach_power_and_block() {
     assert!(close(damage::melee_reach(&r, &knife, 1.0), 0.5 * r.combat_distance));
     // A reach of 0 (the Fists) counts as 1.
     assert!(close(damage::melee_reach(&r, &fists, 1.0), r.combat_distance));
+    // V.A.T.S. (issue #2656): the swing's reach doubled, at most 300 [documented: GECK wiki
+    // "VATS Settings", fVATSMeleeReachMult 2, fVATSMeleeMaxDistance 300].
+    assert!(close(r.vats_melee_reach_mult, 2.0) && close(r.vats_melee_max_distance, 300.0));
+    assert!(close(damage::vats_melee_reach(&r, &knife, 1.0), 107.0));
+    assert!(close(damage::vats_melee_reach(&r, &fists, 1.0), 214.0));
+    let pipe = WeaponStats { anim_type: Some("Melee (2 Hand)".into()), reach: 1.25, ..gun(10) };
+    assert!(close(damage::vats_melee_reach(&r, &pipe, 1.0), 267.5));
+    let long = WeaponStats { reach: 1.5, ..pipe.clone() };
+    assert!(close(damage::vats_melee_reach(&r, &long, 1.0), 300.0), "capped");
+    let mut far = Rules::defaults();
+    (far.vats_melee_reach_mult, far.vats_melee_max_distance) = (6.0, 1000.0);
+    assert!(close(damage::vats_melee_reach(&far, &fists, 1.0), 642.0), "the settings are read");
     // A power attack multiplies the base before armour, by its direction's setting.
     let a = Attacker { strength: 10.0, ..skilled() };
     let power = fnv_combat::melee::PowerDir::Stand.damage(&r);

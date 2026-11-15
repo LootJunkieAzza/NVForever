@@ -157,8 +157,11 @@ pub fn leaving_press(phase: Phase, marks: usize, pressed: impl Fn(Control) -> bo
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
 pub const REACH: f32 = 8192.0;
-/// How far from the eye a melee weapon's marks may be, units (§16.2) [design: owner
-/// 2026-10-20, "within 5 meters or so"; 5 m at 70 units a metre].
+/// How far from the eye a melee weapon's marks may be in the Dead Eye style, units
+/// (§16.2) [design: owner 2026-10-20, "within 5 meters or so"; 5 m at 70 units a metre].
+/// The Classic style has the original's reach instead (`Combat::vats_weapon`'s
+/// `classic_reach`, issue #2656); Dead Eye keeps this one, the maintainer's own choice
+/// for that style.
 pub const MELEE_MARK_REACH: f32 = 350.0;
 /// A melee mark is close enough to swing at within the weapon's reach plus this across
 /// the ground, units: the two bodies' radii (§16.2) [design].
@@ -1528,6 +1531,12 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         Ok(w) => w,
         Err(why) => return refused(v, why, hud, sounds),
     };
+    // The Classic style lists melee and unarmed targets within the original's reach
+    // (`VatsWeapon::classic_reach`, #2656); Dead Eye keeps `MELEE_MARK_REACH`.
+    if let (VatsStyle::Classic, Some(reach)) = (v.style, w.classic_reach) {
+        info!("vats mode: classic melee reach {reach:.0} units from the eye (swing {:.0}, in place of {:.0})", w.melee_reach, w.reach);
+        w.reach = reach;
+    }
     let base_cost = w.cost;
     // The Action Point Cost perks (docs/spec-notes/perk-entry-points.md §2).
     let (cost, by) = crate::combat::player_weapon_perk(script.as_deref_mut(), sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);

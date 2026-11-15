@@ -1412,6 +1412,7 @@ impl Combat {
                 // From the eye, as the player's swing reaches (`melee`): the reach is
                 // from the body, the capsule's radius further.
                 melee_reach: damage::melee_reach(&self.rules, w, 1.0) + fnv_phys::CharacterParams::default().radius,
+                classic_reach: Some(damage::vats_melee_reach(&self.rules, w, 1.0) + fnv_phys::CharacterParams::default().radius),
             });
         }
         // A gun needs to be equipped: the Fists are melee.
@@ -1427,7 +1428,7 @@ impl Combat {
             let p = self.forms.projectiles.get(&proj);
             let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
             let lob = p.map_or(f32::INFINITY, |p| throw_reach(p.speed, p.gravity * gravity));
-            return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0 });
+            return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0, classic_reach: None });
         }
         if AttackKind::of(w) != AttackKind::Gun {
             return Err(NO_GUN);
@@ -1459,6 +1460,7 @@ impl Combat {
             rounds,
             reach: if range > 0.0 { range } else { crate::vats_mode::REACH },
             melee_reach: 0.0,
+            classic_reach: None,
         })
     }
 
@@ -1581,6 +1583,10 @@ pub struct VatsWeapon {
     /// A melee weapon's own reach from the eye (`damage::melee_reach` plus the player's
     /// capsule radius), units; 0 otherwise.
     pub melee_reach: f32,
+    /// A melee or unarmed weapon's target reach from the eye in the Classic style: the
+    /// original's V.A.T.S. melee reach (`damage::vats_melee_reach`) plus the player's
+    /// capsule radius, as `melee_reach` counts it (issue #2656). `None` for the others.
+    pub classic_reach: Option<f32>,
 }
 
 pub struct CombatPlugin;

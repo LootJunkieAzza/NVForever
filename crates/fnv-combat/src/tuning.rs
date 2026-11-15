@@ -43,6 +43,14 @@ pub struct Rules {
     /// o14_reach, 2026-11-01, #1076; that the 45 is the two bodies' radii, and so not
     /// part of the setting, is a hypothesis; docs/spec-notes/combat-rules.md §10].
     pub combat_distance: f32,
+    /// V.A.T.S. melee reach: the swing's reach times `fVATSMeleeReachMult` (default 2:
+    /// "doubling the reach a melee weapon can actually swing"), at most
+    /// `fVATSMeleeMaxDistance` (default 300) [documented: GECK wiki "VATS Settings";
+    /// neither setting is in FalloutNV.esm, so the defaults apply, observed; the page
+    /// began as a Fallout 3 page, so that New Vegas keeps the defaults is a hypothesis]
+    /// (`crate::damage::vats_melee_reach`, issue #2656).
+    pub vats_melee_reach_mult: f32,
+    pub vats_melee_max_distance: f32,
     // Gun Spread Formula (New Vegas)
     pub spread_unaimed: f32,
     pub spread_walking: f32,
@@ -129,6 +137,8 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fVATSCriticalChanceBonus", 15.0),
     ("fMaxArmorRating", 85.0),
     ("fCombatDistance", 107.0),
+    ("fVATSMeleeReachMult", 2.0),
+    ("fVATSMeleeMaxDistance", 300.0),
     ("fUnaimedSpreadPenalty", 0.2),
     ("fWalkingSpreadPenalty", 0.1),
     ("fRunningSpreadPenalty", 0.2),
@@ -232,6 +242,8 @@ impl Rules {
             vats_crit_bonus: n(),
             max_armor_rating: n(),
             combat_distance: n(),
+            vats_melee_reach_mult: n(),
+            vats_melee_max_distance: n(),
             spread_unaimed: n(),
             spread_walking: n(),
             spread_running: n(),

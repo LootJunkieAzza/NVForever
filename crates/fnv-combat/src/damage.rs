@@ -409,6 +409,15 @@ pub fn melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
     r.combat_distance * scale * reach
 }
 
+/// How far a melee or unarmed weapon reaches a target in the original's V.A.T.S., game
+/// units from the attacker's body: [`melee_reach`] × `fVATSMeleeReachMult`, at most
+/// `fVATSMeleeMaxDistance` [documented: GECK wiki "VATS Settings", `Rules`' fields]. With
+/// the defaults (2, 300) and `fCombatDistance` 107: the Fists (Reach 1) 214, a Reach of
+/// 1.4 and above the cap, 300.
+pub fn vats_melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
+    (melee_reach(r, w, scale) * r.vats_melee_reach_mult).min(r.vats_melee_max_distance)
+}
+
 /// Health damage left of a melee or unarmed hit taken while blocking [design: the
 /// blocked share is CombatTuning::block; no page documents the original's rule].
 pub fn blocked(t: &CombatTuning, dealt: f32) -> f32 {
