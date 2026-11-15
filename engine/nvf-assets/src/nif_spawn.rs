@@ -996,14 +996,20 @@ fn parse_parts(v: &str) -> Vec<String> {
 
 /// Test aids for looking at one model's layers: `NVF_PLAY_TEST_HIDE_TEXTURES="<part>;…"`
 /// draws nothing of a shape whose base texture path contains a part (any case), and
-/// `NVF_PLAY_TEST_LOG_TEXTURES="<part>;…"` logs the material such a shape is drawn with.
-/// Nothing changes without them.
+/// `NVF_PLAY_TEST_LOG_TEXTURES="<part>;…"` logs the material such a shape is drawn with,
+/// and `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES="<part>;…"` draws such a shape without
+/// specular (reflectance 0, no mask). Nothing changes without them.
 fn shape_aids(props: &Props, material: &mut NifMaterial) {
-    static AIDS: std::sync::OnceLock<(Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
-    let (hide, log) = AIDS.get_or_init(|| {
+    static AIDS: std::sync::OnceLock<(Vec<String>, Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    let (hide, log, no_specular) = AIDS.get_or_init(|| {
         let read = |k: &str| std::env::var(k).map(|v| parse_parts(&v)).unwrap_or_default();
-        (read("NVF_PLAY_TEST_HIDE_TEXTURES"), read("NVF_PLAY_TEST_LOG_TEXTURES"))
+        (read("NVF_PLAY_TEST_HIDE_TEXTURES"), read("NVF_PLAY_TEST_LOG_TEXTURES"), read("NVF_PLAY_TEST_NO_SPECULAR_TEXTURES"))
     });
+    if !no_specular.is_empty() && texture_matches(props, no_specular) {
+        info!("test aid: no specular on the shape with textures {:?}", props.textures);
+        material.base.reflectance = 0.0;
+        material.base.specular_texture = None;
+    }
     if !log.is_empty() && texture_matches(props, log) {
         let b = &material.base;
         info!(

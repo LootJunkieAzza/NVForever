@@ -1320,24 +1320,25 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   sheen, brighter at night with the brighter night ambient; in game the panes are dark
   [observed, owner's screenshot]. The windows' environment map (slot 4
   `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is not drawn yet.
-  **No Fresnel rise** (2026-11-15, mods-1114 bug 3): lights' specular on NIF surfaces
-  keeps the shape's reflectance (F0) at every angle; Bevy's Schlick term, which rises
-  towards 1 at grazing angles, is not applied (`NIF_SPECULAR` shader def, vendored
-  `bevy_pbr` `pbr_lighting.wesl` `specular`) [hypothesis: the game's highlight is read as
-  Blinn-Phong, which has no Fresnel term]. The case: in More Dungeons' Goodsprings Water
-  Source Cave (`0PDGoodspringsWaterCave`) the rocks around the exit (`dungeons\caves\
-  rocks\rockcave01/03/05.nif`, vanilla meshes; CaveRockWall02/03, Specular flag, gloss
-  100, specular mask mean 52 and 42 of 255, the same as vanilla's: the overlay's
-  replacement textures only change the colour) stand in front of an ExtLightBright
-  (0x0017222A: radius 200, fade 2.5, colour (254, 255, 204)) at the exit. Seen from the
-  tunnel, their faces are back-lit and edge-on, and drew as black-and-white chrome; with
-  the `caverockwall` shapes hidden the chrome went, with the forcefield door's hidden it
-  stayed [observed: laptop runs m1-m4, `NVF_PLAY_TEST_HIDE_TEXTURES`, ship20 and
-  borous207b]. The meshes and the light are vanilla records, but FalloutNV.esm places
-  no ExtLightBright in any interior [observed: `fnvtool world refs --interiors`], so the
-  mod's lighting is what put a bright light behind the rocks; any lit shape back-lit and
-  seen edge-on had the same rise. Terrain, trees and water use their own materials and
-  are unchanged.
+  **Cave exit rocks drawn as chrome** (2026-11-15, mods-1114 bug 3, open): in More
+  Dungeons' Goodsprings Water Source Cave (`0PDGoodspringsWaterCave`) the rocks around
+  the exit (`dungeons\caves\rocks\rockcave01/03/05.nif`, vanilla meshes; CaveRockWall02/03,
+  Specular flag, specular colour white, gloss 100, specular mask mean 52 and 42 of 255,
+  the same as vanilla's: the overlay's replacement textures change only the colour) stand
+  by an ExtLightBright (0x0017222A: radius 200, fade 2.5, colour (254, 255, 204)) and a
+  CaveLightKeyWarm (0x0004DFE6: radius 200, fade 2.2, colour (186, 226, 228)). From the
+  tunnel they draw as black rock with white and cyan streaks; with the `caverockwall`
+  shapes hidden the chrome goes, with the forcefield door's hidden it stays [observed:
+  laptop runs m1-m4, `NVF_PLAY_TEST_HIDE_TEXTURES`, ship20 and borous207b]. FalloutNV.esm
+  places no ExtLightBright in any interior [observed: `fnvtool world refs --interiors`],
+  so the mod's lighting is what put bright lights this close to gloss-100 rock.
+  Tried and not the cause: Bevy's Fresnel rise at grazing angles. With it taken out of
+  lights' specular for NIF surfaces the rim was unchanged (desktop run d1, 2026-11-15),
+  and the change was withdrawn.
+  [hypothesis, to test with `NVF_PLAY_TEST_NO_SPECULAR_TEXTURES`]: the highlight's height.
+  At gloss 100 the GGX lobe this renderer uses peaks near 16 (the game's Blinn-Phong
+  power peaks at 1), and the mask enters F0 squared, so where the mask is high a close
+  light's highlight is tens of times the dark rock's diffuse.
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha

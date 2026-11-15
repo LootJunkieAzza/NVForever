@@ -503,15 +503,6 @@ impl From<&NifSurface> for NifSurfaceKey {
     }
 }
 
-/// The shader def every NIF surface's fragment gets: lights' specular keeps the shape's
-/// reflectance (F0) at every angle instead of Schlick's rise towards 1 at grazing ones
-/// (vendored `bevy_pbr` `pbr_lighting.wesl`, `specular`) [hypothesis, docs/spec-notes/nif.md
-/// §6 "Specular": the game's highlight is read as Blinn-Phong, which has no Fresnel term].
-/// With the rise, the cave rocks around an exit, back-lit by its ExtLightBright and seen
-/// edge-on, drew as black-and-white chrome (More Dungeons' Goodsprings Water Source Cave,
-/// laptop frames m1/m3, 2026-11-15).
-pub const NIF_SPECULAR: &str = "NIF_SPECULAR";
-
 impl MaterialExtension for NifSurface {
     fn fragment_shader() -> ShaderRef {
         "embedded://nvf_assets/nif_material.wesl".into()
@@ -528,9 +519,6 @@ impl MaterialExtension for NifSurface {
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         nif_prepass(descriptor, key.mesh_key);
-        if let Some(fragment) = descriptor.fragment.as_mut() {
-            fragment.shader_defs.push(NIF_SPECULAR.into());
-        }
         if key.bind_group_data.first_person {
             first_person_depth(descriptor, key.mesh_key);
         }

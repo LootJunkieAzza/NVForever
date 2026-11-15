@@ -420,13 +420,6 @@ fn specular(
     // Calculate visibility.
     let V = V_SmithGGXCorrelated(roughness, NdotV, NdotL);
     // Calculate the Fresnel term.
-    // NVForever (2026-11-15): NIF surfaces (NifSurface pushes NIF_SPECULAR) keep the
-    // reflectance at every angle: the game's highlight is Blinn-Phong with no Fresnel
-    // rise [hypothesis, docs/spec-notes/nif.md §6 "Specular"]; with Schlick's rise, rock
-    // edges back-lit by a cave exit's light turned into white chrome (mods-1114 bug 3).
-    @if(NIF_SPECULAR)
-    let F = F0;
-    @if(!NIF_SPECULAR)
     let F = fresnel(F0, LdotH);
 
     // Calculate the specular light.
