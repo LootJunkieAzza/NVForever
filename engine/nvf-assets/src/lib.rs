@@ -5,6 +5,7 @@
 pub mod actor;
 pub mod anim_blend;
 pub mod anim_play;
+mod bc5_field;
 pub mod camera_shot;
 pub mod data;
 pub mod guard;

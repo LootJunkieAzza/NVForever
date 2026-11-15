@@ -2174,6 +2174,16 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      dirt and on concrete, first and third person, and record which SOUN records play
      at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
      or beside the ground's step, and does anything play for the run rustle?
+     **Answered for NPCs 2026-11-14** (#2541; Blue Moon sandbox stock game, save
+     nvfairport on concrete, `IsSoundPlaying <rec> <actor>` sampled on 130 frames)
+     [observed]: Doc Mitchell walking in ArmorPowerT45d read FSTArmorPowerL 49 and R 95
+     frames beside FSTConcSolidWalkL 59 and R 95; without armour only the ground step;
+     LvlNCRHeavyTrooper (ArmorPowerNCRSalvaged, Heavy but not Power Armor) FSTArmorL/R
+     beside the ground step; FSTArmorPowerWalkL/R never; standing still nothing. So the
+     armour's footfall plays beside the ground's step, power armour's by the Power Armor
+     flag and heavy armour's by Heavy, and IsSoundPlaying sees the game's own footsteps.
+     Still open: the player (an unattended run could not walk the player), first
+     person, running, dirt, medium armour.
 
 ## Added 2026-11-14 (the Fort's placed slave backpacks, #2439)
 
@@ -2457,6 +2467,18 @@ already talking takes over at once, same topic or another; nothing is queued or 
      attacking until the ranger is near agrees with ours; everyone attacking at once
      says the flag beats the disguise (then the disguise works only through the
      reputation reset, reputation.md §4).
+
+## Added 2026-11-14 (talking activators with no talking actor set, #2454)
+
+185. **Who speaks through a talking activator no script has given an actor?** (P2; #2454,
+     talking-activators.md §2.) Ours: the one actor the load order's scripts name for it
+     in SetTalkingActivatorActor (Ramos for HVIntercomREF), else the activator itself
+     [hypothesis]. On a save from before the Hidden Valley bunker, get in without
+     touching HVIntercomREF (sneak in), go through Ramos's escort, accept McNamara's
+     ranger task: when the screen fades and the player stands at the inner door, record
+     whether the dialogue menu opens, which INFO is said (Ramos's 000E3664 or none),
+     and when the controls come back. Also `HVIntercomREF.IsTalkingActivatorActor
+     RamosREF` just before McNamara's line.
 
 ## Added 2026-11-14 (Dialogue packages that control the target, #2453)
 

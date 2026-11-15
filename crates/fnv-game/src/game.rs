@@ -462,6 +462,12 @@ pub struct RefExtra {
     /// SetTalkingActivatorActor.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub talking_actor: Option<FormId>,
+    /// Whether a SetTalkingActivatorActor has reached this reference, with an actor or
+    /// without (cleared: back to the activator's own voice); until then a talking
+    /// activator speaks for the actor its scripts name (`Game::talker`, #2454). A save
+    /// from before this field with an actor set reads as set (`Game::talker`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub talking_actor_set: bool,
     /// SetCriticalStage (0 none, 1 goo start, 2 goo end, 3 disintegrate start, 4 end).
     #[serde(skip_serializing_if = "is_zero", default)]
     pub critical_stage: u16,
@@ -1904,6 +1910,8 @@ pub struct Game<'a> {
     /// of their packages that asks for the current package gets the one they had
     /// rather than starting the choice again (`Game::current_package`). Not saved.
     pub(crate) choosing_package: Vec<FormId>,
+    /// What the soft-lock watchdog reads of the events (`crate::softlock`). Not saved.
+    pub softlock_seen: crate::softlock::Seen,
 }
 
 /// A lambda in a save: the unit it is written in (by key), the lambda, the instance whose
@@ -2634,6 +2642,7 @@ impl<'a> Game<'a> {
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
             choosing_package: Vec::new(),
+            softlock_seen: Default::default(),
         }
     }
 
@@ -2644,6 +2653,14 @@ impl<'a> Game<'a> {
         };
         // JohnnyGuitar's failed-quest and reputation handlers (`crate::nvse_jg8`).
         let jg8 = self.jg8_from_event(&kind);
+        // The soft-lock watchdog's count of the events that say a scene goes on.
+        if let EventKind::StageSet { quest, stage, .. } = &kind {
+            self.softlock_seen.stage = Some((*quest, *stage));
+        }
+        let chatter = matches!(&kind, EventKind::LineStarted { topic, .. } if self.chatter_topic(*topic));
+        if crate::softlock::story(&kind, chatter) {
+            self.softlock_seen.story += 1;
+        }
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {

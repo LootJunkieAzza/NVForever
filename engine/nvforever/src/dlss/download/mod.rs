@@ -1,4 +1,5 @@
-//! Download DLSS... (#2250): the four DLSS files fetched from NVIDIA's own Streamline release,
+//! Download DLSS... (#2250, #2409): the eight DLSS upscaling and frame generation files
+//! fetched from NVIDIA's own Streamline release,
 //! checked and installed in the DLSS folder, on the player's click and only after the player
 //! accepted NVIDIA's licence. The settings' dialog is the caller; this module is the work
 //! behind it. `docs/design/dlss-upscaling.md`, "Download", says it for readers.
@@ -7,11 +8,13 @@
 //!   [`LicenceAccepted`], which only [`LicenceAccepted::by_player`] makes, called by the
 //!   dialog's accept button. Nothing here touches the network without one.
 //! - **One source**: [`ASSET_URL`], the official asset of NVIDIA-RTX/Streamline's v2.14.16
-//!   release, pinned with its size [`ASSET_SIZE`]. Only the four entries are fetched, by HTTP
-//!   range requests (`fetch.rs`): the archive's end for its directory, then each entry's bytes.
+//!   release, pinned with its size [`ASSET_SIZE`]. Only the eight entries are fetched, by HTTP
+//!   range requests (`fetch.rs`): the archive's end for its directory, then each entry's bytes;
+//!   of those, only the ones the DLSS folder lacks (`install::still_missing`), so a player's own
+//!   `nvngx_*.dll` of another DLSS version is kept rather than refused.
 //! - **Pins** (`files.rs`): each file's entry, size and SHA-256. A file whose bytes differ from
-//!   its pin is never kept; the interposer's signature check and the NGX runtime's NVIDIA
-//!   signature check (`security.rs`) run on the staged files before anything is moved.
+//!   its pin is never kept; the interposer's signature check and both NGX runtimes' NVIDIA
+//!   signature checks (`security.rs`) run on the staged files before anything is moved.
 //! - **Nothing written unless all pass** (`install.rs`): the files are unpacked into a staging
 //!   folder beside the DLSS folder, on the same volume, and moved in only when every check
 //!   passed; on a failure or cancel the staging folder is removed. A DLSS folder that holds
@@ -250,7 +253,7 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
                 Err(why) => Phase::Failed(Failure::Write(why)),
                 Ok(target) => {
                     let mut source = fetch::Http::new();
-                    run(&mut source, DOWNLOAD_FILES, &target, &worker, &|dir| install::signature_checks(dir, DOWNLOAD_FILES))
+                    run(&mut source, DOWNLOAD_FILES, &target, &worker, &install::signature_checks)
                 }
             }))
             .unwrap_or_else(|panic| Phase::Failed(Failure::Internal(panic_text(panic.as_ref()))));
@@ -335,6 +338,11 @@ fn finish(shared: &Shared, phase: Phase) {
     }
     shared.set_phase(phase);
 }
+
+/// The checks run on the staging folder and the files staged in it before any move: on
+/// Windows the signature checks (`install::signature_checks`), anything in the tests.
+#[cfg(any(windows, test))]
+type StagedChecks<'a> = dyn Fn(&Path, &[DownloadFile]) -> Result<(), Failure> + 'a;
 
 /// The archive's bytes by range: HTTP in the game (`fetch.rs`), memory in the tests.
 #[cfg(any(windows, test))]
@@ -445,12 +453,25 @@ fn read_all<S: RangeSource>(src: &mut S, shared: &Shared, start: u64, len: u64) 
     Ok(bytes)
 }
 
-/// One download from `src` into `target`, to its end: the files of `files` fetched, unpacked,
-/// checked (their pins, then `checks` on the staging folder) and installed; the phase it ended
-/// in (done, failed or cancelled). Nothing is written in `target` unless every file passed.
+/// One download from `src` into `target`, to its end: the files of `files` that `target` lacks
+/// (`install::still_missing`; the ones it holds are kept, never fetched) fetched, unpacked,
+/// checked (their pins, then `checks` on the staging folder and those files) and installed;
+/// the phase it ended in (done, failed or cancelled). Nothing is written in `target` unless
+/// every fetched file passed. A folder that already holds every file is done with nothing
+/// fetched.
 #[cfg(any(windows, test))]
-fn run<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Phase {
-    match fetch_and_install(src, files, target, shared, checks) {
+fn run<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &StagedChecks<'_>) -> Phase {
+    let wanted = match install::still_missing(target, files) {
+        Ok(wanted) => wanted,
+        Err(failure) => return Phase::Failed(failure),
+    };
+    for file in files.iter().filter(|file| !wanted.contains(file)) {
+        bevy::log::info!("DLSS download: {} already in the DLSS folder, kept and not fetched", file.name);
+    }
+    if wanted.is_empty() {
+        return Phase::Done(target.to_path_buf());
+    }
+    match fetch_and_install(src, &wanted, target, shared, checks) {
         Ok(()) => Phase::Done(target.to_path_buf()),
         Err(Stop::Failed(failure)) => Phase::Failed(failure),
         Err(Stop::Cancelled) => Phase::Cancelled,
@@ -458,7 +479,7 @@ fn run<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, share
 }
 
 #[cfg(any(windows, test))]
-fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Result<(), Stop> {
+fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, shared: &Shared, checks: &StagedChecks<'_>) -> Result<(), Stop> {
     let go_on = || if shared.cancelled() { Err(Stop::Cancelled) } else { Ok(()) };
     shared.set_phase(Phase::Connecting);
     let size = src.size()?;
@@ -710,8 +731,9 @@ mod tests {
             let mut src = Memory::new(zip.clone());
             let shared = Shared::new();
             let checked = Cell::new(false);
-            let phase = run(&mut src, &files(), &target, &shared, &|dir| {
+            let phase = run(&mut src, &files(), &target, &shared, &|dir, staged| {
                 assert_eq!(listing(dir), ["a.dll", "b.dll"], "the checks see both staged files");
+                assert_eq!(staged, files().as_slice());
                 checked.set(true);
                 Ok(())
             });
@@ -738,7 +760,7 @@ mod tests {
     }
 
     /// A run that must fail or be cancelled, and leave nothing behind.
-    fn refused(label: &str, src: &mut Memory<'_>, files: &[DownloadFile], shared: &Shared, checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Phase {
+    fn refused(label: &str, src: &mut Memory<'_>, files: &[DownloadFile], shared: &Shared, checks: &StagedChecks<'_>) -> Phase {
         let root = scratch(label);
         let target = root.join("dlss");
         let phase = run(src, files, &target, shared, checks);
@@ -752,17 +774,17 @@ mod tests {
     fn a_file_other_than_its_pin_or_refused_by_the_checks_writes_nothing() {
         let mut wrong = files();
         wrong[1].sha256 = hex(b"another build");
-        let phase = refused("mismatch", &mut Memory::new(archive(&Options::default())), &wrong, &Shared::new(), &|_| Ok(()));
+        let phase = refused("mismatch", &mut Memory::new(archive(&Options::default())), &wrong, &Shared::new(), &|_, _| Ok(()));
         assert_eq!(phase, Phase::Failed(Failure::Mismatch { name: "b.dll", sha256: fnv_util::sha256::hex(B_DATA) }));
-        let phase = refused("signature", &mut Memory::new(archive(&Options::default())), &files(), &Shared::new(), &|_| {
+        let phase = refused("signature", &mut Memory::new(archive(&Options::default())), &files(), &Shared::new(), &|_, _| {
             Err(Failure::Signature { name: "a.dll", why: "not signed".into() })
         });
         assert_eq!(phase, Phase::Failed(Failure::Signature { name: "a.dll", why: "not signed".into() }));
         let mut missing = files();
         missing[0].zip_path = "bin/x64/missing.dll";
-        let phase = refused("missing", &mut Memory::new(archive(&Options::default())), &missing, &Shared::new(), &|_| Ok(()));
+        let phase = refused("missing", &mut Memory::new(archive(&Options::default())), &missing, &Shared::new(), &|_, _| Ok(()));
         assert_eq!(phase, Phase::Failed(Failure::EntryMissing("bin/x64/missing.dll")));
-        let phase = refused("not-a-zip", &mut Memory::new(b"not an archive at all".to_vec()), &files(), &Shared::new(), &|_| Ok(()));
+        let phase = refused("not-a-zip", &mut Memory::new(b"not an archive at all".to_vec()), &files(), &Shared::new(), &|_, _| Ok(()));
         assert!(matches!(phase, Phase::Failed(Failure::NotAZip(_))), "{phase:?}");
     }
 
@@ -771,10 +793,10 @@ mod tests {
         let shared = Shared::new();
         let mut src = Memory::new(archive(&Options::default()));
         src.cancel = Some(&shared);
-        assert_eq!(refused("cancel", &mut src, &files(), &shared, &|_| Ok(())), Phase::Cancelled);
+        assert_eq!(refused("cancel", &mut src, &files(), &shared, &|_, _| Ok(())), Phase::Cancelled);
         let mut src = Memory::new(archive(&Options::default()));
         src.cut_to = Some(1000);
-        let phase = refused("cut", &mut src, &files(), &Shared::new(), &|_| Ok(()));
+        let phase = refused("cut", &mut src, &files(), &Shared::new(), &|_, _| Ok(()));
         assert!(matches!(&phase, Phase::Failed(Failure::Offline(why)) if why.contains("ended")), "{phase:?}");
     }
 
@@ -800,7 +822,7 @@ mod tests {
             let target = root.join("dlss");
             let mut src = Memory::new(touching(&options, 0));
             let shared = Shared::new();
-            assert_eq!(run(&mut src, &files(), &target, &shared, &|_| Ok(())), Phase::Done(target.clone()));
+            assert_eq!(run(&mut src, &files(), &target, &shared, &|_, _| Ok(())), Phase::Done(target.clone()));
             assert_eq!(src.ranges.len(), 2, "the tail and one merged range");
             assert_eq!(listing(&target), ["a.dll", "b.dll"]);
             assert_eq!(fs::read(target.join("a.dll")).unwrap(), a_data());
@@ -813,7 +835,7 @@ mod tests {
     #[test]
     fn a_local_extra_field_reaching_into_the_next_entry_is_refused() {
         for claim in [20u16, 0xFFFF] {
-            let phase = refused("extra", &mut Memory::new(touching(&Options::default(), claim)), &files(), &Shared::new(), &|_| Ok(()));
+            let phase = refused("extra", &mut Memory::new(touching(&Options::default(), claim)), &files(), &Shared::new(), &|_, _| Ok(()));
             assert!(matches!(&phase, Phase::Failed(Failure::NotAZip(why)) if why.contains("runs past the next entry")), "claim {claim}: {phase:?}");
         }
     }
@@ -835,10 +857,39 @@ mod tests {
         let target = root.join("dlss");
         fs::create_dir(&target).unwrap();
         fs::write(target.join("nvngx_update.exe"), b"x").unwrap();
-        let phase = run(&mut Memory::new(archive(&Options::default())), &files(), &target, &Shared::new(), &|_| Ok(()));
+        let phase = run(&mut Memory::new(archive(&Options::default())), &files(), &target, &Shared::new(), &|_, _| Ok(()));
         assert_eq!(phase, Phase::Failed(Failure::FolderHolds("nvngx_update.exe".into())));
         assert_eq!(listing(&target), ["nvngx_update.exe"]);
         assert_eq!(listing(&root), ["dlss"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_folder_with_a_file_of_its_own_gets_only_the_others_fetched() {
+        let root = scratch("run-own-file");
+        let target = root.join("dlss");
+        fs::create_dir(&target).unwrap();
+        // [design: the maintainer's review of #2565] The player's own a.dll (another version)
+        // is kept: neither fetched nor refused, and only b.dll is checked and installed.
+        fs::write(target.join("a.dll"), b"the player's own build").unwrap();
+        let zip = archive(&Options::default());
+        let mut src = Memory::new(zip.clone());
+        let phase = run(&mut src, &files(), &target, &Shared::new(), &|dir, checked| {
+            assert_eq!(listing(dir), ["b.dll"]);
+            assert_eq!(checked, &files()[1..]);
+            Ok(())
+        });
+        assert_eq!(phase, Phase::Done(target.clone()));
+        assert_eq!(fs::read(target.join("a.dll")).unwrap(), b"the player's own build");
+        assert_eq!(fs::read(target.join("b.dll")).unwrap(), B_DATA);
+        let at = offsets(&zip);
+        let b = at.iter().find(|(n, _)| n == "bin/x64/b.dll").unwrap().1;
+        assert_eq!(src.ranges[1..].iter().map(|r| r.0).collect::<Vec<_>>(), [b], "a.dll's bytes never asked for");
+        assert_eq!(listing(&root), ["dlss"], "no staging folder left");
+        // Every file there: done at once, the network never asked.
+        let mut src = Memory::new(zip);
+        assert_eq!(run(&mut src, &files(), &target, &Shared::new(), &|_, _| panic!("nothing staged")), Phase::Done(target.clone()));
+        assert!(src.ranges.is_empty());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -868,10 +919,10 @@ mod tests {
         let not_found = serve("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let root = scratch("http");
         let target = root.join("dlss");
-        let phase = run(&mut fetch::Http::with_url(not_found, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_| Ok(()));
+        let phase = run(&mut fetch::Http::with_url(not_found, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_, _| Ok(()));
         assert_eq!(phase, Phase::Failed(Failure::Http(404)));
         let whole = serve("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
-        let phase = run(&mut fetch::Http::with_url(whole, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_| Ok(()));
+        let phase = run(&mut fetch::Http::with_url(whole, true), DOWNLOAD_FILES, &target, &Shared::new(), &|_, _| Ok(()));
         assert_eq!(phase, Phase::Failed(Failure::NoRanges));
         assert!(listing(&root).is_empty(), "nothing written");
         let _ = fs::remove_dir_all(root);

@@ -167,7 +167,7 @@ pub struct DlssgRequest {
 /// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
 /// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
 pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
-    if let Some(why) = crate::dlss::frame_generation_unavailable() {
+    if let Some(why) = crate::dlss::frame_generation_unavailable(|| crate::settings::dlss_download_offered(world)) {
         Some(why)
     } else if !crate::upscaler::temporal_active(world) {
         Some("Needs an upscaler")

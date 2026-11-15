@@ -16,33 +16,39 @@ NVForever ships no NVIDIA file. NVIDIA's files come under NVIDIA's own licence t
 
 ## Getting the files from the settings: Download DLSS…
 
-While the four files are missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
+[design: `settings.rs`, `dlss/download/files.rs`] While any of the eight upscaling and frame
+generation files is missing, the Upscaler row (pause menu, **Settings > Graphics**) offers
 **Download DLSS…** beside Off, FSR 3.1 and DLSS (Windows only, with the Vulkan renderer).
 Choosing it changes nothing in the row; it opens a dialog:
 
 1. **NVIDIA's licence.** The dialog says what is fetched and shows NVIDIA's licence for
-   `nvngx_dlss.dll`, the licence file that comes with the files in NVIDIA's archive. It scrolls
+   `nvngx_dlss.dll` and `nvngx_dlssg.dll`: the RTX SDKs licence in the archive's
+   `bin/x64/nvngx_dlss.license.txt` [documented: that licence, DLSS SDK supplement]. It scrolls
    with PgUp, PgDn, the arrow keys, Home, End or the mouse wheel (on a controller: LB, RB and
    the D-pad); **Open on GitHub** opens the release's page in your browser. **Nothing is
    downloaded and the game does not go online before you press I accept.** I accept takes a
    mouse click only, so that no key or button pressed by habit accepts a licence: a player
    using a controller alone needs a mouse for that one click, or gets the files by hand (below).
    Cancel (or Esc, or B and Start on a controller) closes the dialog with nothing done. The
-   three `sl.*` files are under Streamline's MIT licence.
-2. **The download.** The game fetches only the four files from the official archive of
+   six `sl.*` files are under Streamline's MIT licence [documented: Streamline 2.14.16,
+   `LICENSE.txt`].
+2. **The download.** The game fetches only the eight files from the official archive of
    NVIDIA's Streamline release 2.14.16 on GitHub
    (`https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.16/streamline-sdk-v2.14.16.zip`):
-   it reads the archive's list of files from its end and asks for just those four entries,
-   about 60 MB instead of the whole 276 MB archive. The dialog shows the step, the file and the
-   megabytes; **Hide** (Esc) closes it and the download goes on while you play (the Upscaler
+   it reads the archive's list of files from its end and asks for just those eight entries,
+   including the four frame generation files listed below, or only the ones your `dlss` folder
+   does not hold yet [design: `dlss/download/install.rs`, `still_missing`]. The four frame
+   generation files are about 4.6 MB of the download [observed: the official zip, 2026-11-13]. The dialog shows the step,
+   the file and the megabytes; **Hide** (Esc) closes it and the download goes on while you play (the Upscaler
    row then reads "Downloading DLSS… n%", and choosing it shows the dialog again);
    **Cancel download** stops it. Loading a save, going to the main menu or quitting the game
    stops a download that is still running (each of them starts the game anew), with nothing
    written; choose Download DLSS… again afterwards.
 3. **The checks.** Each file must be exactly the file of that release (its size and SHA-256,
-   pinned in NVForever), and `sl.interposer.dll` and `nvngx_dlss.dll` must pass the signature
-   checks described below. The files are unpacked into a temporary folder beside the `dlss`
-   folder and moved in only when all four passed; on any failure or cancel nothing is written
+   pinned in NVForever), its ZIP CRC-32 must match, and `sl.interposer.dll`, `nvngx_dlss.dll`
+   and `nvngx_dlssg.dll` must pass the signature checks described below. The files are unpacked
+   into a temporary folder beside the `dlss`
+   folder and moved in only when all the fetched files passed; on any failure or cancel nothing is written
    in the `dlss` folder and the temporary folder is removed. `nvngx_update.exe` is never
    written, and a file of yours already in the `dlss` folder is never overwritten.
 4. **The result.** "DLSS is ready: restart NVForever to use it." The restart is needed once,
@@ -51,6 +57,22 @@ Choosing it changes nothing in the row; it opens a dialog:
    GitHub, an error from GitHub, a file that did not match, a folder that holds a file of its
    own) and offers the manual way: **Open release page**, **Open dlss folder** (made if it is
    not there) and **Try again**.
+
+[design: `settings.rs`, `dlss/download/install.rs`] If you already have the four upscaling
+files, DLSS upscaling keeps working and **Download DLSS…** stays offered for the missing frame
+generation files. Accepting again fetches and adds only the files the folder lacks: a file
+already there is kept as it is, so your own `nvngx_dlss.dll` of another DLSS version stays.
+Restart after adding the files to make frame generation available.
+
+[design: `dlss::frame_generation_unavailable`, `settings::dlss_download_offered`,
+`dlss_download::offered`] Beside the dimmed DLSS Frame Generation
+choice, missing files read "Files missing: Download DLSS… on the Upscaler row" while that
+download is offered. After a successful download in this session they read "Restart to use
+DLSS Frame Generation". Otherwise they read "The DLSS Frame Generation files are missing". The download
+choice and hints share a one-second cache of the all-eight-file probe, refreshing when the
+download phase changes. Other loader refusals and a successful download in this session
+suppress the offer before probing. If the folder cannot be resolved, the download stays
+offered only when the loader reports missing files, so its dialog can explain the folder error.
 
 The files go into the `dlss` folder beside `nvforever.exe` (or the folder `NVF_DLSS_DIR`
 names), never into the game folder. The game downloads only when you choose Download DLSS…
@@ -73,13 +95,18 @@ ignores them with one warning in the log.
    ([NVIDIA-RTX/Streamline, releases](https://github.com/NVIDIA-RTX/Streamline/releases)),
    download the release **2.14.16**, the archive `streamline-sdk-v2.14.16.zip`. Other
    versions are not tested with NVForever.
-2. Open the archive's `bin\x64` folder and take these four files:
+2. Open the archive's `bin\x64` folder and take these eight files
+   [design: `dlss/download/files.rs`]:
    - `sl.interposer.dll`
    - `sl.common.dll`
    - `sl.dlss.dll`
    - `nvngx_dlss.dll` (DLSS itself; the version tested is 310.9.16)
+   - `sl.dlss_g.dll`
+   - `nvngx_dlssg.dll`
+   - `sl.reflex.dll`
+   - `sl.pcl.dll`
 3. Make a folder named `dlss` next to `nvforever.exe` (in the folder NVForever was unpacked
-   to, not the game folder) and copy the four files into it:
+   to, not the game folder) and copy the eight files into it:
 
    ```
    NVForever\
@@ -89,16 +116,18 @@ ignores them with one warning in the log.
        sl.common.dll
        sl.dlss.dll
        nvngx_dlss.dll
+       sl.dlss_g.dll
+       nvngx_dlssg.dll
+       sl.reflex.dll
+       sl.pcl.dll
    ```
 
-For DLSS Frame Generation (below), four more files go into the same folder: `sl.dlss_g.dll`,
-`sl.reflex.dll` and `sl.pcl.dll` from the same `bin\x64`, and `nvngx_dlssg.dll` (NVIDIA's frame
-generation model, from the same archive or from NVIDIA's DLSS repository,
-[NVIDIA/DLSS](https://github.com/NVIDIA/DLSS), `lib/Windows_x86_64/rel/`). Without them DLSS
-Super Resolution works as before.
-
-TODO (#2250, on its own branch): the download list there gains `sl.dlss_g.dll`,
-`nvngx_dlssg.dll`, `sl.reflex.dll` and `sl.pcl.dll`.
+[design: `dlss::FILES`, `dlss::FG_FILES`] The first four enable DLSS Super Resolution;
+the last four add DLSS Frame Generation. Super Resolution works without those last four.
+`NvLowLatencyVk.dll` is not downloaded: Reflex uses the driver's `VK_NV_low_latency2` and
+loads that file only as a fallback [documented: #2317; Streamline 2.14.16 Reflex's
+`reflexEntry.cpp` and `vknvll2.cpp`; see
+[Streamline notes](spec-notes/streamline.md#dlss-frame-generation)].
 
 Copy only these files. **Do not copy `nvngx_update.exe`**: NVForever refuses to use a `dlss`
 folder that holds a file of that name, because NVIDIA's code would start it without checking

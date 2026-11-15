@@ -258,6 +258,17 @@ are at the end.
 - Command-line switches: `--viewmodel-fov`
 - Registered in `engine/nvforever/src/settings.rs`
 
+## Gameplay › World
+
+### `grass-fire`: Grass fires
+
+- On the page: On: flamers, incendiary rounds and fire blasts set grass alight; the fire
+  spreads and burns whoever stands in it. Off: fire stays where it hits.
+- In full: On: flamers, incendiary rounds and fire blasts set grass alight; the fire spreads
+  a short way, burns anyone standing in it and goes out, and the grass grows back once you
+  leave the area. Off: fire stays where it hits, as in the original.
+- Registered in `engine/nvf-play/src/grass_fire.rs`
+
 ## Display › Screen
 
 ### `resolution`: Resolution
@@ -858,6 +869,18 @@ After the Controls tab's own rows (see the end of this page):
   textures loaded from now on (the cells loaded next).
 - Command-line switches: `--graphics`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `terrain-height-blend`: Terrain height blending
+
+- On the page: On: where ground textures meet, the new one shows through its brighter stones
+  and clumps first instead of an even fade. Fully painted ground is unchanged.
+- In full: On: where landscape texture layers meet, the change follows each texture's own
+  relief, judged by its brightness against the texture's mean, instead of an even fade
+  along the triangle grid. Ground painted fully, or not at all, looks the same. Off in
+  both presets; not in the original.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.12
 - Registered in `engine/nvforever/src/settings.rs`
 
 ### `light-shafts`: Sun shafts

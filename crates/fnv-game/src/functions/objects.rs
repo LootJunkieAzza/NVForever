@@ -466,7 +466,9 @@ pub fn set_broadcast_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 /// activator's own) [documented: catalogue summary].
 pub fn set_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().talking_actor = a.opt_form(0);
+    let e = g.extra.entry(r).or_default();
+    e.talking_actor = a.opt_form(0);
+    e.talking_actor_set = true;
     none()
 }
 
