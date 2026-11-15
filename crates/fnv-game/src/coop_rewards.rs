@@ -430,7 +430,9 @@ impl Game<'_> {
             tracing::info!("co-op: the host's hand-out: Caravan card {item} x{n} to this player's cards ({} now)", self.player.caravan.cards.len());
             return Ok(n);
         }
-        let n = if matches!(kind, Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard)) { count } else { 1 };
+        // Stacks come whole: Doc Mitchell's 6 bobby pins (a misc item, given only when this
+        // player has none) were 1 (b20 duo). A weapon or an armour piece is one.
+        let n = if matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)) { 1 } else { count.max(1) };
         let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
         for (item, count) in added {
             self.emit(crate::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, silent: false });

@@ -294,6 +294,8 @@ fn take_inbox(
 ) {
     let p = &mut *p;
     let mut script = script;
+    // Hand-outs taken, for one line per item ([`gift_lines`]).
+    let mut handed: Vec<(u32, String, i32)> = Vec::new();
     for (id, what) in std::mem::take(&mut p.inbox) {
         match what {
             Shared::Reward { quest, xp, caps } if p.role == Role::Guest && id == 0 => {
@@ -347,7 +349,10 @@ fn take_inbox(
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
                     Ok(_) if card && !first_card => {}
                     Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()))),
-                    Ok(n) => say(&mut corner, format!("{} handed out {name}{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()), if n > 1 { format!(" ({n})") } else { String::new() })),
+                    Ok(n) => {
+                        debug!("co-op: the host's hand-out {name}: {n} taken (batch {batch})");
+                        handed.push((item, name, n));
+                    }
                     Err(e) => warn!("co-op: the hand-out {name} could not be given: {e}"),
                 }
             }
@@ -399,6 +404,27 @@ fn take_inbox(
             other => debug!("co-op: dropped {other:?} from player {}", id + 1),
         }
     }
+    let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str());
+    for line in gift_lines(host, &handed) {
+        say(&mut corner, line);
+    }
+}
+
+/// The corner lines of the hand-outs one inbox took (item, name, count given): one per
+/// item, its counts added up, in the order the items first came. A script that adds a
+/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1, b20 duo)
+/// was one uncounted "9mm Round" line. The count in brackets after the name, as this
+/// game's own item lines have it (`script_events`) [design: the original's wording for a
+/// counted hand-out is not in the data files; observer-checks.md].
+fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
+    let mut order: Vec<(u32, &str, i32)> = Vec::new();
+    for (item, name, n) in handed {
+        match order.iter_mut().find(|(i, _, _)| i == item) {
+            Some(o) => o.2 += n,
+            None => order.push((*item, name, *n)),
+        }
+    }
+    order.into_iter().map(|(_, name, n)| if n > 1 { format!("{host} handed out {name} ({n})") } else { format!("{host} handed out {name}") }).collect()
 }
 
 /// The host: rewards of the quests it completed, for the guests.
@@ -530,6 +556,21 @@ mod tests {
 
     fn path(s: &str) -> PathBuf {
         PathBuf::from(s)
+    }
+
+    #[test]
+    fn one_line_per_item_handed_out_with_its_count() {
+        let mut handed = vec![(0x15, "Stimpak".to_string(), 4), (0x0A, "Bobby Pin".to_string(), 6), (0xE3778, "9mm Pistol".to_string(), 1)];
+        // Doc Mitchell's 9mm rounds: one AddItem of 1 each, 25 times.
+        handed.extend(std::iter::repeat_n((0x4241, "9mm Round".to_string(), 1), 25));
+        assert_eq!(
+            gift_lines("Host", &handed),
+            ["Host handed out Stimpak (4)", "Host handed out Bobby Pin (6)", "Host handed out 9mm Pistol", "Host handed out 9mm Round (25)"]
+        );
+        // An item that comes again later in the same inbox joins its first line.
+        let again = [(1, "A".to_string(), 1), (2, "B".to_string(), 2), (1, "A".to_string(), 2)];
+        assert_eq!(gift_lines("Host", &again), ["Host handed out A (3)", "Host handed out B (2)"]);
+        assert!(gift_lines("Host", &[]).is_empty());
     }
 
     #[test]

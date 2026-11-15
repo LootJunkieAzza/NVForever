@@ -2058,3 +2058,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      take screenshots every 0.5 s for 20 s. Note each line's text, how long each shows
      and whether the HUD shows them while a slideshow or a fade to black holds the screen
      (the Sierra Madre bunker's own call, from a save just before it).
+
+124. **How does the original word an item line with a count, and does it merge a script's
+     single adds of one item?** (P3; corner-messages.md §5.) No game setting in
+     FalloutNV.esm holds the wording of the item-added line [observed: no GMST whose
+     Editor ID names adding or removing items, fnvtool esm inventory]. NVForever writes
+     "<name> (<n>) added" for its own lines and, for a co-op guest, "<host> handed out
+     <name> (<n>)": one line per item for everything one network batch brings, the counts
+     added up, so Doc Mitchell's 25 single 9mm adds are one "9mm Round (25)" line
+     (`nvf_play::coop_progress::gift_lines`) [design]. To check, in the original: on a
+     new game, let Doc Mitchell hand over his gear at the exit (VCG01: 6 bobby pins, 4
+     stimpaks, a 9mm pistol and its rounds) and take screenshots every 0.5 s for 15 s.
+     Note each line's exact form (name and count order, the word used), whether the
+     rounds show as one line or many, and how long each line stays.
