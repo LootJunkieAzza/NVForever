@@ -29621,3 +29621,25 @@ expect = [
   { re = 'dialogue: conversation with EdgarHardinREF started', label = "Hardin, restrained, starts the training conversation", known_failing = "#2309: a restrained actor's Dialogue package never starts its conversation" },
   { re = 'WARN nvf_play::softlock: softlock: ', count = 0, label = "the player is not left held", known_failing = "#2309: nothing releases the player; the watchdog reports controls_held after 30 s" },
 ]
+
+[[scenario]]
+name = "vats-classic-arrow-click"
+source = "#2657 (engine/nvf-play/src/vats_mode.rs read_keys; engine/nvf-play/src/tiles/vats_menu.rs VatsTiles::clicked): a click on the classic target screen is tested against the pointer's place at the click, by the boxes as last drawn, not against the hover of the frame before"
+note = "the Fists, no fight, two calm targets: Easy Pete and a Goodsprings settler are put 150 units in front of the player, 60 to either side, at 4 s and held. V at 8 s starts the screen on one of them. At 11 s the test aid puts the pointer on the right arrow and clicks in the same frame (the hover of the frame before has no arrow): the target changes and no attack is queued. V at 14 s leaves"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "engine/nvf-play/src/tiles/vats_menu.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:moveto:EasyPeteRef:player:-60:150:0,4:moveto:GoodspringsSettler03Ref:player:60:150:0,4.2:call:EasyPeteRef:SetRestrained:1,4.2:call:GoodspringsSettler03Ref:SetRestrained:1", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_KEYS = "8:v,14:v", NVF_PLAY_TEST_VATS_STYLE = "classic", NVF_PLAY_TEST_VATS_POINTER = "11:right:click" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+order = [[
+  { re = 'vats mode: classic: 2 targets, [0-9A-F]{8} selected', label = "V starts the screen with the two targets" },
+  { text = "NVF_PLAY_TEST_VATS_POINTER: the pointer comes onto the right arrow at", label = "the pointer comes onto the right arrow and clicks in the same frame" },
+  { text = "vats mode: classic: a click on the target screen: Target(1) (the hover of the frame before: arrow None)", label = "the click is on the arrow, though the hover has none yet" },
+  { re = 'vats mode: classic: target [12] of 2, [0-9A-F]{8}', label = "one target change" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 0 refused', label = "no attack queued" },
+]
+forbid = [
+  { text = "a click on the target screen: Queue", label = "the click queues no attack" },
+]

@@ -1111,8 +1111,9 @@ fn read_keys(
     mut control: ResMut<PlayerControl>,
     (player, mut intent): (Res<Player>, ResMut<MoveIntent>),
     mut sounds: Sounds,
-    tiles: Option<Res<crate::tiles::vats_menu::VatsTiles>>,
+    mut tiles: Option<ResMut<crate::tiles::vats_menu::VatsTiles>>,
     menu_key: Option<ResMut<crate::flashlight::MenuKeyHold>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     let pressed = |c: Control| playing && input.just_pressed(c);
@@ -1173,14 +1174,24 @@ fn read_keys(
             // The pointer on the target screen (vats-classic.md §11): coming onto a part
             // selects it, and a click on one of the file's arrows or buttons does what
             // that stands for instead of queueing an attack (`vats_menu::click`).
-            if let Some(t) = tiles.as_deref().filter(|t| t.drawn) {
+            if let Some(t) = tiles.as_deref_mut().filter(|t| t.drawn) {
+                // The test aid's pointer, which may click as it arrives.
+                if t.aid_fire(now as f32) {
+                    vats.keys.mark = true;
+                }
                 vats.keys.pointer_moved = t.hover_moved;
                 vats.keys.hover_part = t.hover.filter(|_| t.hover_moved);
                 vats.keys.near_part = t.near.filter(|_| t.hover_moved);
                 vats.keys.ray = t.ray.filter(|_| t.hover_moved);
                 if vats.keys.mark {
                     use crate::tiles::vats_menu::Click;
-                    let what = crate::tiles::vats_menu::click(t.arrow, t.button, !vats.queue.is_empty());
+                    // Where the pointer is at the click, against the boxes as last drawn:
+                    // the hover (`t.arrow`) is of the frame before, and a pointer that
+                    // came onto an arrow and clicked at once queued an attack (#2657).
+                    let pointer = t.aid_pointer.or_else(|| windows.single().ok().and_then(|w| w.cursor_position()).map(|p| (p.x, p.y)));
+                    let (arrow, button) = t.clicked(pointer);
+                    let what = crate::tiles::vats_menu::click(arrow, button, !vats.queue.is_empty());
+                    info!("vats mode: classic: a click on the target screen: {what:?} (the hover of the frame before: arrow {:?})", t.arrow);
                     vats.keys.mark = what == Click::Queue;
                     match what {
                         Click::Target(step) => vats.keys.target_step = step,
