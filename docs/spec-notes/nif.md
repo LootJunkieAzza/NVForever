@@ -912,6 +912,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Bevy computes, and over a picture of display 0.44 the sum turns 0.018 of it into 0.16.
   Unlit additive shapes are unchanged.
 
+  After the rule (same run, 2026-11-15) [observed]: at the screens' edges the glass adds
+  0 to 2 grey levels over the frame without it (it added 11 to 31), and the wash is gone.
+  Left: one soft highlight per screen, about centre-left, from a light of the room on the
+  glass (glossiness 200 read as GGX, `gloss_roughness`), +11 to +29 at the left screen's
+  centre. Open: whether the original shows that highlight. A small screenshot of the
+  original (Nukapedia's Doctor Borous infobox image) shows bright white-cyan screens with
+  the eyes' dark rings clear and no distinct glint, from another angle. The game's
+  highlight is taken as unnormalised Blinn-Phong ("Specular" below), whose tail falls far
+  faster than GGX's; the environment map, which the game adds on this glass, is not drawn.
+  A Securitron's face (Victor, Goodsprings, `screenglare.dds` lit ONE / ONE) looks the same
+  before and after.
+
   What the rule reaches [observed, `crates/fnv-nif/examples/blend_survey.rs` over
   `Fallout - Meshes.bsa`, `Update.bsa` and the Main archives of Dead Money, Honest Hearts,
   Old World Blues, Lonesome Road and Gun Runners' Arsenal, 2026-11-15]: 56 visible lit
