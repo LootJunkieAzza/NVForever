@@ -6033,12 +6033,13 @@ impl<'a> Game<'a> {
         if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
             return 0.0;
         }
-        // Only these two CTDA aliases use the already built named extender handlers.
+        // Only these explicit CTDA aliases use the already built named extender handlers.
         // This is not a fallback for arbitrary unknown opcodes. Keep the established
         // null-form condition rule above, and form remapping in cond::ParamTypes.
         let native = match c.function {
             cond::GET_PERK_RANK => Some("getperkrank"),
             cond::GET_PC_USING_IRON_SIGHTS => Some("getpcusingironsights"),
+            cond::IS_PLAYER_SWIMMING => Some("isplayerswimming"),
             _ => None,
         };
         if let Some(name) = native {

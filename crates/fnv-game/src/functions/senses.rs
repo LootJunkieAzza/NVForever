@@ -252,6 +252,13 @@ pub fn is_swimming(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> 
     yes(r != FormId::PLAYER_REF && g.motion(r).swimming)
 }
 
+/// The numbered IsPlayerSwimming call, with the same cached player state as the
+/// existing named getter in `nvse_actor`; the calling reference is irrelevant
+/// [documented: xNVSE Commands_MiscRef.h, no-reference/no-parameter declaration].
+pub fn is_player_swimming(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    yes(g.motion(FormId::PLAYER_REF).swimming)
+}
+
 /// `actor.GetLineOfSight target`: 1 when the calling actor can see the target: nothing
 /// solid between them and within ±95° of where it looks [documented: GECK wiki
 /// GetLineOfSight]. Read from the detection the engine last measured for the pair
