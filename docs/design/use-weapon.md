@@ -56,7 +56,12 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
 - **Holds fire** while restrained, while the target is more than 256 units from the
   "target should be here" reference, and, with Hold Fire When Blocked, while anyone else
   stands in the line of fire (`combat_tactics::in_line_of_fire`); also until its weapon
-  is drawn (`alert.rs` draws it for a use) and it faces the target (within `use_weapon::USE_FACING`, 30°).
+  is drawn (`alert.rs` draws it for a use) and it faces the target within the combat
+  gunmen's arc (`use_weapon::shot_facing`: 3°, or the weapon's Aim Arc when above 0)
+  [design: issue #2725; it was 30°, and since a use's shot flies from the eyes straight at
+  the target, Orris shot his thugs with his revolver pointing well aside while he turned
+  from one to the next]. The first shot of each use says how far off its heading the
+  target was, and the summary the widest of all shots.
 - **Shots**: the weapon's own cycle (`fnv_combat::attack::Cycle`), as the combat AI's
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use

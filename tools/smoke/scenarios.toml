@@ -29212,10 +29212,13 @@ run_seconds = 100
 order = [[
   { text = "VFSOrrisREF: package VFSOrrisDetour02Package", label = "his detour trigger sends him on, running (Speed Mult 150)" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug01Package", label = "at the ambush he takes up the first shot" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "he faces the first thug as he fires (#2725)" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9A: its hit blocks ran, no damage", label = "the shot runs the first thug's OnHit: he falls" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug02Package", label = "the second thug next" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "and the second" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9B: its hit blocks ran, no damage" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug03Package", label = "and the third" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "and the third" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A99: its hit blocks ran, no damage" },
   { text = "VFSOrrisREF: package VFSOrrisAfterCombatDialogPackage", label = "the third thug's OnHit adds his after-fight talk" },
   { text = "VFSOrrisREF: package VFSOrrisDetour03Package", label = "its end script sends him on to the south gate" },

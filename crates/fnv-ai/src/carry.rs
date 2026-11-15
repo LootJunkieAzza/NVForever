@@ -2257,7 +2257,7 @@ impl Ai {
             return;
         }
         // Its weapon use's target first, unless the fight took the use over (#2544): the
-        // shooter fires only once it faces the target (`USE_FACING`).
+        // shooter fires only once it faces the target (`use_weapon::shot_facing`).
         let space = self.agents[&actor].walker.space;
         if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && !w.taken).map(|w| w.target) {
             if let Some(to) = goal::place_of_ref(game, t).filter(|p| p.space == space) {

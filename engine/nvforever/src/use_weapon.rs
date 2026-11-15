@@ -5,7 +5,7 @@
 //! target's chest, drawn from the muzzle), counting them on the game's use.
 //!
 //! - **When it fires**: with its weapon drawn (`alert.rs` draws it for a weapon use),
-//!   facing its target (within [`USE_FACING`]), not restrained (SetRestrained
+//!   facing its target (a gun within [`shot_facing`], a blow within [`USE_FACING`]), not restrained (SetRestrained
 //!   "blocks weapon use from Use Weapon packages and UseWeapon" [documented: catalogue
 //!   notes on SetRestrained]), its target where the use wants it (the function's last
 //!   argument, within `fnv_game::use_weapon::TARGET_HERE_RADIUS`), and, with Hold Fire
@@ -62,10 +62,22 @@ use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use std::collections::{BTreeMap, HashMap};
 
-/// A scripted weapon use fires and swings only while its target is within this angle of
-/// straight ahead, radians (30°: the combat AI's arc before it held its gunmen to 3°,
-/// kept here, where nothing but the walker turns the actor) [design].
+/// A scripted weapon use swings only while its target is within this angle of straight
+/// ahead, radians (30°: the combat AI's arc before it held its gunmen to 3°, kept for
+/// blows) [design]. A gun's shots have [`shot_facing`].
 pub const USE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
+
+/// How far off its heading a weapon use's shooter may have its target and fire, radians:
+/// the combat gunmen's rule (`npc_combat::fire_facing`: 3°, or the weapon's Aim Arc when
+/// above 0) [design: issue #2725. A use's shot flies from the eyes straight at the
+/// target whatever way the body points, so at the 30° of [`USE_FACING`] Orris shot his
+/// thugs with the revolver pointing well aside while he was still turning to the next
+/// one; the original's gunmen fire only once turned to their target, observed for combat
+/// (campaign fiend_facing), a hypothesis for a package's use]. The in-place turn
+/// (`fnv_ai::carry`) brings the shooter round.
+pub fn shot_facing(aim_arc: f32) -> f32 {
+    crate::npc_combat::fire_facing(aim_arc)
+}
 
 pub struct UseWeaponPlugin;
 
@@ -89,6 +101,8 @@ struct Shooter {
     wait: f32,
     /// What it last waited for, told once each time it changes.
     held: Option<&'static str>,
+    /// Its first shot of this use has been told (how far off its heading the target was).
+    told: bool,
 }
 
 /// One actor carrying out a melee weapon use (module notes).
@@ -185,6 +199,8 @@ struct Stats {
     harmless_blow_scripts: usize,
     missed: usize,
     chained: usize,
+    /// The farthest off its heading a shooter had its target at a shot, radians.
+    widest_shot: f32,
 }
 
 /// The bones a shot aims at, in order of preference: the target's chest as it is posed,
@@ -309,7 +325,7 @@ pub(crate) fn shoot(
             let fresh = s.by.get(&id).is_none_or(|x| x.seq != w.seq || x.weapon != gun);
             if fresh {
                 let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
-                s.by.insert(id, Shooter { seq: w.seq, weapon: gun, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None });
+                s.by.insert(id, Shooter { seq: w.seq, weapon: gun, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None, told: false });
                 s.stats.actors.insert(id, name.clone());
                 match w.source {
                     Source::Script => s.stats.from_scripts += 1,
@@ -368,7 +384,9 @@ pub(crate) fn shoot(
                 shooter.held = why;
             }
             let drawn = hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
-            let facing = facing_off(global, feet, tfeet) <= USE_FACING;
+            let off = facing_off(global, feet, tfeet);
+            let arc = shot_facing(ws.aim_arc);
+            let facing = off <= arc;
             let ready = why.is_none() && drawn && facing;
             // No pull while it reloads (a pull would close a round-by-round reload after a
             // round); an empty magazine is reloaded at once, as the combat AI's gunmen do.
@@ -379,6 +397,11 @@ pub(crate) fn shoot(
             for e in shooter.cycle.step(&c.tuning, Input { trigger, reload: empty && !reloading, dt, carried: u32::MAX / 2 }) {
                 match e {
                     Event::Fired { .. } => {
+                        if !shooter.told {
+                            shooter.told = true;
+                            info!("use weapon: {name} {me} fires at {target_name} facing it: {:.1} degrees off its heading (it may be {:.0})", off.to_degrees(), arc.to_degrees());
+                        }
+                        s.stats.widest_shot = s.stats.widest_shot.max(off);
                         let muzzle = muzzle_at.get(&id).copied();
                         let to = vec::sub(tchest, eyes);
                         let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
@@ -660,11 +683,23 @@ fn report(mut exit: MessageReader<AppExit>, shooters: Res<Shooters>, stats: Opti
         s.chained,
     );
     info!("use weapon summary: harmless hits whose target's hit blocks ran: {harmless_scripts} shots, {} blows", s.harmless_blow_scripts);
+    info!("use weapon summary: shots fired with the target at most {:.1} degrees off the shooter's heading", s.widest_shot.to_degrees());
 }
 
 #[cfg(test)]
 mod tests {
     use super::acts_on;
+
+    /// #2725: a use's shooter fires within the combat gunmen's arc, not the 30° its blows
+    /// keep: 3°, or the weapon's own Aim Arc.
+    #[test]
+    fn a_use_fires_only_within_the_gunmens_arc() {
+        use super::{shot_facing, USE_FACING};
+        assert_eq!(shot_facing(0.0), crate::npc_combat::FIRE_FACING);
+        assert!((shot_facing(0.0).to_degrees() - 3.0).abs() < 1e-4);
+        assert!(shot_facing(0.0) < USE_FACING);
+        assert!((shot_facing(45.0).to_degrees() - 45.0).abs() < 1e-4, "a weapon's Aim Arc is its own");
+    }
     use fnv_game::use_weapon::{Source, WeaponUse};
     use fnv_sim::FormId;
 
