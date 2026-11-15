@@ -30,8 +30,12 @@
 //!   past the main reach are found by a second, wider spiral ([`NEAR_TAPS`] taps over
 //!   [`NEAR_SCALE`] times the reach), which also gathers the rest of a large disc past the
 //!   reach, each of its taps weighing the area it stands for.
-//! - A second, small pass (`bokeh_fill`) smooths the spiral's grain in what is blurred,
-//!   from neighbours at least half as blurred.
+//! - Before the gather (`bokeh_prefilter`) and after it (`bokeh_fill`) what is blurred is
+//!   spread over the spacing of the taps that will find its disc ([`spread_px`]): the main
+//!   spiral's for a disc within the reach, the wide spiral's (about 3.6 times as far
+//!   apart) for a large near disc. So a small bright point in a blurred foreground is met
+//!   by the wide spiral's taps as an even disc, not as a pattern of the taps, and the fill
+//!   smooths the grain from neighbours at least half as blurred.
 //!
 //! The pass runs only while photo mode is open with its Blur above 0
 //! (`ImageSpaceGrade::bokeh.x`); gameplay's depth of field (VATS, conversations, the
@@ -114,6 +118,15 @@ mod tests {
     /// reach, so a disc growing past the reach leaves no seam.
     fn wide_share(tap_coc: f32, reach: f32) -> f32 {
         ((tap_coc - reach * WIDE_FROM) / (reach * (1.0 - WIDE_FROM))).clamp(0.0, 1.0)
+    }
+
+    /// The spacing of the taps that find a disc of radius `c` (pixels): the main spiral's,
+    /// handed over to the wide spiral's as [`wide_share`] hands the disc over. The prefilter
+    /// spreads a blurred point that far, the fill smooths over up to that.
+    fn spread_px(c: f32, reach: f32) -> f32 {
+        let main = reach * 1.8 / (TAPS as f32).sqrt();
+        let wide = reach * NEAR_SCALE * 1.8 / (NEAR_TAPS as f32).sqrt();
+        main + (wide - main) * wide_share(c, reach)
     }
 
     /// A point of a test scene: its grey and its distance.
@@ -294,6 +307,33 @@ mod tests {
         let vals: Vec<f32> = zs.iter().map(|&z| at(z)).collect();
         for w in vals.windows(2) {
             assert!((w[1] - w[0]).abs() < 0.01, "a jump of {} in {vals:?}", w[1] - w[0]);
+        }
+    }
+
+    /// A large near disc is spread over the wide spiral's spacing, so every wide tap that
+    /// lands in a small bright point's disc meets it: no point falls between the taps.
+    #[test]
+    fn a_large_near_disc_is_spread_as_wide_as_the_wide_taps_lie_apart() {
+        let reach = MAX;
+        let wide = reach * NEAR_SCALE;
+        // The largest gap between a wide tap and its nearest neighbour.
+        let pts: Vec<[f32; 2]> = (0..NEAR_TAPS).map(|i| spiral(i, NEAR_TAPS)).map(|s| [s[0] * wide, s[1] * wide]).collect();
+        let gap = pts
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                pts.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, b)| (a[0] - b[0]).hypot(a[1] - b[1])).fold(f32::MAX, f32::min)
+            })
+            .fold(0.0, f32::max);
+        // Spread over its radius each side, a point reaches the next tap.
+        assert!(2.0 * spread_px(wide, reach) >= gap, "{} {gap}", spread_px(wide, reach));
+        // Within the reach the main spiral's spacing, as before; handed over smoothly.
+        assert_eq!(spread_px(reach * 0.5, reach), reach * 1.8 / (TAPS as f32).sqrt());
+        let mut last = spread_px(0.0, reach);
+        for i in 0..=100 {
+            let s = spread_px(reach * 1.5 * i as f32 / 100.0, reach);
+            assert!(s >= last && s - last < 0.1 * reach, "{s} {last}");
+            last = s;
         }
     }
 
