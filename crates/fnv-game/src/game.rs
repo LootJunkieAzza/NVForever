@@ -1666,6 +1666,13 @@ pub struct Game<'a> {
     /// combat blocks, activate children, packages and door OnOpen/OnClose do not: the
     /// host runs them and sends what they did. Off (the default, and always solo).
     pub world_logic_off: bool,
+    /// A replication guest's: the story quests its own scripts started (StartQuest in a
+    /// script this guest set off, as every script it runs is), whose scripts run here
+    /// until they stop. The Ultra-Luxe's exit door starts VGenericTimer, whose GameMode
+    /// takes the player out 0.3 s later; skipped as the host's story, it never did, and
+    /// the guest could not leave (owner's LAN playtest, 2026-11-14) [observed:
+    /// FalloutNV.esm VUltraLuxeInteriorDoorSCRIPT, VGenericTimerSCRIPT nEvent 10].
+    pub guest_own_quests: BTreeSet<FormId>,
     /// A co-op session: nothing this player opens holds the world (owner, 2026-11-10:
     /// "it's co-op! There's no pausing!"). The engine sets it each frame
     /// (nvf-play `coop_tables::keeps_world`); [`Game::tick`] then runs the world as in
@@ -2641,6 +2648,7 @@ impl<'a> Game<'a> {
             script_image_modifiers: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
+            guest_own_quests: BTreeSet::new(),
             no_pause: false,
             coop_talking: BTreeSet::new(),
             coop_talk_kill: true,
@@ -4203,7 +4211,7 @@ impl<'a> Game<'a> {
             .quests
             .iter_mut()
             .filter(|(_, s)| scripts && s.running)
-            .filter(|(q, _)| !story.contains(&((q.0 >> 24) as u8)))
+            .filter(|(q, _)| !story.contains(&((q.0 >> 24) as u8)) || self.guest_own_quests.contains(q))
             .filter_map(|(q, s)| {
                 let def = data.quests.get(q)?;
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;

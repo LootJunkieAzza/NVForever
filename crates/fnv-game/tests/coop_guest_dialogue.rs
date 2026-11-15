@@ -476,6 +476,23 @@ fn an_npc_talking_to_another_player_offers_no_second_talk() {
     assert!(!g.in_another_players_talk(cashier));
 }
 
+/// A story quest a replication guest's own script starts (the Ultra-Luxe's exit door
+/// starts VGenericTimer, whose script takes the player out) runs here until it stops;
+/// the host and a solo game keep no such list.
+#[test]
+fn a_guests_own_story_quest_runs_until_it_stops() {
+    let f = fixture();
+    let q = FormId(QC);
+    let mut solo = game(&f, false);
+    assert!(!solo.guest_own_quest(q, true), "not a replication guest");
+    let mut g = game(&f, true);
+    g.world_logic_off = true;
+    assert!(g.guest_own_quest(q, true));
+    assert!(g.guest_own_quests.contains(&q));
+    assert!(g.guest_own_quest(q, false));
+    assert!(g.guest_own_quests.is_empty());
+}
+
 /// A line of an ordinary quest whose compiled end script names a story quest makes its
 /// speaker a story NPC: Jed's greeting at Zion (NVDLC02DialogueCaravanMaster) starts
 /// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; laptop run story-far,
