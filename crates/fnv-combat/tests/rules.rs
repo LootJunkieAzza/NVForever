@@ -821,8 +821,6 @@ fn a_free_shot_leaves_from_an_emptied_magazine() {
     assert_eq!(rounds, vec![1, 0], "shots 3 and 4: {ev:?}");
 }
 
-/// The .357 revolver's clips (`1hpreloadxstart.kf` 1.067 s; `1hpreloadx.kf` 1.767 s,
-/// `Hit` at 0.633 s): it opens, loads a round per pass up to `Hit`, and closes.
 /// Per-Bullet Looping Reloads: a round a press, presses while it loads queue more, up
 /// to the most.
 #[test]
@@ -854,6 +852,41 @@ fn per_bullet_reloads_load_what_the_presses_queued() {
     assert_eq!(c.magazine, 6);
 }
 
+/// Reload While Firing with Per-Bullet Looping Reloads (docs/design/tweaks.md): a press
+/// while the shot recovers starts a one-round reload, counted once, and a pull in the
+/// same tick does not stop it.
+#[test]
+fn a_reload_in_recovery_takes_its_press_once(){
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 6, ..gun(26) };
+    let clips = ClipTiming { reload_len: Some(1.767), reload_hit: Some(0.633), reload_open_len: Some(1.067), ..Default::default() };
+    let timing = Timing::of(&w, &clips, &t);
+    let dt = 0.01;
+    for pull in [false, true] {
+        let mut c = Cycle::new(&w, timing, false, 1);
+        c.reload_presses = Some((1, 0));
+        c.reload_in_recovery = true;
+        let mut ev = c.step(&t, Input { trigger: true, reload: false, dt, carried: 20 });
+        for _ in 0..100 {
+            if ev.iter().any(|e| matches!(e, Event::Fired { .. })) {
+                break;
+            }
+            ev.extend(c.step(&t, Input { trigger: false, reload: false, dt, carried: 20 }));
+        }
+        assert!(ev.iter().any(|e| matches!(e, Event::Fired { .. })), "{ev:?}");
+        assert_eq!(c.magazine, 0);
+        // Still recovering: the press (and the pull) come now.
+        let ev = c.step(&t, Input { trigger: pull, reload: true, dt, carried: 20 });
+        assert!(ev.contains(&Event::ReloadStarted), "pull {pull}: {ev:?}");
+        for _ in 0..800 {
+            c.step(&t, Input { trigger: false, reload: false, dt, carried: 20 });
+        }
+        assert_eq!(c.magazine, 1, "pull {pull}");
+    }
+}
+
+/// The .357 revolver's clips (`1hpreloadxstart.kf` 1.067 s; `1hpreloadx.kf` 1.767 s,
+/// `Hit` at 0.633 s): it opens, loads a round per pass up to `Hit`, and closes.
 #[test]
 fn a_revolver_loads_round_by_round() {
     let t = CombatTuning::default();

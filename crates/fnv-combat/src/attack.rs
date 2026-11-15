@@ -474,10 +474,14 @@ impl Cycle {
                     // semi-automatic pull close to its end is kept for it.
                     if self.reload_in_recovery && i.reload && self.can_reload(i.carried) {
                         self.phase = self.start_reload();
+                        // The press and a pull this tick are the reload's, as from Ready:
+                        // the press is not queued a second time, the pull does not stop it.
+                        reload_press = false;
+                        stop_pull = false;
                         out.push(Event::ReloadStarted);
                         continue;
                     }
-                    if fresh && !self.automatic && left <= self.semi_auto_queue {
+                    if fresh && !self.automatic && self.semi_auto_queue > 0.0 && left <= self.semi_auto_queue {
                         self.queued = Some(0.0);
                     }
                     if left > dt {
