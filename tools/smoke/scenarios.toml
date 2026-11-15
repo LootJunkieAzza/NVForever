@@ -12666,6 +12666,21 @@ expect = [
 manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitchell's house, no glints (opacity factor 1); hurt_flares.png: larger, darker blobs with small red glints near their cores (the flare)"
 
 [[scenario]]
+name = "screen-splatter-under-pipboy"
+source = "Queue item 212 (docs/spec-notes/screen-splatter.md §4, a hypothesis: observer check 123): the screen blood and its red flares are a picture over the world, so they lay over the Pip-Boy in the hands as red glow dots. While the full Pip-Boy is up they are not drawn, and they come back when it is down"
+areas = ["imagespace", "pipboy"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:triggerscreensplatter 10 20 2 2;10.2:close", NVF_PLAY_TEST_PIPBOY = "12:open,16:close", NVF_PLAY_TEST_SHOTS = "11.5:splatter_before.png,14.5:splatter_pipboy_up.png,17.5:splatter_after.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+order = [[
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 20 2 2)",
+  "screen splatter: hidden under the Pip-Boy (10 splats)",
+  "screen splatter: back from under the Pip-Boy (10 splats)",
+]]
+manual = "splatter_before.png: dark blobs with red glints over Goodsprings; splatter_pipboy_up.png: the Pip-Boy with no blood and no red dots on it; splatter_after.png: the blood back over the world"
+
+[[scenario]]
 name = "cell-image-space"
 source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
 areas = ["imagespace", "scripts"]

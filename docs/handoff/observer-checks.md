@@ -2046,3 +2046,14 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      it jumps back or scrolls back, and whether it starts over when another item is
      selected.
 
+## Added 2026-11-14 (screen blood under the Pip-Boy)
+
+123. **Does the original show its screen blood (the splats and their red flares) over the
+     open Pip-Boy?** (P3; screen-splatter.md §4.) NVForever hides the splats while the
+     full Pip-Boy is up, as it hides the HUD, and they keep ageing under it
+     (`nvf_play::screen_splatter`) [hypothesis]. Without this, the flares showed as red
+     glow dots on the Pip-Boy in the hands (queue item 212). To check, in the original:
+     get hurt by a shot until blood is on the screen, open the Pip-Boy within 2 s, and
+     take screenshots at 0.5 and 3 s after Tab and 0.2 s after closing. Note whether any
+     blood or red dot draws over the Pip-Boy, and whether the blood is still there, or has
+     faded further, after closing.
