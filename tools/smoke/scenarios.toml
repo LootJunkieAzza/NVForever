@@ -26990,3 +26990,17 @@ expect = [
   { re = 'grass fire fx summary: [1-9]\d* flames drawn', label = "flames were drawn" },
   { re = 'failed to process shader', count = 0, label = "the grass and terrain shaders compile (a broken grass.wesl drew no grass at all)" },
 ]
+
+[[scenario]]
+name = "smp-vanilla-stays-rigid"
+source = "item 215 (NV SMP physics, engine/nvforever/src/smp_physics, docs/spec-notes/smp-physics.md): only items with SMP data (the 'HDT Skinned Mesh Physics Object' extra data), CKR's hair (meshes/bale/hair) and Qwib's accessories (meshes/qwib) are simulated; the vanilla game has none, so nothing is rigged and the physics stays idle"
+note = "Goodsprings at noon, NPCs and the player in view. The physics on the Vanilla NV SMP pack, CKR hair and Qwib is checked by the laptop frame runs (test-builds/nv-smp-215/RUNS.md), since the smoke Data has none of them"
+areas = ["actors", "physics"]
+paths = ["engine/nvforever/src/smp_physics/**", "engine/nvf-assets/src/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONTROL = "4:view" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12", "--no-voice", "--no-messages", "--graphics-only", "no-fuller-fire"]
+run_seconds = 15
+expect = [
+  { re = 'smp: .*: rigged', count = 0, label = "no vanilla mesh is rigged (no SMP data, vanilla hair stays rigid)" },
+  { re = 'smp: .*blew up', count = 0, label = "nothing blows up" },
+]
