@@ -472,6 +472,34 @@ fn dead_moneys_gear_stays_in_the_sierra_madre() {
     for g in &gifts {
         assert_eq!(late.take_coop_gift(g, &mut last).unwrap(), 0, "a late guest gets no {}", l.data.name(g.item));
     }
+
+    // A guest that saves inside the Sierra Madre and loads (item 211 follow-up): its save
+    // is its own game with the character as it is now (`with_character_of`), the
+    // checkpoint's records with it; after the load the way out still gives its own back.
+    let mut saver = game(&l);
+    saver.world.add_item(FormId::PLAYER_REF, pistol, 1).unwrap();
+    saver.coop_check_in(DM_CHECKPOINT, -1, None);
+    saver.follow_story_gear(&gear);
+    let mut last = None;
+    for g in &gifts {
+        saver.take_coop_gift(g, &mut last).unwrap();
+    }
+    let base = game(&l).snapshot();
+    let save = base.with_character_of(&saver.snapshot());
+    let text = serde_json::to_string(&save).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert!(back.coop_checked.contains_key(&DM_CHECKPOINT), "the save keeps what the checkpoint holds");
+    assert!(!back.coop_checkpoint_gear.is_empty(), "the save keeps the checkpoint's gear handed out");
+    let world = World::restore(&l.forms, &l.refs, &back.sim).unwrap();
+    let mut loaded = Game::restore(&l.data, world, saver.cfg, &back).unwrap();
+    assert_eq!(held(&mut loaded, pistol), 0, "loaded: the pistol is still in the checkpoint");
+    assert!(held(&mut loaded, collar) > 0, "loaded: the collar is still on");
+    loaded.follow_story_gear(&gear);
+    loaded.follow_story_gear(&gear_out);
+    assert_eq!(held(&mut loaded, collar), 0, "loaded: the collar goes with the host's");
+    assert!(loaded.coop_check_out(DM_CHECKPOINT) > 0, "loaded: the checkpoint gives its items back");
+    assert_eq!(held(&mut loaded, pistol), 1, "loaded: the guest's own pistol is back");
+    assert!(held(&mut loaded, jumpsuit) > 0, "loaded: the jumpsuit is the guest's now");
 }
 
 /// A quest the host fails (a Fail Quest stage) is kept for its guests, as a completion

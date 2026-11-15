@@ -356,6 +356,10 @@ impl crate::game::GameSnapshot {
             }
         }
         Character::of(&now.player).put_on(&mut self.player);
+        // The checkpoints' records go with the inventory they were taken from (item 211):
+        // a guest saved inside the Sierra Madre has its items back at the way out.
+        self.coop_checked = now.coop_checked.clone();
+        self.coop_checkpoint_gear = now.coop_checkpoint_gear.clone();
         // The player's effects as they are now, numbered after this game's own.
         self.effects.retain(|e| e.target != p);
         let mut next = self.next_effect.max(now.next_effect);
