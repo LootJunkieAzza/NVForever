@@ -5431,7 +5431,8 @@ impl<'a> Game<'a> {
         // The player's tweak: a key's opening earns a share of the picking's experience
         // [design: docs/design/tweaks.md].
         if act.unlocked_with.is_some() && actor == FormId::PLAYER_REF && self.tweaks.key_xp_share > 0.0 {
-            if let Some(lock) = self.world.peek(target).and_then(|s| s.lock) {
+            // [design, #2538] The applicable lock: a load door's partner's when it has none.
+            if let Some(lock) = self.world.lock_of(target) {
                 let x = crate::lockpick::xp(self, crate::lockpick::Level::of(lock.level)) * f64::from(self.tweaks.key_xp_share);
                 crate::experience::award(self, crate::experience::Source::PickLock, x.round());
             }

@@ -1048,6 +1048,8 @@ struct Pending {
 struct Ghost {
     id: u64,
     proj: FormId,
+    /// Its original script reference, for explicit deletion while the visual remains.
+    rref: Option<FormId>,
     /// Who fired it.
     owner: FormId,
     from: V3,
@@ -5000,6 +5002,30 @@ fn placed_charges(forms: &CombatForms, sim: &SimState, phys: &PhysState, actor: 
         .collect()
 }
 
+/// An explicitly removed shot cannot later hit or detonate. Disable alone remains
+/// reversible. A naturally completed shot may still have a fading Ghost, so only
+/// MarkForDelete cancels a Ghost without a live flight or pending hit.
+/// Cancellation at the next consumer is an engineering policy, not native timing.
+fn retire_deleted_shots(c: &mut Combat, game: &mut fnv_game::game::Game<'_>) {
+    let mut gone: std::collections::HashSet<FormId> = c.flying.iter().filter_map(|f| f.rref)
+        .chain(c.pending.iter().filter_map(|p| p.rref))
+        .filter(|&r| game.world.peek(r).is_some_and(|s| s.shot && s.deleted()))
+        .collect();
+    gone.extend(c.ghosts.iter().filter_map(|g| g.rref).filter(|r| {
+        game.extra.get(r).is_some_and(|e| e.marked_for_delete)
+            && game.world.peek(*r).is_some_and(|s| s.shot && s.deleted())
+    }));
+    if gone.is_empty() {
+        return;
+    }
+    c.flying.retain(|f| f.rref.is_none_or(|r| !gone.contains(&r)));
+    c.pending.retain(|p| p.rref.is_none_or(|r| !gone.contains(&r)));
+    c.ghosts.retain(|g| g.rref.is_none_or(|r| !gone.contains(&r)));
+    for r in gone {
+        game.retire_deleted_projectile(r);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -5022,6 +5048,9 @@ fn fly(
     sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
     let c = &mut *c;
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        with_world(rt, &mut sim, |rt| retire_deleted_shots(c, &mut rt.game));
+    }
     // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
     // stage changes) and what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
@@ -5164,7 +5193,8 @@ fn fly(
                 let thrown = c.forms.weapons.get(&f.by.weapon).is_some_and(|w| w.projectile == Some(f.proj));
                 if thrown { Some(f.by.weapon) } else { p.default_weapon }
             });
-            let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let rref = f.rref;
+            let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
             let events = f.p.step(&world, dt);

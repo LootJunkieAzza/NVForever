@@ -49,6 +49,13 @@
 // nif_material.rs "First-person depth"): the fragment's depth is written squeezed into the
 // nearest share of the depth range (first_person_depth.wesl), so the world never hides it.
 //
+// TERRAIN_ANTI_TILING with TERRAIN_SEPARATE (the landscape's own materials with Terrain
+// anti-tiling on, main pass; nif_material.rs "Landscape anti-tiling", [design, #2551]): the
+// surface is set up by nvf_assets terrain_pbr.wesl (`terrain_pbr_standard`), its diffuse
+// texture and normal map read anti-tiled at the footprint taken first, instead of by Bevy's
+// pbr_input_from_standard_material; the rest of the fragment is as for any opaque or
+// blended lit shape.
+//
 // PIPBOY_SCREEN (the Pip-Boy's screen with the menus on it, main pass; NifSurface::
 // pipboy_screen): the texel is the menus' picture as `pipboy_picture` makes it (rolled,
 // softened, washed, with noise; NifSurface::pipboy_a, pipboy_b), red stops at a ceiling and
@@ -59,6 +66,7 @@ import bevy_pbr::{
     render::pbr_functions::alpha_discard,
 };
 @if(VISIBILITY_RANGE_DITHER) import bevy_pbr::render::pbr_functions::visibility_range_dither;
+@if(TERRAIN_ANTI_TILING) import nvf_assets::terrain_pbr::{terrain_footprint, terrain_pbr_standard};
 
 @if(PREPASS_PIPELINE) import bevy_pbr::{
     prepass::io::{VertexOutput, FragmentOutput},
@@ -444,6 +452,8 @@ fn nif_fragment(
     in: VertexOutput,
     is_front: bool,
 ) -> FragmentOutput {
+    // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
+    @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     let surface = nif_surface(in.instance_index);
     // NifSurface::pipboy_screen: the picture's texture coordinates and their change across a
@@ -461,7 +471,8 @@ fn nif_fragment(
         }
         holes_band = select(select(0.0, 1.0, h >= surface.holes.x - surface.holes.y), 0.0, cut_out);
     }
-    var pbr_input = pbr_input_from_standard_material(in, is_front);
+    @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(in, is_front);
+    @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(in, is_front, terrain_fp);
     @if(FACEGEN_TINT && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
         // base_color is material colour × vertex colour × texel: the texel is read again
         // as pbr_input_from_standard_material reads it, and its tinted value takes its

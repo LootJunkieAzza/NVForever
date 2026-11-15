@@ -883,6 +883,20 @@ After the Controls tab's own rows (see the end of this page):
 - More: docs/design/graphics-enhanced.md §3.12
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `terrain-anti-tiling`: Terrain anti-tiling
+
+- On the page: On: ground textures no longer repeat as a visible grid across slopes and
+  open ground. Off: each texture repeats every 256 units, as in the original. Costs some
+  GPU time.
+- In full: On: every landscape texture (diffuse and normal map) is read at two or three
+  places offset by a hash of where the ground lies in the world and blended, so its
+  256-unit repeat no longer lines up into a grid; nearby the ground looks like the same
+  texture. Off in both presets; not in the original. Costs extra texture reads where the
+  ground is drawn (layers that do not show here are not read).
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.13
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `light-shafts`: Sun shafts
 
 - On the page: On: sunlight streams past what stands in front of the sun, stronger the

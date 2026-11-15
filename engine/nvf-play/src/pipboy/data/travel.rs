@@ -394,7 +394,7 @@ pub fn go(
     let scale = sim.world.time_scale().unwrap_or(OWN_TIME_SCALE);
     // The player's tweak: no time passes on the trip (and so no needs) [design: docs/design/tweaks.md].
     let hours = if tweaks.as_ref().is_some_and(|t| t.no_travel_time) { 0.0 } else { travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale) };
-    let travel = Travel { world, interior, feet: dest.pos, heading_deg: crate::activate::outcome::heading_deg(dest.rot) };
+    let travel = Travel { world, interior, feet: dest.pos, heading_deg: crate::activate::outcome::heading_deg(dest.rot), pitch_deg: None };
     info!(
         "fast travel: to {} ({}): arrive at {} {:?}, {:.0} units away, {hours:.2} hours on the clock",
         m.name,

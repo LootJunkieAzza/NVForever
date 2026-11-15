@@ -6197,3 +6197,36 @@ fn continue_during_combat_guard_pursues_only_inside_its_radius() {
         }
     }
 }
+
+
+/// [design, #2538] A cold load door inherits the authored lock across its XTEL.
+#[test]
+fn load_door_lock_reaches_both_nav_directions_and_resyncs() {
+    use fnv_sim::refs::{Lock, Teleport};
+    let mut f = fixture();
+    let mut a = f.refs.get(FormId(DOOR_A)).unwrap().clone();
+    a.base = FormId(SCRIPT_DOOR_BASE);
+    a.teleport = Some(Teleport { door: FormId(DOOR_B), pos: [5050.0, 5030.0, 50.0], rot: [0.0; 3], no_alarm: false });
+    let mut b = a.clone();
+    b.id = FormId(DOOR_B);
+    b.cell = Some(FormId(CELL_B));
+    b.teleport.as_mut().unwrap().door = a.id;
+    b.lock = Some(Lock { level: 255, key: None, leveled: false });
+    f.refs.refs.insert(a.id, a);
+    f.refs.refs.insert(b.id, b);
+    let mut s = sim(&f, &[R_TRAVEL]);
+    assert!(s.game.world.peek(FormId(DOOR_A)).is_none());
+    assert!(s.ai.apply_door_locks(&mut s.game, &mut s.nav).is_some());
+    for d in [DOOR_A, DOOR_B] {
+        assert_eq!(s.nav.door_locks[&d], DoorLock { level: 255, key: None });
+    }
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), START);
+    s.game.world.unlock(FormId(DOOR_A)).unwrap();
+    assert!(s.ai.apply_door_locks(&mut s.game, &mut s.nav).is_some());
+    for d in [DOOR_A, DOOR_B] {
+        assert!(!s.nav.door_locks.contains_key(&d));
+    }
+    s.run(40.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].walker.space, B);
+}

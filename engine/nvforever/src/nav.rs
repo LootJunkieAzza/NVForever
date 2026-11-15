@@ -295,7 +295,7 @@ pub fn drive(
                 Space::World(w) => (Some(w), None),
                 Space::Interior(c) => (None, Some(c)),
             };
-            travel.write(nvf_play::Travel { world: w, interior, feet: lead.feet, heading_deg: lead.heading.to_degrees() });
+            travel.write(nvf_play::Travel { world: w, interior, feet: lead.feet, heading_deg: lead.heading.to_degrees(), pitch_deg: None });
             nav.travel_asked = true;
             nav.cam = None;
         }

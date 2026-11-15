@@ -121,12 +121,28 @@ impl Game<'_> {
     /// reference 30 frames on]. What the scripts left set on it, for the hit.
     pub fn projectile_gone(&mut self, r: FormId) -> Option<Shot> {
         let s = self.gaps.projs.shots.remove(&r)?;
+        self.retire_projectile(r);
+        Some(s)
+    }
+
+    /// Retire a deleted engine shot, including its fuse if its session entry has
+    /// already gone. Ordinary references and reversible Disable are not cancellation
+    /// requests. The engine supplies only references associated with its own shots.
+    pub fn retire_deleted_projectile(&mut self, r: FormId) -> bool {
+        if !self.world.peek(r).is_some_and(|s| s.shot && s.deleted()) {
+            return false;
+        }
+        self.gaps.projs.shots.remove(&r);
+        self.retire_projectile(r);
+        true
+    }
+
+    fn retire_projectile(&mut self, r: FormId) {
         // Its fuse goes with it (`crate::nvse_jip14`, #2018).
         self.other.jip14.fuses.remove(&r);
         self.other.jip14.fuse_sets.retain(|&(x, _)| x != r);
         let _ = self.world.set_deleted(r, true);
         self.gaps.projs.gone.insert(r);
-        Some(s)
     }
 }
 

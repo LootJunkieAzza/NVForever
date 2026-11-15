@@ -117,6 +117,7 @@ pub const SECTIONS: &[Section] = &[
             "sharpen",
             "anisotropic",
             "terrain-height-blend",
+            "terrain-anti-tiling",
             "light-shafts",
             "water-reflections",
             "water-mirror",
@@ -313,7 +314,7 @@ mod tests {
     /// FSR library row, #2242's upscaling counter row, #2317's Generated frames row, the viewmodel
     /// field of view row, the menu scale row and the Physics rate row), by the group it registers
     /// with.
-    const KNOWN: [(&str, &str); 114] = [
+    const KNOWN: [(&str, &str); 115] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -409,6 +410,7 @@ mod tests {
         ("sharpen", "Graphics"),
         ("anisotropic", "Graphics"),
         ("terrain-height-blend", "Graphics"),
+        ("terrain-anti-tiling", "Graphics"),
         ("light-shafts", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-mirror", "Graphics"),
@@ -470,6 +472,7 @@ mod tests {
         assert_eq!(at("quality"), "Graphics > Quality");
         assert_eq!(at("enhanced"), "Graphics > Picture");
         assert_eq!(at("terrain-height-blend"), "Graphics > Picture", "beside the texture filtering (#2550)");
+        assert_eq!(at("terrain-anti-tiling"), "Graphics > Picture", "beside terrain height blending (#2551)");
         assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
         assert_eq!(at("button-style"), "Controls");
         // The registry itself is left as it was: its order and each row's group.

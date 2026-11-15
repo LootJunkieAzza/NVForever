@@ -304,8 +304,8 @@ impl<'a> Game<'a> {
     /// "the actor will lock or unlock all the doors in the cell" when the package starts or
     /// ends, and "for the duration of the package … will keep all doors in the cell locked
     /// or unlocked" [documented: GECK wiki Packages, Door Flags]. The cell is the actor's;
-    /// only doors that have a lock (XLOC, or one a script gave them) are locked, at their
-    /// own level [design: a door without a lock has no level to lock at]. The "at
+    /// only doors with an applicable lock (`World::lock_of`) are changed [design,
+    /// #2538]. Lock creates a local lock; Unlock changes the source [hypothesis]. The "at
     /// location" flags are applied as the package starts and at each periodic choice
     /// ([`Game::tick_packages`]) [design: how often the original checks is not known].
     /// Returns how many doors changed.
@@ -321,7 +321,7 @@ impl<'a> Game<'a> {
         let doors: Vec<FormId> = placed.by_cell.get(&cell).into_iter().flatten().copied().filter(|r| data.sig(placed.get(*r).map_or(FormId(0), |p| p.base)).as_ref() == Some(b"DOOR")).collect();
         let mut changed = 0;
         for d in doors {
-            let Some(l) = self.world.peek(d).and_then(|s| s.lock) else { continue };
+            let Some(l) = self.world.lock_of(d) else { continue };
             if locks && !l.locked {
                 changed += usize::from(self.world.lock(d, None).is_ok());
             } else if unlocks && !locks && l.locked {

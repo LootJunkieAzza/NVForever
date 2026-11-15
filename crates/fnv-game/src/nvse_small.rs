@@ -427,7 +427,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 XVal::Num(f64::from(v))
             } else {
                 let status = g.world.lock_status(r).unwrap_or(0);
-                XVal::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { f64::from(status) })
+                XVal::Num(if status == 1 && g.locks.broken.contains(&g.world.lock_source(r)) { 2.0 } else { f64::from(status) })
             }
         }
         // [documented: GetQuestFailedAlt, "Alternate version of GetQuestFailed"].

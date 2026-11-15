@@ -21,6 +21,16 @@
 // global (coarsest mip) or local (coarser mip at the same UV) reference, so a layer
 // comes in through its stones and clumps first. Without it the path below is the one
 // there always was, operation for operation.
+//
+// TERRAIN_ANTI_TILING (the Terrain anti-tiling switch, terrain.rs "Anti-tiling", [design,
+// #2551]): every texture (the base's and the layers', diffuse and normal map) is read at a
+// few offset and rotated places (Hex3) hashed from where the fragment lies in the world
+// and blended (nvf_assets terrain_sampling.wesl), so its repeat does not show as a grid.
+// The surface is set up by nvf_assets terrain_pbr.wesl instead of Bevy's
+// pbr_input_from_standard_material (which would read the base once more at the plain
+// place). The layers are walked last to first and a texture is read only where its share
+// can be above 0; with TERRAIN_HEIGHT_BLEND as well the heights come from those same reads.
+// Without it both paths above are as they were.
 
 import bevy_pbr::{
     render::forward_io::{VertexOutput, FragmentOutput},
@@ -38,15 +48,19 @@ import bevy_pbr::{
 @if(!BINDLESS) import bevy_pbr::render::pbr_bindings;
 @if(TERRAIN_HEIGHT_BLEND) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT;
 @if(TERRAIN_HEIGHT_BLEND) import nvforever::terrain_weights::{terrain_height, terrain_ordered_shares, terrain_height_weights};
+@if(TERRAIN_ANTI_TILING) import nvf_assets::terrain_sampling::{TerrainFootprint, TerrainTaps, terrain_sample_diffuse, terrain_sample_normal, terrain_world_normal};
+@if(TERRAIN_ANTI_TILING) import nvf_assets::terrain_pbr::{terrain_footprint, terrain_taps, terrain_pbr_begin, terrain_pbr_occlusion, terrain_base_diffuse, terrain_base_normal, terrain_base_textured, terrain_two_component, terrain_flip_y, terrain_back_face};
+@if(TERRAIN_ANTI_TILING && BINDLESS) import nvf_assets::terrain_pbr::{terrain_bindless_diffuse, terrain_bindless_normal};
 
 struct TerrainLayers {
     // x: how many layers the material holds (0 to 6); y: bit i set when layer i has a
     // normal map (without one its normal is the surface's own); z: 1 with the burn map;
-    // w: feature bits, bit 0 height blending (the pipeline's TERRAIN_HEIGHT_BLEND decides;
-    // this records the material's state).
+    // w: feature bits, bit 0 height blending, bit 1 anti-tiling (the pipeline's
+    // TERRAIN_HEIGHT_BLEND and TERRAIN_ANTI_TILING decide; this records the material's state).
     counts: vec4<u32>,
     // x: world units per texture repeat when the texture coordinate is worked out here and
     // the mesh's holds the fifth and sixth opacities; 0 when the mesh's is the coordinate.
+    // y: world units per texture repeat, always (anti-tiling's coordinate).
     tile: vec4<f32>,
     // Start-up comparison parameters: depth, gain, source (global 0 / local 1), reserved.
     height: vec4<f32>,
@@ -142,6 +156,12 @@ fn layer_counts(instance_index: u32) -> vec4<u32> {
 fn layer_tile(instance_index: u32) -> f32 {
     @if(BINDLESS) return terrain_layers[terrain_indices[material_slot(instance_index)].layers].tile.x;
     @if(!BINDLESS) return terrain_layer_values.tile.x;
+}
+
+// The texture repeat in world units, whether or not the mesh carries the coordinate.
+@if(TERRAIN_ANTI_TILING) fn layer_repeat(instance_index: u32) -> f32 {
+    @if(BINDLESS) return terrain_layers[terrain_indices[material_slot(instance_index)].layers].tile.y;
+    @if(!BINDLESS) return terrain_layer_values.tile.y;
 }
 
 fn standard_material(instance_index: u32) -> StandardMaterial {
@@ -278,15 +298,65 @@ fn layer_normal(k: u32, instance_index: u32, uv: vec2<f32>) -> vec3<f32> {
     }
 }
 
+// Anti-tiling's reads of layer `k`: its diffuse texture with the base texture's sampler
+// (as `layer_diffuse`), its normal map decoded by the base material's flags (as the
+// ordinary path's apply_normal_mapping does), at every kept tap (terrain_sampling.wesl).
+@if(TERRAIN_ANTI_TILING) fn layer_diffuse_antitiled(k: u32, instance_index: u32, taps: TerrainTaps, fp: TerrainFootprint) -> vec4<f32> {
+    @if(BINDLESS) {
+        let slot = material_slot(instance_index);
+        let i = terrain_indices[slot];
+        var t = i.diffuse0;
+        if k == 1u { t = i.diffuse1; }
+        if k == 2u { t = i.diffuse2; }
+        if k == 3u { t = i.diffuse3; }
+        if k == 4u { t = i.diffuse4; }
+        if k == 5u { t = i.diffuse5; }
+        return terrain_bindless_diffuse(t, material_indices[slot].base_color_sampler, taps, fp);
+    }
+    @if(!BINDLESS) {
+        if k == 1u { return terrain_sample_diffuse(diffuse1, pbr_bindings::base_color_sampler, taps, fp); }
+        if k == 2u { return terrain_sample_diffuse(diffuse2, pbr_bindings::base_color_sampler, taps, fp); }
+        if k == 3u { return terrain_sample_diffuse(diffuse3, pbr_bindings::base_color_sampler, taps, fp); }
+        if k == 4u { return terrain_sample_diffuse(diffuse4, pbr_bindings::base_color_sampler, taps, fp); }
+        if k == 5u { return terrain_sample_diffuse(diffuse5, pbr_bindings::base_color_sampler, taps, fp); }
+        return terrain_sample_diffuse(diffuse0, pbr_bindings::base_color_sampler, taps, fp);
+    }
+}
+
+@if(TERRAIN_ANTI_TILING) fn layer_normal_antitiled(k: u32, instance_index: u32, taps: TerrainTaps, fp: TerrainFootprint, two_component: bool, flip_y: bool) -> vec3<f32> {
+    @if(BINDLESS) {
+        let slot = material_slot(instance_index);
+        let i = terrain_indices[slot];
+        var t = i.normal0;
+        if k == 1u { t = i.normal1; }
+        if k == 2u { t = i.normal2; }
+        if k == 3u { t = i.normal3; }
+        if k == 4u { t = i.normal4; }
+        if k == 5u { t = i.normal5; }
+        return terrain_bindless_normal(t, material_indices[slot].base_color_sampler, taps, fp, two_component, flip_y);
+    }
+    @if(!BINDLESS) {
+        if k == 1u { return terrain_sample_normal(normal1, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y); }
+        if k == 2u { return terrain_sample_normal(normal2, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y); }
+        if k == 3u { return terrain_sample_normal(normal3, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y); }
+        if k == 4u { return terrain_sample_normal(normal4, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y); }
+        if k == 5u { return terrain_sample_normal(normal5, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y); }
+        return terrain_sample_normal(normal0, pbr_bindings::base_color_sampler, taps, fp, two_component, flip_y);
+    }
+}
+
 @fragment
 fn fragment(
     vertex: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
     var in = vertex;
-    @if(TERRAIN_HEIGHT_BLEND) var height_dx = vec2(0.0);
-    @if(TERRAIN_HEIGHT_BLEND) var height_dy = vec2(0.0);
-    @if(TERRAIN_HEIGHT_BLEND) {
+    // Anti-tiling's footprint first, while every fragment of the quad runs (screen
+    // derivatives; nothing has been discarded or branched on yet).
+    @if(TERRAIN_ANTI_TILING) let fp = terrain_footprint(in.world_position, layer_repeat(in.instance_index), standard_material(in.instance_index).uv_transform);
+    @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) var height_dx = vec2(0.0);
+    @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) var height_dy = vec2(0.0);
+    @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {
         @if(VERTEX_UVS_A) {
             // Before dither/standard-material discard or any per-fragment branch. Recreate
             // the same UV used below without a branch on the material's tile value.
@@ -321,7 +391,8 @@ fn fragment(
         in.uv = (get_local_from_world(in.instance_index) * in.world_position).xy / tile;
     }
 
-    var pbr_input = pbr_input_from_standard_material(in, is_front);
+    @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(in, is_front);
+    @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_begin(in, is_front, standard_material(in.instance_index));
     let counts = layer_counts(in.instance_index);
     @if(VERTEX_UVS_A) {
         let standard = standard_material(in.instance_index);
@@ -330,7 +401,7 @@ fn fragment(
         var normal = pbr_input.N;
         let plain = normalize(pbr_input.world_normal);
         @if(VERTEX_TANGENTS) let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
-        @if(!TERRAIN_HEIGHT_BLEND) {
+        @if(!TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {
             for (var k = 0u; k < min(counts.x, 6u); k += 1u) {
                 let texel = layer_diffuse(k, in.instance_index, uv);
                 let share = saturate(opacity[k]) * texel.a;
@@ -344,7 +415,7 @@ fn fragment(
             pbr_input.material.base_color = vec4(colour, 1.0);
             pbr_input.N = normalize(normal);
         }
-        @if(TERRAIN_HEIGHT_BLEND) {
+        @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {
             let params = height_params(in.instance_index);
             // The same reads as above, in the same places (every held layer's diffuse,
             // the normal maps it has), kept for the weights; the base's diffuse once more.
@@ -383,6 +454,83 @@ fn fragment(
             }
             pbr_input.material.base_color = vec4(colour, 1.0);
             pbr_input.N = select(plain, normalize(normal), dot(normal, normal) > 1e-12);
+        }
+        @if(TERRAIN_ANTI_TILING) {
+            // One set of taps for every texture of the fragment. The layers walked last to
+            // first: a layer's ordered share is its painted share x what the later layers
+            // leave (terrain_weights.wesl `terrain_ordered_shares`, the same products), so a
+            // layer of opacity 0, and everything under a fully covering layer (the base
+            // too), is not read. A diffuse read can still be needed to find an alpha of 0.
+            let taps = terrain_taps(fp.uv);
+            let n = min(counts.x, 6u);
+            let flags = standard.flags;
+            let tinted = tint * standard.base_color.rgb;
+            var raw = array<vec4<f32>, 7>(vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0));
+            var w = array<f32, 7>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            var remaining = 1.0;
+            for (var i = i32(n) - 1; i >= 0; i -= 1) {
+                if remaining == 0.0 {
+                    break;
+                }
+                let k = u32(i);
+                let o = saturate(opacity[k]);
+                if o == 0.0 {
+                    continue;
+                }
+                raw[k + 1u] = layer_diffuse_antitiled(k, in.instance_index, taps, fp);
+                let a = saturate(o * raw[k + 1u].a);
+                w[k + 1u] = a * remaining;
+                remaining *= 1.0 - a;
+            }
+            w[0] = remaining;
+            if w[0] != 0.0 {
+                raw[0] = terrain_base_diffuse(in.instance_index, flags, taps, fp);
+            }
+            // Final weights: ordered shares, or depth competition using heights from
+            // those same raw texels (one global coarsest-mip reference per contributor).
+            // Exact zeros skip; tiny shares count [design, #2551].
+            var f = w;
+            @if(TERRAIN_HEIGHT_BLEND) {
+                // Anti-tiling always uses the offset-independent global reference, even
+                // when source=local: a local reference would need the same offset taps.
+                let anti_params = height_params(in.instance_index);
+                var height = array<f32, 7>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                if w[0] != 0.0 && terrain_base_textured(flags) {
+                    height[0] = terrain_height(raw[0].rgb, base_reference(in.instance_index, vec2(0.5), vec2(0.0), vec2(0.0), 0.0), anti_params.y);
+                }
+                for (var k = 0u; k < n; k += 1u) {
+                    if w[k + 1u] != 0.0 {
+                        height[k + 1u] = terrain_height(raw[k + 1u].rgb, layer_reference(k, in.instance_index, vec2(0.5), vec2(0.0), vec2(0.0), 0.0), anti_params.y);
+                    }
+                }
+                f = terrain_height_weights(w, height, anti_params.x);
+            }
+            // Colour and normal with the same weights; a normal map read only where its
+            // texture contributes. Layer normals in the frame the ordinary path uses.
+            var colour_sum = vec3(0.0);
+            var normal_sum = vec3(0.0);
+            if f[0] != 0.0 {
+                colour_sum += f[0] * raw[0].rgb * tinted;
+                var base_n = plain;
+                @if(VERTEX_TANGENTS && STANDARD_MATERIAL_NORMAL_MAP) {
+                    base_n = terrain_world_normal(tbn, terrain_base_normal(in.instance_index, flags, taps, fp), terrain_back_face(pbr_input, is_front));
+                }
+                normal_sum += f[0] * base_n;
+            }
+            for (var k = 0u; k < n; k += 1u) {
+                if f[k + 1u] != 0.0 {
+                    colour_sum += f[k + 1u] * raw[k + 1u].rgb * tinted;
+                    var layer_n = plain;
+                    @if(VERTEX_TANGENTS) if (counts.y & (1u << k)) != 0u {
+                        layer_n = terrain_world_normal(tbn, layer_normal_antitiled(k, in.instance_index, taps, fp, terrain_two_component(flags), terrain_flip_y(flags)), false);
+                    }
+                    normal_sum += f[k + 1u] * layer_n;
+                }
+            }
+            let n_pre = pbr_input.N;
+            pbr_input.material.base_color = vec4(colour_sum, 1.0);
+            pbr_input.N = select(plain, normalize(normal_sum), dot(normal_sum, normal_sum) > 1e-12);
+            pbr_input = terrain_pbr_occlusion(pbr_input, n_pre);
         }
     }
     if counts.z != 0u {

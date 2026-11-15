@@ -903,7 +903,6 @@ expect = [
 ]
 manual = "ui_scale_75_tiles_wait.png: the tile-drawn wait menu three quarters of the size of tiles_sleep_wait.png, in the middle of the view, the slider at 7 hours"
 
-
 [[scenario]]
 name = "hud-menu-scale-write"
 source = "#2519: persist HUD 75% with menus 100%; changing HUD alone must not make menus follow on restart"
@@ -1123,6 +1122,154 @@ forbid = [
   { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
   { text = "still being retried after", label = "a pipeline still retried at the cap" },
   { re = 'terrain: height blending on \(\d+ folded quadrant materials, [1-9]', label = "no material made without the setting" },
+]
+
+[[scenario]]
+name = "terrain-anti-tiling"
+source = "[design, #2551] engine/nvforever/src/terrain.rs \"Anti-tiling\", terrain.wesl and nvf-assets terrain_sampling.wesl/terrain_pbr.wesl: the Terrain anti-tiling switch (off by default and in both presets) switched on while the game runs flips the loaded folded materials and their TERRAIN_ANTI_TILING pipeline (folded path, height blending off) compiles and is ready; off and on again flips them back, without a rendering or pipeline error. Whether the already-loaded ground changes on screen (the cached pipeline reused) is checked in pictures by hand"
+areas = ["renderer", "graphics", "terrain", "settings"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvf-assets/src/terrain_sampling.wesl",
+  "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvf-assets/src/terrain_sampling.rs",
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:terrain-anti-tiling,13:terrain-anti-tiling,14:terrain-anti-tiling" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 22
+expect = [
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless), so the anti-tiled folded shader is the one drawing" },
+]
+order = [[
+  "settings: terrain-anti-tiling on",
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, [1-9]\d* changed\)', label = "switching on flipped the loaded folded materials" },
+  { re = 'graphics: light glow, terrain anti-tiling$' },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded height=off', label = "the folded TERRAIN_ANTI_TILING pipeline asked for after the switch compiled and is ready" },
+  "settings: terrain-anti-tiling off",
+  { re = 'terrain: anti-tiling off \(\d+ folded quadrant materials, [1-9]\d* changed\)', label = "switching off flipped them back" },
+  { re = 'graphics: light glow$' },
+  "settings: terrain-anti-tiling on",
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, [1-9]\d* changed\)', label = "flipped on again (the ready pipeline is reused)" },
+  { re = 'graphics: light glow, terrain anti-tiling$', label = "on again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the anti-tiled terrain" },
+  { re = 'terrain anti-tiling pipeline \d+ failed', label = "a TERRAIN_ANTI_TILING pipeline failed" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a terrain.wesl or terrain_pbr.wesl that does not compile)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap" },
+  { text = "anti-tiling needs a texture repeat above 0", label = "the game's repeat places the reads" },
+]
+
+[[scenario]]
+name = "terrain-anti-tiling-start"
+source = "[design, #2551] engine/nvforever/src/terrain.rs \"Anti-tiling\": started with --graphics-only terrain-anti-tiling, the folded materials are made with it and their TERRAIN_ANTI_TILING pipeline (folded path) compiles and is ready, without a rendering or pipeline error"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvf-assets/src/terrain_sampling.wesl",
+  "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "terrain-anti-tiling"]
+run_seconds = 14
+expect = [
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain anti-tiling$', label = "the switch is on from the start" },
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, 0 changed\)', label = "on from the first frame: every material was made with it" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded height=off', label = "the materials made with it draw with the folded TERRAIN_ANTI_TILING pipeline, which compiled" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the terrain drawn anti-tiled from the start" },
+  { re = 'terrain anti-tiling pipeline \d+ failed', label = "the start's TERRAIN_ANTI_TILING pipeline failed" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (anti-tiled from the start)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (anti-tiled from the start)" },
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, [1-9]', label = "no material made without the setting" },
+]
+
+[[scenario]]
+name = "terrain-anti-tiling-height-blend"
+source = "[design, #2551] engine/nvforever/src/terrain.wesl: started with both terrain switches (--graphics-only terrain-height-blend,terrain-anti-tiling), one folded pipeline carries TERRAIN_ANTI_TILING and TERRAIN_HEIGHT_BLEND together (the heights taken from the anti-tiled reads) and compiles, without a rendering or pipeline error"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvf-assets/src/terrain_sampling.wesl", "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "terrain-height-blend,terrain-anti-tiling"]
+run_seconds = 14
+expect = [
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless)" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded height=on', label = "one folded pipeline with both definitions compiled and is ready (not two unrelated ones)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain height blending, terrain anti-tiling$', label = "both switches on from the start" },
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, 0 changed\)', label = "every material made with anti-tiling" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with both terrain switches on" },
+  { re = 'terrain anti-tiling pipeline \d+ failed', label = "a TERRAIN_ANTI_TILING pipeline failed" },
+  { re = 'terrain height blending pipeline \d+ failed', label = "a TERRAIN_HEIGHT_BLEND pipeline failed" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (both terrain switches)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (both terrain switches)" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded height=off', label = "a folded anti-tiled pipeline without height blending: the materials' two switches split" },
+]
+
+[[scenario]]
+name = "terrain-anti-tiling-separate"
+source = "[design, #2551] engine/nvforever/src/terrain.rs \"Anti-tiling\", nvf-assets nif_material.rs \"Landscape anti-tiling\", nif_material.wesl and terrain_pbr.wesl: with every landscape layer drawn on its own (test aid NVF_PLAY_TEST_TERRAIN_LAYERS=blended, as on a GPU without bindless textures), the Terrain anti-tiling switch flips the landscape's own NIF materials in place and their TERRAIN_ANTI_TILING TERRAIN_SEPARATE pipeline compiles and is ready; off flips them back, without a rendering or pipeline error. The look is checked in pictures by hand"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wesl",
+  "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvf-assets/src/terrain_sampling.wesl",
+  "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_TERRAIN_LAYERS = "blended", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:terrain-anti-tiling,13:terrain-anti-tiling" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 22
+order = [[
+  "settings: terrain-anti-tiling on",
+  { re = 'terrain: anti-tiling on \(0 folded quadrant materials, 0 changed\) and \d+ separate landscape materials \([1-9]\d* changed\)', label = "nothing folded; switching on flipped the landscape's own NIF materials" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=separate height=off', label = "the separate TERRAIN_ANTI_TILING pipeline compiled and is ready" },
+  "settings: terrain-anti-tiling off",
+  { re = 'terrain: anti-tiling off \(0 folded quadrant materials, 0 changed\) and \d+ separate landscape materials \([1-9]\d* changed\)', label = "switching off flipped them back" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the separately drawn landscape anti-tiled" },
+  { re = 'terrain anti-tiling pipeline \d+ failed', label = "a separate TERRAIN_ANTI_TILING pipeline failed" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded', label = "a folded pipeline although every layer is drawn on its own" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (nif_material.wesl or terrain_pbr.wesl that does not compile)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (separate landscape draws)" },
+]
+
+[[scenario]]
+name = "terrain-anti-tiling-overflow"
+source = "[design, #2551] engine/nvforever/src/terrain.rs \"Anti-tiling\": with a texture repeat that does not divide the cell (--terrain-tile 300) a quadrant folds four layers and draws the rest on their own (the first cell with such layers logs how many); started with --graphics-only terrain-anti-tiling, the folded pipeline and the separate pipeline of the blended layer draws both compile and are ready, every landscape material made with the switch, without a rendering or pipeline error"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvf-assets/src/nif_material.rs",
+  "engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvf-assets/src/terrain_sampling.wesl",
+  "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--terrain-tile", "300", "--graphics-only", "terrain-anti-tiling"]
+run_seconds = 14
+expect = [
+  { re = 'terrain: the first 4 texture layers of a quadrant are folded into its base', label = "a repeat that does not divide the cell folds four layers" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=folded height=off', label = "the folded anti-tiled pipeline (the mesh carries the coordinate; the repeat comes from the material)" },
+  { re = 'terrain: [1-9]\d* layers drawn blended over folded quadrants \(past the first 4 of a quadrant\)', label = "overflow layers exist: layers past the fourth drawn on their own over a folded quadrant" },
+  { re = 'terrain anti-tiling pipeline \d+ ready: path=separate height=off blend=on', label = "the separate anti-tiled pipeline of an alpha-blended layer draw (an unfolded base alone is opaque, blend=off)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain anti-tiling$', label = "on from the start, at repeat 300" },
+  { re = 'terrain: anti-tiling on \(\d+ folded quadrant materials, 0 changed\) and \d+ separate landscape materials \(0 changed\)', label = "on from the first frame, before any landscape material" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the overflow layers anti-tiled" },
+  { re = 'terrain anti-tiling pipeline \d+ failed', label = "an anti-tiled pipeline failed at repeat 300" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (repeat 300)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap (repeat 300)" },
+  { text = "anti-tiling needs a texture repeat above 0", label = "repeat 300 places the reads" },
 ]
 
 [[scenario]]
@@ -2086,6 +2233,7 @@ expect = [
 manual = "the 24th 'sleep: hour' line ends one date later at the time of day the menu opened at"
 
 # ------------------------------------------------------------------ detection, alert, combat
+
 [[scenario]]
 name = "projectile-launch-physical-session-traits"
 source = "docs/spec-notes/projectile-launch-session-traits.md: authored opt-in two-stage physical launch consumer"
@@ -2587,6 +2735,7 @@ expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 # The range of repeats catches excess retries only: it does not prove their spacing (retries
 # every 3 s would pass). The 5 s spacing is proved by the unit tests of
 # crates/fnv-actor/src/furniture_retry.rs.
+
 [[scenario]]
 name = "resident-resettles-after-fight"
 source = "issue #2013 (packages.md, furniture.md): Easy Pete on his chair by day is drawn into a fight with a spawned gecko, which gets him up; the gecko is taken away (disabled, as in the capture) and when his search ends inside his package's place he sits again [observed in the original: AI observer 2026-11-10, Easy Pete sat again about 5 real seconds after the fight]"
@@ -2648,6 +2797,7 @@ expect = [
 ]
 
 # The same run without the settler: nothing refuses, he sits at his first order.
+
 [[scenario]]
 name = "resident-furniture-refusal-control"
 source = "issue #1506: the control of resident-furniture-refusal-retry, without the occupant"
@@ -2744,6 +2894,7 @@ expect = [
 order = [["combat: ammo swapped to", "combat: reloaded 13, magazine 13"]]
 
 # Authored field; every invocation retains its own evidence under the same QA home.
+
 [[scenario]]
 name = "bc5-signed-normal-owned-field"
 source = "docs/spec-notes/dds-bc5.md: authored rendered material field; engineering comparator policy, not original-game pixels"
@@ -3493,16 +3644,16 @@ expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped tex
 
 [[scenario]]
 name = "end-slides"
-source = "issue #2226: the ending's MoveTo puts the player on the slide room's XMarkerHeading (0x001639F6, heading 0), which faces the slide SlideGS01 (0x001680A7); the slides' SwapTexture names the shape \"##gs01:0\", which gs01.nif spells ##GS01:0 (texture_swap.rs same_shape). The player is turned to 90 degrees first, so the travel's heading 0 is the marker's; two end-slide lines' result scripts then swap two slides"
+source = "issue #2226: the ending's MoveTo puts the player on the slide room's XMarkerHeading (0x001639F6, heading 0), which faces the slide SlideGS01 (0x001680A7); the slides' SwapTexture names the shape \"##gs01:0\", which gs01.nif spells ##GS01:0 (texture_swap.rs same_shape). The player is turned to 90 degrees first, so the travel's heading 0 is the marker's; two end-slide lines' result scripts then swap two slides. Issue #2710: the view starts looking 25 degrees down (--pitch -25) and the move gives it the level marker's pitch, as it does in the add-ons' intro rooms"
 areas = ["scripts", "rendering", "quests"]
-paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/script.rs"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs", "engine/nvf-play/src/phys.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "2:player.SetAngle Z 90;2.5:close;4:player.MoveTo 001639F6;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:info:0x00161859,8:info:0x0015C1C4", NVF_PLAY_TEST_SHOTS = "5.5:end_slides_start.png,7:end_slides_rm01.png,9.5:end_slides_rg01.png" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+args = ["--cell", "GSDocMitchellHouse", "--pitch", "-25", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 11
 note = "From a new game no ending is set, so most of the narrator's topics have no line: the chain that the slide room's trigger starts runs to its end at once (its last swap, endscrn_pf03, the only one drawn) and the credits timer calls ExitGame about 13 s in; the run ends before that"
-manual = "end_slides_start.png, end_slides_rm01.png and end_slides_rg01.png: the slide straight ahead, filling the view, a different picture in each"
+manual = "end_slides_start.png, end_slides_rm01.png and end_slides_rg01.png: the slide straight ahead and level, filling the view, a different picture in each"
 order = [[
-  { re = 'script: travel to Some\(1449624\) / None at .* heading 0\.0', label = "the player travels to the slide room facing the marker's heading" },
+  { re = 'script: travel to Some\(1449624\) / None at .* heading 0\.0 pitch 0\.0', label = "the player travels to the slide room facing the marker's heading, the view level as the marker is" },
   'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_pf03.dds',
   'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rm01.dds',
   'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rg01.dds',
@@ -7843,10 +7994,10 @@ expect = [
 [[scenario]]
 name = "falling-loading"
 source = "playtest list 4 items 8, 9, 10, 2-3 (physics.md §6.4.2, docs/design/loading-screen.md §1): leaving the Goodsprings gas station the loading screen waits for the arrival's own cells and the player stands (no jump loop or landing after it); running down the owner's steep road at heading 150 keeps the ground; walking residents are drawn between physics steps"
-note = "Ringo greets at about 4 s and the door at 5 s waits for that conversation to end; --no-dialogue-look keeps the view on the door whether the greeting comes before or after the 4 s face aid (with the view turned to Ringo the door was behind the player and never used, run 2026-10-16); the hill run is at 40-50 s (heading 150 left the ground for 22 steps before the fix, `fnvtool phys walk`)"
+note = "Ringo greets at about 4 s and the door at 5 s waits for that conversation to end; --no-dialogue-look keeps the view on the door whether the greeting comes before or after the 4 s face aid (with the view turned to Ringo the door was behind the player and never used, run 2026-10-16); the hill run is at 40-50 s (heading 150 left the ground for 22 steps before the fix, `fnvtool phys walk`) The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["physics", "loading", "player-body", "ai"]
 paths = ["crates/fnv-phys/src/character.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/nav.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_GOTO = "40:-64168:-8679:7737", NVF_PLAY_TEST_LOOK = "40.5:150:0,44:150:0", NVF_PLAY_TEST_MOVE = "45:1:0,50:0:0" }
+env = { NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_GOTO = "40:-64168:-8679:7737", NVF_PLAY_TEST_LOOK = "40.5:150:0,44:150:0", NVF_PLAY_TEST_MOVE = "45:1:0,50:0:0" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "9", "--npc-packages", "all", "--no-dialogue-look"]
 run_seconds = 53
 order = [[
@@ -7863,10 +8014,10 @@ expect = [
 [[scenario]]
 name = "loading-screen-look"
 source = "docs/spec-notes/loading-screens.md §4: the loading screen laid out as the original's: the picture stretched, the tip on its band, the emblem turning; the shot NVF_PLAY_TEST_LOADING_SHOT saves is for looking at, the run only checks that the emblem's model reads as the original's model and that the screen comes and goes"
-note = "The emblem reads once a run though two screens come up, the start's and the door's: 4 pieces (the hidden plate left out), wheel and ball turning. The look itself is not judged here: see the shots in target/smoke (the run's folder; -2 is the door's)"
+note = "The emblem reads once a run though two screens come up, the start's and the door's: 4 pieces (the hidden plate left out), wheel and ball turning. The look itself is not judged here: see the shots in target/smoke (the run's folder; -2 is the door's) The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["loading"]
 paths = ["engine/nvf-play/src/loading.rs", "engine/nvf-play/src/loading_look.rs", "engine/nvf-play/src/hud_breath.rs", "crates/fnv-world/src/loadscreen.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_LOADING_SHOT = "loading-screen-look.png" }
+env = { NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_LOADING_SHOT = "loading-screen-look.png" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "9", "--no-dialogue-look"]
 run_seconds = 20
 order = [[
@@ -7913,10 +8064,10 @@ expect = [
 [[scenario]]
 name = "ringo-comes-out"
 source = "playtest list 4 item 13 (docs/design/actor-behaviour.md §5.9, fnv_ai::process ProcessLevel::Coming): Ringo, sent out of the gas station by RingoTravelPackage after the player left, is moved every frame on his way into the loaded area and comes out of the door"
-note = "the player leaves through the gas station door at 7.5 s, after Ringo's greeting (the unattended run leaves his choices at about 5.2 s; while the zoomed conversation is up the view stays locked on him, #2254, so the door is faced at 6.5 s, after it); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame"
+note = "the player leaves through the gas station door at 7.5 s, after Ringo's greeting (the unattended run leaves his choices at about 5.2 s; while the zoomed conversation is up the view stays locked on him, #2254, so the door is faced at 6.5 s, after it); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock, so Ringo would be shut in. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["ai", "process-levels"]
 paths = ["crates/fnv-ai/src/process.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/cell_buffer.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock,15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 order = [[
@@ -10434,10 +10585,10 @@ expect = [
 [[scenario]]
 name = "npc-door-fade"
 source = "playtest list 5 item 3 (engine/nvforever/src/door_fade.rs, nvf-play world_sounds DoorPassed): an NPC going through a load door fades out at it and in at the other side, and the doors' open sounds play where the listener is"
-note = "the ringo-comes-out run: Ringo comes out of the gas station door into the drawn exterior where the player stands"
+note = "the ringo-comes-out run: Ringo comes out of the gas station door into the drawn exterior where the player stands The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock, so Ringo would be shut in. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["ai", "doors"]
 paths = ["engine/nvforever/src/door_fade.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/world_sounds.rs", "crates/fnv-nav/src/follow.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock,15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 expect = [
@@ -10448,10 +10599,10 @@ expect = [
 [[scenario]]
 name = "npc-door-onactivate"
 source = "issue #2123 (crates/fnv-game/src/npc_doors.rs, docs/spec-notes/doors.md section 5.2): an NPC the AI walks through a door without a script is heard by the extender's OnActivate handlers, the door first and the NPC second, once for the walk through [documented: NVSE Event Handling; design for the once]"
-note = "the npc-door-fade run with an OnActivate handler set from the console at 1 s: Ringo (00104C7D) leaves the gas station by its door 0010903F (base OffDoorMetalSmL01, no script: XTEL to 00109040 [observed: fnvtool esm decode]); the handler prints both references"
+note = "the npc-door-fade run with an OnActivate handler set from the console at 1 s: Ringo (00104C7D) leaves the gas station by its door 0010903F (base OffDoorMetalSmL01, no script: XTEL to 00109040 [observed: fnvtool esm decode]); the handler prints both references The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock, so Ringo would be shut in. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["ai", "doors", "scripts"]
 paths = ["crates/fnv-game/src/npc_doors.rs", "crates/fnv-ai/src/carry.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "1:SetEventHandler \"OnActivate\" ({ref rT, ref rA} => PrintC \"nvf npc-door event %i %i\", rT, rA);1.5:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock,15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "1:SetEventHandler \"OnActivate\" ({ref rT, ref rA} => PrintC \"nvf npc-door event %i %i\", rT, rA);1.5:close" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 expect = [
@@ -11062,7 +11213,6 @@ order = [[
   { re = 'pause menu: rows 4-15 of \d+ shown' },
   { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up shows the row before again" },
 ]]
-
 
 [[scenario]]
 name = "settings-scroll-headings"
@@ -17518,7 +17668,6 @@ commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_HIGH_
 expect_file = "expected/modlist-high-dry.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-high-dry.toml"
 
-
 [[scenario]]
 name = "mq-old-world-blues"
 kind = "tool"
@@ -23911,6 +24060,7 @@ expect = [
   { re = 'talk clip: .*001073E8 line over: \d+ frames, level mean 0[.](1\d|[2-9]\d), peak (0[.][5-9]\d|1[.]00)', label = "the chest's level moves with the words (mean above 0.1, peak above 0.5)" },
   { re = 'test aid: screenshot .*victor_talking[.]png', label = "the frames are saved" },
 ]
+
 [[scenario]]
 name = "melee-knockback"
 source = "#1070 (docs/spec-notes/combat-rules.md, Knockback): a melee blow pushes the living actor it hits back through its character, by the Melee Knockback Formula's force (a speed falling to rest over fKnockbackTime); #1386: one player power blow, isolated and tied to its report"
@@ -24051,7 +24201,6 @@ forbid = [
   { re = 'editor-home-mo2.mods.EditMo2', label = "not into NVForever's own mods folder" },
 ]
 
-
 [[scenario]]
 name = "editor-open-write"
 source = "local editor design §6.1: editor open lists the plugins and picks the target, refusing a master; editor save without a name writes into the target, which the home's INI remembers; editor-open-last reads it, so run them together"
@@ -24067,7 +24216,6 @@ expect = [
   { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "editor save without a name writes into the target" },
 ]
 
-
 [[scenario]]
 name = "editor-open-last"
 source = "local editor design §6.1: the next run's first editor opens the last target again, and editor save without a name writes into it"
@@ -24081,7 +24229,6 @@ expect = [
   { re = 'editor: target EditOpen\.esp \(loaded, 1 reference\(s\) of its own.*the last one used', label = "the last target is opened again, loaded with its reference" },
   { re = 'editor: saved 1 references and 0 new \(\) into .*EditOpen\.esp', label = "saved into it without a name" },
 ]
-
 
 [[scenario]]
 name = "editor-drag-drop"
@@ -24103,7 +24250,6 @@ expect = [
   { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "counted as placed" },
 ]
 
-
 [[scenario]]
 name = "editor-find-place"
 source = "local editor design §7.3: editor find lists placeable records by name (the console's record index), editor place #n places one, an actor base is refused (a new reference is written as a REFR)"
@@ -24122,7 +24268,6 @@ expect = [
   { re = 'editor: not placed: no record has the Editor ID "NoSuchEditorId"', label = "an unknown Editor ID is refused" },
   { re = 'editor: off; 0 reference\(s\) moved, 0 deleted, 1 placed this session', label = "one placed" },
 ]
-
 
 [[scenario]]
 name = "editor-why"
@@ -24675,10 +24820,10 @@ expect = [
 [[scenario]]
 name = "hitvol-marked-door-fade-in"
 source = "issue #1388 (engine/nvf-play/src/hitvol.rs, module notes): the bounds walk only the meshes with the ActorBoundsCandidate mark; the comparison aid walks every RefVisual as well, each frame, and must find no actor mesh or bounds the marked walk does not; each actor named here must have a volume from its meshes after its change"
-note = "the npc-door-fade run: the player waits outside; Ringo (0x00104C7D) comes through the door into the drawn exterior and must get a volume there"
+note = "the npc-door-fade run: the player waits outside; Ringo (0x00104C7D) comes through the door into the drawn exterior and must get a volume there The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock, so Ringo would be shut in. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["combat", "actors"]
 paths = ["engine/nvf-play/src/hitvol.rs"]
-env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "6.5:0010903F", NVF_PLAY_TEST_ACTIVATE = "7.5", NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock,15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 order = [[
@@ -24700,10 +24845,10 @@ expect = [
 [[scenario]]
 name = "hitvol-marked-door-fade-out"
 source = "issue #1388 (engine/nvf-play/src/hitvol.rs, module notes): the bounds walk only the meshes with the ActorBoundsCandidate mark; the comparison aid walks every RefVisual as well, each frame, and must find no actor mesh or bounds the marked walk does not; each actor named here must have a volume from its meshes after its change"
-note = "as the npc-door-fade run, with the player staying inside the gas station, so that Ringo's drawn body fades out at the door: its root loses its RefVisual, its meshes keep theirs until it is gone, and he has no meshes left after that"
+note = "as the npc-door-fade run, with the player staying inside the gas station, so that Ringo's drawn body fades out at the door: its root loses its RefVisual, its meshes keep theirs until it is gone, and he has no meshes left after that The gas station's outside door GSGasStationDoorRef 0x00109040 carries XLOC level 255 and its inside door 0x0010903F none [observed: fnvtool esm decode]; since #2538 the inside door takes its partner's lock, so Ringo would be shut in. In play a Goodsprings trigger script runs `0x00109040.unlock` before the player can enter [observed: fnvtool script decompile]; the --cell start skips it, so the run unlocks the door at 1 s."
 areas = ["combat", "actors"]
 paths = ["engine/nvf-play/src/hitvol.rs"]
-env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_HITVOL_COMPARE = "1", NVF_PLAY_TEST_HITVOL_SCAN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:call:0x00109040:Unlock,15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
 run_seconds = 60
 order = [[
@@ -25867,6 +26012,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 # machine; the others need NVIDIA's four DLSS files, which NVForever does not ship: set NVF_DLSS_DIR
 # (an absolute path to their folder) in the runner's environment and the game inherits it. Without it
 # they are skipped (`requires`), not failed.
+
 [[scenario]]
 name = "dlss-no-files"
 source = "#2198, docs/design/dlss-upscaling.md: DLSS asked for with a DLSS folder that holds none of its files: the loader says so, the status says DLSS is unavailable and why, Streamline is never initialised and the camera draws natively"
@@ -26154,6 +26300,7 @@ forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR ch
 # is the test aid's loopback one (NVF_DLSS_DOWNLOAD_URL, taken only for http on this machine). Off Windows the choice is not
 # offered (DLSS is Windows only; picking it logs "not taken"), so each expectation takes either outcome, as dlss-no-files does. dlss-download-real and
 # -real-restart fetch the real files from GitHub (about 60 MB): only with NVF_DLSS_DOWNLOAD_REAL set.
+
 [[scenario]]
 name = "dlss-download-decline"
 source = "#2250, docs/dlss.md \"Download DLSS…\": Download DLSS... picked on the Upscaler row opens NVIDIA's licence; Cancel closes it and nothing is downloaded: no network access before I accept"
@@ -26251,6 +26398,7 @@ expect = [
 forbid = [{ re = 'DLSS: output not (observed|valid)' }, { text = "DLSS: inactive:", label = "the loader refusing the downloaded folder" }, { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "Validation Error", label = "a Vulkan validation error" }]
 
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
+
 [[scenario]]
 name = "dlssg-on"
 source = "#2317, docs/design/dlss-frame-generation.md: DLSS Frame Generation chosen at the start over DLSS Quality in play: DLSS-G kept loaded, Reflex through Streamline, one generated frame per real frame presented, about two frames shown per real frame; the performance overlay (--fps, NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
@@ -26487,6 +26635,7 @@ expect = [
 ]
 forbid = ["pipboy: warm-up start", "pipboy: warm-up asked", "pipboy: first raise held", "menu request ignored"]
 manual = "This control must ask new pipelines at the first raise; otherwise the comparison is inconclusive. Compare its first_a through first_d with the warm run for the old screen fault. Pipeline compile durations and the last screen/glare ready lines determine the faulty interval; do not infer an unmeasured duration from the shot schedule. The shader-defs line for the last screen/glare pipeline to become ready identifies the candidate variant in the blue/brown depth fight; confirm against the corresponding shots."
+
 [[scenario]]
 name = "tiles-repair-services"
 source = "[design] repair.md section 3.1, issue #1468: the vendor's repair services menu from its file, its rows, labels, cards, buttons and blur, the model's rules and sounds unchanged; the worn weapons of repair-services"
@@ -27241,7 +27390,6 @@ expect = [
   { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "and the page comes from its tiles" },
 ]
 order = [["InventoryMenu drawn by hand: IM_InventoryListTemplate missing", "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", { re = 'test aid: InventoryMenu built again from \S' }, { re = 'tiles: InventoryMenu page from tiles: ' }]]
-
 
 [[scenario]]
 name = "pipboy-world-map-child-family"
@@ -28666,7 +28814,6 @@ expect = [
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]
 
-
 [[scenario]]
 name = "dialogue-zoom-lock-hold"
 source = "[owner decision 2026-11-13, #2254] docs/design/dialogue-play.md section 8: the dialogue zoom locks the view, which follows the speaker throughout the conversation"
@@ -29968,4 +30115,20 @@ order = [[
 ]]
 expect = [
   { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
+]
+
+[[scenario]]
+name = "repconn-load-door-lock"
+source = "[observed: capture run15b_a, 2026-11-15] #2538: RocketLabBasement tunnel load door 0x000CE1AD has no XLOC but reads its partner 0x0008F97C as locked, level 255, no key; activation is refused (docs/spec-notes/cells-refs.md section 6)"
+note = "[design, #2538] Written without running the game. Start in the tunnel 130 units in front of the door, heading 225; aim and activate it. Require the Locked level-255 result and no teleport. Pitch 0 is provisional [hypothesis]."
+areas = ["activation", "lockpick"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/lockpick.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-ai/src/carry.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "8:225:0", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "RocketLabBasement", "--pos=9902,-2414,7190", "--heading", "225", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'activate 0x000CE1AD .*Locked \{ level: 255 \}', label = "the tunnel door refuses activation at the partner's level" },
+]
+forbid = [
+  { re = 'activate 0x000CE1AD .*Teleported', label = "the tunnel door must not teleport the player" },
 ]
