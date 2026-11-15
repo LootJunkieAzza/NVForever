@@ -972,9 +972,13 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// 3 friend) [documented: GECK wiki GetFactionRelation]. One direction: the reactions
 /// of `r`'s factions towards `o`'s, which need not be those of `o`'s towards `r`'s
 /// [documented: GECK wiki SetEnemy, each faction has its own reaction list;
-/// docs/spec-notes/factions.md §4]. How several factions combine is a [hypothesis]:
-/// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
-/// faction the player is a crime enemy of.
+/// docs/spec-notes/factions.md §4]. How several factions combine: a friend or an ally
+/// first, then an enemy, as allies and friends "cannot attack each other under any
+/// circumstances" [documented: GECK wiki GetFactionCombatReaction], so one shared
+/// friendly pair keeps the peace (Vulpes Inculta, in VCaesarsLegionFaction and
+/// ArmorNCRFactionNVEnemy, among the Legion, #2560); friend before ally is a
+/// [hypothesis]. The player counts as an enemy of an actor in a faction the player is
+/// a crime enemy of, before anything else.
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     // Kept while asked again and again ([`FactionKeep`]).
     let kept = keep(g).map(|k| &k.relations);
@@ -1030,12 +1034,12 @@ pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId])
         return 1;
     }
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    if all.contains(&1) {
-        1
-    } else if all.contains(&3) {
+    if all.contains(&3) {
         3
     } else if all.contains(&2) {
         2
+    } else if all.contains(&1) {
+        1
     } else {
         0
     }

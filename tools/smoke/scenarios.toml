@@ -8550,6 +8550,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "fort-vulpes-write"
+note = "Caesar's tent is in TheFortWorld's cell 0,0 (0x0013C715); Vulpes stands at (1588, 2022, 2184), the player a little west of him"
+source = "issue #2560: in Caesar's tent at The Fort, Caesar, Lucius, the Praetorians and the mongrels went into combat with Vulpes Inculta half a second after a load and killed him. Vulpes is in VCaesarsLegionFaction and ArmorNCRFactionNVEnemy, which VCaesarsLegionFaction names an Enemy; the Legion faction names itself an Ally, and an ally is never attacked (docs/spec-notes/factions.md §4). The first half: a save in the tent; fort-vulpes-load loads it, so run them together"
+areas = ["save", "ai", "combat"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs"]
+env = { NVFOREVER_HOME = "fort-vulpes-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "18:FortCaesarRef.getfactionrelation FortVulpesIncultaRef;18.5:FortVulpesIncultaRef.getfactionrelation FortLuciusRef;20:save smoke-fort;21:close" }
+args = ["--play", "--world", "TheFortWorld", "--pos=1350,2022,2200", "--heading", "90", "--hour", "21", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'save: wrote .*smoke-fort\.nvfsave \(manual', label = "the save is written in the tent" },
+  { text = "script: FortVulpesIncultaRef entered trigger 0x00176F0A", label = "Vulpes is in the tent with Caesar" },
+  { re = 'console: GetFactionRelation on \S+ >> [23]\.00', count = 2, label = "Caesar and Vulpes, Vulpes and Lucius count each other as friends or allies (their shared ArmorVCaesarsLegionFaction and VCaesarsLegionFaction)" },
+  { re = 'alert: .*→ Combat: detects \S*FortVulpesInculta', count = 0, label = "nobody goes into combat with Vulpes" },
+  { re = 'alert: \S*FortVulpesInculta \S+ \S+ → Combat', count = 0, label = "Vulpes goes into combat with nobody" },
+]
+
+[[scenario]]
+name = "fort-vulpes-load"
+source = "issue #2560: the second half: --load the save fort-vulpes-write made in Caesar's tent; the Legion stays calm with Vulpes and he lives"
+areas = ["save", "ai", "combat"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs"]
+env = { NVFOREVER_HOME = "fort-vulpes-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:FortCaesarRef.getfactionrelation FortVulpesIncultaRef;13:close" }
+args = ["--play", "--load", "smoke-fort", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'load: restored .*smoke-fort\.nvfsave: \d+ changed references', label = "the save in the tent is loaded" },
+  { text = "script: FortVulpesIncultaRef entered trigger 0x00176F0A", label = "Vulpes is back in the tent after the load" },
+  { re = 'console: GetFactionRelation on \S+ >> [23]\.00', label = "Caesar still counts Vulpes a friend after the load" },
+  { re = 'alert: .*→ Combat: detects \S*FortVulpesInculta', count = 0, label = "after the load nobody goes into combat with Vulpes (Caesar, Lucius, the Praetorians and the mongrels did half a second in)" },
+  { re = 'alert: \S*FortVulpesInculta \S+ \S+ → Combat', count = 0, label = "after the load Vulpes goes into combat with nobody" },
+  { re = 'killed by', count = 0, label = "nobody dies in the tent" },
+]
+
+[[scenario]]
 name = "save-refused-when-dead"
 source = "issue #1572: every way of saving is refused from the player's death on (docs/design/save-load.md)"
 areas = ["save"]
@@ -29209,6 +29243,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "silver-rush-intro-customer-flees"
+source = "issue #2520: the Silver Rush intro ends with VFSVanGraffCustomerREF.startcombat player (INFO 0x0012423E); the customer (Cowardly, Unaggressive, Helps Nobody) runs out on his OnStartCombat flee package, and no Van Graff takes up his fight against a player who did nothing (crates/fnv-game/src/awareness.rs unprovoked_scripted_fight, provocation.rs call_allies, combat_group.rs raise_alarms and always_flees; engine/nvforever/src/npc_combat.rs). Before the fix Jean-Baptiste and a thug helped him, Jean-Baptiste's OnStartCombat set VMS29a stage 200 (Birds of a Feather failed on every first visit), and the customer swung at the player"
+note = "From the new-game state (VMS29a not started) the player stands still inside the Silver Rush door, where the quest pilot stood (chain birds-of-a-feather), and the intro plays by itself: Gloria and the customer, Jean-Baptiste and the volunteer, then the customer's startcombat about 50 s in. He reaches the trigger by the door that disables him. Nothing touches the customer, so his OnHit (SetEnemy VanGraffFaction PlayerFaction) never runs"
+areas = ["combat", "quests", "ai"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/provoked.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVFOREVER_HOME = "silver-rush-intro-home" }
+args = ["--cell", "FreesideSilverRush", "--pos=2884,-3479,780", "--heading", "45", "--play", "--no-voice", "--no-messages", "--npc-packages", "all"]
+run_seconds = 100
+expect = [
+  { re = 'script: OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran', label = "the intro's startcombat reaches the customer's OnStartCombat" },
+  { re = "provocation: VFSVanGraffCustomer.*'s allies stay out of its fight against the player", label = "his allies leave the scripted fight alone" },
+  { re = 'npc combat: VFSVanGraffCustomer.* flees from the player: its confidence is Cowardly', label = "the coward flees, unhurt" },
+  { re = 'script: VFSVanGraffCustomerREF disabled', label = "he runs out to the trigger that disables him" },
+]
+forbid = [
+  { re = 'provocation: .* helps VFSVanGraffCustomer', label = "no one helps the customer against the player" },
+  { re = 'script: VMS29a stage 200 set', label = "Birds of a Feather is not failed" },
+  { re = 'npc combat: VFSVanGraffCustomerREF .* swings at the player', label = "the customer does not swing at the player" },
+]
+order = [["script: OnStartCombat of FalloutNV.esm|SCPT 0x0012424C ran", "script: VFSVanGraffCustomerREF disabled"]]
+
+[[scenario]]
 name = "house-screen-never-hostile"
 source = "issue #2431 (crates/fnv-game/src/awareness.rs Game::is_fixture): Mr. House's screens and his chamber never fight. Here the after-death state the scripts leave (SetEnemy Lucky38Faction PlayerFaction, from the elevator Victor's OnHit/OnDeath and the penthouse Victor's death) and a StartCombat on the screen against the player, the player shooting at it meanwhile"
 note = "Lucky38MrHouseREF 0x001264C5 in the penthouse, the player 450 units in front of his screen (as dialogue-zoom-house) at 5 s, facing it at 7 s; SetEnemy at 8 s, StartCombat at 9 s; the screen never enters combat (detection's state lines), the elevator Victor beside it is not a fixture"
@@ -29780,6 +29836,70 @@ forbid = [
   { re = 'combat: .* hits the player', label = "the NCR shoot the disguised player" },
   { re = 'alert: .* → Combat: detects the player', label = "an NCR soldier starts fighting the disguised player" },
   { re = 'combat group: .* about the player', label = "an alarm about the player goes round" },
+]
+
+[[scenario]]
+name = "pipboy-sleeve-trooper-pimpboy"
+source = "#2457 (docs/spec-notes/actors.md §1.2): with the NCR Trooper Fatigues and the Pimp-Boy 3 Billion worn the raised Pip-Boy showed no sleeve on the arm: the fatigues' model has no `Arms…` shape, its sleeves are arm partitions (3/3000, 5/5000) of `hest:0`, `objdefault01:0` and `objdefault02:0`, and the arms rig drew only `Arms…` and `PipBoyOn…` shapes"
+note = "the player wears OutfitTrooperFatigues (0x0010D2CD) and the Pimp-Boy (PimpBoy 0x0011BACB) in Goodsprings; the Pip-Boy comes up at 4 s, a frame at 7 s: an olive sleeve from the elbow to the device and a cuff at the wrist, the street not seen through the arm"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "crates/fnv-actor/src/mesh.rs", "engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0010D2CD,0011BACB", NVF_PLAY_TEST_PIPBOY = "4:open", NVF_PLAY_TEST_SHOTS = "7:pipboy_sleeve_trooper_pimpboy.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["OutfitTrooperFatigues"[^\]]*"PimpBoy"', label = "the fatigues and the Pimp-Boy are worn" },
+  { re = '(?i)player First rig part \S+ \S*armornvncrtrooperplain\.nif: no Arms shape, the arm partitions of \["hest:0", "objdefault01:0", "objdefault02:0"\] are drawn', label = "the arms rig draws the fatigues' arm partitions" },
+  { re = '(?i)player First rig part armor \S+ \S*armornvncrtrooperplain\.nif: shapes \[[^\]]*"pipboyon:0"', label = "and the PipBoyOn cuff" },
+  { re = 'test aid: pipboy Open at', label = "the Pip-Boy comes up" },
+]
+forbid = [
+  { re = '(?i)player First rig part armor \S+ \S*armornvncrtrooperplain\.nif: shapes \[[^\]]*"pipboyoff:0"', label = "the PipBoyOff sleeve is drawn with a Pip-Boy worn" },
+]
+
+[[scenario]]
+name = "pipboy-sleeve-trooper-pipboy"
+source = "#2457 (docs/spec-notes/actors.md §1.2): the NCR Trooper Fatigues' sleeves under the standard Pip-Boy 3000, the same rule as with the Pimp-Boy"
+note = "the player wears OutfitTrooperFatigues (0x0010D2CD) with the Pip-Boy 3000 it starts with, in Goodsprings; the Pip-Boy comes up at 4 s, a frame at 7 s: the olive sleeve from the elbow to the device and the cuff at the wrist"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0010D2CD", NVF_PLAY_TEST_PIPBOY = "4:open", NVF_PLAY_TEST_SHOTS = "7:pipboy_sleeve_trooper_pipboy.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["PipBoy", "OutfitTrooperFatigues"', label = "the fatigues and the Pip-Boy 3000 are worn" },
+  { re = '(?i)player First rig part \S+ \S*armornvncrtrooperplain\.nif: no Arms shape, the arm partitions of \["hest:0", "objdefault01:0", "objdefault02:0"\] are drawn', label = "the arms rig draws the fatigues' arm partitions" },
+  { re = 'test aid: pipboy Open at', label = "the Pip-Boy comes up" },
+]
+
+[[scenario]]
+name = "pipboy-sleeve-vault-suit"
+source = "#2457 (docs/spec-notes/actors.md §1.2): an outfit with `Arms…` shapes still goes by its shapes' names under the raised Pip-Boy, with no arm partitions added"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) with the Pip-Boy 3000 in Goodsprings; the Pip-Boy comes up at 4 s, a frame at 7 s: the blue sleeve to the device as before"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184", NVF_PLAY_TEST_PIPBOY = "4:open", NVF_PLAY_TEST_SHOTS = "7:pipboy_sleeve_vault_suit.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player First rig part armor \S+ \S*vaultsuit\S*: shapes \[[^\]]*"Arms[^\]]*"PipBoyOn[^\]]*\]', label = "the suit's Arms shapes and PipBoyOn sleeve are drawn" },
+  { re = 'test aid: pipboy Open at', label = "the Pip-Boy comes up" },
+]
+forbid = [
+  { re = 'no Arms shape, the arm partitions of', label = "an outfit with Arms shapes is drawn by partitions" },
+]
+
+[[scenario]]
+name = "pipboy-sleeve-combat-armor-reinforced"
+source = "#2457 (docs/spec-notes/actors.md §1.2): Combat Armor, Reinforced's model (`mark1combat.nif`) is one of the 31 upper-body models of FalloutNV.esm with no `Arms…` shape; in first person it is drawn by its arm partitions too"
+note = "the player wears Combat Armor, Reinforced (ArmorCombatReinforced 0x00126500) with the Pip-Boy 3000 in Goodsprings; the Pip-Boy comes up at 4 s, a frame at 7 s: the armour's sleeve on the upper arm and elbow, nothing of its chest in the view"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/first_person.rs", "engine/nvforever/src/player_body.rs"]
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00126500", NVF_PLAY_TEST_PIPBOY = "4:open", NVF_PLAY_TEST_SHOTS = "7:pipboy_sleeve_combat_reinforced.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = '(?i)player First rig part \S+ \S*mark1combat\.nif: no Arms shape, the arm partitions of \[".+"\] are drawn', label = "the arms rig draws the armour's arm partitions" },
 ]
 
 [[scenario]]

@@ -2509,6 +2509,16 @@ already talking takes over at once, same topic or another; nothing is queued or 
      coming, or coming only within some distance of his spot, says the search area is
      wrong; walking up and standing without a word says the talk is not the Find's.
 
+## Added 2026-11-15 (Vulpes Inculta in Caesar's tent, #2560)
+
+177. **Does a shared ally faction win over an enemy one?** (P2; #2560, factions.md §4.)
+     FortVulpesInculta 0x00122B9A is in VCaesarsLegionFaction (an Ally of itself) and in
+     ArmorNCRFactionNVEnemy, which VCaesarsLegionFaction names an Enemy [observed: the
+     data]. In Caesar's tent (TheFortCaesarTents) at 21:00, after a load there: do
+     Caesar, Lucius or the Praetorians ever go into combat with Vulpes? `prid 00121FF0`
+     then `getfactionrelation 00122B9A` (2 ally, 1 enemy). Ours since #2560: 2, and they
+     stay calm [hypothesis: the original agrees, as the owner never saw the fight].
+
 ## Added 2026-11-14 (children in fights, #2438)
 
 178. **Does a child ever fight back?** (P3; #2438, combat-ai.md §12.2.) Ours, by the
@@ -2530,6 +2540,21 @@ already talking takes over at once, same topic or another; nothing is queued or 
      from the Mojave outside Freeside and inside the dam's visitor centre. Also: does
      the World Map draw a second marker at the Strip's gate while the player is on the
      Strip?
+
+## Added 2026-11-14 (allies of an actor given StartCombat, #2520)
+
+180. **Do an actor's allies join a fight a script gave it against a player who did
+     nothing?** (P1; #2520, combat-ai.md §10.) Ours: no; Assistance answers an ally being
+     attacked (hit by the player, or fought by someone it did not start on), so a
+     StartCombat on a player it would leave alone draws neither its allies nor an alarm
+     [hypothesis]. Also ours: a Cowardly actor in a fight flees from its start, hurt or
+     not [hypothesis from GECK wiki Confidence, "will always flee from combat"]. To check:
+     in a game where VMS29a has not started, walk into the Silver Rush (FreesideSilverRush),
+     stand still by the door and watch the intro to its end (INFO 0012423E, the customer's
+     `startcombat player`): does Jean-Baptiste (0010D8E5) or a Van Graff thug draw on the
+     player, what stage is VMS29a afterwards (`GetStage VMS29a`), and does the customer
+     (00124121) run out without swinging? Then again, hitting the customer once as he
+     runs: do the Van Graffs turn on the player then?
 
 ## Added 2026-11-14 (Mr. House's screens after his death, #2431)
 
