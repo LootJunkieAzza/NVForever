@@ -579,7 +579,7 @@ fn resurrect_generates_a_dead_actor_again_where_it_lies() {
     assert_eq!(g.world.peek(adult).unwrap().pos, [180.0, -10.0, 9.0]);
     assert!(g.teleported.contains(&adult));
     assert_eq!(g.rolls(adult), 1);
-    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1 }]);
+    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1, restocked: 0 }]);
     assert!(g.take_resurrections().is_empty());
 }
 

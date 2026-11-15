@@ -130,6 +130,17 @@ name = "doc-mitchell"
 group = "interior"
 args = ["--cell", "GSDocMitchellHouse", "--hour", "12"]
 
+# A new game through character creation in Doc Mitchell's house (#2406): the wake-up, the
+# name, the face editor, the Vigor Tester, the tag skills and traits, each script menu held
+# 1 s; frames of 100 ms or more listed with their spans.
+[[scenario]]
+name = "new-game-chargen"
+group = "interior"
+seconds = 150
+slow_ms = 100
+args = ["--new-game"]
+aids = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+
 [[scenario]]
 name = "gomorrah-floor"
 group = "interior"
