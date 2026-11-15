@@ -69,7 +69,7 @@ companion's dialogue quest.
      actor has fewer; what it still carries is not doubled [hypothesis: the owner's
      "rerolls any level list" read for an actor's own list; rs1 does not say, Ringo was
      given the Stimpaks and lost none of his own items. Design: made up and not replaced,
-     so rs1's given Stimpak stays; observer check 196]. The faction hit squads need it:
+     so rs1's given Stimpak stays; observer check 197]. The faction hit squads need it:
      four placed references that VFactionSquadListSCRIPT resurrects for every visit
      (`rActor01.Resurrect`) [observed: the script's text], their weapons in leveled lists
      of their own item lists [observed: `fnvtool esm decode`, VEFR02LegionThugLeaderCM's

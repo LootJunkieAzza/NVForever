@@ -2687,7 +2687,7 @@ already talking takes over at once, same topic or another; nothing is queued or 
     player stopped at the edge like a wall, or pushed back; is the line a corner message
     or a message box, and how often does it repeat? Does Edge Fall-off (RPLI) move the
     edge?
-196. **What does a resurrected actor carry?** (P2; `fnv_game::resurrect`,
+197. **What does a resurrected actor carry?** (P2; `fnv_game::resurrect`,
     `fnv_sim::World::restock_inventory`, issue #2683.) NVForever makes the items of a
     dead actor's own item list up again when it is resurrected (rolled anew; only what
     it has fewer of is added) and keeps everything else it carries [hypothesis; capture
