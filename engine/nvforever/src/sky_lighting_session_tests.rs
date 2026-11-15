@@ -25,7 +25,7 @@ fn sky() -> SkyState {
         fog_override: None, interior: None, interior_grade: None, shadows: false,
         shadow_distance: DEFAULT_SHADOW_DISTANCE, shadow_reach: 1.0,
         shadow_cascades: DEFAULT_SHADOW_CASCADES, grade: true, time_scale: 0.0,
-        clock_running: false, days_passed: 0.0, prev: None, fade: 1.0,
+        clock_running: false, days_passed: 0.0, keep_once: false, prev: None, fade: 1.0,
         choices: Vec::new(), image_space: None, adapters: HashMap::new(), changed: true,
         script: None, pinned: false, regions: Vec::new(), source: None, placed: false,
         clock_seen: false, sun_hour: None, rolled_for: None, pick: 0, rolls: 0,
