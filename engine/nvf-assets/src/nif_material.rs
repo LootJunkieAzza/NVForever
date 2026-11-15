@@ -427,8 +427,10 @@ pub struct NifSurface {
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
     pub fire_period: f32,
     /// Unlit emissive rules: x 1 skips the image-space scale; y holds each light channel
-    /// to that value on the soft path (0: no hold); z, w unused. Zero keeps the default
-    /// [hypothesis, nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
+    /// to that value on the soft path (0: no hold); z 1: the vertex colours are display
+    /// values, made linear per fragment (`nif_spawn::unlit_vertex_colors`); w unused.
+    /// Zero keeps the default [hypothesis, nif.md §6 "Unlit shapes that are pictures, and
+    /// cut-out signs"].
     pub emissive_rule: Vec4,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
@@ -902,6 +904,22 @@ pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
     let added = colour.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) * alpha.clamp(0.0, 1.0);
     let sum = (shown + added).min(shown.max(Vec3::splat(ADD_DISPLAY_MAX)));
     (sum.powf(MULTIPLY_GAMMA) - behind).max(Vec3::ZERO)
+}
+
+/// The light an additive shape adds once fogged, from its colour through the view's fog
+/// (`fogged`) and black through the same fog (`fogged_black`): their difference, never
+/// below 0 (CPU mirror of nif_material.wesl).
+///
+/// Bevy's fogs are colour × k + a fog term that does not depend on the colour, so the
+/// difference is colour × k: fog dims the added light and adds no fog colour of its own,
+/// which the frame behind the shape already holds [hypothesis, docs/spec-notes/nif.md §6
+/// "Fog on added light"]. Fogged as a surface, a texel of black (which adds nothing)
+/// still added the fog colour: the Gomorrah Suites' wall sconces
+/// (`clutter\neoclassical\neoclassicalsconce.nif`, `NeoclassicalSconce:9`, ONE / ONE,
+/// no texture, vertex colour 0.34 at the bowl to black at the rim) were flat boards of
+/// fog colour with hard edges on the wall (#2435).
+pub fn fogged_addition(fogged: Vec3, fogged_black: Vec3) -> Vec3 {
+    (fogged - fogged_black).max(Vec3::ZERO)
 }
 
 /// Power on the alpha in the colour term of unlit alpha-blended shapes
@@ -1585,6 +1603,31 @@ mod tests {
         assert_eq!(add_display(flash, 1.0, grey(9.0)), Vec3::ZERO);
         // No alpha adds nothing.
         assert!(close(add_display(Vec3::ONE, 0.0, grey(0.2)), Vec3::ZERO));
+    }
+
+    #[test]
+    fn fog_dims_added_light_and_adds_no_fog_colour() {
+        // Bevy's linear fog: mix(colour, fog colour, k) (bevy_pbr render/fog.wesl).
+        let fog = Vec3::new(0.30, 0.18, 0.05);
+        let fogged = |c: Vec3, k: f32| c.lerp(fog, k);
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-6;
+        // The Gomorrah sconce's glow card (neoclassicalsconce.nif, NeoclassicalSconce:9):
+        // ONE / ONE, no texture, unlit vertex colour 0.34 (display) at the bowl, black at
+        // the rim. Its black rim adds nothing at any fog; fogged as a surface it added the
+        // fog colour (#2435).
+        for k in [0.0, 0.3, 1.0] {
+            assert!(close(fogged_addition(fogged(Vec3::ZERO, k), fogged(Vec3::ZERO, k)), Vec3::ZERO));
+        }
+        assert!(fogged(Vec3::ZERO, 0.3).max_element() > 0.05);
+        // The bowl's edge: the colour dimmed by the fog, without its colour.
+        let bowl = Vec3::new(0.34, 0.32, 0.27).powf(MULTIPLY_GAMMA);
+        assert!(close(fogged_addition(fogged(bowl, 0.3), fogged(Vec3::ZERO, 0.3)), bowl * 0.7));
+        // No fog: the colour whole. Thick fog: nothing.
+        assert!(close(fogged_addition(fogged(bowl, 0.0), fogged(Vec3::ZERO, 0.0)), bowl));
+        assert!(close(fogged_addition(fogged(bowl, 1.0), fogged(Vec3::ZERO, 1.0)), Vec3::ZERO));
+        // Bevy's atmospheric fog (colour × (1 − e) + fog × i) as well.
+        let atmospheric = |c: Vec3| c * 0.6 + fog * 0.5;
+        assert!(close(fogged_addition(atmospheric(bowl), atmospheric(Vec3::ZERO)), bowl * 0.6));
     }
 
     #[test]

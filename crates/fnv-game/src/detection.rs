@@ -23,13 +23,12 @@
 //!   fSneakLightRunMult; blindness is always 1 in New Vegas; stealth boy =
 //!   fSneakStealthboyMult when the target's Invisibility or Chameleon is at least 1;
 //! - **Detector skill** = falloff · Perception skill · (1 + alert · fSneakAlertMod + asleep
-//!   · fSneakSleepBonus + combat target · fSneakCombatMod), Perception skill =
-//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10; "combat target" is
-//!   IsCombatTarget: the target is one the detector fights, so a fighter perceives its own
-//!   foes at 0.8 and anyone else at 1.2 [documented: the page's formula and the Fallout
-//!   Wiki's Sneak (New Vegas) page agree; the page's one-line description of
-//!   fSneakCombatMod says "against someone else", the other way round:
-//!   docs/design/detection.md §9];
+//!   · fSneakSleepBonus + in combat with someone else · fSneakCombatMod), Perception skill =
+//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10. A fighter perceives its own
+//!   combat targets at 1.2 and anyone else at 0.8 [observed: captures run15b_t1 and
+//!   run15b_t2, 2026-11-15; docs/spec-notes/actor-behaviour.md §2.1a]. This follows the
+//!   GECK wiki Category:Detection description of fSneakCombatMod; its IsCombatTarget
+//!   formula has the direction reversed (docs/design/detection.md §9);
 //! - **Target skill** (New Vegas) = sneaking · (Sneak + iSneakLevelBonus · (target level −
 //!   detector level) + max(iSneakStartBonus − iSneakStartBonusLevelPenatly · target level,
 //!   0) − armour penalty), the penalty iMediumArmorStealthPenalty or
@@ -264,7 +263,7 @@ impl Settings {
         let state = 1.0
             + if s.detector_alert { self.alert_mod } else { 0.0 }
             + if s.detector_asleep { self.sleep_bonus } else { 0.0 }
-            + if s.combat_target { self.combat_mod } else { 0.0 };
+            + if s.in_combat_with_someone_else { self.combat_mod } else { 0.0 };
         let detector_skill = a * perception_skill * state;
         // The target's Sneak counts only against an actor that sees it, or hears it: an
         // unseen, silent target reads the same sneaking or standing, by distance alone
@@ -406,9 +405,11 @@ pub struct Situation {
     /// The detector is in a combat state (Alert, Combat or Lost).
     pub detector_alert: bool,
     pub detector_asleep: bool,
-    /// The target is one of the detector's combat targets, the detector in Combat
-    /// (IsCombatTarget; fSneakCombatMod applies).
-    pub combat_target: bool,
+    /// The detector is in Combat and the target is absent from its combat target list:
+    /// fSneakCombatMod applies [observed: captures run15b_t1 and run15b_t2, 2026-11-15;
+    /// docs/spec-notes/actor-behaviour.md §2.1a]. Lost does not qualify [design: §9 of
+    /// docs/design/detection.md].
+    pub in_combat_with_someone_else: bool,
     /// What GetLineOfSight reads when it differs from the sight above: the player's is the
     /// camera's, its detection the body's [observed: capture detection-2 det4, 2026-10-17,
     /// third person: player.GetDetected Ringo 1 to 90° off the facing on both sides, 0
@@ -915,11 +916,14 @@ mod tests {
         assert_eq!(s.evaluate(&boy, &sit).visual, 0.0);
         let asleep = s.evaluate(&Pair::default(), &Situation { detector_asleep: true, ..sit });
         assert!(near(asleep.detector_skill, 0.81 * 50.0 * 0.8));
-        // In Combat: its own foe at 1 + 0.2 − 0.4, anyone else at 1 + 0.2.
-        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, combat_target: true, ..sit });
-        assert!(near(foe.detector_skill, 0.81 * 50.0 * 0.8));
-        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
-        assert!(near(other.detector_skill, 0.81 * 50.0 * 1.2));
+        // Own foe at 1.2, anyone else at 0.8 [observed: captures run15b_t1 and run15b_t2,
+        // 2026-11-15; docs/spec-notes/actor-behaviour.md §2.1a].
+        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
+        assert!(near(foe.detector_skill, 0.81 * 50.0 * 1.2));
+        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, in_combat_with_someone_else: true, ..sit });
+        assert!(near(other.detector_skill, 0.81 * 50.0 * 0.8));
+        assert!(foe.value > s.evaluate(&Pair::default(), &sit).value);
+        assert!(other.value < s.evaluate(&Pair::default(), &sit).value);
     }
 
     #[test]

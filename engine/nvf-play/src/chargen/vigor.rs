@@ -33,6 +33,15 @@
 //! pages between), `done`, `click:<shape>` (a click at the middle of the shape's outline
 //! on the screen, e.g. `click:P1_RT_Btn:0`). Attributes by number 0–6, name or letter;
 //! pages by name (`attract`, `review`, an attribute) or number 0–8.
+//!
+//! - **Made ready behind the start's loading screen** in a new game ([`warm`], #2406):
+//!   the two models are read, parsed and spawned (hidden, 508 parts, 16 textures) and the
+//!   sequences read while the screen that brings the player into Doc Mitchell's house is
+//!   up, and the first opening takes them. Built in the frame the menu opened, they made
+//!   it 79 ms on the bench machine, 104 ms with the driver's shader cache empty and
+//!   319 ms with other programs on 60% of the processor [observed: profile campaign
+//!   `new-game-chargen` runs, 2026-11-15, docs/design/streaming-hitches.md §6]. What was
+//!   made ready and not used is dropped at the next travel's loading screen.
 
 pub mod model;
 pub mod view;
@@ -79,7 +88,7 @@ impl Plugin for VigorPlugin {
             .insert_resource(VigorAid(aid))
             .add_systems(
                 Update,
-                (open_close, input).chain().in_set(PlaySet::Scripts).before(crate::script::run_scripts).run_if(resource_exists::<GameData>),
+                (warm, open_close, input).chain().in_set(PlaySet::Scripts).before(crate::script::run_scripts).run_if(resource_exists::<GameData>),
             )
             .add_systems(Update, draw.in_set(PlaySet::Ui).run_if(resource_exists::<GameData>))
             .add_systems(Last, report);
@@ -90,8 +99,19 @@ impl Plugin for VigorPlugin {
 #[derive(Resource, Default)]
 pub struct VigorMenu {
     open: Option<OpenMenu>,
-    /// The activate model's sequences by name, read on the first opening.
+    /// The activate model's sequences by name, read on the first opening (or by [`warm`]).
     clips: Option<Arc<HashMap<String, Clip>>>,
+    /// The machine spawned hidden ahead of its first opening ([`warm`]).
+    ready: Option<Machine>,
+    /// [`warm`] has run in this run (once at most).
+    warmed: bool,
+}
+
+/// The two models, spawned and hidden: their roots and named objects (the activate
+/// model's first).
+struct Machine {
+    roots: [Entity; 2],
+    nodes: HashMap<String, Entity>,
 }
 
 impl VigorMenu {
@@ -170,22 +190,12 @@ fn open_close(
     if menu.clips.is_none() {
         menu.clips = Some(Arc::new(read_clips(&ctx.data)));
     }
-    let (act, cab) = match (ctx.spawn_nif(ACTIVATE, None), ctx.spawn_nif(CABINET, None)) {
-        (Ok(a), Ok(c)) => (a, c),
-        (a, c) => {
-            warn!("vigor tester: model not drawn: {:?} {:?}", a.err(), c.err());
-            return;
-        }
-    };
-    let (Some(ra), Some(rc)) = (act.root, cab.root) else { return };
-    let mut nodes = act.nodes;
-    for (k, v) in cab.nodes {
-        nodes.entry(k).or_insert(v);
+    let warmed = menu.ready.is_some();
+    let Some(Machine { roots: [ra, rc], nodes }) = menu.ready.take().or_else(|| spawn_machine(&mut ctx)) else { return };
+    if warmed {
+        info!("vigor tester: the machine made ready behind the loading screen is used");
     }
-    // Hidden until `draw` has put the shapes on the machine's layer, or the main camera
-    // would draw them for a frame in the room's light.
     for r in [ra, rc] {
-        ctx.commands.entity(r).insert((VigorPart, Visibility::Hidden, view::model_in_camera(1.0)));
         ctx.commands.entity(cam).add_child(r);
     }
     let mut vigor = Vigor::new(sheet);
@@ -211,6 +221,62 @@ fn open_close(
     );
     stats.opened += 1;
     menu.open = Some(OpenMenu { vigor, roots: [ra, rc], nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None, aid_from: None });
+}
+
+/// Spawn the two models, hidden until `draw` has put the shapes on the machine's layer
+/// (or the main camera would draw them for a frame in the room's light), not yet under
+/// the camera.
+fn spawn_machine(ctx: &mut SpawnCtx) -> Option<Machine> {
+    let (act, cab) = match (ctx.spawn_nif(ACTIVATE, None), ctx.spawn_nif(CABINET, None)) {
+        (Ok(a), Ok(c)) => (a, c),
+        (a, c) => {
+            warn!("vigor tester: model not drawn: {:?} {:?}", a.err(), c.err());
+            return None;
+        }
+    };
+    let (Some(ra), Some(rc)) = (act.root, cab.root) else { return None };
+    let mut nodes = act.nodes;
+    for (k, v) in cab.nodes {
+        nodes.entry(k).or_insert(v);
+    }
+    for r in [ra, rc] {
+        ctx.commands.entity(r).insert((VigorPart, Visibility::Hidden, view::model_in_camera(1.0)));
+    }
+    Some(Machine { roots: [ra, rc], nodes })
+}
+
+/// A new game's opening has the Vigor Tester: behind the start's loading screen, read its
+/// sequences and spawn the machine hidden, so its first opening builds nothing (module
+/// notes, #2406). Once a run; what is still unused at the next travel's loading screen
+/// is dropped.
+fn warm(
+    mut menu: ResMut<VigorMenu>,
+    mut ctx: SpawnCtx,
+    loading: Option<Res<crate::loading::Loading>>,
+    new_game: Option<Res<crate::script::NewGame>>,
+) {
+    let Some(loading) = loading else { return };
+    if loading.travelling() {
+        if let Some(m) = menu.ready.take() {
+            for e in m.roots {
+                ctx.commands.entity(e).despawn();
+            }
+            info!("vigor tester: the machine made ready was not used here; dropped");
+        }
+        return;
+    }
+    if menu.warmed || new_game.is_none() || !loading.starting() {
+        return;
+    }
+    menu.warmed = true;
+    let t = std::time::Instant::now();
+    if menu.clips.is_none() {
+        menu.clips = Some(Arc::new(read_clips(&ctx.data)));
+    }
+    menu.ready = spawn_machine(&mut ctx);
+    if let Some(m) = &menu.ready {
+        info!("vigor tester: made ready behind the loading screen in {:.0} ms ({} parts)", t.elapsed().as_secs_f64() * 1000.0, m.nodes.len());
+    }
 }
 
 /// The machine's clips by name. A broken file (a panic reading it) gives none, and a clip

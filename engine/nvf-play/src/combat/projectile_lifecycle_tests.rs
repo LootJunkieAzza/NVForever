@@ -279,7 +279,7 @@ fn natural_expiry_travel_and_no_runtime_keep_their_existing_boundaries() {
     step(&mut a, 0.2);
     retired(&a, r, id);
     let (other, other_id) = launch(&mut a, "NeighborGun");
-    a.world_mut().resource_mut::<Messages<crate::Travel>>().write(crate::Travel { world: None, interior: Some(CELL.0), feet: [0.0; 3], heading_deg: 0.0 });
+    a.world_mut().resource_mut::<Messages<crate::Travel>>().write(crate::Travel { world: None, interior: Some(CELL.0), feet: [0.0; 3], heading_deg: 0.0, pitch_deg: None });
     step(&mut a, 1.0 / 60.0);
     retired(&a, other, other_id);
     let (last, _) = launch(&mut a, "OwnedGun");
