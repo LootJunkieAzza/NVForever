@@ -147,6 +147,17 @@ Meanings [hypothesis, from the names and the geometry below]:
   Taking the torso section away with the part (as built until 2026-11-15) left the hip or
   shoulder open and the torso cap floating at the end of the missing stump: the corpse showed
   a see-through hole (owner, 2026-11-15, Easy Pete and a Goodsprings settler).
+- A torso cap is a cup: its open rim lies about 5 units inside the stump and its closed end
+  about 3 units past the cut (`upperbody.nif` cap 205: open rim at x 30.2, the stump's cut at
+  x 35.0). Its rim meets the stump's with the same skin weights (difference ≤ 0.06 over the
+  four limb caps) [observed: `fnvtool nif decode`, 2026-11-15].
+- Every cap shape uses `textures\gore\MeatCapGore01.dds` (DXT3) with NiAlphaProperty 0x12EC,
+  alpha test GREATER 127, and no NiStencilProperty (one-sided) [observed]. The texture's alpha
+  cuts the cap: of cap 205's area 0–5 % is drawn 3–6 units inside the stump, 23–68 % near the
+  cut and 51–96 % past it (210: 4 %, 44–85 %, 51–100 %) [observed: DXT3 alpha sampled over the
+  cap's UVs]. Through the cuts, one-sided, the hollow limb and the cap's far side are not
+  drawn, so the stump showed the ground (owner, 2026-11-15). NVForever draws caps from both
+  sides [design; whether the original hides the cuts some other way is not observed].
 
 ### 2.6 Creatures [observed: the 49 BPTD records of FalloutNV.esm; creature meshes in `Fallout - Meshes.bsa`]
 

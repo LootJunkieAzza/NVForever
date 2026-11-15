@@ -912,10 +912,6 @@ impl ActorCtx<'_, '_> {
             if props.hair {
                 mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
             }
-            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
-            if let Some(t) = missing {
-                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
-            }
             let cap = is_cap(&dec, shape);
             let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
             // In a shape with drawn partitions, only a cap body part (section caps 1xx,
@@ -926,6 +922,18 @@ impl ActorCtx<'_, '_> {
             }
             let partitions = Arc::new(partitions);
             let caps = partitions.iter().filter(|p| p.cap).count();
+            // A cap's texture alpha cuts up to half of its tip away (`MeatCapGore01.dds`,
+            // DXT3, tested GREATER 127: dismemberment.md §2.5), and through the cuts the
+            // hollow limb and the cap's far side were not drawn: the corpse showed the ground
+            // through the stump (owner, 2026-11-15). Caps are drawn from both sides, so the
+            // cuts show the cap's inside [design: the caps carry no NiStencilProperty].
+            if caps > 0 {
+                props.double_sided = true;
+            }
+            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+            if let Some(t) = missing {
+                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
+            }
             if !cap && caps > 0 && first_mixed_report(path, o.block) {
                 info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
             }
