@@ -306,6 +306,7 @@ fn spawn_flames(
     mut commands: Commands,
     sfx: Option<Res<Sfx>>,
     emitters: Query<(Entity, &AddonEmitter), Without<FlameLooked>>,
+    graphics: Option<Res<crate::graphics::Graphics>>,
     mut made: ResMut<FlamesMade>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<FireVolumeMaterial>>,
@@ -332,7 +333,9 @@ fn spawn_flames(
         commands.entity(e).insert(FlameLooked);
         made.count += 1;
         if made.count.is_power_of_two() {
-            info!("fire volume: {} flame(s) drawn ({path}: {radius} across the base, {height} high)", made.count);
+            // Made hidden; drawn only while the fuller fire is on (`follow_emitters`).
+            let state = if graphics.as_ref().is_some_and(|g| g.fuller_fire) { "drawn" } else { "made hidden (the fuller fire is off)" };
+            info!("fire volume: {} flame(s) {state} ({path}: {radius} across the base, {height} high)", made.count);
         }
     }
 }

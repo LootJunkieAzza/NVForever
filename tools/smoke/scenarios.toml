@@ -26923,6 +26923,8 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos
 run_seconds = 80
 expect = [
   { re = 'graphics: .*(?<!no )fuller fire', count = 0, label = "the fuller fire is off (owner 2026-11-14: default fire before testing grass fires); the graphics line never names it on (\"no fuller fire\" here, no mention once it is off by default)" },
+  { re = 'graphics: no fuller fire', label = "the log says the fuller fire is off, for the fire-safety checks" },
+  { re = 'fire volume: \d+ flame\(s\) drawn', count = 0, label = "no volumetric flame is drawn (made hidden while the fuller fire is off)" },
   { re = 'particles: born in .*fuller fire: ', count = 0, label = "none of the fuller fire's added systems emits (they are attached to a fire's add-on node and logged as 'system(s) of the fuller fire' even when it is off; only births show it ran)" },
   { re = 'grass fire fx: \d+ drawn \(cap 200\), (?P<n>\d+) near \(cap 24', range = [0, 24], all = true, label = "the GPU-safe caps hold: never more than 24 flame and smoke models near the camera" },
   { re = 'grass fire 1: started at .* by the player with .*\(00044B30\)', label = "the Flamer's burn lights the grass where its flame lands" },
