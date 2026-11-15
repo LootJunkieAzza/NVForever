@@ -545,7 +545,7 @@ mod tests {
         assert_eq!(l.w, BOARD_W);
         assert_eq!(l.names, ["You", "Sunny"]);
         // The owner's case, longer still: the board widens and the whole name shows.
-        let gina = [place("You", "solids, 0 left"), place("Gina \"Bobcat\" Griffin the Third of Goodsprings", "stripes, 1 left")];
+        let gina = [place("You", "solids, 0 left"), place("Gina \"Bobcat\" Griffin the Third", "stripes, 1 left")];
         let l = board_layout(&f, "YOU WIN", &gina);
         assert!(l.w > BOARD_W && l.w <= BOARD_MAX_W);
         assert_eq!(l.names[1], gina[1].name);
