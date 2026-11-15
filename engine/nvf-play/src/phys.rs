@@ -2034,6 +2034,9 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         let list: Vec<String> = wet.iter().map(|(id, floats, top)| format!("{id:08X} ({}, its top {top:.0} units from the surface)", if *floats { "floats" } else { "sinks" })).collect();
         info!("physics: {} loose item bodies in water at exit: {}", wet.len(), list.join(", "));
     }
+    // Bodies a query's refresh had to put back into rapier's islands (`fnv_phys::islands`):
+    // without it they froze, and could crash rapier later.
+    info!("physics: island repairs after query refreshes: {} bodies", phys.world.refresh_stats().repair_islands);
     // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
     for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
         if let Some(b) = phys.world.ref_bodies(id).first() {

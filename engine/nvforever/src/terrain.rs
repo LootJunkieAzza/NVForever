@@ -120,7 +120,7 @@ const SHADER: &str = "embedded://nvforever/terrain.wesl";
 /// do (nvf_assets nif_material.rs "Bindless"), so quadrants still draw in one batch.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
 #[data(50, TerrainLayersUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..63), binding(100)))]
+#[bindless(limit(512), index_table(range(50..64), binding(100)))]
 pub struct TerrainLayers {
     /// Layers held (at most [`FOLDED_LAYERS`]).
     pub count: u32,
@@ -152,10 +152,15 @@ pub struct TerrainLayers {
     pub diffuse5: Option<Handle<Image>>,
     #[texture(62)]
     pub normal5: Option<Handle<Image>>,
+    /// The grass fires' burn map (`crate::grass::GrassBurn`): burnt ground is drawn
+    /// scorched (terrain.wesl "Scorch"). `None`: no fires, nothing scorched.
+    #[texture(63)]
+    pub burn: Option<Handle<Image>>,
 }
 
 /// What terrain.wesl reads of a [`TerrainLayers`]: `counts` x the layer count, y a bit for
-/// each layer that has a normal map; `tile` x [`TerrainLayers::tile`].
+/// each layer that has a normal map, z 1 when it has the burn map; `tile` x
+/// [`TerrainLayers::tile`].
 #[derive(Clone, Default, ShaderType)]
 pub struct TerrainLayersUniform {
     pub counts: UVec4,
@@ -167,7 +172,7 @@ impl From<&TerrainLayers> for TerrainLayersUniform {
         let normals = [&l.normal0, &l.normal1, &l.normal2, &l.normal3, &l.normal4, &l.normal5];
         let bits = normals.iter().enumerate().filter(|(_, n)| n.is_some()).fold(0u32, |b, (i, _)| b | 1 << i);
         let most = if l.tile > 0.0 { FOLDED_LAYERS } else { FOLDED_LAYERS_WITH_UV };
-        TerrainLayersUniform { counts: UVec4::new(l.count.min(most as u32), bits, 0, 0), tile: Vec4::new(l.tile.max(0.0), 0.0, 0.0, 0.0) }
+        TerrainLayersUniform { counts: UVec4::new(l.count.min(most as u32), bits, u32::from(l.burn.is_some()), 0), tile: Vec4::new(l.tile.max(0.0), 0.0, 0.0, 0.0) }
     }
 }
 
@@ -204,6 +209,7 @@ pub struct TerrainMaterials<'w> {
     pub cache: ResMut<'w, TerrainCache>,
     pub folded: ResMut<'w, Assets<TerrainMaterial>>,
     device: Option<Res<'w, bevy::render::renderer::RenderDevice>>,
+    burn: Option<Res<'w, crate::grass::GrassBurn>>,
 }
 
 impl TerrainMaterials<'_> {
@@ -298,7 +304,8 @@ impl TerrainCtx<'_, '_, '_> {
         let mut textures = textures.into_iter();
         let mut next = || textures.next().map_or((None, None), |(d, n)| (Some(d), n));
         let ((diffuse0, normal0), (diffuse1, normal1), (diffuse2, normal2), (diffuse3, normal3), (diffuse4, normal4), (diffuse5, normal5)) = (next(), next(), next(), next(), next(), next());
-        let extension = TerrainLayers { count: layers.len() as u32, tile, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3, diffuse4, normal4, diffuse5, normal5 };
+        let burn = self.tm.burn.as_deref().map(|b| b.0.clone());
+        let extension = TerrainLayers { count: layers.len() as u32, tile, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3, diffuse4, normal4, diffuse5, normal5, burn };
         let base = self.surface(tex.as_deref());
         let h = self.tm.folded.add(TerrainMaterial { base, extension });
         self.tm.cache.folded.insert(key, h.clone());
