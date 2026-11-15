@@ -1321,6 +1321,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever. Check the size of the drops against the basin, how high the spray goes, and
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+    A second case, sharper (2026-11-15, mods-1114): Nova Arizona places
+    `effects
+vxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
+    AZMalpaisMarket, (91398, -23471, 4975) in WastelandNV. The file's particles have
+    radius 394 and rise at 118 units/s for 20 s from a 197-unit box [observed: `fnvtool
+    nif decode`]. With §7.7 (the reference's scale on speed and box, not on size) the
+    smoke is a black ball about 800 units across sitting on the chimney (laptop frame
+    s1-nova-arizona, 2026-11-14); with the scale on size too it is a column about 80
+    wide and 470 high. A frame of the original there, with the mod, settles which; the
+    mod's author presumably placed it to look like the second [hypothesis].
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 
