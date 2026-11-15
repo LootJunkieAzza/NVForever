@@ -965,7 +965,59 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
+    shape_aids(props, &mut material);
     (material, missing)
+}
+
+/// A shape's base texture path matches one of `parts` (any case, `/` or `\`).
+fn texture_matches(props: &Props, parts: &[String]) -> bool {
+    let Some(t) = props.textures.first().filter(|t| !t.is_empty()) else { return false };
+    let t = t.replace('/', "\\").to_ascii_lowercase();
+    parts.iter().any(|p| t.contains(p.as_str()))
+}
+
+fn parse_parts(v: &str) -> Vec<String> {
+    v.split(';').map(|p| p.trim().replace('/', "\\").to_ascii_lowercase()).filter(|p| !p.is_empty()).collect()
+}
+
+/// Test aids for looking at one model's layers: `NVF_PLAY_TEST_HIDE_TEXTURES="<part>;…"`
+/// draws nothing of a shape whose base texture path contains a part (any case), and
+/// `NVF_PLAY_TEST_LOG_TEXTURES="<part>;…"` logs the material such a shape is drawn with.
+/// Nothing changes without them.
+fn shape_aids(props: &Props, material: &mut NifMaterial) {
+    static AIDS: std::sync::OnceLock<(Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    let (hide, log) = AIDS.get_or_init(|| {
+        let read = |k: &str| std::env::var(k).map(|v| parse_parts(&v)).unwrap_or_default();
+        (read("NVF_PLAY_TEST_HIDE_TEXTURES"), read("NVF_PLAY_TEST_LOG_TEXTURES"))
+    });
+    if !log.is_empty() && texture_matches(props, log) {
+        let b = &material.base;
+        info!(
+            "test aid: material of {:?}: unlit {}, alpha {:?} (flags {:?}), emissive {:?} x {:?} -> {:?}, glow {}, specular flag {}, gloss {:?} -> roughness {:.3}, reflectance {:?}, mask {}, normal map {}, add_whole {}, emissive_rule {:?}",
+            props.textures,
+            b.unlit,
+            b.alpha_mode,
+            props.alpha,
+            props.emissive,
+            props.emissive_mult,
+            b.emissive,
+            b.emissive_texture.is_some(),
+            props.specular,
+            props.glossiness,
+            b.perceptual_roughness,
+            b.reflectance,
+            b.specular_texture.is_some(),
+            b.normal_map_texture.is_some(),
+            material.extension.add_whole,
+            material.extension.emissive_rule,
+        );
+    }
+    if !hide.is_empty() && texture_matches(props, hide) {
+        info!("test aid: hiding the shape with textures {:?}", props.textures);
+        material.base.base_color = Color::NONE;
+        material.base.emissive = LinearRgba::BLACK;
+        material.base.alpha_mode = AlphaMode::Mask(2.0);
+    }
 }
 
 /// The alpha from which a blended hair-shader shape (hair, beards, brows) writes depth;
@@ -1376,6 +1428,17 @@ mod tests {
         assert!(loads_glow(&sign, false));
         assert!(!loads_glow(&Props { external_emittance: false, ..sign.clone() }, false));
         assert!(!loads_glow(&Props { unlit: true, ..sign }, false));
+    }
+
+    #[test]
+    fn the_layer_aids_match_a_shape_by_its_base_texture() {
+        let parts = parse_parts(" WhiteNoise01 ; ;textures/nvdlc03/creatures/brainbot/NVDLC03_BrainBotScrn");
+        assert_eq!(parts.len(), 2);
+        let tex = |t: &str| Props { textures: vec![t.into()], ..Default::default() };
+        assert!(texture_matches(&tex("textures\\clutter\\whitenoise01.dds"), &parts));
+        assert!(texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBotScrn.dds"), &parts));
+        assert!(!texture_matches(&tex("textures\\nvdlc03\\creatures\\brainbot\\NVDLC03_BrainBot_ScanLine.dds"), &parts));
+        assert!(!texture_matches(&Props::default(), &parts));
     }
 
     impl TextureSource for NoTextures {
