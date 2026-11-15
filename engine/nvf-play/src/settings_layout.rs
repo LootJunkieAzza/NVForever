@@ -313,7 +313,7 @@ mod tests {
     /// FSR library row, #2242's upscaling counter row, #2317's Generated frames row, the viewmodel
     /// field of view row, the menu scale row and the Physics rate row), by the group it registers
     /// with.
-    const KNOWN: [(&str, &str); 113] = [
+    const KNOWN: [(&str, &str); 114] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
