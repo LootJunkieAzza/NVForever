@@ -16,9 +16,24 @@
 //!   actor in a conversation. The host's game decides every hit on the world's actors
 //!   (a guest's hits go to it), so the host's value is the session's.
 //!
+//! - **One conversation per NPC** (item 211, owner 2026-11-14: "if a player is talking to
+//!   an npc that someone else has to wait to also talk to them"). An actor another player
+//!   talks to offers no conversation here: E shows "Wait for <that player>" and does
+//!   nothing else, nothing is kept for later (`crate::activate`,
+//!   `fnv_game::Game::in_another_players_talk`). Every pair: the host relays each
+//!   guest's telling to the other guests (`nvf_coop::net`), so a guest waits for a guest
+//!   as for the host, and the host for a guest.
+//! - **The wait ends with the talk.** The world runs on behind a co-op conversation
+//!   (`crate::coop_tables::keeps_world`), so a talk this game has ends here when its
+//!   player is down, a loading screen comes, a fight finds its player or its actor, or the
+//!   two are [`WALKED_AWAY`] apart ([`talk_ends`]); its end is told at once (0), as a
+//!   goodbye's is. A player that left the session is forgotten at once, not after
+//!   [`STALE`].
+//!
 //! Outside a session nothing is sent and the set is empty: solo is unchanged.
 //!
-//! Log: `co-op talk: in conversation now: [...]` when the set changes; the hits turned
+//! Log: `co-op talk: in conversation now: [...]` when the set changes, `co-op talk: this
+//! player's conversation with <actor> ends: <why>`; the hits turned
 //! away are logged by `fnv_game` (`co-op: <actor> is in a conversation with a player:
 //! the hit by <who> does no damage (...)`).
 
@@ -34,6 +49,9 @@ use std::collections::{BTreeSet, HashMap};
 /// again is forgotten.
 const AGAIN: f32 = 1.0;
 const STALE: f32 = 3.0;
+/// A co-op conversation ends when the player and the actor are this far apart, game
+/// units [engineering choice: well past any talk's start, under a room's length].
+pub const WALKED_AWAY: f32 = 600.0;
 
 #[derive(Resource)]
 pub struct TalkGuard {
@@ -43,12 +61,15 @@ pub struct TalkGuard {
     heard: HashMap<u8, (u32, f32)>,
     /// What this game last told, and when.
     told: (u32, f32),
+    /// The actors the other players talk to, with the name of the player talking
+    /// (the wait prompt names them, `crate::activate`).
+    pub talkers: HashMap<u32, String>,
 }
 
 impl Default for TalkGuard {
     fn default() -> Self {
         // `NVF_COOP_KILL_IN_TALK=0` starts with the setting off (the two-window check).
-        TalkGuard { players_may_kill: std::env::var("NVF_COOP_KILL_IN_TALK").map_or(true, |v| v != "0"), heard: HashMap::new(), told: (0, 0.0) }
+        TalkGuard { players_may_kill: std::env::var("NVF_COOP_KILL_IN_TALK").map_or(true, |v| v != "0"), heard: HashMap::new(), told: (0, 0.0), talkers: HashMap::new() }
     }
 }
 
@@ -80,7 +101,33 @@ fn talking(own: u32, heard: &HashMap<u8, (u32, f32)>, now: f32) -> BTreeSet<Form
     heard.values().filter(|(_, at)| now - at < STALE).map(|(a, _)| *a).chain([own]).filter(|a| *a != 0).map(FormId).collect()
 }
 
-fn share(time: Res<Time<Real>>, mut script: Option<ResMut<ScriptState>>, mut tables: Option<ResMut<Tables>>, mut st: ResMut<TalkGuard>) {
+/// Why this player's co-op conversation ends now, if it does (module notes): its player
+/// is down, a loading screen is up, a fight has its player or its actor, or the two are
+/// `apart` more than [`WALKED_AWAY`].
+pub fn talk_ends(down: bool, loading: bool, fought: bool, apart: Option<f32>) -> Option<&'static str> {
+    if down {
+        Some("this player is down")
+    } else if loading {
+        Some("a loading screen")
+    } else if fought {
+        Some("a fight")
+    } else if apart.is_some_and(|d| d > WALKED_AWAY) {
+        Some("walked away")
+    } else {
+        None
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn share(
+    time: Res<Time<Real>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut tables: Option<ResMut<Tables>>,
+    mut st: ResMut<TalkGuard>,
+    player: Option<Res<crate::player::Player>>,
+    loading: Option<Res<crate::loading::Loading>>,
+    sim: Option<Res<crate::sim::SimState>>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let g = &mut rt.game;
     g.coop_talk_kill = st.players_may_kill;
@@ -89,10 +136,23 @@ fn share(time: Res<Time<Real>>, mut script: Option<ResMut<ScriptState>>, mut tab
             g.coop_talking.clear();
         }
         st.heard.clear();
+        st.talkers.clear();
         st.told = (0, 0.0);
         return;
     };
     let now = time.elapsed_secs();
+    // This player's talk ends when the world it runs in takes the player away.
+    if let Some(actor) = g.dialogue.as_ref().map(|c| c.actor) {
+        let me = FormId::PLAYER_REF;
+        let fought = g.awareness.state(actor).in_combat()
+            || g.awareness.actors.iter().any(|(r, a)| a.state == fnv_game::awareness::State::Combat && g.combat_target_of(*r) == Some(me));
+        let apart = player.as_deref().zip(sim.as_deref().and_then(|s| s.world.peek(actor))).map(|(p, a)| (0..3).map(|i| (p.feet[i] - a.pos[i]).powi(2)).sum::<f32>().sqrt());
+        if let Some(why) = talk_ends(g.is_dead(me), loading.as_deref().is_some_and(|l| l.active()), fought, apart) {
+            if g.end_dialogue() {
+                info!("co-op talk: this player's conversation with {actor} ends: {why}");
+            }
+        }
+    }
     let own = g.dialogue.as_ref().map_or(0, |c| c.actor.0);
     if own != st.told.0 || (own != 0 && now - st.told.1 >= AGAIN) {
         tables.send(0, game::TALK, own.to_le_bytes().to_vec());
@@ -106,7 +166,9 @@ fn share(time: Res<Time<Real>>, mut script: Option<ResMut<ScriptState>>, mut tab
             st.heard.insert(from, (actor, now));
         }
     }
-    st.heard.retain(|_, (_, at)| now - *at < STALE);
+    // A player that left the session is forgotten at once.
+    st.heard.retain(|p, (_, at)| now - *at < STALE && tables.names.contains_key(p));
+    st.talkers = st.heard.iter().map(|(p, (a, _))| (*a, tables.name(*p))).collect();
     let set = talking(own, &st.heard, now);
     if set != g.coop_talking {
         info!("co-op talk: in conversation now: {:?}", set.iter().map(|r| r.to_string()).collect::<Vec<_>>());
@@ -126,5 +188,17 @@ mod tests {
         // Player 2's was last heard 5.5 s ago: forgotten.
         assert_eq!(talking(0x0010_4C80, &heard, 10.5), [FormId(0x0010_4C80), FormId(0x0010_4E85)].into_iter().collect());
         assert!(talking(0, &HashMap::new(), 1.0).is_empty());
+    }
+
+    #[test]
+    fn a_talk_ends_when_its_player_is_taken_from_it() {
+        // Talking, near, no fight: it goes on (a goodbye ends it in fnv_game).
+        assert_eq!(talk_ends(false, false, false, Some(120.0)), None);
+        assert_eq!(talk_ends(false, false, false, None), None);
+        // Down, a loading screen, a fight, walked away.
+        assert_eq!(talk_ends(true, false, false, Some(120.0)), Some("this player is down"));
+        assert_eq!(talk_ends(false, true, false, Some(120.0)), Some("a loading screen"));
+        assert_eq!(talk_ends(false, false, true, Some(120.0)), Some("a fight"));
+        assert_eq!(talk_ends(false, false, false, Some(WALKED_AWAY + 1.0)), Some("walked away"));
     }
 }
