@@ -153,6 +153,9 @@ pub struct SmpRig {
     last_root: Option<(Vec3, Vec3)>,
     /// The actor's root when the cloth was last held still ([`cloth_held`]), until it runs.
     held_at: Option<Affine3A>,
+    /// Made by the generator ([`gen`]): an outer layer (a poncho) that keeps outside the
+    /// actor's other simulated garments.
+    generated: bool,
     pub label: String,
     /// How often the system blew up and was started over.
     pub blowups: u32,
@@ -227,6 +230,9 @@ fn fit_capsules(skel: &PreparedSkeleton, rest: &[Option<(Vec3, f32)>], legs: f32
 
 /// The most a bone's collision radius grows to its neighbours, rig units [design].
 const MAX_WIDEN: f32 = 3.0;
+/// How far a generated layer keeps from the bones of a garment under it, beyond their
+/// radius, rig units [design: about half the gap between a skirt's columns].
+const UNDER_PAD: f32 = 2.5;
 
 /// Widens each simulated bone's collision radius to half its rest distance to the
 /// bones it is tied to across (the weft springs between neighbouring chains), at most
@@ -445,7 +451,7 @@ fn rig_from_xml(commands: &mut Commands, e: Entity, cand: &SmpCandidate, shape: 
     // The skin now binds to every slot.
     let joints: Vec<Entity> = (0..names.len()).map(|s| entities[index[s]]).collect();
     commands.entity(e).insert((Transform::IDENTITY, SkinnedMesh { inverse_bindposes: bind_handle.clone(), joints }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: false, label, blowups: 0 })
 }
 
 /// The rig the generator makes for a shape with no SMP data (hair models, Qwib's
@@ -576,7 +582,7 @@ fn rig_generated(
     let (capsules, bone_r) = fit_capsules(&cand.skel, &rest_pts, 1.0);
     commands.entity(cand.nodes[0]).add_child(e);
     commands.entity(e).insert((Mesh3d(new_mesh), Transform::IDENTITY, SkinnedMesh { inverse_bindposes: new_binds, joints: entities.clone() }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: true, label, blowups: 0 })
 }
 
 /// The bones' and the actors' transforms; not the cameras, which `simulate` reads too.
@@ -632,6 +638,24 @@ fn simulate(
         _ => Vec3::ZERO,
     };
     let gravity = Vec3::NEG_Y * GRAVITY * settings.gravity_scale;
+    // The simulated bones of each actor's garments with SMP data, as they were after the
+    // last step: a generated layer (a poncho) stays outside them [design: NV SMP has no
+    // cloth against cloth (the pack's shapes are `no-collide-with-tag cloth`), but there a
+    // poncho has no physics and hangs where it is drawn; ours swings, and fell into a
+    // dress's skirt, owner's clip 2026-11-15].
+    let mut under: HashMap<Entity, Vec<Capsule>> = HashMap::new();
+    for rig in &rigs {
+        if rig.generated || !rig.state.live {
+            continue;
+        }
+        let scale = transforms.get(rig.root).map(|(_, g)| g.affine().matrix3.x_axis.length()).unwrap_or(1.0);
+        let spheres = under.entry(rig.root).or_default();
+        for (b, p) in rig.rig.bones.iter().zip(&rig.state.pos) {
+            if b.dynamic {
+                spheres.push(Capsule { a: *p, b: *p, r: (b.radius + UNDER_PAD) * scale });
+            }
+        }
+    }
     let mut steps = 0usize;
     for mut rig in &mut rigs {
         let rig = &mut *rig;
@@ -678,7 +702,9 @@ fn simulate(
             } else {
                 Vec::new()
             };
-            let env = Env { gravity, wind, capsules: &capsules, bone_r: &rig.bone_r, ground: (collide && settings.ground).then_some(root.translation.y), scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
+            let none = Vec::new();
+            let under = if rig.generated && collide { under.get(&rig.root).unwrap_or(&none) } else { &none };
+            let env = Env { gravity, wind, capsules: &capsules, bone_r: &rig.bone_r, under, ground: (collide && settings.ground).then_some(root.translation.y), scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
             if rig.state.step(&rig.rig, &driven, &env, dt) {
                 rig.blowups += 1;
                 // The first and then every hundredth: a mesh that keeps blowing up is a bug.

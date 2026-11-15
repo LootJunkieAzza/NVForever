@@ -149,6 +149,10 @@ pub struct Env<'a> {
     /// that bone in rig units, when it is less than the capsule's own: a bone resting
     /// close to the body is held no closer than it rests. Empty: every bone gets `r`.
     pub bone_r: &'a [f32],
+    /// Spheres the body-colliding bones stay outside of too, with no per-bone radius: the
+    /// simulated bones of the garments worn under this one (a generated poncho over a
+    /// dress's skirt).
+    pub under: &'a [Capsule],
     /// The ground's height (world y), if the bones rest on it.
     pub ground: Option<f32>,
     /// World units per rig unit (the actor's scale).
@@ -466,6 +470,17 @@ impl State {
                     }
                 }
             }
+            if b.collide_body {
+                for c in env.under {
+                    let d = self.pos[i] - c.a;
+                    let len = d.length();
+                    let min = c.r + r;
+                    if len < min {
+                        let out = if len > 1e-6 { d / len } else { Vec3::Y };
+                        self.pos[i] = c.a + out * min;
+                    }
+                }
+            }
             if let Some(g) = env.ground.filter(|_| b.collide_ground) {
                 if self.pos[i].y < g + r {
                     self.pos[i].y = g + r;
@@ -494,7 +509,7 @@ mod tests {
     }
 
     fn env(capsules: &[Capsule]) -> Env<'_> {
-        Env { gravity: Vec3::new(0.0, -686.7, 0.0), wind: Vec3::ZERO, capsules, bone_r: &[], ground: None, scale: 1.0, iterations: 10, min_fps: 100.0, max_substeps: 4 }
+        Env { gravity: Vec3::new(0.0, -686.7, 0.0), wind: Vec3::ZERO, capsules, bone_r: &[], under: &[], ground: None, scale: 1.0, iterations: 10, min_fps: 100.0, max_substeps: 4 }
     }
 
     #[test]
@@ -611,6 +626,23 @@ mod tests {
         s.step(&rig, &moved, &env(&[]), 1.0 / 60.0);
         for (p, h) in s.pos.iter().zip(&held).skip(1) {
             assert!((*p - (*h + Vec3::X * 300.0)).length() < 2.0, "jumped: {p} from {h}");
+        }
+    }
+
+    /// A bone is pushed outside the spheres of a garment worn under it.
+    #[test]
+    fn bones_stay_outside_the_garment_under_them() {
+        let (rig, _) = chain(4, 5.0, 0.0);
+        let driven = vec![Affine3A::IDENTITY; 5];
+        let under = [Capsule { a: Vec3::new(1.0, -10.0, 0.0), b: Vec3::new(1.0, -10.0, 0.0), r: 3.0 }];
+        let mut e = env(&[]);
+        e.under = &under;
+        let mut s = State::default();
+        for _ in 0..600 {
+            s.step(&rig, &driven, &e, 1.0 / 60.0);
+        }
+        for i in 1..5 {
+            assert!((s.pos[i] - under[0].a).length() >= 3.5 - 0.05, "bone {i} inside: {:?}", s.pos[i]);
         }
     }
 

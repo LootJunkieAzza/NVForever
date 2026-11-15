@@ -37,8 +37,10 @@ pub struct GenParams {
 /// into the style].
 pub const HAIR: GenParams = GenParams { sectors: 10, seg: 4.0, blend: 4.0, min_len: 6.0, max_links: 6, mass: 0.05, damping: 0.75, wind: 1.0, radius: 0.8, swing: 0.55, stiffness: 3.0, tie_slack: 0.8, tie_stiffness: 4.0 };
 
-/// A poncho's or a coat's hem [tuned by eye on Qwib's poncho].
-pub const DRAPE: GenParams = GenParams { sectors: 12, seg: 5.0, blend: 5.0, min_len: 8.0, max_links: 5, mass: 0.1, damping: 0.65, wind: 1.0, radius: 1.5, swing: 0.8, stiffness: 6.0, tie_slack: 1.2, tie_stiffness: 8.0 };
+/// A poncho's or a coat's hem [tuned by eye on Qwib's poncho; softened 2026-11-15 after
+/// the owner saw it hang stiff and still ("thats static"): it now settles under gravity
+/// and sways in a light wind].
+pub const DRAPE: GenParams = GenParams { sectors: 12, seg: 5.0, blend: 5.0, min_len: 8.0, max_links: 5, mass: 0.1, damping: 0.45, wind: 1.0, radius: 1.5, swing: 1.1, stiffness: 2.0, tie_slack: 1.2, tie_stiffness: 8.0 };
 
 /// A generated bone: its rest world transform (root space) and parent: `None` for the
 /// anchor bone, else another generated bone's index.
