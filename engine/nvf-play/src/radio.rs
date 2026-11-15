@@ -514,6 +514,16 @@ pub fn receiver_file(named: &str, exists: impl Fn(&str) -> bool) -> String {
     named.to_string()
 }
 
+/// The file a song plays from the Pip-Boy: the file the sound record names (the stereo
+/// copy), not the `_mono.ogg` a receiver plays [documented: GECK wiki "Creating Radio
+/// Stations", the mono file "will be what is played out of speakers and radios in-game";
+/// Nexus forums, radio station tutorial threads: the stations play the mono `.ogg` from
+/// in-world radios and the stereo `.mp3` from the Pip-Boy]; the receiver's file when the
+/// named one is not in the archives.
+pub fn pipboy_file(named: Option<&str>, receiver: &str, exists: impl Fn(&str) -> bool) -> String {
+    named.filter(|n| exists(n)).unwrap_or(receiver).to_string()
+}
+
 /// A sound form's file as an archive path.
 fn sound_path(s: &Sound) -> Option<String> {
     s.file.as_deref().map(|f| fnv_vfs::normalize(&format!("sound\\{}", f.trim_start_matches(['\\', '/']))))
@@ -581,7 +591,7 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
             let seconds = path.as_deref().and_then(|p| radio.length(vfs, p));
             match (path, seconds) {
                 (Some(p), Some(secs)) => {
-                    let stereo = named.filter(|n| vfs.exists(n)).or_else(|| Some(p.clone()));
+                    let stereo = Some(pipboy_file(named.as_deref(), &p, |f| vfs.exists(f)));
                     out.push(Part { response: r, path: Some(p), stereo, seconds: secs, song: true, gain: SONG_GAIN });
                     continue;
                 }
@@ -1414,6 +1424,22 @@ mod tests {
         // Without a mono file, the named file.
         assert_eq!(receiver_file("sound\\songs\\radio\\x.mp3", have), "sound\\songs\\radio\\x.mp3");
         assert_eq!(receiver_file("sound\\voice\\a.ogg", have), "sound\\voice\\a.ogg");
+    }
+
+    /// Imperium Radio (LegionRadio.esp): SOUN 00legionradiokingragnar names
+    /// `songs\legionradio\king ragnar.mp3`, and the mod ships `King Ragnar_mono.ogg` beside
+    /// it. A receiver plays the mono file, the Pip-Boy the named one (mods-1114 window I).
+    #[test]
+    fn the_pipboy_plays_the_named_song_file_and_a_receiver_its_mono_copy() {
+        let named = "sound\\songs\\legionradio\\king ragnar.mp3";
+        let mono = "sound\\songs\\legionradio\\king ragnar_mono.ogg";
+        let both = |p: &str| p == named || p == mono;
+        let receiver = receiver_file(named, both);
+        assert_eq!(receiver, mono);
+        assert_eq!(pipboy_file(Some(named), &receiver, both), named);
+        // Only the mono file in the archives: the Pip-Boy plays it too.
+        let only_mono = |p: &str| p == mono;
+        assert_eq!(pipboy_file(Some(named), &receiver_file(named, only_mono), only_mono), mono);
     }
 
     #[test]
