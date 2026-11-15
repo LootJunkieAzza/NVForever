@@ -405,15 +405,100 @@ pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, nam
 }
 
 /// A card: a line along its top, one fading down its right side, the title at the left
-/// and the value right-aligned, both in font 2.
+/// and the value right-aligned, both in font 2. The value keeps between the title and the
+/// right border ([`value_span`]): one too long for it is clipped there and scrolls
+/// sideways ([`Marquee`]).
 pub fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, width: f32, title: &str, value: &str) {
     let line = amber(LINE);
     let bright = c.bright();
     c.line(p, x, y, width, THICK, line);
     c.fade(p, x + width - THICK, y, FADE, false, line);
-    c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
-    if !value.is_empty() {
-        c.text(p, 2, value, x + width - CARD_VALUE_IN, y + CARD_TEXT_Y, Align::Right, bright);
+    let title_w = c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
+    if value.is_empty() {
+        return;
+    }
+    let span = value_span(CARD_TEXT_X + title_w, width, c.width(2, value));
+    if span.over <= 0.0 {
+        c.text(p, 2, value, x + span.left, y + CARD_TEXT_Y, Align::Left, bright);
+        return;
+    }
+    // Clipped to its room, the text on a strip the marquee moves left and back.
+    let high = CARD_TEXT_Y + 1.5 * c.line_height(2);
+    let room = Node { overflow: Overflow::clip(), ..at(x + span.left, y, span.room, high) };
+    p.spawn((room, Pickable::IGNORE)).with_children(|r| {
+        r.spawn((at(0.0, 0.0, span.room + span.over, high), Marquee { over: span.over, since: None }, Pickable::IGNORE)).with_children(|t| {
+            c.text(t, 2, value, 0.0, CARD_TEXT_Y, Align::Left, bright);
+        });
+    });
+}
+
+/// The gap from a card's title to where its value may start [documented:
+/// `menus\prefabs\card_info.xml`, `CI_ValueText` `user1`: the title text's width + 15].
+pub const CARD_VALUE_GAP: f32 = 15.0;
+
+/// Where a card's value is drawn, in the card's units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ValueSpan {
+    /// The value's left end: right-aligned to the right border, or at the left bound.
+    pub left: f32,
+    /// The room between the bounds.
+    pub room: f32,
+    /// How much wider than the room the value is (0 when it fits).
+    pub over: f32,
+}
+
+/// The value's place on a card of `width` whose title ends at `title_end`, for a value
+/// `value_w` wide [documented: `card_info.xml` `CI_ValueText`: its x is the right border
+/// (the card's width − 10) less the text's width, but not left of the title's width + 15;
+/// the text keeps left-justified from there]. What does not fit is clipped at the right
+/// border and scrolls (`Marquee`) [owner 2026-11-14: the original "keeps the line inside the
+/// effects box, clips it, and scrolls it sideways"; the file has no scroll of its own, so
+/// the engine's (hypothesis)].
+pub fn value_span(title_end: f32, width: f32, value_w: f32) -> ValueSpan {
+    let lo = title_end + CARD_VALUE_GAP - CARD_TEXT_X;
+    let right = width - CARD_VALUE_IN;
+    let room = (right - lo).max(0.0);
+    let left = (right - value_w).max(lo);
+    ValueSpan { left, room, over: (value_w - room).max(0.0) }
+}
+
+/// A card value too long for its room, scrolling sideways: held at its start, moved left
+/// until its end shows, held there, then back to the start, over and over, in real time
+/// (the Pip-Boy pauses the world) [hypothesis: the original's speed and holds are not in
+/// the menu files; observer-checks.md 122].
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Marquee {
+    /// How far it moves: the text's width less the room.
+    pub over: f32,
+    /// When it started, set on its first frame.
+    pub since: Option<f32>,
+}
+
+/// Seconds a marquee holds at each end.
+pub const MARQUEE_HOLD: f32 = 1.5;
+/// Its speed, in canvas units a second.
+pub const MARQUEE_SPEED: f32 = 45.0;
+
+/// How far left a marquee that moves `over` stands `t` seconds after it started.
+pub fn marquee_offset(over: f32, t: f32) -> f32 {
+    if over <= 0.0 {
+        return 0.0;
+    }
+    let run = over / MARQUEE_SPEED;
+    let cycle = 2.0 * MARQUEE_HOLD + run;
+    let t = t.rem_euclid(cycle);
+    ((t - MARQUEE_HOLD) * MARQUEE_SPEED).clamp(0.0, over)
+}
+
+/// Move every marquee's strip to its place now.
+pub fn marquees(real: Res<Time<Real>>, mut strips: Query<(&mut Node, &mut Marquee)>) {
+    let now = real.elapsed_secs();
+    for (mut node, mut m) in &mut strips {
+        let since = *m.since.get_or_insert(now);
+        let left = crate::interface::u(-marquee_offset(m.over, now - since));
+        if node.left != left {
+            node.left = left;
+        }
     }
 }
 
@@ -711,6 +796,31 @@ impl Ctx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A card's value keeps right of its title and left of its right border
+    /// (card_info.xml): a short one right-aligned, a long one from the left bound,
+    /// clipped, and scrolled by what does not fit.
+    #[test]
+    fn a_long_card_value_keeps_inside_its_card_and_scrolls() {
+        // The EFFECTS card of the Atomic Cocktail: 530 wide, its title 70 wide.
+        let (title_end, width) = (CARD_TEXT_X + 70.0, 530.0);
+        let short = value_span(title_end, width, 100.0);
+        assert_eq!((short.left, short.over), (width - CARD_VALUE_IN - 100.0, 0.0), "right-aligned");
+        let long = value_span(title_end, width, 900.0);
+        assert_eq!(long.left, 70.0 + CARD_VALUE_GAP, "never over the title");
+        assert_eq!(long.room, width - CARD_VALUE_IN - long.left);
+        assert_eq!(long.over, 900.0 - long.room);
+        assert!(long.left + long.room <= width - CARD_VALUE_IN, "clipped at the right border");
+        // Held at the start, moved to the end, held, back to the start.
+        let over = 90.0;
+        assert_eq!(marquee_offset(over, 0.0), 0.0);
+        assert_eq!(marquee_offset(over, MARQUEE_HOLD), 0.0);
+        let run = over / MARQUEE_SPEED;
+        assert!((marquee_offset(over, MARQUEE_HOLD + run / 2.0) - over / 2.0).abs() < 1e-3);
+        assert_eq!(marquee_offset(over, MARQUEE_HOLD + run + 0.5), over, "the end held");
+        assert_eq!(marquee_offset(over, 2.0 * MARQUEE_HOLD + run + 0.1), 0.0, "back to the start");
+        assert_eq!(marquee_offset(0.0, 5.0), 0.0, "a value that fits never moves");
+    }
 
     /// A hint column's words end at the heading's right end while every key fits in the
     /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")

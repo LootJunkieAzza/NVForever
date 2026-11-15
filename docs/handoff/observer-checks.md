@@ -2033,3 +2033,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      it is still on screen, and take screenshots at 0.1, 0.5 and 2 s after Tab and 0.2 s
      after closing. Note whether the HP and AP bars, the compass or the message draw at
      any of those times, and whether the message comes back after the Pip-Boy closes.
+
+## Added 2026-11-14 (the Pip-Boy's long EFFECTS line)
+
+122. **How does the original scroll a Pip-Boy card value too long for its card?** (P3;
+     pipboy.md cards.) `card_info.xml` holds the value between the title's width + 15 and
+     the card's width − 10, but it has no scroll of its own. The owner reports that the
+     original clips a long EFFECTS line and scrolls it sideways. NVForever holds it 1.5 s
+     at its start, moves it at 45 units a second until its end shows, holds it 1.5 s, then
+     jumps back to the start [hypothesis]. To check: with an Atomic Cocktail in Items >
+     Aid, record the EFFECTS card for 15 s. Note the hold at each end, the speed, whether
+     it jumps back or scrolls back, and whether it starts over when another item is
+     selected.
+
