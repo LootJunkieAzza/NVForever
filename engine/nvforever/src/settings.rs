@@ -820,7 +820,7 @@ fn register_graphics(app: &mut App) {
         (
             "fuller-fire",
             "Fuller fire",
-            "On: the world's fires burn with more body, embers rising above them and a wisp of smoke, an NVForever addition made from the game's own fire and smoke. Off: the fires as the game's data has them. (--graphics-only no-fuller-fire turns it off)",
+            "On: the world's fires burn with more body, embers rising above them and a wisp of smoke, an NVForever addition made from the game's own fire and smoke. The flames are capped to a share of the GPU's work each frame. Off (the default): the fires as the game's data has them. (--graphics-only fuller-fire turns it on)",
             |w| w.resource::<Graphics>().fuller_fire,
             |w, on| w.resource_mut::<Graphics>().fuller_fire = on,
         ),

@@ -1441,8 +1441,10 @@ fn main() -> AppExit {
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
-                    // Measuring frame times: not held to the display's refresh.
-                    present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                    // Measuring frame times: not held to the display's refresh, unless
+                    // `NVF_FRAME_TIMES_VSYNC=1` holds it there (measuring what a heavy
+                    // effect costs the GPU without running it flat out: fire_volume.rs "Cost").
+                    present_mode: if args.log_frame_times.is_some() && std::env::var("NVF_FRAME_TIMES_VSYNC").as_deref() != Ok("1") { bevy::window::PresentMode::AutoNoVsync } else { default() },
                     // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
                     // Bevy's 2 otherwise), for measuring frame generation's pacing.
                     desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),

@@ -21,8 +21,8 @@
 //!
 //! The file's own systems are untouched, and the added ones are named
 //! `fuller fire: …` in the log. The `fuller-fire` switch of the settings page turns
-//! them off (`--graphics-only no-fuller-fire`); on in both presets, as the owner plays
-//! with the vanilla one.
+//! them on (`--graphics-only fuller-fire`); off in both presets since 2026-11-14, when a lit
+//! campfire's volumetric flames powered off the owner's PC (`fire_volume.rs` "Cost").
 
 use bevy::math::Affine3A;
 use bevy::prelude::Vec3;
