@@ -118,7 +118,14 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///   heading); Immersive Pickup Sounds asks IsPluginInstalled "lutana_nvse" and then
 ///   GetLNVersion >= 17.1 [hypothesis: JIP LN answers to the old plugin's name, as the mod
 ///   runs in a working list with JIP LN and no lutana DLL].
-pub const PLUGINS: [(&str, f64); 14] = [
+/// - "hNVSE" at 120 and "AnhNVSE" at 131, the versions the DLLs register [observed: a
+///   working Nuclear Sunset install's nvse.log, xNVSE 6.4.4: "hNVSE.dll (hNVSE; version
+///   120)", "AnhNVSE.dll (AnhNVSE; version 131)"]: NVForever builds their functions
+///   (`fnv_game::nvse_small`). Nova Arizona's start-up checks
+///   (NVSE\Plugins\Scripts\ln_NovaArizona.txt: GetPluginVersion "hNVSE" < 1.20,
+///   "AnhNVSE" < 1.31) showed "Missing ... Installed version: -1" boxes without them
+///   (laptop smoke run, 2026-11-15).
+pub const PLUGINS: [(&str, f64); 16] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -136,6 +143,8 @@ pub const PLUGINS: [(&str, f64); 14] = [
     ("yUI", 140.0),
     ("Improved Console", 1.6),
     ("lutana_nvse", JIP_VERSION),
+    ("hNVSE", 120.0),
+    ("AnhNVSE", 131.0),
 ];
 
 impl Vm<'_, '_> {
