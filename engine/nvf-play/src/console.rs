@@ -628,7 +628,7 @@ fn typing(
         }
         // Where the player stands now, as a travel back to it (the Set Home tweak).
         let here = match (location.as_deref(), player.as_deref()) {
-            (Some(l), Some(p)) => Some(Travel { world: l.interior.is_none().then_some(l.world), interior: l.interior, feet: p.feet, heading_deg: p.heading.to_degrees() }),
+            (Some(l), Some(p)) => Some(Travel { world: l.interior.is_none().then_some(l.world), interior: l.interior, feet: p.feet, heading_deg: p.heading.to_degrees(), pitch_deg: None }),
             _ => None,
         };
         let name = if rest.is_empty() { "home".to_string() } else { rest.to_ascii_lowercase() };
@@ -959,7 +959,7 @@ fn replies(
                 ConsoleRequest::Select(id) => select(&mut c, id.0, &play.0, &sim, st.rt.as_mut()),
                 ConsoleRequest::Travel { world, interior, feet, heading_deg, label } => {
                     info!("console: travelling to {label}");
-                    travel.write(crate::loading::TravelRequest(Travel { world: world.map(|w| w.0), interior: interior.map(|i| i.0), feet, heading_deg }));
+                    travel.write(crate::loading::TravelRequest(Travel { world: world.map(|w| w.0), interior: interior.map(|i| i.0), feet, heading_deg, pitch_deg: None }));
                 }
                 ConsoleRequest::Quit => {
                     info!("console: quit");
@@ -1141,7 +1141,7 @@ fn coc(sim: &SimState, name: &str) -> Result<(Travel, String), String> {
     let cell = refs.cell_edids.get(&name.to_ascii_lowercase()).copied().or_else(|| parse_form_id(name).filter(|c| refs.by_cell.contains_key(c))).ok_or_else(|| format!("No cell named {name}"))?;
     let spot = crate::player::safe::cell_spot(refs, cell.0).ok_or_else(|| format!("{name} has no marker or door to arrive at"))?;
     let world = refs.cell_world.get(&cell).map(|w| w.0);
-    let t = Travel { world, interior: if world.is_some() { None } else { Some(cell.0) }, feet: spot.feet, heading_deg: spot.heading.to_degrees() };
+    let t = Travel { world, interior: if world.is_some() { None } else { Some(cell.0) }, feet: spot.feet, heading_deg: spot.heading.to_degrees(), pitch_deg: None };
     Ok((t, name.to_string()))
 }
 
@@ -1180,7 +1180,7 @@ fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, Stri
     // original puts the player is undocumented].
     let water = cell.has_water().then(|| cell.water_height.or(ws.default_water_height)).flatten().filter(|w| w.abs() < 1.0e6);
     let z = water.map_or(land, |w| land.max(w));
-    Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0 }, name))
+    Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0, pitch_deg: None }, name))
 }
 
 /// Half a cell's width: an exterior cell's centre from its corner.

@@ -165,6 +165,44 @@ actor meshes`]:
   the Pip-Boy off the arms had no forearm sleeve and the body shown in first person kept
   `PipBoyOff…` in the air where its hidden arm was (#2173).
   Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
+- Outfits with no `Arms…` shape (#2457). The NCR Trooper Fatigues (`OutfitTrooperFatigues`
+  0x0010D2CD: BMDT biped flags Upper Body only; MODL `armor\troupers\ArmorNVNCRTrooperPlain.NIF`,
+  MOD3 `…Plain_F.NIF`) [observed: `fnvtool esm decode`] name no shape `Arms…`. Their
+  skins' partitions (`BSDismemberSkinInstance`, body parts as in dismemberment.md §2.5),
+  with the bones they are weighted to and their extents [observed: `fnvtool nif decode`,
+  male model, NIF units, x across the arms]:
+  - `hest:0` (`trooperplain.dds`): 0 (torso: Spine, Spine1, Spine2), 3000 (left shoulder
+    and upper arm: LUpArmTwistBone, L UpperArm; x −28.6…−12.8), 3 (left elbow: L Forearm
+    0.71, L UpperArm 0.23; x −34.8…−25.0), 5000 (the right arm's; x 12.8…35.1).
+  - `objdefault01:0`: 3000 and 5000 only (the upper arms: L/R UpperArm and twist bones).
+  - `objdefault02:0`: 0 (torso) and 5 (right forearm; x 32.5…47.6).
+  - `pipboyoff:0`: 3 (left forearm and cuff; x −47.6…−31.2); `pipboyon:0`: 3 (the cuff;
+    x −47.6…−41.0): the device sits between −41 and the elbow's −34.8, as on the jumpsuit.
+  - `body:0`, `body:1`, `upperbody2:0`, `Object08:0`: torso and legs (0, 7, 10, 7000,
+    10000); the rest are caps (101–110, 201–210).
+  With the rule "only `Arms…` shapes" the arms rig drew the wrist cuff `pipboyon:0` and
+  nothing else of the outfit: no upper arm, elbow or right sleeve, the street seen through
+  the arm beside the raised Pip-Boy (the owner's report). Rule since #2457
+  (`fnv_actor::first_person::arms_by_partition`): an upper-body model with no `Arms…` shape
+  is drawn in first person by the arm partitions of its skins, body parts 3–6 (BP_LEFTARM,
+  BP_LEFTARM2, BP_RIGHTARM, BP_RIGHTARM2) and their torso sections 3000–6000, each such
+  shape with only those partitions' triangles; the forearm sleeves still go by their names
+  [hypothesis: the original shows these sleeves in first person as it does a jumpsuit's;
+  no capture of it with this outfit is at hand]. A model with an `Arms…` shape keeps the
+  name rule. Of the 247 upper-body worn models of FalloutNV.esm, 207 have an `Arms…`
+  shape, 31 are drawn by their arm partitions (the trooper fatigues and MP outfits male and
+  female, Combat Armor, Reinforced (`mark1combat.nif`; plain Combat Armor's `outfitm.nif` has `Arms`), Benny's suit, Boone's, Cass's, the centurion's, the Powder
+  Gangers', the Viva Las Vegas and NCR gambler outfits, among others) and 9 have neither
+  [observed: `fnvtool actor meshes`, `upper_body_first_person`]. The Pip-Boy plays no part: the Pimp-Boy 3 Billion (`PimpBoy` 0x0011BACB, BMDT
+  PipBoy slot, all four models `PimpBoy3Billion\PimpBoyArm.NIF`) is built like the Pip-Boy
+  3000 (`PipBoy` 0x00015038, `PipBoy3000\PipBoyArm.NIF`): the same buttons, glows, knobs,
+  needle, screen and light shapes, unskinned under `Bip01 L ForeTwist`, the arm piece
+  `PipBoyArm:0` (2,222 and 2,218 vertices) over the same span, 4.4…17.1 units down the
+  forearm, plus a diamond (`Plane09:0`, `PimpBoyDiamond.dds`) on the case [observed:
+  `fnvtool nif decode`]. So the sleeve shows the same way under either.
+  The third-person body drawn in first person (`--first-person-body`, off by default)
+  still hides only the shapes the arms rig draws by name, so with such an outfit it keeps
+  its own arm partitions while its arms are hidden [open].
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
@@ -908,6 +946,9 @@ Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
   `skinned_shapes`, `rigid_shapes`}] (those naming another bone than `Bip01 Head`),
   `armor_pipboy_sleeves` (models with `PipBoyOn…` and `PipBoyOff…` shapes: `on and off`,
   `on only`, `off only`), `armor_light_effect` (models with the Pip-Boy light's glow).
+  Over the worn models of the ARMO covering Upper Body: `upper_body_first_person` (how
+  the arms rig draws them, §1.2: `Arms shapes`, `arm partitions`, `neither`) and
+  `upper_body_by_partition` (the models drawn by their arm partitions).
 
 ## 6. Captures wanted
 

@@ -62,6 +62,37 @@
 //! draws (past [`folded_layers`]), and every layer where the GPU has no bindless textures,
 //! blend as before. Their coverage over the folded result is unchanged, but height does not
 //! compete across that draw boundary.
+//!
+//! # Anti-tiling
+//!
+//! [design, #2551; docs/design/graphics-enhanced.md §3.13] The settings switch Terrain
+//! anti-tiling (`Graphics::terrain_anti_tiling`, off by default and in both presets, not an
+//! effect of the Enhanced effects row) gives the folded material's pipeline
+//! `TERRAIN_ANTI_TILING` ([`TerrainLayersKey`], nvf_assets `terrain_sampling::anti_tiling_defs`):
+//! every texture of the quadrant (the base's and the folded layers', diffuse and normal map)
+//! is read at up to three offset and rotated places (Hex3) by a hash of a lattice
+//! four repeats on a side laid over the world, and the reads are blended, so the 256-unit
+//! repeat no longer shows as a grid (nvf_assets terrain_sampling.wesl and terrain_pbr.wesl).
+//! The lattice hangs on world coordinates, so neighbouring quadrants and cells read the
+//! same place the same way. Reads take explicit gradients from the plain coordinate
+//! (scaled by the view's mip bias), so the hash borders cause no mip jumps. The layers are
+//! walked last to first and a texture is read only where its share can be above 0; with
+//! height blending on too, the heights come from the same reads. The switch flips the
+//! materials in place ([`sync_anti_tiling`]); new materials take the current setting. The
+//! texture repeat travels in the material ([`TerrainLayers::texture_repeat`]), also where
+//! the mesh carries the coordinate (a repeat that does not divide the cell).
+//!
+//! The landscape's own NIF materials get the same reads ([`TerrainCtx::base_material`],
+//! [`TerrainCtx::layer_material`]: their texture repeat and the switch in
+//! `NifSurface::terrain_repeat` and `anti_tiling`; nvf_assets nif_material.rs "Landscape
+//! anti-tiling"): a quadrant's base without folded layers, the layers past
+//! [`folded_layers`] drawn blended over the folded result, and every layer where the GPU has
+//! no bindless textures. Their order, blending and depth bias are as before, and the same
+//! world lattice lines them up with the folded draw under them.
+//!
+//! Not anti-tiled: the depth prepass and the shadows (same depth either way), the normal
+//! prepass's normals (screen-space passes that read them keep the plain reads), and the
+//! distant LOD terrain's baked textures. Height blending stays within the folded draw.
 
 use crate::world::WorldData;
 use fnv_esm::{LoadOrder, Schema as EsmSchema};
@@ -98,6 +129,8 @@ pub struct TerrainCache {
     /// Quadrants drawn with their first layers folded in, and the layers folded.
     pub folded_quadrants: usize,
     pub folded_layers: usize,
+    /// Layers drawn blended over a folded quadrant (past [`folded_layers`]), so far.
+    pub overflow_layers: usize,
     pub quadrants_without_base: usize,
     pub layers: usize,
 }
@@ -150,6 +183,12 @@ pub struct TerrainLayers {
     /// Height blending (module notes, "Height blending"): selects the pipeline
     /// ([`TerrainLayersKey`]).
     pub height_blend: bool,
+    /// Anti-tiling (module notes, "Anti-tiling"): selects the pipeline
+    /// ([`TerrainLayersKey`]) when [`texture_repeat`](Self::texture_repeat) can place it.
+    pub anti_tiling: bool,
+    /// World units per texture repeat, always (anti-tiling's coordinate), also where the
+    /// mesh carries the texture coordinate and [`tile`](Self::tile) is 0.
+    pub texture_repeat: f32,
     /// World units per texture repeat when the shader works the texture coordinate out
     /// (the mesh's first texture coordinate then holds the fifth and sixth opacities);
     /// 0 when the mesh carries it.
@@ -186,7 +225,8 @@ pub struct TerrainLayers {
 
 /// What terrain.wesl reads of a [`TerrainLayers`]: `counts` x the layer count, y a bit for
 /// each layer that has a normal map, z 1 when it has the burn map, w the feature bits
-/// ([`FEATURE_HEIGHT_BLEND`]); `tile` x [`TerrainLayers::tile`]; `height` the start-up
+/// ([`FEATURE_HEIGHT_BLEND`], [`FEATURE_ANTI_TILING`]); `tile` x [`TerrainLayers::tile`],
+/// y [`TerrainLayers::texture_repeat`]; `height` the start-up
 /// (depth, gain, source ID: global 0 / local 1, reserved) [design, #2550].
 #[derive(Clone, Default, ShaderType)]
 pub struct TerrainLayersUniform {
@@ -264,13 +304,17 @@ fn log_height_blend_params() {
 /// `TERRAIN_HEIGHT_BLEND` decides what is drawn; the bit records the material's state).
 pub const FEATURE_HEIGHT_BLEND: u32 = 1;
 
+/// Bit of `counts.w` set while the material is anti-tiled (as [`FEATURE_HEIGHT_BLEND`]).
+pub const FEATURE_ANTI_TILING: u32 = 2;
+
 impl From<&TerrainLayers> for TerrainLayersUniform {
     fn from(l: &TerrainLayers) -> Self {
         let normals = [&l.normal0, &l.normal1, &l.normal2, &l.normal3, &l.normal4, &l.normal5];
         let bits = normals.iter().enumerate().filter(|(_, n)| n.is_some()).fold(0u32, |b, (i, _)| b | 1 << i);
         let most = if l.tile > 0.0 { FOLDED_LAYERS } else { FOLDED_LAYERS_WITH_UV };
-        let features = if l.height_blend { FEATURE_HEIGHT_BLEND } else { 0 };
-        TerrainLayersUniform { counts: UVec4::new(l.count.min(most as u32), bits, u32::from(l.burn.is_some()), features), tile: Vec4::new(l.tile.max(0.0), 0.0, 0.0, 0.0), height: height_blend_params().uniform() }
+        let features = if l.height_blend { FEATURE_HEIGHT_BLEND } else { 0 } | if TerrainLayersKey::from(l).anti_tiling { FEATURE_ANTI_TILING } else { 0 };
+        let repeat = if nvf_assets::terrain_sampling::repeat_valid(l.texture_repeat) { l.texture_repeat } else { 0.0 };
+        TerrainLayersUniform { counts: UVec4::new(l.count.min(most as u32), bits, u32::from(l.burn.is_some()), features), tile: Vec4::new(l.tile.max(0.0), repeat, 0.0, 0.0), height: height_blend_params().uniform() }
     }
 }
 
@@ -278,11 +322,13 @@ impl From<&TerrainLayers> for TerrainLayersUniform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TerrainLayersKey {
     pub height_blend: bool,
+    /// Anti-tiling asked for and a texture repeat to place it with.
+    pub anti_tiling: bool,
 }
 
 impl From<&TerrainLayers> for TerrainLayersKey {
     fn from(l: &TerrainLayers) -> Self {
-        TerrainLayersKey { height_blend: l.height_blend }
+        TerrainLayersKey { height_blend: l.height_blend, anti_tiling: l.anti_tiling && nvf_assets::terrain_sampling::repeat_valid(l.texture_repeat) }
     }
 }
 
@@ -312,6 +358,9 @@ impl MaterialExtension for TerrainLayers {
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
         nvf_assets::depth_equal(descriptor, key.mesh_key);
         height_blend_def(descriptor, key.bind_group_data);
+        if key.bind_group_data.anti_tiling {
+            nvf_assets::terrain_sampling::anti_tiling_defs(descriptor, false);
+        }
         Ok(())
     }
 }
@@ -325,7 +374,7 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "terrain.wesl");
         bevy::asset::load_internal_asset!(app, WEIGHTS_SHADER, "terrain_weights.wesl", |s, _| bevy::shader::Shader::from_wesl(s, "embedded://nvforever/terrain_weights.wesl"));
-        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default()).add_systems(Startup, log_height_blend_params).add_systems(PostUpdate, sync_height_blend);
+        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default()).add_systems(Startup, log_height_blend_params).add_systems(PostUpdate, (sync_height_blend, sync_anti_tiling));
     }
 }
 
@@ -356,6 +405,59 @@ pub fn sync_height_blend(graphics: Option<Res<crate::graphics::Graphics>>, mut m
             materials.len(),
             stale.len()
         );
+    }
+    *last = Some(want);
+}
+
+/// Whether the settings ask for anti-tiling (module notes); false without the `Graphics`
+/// resource.
+fn anti_tiling_wanted(graphics: Option<&crate::graphics::Graphics>) -> bool {
+    graphics.is_some_and(|g| g.terrain_anti_tiling)
+}
+
+/// Anti-tiling switched on or off: every folded material and every landscape NIF material
+/// (a texture repeat set, [`terrain_nif_material`]) flipped in place (the pipelines follow
+/// their keys), logged with how many of each there are and how many changed. New materials
+/// take the setting when they are made ([`TerrainCtx::folded_material`],
+/// [`TerrainCtx::base_material`], [`TerrainCtx::layer_material`]). A texture repeat that
+/// cannot place the reads (not above 0) keeps the ordinary reads, said when it is switched
+/// on.
+pub fn sync_anti_tiling(
+    graphics: Option<Res<crate::graphics::Graphics>>,
+    settings: Option<Res<TerrainSettings>>,
+    mut folded: ResMut<Assets<TerrainMaterial>>,
+    mut separate: Option<ResMut<Assets<NifMaterial>>>,
+    mut last: Local<Option<bool>>,
+) {
+    let want = anti_tiling_wanted(graphics.as_deref());
+    if *last == Some(want) {
+        return;
+    }
+    let stale: Vec<AssetId<TerrainMaterial>> = folded.iter().filter(|(_, m)| m.extension.anti_tiling != want).map(|(id, _)| id).collect();
+    for id in &stale {
+        if let Some(mut m) = folded.get_mut(*id) {
+            m.extension.anti_tiling = want;
+        }
+    }
+    let (mut landscape, mut stale_separate) = (0usize, 0usize);
+    if let Some(separate) = separate.as_deref_mut() {
+        let ids: Vec<(AssetId<NifMaterial>, bool)> = separate.iter().filter(|(_, m)| m.extension.terrain_repeat != 0.0).map(|(id, m)| (id, m.extension.anti_tiling != want)).collect();
+        landscape = ids.len();
+        for (id, _) in ids.iter().filter(|(_, stale)| *stale) {
+            if let Some(mut m) = separate.get_mut(*id) {
+                m.extension.anti_tiling = want;
+                stale_separate += 1;
+            }
+        }
+    }
+    if want {
+        let repeat = settings.as_deref().map_or(0.0, |s| s.tile);
+        if !nvf_assets::terrain_sampling::repeat_valid(repeat) {
+            warn!("terrain: anti-tiling needs a texture repeat above 0 (it is {repeat}); the textures keep their ordinary reads");
+        }
+    }
+    if last.is_some() || want {
+        info!("terrain: anti-tiling {} ({} folded quadrant materials, {} changed) and {landscape} separate landscape materials ({stale_separate} changed)", if want { "on" } else { "off" }, folded.len(), stale.len());
     }
     *last = Some(want);
 }
@@ -428,17 +530,13 @@ impl TerrainCtx<'_, '_, '_> {
     fn surface(&mut self, tex: Option<&str>) -> StandardMaterial {
         let image = tex.and_then(|t| self.image(t, true));
         let normal = tex.and_then(|t| self.tm.cache.normals.get(t).cloned()).and_then(|n| self.normal(&n));
-        StandardMaterial {
-            base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.45, 0.42, 0.38) },
-            base_color_texture: image,
-            normal_map_texture: normal,
-            // Green points down the image, as on NIF shapes (docs/spec-notes/nif.md §6
-            // "Normal maps").
-            flip_normal_map_y: true,
-            perceptual_roughness: 0.95,
-            reflectance: 0.2,
-            ..default()
-        }
+        surface_material(image, normal)
+    }
+
+    /// A landscape NIF material: `base` with the texture repeat and the anti-tiling switch
+    /// (module notes, "Anti-tiling").
+    fn terrain_nif(&self, base: StandardMaterial) -> NifMaterial {
+        terrain_nif_material(base, self.tm.settings.tile, anti_tiling_wanted(self.tm.graphics.as_deref()))
     }
 
     fn base_material(&mut self, tex: Option<String>) -> Handle<NifMaterial> {
@@ -446,7 +544,8 @@ impl TerrainCtx<'_, '_, '_> {
             return h.clone();
         }
         let m = self.surface(tex.as_deref());
-        let h = self.assets.materials.add(nif_material(m));
+        let m = self.terrain_nif(m);
+        let h = self.assets.materials.add(m);
         self.tm.cache.base.insert(tex, h.clone());
         h
     }
@@ -470,7 +569,9 @@ impl TerrainCtx<'_, '_, '_> {
         let ((diffuse0, normal0), (diffuse1, normal1), (diffuse2, normal2), (diffuse3, normal3), (diffuse4, normal4), (diffuse5, normal5)) = (next(), next(), next(), next(), next(), next());
         let burn = self.tm.burn.as_deref().map(|b| b.0.clone());
         let height_blend = height_blend_wanted(self.tm.graphics.as_deref());
-        let extension = TerrainLayers { count: layers.len() as u32, tile, height_blend, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3, diffuse4, normal4, diffuse5, normal5, burn };
+        let anti_tiling = anti_tiling_wanted(self.tm.graphics.as_deref());
+        let texture_repeat = self.tm.settings.tile;
+        let extension = TerrainLayers { count: layers.len() as u32, tile, height_blend, anti_tiling, texture_repeat, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3, diffuse4, normal4, diffuse5, normal5, burn };
         let base = self.surface(tex.as_deref());
         let h = self.tm.folded.add(TerrainMaterial { base, extension });
         self.tm.cache.folded.insert(key, h.clone());
@@ -492,10 +593,38 @@ impl TerrainCtx<'_, '_, '_> {
             depth_bias: sort_first(2.0 * (rank as f32 + 1.0)),
             ..surface
         };
-        let h = self.assets.materials.add(nif_material(m));
+        let m = self.terrain_nif(m);
+        let h = self.assets.materials.add(m);
         self.tm.cache.layer.insert((tex, rank), h.clone());
         Some(h)
     }
+}
+
+/// The landscape's StandardMaterial for a diffuse texture and normal map ([`TerrainCtx::surface`]).
+/// Anti-tiling's surface set-up (nvf_assets terrain_pbr.wesl) reads exactly what this holds:
+/// the colour, the diffuse texture, the normal map and scalar values (the contract test).
+fn surface_material(image: Option<Handle<Image>>, normal: Option<Handle<Image>>) -> StandardMaterial {
+    StandardMaterial {
+        base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.45, 0.42, 0.38) },
+        base_color_texture: image,
+        normal_map_texture: normal,
+        // Green points down the image, as on NIF shapes (docs/spec-notes/nif.md §6
+        // "Normal maps").
+        flip_normal_map_y: true,
+        perceptual_roughness: 0.95,
+        reflectance: 0.2,
+        ..default()
+    }
+}
+
+/// A landscape NIF material (a quadrant's base or a layer drawn on its own): `base` with
+/// the texture repeat `repeat` (which marks it as the landscape's for [`sync_anti_tiling`])
+/// and the anti-tiling switch.
+fn terrain_nif_material(base: StandardMaterial, repeat: f32, anti_tiling: bool) -> NifMaterial {
+    let mut m = nif_material(base);
+    m.extension.terrain_repeat = repeat;
+    m.extension.anti_tiling = anti_tiling;
+    m
 }
 
 fn srgb_to_linear(c: u8) -> f32 {
@@ -791,6 +920,7 @@ pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, p
     // The repeat for the shader to work the texture coordinate out with, 0 when the mesh
     // carries the coordinate.
     let shader_tile = if most == FOLDED_LAYERS { tile } else { 0.0 };
+    let mut overflow = 0usize;
     for q in 0..4u8 {
         let base = drawn.iter().rev().find(|l| l.base && l.quadrant == q);
         if base.is_none() {
@@ -828,7 +958,19 @@ pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, p
                 let mesh = tm.assets.meshes.add(mesh);
                 commands.entity(cell).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY, LandMesh));
                 tm.tm.cache.layers += 1;
+                if blended_from > 0 {
+                    overflow += 1;
+                }
             }
+        }
+    }
+    // The first cell with layers past a folded group says how many it drew blended over
+    // them (once a run; the smoke check that such layer draws exist at all).
+    if overflow > 0 {
+        let first = tm.tm.cache.overflow_layers == 0;
+        tm.tm.cache.overflow_layers += overflow;
+        if first {
+            info!("terrain: {overflow} layers drawn blended over folded quadrants (past the first {most} of a quadrant), in the first cell that has them");
         }
     }
     land
@@ -1177,20 +1319,20 @@ mod tests {
     fn height_blending_selects_the_pipeline_and_the_feature_bit() {
         let off = TerrainLayers { count: 2, ..default() };
         let on = TerrainLayers { count: 2, height_blend: true, ..default() };
-        assert_eq!((TerrainLayersKey::from(&off), TerrainLayersKey::from(&on)), (TerrainLayersKey { height_blend: false }, TerrainLayersKey { height_blend: true }));
+        assert_eq!((TerrainLayersKey::from(&off), TerrainLayersKey::from(&on)), (TerrainLayersKey { height_blend: false, anti_tiling: false }, TerrainLayersKey { height_blend: true, anti_tiling: false }));
         assert_eq!((TerrainLayersUniform::from(&off).counts.w, TerrainLayersUniform::from(&on).counts.w), (0, FEATURE_HEIGHT_BLEND));
         assert_eq!(TerrainLayersUniform::from(&on).counts.truncate(), TerrainLayersUniform::from(&off).counts.truncate());
         let main = || RenderPipelineDescriptor { fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: vec!["VERTEX_UVS_A".into()], ..default() }), ..default() };
         let has = |d: &RenderPipelineDescriptor| d.fragment.as_ref().unwrap().shader_defs.contains(&"TERRAIN_HEIGHT_BLEND".into());
         let mut d = main();
-        height_blend_def(&mut d, TerrainLayersKey { height_blend: true });
+        height_blend_def(&mut d, TerrainLayersKey { height_blend: true, anti_tiling: false });
         assert!(has(&d));
         let mut d = main();
-        height_blend_def(&mut d, TerrainLayersKey { height_blend: false });
+        height_blend_def(&mut d, TerrainLayersKey { height_blend: false, anti_tiling: false });
         assert!(!has(&d), "off: the pipeline there always was");
         let mut prepass = main();
         prepass.vertex.shader_defs.push("PREPASS_PIPELINE".into());
-        height_blend_def(&mut prepass, TerrainLayersKey { height_blend: true });
+        height_blend_def(&mut prepass, TerrainLayersKey { height_blend: true, anti_tiling: false });
         assert!(!has(&prepass), "the prepass draws the same depth either way");
     }
 
@@ -1216,6 +1358,269 @@ mod tests {
         assert!(!blends(&app, &a) && !blends(&app, &b));
         // Without the settings resource (a tool's world): off.
         assert!(!height_blend_wanted(None));
+    }
+
+    #[test]
+    fn the_sampling_shader_is_valid_wgsl_and_reads_inside_branches() {
+        use wgpu::naga;
+        let validate = |source: &str| {
+            let module = naga::front::wgsl::parse_str(source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(source)));
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty()).validate(&module).unwrap_or_else(|e| panic!("{e:?}"));
+        };
+        let helper = nvf_assets::terrain_sampling::SAMPLING_SOURCE;
+        validate(helper);
+        // A fragment that reads a texture through the helpers inside a branch that differs
+        // between the fragments of a quad (explicit gradients allow it), with derivatives
+        // taken before it, as terrain.wesl and terrain_pbr.wesl do.
+        let harness = format!(
+            "{helper}\n\
+             @group(0) @binding(0) var tex: texture_2d<f32>;\n\
+             @group(0) @binding(1) var samp: sampler;\n\
+             @fragment fn harness(@location(0) world: vec3<f32>, @location(1) o: f32) -> @location(0) vec4<f32> {{\n\
+                 let uv = terrain_world_uv(world, 256.0);\n\
+                 let fp = TerrainFootprint(uv, dpdx(uv) * 2.0, dpdy(uv) * 2.0);\n\
+                 var c = vec4<f32>(0.0);\n\
+                 if o > 0.5 {{\n\
+                     c = terrain_sample_diffuse(tex, samp, terrain_hex3(fp.uv), fp);\n\
+                     let n = terrain_sample_normal(tex, samp, terrain_hex3(fp.uv), fp, o > 0.75, true);\n\
+                     let tbn = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0));\n\
+                     c += vec4<f32>(terrain_world_normal(tbn, n, o > 0.9), 0.0);\n\
+                 }}\n\
+                 return c;\n\
+             }}\n"
+        );
+        validate(&harness);
+        // terrain.wesl takes the helpers and the surface set-up by name, only with the switch.
+        let terrain = include_str!("terrain.wesl");
+        assert!(terrain.contains("@if(TERRAIN_ANTI_TILING) import nvf_assets::terrain_sampling::{"));
+        assert!(terrain.contains("@if(TERRAIN_ANTI_TILING) import nvf_assets::terrain_pbr::{"));
+    }
+
+    #[test]
+    fn with_anti_tiling_off_both_old_paths_stay_as_they_were() {
+        // The two #2550 paths are fenced off from the anti-tiled one, not edited: their
+        // conditions gain `!TERRAIN_ANTI_TILING`, and Bevy's set-up is kept for them.
+        let terrain = include_str!("terrain.wesl");
+        assert!(terrain.contains("        @if(!TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {"));
+        assert!(terrain.contains("        @if(TERRAIN_HEIGHT_BLEND && !TERRAIN_ANTI_TILING) {"));
+        assert!(terrain.contains("    @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(in, is_front);"));
+        assert!(terrain.contains("    @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_begin(in, is_front, standard_material(in.instance_index));"));
+        // The anti-tiled walk is the ordered blend's (mirrored in `antitiled_walk` below)
+        // and the heights come from its reads.
+        for line in [
+            "                if remaining == 0.0 {",
+            "                if o == 0.0 {",
+            "                let a = saturate(o * raw[k + 1u].a);",
+            "                w[k + 1u] = a * remaining;",
+            "                remaining *= 1.0 - a;",
+            "            if w[0] != 0.0 {",
+            "                    height[0] = terrain_height(raw[0].rgb, base_reference(in.instance_index, vec2(0.5), vec2(0.0), vec2(0.0), 0.0), anti_params.y);",
+            "                        height[k + 1u] = terrain_height(raw[k + 1u].rgb, layer_reference(k, in.instance_index, vec2(0.5), vec2(0.0), vec2(0.0), 0.0), anti_params.y);",
+        ] {
+            assert!(terrain.contains(line), "terrain.wesl: `{line}`");
+        }
+    }
+
+    /// CPU mirror of terrain.wesl's anti-tiled walk over the layers: the ordered shares
+    /// (base at 0, layer k at k + 1) and which diffuse textures were read. `alpha` is the
+    /// texture alpha a read would give.
+    fn antitiled_walk(opacity: [f32; 6], alpha: [f32; 7], n: usize) -> ([f32; 7], [bool; 7]) {
+        let mut w = [0.0f32; 7];
+        let mut read = [false; 7];
+        let mut remaining = 1.0f32;
+        for k in (0..n.min(6)).rev() {
+            if remaining == 0.0 {
+                break;
+            }
+            let o = opacity[k].clamp(0.0, 1.0);
+            if o == 0.0 {
+                continue;
+            }
+            read[k + 1] = true;
+            let a = (o * alpha[k + 1]).clamp(0.0, 1.0);
+            w[k + 1] = a * remaining;
+            remaining *= 1.0 - a;
+        }
+        w[0] = remaining;
+        read[0] = w[0] != 0.0;
+        (w, read)
+    }
+
+    #[test]
+    fn the_antitiled_walk_gives_the_ordered_shares_and_reads_only_what_can_show() {
+        // Synthetic opacities and alphas (no texture's values): the same shares as the
+        // ordered blend, exactly.
+        let mut seed = 0x2551u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for case in 0..600 {
+            let n = case % 7;
+            let mut opacity = [0.0f32; 6];
+            let mut alpha = [1.0f32; 7];
+            for k in 0..6 {
+                opacity[k] = match (next() * 5.0) as u32 {
+                    0 => 0.0,
+                    1 => 1.0,
+                    2 => 1e-4,
+                    _ => next(),
+                };
+                alpha[k + 1] = match (next() * 4.0) as u32 {
+                    0 => 0.0,
+                    1 => 1.0,
+                    _ => next(),
+                };
+            }
+            let paint: [f32; 6] = std::array::from_fn(|k| opacity[k].clamp(0.0, 1.0) * alpha[k + 1]);
+            let (w, read) = antitiled_walk(opacity, alpha, n);
+            assert_eq!(w, ordered_shares(paint, n), "case {case}");
+            for k in 0..n {
+                // Opacity 0: never read. A share above 0: always read.
+                if opacity[k] == 0.0 {
+                    assert!(!read[k + 1], "case {case}: layer {k}");
+                }
+                if w[k + 1] != 0.0 {
+                    assert!(read[k + 1], "case {case}: layer {k}");
+                }
+            }
+            assert_eq!(read[0], w[0] != 0.0);
+            // With height blending, a texture not read has a share of 0 and keeps it.
+            for depth in [MIN_DEPTH, DEPTH, 0.5, 1e6] {
+                let f = height_weights(w, [0.2, -0.25, 0.25, 0.0, -0.1, 0.15, 0.05], depth);
+                assert!(f.iter().all(|x| x.is_finite() && *x >= 0.0));
+                assert!((f.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+                for i in 0..7 {
+                    assert!(read[i] || f[i] == 0.0, "case {case}, depth {depth}: {i} unread but weighted");
+                }
+            }
+        }
+        // A fully covering later layer: everything under it (the base too) is not read.
+        let (w, read) = antitiled_walk([0.6, 0.3, 1.0, 0.0, 0.0, 0.0], [1.0; 7], 3);
+        assert_eq!(w, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(read, [false, false, false, true, false, false, false]);
+        // An alpha of 0 is only found by reading: the layer is read and shares nothing.
+        let mut alpha = [1.0; 7];
+        alpha[2] = 0.0;
+        let (w, read) = antitiled_walk([0.0, 1.0, 0.0, 0.0, 0.0, 0.0], alpha, 2);
+        assert!(read[2] && w[2] == 0.0 && read[0] && w[0] == 1.0);
+        // A tiny painted share survives (exact zeros skip, no epsilon).
+        let (w, read) = antitiled_walk([1e-4, 0.0, 0.0, 0.0, 0.0, 0.0], [1.0; 7], 1);
+        assert!(read[1] && w[1] > 0.0 && w[1] < 1e-3);
+        // Unpainted ground reads the base alone.
+        assert_eq!(antitiled_walk([0.0; 6], [1.0; 7], 6).1, [true, false, false, false, false, false, false]);
+    }
+
+    #[test]
+    fn anti_tiling_selects_the_pipeline_the_feature_bit_and_the_repeat() {
+        let off = TerrainLayers { count: 2, texture_repeat: 256.0, ..default() };
+        let on = TerrainLayers { count: 2, texture_repeat: 256.0, anti_tiling: true, ..default() };
+        assert_eq!(TerrainLayersKey::from(&off), TerrainLayersKey { height_blend: false, anti_tiling: false });
+        assert_eq!(TerrainLayersKey::from(&on), TerrainLayersKey { height_blend: false, anti_tiling: true });
+        assert_eq!((TerrainLayersUniform::from(&off).counts.w, TerrainLayersUniform::from(&on).counts.w), (0, FEATURE_ANTI_TILING));
+        let both = TerrainLayers { height_blend: true, ..on.clone() };
+        assert_eq!(TerrainLayersUniform::from(&both).counts.w, FEATURE_HEIGHT_BLEND | FEATURE_ANTI_TILING);
+        assert_eq!(TerrainLayersKey::from(&both), TerrainLayersKey { height_blend: true, anti_tiling: true });
+        // The repeat travels in tile.y, also where the mesh carries the coordinate (tile 0),
+        // and the folding (tile.x, the layer count) is as before.
+        let carried = TerrainLayersUniform::from(&TerrainLayers { count: 9, texture_repeat: 300.0, anti_tiling: true, ..default() });
+        assert_eq!((carried.tile.x, carried.tile.y, carried.counts.x), (0.0, 300.0, FOLDED_LAYERS_WITH_UV as u32));
+        let worked_out = TerrainLayersUniform::from(&TerrainLayers { count: 9, tile: 256.0, texture_repeat: 256.0, ..default() });
+        assert_eq!((worked_out.tile.x, worked_out.tile.y, worked_out.counts.x), (256.0, 256.0, FOLDED_LAYERS as u32));
+        // A repeat that cannot place the reads keeps the ordinary pipeline.
+        for bad in [0.0, -256.0, f32::NAN] {
+            let l = TerrainLayers { count: 2, texture_repeat: bad, anti_tiling: true, ..default() };
+            assert!(!TerrainLayersKey::from(&l).anti_tiling, "{bad}");
+            assert_eq!((TerrainLayersUniform::from(&l).counts.w, TerrainLayersUniform::from(&l).tile.y), (0, 0.0), "{bad}");
+        }
+        // The definitions go to the main pass only (nvf_assets terrain_sampling's test has
+        // the rest); height blending's are untouched.
+        let main = || RenderPipelineDescriptor { fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: vec!["VERTEX_UVS_A".into()], ..default() }), ..default() };
+        let mut d = main();
+        height_blend_def(&mut d, TerrainLayersKey { height_blend: false, anti_tiling: true });
+        assert_eq!(d.fragment.as_ref().unwrap().shader_defs.len(), 1, "height blending's switch alone decides TERRAIN_HEIGHT_BLEND");
+    }
+
+    #[test]
+    fn the_anti_tiling_switch_flips_every_folded_material_in_place() {
+        use crate::graphics::{Graphics, Preset};
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(Preset::Vanilla));
+        app.insert_resource(TerrainSettings { tile: 256.0 });
+        app.insert_resource(Assets::<TerrainMaterial>::default());
+        app.add_systems(Update, (sync_height_blend, sync_anti_tiling));
+        let material = || TerrainMaterial { base: StandardMaterial::default(), extension: TerrainLayers { count: 1, texture_repeat: 256.0, ..default() } };
+        let a = app.world_mut().resource_mut::<Assets<TerrainMaterial>>().add(material());
+        app.update();
+        let get = |app: &App, h: &Handle<TerrainMaterial>| {
+            let e = &app.world().resource::<Assets<TerrainMaterial>>().get(h).unwrap().extension;
+            (e.anti_tiling, e.height_blend)
+        };
+        assert_eq!(get(&app, &a), (false, false), "off by default");
+        assert!(!Graphics::preset(Preset::Enhanced).terrain_anti_tiling, "and in the enhanced preset");
+        app.world_mut().resource_mut::<Graphics>().terrain_anti_tiling = true;
+        let b = app.world_mut().resource_mut::<Assets<TerrainMaterial>>().add(material());
+        app.update();
+        assert_eq!((get(&app, &a), get(&app, &b)), ((true, false), (true, false)), "height blending left alone");
+        app.world_mut().resource_mut::<Graphics>().terrain_height_blend = true;
+        app.update();
+        assert_eq!(get(&app, &a), (true, true), "the two switches together");
+        app.world_mut().resource_mut::<Graphics>().terrain_anti_tiling = false;
+        app.update();
+        assert_eq!((get(&app, &a), get(&app, &b)), ((false, true), (false, true)));
+        assert!(!anti_tiling_wanted(None));
+    }
+
+    #[test]
+    fn the_switch_reaches_the_landscapes_own_nif_materials_and_no_other() {
+        use crate::graphics::{Graphics, Preset};
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(Preset::Vanilla));
+        app.insert_resource(TerrainSettings { tile: 300.0 });
+        app.insert_resource(Assets::<TerrainMaterial>::default());
+        app.insert_resource(Assets::<NifMaterial>::default());
+        app.add_systems(Update, sync_anti_tiling);
+        let surface = || surface_material(None, None);
+        let (base, layer, other) = {
+            let mut nif = app.world_mut().resource_mut::<Assets<NifMaterial>>();
+            let base = nif.add(terrain_nif_material(surface(), 300.0, false));
+            let layer = nif.add(terrain_nif_material(StandardMaterial { alpha_mode: AlphaMode::Blend, depth_bias: sort_first(4.0), ..surface() }, 300.0, false));
+            (base, layer, nif.add(nif_material(StandardMaterial::default())))
+        };
+        let on = |app: &App, h: &Handle<NifMaterial>| app.world().resource::<Assets<NifMaterial>>().get(h).unwrap().extension.anti_tiling;
+        app.update();
+        assert!(!on(&app, &base) && !on(&app, &layer) && !on(&app, &other));
+        app.world_mut().resource_mut::<Graphics>().terrain_anti_tiling = true;
+        app.update();
+        assert!(on(&app, &base) && on(&app, &layer), "the landscape's materials flipped in place");
+        assert!(!on(&app, &other), "a shape's material is left alone (no texture repeat)");
+        // The layer keeps its blending and draw order; the key selects the separate path.
+        let nif = app.world().resource::<Assets<NifMaterial>>();
+        let l = nif.get(&layer).unwrap();
+        assert!(matches!(l.base.alpha_mode, AlphaMode::Blend) && l.base.depth_bias == sort_first(4.0));
+        assert!(nvf_assets::nif_material::NifSurfaceKey::from(&l.extension).anti_tiling);
+        assert!(!nvf_assets::nif_material::NifSurfaceKey::from(&nif.get(&other).unwrap().extension).anti_tiling);
+        assert_eq!(terrain_nif_material(surface(), 256.0, true).extension.terrain_repeat, 256.0);
+        app.world_mut().resource_mut::<Graphics>().terrain_anti_tiling = false;
+        app.update();
+        assert!(!on(&app, &base) && !on(&app, &layer));
+    }
+
+    #[test]
+    fn the_landscape_materials_hold_only_what_the_anti_tiled_set_up_reads() {
+        // nvf_assets terrain_pbr.wesl's contract: colour, diffuse texture, normal map and
+        // scalar values; nothing it would leave out.
+        let image = Handle::<Image>::default();
+        for m in [surface_material(Some(image.clone()), Some(image.clone())), surface_material(None, None)] {
+            assert!(m.emissive_texture.is_none() && m.metallic_roughness_texture.is_none() && m.occlusion_texture.is_none() && m.depth_map.is_none());
+            // (The transmission, clearcoat and anisotropy textures are not built into this
+            // Bevy; their strengths are checked below.)
+            assert!(m.specular_texture.is_none() && m.specular_tint_texture.is_none());
+            assert_eq!((m.specular_transmission, m.diffuse_transmission, m.thickness, m.clearcoat, m.anisotropy_strength), (0.0, 0.0, 0.0, 0.0, 0.0));
+            assert!(!m.unlit && !m.double_sided && m.flip_normal_map_y && matches!(m.alpha_mode, AlphaMode::Opaque));
+            assert_eq!(m.uv_transform, bevy::math::Affine2::IDENTITY, "a transform would need the normal frame turned too");
+            assert_eq!(m.emissive, LinearRgba::BLACK);
+        }
     }
 
     fn triangles(mesh: &Mesh) -> Vec<[u32; 3]> {

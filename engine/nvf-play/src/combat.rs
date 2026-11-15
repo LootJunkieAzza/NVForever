@@ -1017,6 +1017,8 @@ struct Flying {
     speed_mult: f32,
     /// Where its flight ended without a hit (`ProjEvent::Expired`).
     ended_at: Option<V3>,
+    /// The gas clouds it has passed through, each hit once (`crate::gas_traps`, #2687).
+    gassed: Vec<FormId>,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -1048,6 +1050,8 @@ struct Pending {
 struct Ghost {
     id: u64,
     proj: FormId,
+    /// Its original script reference, for explicit deletion while the visual remains.
+    rref: Option<FormId>,
     /// Who fired it.
     owner: FormId,
     from: V3,
@@ -3564,7 +3568,7 @@ pub(crate) fn fire(
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
                     let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
                     let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
-                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -4638,6 +4642,33 @@ fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut S
     }
 }
 
+/// A gas cloud `r` reached by `attacker`'s `weapon` (`crate::gas_traps`, #2687): its
+/// OnHit and OnHitWith blocks, then OnMagicEffectHit for the weapon's object effect, as
+/// for a shot on any object; with `spark` (a gun fired inside it, a blast), a hit with
+/// `GasTrapDummy` too when none of those ran a block. Its scripts damage it, and its
+/// destruction stages burn it and set off its explosion (`Game::destruction_changes`).
+#[allow(clippy::too_many_arguments)]
+fn gas_hit(c: &Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, attacker: Option<FormId>, weapon: Option<FormId>, spark: bool, what: &str) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let attacker = attacker.filter(|a| *a != FormId(0));
+    let weapon = weapon.filter(|w| *w != FormId(0));
+    let items: Vec<FormId> = weapon.and_then(|w| c.forms.weapons.get(&w)).and_then(|w| w.enchantment).into_iter().collect();
+    let (ran, dummy) = with_world(rt, sim, |rt| {
+        let info = HitInfo { attacker, weapon, location: -1, critical: false, limb: None };
+        let ran = rt.game.hit_object(r, info) | rt.game.magic_effect_hits(r, &items, attacker);
+        if ran || !spark {
+            return (ran, false);
+        }
+        let dummy = HitInfo { weapon: Some(crate::gas_traps::GAS_TRAP_DUMMY), ..info };
+        (rt.game.hit_object(r, dummy), true)
+    });
+    info!(
+        "combat: {what} reaches gas cloud {r}{}{}",
+        if dummy { ", hit with GasTrapDummy" } else { "" },
+        if ran { ": its hit blocks ran" } else { ": no hit block ran" }
+    );
+}
+
 /// Destructible references whose collision overlaps a sphere, with their distance.
 fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
     let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
@@ -4768,7 +4799,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
                 if let Some(probe) = launch_probe.as_deref_mut() { probe.inserted(s, scripted, flying, &sim.world); }
@@ -5000,6 +5031,30 @@ fn placed_charges(forms: &CombatForms, sim: &SimState, phys: &PhysState, actor: 
         .collect()
 }
 
+/// An explicitly removed shot cannot later hit or detonate. Disable alone remains
+/// reversible. A naturally completed shot may still have a fading Ghost, so only
+/// MarkForDelete cancels a Ghost without a live flight or pending hit.
+/// Cancellation at the next consumer is an engineering policy, not native timing.
+fn retire_deleted_shots(c: &mut Combat, game: &mut fnv_game::game::Game<'_>) {
+    let mut gone: std::collections::HashSet<FormId> = c.flying.iter().filter_map(|f| f.rref)
+        .chain(c.pending.iter().filter_map(|p| p.rref))
+        .filter(|&r| game.world.peek(r).is_some_and(|s| s.shot && s.deleted()))
+        .collect();
+    gone.extend(c.ghosts.iter().filter_map(|g| g.rref).filter(|r| {
+        game.extra.get(r).is_some_and(|e| e.marked_for_delete)
+            && game.world.peek(*r).is_some_and(|s| s.shot && s.deleted())
+    }));
+    if gone.is_empty() {
+        return;
+    }
+    c.flying.retain(|f| f.rref.is_none_or(|r| !gone.contains(&r)));
+    c.pending.retain(|p| p.rref.is_none_or(|r| !gone.contains(&r)));
+    c.ghosts.retain(|g| g.rref.is_none_or(|r| !gone.contains(&r)));
+    for r in gone {
+        game.retire_deleted_projectile(r);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -5022,6 +5077,9 @@ fn fly(
     sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
     let c = &mut *c;
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        with_world(rt, &mut sim, |rt| retire_deleted_shots(c, &mut rt.game));
+    }
     // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
     // stage changes) and what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
@@ -5136,6 +5194,11 @@ fn fly(
     }
     // Shots whose flight ended this frame without a hit to deliver: their references go.
     let mut over: Vec<(FormId, f32)> = Vec::new();
+    // The gas clouds the shots pass through or leave from this frame (#2687): the
+    // cloud, the shot's source, whether the gun was fired inside it.
+    // Read with the world in the runtime (`with_world`): outside it, nothing is present.
+    let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::volumes(rt))).unwrap_or_default();
+    let mut gas_hits: Vec<(FormId, By, bool)> = Vec::new();
     {
         let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
@@ -5164,10 +5227,30 @@ fn fly(
                 let thrown = c.forms.weapons.get(&f.by.weapon).is_some_and(|w| w.projectile == Some(f.proj));
                 if thrown { Some(f.by.weapon) } else { p.default_weapon }
             });
-            let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let rref = f.rref;
+            let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
+            let first = f.p.age == 0.0;
             let events = f.p.step(&world, dt);
+            // Its way this frame, from the muzzle on the first, to where it stopped.
+            if !gas.is_empty() && !f.by.harmless {
+                let to = events
+                    .iter()
+                    .find_map(|e| match e {
+                        ProjEvent::Hit { point, .. } | ProjEvent::Explode { point, .. } | ProjEvent::Expired { point } => Some(*point),
+                        _ => None,
+                    })
+                    .unwrap_or(f.p.pos);
+                let from = if first { f.origin } else { before };
+                let inside = if first { crate::gas_traps::around(&gas, f.origin) } else { Vec::new() };
+                for r in crate::gas_traps::crossed(&gas, from, to) {
+                    if !f.gassed.contains(&r) {
+                        f.gassed.push(r);
+                        gas_hits.push((r, f.by, inside.contains(&r)));
+                    }
+                }
+            }
             // VATS mode's explosive ([`VatsBlast`]): gone off, coming, or flying off.
             if let Some(aim) = f.vats_aim {
                 if events.iter().any(|e| matches!(e, ProjEvent::Explode { .. })) {
@@ -5281,6 +5364,10 @@ fn fly(
             f.rref.map(|r| (r, left))
         }));
         c.flying.retain(|f| f.p.alive);
+    }
+    for (r, by, inside) in gas_hits {
+        let what = if inside { "a shot fired inside it" } else { "a shot through it" };
+        gas_hit(c, &mut sim, script.as_deref_mut(), r, Some(by.actor), Some(by.weapon), inside, what);
     }
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !over.is_empty()) {
         with_world(rt, &mut sim, |rt| {
@@ -5511,6 +5598,12 @@ fn fly(
         for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius).into_iter().filter(|(r, _)| sim.present(r.0)).collect::<Vec<_>>() {
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
+        }
+        // The gas clouds it reaches go off (`crate::gas_traps`, #2687): a gas cloud's own
+        // explosion sets off the clouds beside it this way.
+        let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::in_blast(&crate::gas_traps::volumes(rt), at, x.radius))).unwrap_or_default();
+        for r in gas {
+            gas_hit(c, &mut sim, script.as_deref_mut(), r, cause.map(|c| c.actor), cause.map(|c| c.weapon), true, "a blast");
         }
         // The player's tweak: things that can be taken stay where they lie [design: docs/design/tweaks.md].
         let keep_items = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.blasts_spare_items);

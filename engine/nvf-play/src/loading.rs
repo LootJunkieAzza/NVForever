@@ -707,9 +707,9 @@ mod tests {
     #[test]
     fn where_a_travel_arrives() {
         let outside = Location { world: 0xDA726, interior: None };
-        let indoors = Travel { world: None, interior: Some(0x100), feet: [0.0; 3], heading_deg: 0.0 };
+        let indoors = Travel { world: None, interior: Some(0x100), feet: [0.0; 3], heading_deg: 0.0, pitch_deg: None };
         assert_eq!(destination(&indoors, outside), Destination { interior: Some(0x100), exterior: None });
-        let out = Travel { world: None, interior: None, feet: [-69_500.0, -5_000.0, 0.0], heading_deg: 0.0 };
+        let out = Travel { world: None, interior: None, feet: [-69_500.0, -5_000.0, 0.0], heading_deg: 0.0, pitch_deg: None };
         let inside = Location { world: 0xDA726, interior: Some(0x100) };
         assert_eq!(destination(&out, inside), Destination { interior: None, exterior: Some((0xDA726, (-17, -2))) });
     }
@@ -778,7 +778,7 @@ mod tests {
     fn busy_pipelines_hold_a_travels_screen() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         for _ in 0..3 {
             app.update();
@@ -821,7 +821,7 @@ mod tests {
     fn the_screen_is_up_before_the_travel_and_holds_the_game() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.update();
         // Up at once, the clock stopped; the travel has not gone out.
@@ -862,7 +862,7 @@ mod tests {
         let mut app = app();
         app.update();
         app.world_mut().resource_mut::<Loading>().generic_next = true;
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.update();
         let l = app.world().resource::<Loading>();
@@ -968,7 +968,7 @@ mod tests {
     fn a_travel_screen_waits_for_the_destinations_actors() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.world_mut().resource_mut::<Loading>().actors_busy = true;
         for _ in 0..10 {
@@ -985,7 +985,7 @@ mod tests {
         let mut app = app();
         app.insert_resource(StartCover);
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.world_mut().resource_mut::<Loading>().actors_busy = true;
         app.update();

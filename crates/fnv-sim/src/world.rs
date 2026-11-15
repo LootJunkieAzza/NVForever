@@ -692,10 +692,30 @@ impl<'a> World<'a> {
         self.refs.iter().map(|(&k, v)| (k, v))
     }
 
-    /// The lock `id` has: its state's once it has one, else the lock it would start with
-    /// (its placed XLOC, a leveled lock at the level `initial` sets it from,
-    /// [`World::lock_read_level`]).
+    /// [design, #2538] The applicable lock (`World::lock_source`), from runtime state
+    /// or its placed XLOC at `World::lock_read_level`, without materialising it.
     pub fn lock_of(&self, id: FormId) -> Option<LockState> {
+        self.own_lock_of(self.lock_source(id))
+    }
+
+    /// The reference holding the applicable lock. A load door without its own lock
+    /// reads its XTEL partner's [observed: capture run15b_a, 2026-11-15; #2538,
+    /// docs/spec-notes/cells-refs.md section 6]. Own locks win; only one link is followed
+    /// [hypothesis: independent locks and malformed links were not captured].
+    /// [design] No state is materialised or duplicated (`own_lock_of`).
+    pub fn lock_source(&self, id: FormId) -> FormId {
+        if self.own_lock_of(id).is_some() {
+            return id;
+        }
+        let placed = self.placed.get(id);
+        let base = self.peek(id).map(|s| s.base).or_else(|| placed.map(|p| p.base));
+        if base.and_then(|b| self.forms.sig(b)).as_ref() != Some(b"DOOR") {
+            return id;
+        }
+        placed.and_then(|p| p.teleport).map(|t| t.door).filter(|&d| self.own_lock_of(d).is_some()).unwrap_or(id)
+    }
+
+    fn own_lock_of(&self, id: FormId) -> Option<LockState> {
         match self.peek(id) {
             Some(s) => s.lock,
             None => self.placed.get(id).and_then(|p| p.lock).map(|l| LockState { level: l.level_at(self.lock_read_level(id)), key: l.key, locked: true }),
@@ -1936,6 +1956,9 @@ impl<'a> World<'a> {
     }
 
     pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
+        // Unlocking through either side changes the one source lock [hypothesis,
+        // #2538: capture run15b_a checked refusal and reads, not unlocking].
+        let id = self.lock_source(id);
         if let Some(l) = &mut self.get(id)?.lock {
             l.locked = false;
             self.lock_serial += 1;
@@ -1943,7 +1966,19 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// Goes up with every lock change ([`World::lock`], [`World::unlock`]): a reader that
+    /// [hypothesis, #2538] Change the applicable source lock's key without changing
+    /// its level or access state, as `unlock` shares the source. A reference with no
+    /// applicable lock gets an open level-zero lock [hypothesis: existing fallback].
+    pub fn set_open_key(&mut self, id: FormId, key: FormId) -> Result<(), SimError> {
+        let id = self.lock_source(id);
+        let s = self.get(id)?;
+        s.lock.get_or_insert(LockState { level: 0, key: None, locked: false }).key = Some(key);
+        self.lock_serial += 1;
+        Ok(())
+    }
+
+    /// [design] Goes up with every lock change ([`World::lock`], [`World::unlock`],
+    /// [`World::set_open_key`]): a reader that
     /// saw the same number has nothing new to learn about locks.
     pub fn lock_serial(&self) -> u64 {
         self.lock_serial
@@ -2110,6 +2145,49 @@ impl<'a> World<'a> {
         Ok(had)
     }
 
+    /// The carried items of `id`'s own item list made up again: the list is rolled anew
+    /// (its leveled lists with it) and of each item the roll gives, as many are added as
+    /// the reference carries fewer. What it carries otherwise stays: items given to it,
+    /// and items of its list it still has are not doubled. An outfitted actor puts on
+    /// what was added where nothing it wears is in the way (a weapon when it holds none,
+    /// armour on free body slots). The items added, with their counts.
+    ///
+    /// A resurrected actor that keeps its inventory (`fnv_game`'s resurrect, issue
+    /// #2683): its weapon lay beside the body and its pack was looted, and the squads
+    /// the shipped scripts resurrect for each new visit would come back with nothing.
+    pub fn restock_inventory(&mut self, id: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        let base = self.get(id)?.base;
+        let source = self.inventory_base(id, base);
+        let Some(rolled) = self.roll_inventory(source, self.item_level(id))? else { return Ok(Vec::new()) };
+        let outfitted = self.get(id)?.outfitted;
+        let mut inv = self.get(id)?.inventory.clone().unwrap_or_default();
+        let mut added: Vec<(FormId, i32)> = Vec::new();
+        for (item, extra, n) in rolled.groups() {
+            let short = (rolled.count(item) - inv.count(item)).min(n);
+            if short > 0 {
+                inv.add_extra(item, short, extra);
+                match added.iter_mut().find(|(i, _)| *i == item) {
+                    Some(a) => a.1 += short,
+                    None => added.push((item, short)),
+                }
+            }
+        }
+        if added.is_empty() {
+            return Ok(added);
+        }
+        if outfitted {
+            for chosen in self.default_choice(source, &inv).unwrap_or_default() {
+                let Some(it) = self.forms.item(chosen) else { continue };
+                let free = !inv.is_equipped(chosen) && !inv.equipped().into_iter().any(|other| equip_clashes(self.forms, it, other));
+                if free && added.iter().any(|(i, _)| *i == chosen) {
+                    inv.set_equipped(chosen);
+                }
+            }
+        }
+        self.get(id)?.inventory = Some(inv);
+        Ok(added)
+    }
+
     /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
     /// explosives, `Extra::live`), which stay [design, #1640]: a resurrected actor whose
     /// new pick carries nothing.
@@ -2217,7 +2295,7 @@ impl<'a> World<'a> {
         // lockpicking is Layer 6]
         let mut unlocked_with = None;
         if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
-            if let Some(l) = t.lock.filter(|l| l.locked) {
+            if let Some(l) = self.lock_of(target).filter(|l| l.locked) {
                 let skip_key = actor == FormId::PLAYER_REF && self.player_ignores_keys;
                 match l.key.filter(|&k| !skip_key && self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
                     Some(k) => {

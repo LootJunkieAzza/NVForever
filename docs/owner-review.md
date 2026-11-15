@@ -127,6 +127,14 @@ the spec it links to.
     its target. The original's rule is unknown (the WEAP Short/Long Burst flags are not
     understood). Longer or shorter bursts, longer pauses, or Long Burst weapons firing
     longer? ([combat-ai](design/combat-ai.md), `fnv_combat::burst`)
+84. **Cowards flee every fight from its start (#2520).** An NPC or creature whose
+    Confidence is Cowardly (and was not raised at a flee spot) now runs from every fight
+    at once, unhurt, whatever the odds; before, it fled only once hurt and its threat
+    ratios said so, and it still fought whoever attacked it. The GECK wiki says a coward
+    "will always flee from combat"; from the very start is our reading, not seen in the
+    original (observer check 180 asks about the Silver Rush customer this was found on).
+    It changes every Cowardly actor in every fight. Should cowards still fight back when
+    cornered, or wait until hurt? ([combat-ai §12](design/combat-ai.md))
 
 ## Tier 2: movement and controls feel
 
@@ -309,6 +317,13 @@ the spec it links to.
   prefers whole-device NVML, then amdgpu, then game-only DRM client time. Choosing
   DRM first would make supporting Linux drivers show the game's contribution consistently.
   [Settings usage note](design/settings-page.md#performance-usage-availability-2249).
+- **Dialogue packages walk you into their trigger area (#2453).**
+  [hypothesis, #2453] With "Do Not Control Target Movement" off the original walks the
+  player into the package's trigger location; ours does it once you are close enough
+  and in the NPC's sight: you walk (your movement keys set aside) to a point 48 units
+  inside the area, then the NPC greets you. Ramos at Hidden Valley needs it (his escort
+  runs only with you inside his box). Check in game that the walk feels right as you
+  come down into the bunker's first room, and at Davison's door in REPCONN's basement. ([packages §3](spec-notes/packages.md))
 - **Explosion-hit handlers on corpses (#2346).** [design, #2346] A blast now reaches a corpse
   whose ragdoll has taken over, so ShowOff's OnExplosionHit handlers also run for corpses
   it catches (no damage is taken). Whether the original calls them for a corpse is not
@@ -595,6 +610,20 @@ the spec it links to.
     (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
+75. **A shared friend or ally faction now keeps the peace over an enemy one (#2560).**
+    Vulpes Inculta at the Fort is in VCaesarsLegionFaction and in ArmorNCRFactionNVEnemy,
+    and the Legion faction names ArmorNCRFactionNVEnemy an Enemy; we let the enemy pair
+    win, so Caesar, Lucius and the guards killed him on sight. Ours now: when any of one
+    actor's factions names one of the other's Friend or Ally, it cannot fight the other by
+    faction (one direction; the
+    wiki: allies "cannot attack each other under any circumstances"); crimes against the
+    player still come first. This also calms other mixed groups the data builds the same
+    way: the 188's shared faction, NCR troopers wearing Legion armour (both in
+    ArmorVCaesarsLegionFaction), Vulpes's VCrVoidCritterFaction (Friend of animals,
+    raiders and super mutants), and any actor whose disguise faction is shared with its
+    watchers. A hit or a murder still starts a fight. If a fight you expect is gone (two
+    sides that should fight in a group they share), say where. Observer check 177 asks
+    the original. ([factions §4](spec-notes/factions.md))
 78. **A turret that cannot move fires a script's weapon use from where it stands
     (#2544).** ARCHIMEDES at HELIOS One (an Immobile turret) is told by the control
     panel's script to shoot each NCR trooper in turn; ours never let a rooted actor's

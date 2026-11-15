@@ -1530,10 +1530,27 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     }
     if let Some(shows) = shows {
         // Upper-body models show their `Arms` shapes and the left forearm sleeve only
-        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears). A model with no
+        // `Arms…` shape draws the arm partitions of its skins instead
+        // (`first_person::arms_by_partition`, #2457).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
-                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
+                let mut cut: Vec<String> = Vec::new();
+                if first_person::arms_by_partition(u.part.shapes.iter().filter_map(|s| s.name.as_deref())) {
+                    u.meshes.resize(u.part.shapes.len(), None);
+                    for (si, s) in u.part.shapes.iter().enumerate() {
+                        let Some(name) = s.name.as_deref() else { continue };
+                        if s.cap || !first_person::partition_arm_shape(name, s.partitions.iter().map(|p| p.body_part)) {
+                            continue;
+                        }
+                        let mesh = nvf_assets::actor::dismember_mesh(&s.cpu, &s.partitions, |p| !p.cap && first_person::is_arm_body_part(p.body_part));
+                        u.meshes[si] = Some(ctx.models.meshes.add(mesh));
+                        cut.push(name.to_string());
+                    }
+                    let p = &a.parts[*i];
+                    info!("player First rig part {} {}: no Arms shape, the arm partitions of {cut:?} are drawn", p.form, p.model);
+                }
+                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n) && !cut.contains(n)));
                 u.hidden_shapes.extend(hide);
             }
         }

@@ -10,6 +10,10 @@ An expectation is written in the scenario file as a string or as a table:
 - `range = [lo, hi]` with a capture group (named `n`, else the first group): a matching
   line whose number (commas dropped) lies in [lo, hi]; with `all = true` every matching
   line must (and at least one must match).
+- `above = "regex"` with `re`: each number captured by `re` must be strictly greater
+  than the corresponding number captured by `above`, in matching-line order. Both
+  regexes need a capture group (named `n`, else the first group; commas dropped),
+  and must match the same nonzero number of lines [design, #2573].
 - `gap = ["first", "second"]` with `range`: seconds between the first line matching
   each, by the log's timestamps.
 - `{ json = "a.b.*.c" }` (tool scenarios, whose output is JSON): the values at that path
@@ -105,6 +109,7 @@ class Expect:
     min: int | None = None
     max: int | None = None
     range: tuple[float, float] | None = None
+    above: re.Pattern | None = None
     all: bool = False
     gap: tuple["Expect", "Expect"] | None = None
     known_failing: str | dict[str, str] | None = None
@@ -120,7 +125,7 @@ class Expect:
         if not isinstance(item, dict):
             raise ScenarioError(f"{where}: expectation must be a string or a table, got {item!r}")
         known = {"text", "re", "count", "min", "max", "range", "all", "gap", "known_failing", "label",
-                 "json", "schema", "equals", "null"}
+                 "json", "schema", "equals", "null", "above"}
         extra = set(item) - known
         if extra:
             raise ScenarioError(f"{where}: unknown expectation keys {sorted(extra)}")
@@ -152,6 +157,15 @@ class Expect:
         e.count = item.get("count")
         e.min = item.get("min")
         e.max = item.get("max")
+        if "above" in item:
+            if "re" not in item or "gap" in item or "json" in item:
+                raise ScenarioError(f"{where}: above needs re")
+            try:
+                e.above = re.compile(item["above"])
+            except re.error as err:
+                raise ScenarioError(f"{where}: bad above regex {item['above']!r}: {err}") from err
+            if e.pattern.groups == 0 or e.above.groups == 0:
+                raise ScenarioError(f"{where}: above needs a capture group in both re and above")
         if "range" in item:
             lo, hi = item["range"]
             e.range = (float(lo), float(hi))
@@ -316,6 +330,21 @@ def check_one(e: Expect, lines: list[str], platform: str | None = None) -> Outco
         return Outcome(ok, e.known_reason(platform), "gap", e.label, f"{gap:.2f} s apart, want {e.range[0]:g}–{e.range[1]:g}",
                        [] if ok else [short(lines[a]), short(lines[b])])
     hits = [(i, m) for i, ln in enumerate(lines) if (m := e.pattern.search(ln))]
+    if e.above is not None:
+        others = [(i, m) for i, ln in enumerate(lines) if (m := e.above.search(ln))]
+        if not hits or len(hits) != len(others):
+            return Outcome(False, e.known_reason(platform), "above", e.label,
+                           f"re matched {len(hits)} lines; above matched {len(others)} lines; want equal nonzero counts")
+        failures, context = [], []
+        for pair, ((i, left), (j, right)) in enumerate(zip(hits, others), 1):
+            a, b = e.value(left), e.value(right)
+            if a is None or b is None or not a > b:
+                shown_a = "?" if a is None else f"{a:g}"
+                shown_b = "?" if b is None else f"{b:g}"
+                failures.append(f"pair {pair}: {shown_a} > {shown_b} failed")
+                context.extend([short(lines[i]), short(lines[j])])
+        if failures:
+            return Outcome(False, e.known_reason(platform), "above", e.label, "; ".join(failures), context)
     if e.count is not None or e.min is not None or e.max is not None:
         n = len(hits)
         lo = e.count if e.count is not None else (e.min if e.min is not None else 0)

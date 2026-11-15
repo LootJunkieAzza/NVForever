@@ -178,7 +178,7 @@ engine does:
 |---|---|
 | `ref_enabled` / `ref_disabled` | `RefChanged` for the reference and every reference whose enable-parent chain leads to it: visuals hide or show (`activate.rs` sync), collision goes or comes back (`phys.rs`) |
 | a reference newly marked for delete (`MarkForDelete`; no trace event, read from `Game::extra`) | the same `RefChanged` |
-| `moved` of the player (`MoveTo`) | `Travel` to the destination cell (interior or worldspace), feet at the marker, heading kept; none when the player already stands there (within 32 units, same cell) |
+| `moved` of the player (`MoveTo`) | `Travel` to the destination cell (interior or worldspace), feet at the marker, the marker's heading and pitch (its X angle; #2226, #2710); none when the player already stands there (within 32 units, same cell) |
 | `activated` (a script's `Activate`) | the outcome read back from its JSON and turned into effects by `activate::outcome::effects`, as for E: `RefChanged`, `Travel` and `OpenContainer` when the actor is the player, the outcome's message; an actor activated for the player is talked to instead (`Runtime::talk_after`, docs/design/dialogue-play.md) |
 | `message_shown` | a line for a message that is not a box; for a box (`MESG` "Message Box" flag or buttons) its text and buttons are kept for when the runtime's queue brings it to the front |
 | `line_started` | the line's response texts (INFO `NAM1`) are read for the subtitles |

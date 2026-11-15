@@ -84,7 +84,7 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
 fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
-    for b in [
+    for mut b in [
         base(STIMPAK, Some("Stimpak"), item(ItemKind::Aid)),
         base(KEY, Some("Safe Key"), item(ItemKind::Key)),
         base(CHEST, Some("Chest"), chest()),
@@ -95,6 +95,11 @@ fn sim() -> SimState {
         base(LEVER, Some("Lever"), BaseData::Activator),
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
+        // [design, #2538] World::lock_source identifies doors through FormStore::sig.
+        if matches!(b.data, BaseData::Door(_)) {
+            b.sig = *b"DOOR";
+            forms.sigs.insert(b.id, b.sig);
+        }
         forms.bases.insert(b.id, b);
     }
     let mut refs = RefTable::default();
@@ -492,4 +497,23 @@ fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
     assert!(app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::KeyE));
     assert!(drain::<RefChanged>(&mut app).is_empty());
     assert_eq!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map_or(0, |i| i.count(FormId(STIMPAK))), 0);
+}
+
+
+/// [design, #2538] Both HUD states use the same partner lock as activation.
+#[test]
+fn load_door_lock_prompt_uses_partner_level_and_key() {
+    let mut sim = sim();
+    for id in [FormId(DOOR), FormId(HIDDEN_DOOR)] {
+        assert_eq!(sim.forms.get(id).unwrap().sig, *b"DOOR");
+        assert_eq!(sim.forms.sig(id), Some(*b"DOOR"));
+    }
+    sim.world.lock(FormId(DOOR_DEST), Some(255)).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Locked { level: 255 });
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1.label(), "Locked (Requires Key)");
+    sim.world.get(FormId(DOOR_DEST)).unwrap().lock.as_mut().unwrap().key = Some(FormId(KEY));
+    sim.world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Unlock);
+    sim.world.unlock(FormId(DOOR_REF)).unwrap();
+    assert!(matches!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Travel { .. }));
 }

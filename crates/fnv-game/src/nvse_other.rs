@@ -645,19 +645,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: GetOpenKey; SetOpenKey] the key of a lockable reference.
         "getopenkey" => {
             let r = subject.unwrap_or(FormId(0));
-            let key = match g.world.peek(r) {
-                Some(s) => s.lock.and_then(|l| l.key),
-                None => g.world.placed.get(r).and_then(|p| p.lock).and_then(|l| l.key),
-            };
+            let key = g.world.lock_of(r).and_then(|l| l.key);
             XVal::Ref(key.map_or(0, |k| k.0))
         }
         "setopenkey" => {
             let (Some(r), Some(k)) = (subject, form(args, 0)) else { return Some(Ok(zero)) };
-            if let Ok(s) = g.world.get(r) {
-                // A reference without a lock gets an open one with the key [hypothesis].
-                let lock = s.lock.get_or_insert(fnv_sim::world::LockState { level: 0, key: None, locked: false });
-                lock.key = Some(k);
-            }
+            let _ = g.world.set_open_key(r, k);
             zero
         }
         // Packages [documented: AddPackageAt `package [index, -1 the end] [actor]`, the

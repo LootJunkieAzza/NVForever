@@ -142,8 +142,8 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
     if placed.is_some_and(|p| p.primitive.is_some()) {
         return None;
     }
-    // A reference with lock data starts locked, a leveled lock at its fixed level
-    // [hypothesis, as fnv_sim::World does: `World::lock_of`].
+    // [design, #2538] Use the same applicable lock as activation, including a load
+    // door's partner (`World::lock_of`, docs/spec-notes/cells-refs.md section 6).
     let lock = sim.world.lock_of(id).filter(|l| l.locked).map(|l| (l.level, l.key));
     let carried = |k: FormId| {
         sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).is_some_and(|inv| inv.count(k) > 0)
@@ -879,7 +879,7 @@ pub(crate) fn activate(
                 if let Some(s) = screen.as_deref_mut() {
                     s.arriving = true;
                 }
-                travel.write(TravelRequest(Travel { world, interior, feet, heading_deg }));
+                travel.write(TravelRequest(Travel { world, interior, feet, heading_deg, pitch_deg: None }));
             }
             Effect::OpenContainer(container) => {
                 open.write(OpenContainer { container });

@@ -39,6 +39,9 @@ pub struct PartMesh {
     pub rigid_ancestors: Vec<Vec<String>>,
     /// The root node's name.
     pub root_name: Option<String>,
+    /// Per named skinned shape with a `BSDismemberSkinInstance`, the body part each of
+    /// its partitions names (docs/spec-notes/dismemberment.md §2.5).
+    pub shape_body_parts: Vec<(String, Vec<u16>)>,
 }
 
 /// Block index of the root: the first block, as the files are laid out [observed:
@@ -64,6 +67,13 @@ pub fn analyse(file: &NifFile, dec: &Decoded) -> PartMesh {
         match skin {
             Some(skin) => {
                 out.skinned_shapes += 1;
+                if let (Some(n), Some(parts)) = (s.text("name"), skin.list("partitions")) {
+                    let bp = parts.iter().filter_map(|p| match p {
+                        fnv_nif::value::Value::Struct(p) => p.int("body_part").map(|b| b as u16),
+                        _ => None,
+                    });
+                    out.shape_body_parts.push((n.to_string(), bp.collect()));
+                }
                 for &bone in skin.refs("bones").unwrap_or_default() {
                     if let Some(n) = dec.get(bone).and_then(|b| b.text("name")) {
                         out.skin_bones.insert(n.to_string());

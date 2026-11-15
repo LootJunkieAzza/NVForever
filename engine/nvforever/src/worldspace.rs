@@ -47,6 +47,19 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.moon_textures = from.moon_textures.clone();
 }
 
+/// Seed current gates before restoring sampled placement and selecting weather
+/// [design, #2531; `SkyState::carry_region_placement`]. Worldspace travel uses
+/// `carry_sky` instead.
+pub(crate) fn carry_climate_sky(from: &SkyState, s: &mut SkyState, global_value: impl Fn(u32) -> Option<f32>) {
+    for id in s.gate_globals() {
+        if let Some(value) = global_value(id) {
+            s.set_live_global(id, value);
+        }
+    }
+    carry_sky(from, s);
+    s.carry_region_placement(from);
+}
+
 /// The climate the scripts want (ForceClimate, SetCurrentClimate; `fnv_game::nvse_jip12`)
 /// and their moon textures (SetMoonTexture): the sky is made again with them, keeping its
 /// weather when the climate changes [hypothesis: the original goes on to the new
@@ -56,6 +69,7 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
 pub fn script_sky(
     mut commands: Commands,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    sim: Res<nvf_play::sim::SimState>,
     world: Res<WorldData>,
     mut sky: ResMut<SkyState>,
     sky_entities: Query<Entity, SkyEntity>,
@@ -75,7 +89,7 @@ pub fn script_sky(
         let weather = sky.weather.edid.clone();
         match SkyState::with_climate(&world, c, args.weather.as_deref(), weather.as_deref(), sky.hour, sky.rng) {
             Ok(mut s) => {
-                carry_sky(&sky, &mut s);
+                carry_climate_sky(&sky, &mut s, |id| sim.world.global(fnv_sim::FormId(id)).ok());
                 info!("sky: climate {:08X} -> {c:08X}{}: {}", sky.climate.form_id, if wanted.is_some() { " (a script's)" } else { "" }, s.describe());
                 *sky = s;
                 remake = true;
