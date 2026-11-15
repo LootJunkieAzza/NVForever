@@ -185,8 +185,17 @@ const ROW_PITCH: f32 = 34.0;
 /// boxes "Mojave Music Radio" from 448 px, the rows' squares start at 456 px as ours].
 const BOX_LEFT: f32 = 9.0;
 /// A done quest's or objective's text and square at half strength [hypothesis: the
-/// owner's screenshot shows the completed quest greyed].
+/// owner's screenshot shows the completed quest greyed]: the colour's light halved, not
+/// its alpha, which the Pip-Boy model's screen divides out again (`device_screen`: the
+/// picture's tint raised and divided by its alpha), so done rows showed full strength on
+/// the model (item 205: a guest's frames, late205f).
 const DONE_ALPHA: f32 = 0.5;
+
+/// [`DONE_ALPHA`]'s colour: the light scaled, the alpha kept.
+fn done_colour(bright: Color) -> Color {
+    let l = bright.to_linear();
+    Color::linear_rgba(l.red * DONE_ALPHA, l.green * DONE_ALPHA, l.blue * DONE_ALPHA, l.alpha)
+}
 /// Map marker, player arrow and quest marker widths ("set in code" in the menu file)
 /// [observed: fitted to the owner's World Map screenshot, the marker about 13 px, the
 /// arrow's triangle 25 px and the quest marker's 12 × 23 px, at 0.62 px a unit; the
@@ -3709,7 +3718,7 @@ fn row_height(lines: &[fnv_font::Line]) -> f32 {
 fn row(p: &mut ChildSpawnerCommands, c: &mut Ctx, x0: f32, y: f32, h: f32, r: &Row, lines: &[fnv_font::Line], boxed: bool) {
     let bright = c.bright();
     let row_w = LIST_W - SCROLLBAR - ROW_SHORT;
-    let colour = if r.done { bright.with_alpha(DONE_ALPHA) } else { bright };
+    let colour = if r.done { done_colour(bright) } else { bright };
     if boxed {
         c.boxed(p, Rect::new(x0 - BOX_LEFT, y, x0 + row_w, y + h - 1.0), amber(LINE), None);
     }
