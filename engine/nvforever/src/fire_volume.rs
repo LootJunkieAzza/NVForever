@@ -302,8 +302,11 @@ fn fire_model(sfx: &Sfx, index: i32) -> Option<String> {
     crate::fuller_fire::is_fire(&path).then_some(path)
 }
 
+/// Makes the flame of each fire add-on node, only while the `fuller-fire` switch is on
+/// (switched on later, the nodes not yet looked at get theirs then).
 fn spawn_flames(
     mut commands: Commands,
+    graphics: Option<Res<crate::graphics::Graphics>>,
     sfx: Option<Res<Sfx>>,
     emitters: Query<(Entity, &AddonEmitter), Without<FlameLooked>>,
     mut made: ResMut<FlamesMade>,
@@ -311,6 +314,9 @@ fn spawn_flames(
     mut materials: ResMut<Assets<FireVolumeMaterial>>,
 ) {
     let Some(sfx) = sfx else { return };
+    if !graphics.as_ref().is_some_and(|g| g.fuller_fire) {
+        return;
+    }
     for (e, em) in &emitters {
         let Some(path) = fire_model(&sfx, em.index) else {
             commands.entity(e).insert(FlameLooked);
@@ -332,7 +338,7 @@ fn spawn_flames(
         commands.entity(e).insert(FlameLooked);
         made.count += 1;
         if made.count.is_power_of_two() {
-            info!("fire volume: {} flame(s) drawn ({path}: {radius} across the base, {height} high)", made.count);
+            info!("fire volume: {} flame(s) made ({path}: {radius} across the base, {height} high); drawn as the frame's plan allows", made.count);
         }
     }
 }

@@ -690,6 +690,7 @@ fn systems_of<'a>(
     models: &mut ModelCtx,
     commands: &mut Commands,
     root: Entity,
+    fuller: bool,
 ) -> Option<&'a mut Vec<Live>> {
     let source = &key.source;
     if !p.systems.contains_key(key) {
@@ -728,8 +729,12 @@ fn systems_of<'a>(
                     if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) },
                     if driven == 0 { String::new() } else { format!("; {driven} driven by the sequences [{}]", names.join(", ")) }
                 );
-                if !added.is_empty() {
+                // Made either way, so the settings switch can turn them on; born only
+                // while it is on.
+                if !added.is_empty() && fuller {
                     info!("particles: {what}: {} system(s) of the fuller fire [{}]", added.len(), added.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "));
+                } else if !added.is_empty() {
+                    info!("particles: {what}: {} fuller-fire system(s) kept unborn: the switch is off", added.len());
                 }
             }
             pp.systems
@@ -887,7 +892,7 @@ fn emit(
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, fuller) else { continue };
         let node = places[i];
         // A fire burning a volumetric flame (fire_volume.rs) leaves its flame squares
         // unborn; its sparks stay.
