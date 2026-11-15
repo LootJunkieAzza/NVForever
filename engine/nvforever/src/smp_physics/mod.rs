@@ -50,6 +50,16 @@ const DRAPE_HELD: f32 = 0.45;
 /// The lightest mass a spring's stiffness is divided by [design: keeps a near-massless
 /// bone's spring from becoming rigid].
 const MIN_MASS: f32 = 0.01;
+/// The lightest mass the wind is divided by, so a near-weightless bone is not blown away.
+const MIN_WIND_MASS: f32 = 0.05;
+
+/// The wind on a bone, as a multiple of the wind's strength: FSMP runs on Bullet, where
+/// the wind is a force, so a bone of `wind-factor` f and `mass` m is pushed f / m as hard
+/// [hypothesis: Bullet takes forces per body; neither NV SMP's README nor FSMP's wiki
+/// says; docs/spec-notes/smp-physics.md §5].
+fn wind_per_mass(factor: f32, mass: f32) -> f32 {
+    factor / mass.max(MIN_WIND_MASS)
+}
 /// Collision radius of an item's bone that no collision shape names, rig units [design].
 const DEFAULT_RADIUS: f32 = 1.0;
 
@@ -349,7 +359,7 @@ fn rig_from_xml(commands: &mut Commands, e: Entity, cand: &SmpCandidate, shape: 
                     dynamic,
                     inv_mass: if dynamic { 1.0 / props.mass } else { 0.0 },
                     damping: props.linear_damping,
-                    wind: props.wind_factor,
+                    wind: wind_per_mass(props.wind_factor, props.mass),
                     radius: sh.map_or(DEFAULT_RADIUS, |s| s.margin),
                     collide_body: sh.is_none_or(|s| !s.no_collide.iter().any(|t| t == "body")),
                     collide_ground: sh.is_none_or(|s| !s.no_collide.iter().any(|t| t == "ground")),
@@ -491,7 +501,7 @@ fn rig_generated(
             dynamic: gb.dynamic,
             inv_mass: if gb.dynamic { 1.0 / params.mass } else { 0.0 },
             damping: params.damping,
-            wind: params.wind,
+            wind: wind_per_mass(params.wind, params.mass),
             radius: params.radius,
             collide_body: true,
             collide_ground: true,
