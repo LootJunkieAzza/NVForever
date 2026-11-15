@@ -2,12 +2,11 @@
 //! `nvf_play::dismember` and keep the gone parts in the game; here:
 //!
 //! - **Skins** ([`apply_skins`]): every drawn shape of an actor (`LimbShape`) is drawn
-//!   from its partitions: an exploded part's partitions (and the torso sections that
-//!   go with it) leave the body, a gone part's torso cap shows, a severed part's section
+//!   from its partitions: an exploded part's partitions leave the body, its torso section
+//!   (the stump) stays, a gone part's torso cap shows on the stump, a severed part's section
 //!   cap shows (it leaves with the severed bones). A shape skinned to bones on both sides of
-//!   a gone part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
-//!   to its own bones only, so none stretches from the body to the piece and a torso cap
-//!   stays on the cut (an exploded part's side is not drawn). A shape without partitions whose bones
+//!   a severed part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
+//!   to its own bones only, so none stretches from the body to the piece. A shape without partitions whose bones
 //!   all lie in an exploded part's bone tree (head, hair, eyes, hat) is not drawn. Hidden
 //!   shapes are given a mesh with no triangles, so the visibility other systems set
 //!   (`RefVisual`) does not bring them back. Done again whenever shapes are spawned
@@ -172,12 +171,12 @@ fn depth(rig: &ActorRig, n: usize) -> usize {
 }
 
 /// The severed piece (side 1, 2, …, `sides`) a partition of body part `bp` leaves with:
-/// the part itself, its torso section and its section cap.
+/// the part itself and its section cap. Its torso section is the stump and stays on the
+/// body (dismemberment.md §2.5).
 pub fn piece_of(bp: u16, cap: bool, sides: &[u16]) -> Option<u8> {
     let location = match (cap, bp) {
         (true, 101..=113) => bp - 100,
         (false, 0..=13) => bp,
-        (false, 1000..) => bp / 1000,
         _ => return None,
     };
     sides.iter().position(|&l| l == location).map(|k| k as u8 + 1)
@@ -279,9 +278,9 @@ pub fn partition_drawn(bp: u16, cap: bool, exploded: &BTreeSet<u16>, severed: &B
             _ => false,
         };
     }
+    // A torso section (X000) is the stump the gone part leaves on the body: drawn.
     match bp {
         0..=13 => !exploded.contains(&bp),
-        1000.. => !exploded.contains(&(bp / 1000)),
         _ => true,
     }
 }
@@ -318,13 +317,11 @@ fn apply_skins(
         let exploded: BTreeSet<u16> = gone.iter().filter(|g| g.1).map(|g| g.0 as u16).collect();
         let severed: BTreeSet<u16> = gone.iter().filter(|g| !g.1).map(|g| g.0 as u16).collect();
         let blown: HashSet<String> = exploded.iter().flat_map(|&l| part_names(rig, data, l)).collect();
-        // The gone parts, side 1, 2, … (0 is the body), and the bones each carries: the
-        // severed pieces, then the exploded parts. An exploded part's triangles are not
-        // drawn, but the body's are cut from its bones all the same: its ragdoll bodies
-        // stay jointed and undrawn, and a torso cap weighted to them (`republican_02.nif`'s
-        // cap 210, ~92 % on the right thigh [observed: `fnvtool nif decode`]) swung away
-        // with the unseen leg and left the cut open.
-        let sides: Vec<(u16, HashSet<String>)> = severed.iter().chain(exploded.iter().filter(|&&l| l != 0)).map(|&l| (l, part_names(rig, data, l))).collect();
+        // The severed pieces, side 1, 2, … (0 is the body), and the bones each carries.
+        // An exploded part is not cut: its ragdoll bodies stay jointed and undrawn, and its
+        // stump (torso section) and torso cap, both weighted mostly to its bones, follow them
+        // together.
+        let sides: Vec<(u16, HashSet<String>)> = severed.iter().map(|&l| (l, part_names(rig, data, l))).collect();
         let torso_gone = exploded.contains(&0);
         let mut redrawn = 0;
         let mut cut = (0, 0);
@@ -332,10 +329,7 @@ fn apply_skins(
             if r.0 != rig.reference {
                 continue;
             }
-            if let Some((mut groups, side, fallback, above)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
-                for g in groups.iter_mut().filter(|g| g.0 > 0 && exploded.contains(&sides[g.0 as usize - 1].0)) {
-                    g.1.clear();
-                }
+            if let Some((groups, side, fallback, above)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
                 cut.0 += 1;
                 cut.1 += groups.iter().filter(|g| g.0 > 0).map(|g| g.1.len() / 3).sum::<usize>();
                 mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback, &above));
@@ -363,14 +357,7 @@ fn apply_skins(
             redrawn += 1;
         }
         if cut.0 > 0 {
-            info!(
-                "dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces; exploded {:?}",
-                rig.reference,
-                severed.iter().collect::<Vec<_>>(),
-                cut.0,
-                cut.1,
-                exploded.iter().collect::<Vec<_>>()
-            );
+            info!("dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces", rig.reference, severed.iter().collect::<Vec<_>>(), cut.0, cut.1);
         }
         gore.shapes_redrawn += redrawn;
         debug!("dismember: {:08X} drawn without {:?}, with stumps for {:?}: {redrawn} shapes", rig.reference, exploded, severed);
@@ -795,9 +782,10 @@ mod tests {
     fn partitions_follow_gone_parts() {
         let none = BTreeSet::new();
         let left_arm: BTreeSet<u16> = [3].into();
-        // An exploded left arm leaves the body with its torso section; its torso cap shows.
+        // An exploded left arm leaves the body; its torso section (the shoulder stump) stays
+        // and its torso cap shows on it.
         assert!(!partition_drawn(3, false, &left_arm, &none));
-        assert!(!partition_drawn(3000, false, &left_arm, &none));
+        assert!(partition_drawn(3000, false, &left_arm, &none));
         assert!(partition_drawn(0, false, &left_arm, &none));
         assert!(partition_drawn(5000, false, &left_arm, &none));
         assert!(partition_drawn(203, true, &left_arm, &none));
@@ -809,7 +797,11 @@ mod tests {
         assert!(partition_drawn(103, true, &none, &left_arm));
         // What leaves with a severed head (side 1) and left arm (side 2).
         assert_eq!(piece_of(1, false, &[1, 3]), Some(1));
-        assert_eq!(piece_of(3000, false, &[1, 3]), Some(2));
+        assert_eq!(piece_of(3, false, &[1, 3]), Some(2));
+        assert_eq!(piece_of(103, true, &[1, 3]), Some(2));
+        // The stump stays on the body.
+        assert_eq!(piece_of(3000, false, &[1, 3]), None);
+        assert!(partition_drawn(3000, false, &none, &left_arm));
         assert_eq!(piece_of(101, true, &[1, 3]), Some(1));
         assert_eq!(piece_of(201, true, &[1, 3]), None);
         assert_eq!(piece_of(0, false, &[1, 3]), None);

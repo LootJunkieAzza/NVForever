@@ -130,11 +130,23 @@ Every other creature shape keeps caps and drawn partitions in shapes of their ow
 editor-visible partition names a cap (1xx/2xx) or a hidden one a non-cap. Partition flags seen:
 0 or 256 for caps, 1 or 257 for the rest (bit 8's meaning is not known).
 
-Meanings [hypothesis, from the names]:
+Meanings [hypothesis, from the names and the geometry below]:
 - A *torso cap* covers the body's side of the cut. It is drawn on the body once the part is gone.
 - A *section cap* covers the severed piece's end. It is drawn on the piece.
-- A *torso section* (`BP_TORSOSECTION_X`, numbered X × 1000) is the strip of the body mesh that
-  leaves with part X.
+- A *torso section* (`BP_TORSOSECTION_X`, numbered X × 1000) is the stump part X leaves on the
+  body: it stays when the part goes. The cut runs between the part and its torso section, and
+  both caps sit on it [observed: `fnvtool nif decode`, bind-space vertices, 2026-11-15]:
+  - `characters\_male\upperbody.nif`: right leg 10 at z 0.8–24.3, its torso section 10000 at
+    z 22.6–59.8 (thigh and hip), torso cap 210 at z 18.4–31.4; left leg 7 at z 0.8–48.1,
+    7000 at z 47.0–59.8, cap 207 at z 40.7–54.8; right arm 5 centred at x 39.7, 5000 at x 27.2,
+    cap 205 at x 34.7.
+  - `armor\republicans\republican_02.nif`: right leg 10 at z −0.4–40.9, 10000 at z 40.7–76.8,
+    torso cap 210 at z 35.7–52.7 and section cap 110 at z 34.8–48.1.
+  - `characters\head\headold.nif` and `headhuman.nif`: the head 1 above the neck ring 1000.
+
+  Taking the torso section away with the part (as built until 2026-11-15) left the hip or
+  shoulder open and the torso cap floating at the end of the missing stump: the corpse showed
+  a see-through hole (owner, 2026-11-15, Easy Pete and a Goodsprings settler).
 
 ### 2.6 Creatures [observed: the 49 BPTD records of FalloutNV.esm; creature meshes in `Fallout - Meshes.bsa`]
 
@@ -380,7 +392,8 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 - **Skins.** Each skinned shape with a `BSDismemberSkinInstance` keeps its partitions'
   body parts and triangles. When a part is gone, the body's shapes draw without that part's
-  partitions **if it exploded**, and draw its torso cap. A severed part keeps its partitions
+  partitions **if it exploded** (its torso section, the stump, stays; §2.5), and draw its
+  torso cap. A severed part keeps its partitions
   and section cap; they leave with the severed bones. Shapes without partitions whose bones all
   lie in an exploded part's bone tree (head, hair, eyes, hats, gloves) are hidden.
   (`headhuman.nif`'s skin has partitions 1 and 1000, so the head goes by them [observed:
@@ -394,22 +407,20 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 - **Cutting a severed part's skin apart.** Vertices near a joint are weighted to bones on both
   sides of the cut, so a triangle there stretched from the body to the flying piece (owner,
   2026-10-22: a severed head hung on a long strip of the neck and collar). A shape skinned to
-  bones of both sides is now drawn in two: the piece's triangles (the part's partitions, its
-  torso section and its section cap [hypothesis: the torso section leaves with the part, as it
-  goes when the part explodes]) and the body's (the rest, with the torso cap). Each triangle has
+  bones of both sides is now drawn in two: the piece's triangles (the part's partitions and its
+  section cap) and the body's (the rest: its torso section, the stump, with the torso cap;
+  §2.5). Each triangle has
   vertices of its own, weighted only to bones on its side (the weights scaled back up to 1); a
   vertex with no weight on its side is carried whole by the piece's bone nearest the cut, or for
-  the body by the nearest bone above the cut. A shape without partitions (head, hair, hat) is
+  the body by the body's bone above the cut of the piece carrying most of it (the stump and the
+  torso cap are weighted mostly to the gone part's bones [observed: `republican_02.nif`
+  `MeatCapBody:0` cap 210: 83 of its 90 weight units on `Bip01 R Thigh`, 7 on the calf, 0.4 on
+  the pelvis]). A shape without partitions (head, hair, hat) is
   split triangle by triangle, by the side most of its corners' weight lies on [design].
-  An exploded part is cut from the body the same way, its side's triangles not drawn: its
-  ragdoll bodies stay jointed and undrawn (§6), and a torso cap is weighted mostly to the
-  gone part's own bones [observed: `armor\republicans\republican_02.nif` `MeatCapBody:0`,
-  cap 210: 83 of its 90 weight units on `Bip01 R Thigh`, 7 on the calf, 0.4 on the pelvis].
-  Left on them, the cap swung away with the unseen leg and the cut showed through the body
-  (owner, 2026-11-15, Easy Pete). A body vertex carried only by gone parts goes to the
-  body's bone above the cut of the part carrying most of it [design].
+  An exploded part is not cut: its ragdoll bodies stay jointed and undrawn (§6), and the stump
+  and torso cap follow them together.
   Log: `dismember: <ref> cut apart for severed [<locations>]: <n> shapes, <m> triangles leave
-  with the pieces; exploded [<locations>]`.
+  with the pieces`.
 - **Severing.** The ragdoll joints between the part's bones and the rest are cut. The limb
   falls away with its own skin. The cut survives the ragdoll's rest and rouse rebuilds.
 - **Exploding.** The part's skin goes. `fExplodeLimbRemovalDelay` (0.03 s) is not applied: the
@@ -455,8 +466,8 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   their percentages [hypothesis].
 - Exploding the **torso** draws none of the body. The invisible ragdoll stays, so the corpse is
   still searched where it lies.
-- An exploded part's ragdoll bodies stay jointed and undrawn. The body's skin and its torso
-  cap no longer follow them: their weights on the part's bones go to the body's (§5).
+- An exploded part's ragdoll bodies stay jointed and undrawn. The body's skin partly weighted to
+  them keeps its shape, and the stump and its torso cap follow them.
 
 ## 7. Not built
 
