@@ -170,6 +170,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         return Some(Ok(v));
     }
     let subject = on.or(ctx.self_ref);
+    if let Some(result) = crate::ui_projection::call(g, name, subject, args) {
+        return Some(result);
+    }
     if let Some(r) = crate::nvse_lutana::call(g, ctx, name, subject, args) {
         return Some(r);
     }

@@ -406,7 +406,7 @@ fn apply_held(root: Entity, node: &str, held: Held, nodes: &mut NodeQuery, rig: 
 }
 
 /// The material side of [`mirror`]: the data files, the shapes' materials, the assets.
-type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, &'static MeshMaterial3d<NifMaterial>>, Option<ResMut<'w, Assets<NifMaterial>>>);
+type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, (&'static MeshMaterial3d<NifMaterial>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>, Option<ResMut<'w, Assets<NifMaterial>>>);
 
 /// The roots of created items (`nvf_play::dropped`) and the entities with children: an
 /// item whose shapes hang straight from its root is drawn flat.
@@ -633,15 +633,17 @@ fn mirror_game(
                 let vals = *vals;
                 let Some(e) = entity else { continue };
                 let Some(assets) = assets.as_deref_mut() else { continue };
-                let Ok(handle) = drawn.get(e) else { continue };
-                match owned.get(&e).filter(|h| *h == &handle.0).cloned() {
+                let Ok((handle, drawing)) = drawn.get(e) else { continue };
+                let source = nvf_assets::nif_material::plain_material(&handle.0, drawing);
+                match owned.get(&e).filter(|h| *h == source).cloned() {
                     Some(h) => {
                         if let Some(mut m) = assets.get_mut(&h) {
                             set_material(&mut m, &vals);
                         }
+                        commands.entity(e).insert(MeshMaterial3d(h));
                     }
                     None => {
-                        let Some(mut m) = assets.get(&handle.0).cloned() else { continue };
+                        let Some(mut m) = assets.get(source).cloned() else { continue };
                         set_material(&mut m, &vals);
                         let h = assets.add(m);
                         owned.insert(e, h.clone());

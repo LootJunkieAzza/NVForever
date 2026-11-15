@@ -91,6 +91,11 @@ pub enum OpKind {
     Abs,
     /// UIO argument negation: replace the accumulator with `-argument`.
     Neg,
+    /// UIO extra argument operators (uio-four-operators.md).
+    Sin,
+    Cos,
+    Log,
+    Pow,
     Rand,
     Eq,
     Neq,
@@ -126,6 +131,10 @@ impl OpKind {
             "trunc" => OpKind::Trunc,
             "abs" => OpKind::Abs,
             "neg" => OpKind::Neg,
+            "sin" => OpKind::Sin,
+            "cos" => OpKind::Cos,
+            "log" => OpKind::Log,
+            "pow" => OpKind::Pow,
             "rand" => OpKind::Rand,
             "eq" => OpKind::Eq,
             "neq" => OpKind::Neq,

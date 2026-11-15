@@ -62,7 +62,17 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 /// Disable `r` (its own flag), fading out or not: Disable without the enable-parent test
 /// (ShowOff's DisableAlt, `nvse_showoff4`).
+///
+/// The player is never disabled: a script's Disable of the player does nothing
+/// [hypothesis: VHDIntakeTowerLegionaryDespawnScript disables whoever enters its trigger,
+/// the player too, and the original's Legion route still takes the player through the
+/// Power Plant 01 elevator, whose bare `Activate` a disabled actor cannot make;
+/// docs/spec-notes/doors.md §6, #2617, observer check 172].
 pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> {
+    if r == FormId::PLAYER_REF {
+        tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
+        return none();
+    }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
         return none();

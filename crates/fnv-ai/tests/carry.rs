@@ -3204,6 +3204,37 @@ fn a_rooted_actor_in_combat_turns_to_its_target_in_place() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
 }
 
+/// A rooted actor given a script's UseWeapon (HELIOS One's ARCHIMEDES turret, #2544)
+/// uses it from where it stands: the use is in place at once, and it turns to the use's
+/// target, out of combat too, where it stays. Before, a rooted actor's use never got in
+/// place, so the engine's shooter never fired.
+#[test]
+fn a_rooted_actor_uses_a_weapon_from_where_it_stands_and_turns_to_the_target() {
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut s = sim(&f, &[R_LONER]);
+    let actor = FormId(R_LONER);
+    let start = s.feet(R_LONER);
+    s.ai.root(&s.game, actor);
+    let target = s.game.world.placed.get(FormId(R_HERE)).unwrap().pos;
+    let want = fnv_nav::follow::heading_of([target[0] - start[0], target[1] - start[1]]);
+    let off = |h: f32| (h - want + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    s.ai.agents.get_mut(&actor).unwrap().walker.heading = want + 2.5;
+    let opcode = s.game.data.table.by_name("UseWeapon").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let r = |x: u32| ArgValue::Value(Value::Ref(x));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    // As ARCHIMEDES's: the weapon, standing on itself, the target, one shot, always hit.
+    s.game.call_function(&ctx, &[r(STAT), r(R_LONER), r(R_HERE), n(1.0), n(0.0), n(0.0), n(1.0)]);
+    assert!(!s.game.awareness.state(actor).in_combat());
+    s.run(0.5);
+    assert!(s.game.weapon_use(actor).unwrap().in_place, "in place where it stands");
+    s.run(5.0);
+    let heading = s.ai.agents[&actor].walker.heading;
+    assert!(off(heading).abs() < 0.05, "{heading} against {want}");
+    assert_eq!(s.feet(R_LONER), start);
+}
+
 /// A rooted actor that never turns (an Immobile creature with a Turning Speed of 0, Mr.
 /// House's screen: `Ai::fix_heading`) keeps its heading in combat too, where a turret
 /// turns to its target (#2150). An actor that is not rooted is not fixed.

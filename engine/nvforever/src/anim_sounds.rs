@@ -417,7 +417,20 @@ fn player_keys(
     }
 }
 
-/// The drawn actors near the player.
+/// [design, #2352] Only regular layers supply events. When the creature's pose
+/// fallback is active, the real Idle owns its continuing sound timeline, unless
+/// an audible regular layer already owns that source.
+fn actor_sound_sources<'a>(bp: &'a BlendPlayer, lo: Option<&'a crate::locomotion::Locomotion>) -> impl Iterator<Item = (&'a Arc<Clip>, f32)> {
+    let audible = || bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT);
+    let idle = lo.filter(|_| bp.pose_only.as_ref().is_some_and(|l| l.weight > 0.0)).and_then(|l| l.idle_timeline())
+        .filter(|(c, _)| !audible().any(|l| Arc::ptr_eq(&l.clip.clip, c)));
+    audible().map(|l| (&l.clip.clip, l.phase)).chain(idle)
+}
+
+/// What `actor_keys` reads per animated actor.
+type ActorKeysItem<'a> = (Entity, &'a BlendPlayer, &'a GlobalTransform, Option<&'a ActorRig>, Option<&'a crate::locomotion::Locomotion>);
+
+/// [design: actor_sound_sources] Consume the actors' regular clips and real idle owner.
 #[allow(clippy::too_many_arguments)]
 fn actor_keys(
     time: Res<Time>,
@@ -428,7 +441,7 @@ fn actor_keys(
     d: Res<PlayWorld>,
     location: Res<Location>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
-    actors: Query<(Entity, &BlendPlayer, &GlobalTransform, Option<&ActorRig>)>,
+    actors: Query<ActorKeysItem>,
     script: Option<Res<ScriptState>>,
     mut out: MessageWriter<PlaySound>,
     mut loops: MessageWriter<SoundSource>,
@@ -442,7 +455,7 @@ fn actor_keys(
     seen.clear();
     let listener = Vec3::from_array(player.feet);
     let mut moved: HashMap<Entity, Vec3> = HashMap::new();
-    for (e, bp, gt, rig) in &actors {
+    for (e, bp, gt, rig, lo) in &actors {
         let feet = bevy_to_game(gt.translation());
         if feet.distance(listener) > ACTOR_RANGE {
             continue;
@@ -468,9 +481,8 @@ fn actor_keys(
             }
         }
         let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
-        for l in bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT) {
-            let clip = &l.clip.clip;
-            let now = clip.start + l.phase.clamp(0.0, 1.0) * clip.length();
+        for (clip, phase) in actor_sound_sources(bp, lo) {
+            let now = clip.start + phase.clamp(0.0, 1.0) * clip.length();
             for k in keys_of(&s.last, &mut seen, (who, Arc::as_ptr(clip) as usize, 0), clip, now, false) {
                 // A creature with sounds hears its `Enum:` keys as its sound types.
                 if let (Some(list), Some(kind)) = (&creature, creature_key_type(k)) {
@@ -819,6 +831,112 @@ mod tests {
             free_visibility: Vec::new(),
             lights: Vec::new(),
         }
+    }
+
+    #[test]
+    fn creature_idle_under_keeps_sound_keys_across_upper_clip_changes() {
+        check_creature_idle_sound_keys(true);
+    }
+
+    #[test]
+    fn creature_idle_under_stationary_aim_hears_each_idle_sound_once() {
+        check_creature_idle_sound_keys(false);
+    }
+
+    fn check_creature_idle_sound_keys(moving: bool) {
+        use crate::creature_stance::{CreatureClips, CreatureStance};
+        use crate::locomotion::{drive, ActorAnimCost, ClipSet, Flinch, Locomotion, SetClip};
+        use fnv_actor::locomotion::{Blend, ClipInfo, Move};
+        use fnv_actor::weapon::{ClipFacts, EquipClip, StanceFacts};
+        use fnv_nif::anim::{Channel, TransformTrack};
+        use nvf_assets::anim_play::BoundClip;
+
+        // [design, #2352] Synthetic creature: movement drives the torso, aim or
+        // flinch drives the head, and the real Idle owns the sound timeline.
+        fn bound(mut source: Clip, names: &[&str]) -> Arc<BoundClip> {
+            let track = Arc::new(TransformTrack {
+                translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(None),
+                euler: None, scale: Channel::Static(None), per_cycle: None,
+            });
+            source.tracks = names.iter().map(|n| (n.to_string(), track.clone())).collect();
+            Arc::new(BoundClip::bind(Arc::new(source), |n| ["Torso", "Head", "Wing"].iter().position(|name| *name == n)))
+        }
+        let idle = bound(clip(&[(0.4, "Sound: First"), (0.6, "Sound: Second")]), &["Torso", "Head", "Wing"]);
+        let real_idle = idle.clip.clone();
+        let forward = bound(clip(&[]), &["Torso"]);
+        let upper = bound(clip(&[]), &["Head"]);
+        let mut set = ClipSet::default();
+        for (mv, bound, speed) in [(Move::Idle, idle, 0.0), (Move::Forward, forward, 10.0)] {
+            set.clips.insert(mv, SetClip { bound, path: String::new(), info: ClipInfo { duration: 1.0, speed, foot_phase: 0.0, blend_time: 0.0 } });
+        }
+        let mut lo = Locomotion::new(Arc::new(set), 0.0);
+        lo.idle_under = true;
+        if moving {
+            lo.velocity = [0.0, 10.0];
+            lo.blend = Blend::new(Move::Forward, 0.0);
+        }
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<ActorAnimCost>();
+        let bones = (0..3).map(|_| world.spawn(Transform::IDENTITY).id()).collect();
+        let mut clips = CreatureClips { clips: Default::default(), facts: StanceFacts::new() };
+        if !moving {
+            clips.facts.insert(EquipClip::Aim, ClipFacts::from_parts(0.0, 1.0, &[]));
+            clips.clips.insert(EquipClip::Aim, upper.clone());
+        }
+        let mut stance = CreatureStance::new(Arc::new(clips), !moving);
+        stance.anim = fnv_actor::weapon::WeaponAnim::new(!moving);
+        let actor = world.spawn((lo, BlendPlayer::new(bones, Arc::new(vec![Transform::IDENTITY; 3])), stance)).id();
+        let drive = world.register_system(drive);
+        let mut last = HashMap::new();
+        let mut previous = None;
+        for (secs, with_upper, phase, tracks, expected) in [
+            (0.3, false, 0.3, 2, vec![]),
+            (0.2, true, 0.5, 1, vec!["Sound: First"]),
+            (0.2, false, 0.7, 2, vec!["Sound: Second"]),
+            (0.0, false, 0.7, 2, vec![]),
+        ] {
+            if moving && with_upper {
+                world.entity_mut(actor).insert(Flinch { clip: upper.clone(), at: 0.3, forced: false });
+            } else {
+                world.entity_mut(actor).remove::<Flinch>();
+            }
+            world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(secs));
+            world.run_system(drive).unwrap();
+            let bp = world.get::<BlendPlayer>(actor).unwrap();
+            let lo = world.get::<Locomotion>(actor).unwrap();
+            let layer = bp.pose_only.as_ref().unwrap();
+            assert!((layer.phase - phase).abs() < 1e-6);
+            assert_eq!(bp.pose_only_mask.as_ref().unwrap().tracks.iter().filter(|b| **b).count(), if moving { tracks } else { 2 });
+            assert!(layer.clip.clip.text_keys.is_empty());
+            if !moving {
+                assert!(Arc::ptr_eq(&bp.layers[0].as_ref().unwrap().clip.clip, &real_idle));
+                assert!(bp.layers[2].is_some(), "stationary aim omits the wing");
+            }
+            let mut seen = Vec::new();
+            let mut heard = Vec::new();
+            for (source, phase) in actor_sound_sources(bp, Some(lo)) {
+                assert!(!Arc::ptr_eq(source, &layer.clip.clip), "pose-only view is never an event source");
+                let playing = (Who::Actor(actor), Arc::as_ptr(source) as usize, 0);
+                let now = source.start + phase.clamp(0.0, 1.0) * source.length();
+                heard.extend(keys_of(&last, &mut seen, playing, source, now, false));
+            }
+            assert_eq!(heard, expected);
+            assert_eq!(seen.iter().filter(|((_, c, _), _)| *c == Arc::as_ptr(&real_idle) as usize).count(), 1);
+            last = seen.into_iter().collect();
+            if let Some(before) = previous {
+                if moving && secs > 0.0 {
+                    assert!(Arc::ptr_eq(&before, &layer.clip), "upper changes preserve the fallback playback identity");
+                }
+            }
+            previous = Some(layer.clip.clone());
+        }
+        // [design, #2352] A zero-weight timeline anchor owns no fallback sounds;
+        // a regular Idle remains its own audible owner.
+        world.get_mut::<BlendPlayer>(actor).unwrap().pose_only.as_mut().unwrap().weight = 0.0;
+        let bp = world.get::<BlendPlayer>(actor).unwrap();
+        let lo = world.get::<Locomotion>(actor).unwrap();
+        assert_eq!(actor_sound_sources(bp, Some(lo)).filter(|(c, _)| Arc::ptr_eq(c, &real_idle)).count(), usize::from(!moving));
     }
 
     #[test]

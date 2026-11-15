@@ -109,3 +109,8 @@ path = "tests/jip_handler_context.rs"
 [[test]]
 name = "jip_registration_provenance"
 path = "tests/jip_registration_provenance.rs"
+
+# File enumeration controls own and restore the process-wide Data read roots.
+[[test]]
+name = "get_files_data_roots"
+path = "tests/get_files_data_roots.rs"

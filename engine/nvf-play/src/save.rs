@@ -61,6 +61,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 
+mod death_recovery;
+
 pub const BODY_FORMAT: &str = "nvf.save.body/1";
 pub const ENGINE_FORMAT: &str = "nvf.engine.state/1";
 
@@ -355,13 +357,15 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveWrites>()
             .init_resource::<CoopEngineState>()
             .init_resource::<FastTravelLanding>()
+            .init_resource::<death_recovery::RecoveryPolicy>()
+            .init_resource::<death_recovery::DeathRecovery>()
             .add_message::<crate::wait::RestEnded>()
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
             .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(p) = app.world_mut().remove_resource::<PendingLoad>() {
             let PendingLoad { path, body, order } = p;

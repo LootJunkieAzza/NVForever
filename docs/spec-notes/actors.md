@@ -80,7 +80,7 @@ actor meshes`]:
   `Prn` whose string names the parent bone (`Bip01 Head` for hair, beards and eyes); 19
   headgear models (cowboy hats, fiend helmets, NCR trooper helmets, berets) and the
   child-female mouth parts have none.
-- A rigid part on the head has its vertices in the **skeleton's axes** with the origin
+- Most surveyed rigid parts on the head have vertices in the **skeleton's axes** with the origin
   at the parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above
   `Bip01 Head` (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's
   own x axis points up. Node rotations of the 206 rigid shapes placed NPCs use: all
@@ -91,6 +91,34 @@ actor meshes`]:
   render in place]: a part whose root stores the bone's inverse bind rotation is an
   ordinary child of the bone; any other part gets that inverse rotation from the
   attachment; node transforms are kept in both cases.
+- **Bone-local rigid headgear (#2529).** [documented: #2529 writer brief, fnvtool,
+  FalloutNV.esm + Fallout - Meshes.bsa] General Lee Oliver (`VHDGeneralOliver`, NPC_
+  0x001300A9) carries `NVGenOliverCap` (ARMO 0x00134490, slots Hair, Headband, Hat) and
+  `OutfitGeneralOliver` (0x0015E35D). The cap's worn MODL is
+  `armor\headgear\GeneralOliverCap\GenOliverCap.NIF`; MOD2 is `GenOliverCapGO.NIF`.
+  The worn file has identity root `BSFadeNode` "GenOliverCap", one identity child
+  `NiTriStrips` "GenOliverCap:5", no skin and no bone-naming extra data. Its 700
+  vertices span x 8.89..17.71, y -7.71..10.99, z -8.57..8.57; bounding sphere centre
+  (13.30, 1.64, 0), radius 10.3. [hypothesis] This is the head bone's own frame,
+  whose +X runs up the skull, rather than the skeleton-axis layout above.
+  [design: `engine/nvf-assets/src/actor.rs::spawn_parts`, `rigid_local`] The cap already
+  hangs from `Bip01 Head`; the old unconditional inverse-bind correction turns its
+  +X offset sideways at the bind pose. This is a frame-selection error, not a missing
+  parent. [design, #2529] `rigid_part_frame` chooses one frame per part using combined
+  bounds of its unskinned, non-cap shapes, with root * shape applied to each vertex.
+  Hidden shapes contribute so visibility changes do not change the frame. It keeps
+  root * shape for every rigid shape when those bounds straddle skeleton Z=0 and their
+  centre's unit direction aligns with bone-local up by at least
+  `BONE_LOCAL_HEAD_ALIGNMENT` (0.9). Splitting geometry into material submeshes keeps
+  the same placement, including each shape's authored transform.
+  Bone-local up is inverse bind linear transform times skeleton +Z, normalized.
+  Other layouts, empty combined geometry, missing position attributes, any nonfinite
+  rigid vertex and singular bind transforms keep the old rule for the whole part.
+  The bone-local part inherits the head's full animated transform, including
+  head tracking and dialogue turns, at spawn and equipment changes; skinned shapes
+  and creatures use their existing paths. [hypothesis] The geometry test identifies
+  this layout in other rigid hats, but asymmetric meshes can be ambiguous. Owner
+  review tracks the threshold; observer check 168 asks for original-game parity.
 - A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
   transforms kept, no rotation added. Over the worn models of every ARMO in the ten
   masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61
@@ -1115,6 +1143,20 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   in-cycle deviations and removes the travel [engine rule; hypothesis that the game
   moves the actor at the clip's average speed]. A clip without a `Bip01` track holds it
   at the identity (§7.2), so all locomotion clips blend on the same root.
+- **Back-and-forth moves (#2352).** [documented: issue #2352, supplied clip-root
+  survey] The bloatfly's `mtleft.kf`/`mtright.kf` reach 225/243 units sideways and
+  return to net travel 100. [design, #2352] At move load, `BoundClip::locomotion`
+  compares peak horizontal distance from the start (the 61 samples of
+  `Clip::root_reach`) with `ROOT_EXCURSION_RATIO` (1.5) times net horizontal travel.
+  A strict exceedance holds the drawn root x/y at its track's start throughout the
+  cycle, removing the oscillation as well as the linear travel; a zero-net move
+  qualifies if its peak is positive. All other moving clips retain linear correction.
+  [hypothesis] This in-place rendering is provisional: whether the original instead
+  moves the actor along these darts is unknown (observer check 169).
+  [design] The rule applies generally to moving clips, including weapon, hurt and
+  script-replacement sets; actor movement, clip pace, root height/rotation correction,
+  and carried attacks retain their existing rules (`locomotion.rs::bind_move`,
+  `anim_play.rs::BlendPlayer::sample`). Narrow peaks between samples can be missed.
 - The root's **height** counts from the track's start: sampling also removes the
   track's start z. Only the 2ha/2hh `Holster` clips (and their power-armour and sneak
   copies) start `Bip01` off height 0, at a constant 67–68 with no `Bip01 NonAccum`
@@ -1149,18 +1191,37 @@ All rules here are engine choices unless tagged otherwise. Layer 6 replaces the 
 - **Pose blend**: per skeleton node, translation and scale are lerped and rotations
   nlerped along the shorter arc by weight; a node that only one clip drives blends
   towards its bind pose by the missing weight.
-- **A creature's idle under its movement clips** (owner's playtest list 7 item 17,
-  2026-10-23; `locomotion.rs` `UNDER_LAYER`): while a creature plays another clip than
-  its idle (moving, turning, fading), its idle is laid under it at a priority below every
-  track, with its own phase running on, wherever the idle drives a node the other clip
-  does not. The bloatfly's `mtidle.kf` drives the wings (`Bip01 L/R UpperArm`,
-  `Forearm`, priority 45) and the head; `mtforward.kf`, `mtfastforward.kf` and the side
-  clips drive neither (priority 30, 32 tracks), so the wings stood in their bind pose
-  while it flew [observed: kf_layer_survey]. [hypothesis: the original keeps the idle
-  under the movement clips, as the player body does, animation.md §9.4.] Not for
-  people [design]: their idle drives the pauldrons and twist bones the movement clips
-  leave, posed for the idle's arms. The run summary: `actor idle under movement: N actor
-  frames …`.
+- **A creature's idle under movement and upper clips** (owner's playtest list 7
+  item 17; #2352). [design, #2352] `locomotion.rs::under_layer` runs after stance,
+  aim, attack and special-idle layers are assembled. With `idle_under` enabled and an
+  Idle clip in the current set, it keeps that idle running on bones and part nodes
+  none of the other active clips drive, excluding the accumulation root. The idle's
+  own phase runs on; its fallback tracks have `UNDER_PRIORITY`, below other tracks.
+  [design, #2352] The fallback occupies `BlendPlayer::pose_only`, separate from
+  regular layers and consumed only by the pose blender (including its cycle tracking
+  and held-pose cache). Its Clip view copies timing only: no text/sound/event keys,
+  materials, visibility, emitters, lights or free-controller tracks. Filling an omitted
+  bone therefore cannot become an event source or override special-idle materials
+  (`material_anim::actor_material_values`). Its bound transform mask follows all
+  active clip identities, ignoring zero or nonfinite weights and the real Idle itself.
+  [design, #2352] One root-free `BoundClip` allocation and timing-only Clip view stay
+  alive for each real Idle while it plays. Bound and unbound track masks live beside
+  the playback entry (`BlendPlayer::pose_only_mask`) and change without replacing
+  either identity. `Loops` therefore preserves accumulated per-cycle rotations across
+  upper-clip changes; fully masked intervals keep the same entry at zero weight to
+  follow phase wraps, without counting as fallback contribution frames or sound owners.
+  Mask changes also invalidate held poses without changing playback identity.
+  [design, #2352] `anim_sounds::actor_sound_sources` keeps one sound owner for that
+  idle: an audible regular Idle layer, otherwise the real Idle source at its continuing
+  phase while the pose fallback is active. The pose-only view never supplies keys;
+  upper-clip/mask changes preserve the real Idle's source identity and sound timeline.
+  [documented: issue #2352, supplied wing-track
+  survey] `mtidle.kf` drives the bloatfly's wing bones (`Bip01 L/R UpperArm`,
+  `Forearm`, priority 45); its movement, aim, attack and hover clips omit them.
+  [hypothesis] The original keeps these bones animating from its idle (observer
+  check 169; animation.md §9.4). [design] People retain their existing layering.
+  The existing summary `actor idle under movement: N actor frames …` now counts the
+  under-layer during upper clips too (`drive_one`, `main.rs`).
 - **Phase sync**: between two walk/run clips, the incoming clip starts at the same
   footfall phase as the outgoing one, using the time of each clip's first `Enum: Left`
   text key as its left-footfall mark [hypothesis: `Enum: Left`/`Enum: Right` are footstep

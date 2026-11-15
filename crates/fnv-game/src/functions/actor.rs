@@ -779,13 +779,37 @@ pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
     yes(g.stats_def(r).and_then(|d| d.creature_type) == Some(t))
 }
 
-/// Essential: the reference's own flag (SetActorRefEssential) or its base's (ACBS,
-/// changed by SetEssential). The reference flag cannot clear the base's [documented:
-/// catalogue notes of SetActorRefEssential].
+/// Whether `r` is spared death: knocked out at zero health instead of killed (combat,
+/// harmful effects, DamageActorValue, KillActor, KillAllActors, planted explosives).
+/// Outside Hardcore the player's teammate is, flag or not, unless JIP's
+/// ToggleTeammateKillable made it killable; in Hardcore a teammate is not, flag or not
+/// (docs/spec-notes/unconscious.md §2.2a). Everyone else: [`essential_flagged`].
 pub fn essential(g: &Game, r: FormId) -> bool {
-    // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
-    // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in Hardcore
-    // dies, flag or not.
+    if g.is_teammate(r) {
+        // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
+        // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in
+        // Hardcore dies, flag or not.
+        if g.hardcore() {
+            return false;
+        }
+        // No hired companion carries the Essential flag and no script sets it, yet
+        // their OnDeath blocks exist for Hardcore: outside it the engine keeps a
+        // teammate alive [hypothesis: unconscious.md §2.2a, observer-checks.md check
+        // 165]. ToggleTeammateKillable "Sets the specified teammate referance as
+        // killable" [documented: GECK wiki, JIP].
+        if !g.jip_flags.contains(&(r, "killable")) {
+            return true;
+        }
+    }
+    essential_flagged(g, r)
+}
+
+/// Essential by flag, what IsEssential reads ("Returns 1 if the calling actor is flagged
+/// as essential" [documented: GECK wiki IsEssential]): the reference's own flag
+/// (SetActorRefEssential) or its base's (ACBS, changed by SetEssential). The reference
+/// flag cannot clear the base's [documented: catalogue notes of SetActorRefEssential].
+/// A teammate in Hardcore reads 0 (the SetPlayerTeammate note, [`essential`]).
+pub fn essential_flagged(g: &Game, r: FormId) -> bool {
     if g.hardcore() && g.is_teammate(r) {
         return false;
     }
@@ -813,7 +837,7 @@ pub fn set_actor_ref_essential(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
 
 pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(essential(g, r))
+    yes(essential_flagged(g, r))
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for
@@ -971,16 +995,31 @@ pub(crate) fn forget_relations(g: &Game) {
 /// [`faction_relation`] does (0 neutral, 1 enemy, 2 ally, 3 friend). A media location
 /// controller's conditional faction asks this of the player (docs/spec-notes/audio.md §13).
 pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
-    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
-        return 1;
-    }
     factions_between(g, mine, o, &factions_of(g, o))
+}
+
+/// Whether the player is an enemy of an actor in the factions `mine` by a faction enemy
+/// flag (SetPCEnemyOfFaction, a witnessed crime): one of `mine` is flagged, and none of
+/// the others is the player's ally or friend (`theirs`: the player's factions). A
+/// faction disguise makes such a faction the player's friend: the NCR armour's OnEquip
+/// makes PlayerFaction and ArmorNCRFactionNV friends, every NCR soldier is in
+/// ArmorNCRFactionNV too, and the disguise pulse takes sniffers near the player out of
+/// it, by its notes so that they may turn hostile to a player they think little of
+/// [observed: FalloutNV.esm's disguise scripts; hypothesis: the friendship outranks the
+/// flag, docs/spec-notes/disguises.md §3]. The flagged faction's own friendship does
+/// not count: a crime among the player's friends stays a crime.
+pub fn player_enemy_of_factions(g: &Game, mine: &[FormId], theirs: &[FormId]) -> bool {
+    let enemy_of = &g.player.enemy_of;
+    if enemy_of.is_empty() || !mine.iter().any(|f| enemy_of.contains(f)) {
+        return false;
+    }
+    !mine.iter().filter(|f| !enemy_of.contains(f)).any(|&x| theirs.iter().any(|&y| matches!(reaction(g, x, y), 2 | 3)))
 }
 
 /// [`factions_relation`] with `o`'s factions given (`theirs`): reads no kept factions, so
 /// it takes no lock (a detection round's pairs on several threads, #1799).
 pub fn factions_between(g: &Game, mine: &[FormId], o: FormId, theirs: &[FormId]) -> i64 {
-    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
+    if o == FormId::PLAYER_REF && player_enemy_of_factions(g, mine, theirs) {
         return 1;
     }
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();

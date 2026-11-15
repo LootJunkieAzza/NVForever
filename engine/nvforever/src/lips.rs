@@ -511,6 +511,29 @@ impl Speaking {
     }
 }
 
+/// How long a response's speaker that has no face rig yet is looked for again (real
+/// seconds): one enabled by the script that starts the conversation is drawn some frames
+/// later, once its parts are read (#2616) [engineering choice].
+const RIG_WAIT_SECONDS: f64 = 1.5;
+
+/// Whether a response's speaker without a face rig is looked for again next frame: for
+/// [`RIG_WAIT_SECONDS`] from the first look at that response (`unrigged` keeps it), then
+/// the response is skipped and forgotten.
+fn wait_for_rig(unrigged: &mut HashMap<FormId, (String, f64, f64)>, speaker: FormId, path: &str, started_at: f64, now: f64) -> bool {
+    let since = match unrigged.get(&speaker) {
+        Some((p, t, since)) if p == path && *t == started_at => *since,
+        _ => {
+            unrigged.insert(speaker, (path.to_string(), started_at, now));
+            now
+        }
+    };
+    if now - since < RIG_WAIT_SECONDS {
+        return true;
+    }
+    unrigged.remove(&speaker);
+    false
+}
+
 #[derive(Resource)]
 pub struct LipState {
     pub enabled: bool,
@@ -524,6 +547,9 @@ pub struct LipState {
     /// (speaker, path, start) of the response last looked at per speaker, animated or
     /// skipped, so that each is handled and logged once.
     seen: HashMap<FormId, (String, f64)>,
+    /// Speakers of a response just started with no face rig drawn yet: (path, start, real
+    /// time of the first look), looked for again for [`RIG_WAIT_SECONDS`].
+    unrigged: HashMap<FormId, (String, f64, f64)>,
     /// The head bones turned this frame: (node, rotation before, rotation written).
     written_heads: Vec<(Entity, Quat, Quat)>,
     hold: Option<Weights>,
@@ -570,6 +596,7 @@ impl LipState {
             faces: HashMap::new(),
             speaking: HashMap::new(),
             seen: HashMap::new(),
+            unrigged: HashMap::new(),
             written_heads: Vec::new(),
             hold,
             animated: 0,
@@ -820,10 +847,20 @@ fn drive(
             }
         };
         let Some((root, actor, rig, ..)) = rigs.iter().find(|r| r.1.reference == speaker.0) else {
+            // An actor the script that started the conversation enabled in the same frame
+            // is drawn a few frames later (#2616): its face is looked for again for a
+            // moment, and its mouth then follows the line from where the sound is.
+            if wait_for_rig(&mut st.unrigged, *speaker, path, *started_at, now) {
+                st.seen.remove(speaker);
+                continue;
+            }
             st.skipped += 1;
             info!("lip: skipped {lip_path}: speaker {who} has no face rig here (a creature, a robot, an activator, or not drawn)");
             continue;
         };
+        if let Some((_, _, since)) = st.unrigged.remove(speaker) {
+            info!("lip: speaker {who} drawn {:.2} s after its response started: its face follows {lip_path} from there", now - since);
+        }
         let Some((shapes, morphs)) = ensure_face(st, &mut commands, root, actor, rig, &world, &data, &mut meshes, clock) else {
             st.skipped += 1;
             info!("lip: skipped {lip_path}: speaker {who} has no shape with morphs");
@@ -1234,6 +1271,22 @@ impl Plugin for LipsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2616: a speaker enabled in the frame its conversation starts is drawn a few
+    /// frames later; its response waits for the face rig that long, then gives up.
+    #[test]
+    fn a_speaker_drawn_late_is_waited_for_then_given_up() {
+        let mut un = HashMap::new();
+        let (who, path) = (FormId(0x0013_CA6B), "sound/voice/a.ogg");
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 10.0), "the first look waits");
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 10.0 + RIG_WAIT_SECONDS - 0.01), "still within the wait");
+        assert!(!wait_for_rig(&mut un, who, path, 10.0, 10.0 + RIG_WAIT_SECONDS), "given up after the wait");
+        assert!(un.is_empty(), "forgotten once given up");
+        // Another response of the same speaker has a wait of its own, from its first look.
+        assert!(wait_for_rig(&mut un, who, path, 10.0, 20.0));
+        assert!(wait_for_rig(&mut un, who, "sound/voice/b.ogg", 21.0, 22.0));
+        assert!(wait_for_rig(&mut un, who, "sound/voice/b.ogg", 21.0, 22.0 + RIG_WAIT_SECONDS - 0.1), "counted from the new response's first look");
+    }
 
     fn lip(start: i32, frames: Vec<[f32; CHANNELS]>) -> Lip {
         Lip { version: 1, flag: 1, start_frame: start, frames }

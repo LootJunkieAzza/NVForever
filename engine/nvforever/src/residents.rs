@@ -2292,6 +2292,9 @@ impl Core {
             // Who started the conversation with its Dialogue package goes on turning
             // to the player.
             self.ai.update_held(game, dt);
+            // Enabled or disabled by a script the held game ran (a terminal's result, a
+            // dialogue result): drawn or taken away now, not when the game goes on.
+            self.note_presence(game);
             return;
         }
         {
@@ -2669,9 +2672,14 @@ impl Core {
         self.ai.events.clear();
     }
 
-    /// Each resident's state for whoever draws and seats it, after the AI's update.
-    fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
-        let hour = clock_text(game);
+    /// Whether each resident is in the world and enabled, as the game has it now. Also
+    /// while a menu or a conversation holds the game ([`Core::think`]): a script run there
+    /// (a terminal's result script, a dialogue result) that enables an actor disabled
+    /// when its cell loaded has it drawn at once, so a conversation the same script starts
+    /// shows it speaking; until #2616 the presence was only read after the AI's update,
+    /// which a held game skips, so the hatch terminal's Centurion at Hoover Dam was never
+    /// drawn through its conversation (docs/spec-notes/enable-disabled-actor.md).
+    fn note_presence(&mut self, game: &Game) {
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             if r.joined && !r.failed && !r.present {
@@ -2679,6 +2687,14 @@ impl Core {
             } else if r.present && std::mem::take(&mut r.absent) {
                 r.first_steps = Some(FirstSteps::new("being enabled"));
             }
+        }
+    }
+
+    /// Each resident's state for whoever draws and seats it, after the AI's update.
+    fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
+        let hour = clock_text(game);
+        self.note_presence(game);
+        for r in self.list.iter_mut() {
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
             // A perched bird is in nobody's way (actor-behaviour.md §5.8).
             if let (Some(b), true) = (blocks.as_deref_mut(), r.perched) {

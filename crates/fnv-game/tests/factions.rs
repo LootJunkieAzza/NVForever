@@ -1700,3 +1700,84 @@ fn a_very_aggressive_actor_leaves_a_neutral_outside_its_aggro_radius_alone() {
     g.settle_awareness();
     assert_eq!(g.awareness.state(hound), State::Combat);
 }
+
+// ------------------------------------------------------------------ faction disguises (#2611)
+
+const SET_ALLY: u16 = 0x1079;
+const REMOVE_FROM_FACTION: u16 = 0x1180;
+const SET_PC_ENEMY_OF_FACTION: u16 = 0x10C6;
+
+fn num(x: f64) -> ArgValue {
+    ArgValue::Value(Value::Num(x))
+}
+
+#[test]
+fn a_disguise_friendship_outranks_a_faction_enemy_flag() {
+    // docs/spec-notes/disguises.md §3: the loafer (Idlers, Aggressive) stands for an NCR
+    // soldier, Idlers for NCRFactionNV, Rats for ArmorNCRFactionNV. Flagged an enemy of
+    // the Idlers, the player is attacked; in a faction that is the player's friend (the
+    // armour's SetAlly PlayerFaction ArmorNCRFactionNV 1 1) it is left alone; out of it
+    // again (the pulse on a sniffer) it attacks.
+    let f = fixture();
+    let mut g = game(&f);
+    let (loafer, player) = (FormId(LOAFER_REF), FormId::PLAYER_REF);
+    assert!(!g.would_attack(loafer, player), "neutral by its factions");
+    call(&mut g, SET_PC_ENEMY_OF_FACTION, PLAYER, &[form(IDLERS), num(1.0)]);
+    assert!(g.crime_enemy(loafer) && g.would_attack(loafer, player), "the flag on its faction");
+    call(&mut g, ADD_TO_FACTION, LOAFER_REF, &[form(RATS), num(0.0)]);
+    assert!(g.would_attack(loafer, player), "Rats are no friend of the player yet");
+    call(&mut g, SET_ALLY, PLAYER, &[form(PLAYER_FACTION), form(RATS), num(1.0), num(1.0)]);
+    assert!(!g.crime_enemy(loafer), "the disguise faction is the player's friend");
+    assert!(!g.would_attack(loafer, player));
+    assert_eq!(call(&mut g, GET_FACTION_RELATION, LOAFER_REF, &[form(PLAYER)]), 3.0, "Friend");
+    call(&mut g, REMOVE_FROM_FACTION, LOAFER_REF, &[form(RATS)]);
+    assert!(g.would_attack(loafer, player), "a sniffer the pulse took out of it sees through");
+}
+
+#[test]
+fn a_flag_on_the_friendly_faction_itself_still_counts() {
+    // A crime among the player's friends stays a crime (disguises.md §3): with the
+    // disguise faction flagged too, its friendship does not shield its members.
+    let f = fixture();
+    let mut g = game(&f);
+    let (loafer, player) = (FormId(LOAFER_REF), FormId::PLAYER_REF);
+    call(&mut g, ADD_TO_FACTION, LOAFER_REF, &[form(RATS), num(0.0)]);
+    call(&mut g, SET_ALLY, PLAYER, &[form(PLAYER_FACTION), form(RATS), num(1.0), num(1.0)]);
+    call(&mut g, SET_PC_ENEMY_OF_FACTION, PLAYER, &[form(IDLERS), num(1.0)]);
+    assert!(!g.would_attack(loafer, player));
+    call(&mut g, SET_PC_ENEMY_OF_FACTION, PLAYER, &[form(RATS), num(1.0)]);
+    assert!(g.would_attack(loafer, player));
+    // A faction reaction of Enemy still comes first: the bandit (Raiders, who name the
+    // player's faction an enemy) is not shielded by a friendly faction.
+    let bandit = FormId(BANDIT_REF);
+    call(&mut g, ADD_TO_FACTION, BANDIT_REF, &[form(GANG_A), num(0.0)]);
+    call(&mut g, SET_ALLY, PLAYER, &[form(PLAYER_FACTION), form(GANG_A), num(1.0), num(1.0)]);
+    assert!(g.would_attack(bandit, player));
+}
+
+#[test]
+fn an_alarm_about_a_disguised_player_turns_nobody_the_disguise_fools() {
+    // #2611: Own (Rats, flagged) would attack the player and notices it; the helper
+    // (Rats too, Helps Allies) is in the disguise faction (Idlers here, the player's
+    // friend), so it takes the player for a friend: neither the noticed alarm nor the
+    // fight's gives it a grudge (`comrades`). Without the disguise faction the same
+    // fight's alarm brings it in (an_actor_that_starts_fighting_alarms_its_allies_near_it).
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    call(&mut g, SET_PC_ENEMY_OF_FACTION, PLAYER, &[form(RATS), num(1.0)]);
+    call(&mut g, ADD_TO_FACTION, HELPER_REF, &[form(IDLERS), num(0.0)]);
+    call(&mut g, SET_ALLY, PLAYER, &[form(PLAYER_FACTION), form(IDLERS), num(1.0), num(1.0)]);
+    assert!(g.would_attack(own, player) && !g.would_attack(helper, player), "the helper is fooled");
+    let now = g.time;
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [1000.0, 0.0, 0.0]), (player, [3500.0, 0.0, 0.0])].into_iter().collect();
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Alert, time: now, about: Some(player), cause: Some(Cause::Noticed), at: Some([3500.0, 0.0, 0.0]), value: Some(-14.9) });
+    assert_eq!(g.raise_alarms(&near), 0, "a glimpse");
+    g.awareness.changes.clear();
+    fighting(&mut g, OWN_REF, PLAYER);
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    assert_eq!(g.raise_alarms(&near), 0, "a fight");
+    assert!(!g.would_attack(helper, player), "no grudge");
+}

@@ -1316,6 +1316,8 @@ pub struct Game<'a> {
     /// Record fields xNVSE's setters changed this session (`crate::nvse`), by form and
     /// "SUB/path", and the names SetName gave.
     pub(crate) field_overrides: std::collections::HashMap<(FormId, String), fnv_script::vm::XVal>,
+    /// Owner witness for bounded diagnostic restoration; never part of a save.
+    pub(crate) projectile_launch_restore_owner: std::sync::Arc<()>,
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
@@ -2394,6 +2396,7 @@ impl<'a> Game<'a> {
             delayed: Vec::new(),
             ref_walk: Vec::new(),
             field_overrides: std::collections::HashMap::new(),
+            projectile_launch_restore_owner: std::sync::Arc::new(()),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
             note_edits: BTreeMap::new(),
@@ -6304,6 +6307,13 @@ impl<'a> Game<'a> {
         // at once, where the hold would have left it [design] (#1985).
         for r in &s.fading_out {
             let _ = g.world.set_enabled(*r, false);
+        }
+        // A save from before the player could not be disabled may hold the player
+        // disabled (VHDIntakeTowerLegionaryDespawnScript's trigger, #2617): enabled again,
+        // as Disable now leaves the player (`functions::refs::disable_ref`) [design].
+        if g.world.peek(FormId::PLAYER_REF).is_some_and(|p| !p.enabled()) {
+            tracing::info!("load: the save holds the player disabled; enabled again (doors.md §6)");
+            let _ = g.world.set_enabled(FormId::PLAYER_REF, true);
         }
         // Crime enmities an older save holds undated start their cooldown now (#2467).
         g.date_crimes();

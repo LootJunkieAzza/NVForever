@@ -18,7 +18,9 @@
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
 //!   `cls` / `clear` (empty the scrollback), `advlevel` / `AdvancePCLevel` (the player's
 //!   level up by one and the level-up menu open, `crate::levelup`; the catalogue gives
-//!   it no console number), `poker [casino]` (NVForever's poker table, `crate::poker`).
+//!   it no console number), `poker [casino]` (NVForever's poker table, `crate::poker`),
+//!   `tcg [radius]` / ToggleCollisionGeometry (the collision shapes drawn in the world,
+//!   `crate::collision_view`; not in the catalogue).
 //! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
 //!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
 //!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
@@ -428,7 +430,8 @@ fn typing(
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play, mut poker, location): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>, Option<Res<crate::Location>>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
-    (pipboy, data, mut editor): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>, ResMut<crate::editor::Editor>),
+    (pipboy, data): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>),
+    (mut view, mut editor): (ResMut<crate::collision_view::CollisionView>, ResMut<crate::editor::Editor>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     if !c.open {
@@ -558,7 +561,7 @@ fn typing(
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>, editor (editor mode on/off), editor select|move|turn|place|delete|undo, editor save <Name.esp>, editor why [topic] (why the selected actor says what it says). Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
-                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), tlv (leaves), ToggleLODLand, ToggleNavmesh, tlik (head tracking), temo (emotions)");
+                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), tlv (leaves), ToggleLODLand, ToggleNavmesh, tlik (head tracking), temo (emotions), tcg [radius] (collision shapes)");
                     c.print("bat <file> (console lines from a text file), rbat [file] (record lines for bat), scof [file] (write the console to a file), slpm [1-5] (a practice lock), [ref.]mfg expression|phoneme|modifier <id> <0-100>, mfg reset");
                     c.print("plm <x> <y> <z> [name] [0-9] (a marker seen through walls), clm (clear them), s1st (first-person model in third person), [ref.]setvel x|y|z <speed>, tst <global>, prc, tlv (tree leaves), ClearScreenBlood");
                 } else {
@@ -659,6 +662,20 @@ fn typing(
                 crate::combat::set_god_mode(on);
                 c.print(format!("God mode {}", if on { "on" } else { "off" }));
             }
+            // ToggleCollisionGeometry: the collision view (`crate::collision_view`); with a
+            // radius, on within that many units of the camera.
+            "tcg" | "togglecollisiongeometry" => match rest.split_whitespace().next().map(str::parse::<f32>) {
+                None => {
+                    let on = !view.on;
+                    view.set(on, None);
+                    c.print(view.state());
+                }
+                Some(Ok(r)) if r.is_finite() && r > 0.0 => {
+                    view.set(true, Some(r));
+                    c.print(view.state());
+                }
+                Some(_) => c.print("tcg [radius]: the collision shapes within radius game units of the camera"),
+            },
             "click" => {
                 let xy: Vec<f32> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
                 match xy[..] {

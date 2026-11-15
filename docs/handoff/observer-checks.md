@@ -2292,3 +2292,168 @@ already talking takes over at once, same topic or another; nothing is queued or 
      the bound is wrong. A spawned actor may start fights at once where a placed one
      waits (aggro.rs, check 2); if the spawned dog fights at both, `MoveTo` one of
      HELIOS's placed dogs instead (check 144).
+
+## Added 2026-11-15 (That Lucky Old Sun's ARCHIMEDES strike, #2544)
+
+164. **How does ARCHIMEDES's armed strike play out?** (P3; #2544, use-weapon.md §2.) With
+     VMS03 at objective 70, `set VMS03.bArchimedesArmed to 1` and activate the Reflector
+     Control Panel 0x000E07DF on the observation deck between 9 and 15 h. Note the time
+     from the activation to the first trooper's death and between deaths (TestTrooperREF1
+     0x000E35D5, then 0x000E35D4, 0x000E35D1, 0x000E35D3, 0x000E35D2: `GetDead`), whether
+     ARCHIMEDESMarkerREF2 (0x000E07DD) visibly turns between targets, and whether the
+     troopers fire at the player before the first shot. Ours since #2544: the first
+     death about 37 s after the activation, one every 1-4 s after, the turret turning
+     to each [hypothesis: the script's timers, ours turns at the combat rate].
+
+## Added 2026-11-15 (companions outside Hardcore, #2623)
+
+165. **Is an unflagged teammate knocked out, not killed, outside Hardcore?** (P2; #2623,
+     unconscious.md §2.2a.) Ours since #2623: outside Hardcore the player's teammate is
+     spared death as an essential actor, though no companion's ACBS has Essential; in
+     Hardcore it dies [hypothesis]. With Hardcore off: hire a companion who is not
+     flagged (Cass, or Easy Pete given `SetPlayerTeammate 1`), then `DamageAV Health
+     9999` and, on another try, `KillActor` on it. Each time read `GetDead`, `IsEssential`
+     and `GetKnockedState` for 15 s and whether it gets up and is still a teammate
+     (`GetPlayerTeammate`). Then the same with `SetHardcore 1`. Knocked out, up again and
+     still hired outside Hardcore, dead in it agrees with ours; IsEssential reading 1 for
+     the teammate says the engine counts teammates as essential by IsEssential too.
+
+## Added 2026-11-14 (actors at thin walls, #2511)
+
+166. **Which thin walls can a person-sized actor and a small creature cross?** (P2;
+     #2511, physics.md §6.9.2.) [design] NVForever uses a 56° actor slope limit, below
+     the cone face's roughly 57.7°, to cross a 24-unit zero-thickness wall and block
+     25/26/28, with the same 24-unit step height for people and small creatures.
+     Original actors blocking the higher walls is [hypothesis]. To check: in a
+     controlled test cell with a level floor, lead a person-sized actor and a small
+     creature straight into thin walls of 24, 25, 26 and 28 units at walk and run
+     pace, without jumping. Record whether each crosses, the feet heights through
+     the crossing or stop, and whether it first detours; keep a clear run-up and
+     prevent routes around the ends. Also check a 46–49° ramp so the actor's slope
+     behavior can be separated from its stepping over an edge.
+
+## Added 2026-11-14 (NPC launcher round visibility, #2512)
+
+167. **When does an NPC launcher show its loaded round?** (P2; #2512,
+     animation.md section 9.7.) [documented: issue #2512 and animation.md section 9.7]
+     The supplied missile launcher/Fat Man/dart-gun clips hide `##NifRound` in their
+     attack and show it during reload; the third-person launcher aim has no round
+     track. [hypothesis] The original retains the attack's hidden state through aim
+     until reload shows it, and restores the model default on equip/holster.
+     [design: #2512 settled owner decision] NVForever implements that provisional
+     rule. Record an NPC firing and reloading each weapon, then interrupt before
+     reload, wait in aim, and holster/draw again. Capture when the round disappears
+     and returns, including a weapon redrawn before reload. No original capture was
+     made in this writer run.
+
+## Added 2026-11-14 (Oliver's rigid cap frame, #2529)
+
+168. **Does Oliver's cap follow the full head frame, idle and speaking?** (P2; #2529,
+     actors.md §1.2.) [documented: #2529 writer brief, fnvtool FalloutNV.esm +
+     Fallout - Meshes.bsa] `VHDGeneralOliver` 0x001300A9 carries `NVGenOliverCap`
+     0x00134490; its worn `GenOliverCap.NIF` is unskinned, identity-root, with no
+     bone-naming extra data and vertices centred about +13 along X. [hypothesis]
+     It is authored in `Bip01 Head`'s local frame. [design, #2529] NVForever preserves
+     that frame when the bounds pass `BONE_LOCAL_HEAD_ALIGNMENT` (0.9), retaining
+     skeleton-axis attachment for other layouts. Check the original while Oliver is
+     idle, entering conversation, looking sideways/up/down while speaking, and leaving
+     conversation. Compare the cap's centre and orientation to the head throughout;
+     also compare a cowboy hat, beret and helmet using the skeleton-axis layout from
+     actors.md §1.2. Record which heads/items clip or shift, and the valid greeting's
+     quest/stage conditions for a repeatable conversation smoke setup. No original
+     capture or game run was made in the writer session.
+
+## Added 2026-11-14 (bloatfly side clips and combat wings, #2352)
+
+169. **Do bloatfly side darts move the actor, and do wings beat under combat clips?**
+     (P2; #2352, actors.md §§8.2–8.3.) [documented: supplied issue #2352 clip-root
+     survey] `mtleft.kf`/`mtright.kf` reach 225/243 units sideways before returning
+     to net travel 100. [hypothesis] NVForever provisionally removes the full drawn
+     root x/y excursion for moves past a 1.5 peak/net ratio; whether the original
+     moves the actor by that root is unknown. [design] Capture a bloatfly fighting
+     for about 20 seconds, including sideways movement, aim, firing and hover/special
+     idle. Record its actor x/y and body position frame by frame through a side dart:
+     does the actor follow the outward and return root motion, or does the body stay
+     at the actor while it strafes? Also compare wing beats during ordinary idle,
+     forward flight, aim, attack and hover, especially bones absent from the upper
+     clip. [hypothesis] NVForever keeps the set's idle on bones the active clips omit;
+     confirm whether those beats continue and whether their phase restarts on a
+     transition. Record clip names/times with the capture where available.
+
+## Added 2026-11-14 (actor stealth fields, #2557)
+
+170. **How do cloaked Nightkin and nightstalkers look and change state?** (P2; #2557,
+     refraction.md section 5.) [observed: owner's 2026-11-14 REPCONN playtest, issue #2557
+     comment] Nightkin there were drawn plain even as their uncloak sound/effect played.
+     [design, #2557] NVForever now refracts loaded living actors at Chameleon >= 1,
+     restoring the body, outfit and weapon when the value drops or the actor dies.
+     [hypothesis] The player's existing 0.03 screen shift and 2 s shimmer provisionally
+     apply to other actors. To check in the original: at REPCONN and in the caves near
+     Jacobstown, record the outline, weapon and outfit while cloaked, during an attack,
+     after combat and on death; compare the bend/shimmer to a player's Stealth Boy.
+     Check that Jacobstown's residents stay plain. Also record whether nightstalkers
+     cloak, which encountered variant does so, and under what conditions; the owner's
+     comment leaves that uncertain, and no nightstalker record facts were supplied.
+
+## Added 2026-11-14 (helipad ladder pair, #2528)
+
+171. **Which helipad ladder faces are usable, and can the upper endpoint be targeted
+     from the deck?** (P2; #2528, cells-refs.md §5.) [documented: supplied writer
+     brief #2528 round w4, fnvtool ESM decode of FalloutNV.esm] The nearly coincident
+     lower pair is teleporting `00164C64` (`VHDExteriorLadder`) at
+     (67942.66,19400.51,4663.61), z rotation 3.442, and plain `00164C65` (DOOR
+     `00060730`, `UtlHallBgEndSewerExLad01`, FULL Ladder) at
+     (67941.33,19400.33,4664.01), z rotation 0.300, with no XTEL/XATO/XESP or
+     reference flags. [observed: supplied main-session run 2026-11-14 23:14,
+     `ov15/smoke-2528b/*.log`] Ours at spot 3, feet near (67950,19440,4802),
+     selected plain `00164C65` at yaw 236, pitches 0/-30/-60, drawing Open / Ladder.
+     [hypothesis, #2528] Ours retains ordinary non-teleport Open/Close toggling for
+     that member; whether the original offers it at all is unknown. To check:
+     approach this face from that landing and the opposite face from the south
+     (the separate lower smoke approach is near (67942.7,19320.5,4806)). Record
+     actual feet/view, targeted reference (distinguish the two IDs), prompt or its
+     absence, and the result of pressing E twice: travel, visible movement, sound,
+     state-only toggle or nothing. Does the plain back-to-back ladder have a prompt
+     and activation, and does the opposite face select the teleporting member?
+
+     [observed: same supplied run] Only original sweep looks 11/23 on the deck
+     targeted upper `00164C63`: from (67900,19440,5101) yaw 121, pitch -60, and
+     (67915,19385,5101) yaw 54, pitch -60. Other sampled deck looks hit deck STAT
+     `0012CE4B` or nothing. To check in the original: try these views and small
+     yaw/pitch changes, and look straight down from the deck near the upper
+     endpoint (67939.5,19439.3,5028). Record target ID, exact prompt/absence and E
+     result, with actual feet and view. Is the top usable from the deck, only from
+     a narrow angle, or not there at all? Compare with activating the lower
+     teleporting member as a control. [design, #2528] Do not infer original
+     behavior from NVForever's successful teleport smoke scenarios.
+
+## Added 2026-11-15 (a script's Disable of the player, #2617)
+
+172. **Can a script disable the player, and can a disabled player use a scripted load
+     door?** (P2; #2617, doors.md §6.) VHDIntakeTowerLegionaryDespawnScript (SCPT
+     0x0013CA2C) disables whoever enters its trigger (VHDIntakeTowerLegionaryDespawnTriggerREF,
+     0x0013CA72) once VHDLegionBattle.IntakeTowerStrategy is 2 [observed: the data].
+     In any interior: `player.disable`, then `player.getdisabled` (1 or 0?), walk, and use a
+     load door, an unscripted one and one whose OnActivate ends in a bare Activate (the
+     Power Plant 01 elevator, VHDODeckElevREF 0x0013151C, in HooverDamIntODeck). Then, on a
+     save there, `set VHDLegionBattle.IntakeTowerStrategy to 2`, `player.moveto 0013CA72`
+     and `player.getdisabled`. Ours since #2617: Disable of the player does nothing
+     [hypothesis]; GetDisabled 1 or a door that stays shut in the original says otherwise.
+
+## Added 2026-11-15 (faction disguises, #2611)
+
+173. **Does the NCR armour fool the NCR when the player is an enemy of NCRFactionNV?**
+     (P2; #2611, disguises.md §3.) Ours since #2611: a faction enemy flag yields to the
+     disguise's friendship (ArmorNCRFactionNV, which every NCR soldier is in); only
+     sniffers (VNCRSnifferFaction) within the pulse's 25 ft (about 533 units) see
+     through [hypothesis]. At Hoover Dam by day, stand on the road at
+     VHDAssassinationSetupREF (0x0012FCF0), `player.additem 00129254 1`, equip it, then
+     `SetPCEnemyOfFaction 000A46E7 1`. For 30 s note whether the troopers and engineers
+     near (VHDPreBattleNCRTrooper4REF 0x0014633D, VHDPreBattleNCREngineer02REF
+     0x0014695E) attack, and read `VHDPreBattleNCRTrooper4REF.GetFactionRelation player`
+     and `GetCombatTarget` on the rangers by the vertibird pad (VHDPreBattleRanger04REF
+     0x0014694C, a sniffer about 2,000 units off). Then walk up to that ranger (under
+     500 units, in sight) and note whether it attacks and the others follow. Nobody
+     attacking until the ranger is near agrees with ours; everyone attacking at once
+     says the flag beats the disguise (then the disguise works only through the
+     reputation reset, reputation.md §4).

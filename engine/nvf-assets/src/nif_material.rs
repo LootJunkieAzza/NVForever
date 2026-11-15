@@ -764,6 +764,21 @@ pub fn decal_bias(bias: DepthBiasState) -> DepthBiasState {
 
 pub type NifMaterial = ExtendedMaterial<StandardMaterial, NifSurface>;
 
+/// [design, #2557] A mesh's temporary drawing override and its underlying material.
+/// All material consumers resolve the plain source before reading, cloning or saving
+/// a restoration handle; only the owner derives and disposes of the cloak copy.
+#[derive(Component)]
+pub struct MaterialOverride {
+    pub source: Handle<NifMaterial>,
+    pub copy: Handle<NifMaterial>,
+}
+
+/// [design, #2557] Resolve the underlying plain material only while the override is
+/// worn. A replacement handle already belongs to the next plain material owner.
+pub fn plain_material<'a>(current: &'a Handle<NifMaterial>, drawing: Option<&'a MaterialOverride>) -> &'a Handle<NifMaterial> {
+    drawing.filter(|d| d.copy == *current).map_or(current, |d| &d.source)
+}
+
 /// A NIF material from its StandardMaterial part.
 pub fn nif_material(base: StandardMaterial) -> NifMaterial {
     NifMaterial { base, extension: NifSurface::default() }

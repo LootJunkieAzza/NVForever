@@ -124,6 +124,9 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   factions an enemy itself [observed: 0].
 - `GetFactionRelation` for actors in several factions (enemy first, then friend, then
   ally) stays a [hypothesis] (actor-behaviour.md §3).
+- The player's faction enemy flags (SetPCEnemyOfFaction, a witnessed crime) make the
+  player an enemy of a flagged faction's members unless another of the member's factions
+  is the player's ally or friend: a faction disguise (disguises.md §3) [hypothesis, #2611].
 
 ## 5. The player, and why a Fiend reads as neutral
 

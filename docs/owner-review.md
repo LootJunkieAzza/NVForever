@@ -130,6 +130,12 @@ the spec it links to.
 
 ## Tier 2: movement and controls feel
 
+- **Darting movement clips (#2352).** [design, #2352] `ROOT_EXCURSION_RATIO = 1.5`
+  selects moves whose sampled root excursion exceeds 1.5 times net travel; their
+  drawn x/y stays at the track's start. A different ratio changes which moves lose
+  their in-cycle sway. Actor movement is unchanged; original dart behavior awaits
+  observer check 169. ([actors §8.2](spec-notes/actors.md#82-root-motion))
+
 13. **Grab.** Z held, or E held for 0.4 s, picks up an object or a corpse. It drops when
     lagging 90 units and is thrown at up to 600 units/s. Nothing over 100 kg can be
     picked up, and you can only walk while holding over 25 kg. All guessed.
@@ -226,6 +232,13 @@ the spec it links to.
   kept in saves). Bigger reach, a slower front, fires that leave the ground scorched for a
   game day, or trees and shrubs that burn too are each a figure or a follow-up away.
   [grass-fire](design/grass-fire.md)
+
+- **Rigid headgear frame detection (#2529).** [design, #2529] Choose bone-local axes
+  when a rigid head part's combined authored bounds straddle skeleton Z=0 and their
+  centre aligns at least 0.9 with bone-local up (`BONE_LOCAL_HEAD_ALIGNMENT`);
+  otherwise retain the skeleton-axis rule. This fixes Oliver's supplied +X cap layout
+  without naming a model. Keep this conservative geometry rule, or require explicit
+  model-frame metadata for ambiguous mod meshes? ([actors §1.2](spec-notes/actors.md#12-meshes))
 
 - **NPC conversations go on past a Goodbye line that links on (#2451).** [hypothesis,
   #2451] The editor's documentation says a Goodbye line ends a conversation between
@@ -525,6 +538,17 @@ the spec it links to.
     (2026-11-11) predates #2239 [hypothesis: your build was older than it; the log names
     no version]. No other engine change was made; the smoke scenarios
     `freeside-fort-residents-door` and `freeside-north-residents-door` keep it fixed.
+78. **A turret that cannot move fires a script's weapon use from where it stands
+    (#2544).** ARCHIMEDES at HELIOS One (an Immobile turret) is told by the control
+    panel's script to shoot each NCR trooper in turn; ours never let a rooted actor's
+    weapon use start, so it drew and holstered forever and the strike never came. Ours
+    now: such a use starts at once where the turret is, and it turns to the target at
+    its combat turn rate (ARCHIMEDES turns 375 degrees a second) before firing; the
+    troopers' places do not matter to the script. The NCR troopers turning on the player
+    before the beam is the script's own SetEnemy (23 intervals after arming), not a
+    fault. Check the strike's pace looks right to you: one shot every 1-4 s, five
+    troopers, then the big beam. Observer check 164 asks the original's timing.
+    ([use-weapon §2](design/use-weapon.md))
 76. **A line's group condition on the speaker wins over its fixed speaker (#2548).**
     Cottonwood Cove's "Halt! What business have you in Cottonwood Cove, outsider?"
     (0x0013AC97) names the AAM explorer as its fixed speaker but tests the explorers'
@@ -551,6 +575,38 @@ the spec it links to.
     If you saw wild creatures and patrols ignore each other more than in the original,
     say where. Observer checks 144 and 163 ask the original.
     ([factions §4](spec-notes/factions.md))
+79. **Companions are knocked out, not killed, outside Hardcore (#2623).** No companion
+    carries the Essential flag in the data and no script sets it, so Cass, Veronica and
+    Boone died in the quest pilot's fights outside Hardcore (and Veronica's death left
+    the Hidden Valley bunker locked). Ours now: outside Hardcore every player teammate
+    falls unconscious at zero health and gets up after the fight, still hired; in
+    Hardcore it dies, as before. A mod's JIP ToggleTeammateKillable 1 makes one killable
+    again. IsEssential still reads only the flag (0 for Cass). If a companion should
+    still die in some case outside Hardcore, say which. Observer check 165 asks the
+    original. ([unconscious §2.2a](spec-notes/unconscious.md))
+81. **A faction disguise outranks the player's bad standing with that faction (#2611).**
+    In NCR armour on the Legion route, every NCR soldier at Hoover Dam attacked: the
+    player's enemy flag with NCRFactionNV (a crime, SetPCEnemyOfFaction) won over the
+    friendship the armour's script sets up with ArmorNCRFactionNV, so nobody was fooled.
+    Ours now: such a flag does not count while the actor is also in a faction that is
+    the player's ally or friend (the disguise faction); only sniffers (the rangers, MPs,
+    Captain Graham) within the disguise pulse's 25 ft, about 533 units, and in sight see
+    through it, and then a fight they start blows the cover for the dam. A flag on the
+    disguise faction itself (a murder seen while disguised) still counts. The soldiers
+    it fools take the player for a friend, so a sniffer's alarm (a glimpse or a fight)
+    no longer turns them on the player. If the disguise now seems too
+    forgiving (it fools after any crime but one done in disguise), say so. Observer
+    check 173 asks the original. ([disguises §3, §4](spec-notes/disguises.md))
+
+80. **Scripts cannot disable the player (#2617).** On the Legion route the intake tower
+    trigger VHDIntakeTowerLegionaryDespawnScript disables whoever walks in once the
+    Legion's intake tower strategy is 2, the player too; a disabled player's scripted
+    load doors do nothing, so the Power Plant 01 elevator never took the player through.
+    Ours now: Disable of the player does nothing, and a save holding the player disabled
+    loads with the player enabled. The other choice is to let the player be disabled and
+    only lift the Activate rule for the player (the player would then be hidden and
+    "gone" to scripts that test it). Observer check 172 asks the original.
+    ([doors §6](spec-notes/doors.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

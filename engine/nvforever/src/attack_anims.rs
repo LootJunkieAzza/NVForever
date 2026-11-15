@@ -313,7 +313,7 @@ fn head_or_neck(name: &str) -> bool {
 pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
     let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
     let tracks: Vec<_> = bound.tracks.iter().filter(|(i, _, _)| head(*i)).cloned().collect();
-    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None, unbound: Default::default() })
+    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() })
 }
 
 impl Attack {
@@ -389,6 +389,9 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// [design, #2512] The advanced attack/reload visibility sample, including the exact
+    /// end on its last frame; consumed by `weapons::reparent` after locomotion.
+    pub weapon_visibility: Option<(Arc<BoundClip>, f32)>,
     /// The actor moves this frame (`locomotion::drive` sets it before [`CombatPose::layers`]):
     /// a creature's blow shows on its head and neck only.
     pub moving: bool,
@@ -459,6 +462,7 @@ impl CombatPose {
     /// Lay the aim's up or down form and the attack over the actor's layers;
     /// `drawn`: its weapon is drawn (the aim clip plays). Advances the attack by `dt`.
     pub fn layers(&mut self, player: &mut BlendPlayer, drawn: bool, dt: f32) {
+        self.weapon_visibility = None;
         let [_, (_, up), (_, down)] = aim_weights(self.pitch);
         let (variant, share) = if up > 0.0 { (Aim::Up, up) } else { (Aim::Down, down) };
         let w = variant_weight(share);
@@ -521,6 +525,9 @@ impl CombatPose {
         self.travel += a.clip.travel(before, a.t);
         if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
             a.t = loop_time(a.t, from, to);
+        }
+        if a.kind == Move::Attack || a.kind.reloads() {
+            self.weapon_visibility = Some((a.clip.clone(), a.clip.clip.start + (a.t / a.len.max(1e-3)).clamp(0.0, 1.0) * a.clip.clip.length()));
         }
         let shot = a.kind == Move::Attack && !a.melee;
         if a.t >= a.len {
@@ -609,7 +616,7 @@ impl AttackClips {
         let key = (skeleton.to_string(), fnv_vfs::normalize(path));
         self.carried
             .entry(key)
-            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None, unbound: clip.unbound.clone() }.carried()))
+            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None, hold_xy: None, unbound: clip.unbound.clone() }.carried()))
             .clone()
     }
 
@@ -1225,6 +1232,38 @@ mod tests {
         player.layers = Default::default();
         pose.layers(&mut player, true, 0.01);
         assert!(pose.held.is_none() && player.layers[ATTACK_LAYER].is_none());
+    }
+
+    #[test]
+    fn npc_weapon_visibility_samples_attack_reload_end_and_loop_time() {
+        // [design, #2512] Synthetic clips with an end-only key and a nonzero start.
+        let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        c.start = 3.0;
+        c.stop = 4.0;
+        c.visibility.push(("##NifRound".into(), 0, fnv_nif::anim::BoolTrack { value: None, keys: vec![(3.0, false), (4.0, true)] }));
+        let clip = Arc::new(BoundClip::bind(Arc::new(c), |_| None));
+        for kind in [Move::Attack, Move::Reload, Move::ReloadRound, Move::BlockHit, Move::Recoil] {
+            let attack = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 1.0, repeat: None, since: 0.0, fade_in: true, reload: kind.reloads(), kind, opening: false, melee: false, hit: 0.0, on_the_move: None, head_blow: None };
+            let mut pose = CombatPose { attack: Some(attack.clone()), ..Default::default() };
+            let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+            pose.layers(&mut player, true, 1.5);
+            assert!(pose.attack.is_none());
+            if matches!(kind, Move::Attack | Move::Reload | Move::ReloadRound) {
+                let (sampled, time) = pose.weapon_visibility.as_ref().unwrap();
+                assert!(Arc::ptr_eq(sampled, &clip));
+                assert_eq!(*time, 4.0);
+                assert_eq!(sampled.clip.visibility[0].2.at(*time), Some(true));
+            } else {
+                assert!(pose.weapon_visibility.is_none(), "reactions do not key the weapon");
+            }
+            pose.layers(&mut player, true, 0.1);
+            assert!(pose.weapon_visibility.is_none(), "a held shot or aim does not replay visibility");
+            if kind == Move::Attack {
+                pose.attack = Some(Attack { repeat: Some((0.2, 0.6)), t: 0.55, ..attack });
+                pose.layers(&mut player, true, 0.1);
+                assert!((pose.weapon_visibility.as_ref().unwrap().1 - 3.25).abs() < 1e-5, "sample the wrapped loop time");
+            }
+        }
     }
 
     #[test]

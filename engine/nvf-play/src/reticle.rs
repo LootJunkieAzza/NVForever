@@ -332,7 +332,7 @@ pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui).in_set(crate::test_aid::activation_sweep::Draw));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -536,7 +536,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<Kit>>,
-    mut shown: Local<Option<Prompt>>,
+    (mut shown, mut sweep): (Local<Option<Prompt>>, Option<ResMut<crate::test_aid::activation_sweep::ActivationSweep>>),
     mut root: Query<&mut Visibility, With<Root>>,
     (mut crosses, mut bars): (
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
@@ -544,6 +544,11 @@ fn draw(
     ),
     texts: Query<Entity, With<Texts>>,
 ) {
+    // Record only what this drawing pass shows, including early hidden returns
+    // [design: #2528, test_aid/activation_sweep.rs].
+    if let Some(s) = sweep.as_deref_mut() {
+        s.drawn = None;
+    }
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     // Not over the character creator, whatever state the opening leaves the game in
@@ -671,6 +676,9 @@ fn draw(
             info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
         }
         *shown = want;
+    }
+    if let Some(s) = sweep.as_deref_mut() {
+        s.drawn = shown.clone();
     }
 }
 

@@ -302,6 +302,21 @@ are at the end.
   limit). A lower limit keeps the computer cooler and quieter.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `physics-rate`: Physics rate
+
+- On the page: How many times a second the physics moves the world on. Higher answers the
+  keys sooner and collides more finely, but costs the processor more.
+- In full: How many times a second the physics moves the world on: the player, the people,
+  what falls and what is pushed. A higher rate answers the keys sooner and meets collisions
+  more finely; its cost to the processor grows with the rate. Match FPS: as many as the
+  frames a second the game draws, from 60 up to what the display sync and the frame rate
+  limit allow (at most 160); it follows the frame rate down when it stays low and back up
+  when it recovers. When the physics takes over half of each frame, the rate goes down a
+  step (never under 60) until there is room again. While `--physics-hz` sets the rate for a
+  run, the row shows "Set by --physics-hz for this run".
+- Command-line switches: `--physics-hz`
+- Registered in `engine/nvf-play/src/phys_rate.rs`
+
 ### `ui-scale`: HUD scale
 
 - On the page: Size of the in-game HUD, independent of menu scale. Takes effect at the next start.

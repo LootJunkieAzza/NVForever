@@ -310,12 +310,14 @@ pub fn keys(
     combat: Option<Res<crate::combat::Combat>>,
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
+    mut taken: ResMut<super::KeysTaken>,
 ) {
     let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
-    let mut steps: Vec<ModInput> = aid.read().copied().collect();
+    // [design, #2553] Only physical steps take keys, as in super::repair::keys.
+    let mut steps: Vec<_> = aid.read().copied().map(|s| (s, false)).collect();
     let items = pip.open() && pip.page == Page::Items && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if !items {
         if menu.0.take().is_some() {
@@ -328,16 +330,19 @@ pub fn keys(
     }
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
     if keys.just_pressed(KeyX) && !shift && !menu.is_open() {
-        steps.push(ModInput::Open);
+        steps.push((ModInput::Open, true));
     }
     if menu.is_open() {
         for (k, s) in [(&[ArrowUp, KeyW][..], ModInput::Up), (&[ArrowDown, KeyS], ModInput::Down), (&[Enter, NumpadEnter, Space], ModInput::Use), (&[KeyE, Escape], ModInput::Cancel)] {
             if keys.any_just_pressed(k.iter().copied()) {
-                steps.push(s);
+                steps.push((s, true));
             }
         }
     }
-    for step in steps {
+    for (step, physical) in steps {
+        if physical && (menu.is_open() || step == ModInput::Open) {
+            taken.take();
+        }
         if let ModInput::Click(i) = step {
             info!("pipboy mod: clicked row {i}");
         }

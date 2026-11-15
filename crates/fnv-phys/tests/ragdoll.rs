@@ -800,6 +800,134 @@ fn small_corpses_pass_through_each_other_big_ones_pile_up() {
     assert!(big_low > 0.0, "lowest bone at z {big_low}");
 }
 
+/// A falling corpse's bones are drawn between the last two steps (`fnv_phys::drawn`):
+/// `alpha` 0 the bones before the last step, 1 after it, exactly; a ragdoll held at rest is
+/// drawn where it lies.
+#[test]
+fn a_falling_corpse_is_drawn_between_its_last_two_steps() {
+    let mut w = ground();
+    drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 0.3);
+    let before = w.ragdoll_nodes(0x10).unwrap();
+    w.step();
+    let after = w.ragdoll_nodes(0x10).unwrap();
+    let pose = |b: &Option<BodyState>| b.map(|b| (b.translation, b.rotation));
+    let drawn = |w: &PhysWorld, a: f32| w.drawn_ragdoll_nodes(0x10, a).unwrap();
+    let moved = before.iter().zip(&after).filter(|(a, b)| pose(a) != pose(b)).count();
+    assert!(moved >= 3, "the figure is falling: {moved} bodies moved");
+    for (i, (d, b)) in drawn(&w, 0.0).iter().zip(&before).enumerate() {
+        let (d, b) = (pose(d).unwrap(), pose(b).unwrap());
+        for k in 0..3 {
+            assert!((d.0[k] - b.0[k]).abs() < 1e-3, "body {i}: {d:?} against {b:?}");
+        }
+    }
+    for (d, a) in drawn(&w, 1.0).iter().zip(&after) {
+        assert_eq!(pose(d), pose(a));
+    }
+    // Half way: each bone's translation half way (a node's frame is its body's turned, so
+    // within a hair).
+    for (i, ((d, a), b)) in drawn(&w, 0.5).iter().zip(&before).zip(&after).enumerate() {
+        let (d, a, b) = (pose(d).unwrap().0, pose(a).unwrap().0, pose(b).unwrap().0);
+        for k in 0..3 {
+            assert!((d[k] - (a[k] + b[k]) / 2.0).abs() < 0.05, "body {i}: {d:?} between {a:?} and {b:?}");
+        }
+    }
+    assert!(w.drawn_refs().is_empty(), "a corpse's bodies are no reference's");
+    // The trunk's centre (the kill camera's target) too.
+    let (c0, c1, c) = (w.drawn_ragdoll_center(0x10, 0.0).unwrap(), w.drawn_ragdoll_center(0x10, 1.0).unwrap(), w.ragdoll_center(0x10).unwrap());
+    assert!((0..3).all(|k| (c1[k] - c[k]).abs() < 1e-3), "{c1:?} {c:?}");
+    assert!(c0 != c1, "falling: drawn behind");
+    // Held at rest: fixed bodies built anew, drawn where they lie.
+    assert!(w.set_ragdoll_at_rest(0x10));
+    let rest = w.ragdoll_nodes(0x10).unwrap();
+    assert_eq!(drawn(&w, 0.0).iter().map(pose).collect::<Vec<_>>(), rest.iter().map(pose).collect::<Vec<_>>());
+    w.step();
+    assert_eq!(drawn(&w, 0.0).iter().map(pose).collect::<Vec<_>>(), rest.iter().map(pose).collect::<Vec<_>>());
+}
+
+/// A flying gore piece is drawn between its last two steps.
+#[test]
+fn a_gore_piece_is_drawn_between_its_last_two_steps() {
+    use fnv_phys::gore::GoreStart;
+    let mut w = ground();
+    w.add_gore(&GoreStart { id: 3, actor: 0x10, translation: [0.0, 0.0, 200.0], rotation: ID, half_extents: [2.0, 1.5, 1.0], center: [0.0; 3], linvel: [300.0, 0.0, 200.0], angvel: [0.0, 4.0, 0.0], mass: 0.3 });
+    assert_eq!(w.drawn_gore_state(3, 0.0).unwrap().translation, w.gore_state(3).unwrap().translation, "new: where it is");
+    w.step();
+    let before = w.gore_state(3).unwrap();
+    w.step();
+    let after = w.gore_state(3).unwrap();
+    assert_eq!(w.drawn_gore_state(3, 0.0).unwrap().translation, before.translation);
+    assert_eq!(w.drawn_gore_state(3, 0.0).unwrap().rotation, before.rotation);
+    assert_eq!(w.drawn_gore_state(3, 1.0).unwrap().translation, after.translation);
+    let x = w.drawn_gore_state(3, 0.25).unwrap().translation[0];
+    assert!((x - (before.translation[0] * 0.75 + after.translation[0] * 0.25)).abs() < 1e-3, "{x}");
+    assert!(w.drawn_gore_state(4, 0.5).is_none());
+}
+
+/// A corpse whose body is given a NaN shove is quarantined by rapier: reported once, and
+/// the whole ragdoll is held at rest where it lay (`fnv_phys::quarantine`).
+#[test]
+fn a_corpse_gone_nan_is_held_at_rest() {
+    let mut w = ground();
+    drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 0.5);
+    assert!(!w.ragdoll_asleep(0x10));
+    assert!(w.push_ragdoll(0x10, [100.0, 100.0, 40.0], [f32::NAN, 0.0, 0.0]));
+    for _ in 0..10 {
+        w.step();
+    }
+    let q = w.quarantined();
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(matches!(q[0].owner, Some(Owner::Actor { form_id: 0x10, .. })) && q[0].remedy == Remedy::RagdollAtRest, "{q:?}");
+    assert!(w.ragdoll_asleep(0x10));
+    assert!(w.ragdoll_nodes(0x10).unwrap().iter().flatten().all(|b| b.translation.iter().all(|v| v.is_finite())));
+    assert_eq!(w.stats().quarantined_bodies, 1);
+}
+
+/// A ragdoll settled over half a second (`PhysWorld::settle_ragdoll`, the share raised from
+/// 0 to 1) has almost stopped by the end of it, where the same ragdoll left alone still
+/// moves; a shove or a blast ends the settle, and a ragdoll at rest cannot settle.
+#[test]
+fn a_settling_ragdoll_slows_to_a_stop_until_a_push_ends_its_settle() {
+    // The figure lying on the ground shoved along it, then left alone or settled over 30
+    // steps.
+    let run = |settle: bool| {
+        let mut w = ground();
+        drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 3.0);
+        let c = w.ragdoll_center(0x10).unwrap();
+        assert!(w.push_ragdoll(0x10, c, [500.0, 150.0, 0.0]));
+        for i in 0..30 {
+            if settle {
+                assert!(w.settle_ragdoll(0x10, i as f32 / 30.0));
+            }
+            w.step();
+        }
+        (w.ragdoll_speed(0x10).unwrap(), w)
+    };
+    let ((free_v, free_w), _) = run(false);
+    let ((v, a), mut w) = run(true);
+    assert!(free_v > 20.0 || free_w > 1.0, "left alone it still moves: {free_v} units/s, {free_w} rad/s");
+    // Its sliding dies out as the damping says (about exp(-15 × 0.5 / 2), 2 %); its fastest
+    // body's spin less, as a light body shivers against the ground and its joint, which
+    // the solver drives anew each step (`SETTLE_DAMPING`) [observed: 191 → 3.4 units/s,
+    // 4.7 → 0.48 rad/s].
+    assert!(v < 0.05 * free_v.max(20.0) && a < 0.2 * free_w.max(1.0), "settled {v} units/s, {a} rad/s; left alone {free_v}, {free_w}");
+    assert!(w.ragdoll_settling(0x10) && !w.ragdoll_settling(0x11) && !w.settle_ragdoll(0x11, 0.5));
+    // A shove ends it: the body flies off as from a ragdoll that was not settling.
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!(w.push_ragdoll(0x10, c, [400.0, 0.0, 150.0]));
+    assert!(!w.ragdoll_settling(0x10));
+    for _ in 0..10 {
+        w.step();
+    }
+    assert!(w.ragdoll_speed(0x10).unwrap().0 > 50.0);
+    // So does a blast.
+    assert!(w.settle_ragdoll(0x10, 1.0));
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!(w.push_dynamic([c[0] + 30.0, c[1], c[2] - 10.0], 300.0, 600.0) >= 1);
+    assert!(!w.ragdoll_settling(0x10) && !w.unsettle_ragdoll(0x10));
+    // Held at rest it does not settle.
+    assert!(w.set_ragdoll_at_rest(0x10) && !w.settle_ragdoll(0x10, 0.5) && !w.ragdoll_settling(0x10));
+}
+
 /// A figure built like a person's ragdoll (docs/spec-notes/ragdoll.md §4, joint limits): a
 /// pelvis, a chest, a light neck between the chest and a heavier head, thighs, calves, upper
 /// arms and forearms, with a ragdoll constraint at the spine, neck, head, hips and shoulders
@@ -937,8 +1065,8 @@ fn joints_hold_their_limits_through_hard_shoves() {
                         moving = moving.max(worst_violation(&rag, &nodes(&w, 0x10), gone).0);
                     }
                 }
-                // A second more, then held at rest where it lies.
-                for _ in 0..steps(1.0) {
+                for i in 0..steps(1.0) {
+                    w.settle_ragdoll(0x10, i as f32 / steps(1.0) as f32);
                     w.step();
                 }
                 assert!(w.set_ragdoll_at_rest(0x10));

@@ -617,7 +617,7 @@ PAGELESS += [
     _x("ClearModelAltTextures", _J, "int", [_p("form", "form")]), _x("InitRockItLauncher", _J, "int", [_p("weapon", "form")]),
     _x("EnableImprovedRecipeMenu", _J, "int"), _x("SwapObjectLOD", _J, "int", [_p("object", "form"), _I("a"), _I("b")]),
     _x("ScrollMouseWheel", _J, "int", [_I("delta", True)]), _x("InitMiniMap", _J, "int"),
-    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_F(f"v{i}") for i in range(1, 7)]),
+    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_S("tilePath"), _S("block"), _F("x"), _F("y"), _F("width"), _F("height")], ref="reference"),
     _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
     _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
     _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),

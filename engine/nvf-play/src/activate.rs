@@ -481,6 +481,12 @@ pub(crate) struct AutoActivate {
 }
 
 impl AutoActivate {
+    /// Schedule an E press after a diagnostic replays its successful view [design: #2528,
+    /// test_aid/activation_sweep.rs]. This still activates the current Target.
+    pub(crate) fn test_press_at(&mut self, at: f32) {
+        self.times.push(at);
+    }
+
     fn from_env() -> AutoActivate {
         let times = std::env::var("NVF_PLAY_TEST_ACTIVATE")
             .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())

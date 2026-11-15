@@ -1,5 +1,5 @@
 //! Convex hulls whose faces have more than four corners keep their whole face in contact
-//! (docs/spec-notes/physics.md §5.2).
+//! (docs/spec-notes/physics.md §5.5).
 //!
 //! rapier finds the contact between two convex shapes by clipping the face of each that
 //! looks at the other, and parry hands it at most four corners of a face: the first four

@@ -1,5 +1,5 @@
 //! rapier's island bookkeeping under everything the game does to bodies (no game data):
-//! corpses falling, cut apart, held at rest and roused, struck, gore pieces,
+//! corpses falling, cut apart, settled, held at rest and roused, struck, gore pieces,
 //! clutter added awake and asleep, struck and blasted, animated collision put, queries
 //! between steps and rate changes, in random order. The owner's crash of 2026-11-11 (a VATS
 //! kill with dismemberment): rapier's `extract_sleeping_sub_island` found a body of another
@@ -159,6 +159,10 @@ fn random_play(seed: u64, steps: usize) -> Option<String> {
                         }
                     }
                 }
+                3 | 4 if next_corpse > 0x1000 => {
+                    let id = pick(&mut r, 0x1000, next_corpse);
+                    w.settle_ragdoll(id, r.f(0.0, 1.0));
+                }
                 5 | 6 if next_corpse > 0x1000 => {
                     let id = pick(&mut r, 0x1000, next_corpse);
                     w.set_ragdoll_at_rest(id);
@@ -169,6 +173,10 @@ fn random_play(seed: u64, steps: usize) -> Option<String> {
                     if let Some(c) = w.ragdoll_center(id) {
                         w.push_ragdoll(id, c, [r.f(-200.0, 200.0), r.f(-200.0, 200.0), r.f(0.0, 200.0)]);
                     }
+                }
+                9 if next_corpse > 0x1000 => {
+                    let id = pick(&mut r, 0x1000, next_corpse);
+                    w.unsettle_ragdoll(id);
                 }
                 10 if next_corpse > 0x1000 && r.below(4) == 0 => {
                     let id = pick(&mut r, 0x1000, next_corpse);

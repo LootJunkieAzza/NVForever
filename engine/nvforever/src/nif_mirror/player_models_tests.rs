@@ -785,3 +785,34 @@ fn public_light_attachment_rejects_a_replaced_captured_parent_then_accepts_a_fre
         .map(|(_, parent)| parent.parent()).collect();
     assert_eq!(parents, [replacement]);
 }
+
+#[test]
+fn material_edits_clone_and_update_the_plain_source_beneath_a_cloak() {
+    use nvf_assets::nif_material::{nif_material, MaterialOverride};
+
+    let (mut app, _files, reference, shape) = legacy_flat_fixture(true, "ConcreteFlatShape");
+    let original = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(nif_material(StandardMaterial::default()));
+    let cloak = {
+        let m = app.world().resource::<Assets<NifMaterial>>().get(&original).unwrap();
+        crate::stealth_field::see_through(m)
+    };
+    let cloak = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(cloak);
+    app.world_mut().entity_mut(shape).insert((MeshMaterial3d(cloak.clone()), MaterialOverride { source: original.clone(), copy: cloak }));
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(7.0), XVal::Num(0.4)]);
+    app.update();
+    let private = app.world().get::<MeshMaterial3d<NifMaterial>>(shape).unwrap().0.clone();
+    assert_ne!(private, original);
+    let materials = app.world().resource::<Assets<NifMaterial>>();
+    assert!(!materials.get(&private).unwrap().extension.refract);
+    assert_eq!(materials.get(&private).unwrap().base.base_color.alpha(), 0.4);
+    assert_eq!(materials.get(&original).unwrap().base.base_color.alpha(), 1.0);
+    let cloak = crate::stealth_field::see_through(materials.get(&private).unwrap());
+    let cloak = app.world_mut().resource_mut::<Assets<NifMaterial>>().add(cloak);
+    app.world_mut().entity_mut(shape).insert((MeshMaterial3d(cloak.clone()), MaterialOverride { source: private.clone(), copy: cloak }));
+    call_ref(&mut app, reference, "setmaterialpropertyvalue", &[XVal::Str("ConcreteFlatShape".into()), XVal::Num(7.0), XVal::Num(0.7)]);
+    app.update();
+    assert_eq!(app.world().get::<MeshMaterial3d<NifMaterial>>(shape).unwrap().0, private);
+    let materials = app.world().resource::<Assets<NifMaterial>>();
+    assert!(!materials.get(&private).unwrap().extension.refract);
+    assert_eq!(materials.get(&private).unwrap().base.base_color.alpha(), 0.7);
+}

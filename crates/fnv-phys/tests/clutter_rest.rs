@@ -1,5 +1,5 @@
 //! Loose clutter comes to rest where it lies and falls asleep, at every physics rate
-//! (docs/spec-notes/physics.md §5.2). Hand-built worlds, no game data.
+//! (docs/spec-notes/physics.md §5.5). Hand-built worlds, no game data.
 
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
 use fnv_phys::*;
@@ -77,7 +77,7 @@ fn shelf(w: &mut PhysWorld) {
 /// as indoors before 2026-11-13, rapier's four contact points took in the lip's and the
 /// book trembled awake [observed: `NVF_PHYS_INDOOR_PREDICTION=0`, awake after 3 s, moving
 /// up to 0.16 units a step at 60 Hz and 0.09 at 160; Doc Mitchell's books did the same on
-/// their shelves, `fnvtool phys cell`, physics.md §5.2].
+/// their shelves, `fnvtool phys cell`, physics.md §5.5].
 #[test]
 fn a_book_over_a_lower_lip_falls_asleep_indoors() {
     for hz in RATES {
@@ -108,7 +108,7 @@ fn table(w: &mut PhysWorld) {
 /// hull's face, a sliver along one edge of this top; a stone lying away from them kept one
 /// contact point, sank into the table and rocked there awake [observed:
 /// `NVF_PHYS_HULL_FACES=0`, 8 units in 3 s at 60 Hz and 5 at 160; Doc Mitchell's
-/// paperweight sank 10 units into the coffee table, physics.md §5.2].
+/// paperweight sank 10 units into the coffee table, physics.md §5.5].
 #[test]
 fn a_stone_on_a_table_top_of_many_corners_rests_on_it() {
     for hz in RATES {

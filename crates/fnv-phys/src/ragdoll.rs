@@ -19,7 +19,9 @@
 //!   do not fight their joints).
 //!
 //! - **Rest** [design]: a ragdoll that has come to rest is held with fixed bodies until a
-//!   hit or a blast ([`PhysWorld::set_ragdoll_at_rest`]).
+//!   hit or a blast ([`PhysWorld::set_ragdoll_at_rest`]). Before that the game settles it
+//!   ([`PhysWorld::settle_ragdoll`]: damping raised over a fraction of a second or two), so
+//!   that a ragdoll still moving is not stopped dead.
 //!
 //! Poses in and out are those of the bodies' **bones** (nodes), game units.
 
@@ -42,6 +44,17 @@ pub const MAX_FRICTION: f32 = 1.0;
 /// constraints' stored `max_friction`, whose unit is unknown; without it limbs swing
 /// like chains].
 pub const JOINT_DAMPING: f32 = 6.0;
+
+/// The damping (per second, on each body's linear and angular velocity, on top of its
+/// own) a settling ragdoll has at the end of its settle ([`PhysWorld::settle_ragdoll`])
+/// [design, 2026-11-11: raised along a settle of `T` seconds from 0 to this, free motion
+/// left at its end is about `exp(-15·T/2)` of what it was (2 % after half a second, under
+/// a thousandth after one), so holding the ragdoll at rest then shows no stop. rapier
+/// damps each body once a step, after the constraint solve, so a turn the joints and
+/// contacts drive anew every step (a light limb shivering against a limit) keeps most of
+/// its speed [observed: smoke `mantis-egg-spawn`, antennae and legs at 0.3-3 rad/s when
+/// held; raising the joints' damping motors as well did not lower it]].
+pub const SETTLE_DAMPING: f32 = 15.0;
 
 /// The most a push turns the body it strikes, radians per second, and the shortest arm
 /// (game units) its turning is worked out with [design].
@@ -126,6 +139,9 @@ pub(crate) struct RagdollBodies {
     cut: Vec<usize>,
     /// Smaller than [`SMALL_RAGDOLL_SPAN`]: no contacts with other small ragdolls.
     small: bool,
+    /// Settling ([`PhysWorld::settle_ragdoll`]): the share of [`SETTLE_DAMPING`] its
+    /// bodies have on top of their own; `None` when it is not settling.
+    settle: Option<f32>,
     /// A placed object's jointed bodies (a swinging trap, [`PhysWorld::add_object_ragdoll`]),
     /// not an actor's: its colliders report the reference ([`Owner::Ref`]) and its
     /// keyframed and static bodies are fixed.
@@ -351,7 +367,7 @@ impl PhysWorld {
         let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
         let joints = vec![Vec::new(); data.joints.len()];
-        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object };
+        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object, settle: None };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
         for (i, b) in data.bodies.iter().enumerate() {
@@ -570,6 +586,41 @@ impl PhysWorld {
         }
     }
 
+    /// Settle a moving ragdoll before it is held at rest: `share` (0 to 1) of
+    /// [`SETTLE_DAMPING`] is added to each body's own damping, so that its motion dies out
+    /// as friction would stop it, instead of stopping dead when its bodies are fixed
+    /// ([`PhysWorld::set_ragdoll_at_rest`]). The caller raises the share over the settle.
+    /// A push or a blast that strikes it ends the settle ([`PhysWorld::push_ragdoll`],
+    /// [`PhysWorld::push_dynamic`]), as does [`PhysWorld::unsettle_ragdoll`]. Returns false
+    /// without a moving actor's ragdoll.
+    pub fn settle_ragdoll(&mut self, form_id: u32, share: f32) -> bool {
+        let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        self.set_settle(form_id, Some(share))
+    }
+
+    /// End a ragdoll's settle ([`PhysWorld::settle_ragdoll`]): its bodies have their own
+    /// damping again. Returns whether it was settling.
+    pub fn unsettle_ragdoll(&mut self, form_id: u32) -> bool {
+        self.ragdoll_settling(form_id) && self.set_settle(form_id, None)
+    }
+
+    /// Whether the ragdoll is settling ([`PhysWorld::settle_ragdoll`]).
+    pub fn ragdoll_settling(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.settle.is_some())
+    }
+
+    fn set_settle(&mut self, form_id: u32, settle: Option<f32>) -> bool {
+        let Some(r) = self.ragdolls.get_mut(&form_id).filter(|r| !r.at_rest && !r.object) else { return false };
+        r.settle = settle;
+        let extra = settle.unwrap_or(0.0) * SETTLE_DAMPING;
+        for (b, d) in r.bodies.iter().zip(&r.data.bodies) {
+            let Some(body) = b.and_then(|h| self.w.bodies.get_mut(h)) else { continue };
+            body.set_linear_damping(damping(d.linear_damping) + extra);
+            body.set_angular_damping(damping(d.angular_damping) + extra);
+        }
+        true
+    }
+
     /// The ragdolls held at rest that have a body within `radius` of `center` (game units).
     pub(crate) fn ragdolls_at_rest_near(&self, center: [f32; 3], radius: f32) -> Vec<u32> {
         let (c, r2) = (vec3(center) * self.k, (radius * self.k).powi(2));
@@ -630,6 +681,18 @@ impl PhysWorld {
     /// The pose of each ragdoll body's bone now, in the ragdoll's body order (`None` for
     /// a body that was not built), and its velocity and sleep state.
     pub fn ragdoll_nodes(&self, form_id: u32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_nodes`] as drawn this frame, `alpha` of a step after the last
+    /// one: each body's pose blended between before and after the last step
+    /// (`crate::drawn`). For drawing only.
+    pub fn drawn_ragdoll_nodes(&self, form_id: u32, alpha: f32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, Some(alpha))
+    }
+
+    /// The bones' poses from the bodies' poses now (`alpha` `None`) or as drawn.
+    fn nodes_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<Vec<Option<BodyState>>> {
         let r = self.ragdolls.get(&form_id)?;
         let k = self.k;
         Some(
@@ -637,8 +700,10 @@ impl PhysWorld {
                 .iter()
                 .zip(&r.local)
                 .map(|(b, local)| {
-                    let body = self.w.bodies.get((*b)?)?;
-                    let node = iso_of(body.position(), k).compose(&local.inverse());
+                    let h = (*b)?;
+                    let body = self.w.bodies.get(h)?;
+                    let pose = alpha.map_or(*body.position(), |a| self.drawn_pose(h, body, a));
+                    let node = iso_of(&pose, k).compose(&local.inverse());
                     Some(BodyState { translation: node.translation, rotation: node.rotation, ..body_state(body, k) })
                 })
                 .collect(),
@@ -667,15 +732,42 @@ impl PhysWorld {
 
     /// The mass centre of the ragdoll's heaviest body (the trunk of a person), game units.
     pub fn ragdoll_center(&self, form_id: u32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_center`] as drawn this frame, `alpha` of a step after the last
+    /// one (`crate::drawn`): for what follows a corpse on screen (the kill camera).
+    pub fn drawn_ragdoll_center(&self, form_id: u32, alpha: f32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, Some(alpha))
+    }
+
+    /// The speed of [`PhysWorld::ragdoll_center`]'s body (its heaviest), game units a
+    /// second: for telling a corpse that should move from one that rests.
+    pub fn ragdoll_center_speed(&self, form_id: u32) -> Option<f32> {
+        let b = self.w.bodies.get(self.heaviest(form_id)?)?;
+        Some(b.linvel().length() / self.k)
+    }
+
+    /// A ragdoll's heaviest body: by the stored masses, the first of equals, the same body
+    /// however it is built.
+    fn heaviest(&self, form_id: u32) -> Option<RigidBodyHandle> {
         let r = self.ragdolls.get(&form_id)?;
-        // By the stored masses, the first of equals: the same body however it is built.
         let mut best: Option<(f32, RigidBodyHandle)> = None;
         for (b, d) in r.bodies.iter().zip(&r.data.bodies) {
             if let Some(h) = b.filter(|_| best.is_none_or(|(m, _)| d.object.mass > m)) {
                 best = Some((d.object.mass, h));
             }
         }
-        Some(arr3(self.w.bodies.get(best?.1)?.center_of_mass() / self.k))
+        best.map(|b| b.1)
+    }
+
+    /// The heaviest body's mass centre now (`alpha` `None`) or as drawn.
+    fn center_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<[f32; 3]> {
+        let h = self.heaviest(form_id)?;
+        let b = self.w.bodies.get(h)?;
+        let Some(a) = alpha else { return Some(arr3(b.center_of_mass() / self.k)) };
+        let pose = self.drawn_pose(h, b, a);
+        Some(arr3((pose.rotation * b.local_center_of_mass() + pose.translation) / self.k))
     }
 
     /// A sphere holding an actor's ragdoll, game units: its centre its heaviest body's (the
@@ -721,9 +813,10 @@ impl PhysWorld {
     /// second), as a hit there does: the body's own velocity changes by `dv` whatever its
     /// mass, and it is turned as a blow at `at` turns it, by at most [`MAX_PUSH_SPIN`] (a
     /// small body struck off centre would otherwise spin fast enough to pass through the
-    /// ground). Returns false without a ragdoll.
+    /// ground). A settling ragdoll stops settling. Returns false without a ragdoll.
     pub fn push_ragdoll(&mut self, form_id: u32, at: [f32; 3], dv: [f32; 3]) -> bool {
         self.rouse_ragdoll(form_id);
+        self.unsettle_ragdoll(form_id);
         let Some(r) = self.ragdolls.get(&form_id) else { return false };
         let k = self.k;
         let p = vec3(at) * k;

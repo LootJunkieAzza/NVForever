@@ -1515,6 +1515,15 @@ impl Ai {
             return;
         }
         if self.agents[&actor].rooted {
+            // A rooted actor's weapon use (a script's UseWeapon, or its Use Weapon
+            // package) is used from where it stands: it cannot walk to a place [design,
+            // as `weapon_step` does with no way there]. Before, a rooted turret's use
+            // never reached `weapon_step`, so it never fired: ARCHIMEDES at HELIOS One
+            // drew and holstered for good and That Lucky Old Sun's strike never came
+            // (#2544).
+            if game.active_weapon_use(actor).is_some_and(|w| !w.in_place) && !game.ai_off(actor) {
+                game.weapon_use_in_place(actor);
+            }
             self.rooted_turn(game, actor, dt);
             return;
         }
@@ -2158,11 +2167,21 @@ impl Ai {
     /// detects, else the one detected last) or to the place of its alarm (Alert, Lost), as
     /// a fighter standing its ground does (`crate::alert`). Before, it never turned, so a
     /// HELIOS One ceiling turret kept its placed heading and the player stayed out of its
-    /// view (#1537). SetActorsAI 0 holds it as any other actor. One that never turns
-    /// ([`Ai::fix_heading`], Mr. House's screen) does not here either (#2150).
+    /// view (#1537). A weapon use's target comes before the fight's (#2544). SetActorsAI 0
+    /// holds it as any other actor. One that never turns ([`Ai::fix_heading`], Mr.
+    /// House's screen) does not here either (#2150).
     fn rooted_turn(&mut self, game: &mut Game, actor: FormId, dt: f32) {
         if game.ai_off(actor) || game.extra.get(&actor).is_some_and(|e| e.restrained) {
             return;
+        }
+        // Its weapon use's target first, unless the fight took the use over (#2544): the
+        // shooter fires only once it faces the target (`USE_FACING`).
+        let space = self.agents[&actor].walker.space;
+        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && !w.taken).map(|w| w.target) {
+            if let Some(to) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
+                self.combat_face(game, actor, to, dt);
+                return;
+            }
         }
         let state = game.awareness.state(actor);
         if !state.in_combat() {
@@ -2176,7 +2195,6 @@ impl Ai {
             aw.search_alarm().map(|a| a.at)
         };
         let Some(at) = at else { return };
-        let space = self.agents[&actor].walker.space;
         self.combat_face(game, actor, Place { space, pos: at }, dt);
     }
 

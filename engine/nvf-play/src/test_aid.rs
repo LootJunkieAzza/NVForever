@@ -131,6 +131,7 @@ use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
 
 pub mod melee_knockback;
+pub(crate) mod activation_sweep;
 
 /// How far in front of the reference `NVF_PLAY_TEST_FACE` puts the feet (game units;
 /// inside the activation reach).
@@ -507,6 +508,7 @@ struct Aids {
 
 pub(crate) fn setup(app: &mut App) {
     app.insert_resource(Unattended::from_env());
+    activation_sweep::setup(app);
     // The test aid and the debug switch of the same name do the same; only the test aid
     // makes the run unattended.
     for (name, what) in [("NVF_PLAY_TEST_GIVE", "test aid"), ("NVF_PLAY_DEBUG_GIVE", "debug switch")] {

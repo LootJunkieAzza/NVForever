@@ -429,6 +429,8 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     "AGL -1") [observed: the owner's ITEMS screenshots, all five tabs]. WG and VAL are
     the stack's (the Stimpak's VAL 675 is 9 × 75; WG "--" for nothing) [observed: VAL;
     hypothesis: WG].
+  - Ammo effect card lines (#2502): see the formatting and shared-card rule below
+    [design, #2502].
   - Added 2026-10-19 (`items.rs`):
     - **DPS** [documented: `item_stats_display.xml` `DPSInfo`, `sInventoryDamagePerSecond`;
       hypothesis: formula]: the damage a shot does at the item's condition
@@ -2116,3 +2118,51 @@ still need runtime checks after this review revision.
 - The mouse pointer: the screenshots show an amber arrow (`interface\icons\misc\
   glow_cursor.dds` is in the archives); NVForever now shows the game's own `cursor.dds`
   tinted amber everywhere in the window (`engine/nvf-play/src/cursor.rs`, 2026-10-16).
+
+## Ammo effect card lines (#2502)
+
+- [design, #2502] The shared item card reads AMMO RCIL in record order through the
+  loaded `CombatForms.ammo_effects` (`engine/nvf-play/src/pipboy/items.rs`). Each
+  resolved effect supplies one line below WG/VAL; no heading is added. Empty
+  lists retain the previous WG/VAL-only card. Unresolved IDs and unsupported
+  operations supply no line, rather than inventing a numeric meaning.
+- [documented: fnvtool esm inventory, FalloutNV.esm, main session 2026-11-14,
+  #2502 writer brief] All 54 base AMEF records have FULL. [design, #2502] Use that
+  name verbatim when nonempty. For an absent or whitespace-only FULL, our own
+  labels by kind are Damage, Damage resist, Damage threshold, Spread, Weapon wear,
+  Fatigue; an unknown kind uses Ammo effect. These English keys use
+  `fnv_util::words::tr` and `lang/{de,es,fr,it,ru}.toml`; FULL is never translated
+  by this fallback table.
+- [documented: offline GECK wiki Ammo Effect, revision 37444;
+  `schemas/fnv/combat.json`; `crates/fnv-combat/src/damage.rs::apply_effects`]
+  The operations are Add, Multiply, Subtract. [design, #2502, settled owner
+  choice] Multiply displays `x0.80` (two decimals); Add displays its signed
+  value, Subtract its negation (`+5`, `-5`, `-0.75`), with fractional digits
+  only when needed. These lines describe the record, including fatigue effects;
+  they do not alter combat.
+- [design / file refs] `Info` supplies the same text to the hand-built inventory,
+  barter and container cards and to `tiles/item_card.rs::write`, including the
+  default tile ITEMS page. Hand-built cards get a row per line because their
+  text helper draws one line. Tile cards use the multiline effect value and
+  hide only its title text for ammo, saving its prior visibility on that title
+  tile. Non-ammo and empty selections restore that value (including a hidden
+  title), or remove the code-created visibility trait if the menu omitted it.
+  Non-ammo selections before ammo leave the menu's title visibility untouched.
+- [design / file refs] Synthetic tests `pipboy::items::tests::ammo_` cover all
+  three operations, FULL/fallback labels, RCIL order, missing IDs and cards with
+  and without effects. `tiles::item_card::tests::ammo_` checks the text, first
+  free row, hidden heading and selection cleanup, including custom menus with
+  initially hidden or absent title visibility.
+- [documented: #2502 round-w2 writer brief, fnvtool esm decode, FalloutNV.esm,
+  main session 2026-11-14] `Ammo357MagnumHollowPoint` (0x0013E43C) references
+  AMEF 0x00157B54 ("Damage Bonus", Multiply 1.75) and 0x00157B56
+  ("Dam. Thresh. Increase", Multiply 3.0); `Ammo357Magnum` (0x0008ED02)
+  has no RCIL. [design, #2502] Smoke scenarios `pipboy-ammo-effects` and
+  `tiles-items-ammo-effects` give both rounds and select each on ITEMS > Ammo,
+  requiring `Damage Bonus x1.75` and `Dam. Thresh. Increase x3.00` in order,
+  then no effects after returning to the ordinary round. The former uses the
+  hand-built page; the latter uses the default tile menus without an override.
+  [design / file refs] They read existing selected-card logs from
+  `pipboy/items.rs::draw` and `tiles/inventory_menu.rs::describe`; screenshots
+  accompany both selections for visual review. Log checks verify card text
+  and selection cleanup; layout still needs the runtime screenshots.

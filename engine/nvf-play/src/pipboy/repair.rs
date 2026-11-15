@@ -262,12 +262,14 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
+    mut taken: ResMut<super::KeysTaken>,
 ) {
     let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
-    let mut steps: Vec<RepairInput> = aid.read().copied().collect();
+    // [design, #2553] Only physical steps take keys; pointer/aid messages keep their path.
+    let mut steps: Vec<_> = aid.read().copied().map(|s| (s, false)).collect();
     let items = pip.open() && pip.page == Page::Items && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if !items {
         if repair.0.take().is_some() {
@@ -281,11 +283,14 @@ pub fn keys(
     }
     for (k, s) in [(&[KeyR, KeyR][..], RepairInput::Open), (&[ArrowUp, KeyW], RepairInput::Up), (&[ArrowDown, KeyS], RepairInput::Down), (&[Enter, NumpadEnter, Space], RepairInput::Use), (&[KeyE, Escape], RepairInput::Cancel)] {
         if keys.any_just_pressed(k.iter().copied()) {
-            steps.push(s);
+            steps.push((s, true));
         }
     }
     let mut script = script.map(|s| s.into_inner());
-    for step in steps {
+    for (step, physical) in steps {
+        if physical && (repair.is_open() || step == RepairInput::Open) {
+            taken.take();
+        }
         if let RepairInput::Click(i) = step {
             info!("pipboy repair: clicked row {i}");
         }
@@ -486,6 +491,163 @@ mod tests {
 
     fn at(c: f32) -> Extra {
         Extra { condition: Some(c), ..Extra::default() }
+    }
+
+    // [design, #2553] Synthetic inventory; real key handlers followed by the menu model.
+    fn key_app(worn: bool, condition: f32, parts: i32) -> App {
+        use fnv_sim::forms::ActorBase;
+        let item = FormId(1);
+        let mut forms = store(&[(1, ItemKind::Weapon)]);
+        forms.bases.insert(FormId::PLAYER_BASE, BaseForm {
+            id: FormId::PLAYER_BASE, sig: *b"NPC_", edid: None, name: None, script: None,
+            prompt: None, voice_filter: false,
+            data: BaseData::Actor(ActorBase { entries: Vec::new(), attributes: Some([5; 7]) }),
+        });
+        let forms = Box::leak(Box::new(forms));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut world = fnv_sim::World::new(forms, refs, fnv_sim::SimConfig::default());
+        world.add_item(FormId::PLAYER_REF, item, 1).unwrap();
+        let target = Extra { equipped: worn, ..at(condition) };
+        let inv = world.inventory_mut(FormId::PLAYER_REF).unwrap();
+        inv.remove(item, 1);
+        inv.add_extra(item, 1, target);
+        inv.add_extra(item, parts, at(0.3));
+        let groups: Vec<_> = inv.groups().collect();
+        let offer = offer(&groups, forms, &[], item, Pick::at(Some(condition)), worn).unwrap();
+        let mut model = crate::menu::model::MenuModel::open_inventory(&mut world).unwrap();
+        model.apply(&mut world, crate::menu::model::Command::SetCategory(Side::Player, super::super::items::TABS[0]));
+        model.selected[Side::Player as usize] = model.list(Side::Player).rows.iter().position(|r| r.condition == Some(condition)).unwrap();
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::menu::PromptKeys>()
+            .init_resource::<super::super::KeysTaken>()
+            .init_resource::<super::super::item_mod::PipItemMod>()
+            .init_resource::<super::super::hotkey_panel::HotkeyHold>()
+            .init_resource::<crate::hotkeys::Hotkeys>()
+            .insert_resource(PipBoy { phase: super::super::Phase::Up, page: Page::Items, ..default() })
+            .insert_resource(ActiveMenu(Some(model)))
+            .insert_resource(SimState { forms, refs, world })
+            .insert_resource(PipRepair(Some(Session { offer, skill: 0.0, settings: MergeSettings::default(), first: 0, selected: 1 })))
+            .add_message::<RepairInput>()
+            .add_message::<super::super::item_mod::ModInput>()
+            .add_message::<crate::menu::MenuInput>()
+            .add_message::<bevy::input::mouse::MouseWheel>()
+            .add_message::<UiSound>()
+            .add_systems(First, super::super::clear_keys_taken)
+            .add_systems(Update, (keys, super::super::item_mod::keys, super::super::items::keys).chain());
+        app
+    }
+
+    fn apply_item_commands(app: &mut App) -> Vec<crate::menu::model::Command> {
+        let commands: Vec<_> = app.world_mut().resource_mut::<Messages<crate::menu::MenuInput>>().drain().map(|m| m.0).collect();
+        app.world_mut().resource_scope(|world, mut active: Mut<ActiveMenu>| {
+            let mut sim = world.resource_mut::<SimState>();
+            for &cmd in &commands {
+                active.0.as_mut().unwrap().apply(&mut sim.world, cmd);
+            }
+        });
+        commands
+    }
+
+    fn repaired_unit(app: &mut App) -> Extra {
+        app.world_mut().resource_mut::<SimState>().world.inventory_mut(FormId::PLAYER_REF).unwrap()
+            .groups().find(|g| g.0 == FormId(1) && g.1.condition_or_whole() > 0.3).unwrap().1
+    }
+
+    #[test]
+    fn repair_keys_closing_the_list_preserve_worn_state() {
+        for key in [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space] {
+            for worn in [false, true] {
+                for (condition, parts) in [(0.4, 1), (0.98, 2)] {
+                    let mut app = key_app(worn, condition, parts);
+                    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+                    app.update();
+                    assert!(!app.world().resource::<PipRepair>().is_open());
+                    assert!(apply_item_commands(&mut app).is_empty(), "{key:?}, worn {worn}, condition {condition}");
+                    let unit = repaired_unit(&mut app);
+                    assert!(unit.condition_or_whole() > condition);
+                    assert_eq!(unit.equipped, worn);
+                    let inv = &mut app.world_mut().resource_mut::<SimState>();
+                    assert_eq!(inv.world.item_count(FormId::PLAYER_REF, FormId(1)).unwrap(), parts);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn repair_keys_are_available_to_items_again_next_frame() {
+        for worn in [false, true] {
+            let mut app = key_app(worn, 0.4, 1);
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+            app.update();
+            assert!(apply_item_commands(&mut app).is_empty());
+            assert_eq!(repaired_unit(&mut app).equipped, worn);
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+            app.update();
+            assert_eq!(apply_item_commands(&mut app), [crate::menu::model::Command::One]);
+            assert_eq!(repaired_unit(&mut app).equipped, !worn);
+        }
+    }
+
+    #[test]
+    fn repair_keys_after_a_queued_open_still_belong_to_repair() {
+        let mut app = key_app(false, 0.4, 1);
+        app.world_mut().resource_mut::<PipRepair>().0 = None;
+        app.world_mut().write_message(RepairInput::Open);
+        app.world_mut().write_message(RepairInput::Down);
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        assert!(!app.world().resource::<PipRepair>().is_open());
+        assert!(apply_item_commands(&mut app).is_empty());
+        assert!(!repaired_unit(&mut app).equipped);
+        assert!(repaired_unit(&mut app).condition_or_whole() > 0.4);
+    }
+
+    #[test]
+    fn repair_keys_keep_repeated_repairs_and_mouse_input() {
+        for mouse in [false, true] {
+            let mut app = key_app(false, 0.4, 2);
+            for open_after in [true, false] {
+                if mouse {
+                    app.world_mut().write_message(RepairInput::Click(1));
+                } else {
+                    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+                    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+                }
+                app.update();
+                assert_eq!(app.world().resource::<PipRepair>().is_open(), open_after);
+                assert!(apply_item_commands(&mut app).is_empty());
+                assert!(!repaired_unit(&mut app).equipped);
+                assert_eq!(app.world().resource::<super::super::KeysTaken>().taken(), !mouse);
+            }
+        }
+    }
+
+    #[test]
+    fn mod_keys_closing_a_missing_weapon_list_do_not_reach_items() {
+        use super::super::item_mod::{Choice, Offer, PipItemMod, Session};
+        let mut app = key_app(false, 0.4, 1);
+        app.world_mut().resource_mut::<PipRepair>().0 = None;
+        app.world_mut().resource_mut::<PipItemMod>().0 = Some(Session {
+            offer: Offer {
+                item: FormId(1), extra: at(0.4), name: "Synthetic weapon".into(), icon: None,
+                choices: vec![Choice { item: FormId(2), slot: 1, name: "Synthetic mod".into(), count: 1, icon: None, attached: false, effect: None }],
+            },
+            first: 0, selected: 1,
+        });
+        app.world_mut().resource_scope(|world, mut active: Mut<ActiveMenu>| {
+            let mut sim = world.resource_mut::<SimState>();
+            sim.world.inventory_mut(FormId::PLAYER_REF).unwrap().take_at(FormId(1), 1, Pick::at(Some(0.4)));
+            active.0.as_mut().unwrap().refresh(&mut sim.world).unwrap();
+        });
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        assert!(!app.world().resource::<PipItemMod>().is_open());
+        assert!(apply_item_commands(&mut app).is_empty());
+        assert!(app.world().resource::<super::super::KeysTaken>().taken());
+        let mut sim = app.world_mut().resource_mut::<SimState>();
+        assert!(sim.world.inventory_mut(FormId::PLAYER_REF).unwrap().groups().all(|g| !g.1.equipped));
     }
 
     #[test]

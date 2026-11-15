@@ -563,3 +563,53 @@ fn a_new_crossing_is_heard_again_whatever_the_kept_answer() {
     assert_eq!(heard(&g), 2.0, "a second crossing");
     assert_eq!(used(&g, REF_LETS), Value::Num(1.0), "the kept answer stands");
 }
+
+// ---- a scripted load door and a player a script disabled (#2617) -------------------
+
+/// The player's activations of `door` that teleported them.
+fn teleports(g: &Game, door: u32) -> usize {
+    g.events
+        .iter()
+        .filter(|e| match &e.kind {
+            EventKind::Activated { reference, by, outcome: Some(o) } => reference.0 == door && *by == FormId::PLAYER_REF && o["result"] == "teleported",
+            _ => false,
+        })
+        .count()
+}
+
+/// #2617: Hoover Dam's Power Plant 01 elevator (SCPT 0x0014659A) ends its OnActivate in a
+/// bare `Activate`; on the Legion route a trigger had disabled the player first
+/// (VHDIntakeTowerLegionaryDespawnScript), and a disabled actor's `Activate` does
+/// nothing, so the elevator never took the player through. Disable now leaves the player
+/// enabled, and the load door's bare `Activate` teleports them (DoorPlayer's block
+/// activates for the player; REF_PLAYER_LOAD has an XTEL).
+#[test]
+fn a_scripts_disable_of_the_player_leaves_the_load_door_working() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.run_source("player.Disable 1", Default::default()).expect("compiles");
+    g.run_source("player.Disable", Default::default()).expect("compiles");
+    // As `Activate` reads it: a player the world has no state for yet is enabled.
+    assert!(g.world.is_enabled(FormId::PLAYER_REF).unwrap_or(true), "the player is never disabled");
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::RefDisabled { reference, .. } if reference == FormId::PLAYER_REF)));
+    g.activate(FormId::PLAYER_REF, FormId(REF_PLAYER_LOAD), ActMode::Hand).unwrap();
+    assert_eq!(used(&g, REF_PLAYER_LOAD), Value::Num(1.0), "the block ran");
+    assert_eq!(teleports(&g, REF_PLAYER_LOAD), 1, "its bare Activate took the player through");
+}
+
+/// A save that holds the player disabled (made before the fix) loads with the player
+/// enabled, so the same door works after the load.
+#[test]
+fn a_save_with_the_player_disabled_loads_with_the_player_enabled() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.set_enabled(FormId::PLAYER_REF, false).unwrap();
+    let s = g.snapshot();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    assert_eq!(world.is_enabled(FormId::PLAYER_REF), Ok(false), "the save holds the player disabled");
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.world.is_enabled(FormId::PLAYER_REF), Ok(true));
+    h.activate(FormId::PLAYER_REF, FormId(REF_PLAYER_LOAD), ActMode::Hand).unwrap();
+    assert_eq!(teleports(&h, REF_PLAYER_LOAD), 1);
+}

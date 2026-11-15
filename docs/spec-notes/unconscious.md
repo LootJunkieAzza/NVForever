@@ -106,6 +106,37 @@ on screen).
    Palm's effect, which comes after its hit, have no killer.
    ModActorValue, ForceActorValue and SetActorValue that bring Health to 0 kill nobody
    [design].
+2a. **The player's teammate** (SetPlayerTeammate 1, alive; #2623). What the data says:
+   - No hired companion's base carries Essential: Cass (NPC_ 0x00133FDD) has ACBS flags
+     145 and Boone (0x00092BD2) 144, Essential being 0x02 [observed: `fnvtool esm
+     decode`, issue #2623]. No script in FalloutNV.esm calls SetEssential on a companion:
+     its 13 SetEssential calls name 0x001300A9, 0x001300AA and 0x001483F3 only
+     [observed 2026-11-15, `fnvtool script decompile`].
+   - Yet each companion has an OnDeath block for when it does die: Cass's (SCPT
+     0x0013408C) lowers VNPCFollowers' follower count, clears `bCassHired`, shows
+     FollowerMessageDeadCass ("Cass has died.", MESG 0x00151D08), takes away her perk and
+     sets `bCassDead` [observed: same decompile]. Its OnCombatEnd block resets her health
+     and limbs while she is a teammate. None of this tests IsHardcore.
+   - No GMST or global of FalloutNV.esm names teammates and essential or Hardcore
+     together (the GMST/GLOB/MESG editor IDs with teammate, essential, hardcore,
+     companion, follower or unconscious in them were read) [observed 2026-11-15,
+     `fnvtool esm inventory`]. The Hardcore prompt (MESG VCG01CasualHardcoreMessage
+     0x0011E661) lists stimpaks, Rad-Away, ammunition weight and dehydration only
+     [observed].
+   - "Essential flagged teammates are not essential in Hardcore (New Vegas)"
+     [documented: GECK wiki SetPlayerTeammate notes]. JIP's ToggleTeammateKillable
+     "Sets the specified teammate referance as killable" [documented: GECK wiki], which
+     only has a use if a teammate is not killable without it. IsEssential "Returns 1 if
+     the calling actor is flagged as essential" [documented: GECK wiki IsEssential].
+
+   Rule (`functions::actor::essential`): outside Hardcore a teammate is spared death as
+   an essential actor is (row 2: hits, harmful effects, DamageActorValue, KillActor,
+   KillAllActors, and no planted explosive), flag or not, unless ToggleTeammateKillable 1
+   made it killable [hypothesis: the companions' known behaviour, the data giving no flag;
+   observer-checks.md check 165]. In Hardcore a teammate dies, flag or not [documented,
+   above]. Knocked out, it stays a teammate and gets up as row 2 says. IsEssential reads
+   only the flags (`essential_flagged`), so it gives 0 for an unflagged companion, and 0
+   for any teammate in Hardcore as before [hypothesis].
 3. **Fatigue at zero**: whenever an actor's Fatigue is lowered (DamageAV, a fatigue
    effect) and its current Fatigue is 0 or less, it is knocked out (cause fatigue) and
    says its KOed line [documented: §1 Stats Tab and KOed].
