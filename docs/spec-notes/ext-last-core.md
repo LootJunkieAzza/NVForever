@@ -105,8 +105,9 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 [documented: xNVSE public API declaration, Commands_Inventory.h at
 [dfb7928077fd86e6498cb90af690547d1dd70de6, line 118](https://github.com/xNVSE/NVSE/blob/dfb7928077fd86e6498cb90af690547d1dd70de6/nvse/nvse/Commands_Inventory.h#L118)]
 `SetCritDam` is the short name of `SetWeaponCritDamage`. Register it as an alias
-on the existing catalogue row. The command's existing opcode, parameters, return
-value and setter implementation stay shared; this does not define another setter.
+on the existing catalogue row. Its named dispatch, parameter and return metadata,
+and setter implementation stay shared; this does not register a numbered command
+or define another setter.
 
 [documented: public repository source at
 b20a8152864a30a8f39fce56effe17efc3238564, `crates/fnv-script/src/table.rs`

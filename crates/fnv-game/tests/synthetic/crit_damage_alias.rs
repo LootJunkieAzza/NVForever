@@ -113,17 +113,37 @@ fn canonical_weapon_critical_damage_setter_keeps_existing_contract() {
 #[test]
 fn short_critical_damage_name_resolves_to_same_command_metadata() {
     let (table, catalogue) = catalogue();
-    let canonical = table.by_name("SetWeaponCritDamage").unwrap();
-    assert_eq!(canonical, 0x148B);
-    for name in ["SetCritDam", "setcritdam", "sEtCrItDaM"] { assert_eq!(table.by_name(name), Some(canonical)); }
+    // This extender row has no catalogue opcode. The compiler resolves its
+    // canonical name and aliases through the existing unnumbered metadata map.
+    assert_eq!(table.by_name("SetWeaponCritDamage"), None);
+    let canonical = table.unnumbered.get("setweaponcritdamage").unwrap();
+    assert_eq!(canonical.name, "SetWeaponCritDamage");
+    assert_eq!(canonical.params.len(), 2);
+    assert_eq!((&*canonical.params[0].name, &*canonical.params[0].kind), ("critDam", "int"));
+    assert_eq!((&*canonical.params[1].name, &*canonical.params[1].kind), ("weapon", "form"));
+    for name in ["SetCritDam", "setcritdam", "sEtCrItDaM"] {
+        assert_eq!(table.by_name(name), None, "do not invent a numbered command for an alias");
+        let alias = table.unnumbered.get(&name.to_ascii_lowercase()).unwrap();
+        assert_eq!(alias.name, canonical.name);
+        assert_eq!(alias.origin, canonical.origin);
+        assert_eq!((alias.aware, alias.own_page), (canonical.aware, canonical.own_page));
+        assert_eq!(alias.params.len(), canonical.params.len());
+        for (actual, expected) in alias.params.iter().zip(&canonical.params) {
+            assert_eq!((&actual.name, &actual.wiki_type, &actual.kind, actual.optional),
+                (&expected.name, &expected.wiki_type, &expected.kind, expected.optional));
+        }
+    }
     let entries: Vec<_> = catalogue["functions"].as_array().unwrap().iter()
         .filter(|x| x["name"] == "SetWeaponCritDamage").collect();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["aliases"], json!(["SetCritDam"]));
-    assert_eq!(table.get(canonical).unwrap().name, "SetWeaponCritDamage");
-    assert_eq!(table.get(canonical).unwrap().params.len(), 2);
+    assert!(entries[0].get("opcodes").is_none());
+    assert_eq!(entries[0]["returns"], json!({"type":"void","name":null}));
     assert_eq!(table.by_name("GetCritDam"), table.by_name("GetWeaponCritDamage"));
+    assert_eq!(table.unnumbered.get("getcritdam").unwrap().name, "GetWeaponCritDamage");
+    assert_eq!(table.unnumbered.get("getweaponcritdamage").unwrap().name, "GetWeaponCritDamage");
     assert_eq!(table.by_name("SetCritDamUnavailable"), None);
+    assert!(!table.unnumbered.contains_key("setcritdamunavailable"));
 }
 
 #[test]
