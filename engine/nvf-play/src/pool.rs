@@ -5,7 +5,12 @@
 //!
 //! - **Opening.** E on a reference whose base is one of the mod's two table activators
 //!   (`zzLPPlayableNew`, `zzLPPlayableRuined`), by Editor ID, wherever the plugin sits in
-//!   the load order. It is a `PlayState::Menu` like the other minigames.
+//!   the load order. It is a `PlayState::Menu` like the other minigames. With the mod
+//!   loaded, a reference of the base game's own pool tables (the statics `PoolTable01`,
+//!   `PoolTableRuin01`, the same meshes as the mod's two activators) plays as the mod's
+//!   matching table ([`stand_in`]): the mod converts only its 23 tables, so another mod's
+//!   room (The Black Chip's) kept a dead table [design, owner's playtest 2026-11-14: "this
+//!   should be a playable table"].
 //! - **The menu.** 1 Challenge the opponent (the bet page: Q/E 50..500, Space start; the
 //!   stake is taken at once, a win pays twice it, leaving a match loses it), 2 Practice,
 //!   Tab leave [observed: pool.md §2].
@@ -42,6 +47,46 @@ use std::collections::HashMap;
 
 pub const TABLE_NEW: &str = "zzLPPlayableNew";
 pub const TABLE_RUINED: &str = "zzLPPlayableRuined";
+
+/// The base game's pool table statics and the mod's activator each stands in for, by
+/// model: `PoolTable01` (0x0002B413, `Clutter\Billiards\pooltable.NIF`) as
+/// `zzLPPlayableNew`, `PoolTableRuin01` (0x0002C5F8, `pooltableruin.NIF`) as
+/// `zzLPPlayableRuined` [observed: fnvtool esm inventory and decode of FalloutNV.esm;
+/// pool.md §1 for the activators' models]. FalloutNV.esm is always first in the load
+/// order, so these FormIDs are as they are.
+const STAND_INS: [(u32, &str); 2] = [(0x0002_B413, TABLE_NEW), (0x0002_C5F8, TABLE_RUINED)];
+
+/// The most a stand-in table may lean, radians (about 2 degrees): a table knocked over in
+/// a ruined vault is not a game [design].
+const LEVEL: f32 = 0.035;
+
+/// The mod's table activator a base-game pool table `r` plays as, when the mod is loaded
+/// and the table stands level.
+pub fn stand_in(sim: &SimState, r: u32) -> Option<FormId> {
+    let base = sim.base_of(r)?;
+    let (_, edid) = STAND_INS.iter().find(|(id, _)| FormId(*id) == base)?;
+    let rot = sim.world.peek(FormId(r)).map(|x| x.rot).or_else(|| sim.refs.get(FormId(r)).map(|x| x.rot))?;
+    if !level(rot) {
+        return None;
+    }
+    sim.world.forms.by_edid(edid)
+}
+
+/// Whether a reference's rotation (x, y, z radians) leaves it level.
+fn level(rot: [f32; 3]) -> bool {
+    let tilt = |a: f32| {
+        let a = a.rem_euclid(std::f32::consts::TAU);
+        a.min(std::f32::consts::TAU - a)
+    };
+    tilt(rot[0]) <= LEVEL && tilt(rot[1]) <= LEVEL
+}
+
+/// Whether `r` is a playable pool table: one of the mod's, or a base-game one standing in
+/// for it ([`stand_in`]).
+pub fn is_table(sim: &SimState, r: u32) -> bool {
+    let base = sim.base_of(r);
+    base.is_some() && (base == sim.world.forms.by_edid(TABLE_NEW) || base == sim.world.forms.by_edid(TABLE_RUINED) || stand_in(sim, r).is_some())
+}
 const SOUNDS: &str = "sound\\fx\\minigames\\pool\\";
 /// Seconds without the table's owner before a joined player gives up [design].
 const OWNER_GONE: f32 = 4.0;
@@ -398,13 +443,10 @@ fn open(
     others: (Res<crate::minigames::DartsScreen>, Res<crate::minigames::FilletScreen>),
     tables: Option<Res<Tables>>,
     time: AidTime,
-    mut bases: Local<Option<(Option<FormId>, Option<FormId>)>>,
 ) {
-    let (new, ruined) = *bases.get_or_insert_with(|| (sim.world.forms.by_edid(TABLE_NEW), sim.world.forms.by_edid(TABLE_RUINED)));
     let now = time.elapsed_secs();
     for a in activated.read() {
-        let base = sim.base_of(a.reference);
-        if base.is_none() || (base != new && base != ruined) || *state.get() != PlayState::Playing || screen.0.is_some() || others.0 .0.is_some() || others.1 .0.is_some() {
+        if !is_table(&sim, a.reference) || *state.get() != PlayState::Playing || screen.0.is_some() || others.0 .0.is_some() || others.1 .0.is_some() {
             continue;
         }
         let tables = tables.as_deref().filter(|t| t.on);
@@ -1963,6 +2005,24 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stand_in_table_must_stand_level() {
+        assert!(level([0.0, 0.0, 4.71]));
+        assert!(level([0.02, -0.02, 1.57]), "a little off level still plays");
+        assert!(level([std::f32::consts::TAU - 0.01, 0.0, 0.0]), "a full turn less a little is level");
+        assert!(!level([0.3, 0.0, 0.0]), "a table on its side does not");
+        assert!(!level([0.0, std::f32::consts::PI, 0.0]), "nor one upside down");
+    }
+
+    #[test]
+    fn a_stand_in_needs_the_mod() {
+        // No mod (no base forms at all): a base-game table placed level is not a game.
+        let placed = fnv_sim::refs::PlacedRef { base: FormId(0x0002_B413), ..crate::sim::placed_ref(0x0011_7867) };
+        let sim = SimState::over_placed([placed]);
+        assert_eq!(stand_in(&sim, 0x0011_7867), None);
+        assert!(!is_table(&sim, 0x0011_7867));
+    }
 
     #[test]
     fn a_view_round_trips() {

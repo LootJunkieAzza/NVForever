@@ -37,7 +37,41 @@ pub struct CasinoHudPlugin;
 impl Plugin for CasinoHudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, make_soft).add_systems(Update, load.run_if(not(resource_exists::<CasinoFaces>)));
+        if let Some(board) = std::env::var("NVF_PLAY_TEST_BOARD").ok().and_then(|s| parse_test_board(&s)) {
+            info!("test aid: the leaderboard for {:?} with {} places", board.0, board.1.len());
+            app.insert_resource(TestBoard(board)).add_systems(Update, draw_test_board.run_if(resource_exists::<CasinoFaces>));
+        }
     }
+}
+
+/// Test aid `NVF_PLAY_TEST_BOARD=<winner>|<name>=<detail>|...`: the end-of-match
+/// leaderboard over the view from the start, to look at its layout with any names.
+#[derive(Resource)]
+struct TestBoard((String, Vec<Place>));
+
+#[derive(Component)]
+struct TestBoardRoot;
+
+fn parse_test_board(s: &str) -> Option<(String, Vec<Place>)> {
+    let mut parts = s.split('|');
+    let winner = parts.next()?.trim().to_string();
+    let places: Vec<Place> = parts.map(|p| {
+        let (name, detail) = p.split_once('=').unwrap_or((p, ""));
+        Place { name: name.trim().into(), detail: detail.trim().into() }
+    }).collect();
+    (!winner.is_empty() && !places.is_empty()).then_some((winner, places))
+}
+
+fn draw_test_board(mut commands: Commands, board: Res<TestBoard>, f: Res<CasinoFaces>, old: Query<(), With<TestBoardRoot>>) {
+    if !old.is_empty() {
+        return;
+    }
+    let (winner, places) = &board.0;
+    let l = board_layout(&f, &win_title(winner), places);
+    info!("test aid: the leaderboard is {:.0} wide; names drawn {:?}", l.w, l.names);
+    commands
+        .spawn((TestBoardRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(25)))
+        .with_children(|p| leaderboard(p, &f, winner, places));
 }
 
 fn load(mut commands: Commands, data: Option<Res<GameData>>, mut images: Option<ResMut<Assets<Image>>>, formats: Option<Res<CompressedImageFormatSupport>>) {
@@ -149,7 +183,54 @@ pub fn ranked(winner: usize, keys: &[i64]) -> Vec<usize> {
 }
 
 const BOARD_W: f32 = 520.0;
+/// The widest the leaderboard grows (the view is about 1700 wide at 16:9, 1280 at 4:3)
+/// [design].
+const BOARD_MAX_W: f32 = 1000.0;
 const BOARD_TOP: f32 = 45.0;
+/// The least room between a place's name and its detail column [design].
+const BOARD_GAP: f32 = 24.0;
+
+/// The leaderboard's width, where the names start and each name as drawn. The board is
+/// 520 wide while everything fits; it widens for a long title or for a name and its
+/// detail side by side, up to [`BOARD_MAX_W`]; a name still too long ends in "..." clear
+/// of its detail. Owner's playtest 2026-11-14 (pool, 'Gina "Bobcat" Griffin' ran into
+/// "stripes, 1 left") [design: the panel is NVForever's own, not the mods'].
+pub struct BoardLayout {
+    pub w: f32,
+    pub name_x: f32,
+    pub names: Vec<String>,
+}
+
+pub fn board_layout(f: &CasinoFaces, title: &str, places: &[Place]) -> BoardLayout {
+    let face = &f.faces.entry;
+    let small = &f.faces.small;
+    let name_x = PAD * 2.0 + face.font.width("4") + 30.0;
+    let row_w = |pl: &Place| name_x + face.font.width(&pl.name) + BOARD_GAP + small.font.width(&pl.detail) + PAD * 2.0;
+    let w = places.iter().map(row_w).fold(BOARD_W.max(f.title.font.width(title) + PAD * 4.0), f32::max).min(BOARD_MAX_W);
+    let names = places
+        .iter()
+        .map(|pl| {
+            let room = w - PAD * 2.0 - small.font.width(&pl.detail) - BOARD_GAP - name_x;
+            clip(face, &pl.name, room)
+        })
+        .collect();
+    BoardLayout { w, name_x, names }
+}
+
+/// `s` as it fits in `room`: whole, or cut at a character with "..." after it.
+fn clip(face: &Face, s: &str, room: f32) -> String {
+    if face.font.width(s) <= room {
+        return s.to_string();
+    }
+    let mut cut = s.to_string();
+    while cut.pop().is_some() {
+        let t = format!("{}...", cut.trim_end());
+        if face.font.width(&t) <= room {
+            return t;
+        }
+    }
+    "...".to_string()
+}
 
 /// The leaderboard at the top middle of the view: "<winner> WINS" over a line, then the
 /// places numbered from 1, each over a line.
@@ -159,7 +240,8 @@ pub fn leaderboard(p: &mut ChildSpawnerCommands, f: &CasinoFaces, winner: &str, 
     let small = &f.faces.small;
     let title_h = f.title.font.size * 1.2;
     let step = face.font.size * 1.25;
-    let w = BOARD_W.max(f.title.font.width(&title) + PAD * 4.0);
+    let BoardLayout { w, name_x, names } = board_layout(f, &title, places);
+    let title = clip(&f.title, &title, w - PAD * 2.0);
     let h = PAD * 2.0 + title_h + step * places.len() as f32;
     p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-w / 2.0)), top: u(BOARD_TOP), width: u(w), height: u(h), ..default() }).with_children(|b| {
         bracket_box(b, w, h);
@@ -170,7 +252,7 @@ pub fn leaderboard(p: &mut ChildSpawnerCommands, f: &CasinoFaces, winner: &str, 
             let base = top + step * 0.72;
             let c = if i == 0 { amber(255.0) } else { amber(200.0) };
             text(b, face, &format!("{}", i + 1), PAD * 2.0, base, c);
-            text(b, face, &pl.name, PAD * 2.0 + face.font.width("4") + 30.0, base, c);
+            text(b, face, &names[i], name_x, base, c);
             text(b, small, &pl.detail, w - PAD * 2.0 - small.font.width(&pl.detail), base, c);
             if i + 1 < places.len() {
                 rule(b, PAD * 2.0, top + step - LINE, w - PAD * 4.0, 1.0);
@@ -444,6 +526,44 @@ mod tests {
         for l in &long.foot_lines {
             assert!(f.faces.small.font.width(l) <= long.w - PAD * 2.0 + 1.0, "{l:?} fits");
         }
+    }
+
+    #[test]
+    fn a_long_name_never_runs_into_its_detail() {
+        let f = CasinoFaces::plain();
+        let (face, small) = (&f.faces.entry, &f.faces.small);
+        let place = |name: &str, detail: &str| Place { name: name.into(), detail: detail.into() };
+        let clear = |l: &BoardLayout, places: &[Place]| {
+            for (n, pl) in l.names.iter().zip(places) {
+                let detail_x = l.w - PAD * 2.0 - small.font.width(&pl.detail);
+                assert!(l.name_x + face.font.width(n) + BOARD_GAP <= detail_x + 0.01, "{n:?} clear of {:?}", pl.detail);
+            }
+        };
+        // Short names: the board keeps its width and the names as they are.
+        let short = [place("You", "solids, 0 left"), place("Sunny", "stripes, 1 left")];
+        let l = board_layout(&f, "YOU WIN", &short);
+        assert_eq!(l.w, BOARD_W);
+        assert_eq!(l.names, ["You", "Sunny"]);
+        // The owner's case, longer still: the board widens and the whole name shows.
+        let gina = [place("You", "solids, 0 left"), place("Gina \"Bobcat\" Griffin the Third", "stripes, 1 left")];
+        let l = board_layout(&f, "YOU WIN", &gina);
+        assert!(l.w > BOARD_W && l.w <= BOARD_MAX_W);
+        assert_eq!(l.names[1], gina[1].name);
+        clear(&l, &gina);
+        // Past the widest board: cut, with "...", still clear.
+        let huge = [place("You", "solids, 0 left"), place(&"Bobcat ".repeat(60), "stripes, 1 left")];
+        let l = board_layout(&f, "YOU WIN", &huge);
+        assert_eq!(l.w, BOARD_MAX_W);
+        assert!(l.names[1].ends_with("...") && l.names[1].starts_with("Bobcat"));
+        clear(&l, &huge);
+    }
+
+    #[test]
+    fn the_test_board_reads_its_places() {
+        let (w, p) = parse_test_board("You|You=solids, 0 left|Gina \"Bobcat\" Griffin=stripes, 1 left").unwrap();
+        assert_eq!(w, "You");
+        assert_eq!(p[1], Place { name: "Gina \"Bobcat\" Griffin".into(), detail: "stripes, 1 left".into() });
+        assert!(parse_test_board("You").is_none());
     }
 
     #[test]

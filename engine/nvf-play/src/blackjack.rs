@@ -743,11 +743,17 @@ pub fn result_line(outcomes: &[(Outcome, u32)], dealer: u32, net: i64) -> String
         Outcome::Surrendered => "Surrendered",
     };
     let parts: Vec<&str> = outcomes.iter().map(|(o, _)| words(*o)).collect();
-    let dealer = if dealer > 21 { "Dealer busts".to_string() } else { format!("Dealer has {dealer}") };
     let net = match net {
         n if n > 0 => format!("+{n}"),
         n => n.to_string(),
     };
+    // Every hand bust or given up: the dealer draws nothing and its two cards decide
+    // nothing, so its total is left out ("Bust. Dealer has 13." read as a dealer stopped
+    // early, owner's playtest 2026-11-14, The Black Chip) [design].
+    if outcomes.iter().all(|(o, _)| matches!(o, Outcome::Bust | Outcome::Surrendered)) {
+        return format!("{}. {net}", parts.join(" / "));
+    }
+    let dealer = if dealer > 21 { "Dealer busts".to_string() } else { format!("Dealer has {dealer}") };
     format!("{}. {dealer}. {net}", parts.join(" / "))
 }
 
@@ -1437,6 +1443,9 @@ mod tests {
         assert_eq!(result_line(&[(Outcome::Blackjack, 25)], 16, 15), "Blackjack. Dealer has 16. +15");
         assert_eq!(result_line(&[(Outcome::Win, 20), (Outcome::Bust, 0)], 22, 0), "You win / Bust. Dealer busts. 0");
         assert_eq!(result_line(&[(Outcome::Lose, 0)], 20, -10), "Dealer wins. Dealer has 20. -10");
+        // A bust (or a surrender) alone: no dealer's total, it drew nothing.
+        assert_eq!(result_line(&[(Outcome::Bust, 0)], 13, -20), "Bust. -20");
+        assert_eq!(result_line(&[(Outcome::Bust, 0), (Outcome::Surrendered, 5)], 13, -15), "Bust / Surrendered. -15");
         // Several winners at once: one banner naming them all (item 148).
         assert_eq!(wins_flourish(&[(None, false), (Some(1), true), (Some(2), false)], None).unwrap().text, "YOU, PLAYER 1 AND PLAYER 2 WIN");
         assert_eq!(wins_flourish(&[(None, true)], None).unwrap().text, "BLACKJACK");

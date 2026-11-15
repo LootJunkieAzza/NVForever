@@ -128,7 +128,10 @@ fn world_camera(want: Res<TableCamera>, mut cams: Query<(&mut Transform, &mut Pr
 const PUPPET_REACH: f32 = 250.0;
 
 /// While the game's camera is at a table, the other players' figures near it hidden; shown
-/// again after.
+/// again after. Hidden again every frame: co-op's scene check sets every puppet's
+/// visibility each frame, which drew the figure again from the second frame on (owner's
+/// co-op playtest 2026-11-14, The Black Chip's blackjack: the other player's arms over the
+/// table in the seated view, "some npc interrupted our game").
 fn hide_players(
     want: Res<TableCamera>,
     puppets: Query<(Entity, &GlobalTransform), With<crate::coop::Puppet>>,
@@ -138,12 +141,16 @@ fn hide_players(
     match want.0 {
         Some((at, _)) => {
             for (e, g) in &puppets {
-                if g.translation().distance(at.translation) > PUPPET_REACH || hidden.iter().any(|h| h.0 == e) {
+                let known = hidden.iter().any(|h| h.0 == e);
+                if !known && g.translation().distance(at.translation) > PUPPET_REACH {
                     continue;
                 }
                 if let Ok(mut v) = visibility.get_mut(e) {
-                    hidden.push((e, *v));
-                    *v = Visibility::Hidden;
+                    if !known {
+                        hidden.push((e, *v));
+                        info!("table view: another player's figure hidden, {:.0} from the table's camera", g.translation().distance(at.translation));
+                    }
+                    v.set_if_neq(Visibility::Hidden);
                 }
             }
         }
