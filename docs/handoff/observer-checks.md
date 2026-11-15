@@ -2051,3 +2051,32 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      reload it from empty, and record the sound at the reload's end (the drop); then rename
      `charge_quick_drop.wav` away and record again. A drop sound heard the first time and
      not the second means the `.wav` stands in for the `.mp3`.
+
+## Added 2026-11-15 (the Strip's street lights coming on, the owner's "lighting flickers")
+
+125. **How do the Strip's street lights come on at 20:00 in the original?** (P2; the owner's
+     "lighting flickers" on the Strip, strip-rendering item 5.) The quest VStreetLighting (0x00127E9D, DATA delay 2.0 s, flags Start Game Enabled and
+     Default Script Processing Delay) runs VStreetLightingScript (0x00127E9E) [observed:
+     fnvtool esm decode]. On the Strip (TheStripWorldNew) after 20:00 it switches three
+     enable-parent markers (VStreetLightStarterOne/Two/ThreeREF, 0x0013BAE3/2/1, XMarkers
+     at about 2996-2999, 1704-1932, 2248-2250) in turn. For each one it sets the quest
+     delay to 0.1 s and enables it at 0.3 s, disables at 0.5, enables at 0.7, disables at
+     0.9, enables at 1.4, disables at 2.1 and enables for good at 3.1 s. At 4.7 s the next
+     marker waits a quest delay of 25 s; after the third, 15 s. Off the Strip the three are
+     enabled at once; from 6:00 to 20:00 all three are disabled. NVForever follows this
+     to within one 0.1 s step (strip-flicker run, 2026-11-15, Lucky 38 front, from 19:54):
+       - marker one changes at 0, 0.21, 0.42, 0.63, 1.15, 1.87 and 2.80 s, against the
+         script's 0, 0.2, 0.4, 0.6, 1.1, 1.8 and 2.8 s;
+       - marker two starts 26.96 s after marker one's last change (script about 27.0 s),
+         and marker three 26.96 s after marker two's;
+       - our `Enable` fades each marker in over 2 s (`(fading in)` in the log), so each
+         short "on" step is a partial fade.
+     To check, in the original, with no mods: on the Strip in front of the Lucky 38 at
+     19:55 (`set GameHour to 19.9` and stand still), record video
+     from 19:58 until 20:02 game time (about 90 s real time at timescale 30).
+     1. Do the lamps blink on and off in three groups about 27 s apart, each for about
+        3 s, as in the script? Or do they come on at once, or flicker without end?
+     2. Does each short "on" step come up to full brightness at once, or fade in?
+     3. Note the frame times of each on/off change for one group.
+     Video goes in `observer-runs\125\`. If the original blinks hard (no fade), the
+     difference is our default fade on `Enable` with no argument, not the timing.
