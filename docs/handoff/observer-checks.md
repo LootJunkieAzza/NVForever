@@ -2129,3 +2129,27 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      take screenshots at 0.5 and 3 s after Tab and 0.2 s after closing. Note whether any
      blood or red dot draws over the Pip-Boy, and whether the blood is still there, or has
      faded further, after closing.
+## Added 2026-11-14 (co-op items 205 and 214: the Quests list, RemoveAllItems' lines)
+
+122. **Where does the original's Quests list open when the active quest is not the first
+     row?** (P3; pipboy.md "Open: the quest list's order and the active quest's default".)
+     NVForever selects the active quest and scrolls only as far as needed to show it, so
+     a short list opens unscrolled with the active quest highlighted lower down
+     (`nvf_play::pipboy::data`, item 205) [design]. To check, in the original: have more
+     quests than the list shows at once, with the active quest near the bottom (finish or
+     start quests until it is, or SetActiveQuest one far down the list). Close and open the
+     Pip-Boy on DATA > Quests and take a screenshot. Note which row is selected, which row
+     is at the top, and whether the list keeps its scroll from the last time it was open.
+
+123. **What does the original show for `player.RemoveAllItems <container>` without its
+     hide flag: a line per item, one line in all, or nothing?** (P3; corner-messages.md §5.)
+     The GECK wiki documents a third flag that suppresses the item messages, so some message
+     shows without it [documented: schemas/script/functions.json, RemoveAllItems notes].
+     Dead Money's bunker script calls it with no flag (SCPT 0x0100C59E) [observed: fnvtool
+     decompile]. NVForever shows a line per item for three items or fewer, and
+     "<n> items removed (<total> in all)" for four or more, as it does for items a script
+     adds [design]. To check, in the original: carry about ten stacks, enter the console
+     and run `player.removeallitems <a container's reference>`, close the console, then
+     take screenshots every 0.5 s for 20 s. Note each line's text, how long each shows
+     and whether the HUD shows them while a slideshow or a fade to black holds the screen
+     (the Sierra Madre bunker's own call, from a save just before it).

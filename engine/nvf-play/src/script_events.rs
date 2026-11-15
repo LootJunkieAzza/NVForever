@@ -252,6 +252,7 @@ pub fn activation_from_json(v: &serde_json::Value) -> Option<Activation> {
 pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) -> Vec<ScriptEffect> {
     let mut out = Vec::new();
     let mut added: Vec<(FormId, i32)> = Vec::new();
+    let mut removed: Vec<(FormId, i32)> = Vec::new();
     let player = FormId::PLAYER_REF;
     // Objectives this batch shows, by quest: the game's state already has them, so
     // whether a quest was listed before is asked without them.
@@ -386,16 +387,32 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 let (name, icon) = ctx.skill_look(*skill);
                 out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon, seconds: None }));
             }
-            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
-                let n = ctx.name(*item);
-                out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into()));
-            }
+            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => match removed.iter_mut().find(|(i, _)| i == item) {
+                Some((_, n)) => *n += count,
+                None => removed.push((*item, *count)),
+            },
             _ => {}
+        }
+    }
+    // Items a script took from the player, one line each, or one line for many: a
+    // whole inventory put away (Dead Money's bunker, `player.RemoveAllItems` without its
+    // hide flag, SCPT 0x0100C59E [observed: fnvtool decompile]) was a 2-second line per
+    // stack, queued for a minute over the slides that follow (item 214). That the original
+    // shows item lines for RemoveAllItems is documented (the third flag suppresses them,
+    // GECK wiki RemoveAllItems via schemas/script/functions.json); how many and in what
+    // form is not (observer-checks.md) [design].
+    const MANY: usize = 4;
+    if removed.len() >= MANY {
+        let total: i32 = removed.iter().map(|(_, n)| n).sum();
+        out.push(ScriptEffect::Notify(format!("{} items removed ({total} in all)", removed.len()).into()));
+    } else {
+        for (item, n) in removed {
+            let name = ctx.name(item);
+            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) removed") } else { format!("{name} removed") }.into()));
         }
     }
     // Items a script gave the player, one line each, or one line for many (the add-on
     // packs give dozens at once).
-    const MANY: usize = 4;
     if added.len() >= MANY {
         let total: i32 = added.iter().map(|(_, n)| n).sum();
         out.push(ScriptEffect::Notify(format!("{} items added ({total} in all)", added.len()).into()));
@@ -982,6 +999,9 @@ mod tests {
         // Many items at once: one line.
         let many: Vec<EventKind> = (0..10).map(|i| EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 2, silent: false }).collect();
         assert_eq!(run(many), vec![ScriptEffect::Notify("10 items added (20 in all)".into())]);
+        // A whole inventory put away (Dead Money's bunker): one line, not one per stack.
+        let away: Vec<EventKind> = (0..10).map(|i| EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 3, silent: false }).collect();
+        assert_eq!(run(away), vec![ScriptEffect::Notify("10 items removed (30 in all)".into())]);
         // A script's hide flag (the opening's `player.RemoveItem PipBoy 1 1`): no line.
         let silent = vec![
             EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x15038), count: 1, silent: true },

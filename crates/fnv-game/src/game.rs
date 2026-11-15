@@ -1719,7 +1719,7 @@ pub struct Game<'a> {
     pub coop_story_kept: BTreeSet<FormId>,
     /// A co-op guest's: the gear of an add-on's checkpoint it was handed while that
     /// checkpoint held its items, by the checkpoint's container, taken away again when the
-    /// checkpoint gives its items back (`Game::coop_checkpoint_of`, item 211). Not saved.
+    /// checkpoint gives its items back (`Game::coop_checkpoint_of`, item 211). Saved.
     pub coop_checkpoint_gear: BTreeMap<FormId, Vec<(FormId, i32)>>,
     /// The containers the load order's scripts put the player's whole inventory in
     /// (`player.RemoveAllItems <container>`), found once ([`crate::coop::strip_containers_of`]).
@@ -2207,6 +2207,15 @@ pub struct GameSnapshot {
     /// and they keep it on (item 203 follow-up, 2026-11-14). Absent in older saves.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub script_worn: BTreeMap<FormId, bool>,
+    /// A co-op guest's checkpoints ([`Game::coop_checked`]): what each holds of the
+    /// player's, so a guest that saves inside the Sierra Madre and loads gets its own
+    /// items back at the way out (item 211 follow-up, 2026-11-14). Absent in older saves.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub coop_checked: BTreeMap<FormId, Vec<(FormId, i32, fnv_sim::inventory::Extra)>>,
+    /// The checkpoints' gear the guest was handed ([`Game::coop_checkpoint_gear`]), saved
+    /// with the above so it still leaves at the way out after a load.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub coop_checkpoint_gear: BTreeMap<FormId, Vec<(FormId, i32)>>,
 }
 
 impl GameSnapshot {
@@ -6483,6 +6492,8 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
             extra_misc_stats: self.jip2.misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             jip10: self.jip10_saved(),
             script_worn: self.script_worn.clone(),
+            coop_checked: self.coop_checked.clone(),
+            coop_checkpoint_gear: self.coop_checkpoint_gear.clone(),
         }
     }
 
@@ -6535,6 +6546,8 @@ script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", "
         g.reconcile_live_explosives();
         g.said = s.said.clone();
         g.script_worn = s.script_worn.clone();
+        g.coop_checked = s.coop_checked.clone();
+        g.coop_checkpoint_gear = s.coop_checkpoint_gear.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();
         }

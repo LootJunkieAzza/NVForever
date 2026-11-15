@@ -44,6 +44,7 @@ pub(super) fn entries(s: &HostStory) -> Vec<StoryEntry> {
         done: st.done.iter().map(|d| (*d).clamp(i16::MIN.into(), i16::MAX.into()) as i16).collect(),
         failed: st.failed,
         objectives: st.objectives.iter().map(|(i, done)| ((*i).clamp(i16::MIN.into(), i16::MAX.into()) as i16, *done)).collect(),
+        seen: st.seen.min(u32::MAX.into()) as u32,
     });
     let vars = s.vars.iter().map(|((q, index), v)| StoryEntry::Var {
         quest: q.0,
@@ -60,9 +61,9 @@ pub(super) fn entries(s: &HostStory) -> Vec<StoryEntry> {
 pub(super) fn take(story: &mut HostStory, heard: impl IntoIterator<Item = StoryEntry>) {
     for e in heard {
         match e {
-            StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives } => {
+            StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives, seen } => {
                 let objectives = objectives.into_iter().map(|(i, done)| (i32::from(i), done)).collect();
-                story.quests.insert(FormId(quest), HostQuestState { stage: stage.into(), running, ended, done: done.into_iter().map(i32::from).collect(), failed, objectives });
+                story.quests.insert(FormId(quest), HostQuestState { stage: stage.into(), running, ended, done: done.into_iter().map(i32::from).collect(), failed, objectives, seen: seen.into() });
             }
             StoryEntry::Var { quest, index, value } => {
                 let v = match value {
@@ -76,7 +77,7 @@ pub(super) fn take(story: &mut HostStory, heard: impl IntoIterator<Item = StoryE
 }
 
 /// Each frame: the host sends its story, a guest keeps what came (module notes).
-pub(super) fn share_story(time: Res<Time>, mut coop: ResMut<Coop>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
+pub(super) fn share_story(time: Res<Time>, mut coop: ResMut<Coop>, mut script: Option<ResMut<nvf_play::script::ScriptState>>, data: Option<Res<nvf_play::pipboy::data::DataState>>) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     let Some(link) = coop.link.as_ref() else {
@@ -87,7 +88,14 @@ pub(super) fn share_story(time: Res<Time>, mut coop: ResMut<Coop>, mut script: O
     if link.is_host() {
         if coop.story.sent_at.is_none_or(|t| now - t >= SEND_EVERY) {
             coop.story.sent_at = Some(now);
-            link.set_story(entries(&g.story_view()));
+            let mut view = g.story_view();
+            // The host's quest list's order, for the guests' (item 205).
+            if let Some(st) = data.as_deref() {
+                for (q, s) in view.quests.iter_mut() {
+                    s.seen = nvf_play::pipboy::data::quest_seen(st, q.0);
+                }
+            }
+            link.set_story(entries(&view));
         }
         return;
     }
@@ -114,8 +122,8 @@ mod tests {
     #[test]
     fn the_hosts_story_comes_through_as_it_went() {
         let mut s = HostStory::default();
-        s.quests.insert(FormId(0x1E00_2B11), HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: [(10, true), (20, false)].into() });
-        s.quests.insert(FormId(0x0010_4C1D), HostQuestState { stage: 80, running: false, ended: true, done: vec![70, 80], failed: true, objectives: [(10, true)].into() });
+        s.quests.insert(FormId(0x1E00_2B11), HostQuestState { stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: [(10, true), (20, false)].into(), seen: 4 });
+        s.quests.insert(FormId(0x0010_4C1D), HostQuestState { stage: 80, running: false, ended: true, done: vec![70, 80], failed: true, objectives: [(10, true)].into(), seen: 2 });
         s.vars.insert((FormId(0x1E00_2B11), 1), Value::Num(1.0));
         s.vars.insert((FormId(0x1E00_2B11), 2), Value::Ref(0x0010_C0DE));
         let mut back = HostStory::default();

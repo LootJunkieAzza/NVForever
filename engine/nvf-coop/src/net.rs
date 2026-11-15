@@ -2352,7 +2352,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&(entries.len() as u16).to_le_bytes());
             for e in entries {
                 match e {
-                    StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives } => {
+                    StoryEntry::Quest { quest, stage, running, ended, done, failed, objectives, seen } => {
                         b.push(0);
                         b.extend_from_slice(&quest.to_le_bytes());
                         b.extend_from_slice(&stage.to_le_bytes());
@@ -2368,6 +2368,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                             b.extend_from_slice(&i.to_le_bytes());
                             b.push(u8::from(*done));
                         }
+                        b.extend_from_slice(&seen.to_le_bytes());
                     }
                     StoryEntry::Var { quest, index, value } => {
                         b.push(1);
@@ -2763,7 +2764,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                         for _ in 0..o {
                             objectives.push((r.u16()? as i16, r.u8()? != 0));
                         }
-                        StoryEntry::Quest { quest, stage, running: flags & 1 != 0, ended: flags & 2 != 0, done, failed: flags & 4 != 0, objectives }
+                        StoryEntry::Quest { quest, stage, running: flags & 1 != 0, ended: flags & 2 != 0, done, failed: flags & 4 != 0, objectives, seen: r.u32()? }
                     }
                     1 => {
                         let (quest, index) = (r.u32()?, r.u16()?);
@@ -2882,8 +2883,8 @@ mod tests {
             Msg::Story { entries: Vec::new() },
             Msg::Story {
                 entries: vec![
-                    StoryEntry::Quest { quest: 0x1E00_2B11, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true), (20, false)] },
-                    StoryEntry::Quest { quest: 0x0010_4C1D, stage: -1, running: false, ended: true, done: Vec::new(), failed: true, objectives: Vec::new() },
+                    StoryEntry::Quest { quest: 0x1E00_2B11, stage: 20, running: true, ended: false, done: vec![10, 20], failed: false, objectives: vec![(10, true), (20, false)], seen: 7 },
+                    StoryEntry::Quest { quest: 0x0010_4C1D, stage: -1, running: false, ended: true, done: Vec::new(), failed: true, objectives: Vec::new(), seen: 0 },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 1, value: StoryValue::Num(1.0) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 2, value: StoryValue::Num(-0.125) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 900, value: StoryValue::Ref(0x0010_C0DE) },
