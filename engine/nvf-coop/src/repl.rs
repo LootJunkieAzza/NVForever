@@ -500,6 +500,14 @@ pub enum Effect {
     /// host sends that guest its whole area again and then answers (`done` true) with the
     /// same `serial`, after those changes on the same ordered stream.
     Sync { serial: u32, done: bool },
+    /// A grass patch the host's fire lit (`nvf_play::grass_fire::LitPatch`): patch
+    /// `(x, y)` with its ground at `z`, of fire `fire`, started with object effect `item`
+    /// by `by` (0: a player), burning `secs`. Each guest burns the same patch: the host
+    /// decides where fires start and spread.
+    GrassFire { x: i32, y: i32, z: f32, fire: u32, item: u32, by: u32, secs: f32 },
+    /// Guest to host: a burning shot or blast of the guest's own (object effect `item`)
+    /// landed at `pos`; the host lights the grass there as for its own.
+    GrassLanded { pos: [f32; 3], item: u32 },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -566,6 +574,23 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
                 rec.extend_from_slice(&serial.to_le_bytes());
                 rec.push(u8::from(*done));
             }
+            Effect::GrassFire { x, y, z, fire, item, by, secs } => {
+                rec.push(9);
+                rec.extend_from_slice(&x.to_le_bytes());
+                rec.extend_from_slice(&y.to_le_bytes());
+                rec.extend_from_slice(&z.to_le_bytes());
+                rec.extend_from_slice(&fire.to_le_bytes());
+                rec.extend_from_slice(&item.to_le_bytes());
+                rec.extend_from_slice(&by.to_le_bytes());
+                rec.extend_from_slice(&secs.to_le_bytes());
+            }
+            Effect::GrassLanded { pos, item } => {
+                rec.push(10);
+                for v in pos {
+                    rec.extend_from_slice(&v.to_le_bytes());
+                }
+                rec.extend_from_slice(&item.to_le_bytes());
+            }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
             out.push(std::mem::replace(&mut cur, vec![kind::EFFECTS]));
@@ -604,6 +629,8 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
                 dir: [r.f32()?, r.f32()?, r.f32()?],
             },
             8 => Effect::Sync { serial: r.u32()?, done: r.u8()? != 0 },
+            10 => Effect::GrassLanded { pos: [r.f32()?, r.f32()?, r.f32()?], item: r.u32()? },
+            9 => Effect::GrassFire { x: r.u32()? as i32, y: r.u32()? as i32, z: r.f32()?, fire: r.u32()?, item: r.u32()?, by: r.u32()?, secs: r.f32()? },
             _ => return None,
         });
     }
@@ -897,6 +924,9 @@ mod tests {
             Effect::Dismember { actor: 0x0008_D74C, data: 0x0001_3F0B, part: 1, location: 1, exploded: true, point: [26574.0, -33489.0, 7043.0], dir: [0.0, -1.0, 0.0] },
             Effect::Sync { serial: 7, done: false },
             Effect::Sync { serial: 7, done: true },
+            Effect::GrassFire { x: -1052, y: 21, z: 8123.5, fire: 3, item: 0x0004_4B30, by: 0, secs: 6.25 },
+            Effect::GrassFire { x: 4, y: -9, z: -12.0, fire: 1, item: 0x0004_4B30, by: 0x0010_4C80, secs: 0.0 },
+            Effect::GrassLanded { pos: [-67900.5, 1630.0, 8410.25], item: 0x0004_4B30 },
         ];
         let items = pack_effects(&e, 1100);
         assert_eq!(unpack_effects(&items[0]).unwrap(), e);

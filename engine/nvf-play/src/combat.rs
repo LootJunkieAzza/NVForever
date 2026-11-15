@@ -139,7 +139,7 @@ use crate::player::{MoveIntent, Player, MAX_PITCH};
 use crate::sim::SimState;
 use crate::{space, PlaySet, PlayWorld};
 
-mod hit_effects;
+pub(crate) mod hit_effects;
 pub mod held_grenade_probe;
 
 /// The shooter's id for projectiles (the player has no hit volume).
@@ -1188,6 +1188,9 @@ pub struct Combat {
     settled: Vec<SettledMine>,
     /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
     landed: Vec<LandedThrow>,
+    /// Shots and blasts with an object effect that landed on dry ground this frame, for
+    /// `crate::grass_fire` to set the grass alight where the effect burns.
+    fire_landed: Vec<crate::grass_fire::Landed>,
     /// Shots that went down into water, shown when due ([`Splash`]).
     splashes: Vec<Splash>,
     ghosts: Vec<Ghost>,
@@ -1314,6 +1317,12 @@ impl Combat {
     /// The thrown weapons that landed since the last call (`crate::thrown`).
     pub(crate) fn take_landed(&mut self) -> Vec<LandedThrow> {
         std::mem::take(&mut self.landed)
+    }
+
+    /// The shots and blasts with an object effect that landed on dry ground since the
+    /// last call (`crate::grass_fire`).
+    pub(crate) fn take_fire_landed(&mut self) -> Vec<crate::grass_fire::Landed> {
+        std::mem::take(&mut self.fire_landed)
     }
 
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
@@ -1691,7 +1700,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, (crate::bash::tick, melee).chain(), actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, (crate::bash::tick, melee).chain(), actor_attacks, fly, crate::dismember::resolve, (crate::mines::tick, crate::grass_fire::tick).chain(), crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
             )
             // Another player's hits land while this player talks, too: the world stands
             // still behind a conversation, and a guest's hit that came then was dropped,
@@ -2200,6 +2209,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flying: Vec::new(),
         settled: Vec::new(),
         landed: Vec::new(),
+        fire_landed: Vec::new(),
         splashes: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
@@ -5076,6 +5086,11 @@ fn fly(
                 }
             }
         }
+        // A blast whose object effect burns sets the grass under it alight
+        // (`crate::grass_fire`); not one that threw up water.
+        if let (Some(item), Some(g), None) = (x.enchantment, ground.as_ref(), water) {
+            c.fire_landed.push(crate::grass_fire::Landed { point: g.point, item, by: cause.map(|k| k.actor) });
+        }
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -5276,6 +5291,11 @@ fn fly(
         let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
         let shooter = p.by.actor;
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
+        // A shot that lands on the ground (not on an actor) with a weapon whose object
+        // effect burns sets the grass there alight (`crate::grass_fire`).
+        if let Some(item) = w.enchantment.filter(|_| p.actor.is_none() && !p.by.harmless) {
+            c.fire_landed.push(crate::grass_fire::Landed { point: p.point, item, by: (shooter != FormId(0)).then_some(shooter) });
+        }
         // The impact the weapon's data set names for what was hit: an actor's is its
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).

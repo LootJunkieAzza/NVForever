@@ -274,7 +274,7 @@ pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipel
 /// the owner's settings (docs/design/streaming-hitches.md §3.1) [observed 2026-10-28].
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(50, NifSurfaceUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..54), binding(100)))]
+#[bindless(limit(512), index_table(range(50..55), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
@@ -355,7 +355,8 @@ pub struct NifSurface {
     pub holes_edge: Vec4,
     /// Soft intersections (module notes, "Soft intersections"): x the distance in game
     /// units over which the shape fades out towards the opaque surface behind it, 0 for
-    /// none; y, z, w unused.
+    /// none; y 1: ground scorched by the grass fires' burn map ([`scorch_map`](Self::scorch_map),
+    /// nif_material.wesl "Scorch"; the landscape only); z, w unused.
     pub soft: Vec4,
     /// The holes texture; `None` with no holes.
     #[texture(51)]
@@ -369,6 +370,11 @@ pub struct NifSurface {
     /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
     #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
+    /// The grass fires' burn map (nvforever `grass::GrassBurn`, a byte per 64-unit patch,
+    /// read with `textureLoad`), on the landscape's materials only, with `soft.y` 1:
+    /// ground under grass that burnt is drawn scorched. `None` everywhere else.
+    #[texture(54)]
+    pub scorch_map: Option<Handle<Image>>,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -468,6 +474,7 @@ impl Default for NifSurface {
             soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
+            scorch_map: None,
         }
     }
 }

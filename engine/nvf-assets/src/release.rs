@@ -220,6 +220,7 @@ pub fn material_images(m: &crate::NifMaterial) -> impl Iterator<Item = &Handle<I
         &b.depth_map,
         &m.extension.holes_texture,
         &m.extension.facegen_offset,
+        &m.extension.scorch_map,
     ]
     .into_iter()
     .flatten()

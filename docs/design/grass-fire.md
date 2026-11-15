@@ -1,0 +1,143 @@
+# Grass fires
+
+A design feature, not a parity target: the original game has no fire that spreads. The
+owner asked for it on 2026-11-14 (#2567), modelled loosely on open-world shooters where a
+flamer or a fire blast sets a field alight: a front of flame sweeps outward over the grass,
+leaves the ground black behind it, catches anyone standing in it and goes out within a
+hard limit. Every figure here is a design choice [design] unless tagged otherwise.
+
+Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
+`engine/nvforever/src/grass.rs` and `grass.wesl` (fuel, burnt grass on screen),
+`engine/nvforever/src/grass_fire_fx.rs` (burn map upload, cells forgotten, wind, flames).
+
+## 1. What lights a fire
+
+- A shot that lands on the ground, not on an actor, with a weapon whose object effect
+  (WEAP `EITM`) burns, and a blast on dry ground whose EXPL object effect burns.
+- An object effect burns when one of its effects is resisted by Fire Resistance (the
+  base effect's resistance is actor value 52, `fnv_game::combat_lines::FIRE_RESISTANCE`):
+  the flamer's and Shishkebab's "Burning", the incinerator's and incendiary grenade's
+  blasts [observed: hit-effects.md §1 names these items]. Nothing names fire in the data
+  other than this, so the resistance is the test.
+- A harmless shot (Do No Damage) lights nothing; a blast that threw up water lights
+  nothing.
+- The landing lights its patch, or the nearest of the eight around it with grass when it
+  landed just off the grass. Grass already burning or burnt does not light again.
+- The switch `grass-fire` (Gameplay settings, NVForever.ini `[Settings]`) turns it off; it
+  is on by default.
+
+## 2. Patches and fuel
+
+- The ground is split into squares of 64 game units (about 0.9 m). A patch has fuel when a
+  grass plant stands on it; the renderer, which places the grass (grass.md), registers each
+  cell's patches with the height of the lowest plant's ground.
+- Grass switched off (`--no-grass`, settings) means no fuel: nothing burns.
+- When a cell is neither loaded nor being loaded (it fell behind the player, or the player
+  went indoors) its patches and what burnt of them are forgotten. The grass regrows the
+  next time it loads: burnt grass is not kept in saves, and it comes back whole.
+
+## 3. Spread
+
+- A patch burns for 6 s (±20%, fixed per patch). When it catches it plans to light each
+  patch up to two patches away (the 24 around it) that has fuel and has not burnt: after
+  0.5–1.5 s times the distance in patches (1 for a side neighbour, √2 diagonally, 2 for
+  one across a patch). Reaching two patches lets a fire cross the bare ground between the
+  Mojave's tufts of grass (the grass near Goodsprings stands in tufts with gaps; a fire
+  limited to touching patches stopped at the first gap).
+- The wind (the weather's wind direction and speed, as the grass sways with) divides the
+  delay by 1 + 0.6 × (wind strength × the cosine between the wind and the step): at full
+  wind the fire runs 1.6 times as fast downwind and 0.4 times as fast upwind.
+- The random values are fixed by the patch and the fire, so a fire spreads the same way
+  each run (tests, smoke).
+
+## 4. Limits
+
+- **Reach**: no patch further than 1,024 units (about 15 m) from where the fire started.
+- **Size**: no more than 500 patches per fire.
+- **Fires**: no more than 8 at once; a landing beyond them is refused.
+- **Burning**: no more than 1,500 patches burning at once over all fires.
+- A landing on grass a live fire may still reach (within its reach, under its size) adds
+  to that fire instead of starting another, so a flamer sweeping a field grows one fire
+  until its limit.
+- A fire is out when nothing of it burns and nothing waits to be lit.
+
+## 5. Actors
+
+- Twice a second, every actor whose middle is within 64 units (horizontally) of a burning
+  patch's middle and within 160 units of its ground height catches the fire's object effect, as from a hit by the one who started the
+  fire (`hit_effects::apply`): the same burn, damage over time, OnFire line, kill credit
+  and resistances as a flamer hit. Standing in the fire refreshes the burn's time.
+- The player catches it too (not in god mode, as with any hit effect).
+
+## 6. On screen
+
+- **Burn map**: a 512 × 512 single-byte texture, one texel per patch, wrapping every 512
+  patches (32,768 units, more than the loaded cells span, so two patches that share a
+  texel are never both loaded). 0 is untouched; up to 127 while burning (the grass
+  blackens over the first 2 s); 128–254 burnt (the grass sinks into the ground over 5 s);
+  255 burnt away.
+- **Grass** (grass.wesl): each plant reads the patch it stands on. Its colour falls to
+  5% as it chars, it glows orange like embers, flickering, while its patch burns, and once
+  burnt it sinks into the ground the way grass beyond the grass distance does.
+- **Scorched ground** (upstream: terrain.wesl "Scorch"; on the replication line, which
+  draws the landscape with the NIF material, base pass and blended layers:
+  nif_material.wesl "Scorch", `NifSurface::scorch_map` and `soft.y`, set on the
+  landscape's materials only by `terrain.rs`): the landscape under a patch that caught
+  turns black (its colour × 0.16), reaching full by the time the patch is charred, and
+  stays black until its cell unloads. It is read between the patches' middles and broken
+  up with noise about 20 units across, so the mark has a ragged edge, not 64-unit
+  squares. Every layer pass is darkened alike, so the layers blended over the base keep
+  the mark.
+- **Flames** (grass_fire_fx.rs) [owner 2026-11-14: the first version looked "a bit
+  sparse"; flames should start small and grow]: each patch that catches gets two small
+  particle fires (`mps\mpsfiresmall01.nif`) at random spots and, on about a third of the
+  patches, a larger one (`mps\mpsfiremed01.nif`). Each starts at 15% of its size and grows
+  to it over 2 s (its particles' size, a size factor on the model's emitter added for
+  this, `particles::ModelEmitter::size`, and its spray), and dies down over 1.2 s when its
+  patch burns out. About one patch in six has a flickering orange light (at most 8).
+  Half the burnt-out patches smoulder (`mps\mpssmokesmall01.nif`) for 5 s.
+- GPU safety caps [design, gpu-device-lost 2026-11-14, after stacked fire filling the
+  screen close up powered a PC off; fill rate near the camera matters most]: at most 200
+  flame and smoke models at once; at most 24 of them within 400 units of the camera,
+  every stacked model counted, the nearest taken out past that; at most 8 lights; and a
+  ramp of at most 20 new models a second (burning patches queue for their flames, at
+  most 256, and get none if they burn out first), so a big burn cannot jump from nothing
+  to full in one frame. A build with a cap above these fails (a const assert in
+  `grass_fire_fx.rs`). Log every 10 s while fire effects live:
+  `grass fire fx: <n> drawn (cap 200), <m> near (cap 24 within 400), …`. (The ambient `fxfiresmall01.nif` holds no particle
+  system or shape of its own and drew nothing.)
+
+## 6a. Co-op
+
+- The host decides [design]: only the host lights, spreads and puts out fires and burns
+  NPCs. Each patch the host lights goes to every guest as a reliable `GrassFire` effect
+  (patch, ground height, fire, item, who lit it, seconds left to burn,
+  `nvf_coop::repl::Effect`); the guest burns that patch for those seconds
+  (`Fires::light_remote`), so its grass glows and chars, and its flames, smoke and
+  light come from the same events as the host's (§6), with the same patch-seeded spots.
+- A guest's own burning landing (its Flamer's flame, an incendiary round) is not lit on
+  the guest: it goes to the host as a `GrassLanded` effect and the host lights it as if
+  it had landed there, then sends the patches back as above.
+- On a guest only its own player catches fire from the flames it sees; NPCs burn on the
+  host and their burning reaches the guest with their state.
+- A guest who joins while fires burn, or whose stream starts again, gets them as they
+  are (`Fires::snapshot`): when its stream starts and again when it asks for the
+  syncing screen's answer, standing in its place with its cells loaded, the host sends
+  every patch burning, with the seconds it has left, and every patch burnt out and still
+  remembered (fire 0, `BURNT_OUT`: ash and scorched ground, no flames). A patch it
+  already has is not lit twice. Log: host `replication: player <n> is told the grass
+  fires here: <b> patches burning, <a> burnt out`; guest `grass fire: <a> patches the
+  host's fires burnt out before this player came are burnt here too`.
+
+## 7. Not done (yet)
+
+- Trees, shrubs and placed plants do not burn; only generated grass does.
+- No light from the fire beyond the embers' glow and the flame model's own.
+- Rain does not put fires out.
+
+## Log
+
+- `grass fire <n>: started at (x, y, z) by <who> with <item>`
+- `grass fire <n>: out after <s> s: <p> patches burnt, reached <r> units of 1024, <h> spreads held by the limits, <a> actors caught fire`
+- `grass fire: <actor> caught fire from fire <n>` (once per actor per fire)
+- at exit `grass fires summary: …` and `grass fire fx summary: …`

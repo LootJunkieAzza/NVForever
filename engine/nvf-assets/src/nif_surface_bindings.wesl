@@ -34,7 +34,8 @@ struct NifSurface {
     holes: vec4<f32>,
     // The edge band's colour (linear).
     holes_edge: vec4<f32>,
-    // Soft intersections: x the fade distance (game units), 0 for none.
+    // Soft intersections: x the fade distance (game units), 0 for none; y 1: ground
+    // scorched by the burn map (scorch_texel, nif_material.wesl "Scorch").
     soft: vec4<f32>,
     // PIPBOY_SCREEN (nif_material.rs NifSurface::pipboy_a): x the roll up (share of the
     // canvas's height), y the wash (gain 1 - y on display values), z display value added,
@@ -45,12 +46,13 @@ struct NifSurface {
     pipboy_b: vec4<f32>,
 }
 
-// The extension's index table (indices 50-53 of NifSurface's bindless attribute).
+// The extension's index table (indices 50-54 of NifSurface's bindless attribute).
 @if(BINDLESS) struct NifSurfaceIndices {
     surface: u32,          // 50
     holes_texture: u32,    // 51
     holes_sampler: u32,    // 52
     facegen_offset: u32,   // 53
+    scorch_map: u32,       // 54
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> nif_indices: array<NifSurfaceIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage> nif_surfaces: array<NifSurface>;
@@ -58,6 +60,7 @@ struct NifSurface {
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(51) var holes_texture: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(52) var holes_sampler: sampler;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(53) var facegen_offset: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(54) var scorch_map: texture_2d<f32>;
 
 // The material's slot in the bindless tables (unused without bindless).
 fn material_slot(instance_index: u32) -> u32 {
@@ -92,6 +95,14 @@ fn facegen_size(instance_index: u32) -> vec2<u32> {
 fn facegen_texel(instance_index: u32, p: vec2<i32>) -> vec3<f32> {
     @if(BINDLESS) return textureLoad(bindless_textures_2d[nif_indices[material_slot(instance_index)].facegen_offset], p, 0).rgb;
     @if(!BINDLESS) return textureLoad(facegen_offset, p, 0).rgb;
+}
+
+// One texel of the grass fires' burn map (NifSurface::scorch_map), its 512 x 512 patches
+// wrapping.
+fn scorch_texel(instance_index: u32, p: vec2<i32>) -> f32 {
+    let t = ((p % 512) + 512) % 512;
+    @if(BINDLESS) return textureLoad(bindless_textures_2d[nif_indices[material_slot(instance_index)].scorch_map], t, 0).r;
+    @if(!BINDLESS) return textureLoad(scorch_map, t, 0).r;
 }
 
 // The base colour texture sampled at `uv` with the view's mip bias `bias`.

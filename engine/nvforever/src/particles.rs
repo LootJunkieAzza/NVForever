@@ -197,16 +197,20 @@ pub struct ModelEmitter {
     /// holder's clips say, by system name: on, and the clip's birth rate where it keys
     /// one. A system not named does not emit.
     pub driven: Option<HashMap<String, Option<f32>>>,
+    /// A factor on the size of the particles it gives birth to from now on (1: as the
+    /// file says). The reference's scale leaves the size alone (particles.md §7.7); a grass
+    /// fire's flames grow and die down with this (`crate::grass_fire_fx`) [design].
+    pub size: f32,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
@@ -215,14 +219,14 @@ impl ModelEmitter {
     /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
     /// with the rig and its sounds.
     pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of a weapon in an actor's hand: its systems stay off until the actor's
     /// clips switch them on (the dynamite's fuse sparks while the throw clip lights it,
     /// particles.md §7.6); `driven` is set each frame by whoever plays the clips.
     pub fn held(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()) }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()), size: 1.0 }
     }
 }
 
@@ -790,7 +794,9 @@ type ModelEmitterItem = (
 /// An emitter to serve this frame: its entity, systems, time, placed reference and drive.
 /// An emitter, its systems' key, age, placed reference, the sequence driving its drawn
 /// model, and the clips' word on a held model's systems ([`ModelEmitter::driven`]).
-type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>);
+/// The emitter, its systems' key, its age, its placed reference, its drive, its held
+/// clips' word and the factor on its particles' size ([`ModelEmitter::size`]).
+type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>, f32);
 
 /// Births: each add-on node in the world emits into the systems of its ADDN, each
 /// model emitter into its file's own.
@@ -837,7 +843,7 @@ fn emit(
             p.placed_seen.insert(r);
         }
         if part_seen(part) && !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None));
+            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None, 1.0));
         }
         em.age += dt;
     }
@@ -875,7 +881,7 @@ fn emit(
         // A held model whose clips switch nothing on costs nothing.
         let idle = em.driven.as_ref().is_some_and(HashMap::is_empty);
         if part_seen(part) && !hidden(em.age, v) && !idle {
-            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone()));
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone(), em.size.max(0.0)));
         }
         em.age += dt;
     }
@@ -888,7 +894,8 @@ fn emit(
         order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
     }
     for i in order {
-        let (_, key, age, placed, drive, driven) = &sources[i];
+        let (_, key, age, placed, drive, driven, size) = &sources[i];
+        let size = *size;
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
@@ -1005,7 +1012,7 @@ fn emit(
                     life: (vals.life + vals.life_variation * spread(&mut rng) * 0.5).max(0.02),
                     // Sized by the system node's scale; the reference's scale moves and speeds
                     // the spray but leaves the drops' size (particles.md §3, §7.7).
-                    radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0) * d.system_scale,
+                    radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0) * d.system_scale * size,
                     angle: rot.angle + rot.angle_variation * spread(&mut rng),
                     spin,
                     tex: if d.subtextures.is_empty() { 0 } else { ((rng.next_f32() * d.subtextures.len() as f32) as usize).min(d.subtextures.len() - 1) },

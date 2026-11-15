@@ -414,7 +414,14 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(MsaaSetting(self.1))
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::fsr::FsrPlugin))
-            .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
+            .add_systems(Startup, |g: Res<Graphics>| {
+                info!("graphics: {}", g.describe());
+                // Off by default, the fuller fire is not named in the line above; this
+                // says so in words a fire-safety check can look for.
+                if !g.fuller_fire {
+                    info!("graphics: no fuller fire (no volumetric flame is made, added embers and smoke never emit)");
+                }
+            })
             .add_systems(Update, (apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
