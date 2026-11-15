@@ -132,3 +132,24 @@ used.
 Every machine simulates the actors it draws; nothing of the physics is sent. A guest's
 copy of the host's player and of NPCs moves by the replicated animation and its cloth
 follows locally [design: the README's plugin is per game too].
+
+## 8. Checked in game (2026-11-15)
+
+Goodsprings at noon, third person side-on, walking, running, turning and stopping, with
+the owner's Vanilla NV SMP pack, CKR hair and Qwib's Accessory Pack (frames kept
+privately) [observed]:
+
+- Sheriff's Duster (the pack's lucassimms outfit, 44 simulated bones): at rest the coat
+  hangs straight; running, its tail flares out behind the legs; stopping, it swings
+  forward over the shins and settles within about 2 s. With `bEnabled=0` the hem
+  follows the thighs as plain skinning does. No stretch, no blow-up, nothing through
+  the legs.
+- Legion Veteran Armor (2 systems, 78 bones): the skirt strips flap while running and
+  settle at rest.
+- Qwib's Red Poncho (generated, 49 bones): the side panel streams back while running and
+  hangs at rest as the unsimulated poncho does.
+- CKR Mullet (generated, 24 bones): the tail at the nape lifts behind while running, the
+  side locks swing forward on stopping and settle.
+- Wind: at the shipped `fWindStrength` 0.08, NVWastelandClearWindy barely moves cloth;
+  at 3 the duster's hem lifts with the gusts.
+- Vanilla data rigs nothing (smoke scenario `smp-vanilla-stays-rigid`).
