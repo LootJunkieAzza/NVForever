@@ -2197,6 +2197,7 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
      once.
 
+<<<<<<< HEAD
 ## Added 2026-11-14 (unseen actors whose package place cannot be walked to, #2405)
 
 145. **Where does the original put an actor nobody sees whose package place has no way
@@ -2215,3 +2216,13 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      `AtticusREF` (0x0015A04E, SafehouseLegionINT). And `SSHQMalcolmHolmesREF`
      (0x0010651A): after he has met the player outdoors and walked out of sight, is he
      back in RandomEncounterNPCs at (1825, 2079, 6976)?
+=======
+160. **Where is Loyal once Volare! has failed, and can the player reach him?** (P2; #2566,
+     navmesh.md §4 "Disabled load doors".) Kill Argyll (NellisArgyllREF) at Nellis
+     before the B-29 is raised: VMS15 stage 116 fails Volare!, which GetQuestCompleted
+     reads as 1, so Loyal's first package, NellisLoyalB29SandboxAIPackage, wants him in
+     NellisHangar1b, whose only doors (0x001093DB/0x001093DC) stay disabled until the
+     B-29 is up. Where is Loyal then (NellisHangar2, NellisHangar1, NellisHangar1b), and
+     where does Render Unto Caesar's Boomer-leadership marker point? [hypothesis: the
+     original does not move him through a disabled door; ours keeps him where he is.]
+>>>>>>> refs/sweep/main

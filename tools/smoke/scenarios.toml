@@ -7658,10 +7658,10 @@ expect = [
 [[scenario]]
 name = "creature-no-talk"
 source = "playtest list 4 item 19 (engine/nvf-play/src/activate.rs): a creature with nothing to say shows only its name, no Talk"
-note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line)"
+note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line). The face aid stands the player 100 units from it looking level, which passes over a young bighorner's back; the look aid at 7 s, once the start-up message boxes are gone, tips the view 25 degrees down onto it (issue #2354: the level look only met its bounds in the frame of the move, and not at all once the message boxes came in that frame)"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs", "crates/fnv-game/src/dialogue.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63", NVF_PLAY_TEST_LOOK = "7:270:-25" }
 args = ["--play", "--pos=-69700,-714,8300", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'target 0x0015EF63 Young Bighorner \(\) ', label = "the bighorner: name only" }]
@@ -12805,10 +12805,10 @@ forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
 [[scenario]]
 name = "bean-bag-fatigue"
 source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
-note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes 2,150 units away, issue #2513, as sneak-attack-critical's does); the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
@@ -16368,6 +16368,22 @@ expect = [
 ]
 forbid = [
   { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "nellis-loyal-stays-reachable"
+source = "issue #2566: with Volare! failed (a Boomer elder killed), Loyal was put in NellisHangar1b, behind the B-29 hangar doors 001093DB/001093DC that stay disabled until the B-29 is up, and the quest marker looped between the hangar door and its inside"
+note = "SetStage VMS15 (000FF5DF) 116 at 8 s fails Volare!, which GetQuestCompleted reads as 1: Loyal's first package, NellisLoyalB29SandboxAIPackage (In cell NellisHangar1b), is valid and every other one of his is not. No path goes through a disabled load door (fnv_nav::NavGraph::disabled_doors, fnv_ai::Ai::apply_door_presence), so he sets it aside and stays in NellisHangar2, where the player starts; before the fix his walk went out through 00105488 and in through the disabled 001093DB"
+areas = ["ai", "nav", "quests"]
+paths = ["crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/path.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/quest_targets.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:setstage 000FF5DF 116;8.3:close" }
+args = ["--cell", "NellisHangar2", "--play", "--no-voice", "--no-messages", "--hour", "12", "--npc-packages", "all,NellisLoyalREF"]
+run_seconds = 30
+expect = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: cannot reach the place of NellisLoyalB29SandboxAIPackage', label = "Loyal sets the B-29 hangar package aside: its doors are disabled" },
+]
+forbid = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: .*in NellisHangar1b', label = "Loyal walked or put into the B-29 hangar" },
 ]
 
 [[scenario]]
@@ -28393,3 +28409,14 @@ expect = [
   { text = 'script: print "nvf physical wheel edge 265"', min = 1, label = "actual physical down reaches its public script handler" },
 ]
 manual = "Keep the primary game window focused; scroll up and down after loading. This manual scenario has no selection or scroll-offset expectation and provides no GPU/native visual comparison."
+
+[[scenario]]
+name = "quiet-missing-starfield"
+source = "#2408 (engine/nvforever/src/sky.rs cloud_layers, official_plugin): FalloutNV.esm's NVWastelandClearNight names sky/NVWastelandStarfieldSky.dds for its first cloud layer and no base archive has it; the player reports' missing_asset for it came from 25 of 43 installs. A texture the base game's own weather names and nobody has is no failure and logs no warning"
+note = "Goodsprings at 23:00: the climate rolls NVWastelandClearNight at the start"
+areas = ["sky", "reports"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs", "engine/nvf-assets/src/texture.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [{ text = "weather: NVWastelandClearNight at 23:00", label = "the night weather is the one shown" }]
+forbid = [{ re = 'texture not loaded: .*nvwastelandstarfieldsky', label = "a warning for the starfield texture the game does not have" }]
