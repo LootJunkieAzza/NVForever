@@ -2087,3 +2087,22 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      `fnv_game::functions::items::get_item_count`. Then open the container, take the
      Matchbook and run `player.getitemcount 00112015` and `player.gethasnote 00112015`
      (expected 0 and 1).
+## Added 2026-11-14 (load indexes, General Oliver's cap, the Tops lounge chairs)
+
+120. **Does the original load a master-flagged `.esp` with the masters, and an unflagged
+     one listed among them after all of them?** (P2; fnv-install `plugins.rs` module
+     docs.) NVForever now loads every plugin whose TES4 header has the master flag before
+     every plugin without it, each group in the list's order [documented: LOOT,
+     "Introduction To Load Orders"]. In the owner's profile the three `.esp` files listed
+     among the masters (`classic188.esp`, `mil.esp`, `mil_Add-On.esp`) carry the flag, so
+     nothing moves: `QwibAccessoryPack.esm` is 0x1D, `Long15Reloaded.esm` 0x1E [observed:
+     the headers]. To check: in the original with that profile, click a Qwib item in the
+     console and read its FormID's first two digits (expected 1D); then make a copy of one
+     small `.esp` with the flag cleared, list it among the masters, and read the index of
+     the master after it (expected one lower than with the flag set).
+121. **Where does General Oliver's cap sit, and the white figures on the Tops' lounge
+     chairs?** (P3; actors.md §1.2, nif.md §helper geometry.) NVForever places his cap
+     (`genolivercap.nif`, modelled in the head bone's axes) as a plain child of the bone,
+     on his head, and draws nothing of `loungechair_tops.nif`'s property-less marker
+     shapes [hypothesis]. To check: screenshots of Oliver (Hoover Dam visitor center)
+     from the front and side, and of a Tops pool lounge chair (FURN 0x00119821) close up.
