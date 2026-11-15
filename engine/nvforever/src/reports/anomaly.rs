@@ -18,9 +18,11 @@
 //! | `slow_load` | a loading screen up longer than [`SLOW_LOAD_MS`] |
 //! | `player_stuck` | movement held [`STUCK_SECS`] with under [`STUCK_UNITS`] moved, while playing |
 //! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs) |
+//! | `softlock` | the player is held and nothing in the game moves on to let them go: controls off or restrained with no story event, a conversation with no line and no choice, a line that never ends, a menu that never opens (nvf-play softlock.rs, `fnv_game::softlock`) |
 //!
-//! Not yet: actors stuck on a travel package and stalled quests (no hook the reports can
-//! read without changing the AI and quest code).
+//! Not yet: actors stuck on a travel package, and quests that stall while the player is
+//! free (`softlock` sees only the holds; no hook the reports can read without changing the
+//! AI and quest code).
 //!
 //! **The flight recorder.** Every log event that reaches the log layer (info and up, and
 //! what `[Log]` turns up), with the time and where the camera was, kept for the last
@@ -106,6 +108,9 @@ pub fn classify(level: &str, msg: &str) -> Option<Found> {
     }
     if warn && msg.starts_with("player fell out of interior") {
         return Some(Found::Now("fell_out_of_world", json!({ "space": "interior", "line": cut(msg) })));
+    }
+    if let Some((what, rest)) = msg.strip_prefix("softlock: ").filter(|_| warn).and_then(|r| r.split_once(' ')) {
+        return Some(Found::Now("softlock", json!({ "what": what, "line": cut(rest) })));
     }
     if msg.contains(": cannot reach the place of ") {
         return Some(Found::Now("path_failure", json!({ "line": cut(msg) })));
@@ -248,6 +253,7 @@ mod tests {
         assert_eq!(kind("INFO", "ai [12.0] Sunny: cannot reach the place of 0012AB34: no path"), Some("path_failure"));
         assert_eq!(kind("WARN", "model not loaded: meshes\\x.nif: broken"), Some("missing_asset"));
         assert_eq!(kind("WARN", "save: failed: disk full"), Some("save_trouble"));
+        assert_eq!(classify("WARN", "softlock: controls_held for 30 s: scripts hold the controls (movement)"), Some(Found::Now("softlock", json!({ "what": "controls_held", "line": "for 30 s: scripts hold the controls (movement)" }))));
         assert_eq!(kind("WARN", "load: C:\\s.nvfsave: bad header; starting again on the main menu"), Some("save_trouble"));
         assert_eq!(kind("WARN", "audio output: no device (gone); sound runs silent until one appears"), Some("audio"));
         assert_eq!(classify("WARN", "script error in GSScript: bad ref"), Some(Found::ScriptError("GSScript".into())));

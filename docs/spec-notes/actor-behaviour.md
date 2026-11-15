@@ -244,6 +244,47 @@ visual term, and the detector's skill minus the target's skill times a factor
 - Observed: after the Goodsprings gunfight every surviving actor left combat in the same
   sample, about 1 game minute after the last enemy died [observed: ai-observer.md §7].
 
+### 2.4 IsActorDetected source calls
+
+[documented: [GECK IsActorDetected](https://geckwiki.com/index.php?title=IsActorDetected)]
+With no explicit arguments, this query asks whether the actor receiver is detected
+by any other actor. It returns an integer boolean. A player receiver always reads
+zero, and detection by the player does not count. This direction is distinct from
+[GetDetected](https://geckwiki.com/index.php?title=GetDetected), whose receiver is
+the detector. The documented contract is available in the primary page's indexed
+text; direct retrieval returned403 during preparation.
+
+Implementation context, not original-game evidence: the existing catalogue row has
+no opcode or console category. Source compilation uses the unnumbered named VM
+path. The handler reads incoming typed Detected-band pairs, excluding the player
+and the receiver itself. Other actors count regardless of teammate membership;
+the sneak HUD's extra follower exclusion is not this query. The allocation-free
+scan stops at its first matching pair and costs O(cached pairs) in the worst case.
+No native opcode, sensing pass, cache or save field is added.
+
+[hypothesis: selected portable query convention] Missing or nonactor receivers
+return numeric zero, matching neighboring implemented queries. This is a selected
+portable policy, not preservation of an old IsActorDetected zero: actual compiled
+public99 source calls refused the unsupported function. That authored CPU result
+is process evidence, not native invalid-input evidence. Native invalid-input
+behavior remains unknown. Unmeasured/cold state reads zero. The query neither refreshes nor
+expires detections and does not add an immediate dead/disabled check. The existing
+engine measurement round owns pruning: it runs every quarter-second and forgets
+pairs older than one game-time second. In a headless Game, merely advancing time
+does not prune pairs; snapshot restoration starts with an empty detection cache.
+These are repository lifecycle choices, not measured native timing.
+
+Process qualification: six authored shared VM controls cover explicit receiver
+precedence, incoming/outgoing pairs, player/self exclusion, teammates, mixed typed
+bands and numeric values, overwrite/forget/expiry, cold restore and existing
+GetDetected/GetDetectionLevel/GetLineOfSight neighbors. They use the real compiler,
+decoder and VM; diagnostic-free zeros are required so a missing handler cannot
+masquerade as a negative result. Coverage does not imply execution; results must
+name their exact source and host. Historical skipped calls in CASM with MCM are
+reported in [#2271](https://github.com/LootJunkieAzza/NVForever/issues/2271), not a
+current CASM save-scheduling or full-mod compatibility result. Installed versions,
+caller branches and native/physical execution remain separately unqualified.
+
 ## 3. Factions
 
 - Factions decide how actors react to each other and whether members help one another:

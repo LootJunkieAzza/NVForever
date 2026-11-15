@@ -1065,6 +1065,95 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the HDR view's parts come and go" }]
 
 [[scenario]]
+name = "terrain-height-blend"
+source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\", terrain.wesl and terrain_weights.wesl: the Terrain height blending switch (off by default and in both presets) switched on while the game runs flips the loaded folded materials and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready; off and on again flips them back, without a rendering or pipeline error. Pictures of the on/off look are taken by hand"
+areas = ["renderer", "graphics", "terrain", "settings"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:terrain-height-blend,13:terrain-height-blend,14:terrain-height-blend" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 22
+expect = [
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless), so the height-blended shader is the one drawing" },
+]
+order = [[
+  "settings: terrain-height-blend on",
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, [1-9]\d* changed', label = "switching on flipped the loaded folded materials" },
+  { re = 'graphics: light glow, terrain height blending$' },
+  { re = 'terrain height blending pipeline \d+ ready', label = "the TERRAIN_HEIGHT_BLEND pipeline asked for after the switch compiled and is ready" },
+  "settings: terrain-height-blend off",
+  { re = 'terrain: height blending off \(\d+ folded quadrant materials, [1-9]\d* changed', label = "switching off flipped them back" },
+  { re = 'graphics: light glow$' },
+  "settings: terrain-height-blend on",
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, [1-9]\d* changed', label = "flipped on again (the ready pipeline is reused)" },
+  { re = 'graphics: light glow, terrain height blending$', label = "on again" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the height-blended terrain" },
+  { re = 'terrain height blending pipeline \d+ failed', label = "the TERRAIN_HEIGHT_BLEND pipeline failed" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a terrain.wesl that does not compile)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap" },
+]
+
+[[scenario]]
+name = "terrain-height-blend-start"
+source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\": started with --graphics-only terrain-height-blend, the folded materials are made with it and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready, without a rendering or pipeline error"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "terrain-height-blend"]
+run_seconds = 14
+expect = [
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "the GPU folds the layers (bindless)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain height blending$', label = "the switch is on from the start" },
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, 0 changed', label = "on from the first frame: every material was made with it" },
+  { re = 'terrain height blending pipeline \d+ ready', label = "the materials made with it draw with the TERRAIN_HEIGHT_BLEND pipeline, which compiled" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the terrain drawn height-blended from the start" },
+  { re = 'terrain height blending pipeline \d+ failed', label = "the start's TERRAIN_HEIGHT_BLEND pipeline failed" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap" },
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, [1-9]', label = "no material made without the setting" },
+]
+
+[[scenario]]
+name = "terrain-height-blend-local-start"
+source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\": started with local height reference (0.10:4:local) and --graphics-only terrain-height-blend, the folded materials are made with it and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready, without a rendering or pipeline error"
+areas = ["renderer", "graphics", "terrain"]
+paths = [
+  "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl", "engine/nvforever/src/terrain_weights.wesl",
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/pipeline_gate.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_HEIGHT_BLEND = "0.10:4:local" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "terrain-height-blend"]
+run_seconds = 14
+expect = [
+  { text = "terrain: height blend parameters algorithm=depth depth=0.1 gain=4 source=local height_limit=0.25", label = "local reference: the start-up local reference parameters were parsed" },
+  { re = 'terrain: the first 6 texture layers of a quadrant are folded into its base', label = "local reference: the GPU folds the layers (bindless)" },
+]
+order = [[
+  { re = 'graphics: light glow, terrain height blending$', label = "local reference: the switch is on from the start" },
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, 0 changed', label = "local reference: on from the first frame: every material was made with it" },
+  { re = 'terrain height blending pipeline \d+ ready', label = "local reference: the materials made with it draw with the TERRAIN_HEIGHT_BLEND pipeline, which compiled" },
+]]
+forbid = [
+  { text = "Caught rendering error", label = "local reference: a rendering (validation) error with the terrain drawn height-blended from the start" },
+  { re = 'terrain height blending pipeline \d+ failed', label = "local reference: the start's TERRAIN_HEIGHT_BLEND pipeline failed" },
+  { text = "failed and will not be tried again", label = "local reference: a pipeline that failed for good" },
+  { text = "still being retried after", label = "local reference: a pipeline still retried at the cap" },
+  { re = 'terrain: height blending on \(\d+ folded quadrant materials, [1-9]', label = "local reference: no material made without the setting" },
+]
+
+[[scenario]]
 name = "fps-counter"
 source = "engine/nvforever/src/perf_overlay/ (issues #1087, #1704, #1868): --fps shows the frame rate counter (with CPU and GPU use) from the start, and the settings page's Frame rate counter switch hides and shows it while the game runs"
 areas = ["renderer", "settings"]
@@ -2634,6 +2723,30 @@ expect = [
 ]
 order = [["combat: ammo swapped to", "combat: reloaded 13, magazine 13"]]
 
+# Authored field; every invocation retains its own evidence under the same QA home.
+[[scenario]]
+name = "bc5-signed-normal-owned-field"
+source = "docs/spec-notes/dds-bc5.md: authored rendered material field; engineering comparator policy, not original-game pixels"
+areas = ["renderer", "textures", "nif"]
+paths = ["crates/fnv-dds/src/lib.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/bc5_field.rs", "engine/nvf-assets/src/bc5_field/", "engine/nvf-assets/src/nif_material.rs"]
+env = { NVF_PLAY_TEST_BC5_FIELD = "1", NVFOREVER_HOME = "bc5-field-home", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 20
+timeout = 180
+expect = [
+  { text = "bc5 field: actual NIF material source, 3 authored panels, 4 quadrants", count = 1 },
+  { text = "bc5 field: first rendered readback PASS", count = 1 },
+  { text = "bc5 field: second rendered readback PASS", count = 1 },
+  { text = "bc5 field: rendered comparison PASS", count = 1 },
+]
+order = [["bc5 field: first rendered readback PASS", "bc5 field: second rendered readback PASS", "bc5 field: rendered comparison PASS"]]
+forbid = [
+  { re = '(?i)bc5 field:.*(FAIL|timeout|missing|wrong byte count)' },
+  { re = '(?i)failed to process shader|failed to create shader module|wgpu error|validation error' },
+]
+note = "The aid reserves a new run-* child under bc5-field-home/bc5-field-output for every invocation; repeating --out preserves earlier evidence. Field DDS/geometry are authored in source; the normal world still needs read-only stock bootstrap data. No native filtering or installed-texture claim."
+manual = "Inspect both complete readback-1.ppm and readback-2.ppm under the evidence directory logged for this run: signed and reference four-quadrant panels match; both differ from the flat negative. Pin raw RGBA files and authored DDS bytes, review all ROI reports, and retain failures. Queueing a readback is not a rendered result."
+
 # ------------------------------------------------------------------ texture swaps
 
 [[scenario]]
@@ -3967,6 +4080,21 @@ run_seconds = 30
 expect = [
   { re = 'npc combat: .* fires a burst of (?P<n>\d+) rounds at .*, then lets go for', range = [3, 8], all = true, label = "every burst is 3 to 8 rounds" },
   { re = 'npc combat: .* fires a burst of \d+ rounds at .*, then lets go for', min = 2, label = "and bursts again after a pause" },
+]
+
+[[scenario]]
+name = "power-armour-footfalls"
+source = "#2541 (audio.md §10.2, observer check 140): a power-armour wearer's footfalls play FSTArmorPowerL/R beside the ground's step; IsSoundPlaying on the actor reads them; SetSoundSourceFile reaches the engine's sound (Titans of the New West's silencing)"
+areas = ["anim-sounds", "audio", "scripts"]
+paths = ["engine/nvforever/src/anim_sounds.rs", "crates/fnv-actor/src/anim_sounds.rs", "crates/fnv-game/src/nvse_sound.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "5:180:0", NVF_PLAY_TEST_KEYS = "6:w:5", NVF_PLAY_TEST_CONSOLE = "3:SetPCCanUsePowerArmor 1;3.1:player.AddItem ArmorPowerT45d 1;3.2:player.EquipItem ArmorPowerT45d;3.5:close;7.0:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);7.2:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);7.4:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);7.6:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);7.8:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);8.0:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);8.2:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);8.4:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);8.6:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);8.8:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);9.0:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);9.2:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);9.4:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);9.6:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);9.8:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);10.0:PrintC \"nvfpa %g %g\", (IsSoundPlaying FSTArmorPowerL player), (IsSoundPlaying FSTArmorPowerR player);10.2:close;11:SetSoundSourceFile FSTArmorPowerR \"fx/fst/dirt/run/\";11.2:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  "anim sounds: the player's armour steps as Power (FSTArmorPowerL)",
+  { re = 'script: print "nvfpa (1 0|0 1|1 1)"', label = "IsSoundPlaying reads a power-armour footfall on the player" },
+  { re = 'anim sounds summary:.*; [1-9][0-9]* armour footfalls', label = "the walk's footfalls each add the armour's" },
+  { re = 'world sounds: FSTArmorPowerR plays from fx/fst/dirt/run/ [(]SetSoundSourceFile[)]', label = "SetSoundSourceFile changes the file the engine plays" },
 ]
 
 [[scenario]]
@@ -7659,6 +7787,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "hv-intercom-push"
+kind = "tool"
+source = "issue #2454: a talking activator no SetTalkingActivatorActor has reached speaks for the one actor its scripts name (fnv-game talking_activators.rs scripted_talking_actor [hypothesis]): sent out of the Hidden Valley bunker by McNamara (INFO 0016329B: controls off) on a route that never used the intercom, the inner door's script (SCPT 000E3665) has HVIntercomREF start a conversation and Ramos says 000E3664, whose end script gives the controls back; before, the intercom spoke for itself, had no line (no_line) and the controls stayed off"
+areas = ["dialogue", "talking-activators"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "crates/fnv-game/src/dialogue.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/hv-intercom-push.actions.json"]]
+expect = [
+  { json = "observations.?label=intercom push.actor", equals = "0x000E2807" },
+  { json = "events.?kind=line_started.info", equals = "0x000E3664" },
+  { json = "events.?kind=result_script.unit", equals = "FalloutNV.esm|INFO 0x000E3664 end" },
+]
+
+[[scenario]]
 name = "cc-explorers-halt"
 kind = "tool"
 source = "issue #2548: at Cottonwood Cove three of the four Legion explorers force-greeted with the generic \"Move along.\" (0x00175608): the Halt line 0x0013AC97 names the AAM explorer as fixed speaker (ANAM) and was refused to the others, although its condition is the faction all four are in. A condition on the speaker naming a group now decides (docs/spec-notes/dialogue.md §4)"
@@ -11041,7 +11182,7 @@ order = [[
   { text = "pause menu: tab Display; selected resolution", label = "Tab: Display, on its first row" },
   { text = "pause menu: heading Display > Interface; selected hud-colour", label = "Page Down: under Interface" },
   { text = "pause menu: inspect: Display, keys on the rows, selected hud-colour", label = "the row is chosen with the keys on the rows" },
-  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected ui-scale", label = "Up from the heading's first row passes the heading to the row above it" },
+  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected menu-scale", label = "Up from the heading's first row passes the heading to the row above it (menu-scale, the last row under Screen since #2524)" },
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
@@ -25903,7 +26044,7 @@ expect = [
 forbid = [{ text = "DLSS: evaluate active", label = "a DLSS evaluate with FSR chosen" }, { re = 'graphics: DLSS \w+ active', label = "DLSS put on the camera" }, { text = "frame generation: on but not running", label = "frame generation held off" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "FSR 3.1 unavailable", label = "FSR unavailable through the interposer" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 # Download DLSS... from the settings (#2250, docs/dlss.md): the Upscaler row's choice, NVIDIA's licence in a dialog, the
-# download of the four files from NVIDIA's release. dlss-download-decline, -offline and -404 need no network and no NVIDIA
+# download of the eight files from NVIDIA's release. dlss-download-decline, -offline and -404 need no network and no NVIDIA
 # file: their NVF_DLSS_DIR names a folder under target/ that holds none (so the choice is offered), and their download address
 # is the test aid's loopback one (NVF_DLSS_DOWNLOAD_URL, taken only for http on this machine). Off Windows the choice is not
 # offered (DLSS is Windows only; picking it logs "not taken"), so each expectation takes either outcome, as dlss-no-files does. dlss-download-real and
@@ -25960,8 +26101,8 @@ forbid = [{ text = "DLSS download: installed in", label = "anything installed" }
 
 [[scenario]]
 name = "dlss-download-real"
-source = "#2250, docs/dlss.md \"Download DLSS…\": the real download from NVIDIA's Streamline 2.14.16 release: only the four entries fetched by ranges, each SHA-256 checked, installed in the DLSS folder, the dialog says to restart; NVIDIA's attribution joins the credits. dlss-download-real-restart then loads DLSS from them"
-note = "needs the network and NVF_DLSS_DOWNLOAD_REAL=1 (about 60 MB from GitHub). The first half of a pair with dlss-download-real-restart (they share NVFOREVER_HOME and NVF_DLSS_DIR, so they run in this order). The aid's clear deletes the four files from target/smoke-dlss-real at the start (it touches only a smoke-dlss-* folder), so the choice is offered every run; NVF_DLSS_PRELOAD=0 and --upscaler off keep the DLSS loader from holding a file left by the last run"
+source = "#2250, #2409, docs/dlss.md \"Download DLSS…\": the real download from NVIDIA's Streamline 2.14.16 release: only the eight entries fetched by ranges, each SHA-256 checked, installed in the DLSS folder, the dialog says to restart; NVIDIA's attribution joins the credits. dlss-download-real-restart then loads DLSS and sets up DLSS-G from them"
+note = "needs the network and NVF_DLSS_DOWNLOAD_REAL=1. The first half of a pair with dlss-download-real-restart (they share NVFOREVER_HOME and NVF_DLSS_DIR, so they run in this order). The aid's clear deletes the eight files from target/smoke-dlss-real at the start (it touches only a smoke-dlss-* folder), so the choice is offered every run; NVF_DLSS_PRELOAD=0 and --upscaler off keep the DLSS loader from holding a file left by the last run"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
 requires = ["NVF_DLSS_DOWNLOAD_REAL"]
@@ -25969,13 +26110,17 @@ env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 175
 expect = [
-  { re = 'test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: clear: \d of the listed files deleted', label = "the folder emptied of the four files" },
+  { re = 'test aid NVF_PLAY_TEST_DLSS_DOWNLOAD: clear: \d of the listed files deleted', label = "the folder emptied of the eight files" },
   "DLSS download: licence accepted",
-  { re = 'DLSS download: 4 entries, \d+ bytes to fetch from https://github\.com/NVIDIA-RTX/Streamline/releases/download/v2\.14\.16/streamline-sdk-v2\.14\.16\.zip', label = "the four entries, from the pinned address" },
+  { re = 'DLSS download: 8 entries, \d+ bytes to fetch from https://github\.com/NVIDIA-RTX/Streamline/releases/download/v2\.14\.16/streamline-sdk-v2\.14\.16\.zip', label = "the eight entries, from the pinned address" },
   "DLSS download: sl.interposer.dll 652928 bytes, SHA-256 ok",
   "DLSS download: sl.common.dll 843904 bytes, SHA-256 ok",
   "DLSS download: sl.dlss.dll 422016 bytes, SHA-256 ok",
   "DLSS download: nvngx_dlss.dll 58956912 bytes, SHA-256 ok",
+  "DLSS download: sl.dlss_g.dll 637056 bytes, SHA-256 ok",
+  "DLSS download: nvngx_dlssg.dll 7506544 bytes, SHA-256 ok",
+  "DLSS download: sl.reflex.dll 388736 bytes, SHA-256 ok",
+  "DLSS download: sl.pcl.dll 360064 bytes, SHA-256 ok",
   { re = 'DLSS download: installed in .*smoke-dlss-real; restart NVForever to use DLSS', label = "installed in the folder" },
   "DLSS download: result shown (ready)",
   { text = "DLSS download: NVIDIA's attribution added to the credits", label = "the attribution once the files are there" },
@@ -25984,8 +26129,8 @@ forbid = [{ text = "DLSS download: failed", label = "a failed download" }, { tex
 
 [[scenario]]
 name = "dlss-download-real-restart"
-source = "#2250, docs/dlss.md \"Download DLSS…\": after dlss-download-real, a restart with DLSS chosen loads Streamline from the downloaded files and DLSS draws"
-note = "runs after dlss-download-real in the same NVFOREVER_HOME and NVF_DLSS_DIR; needs NVF_DLSS_DOWNLOAD_REAL (and that run's files)"
+source = "#2250, #2409, docs/dlss.md \"Download DLSS…\": after dlss-download-real, a restart with DLSS chosen loads Streamline from the downloaded files, sets up DLSS-G and Reflex, and DLSS draws"
+note = "runs after dlss-download-real in the same NVFOREVER_HOME and NVF_DLSS_DIR; needs NVF_DLSS_DOWNLOAD_REAL (and that run's files). The DLSS-G line needs an RTX 40 series or newer and Windows' GPU scheduling on, as dlssg-on does"
 areas = ["graphics"]
 paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
 requires = ["NVF_DLSS_DOWNLOAD_REAL"]
@@ -25994,6 +26139,7 @@ args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--
 run_seconds = 18
 expect = [
   "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
+  { text = "DLSS-G: ready: DLSS-G and Reflex set up (", label = "DLSS-G and Reflex ready from the downloaded files" },
   { re = 'DLSS: output observed: .*, generation 1, mean RGB', label = "DLSS's output seen, so NGX drew from the downloaded files" },
   "upscaler: DLSS Quality asked for, DLSS Quality draws",
 ]
@@ -29443,4 +29589,35 @@ forbid = [
   { re = 'combat: .* hits the player', label = "the NCR shoot the disguised player" },
   { re = 'alert: .* → Combat: detects the player', label = "an NCR soldier starts fighting the disguised player" },
   { re = 'combat group: .* about the player', label = "an alarm about the player goes round" },
+]
+[[scenario]]
+name = "softlock-controls-held"
+source = "issue #2365 (fnv_game softlock.rs, nvf-play softlock.rs): scripts holding the movement controls outside any conversation or menu with no story event are a soft lock, logged once per hold (the hold #2309 leaves the player in); the test aid shortens the 30 s limit to 5 s"
+note = "Goodsprings, free at first: no finding in the 6 s before the console turns the controls off, then one"
+areas = ["scripts", "quests"]
+paths = ["crates/fnv-game/src/softlock.rs", "engine/nvf-play/src/softlock.rs", "engine/nvforever/src/reports/anomaly.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SOFTLOCK_SECS = "5", NVF_PLAY_TEST_CONSOLE = "6:DisablePlayerControls;6.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 25
+order = [[
+  { re = 'player controls: movement, Pip-Boy, fighting, POV disabled by scripts', label = "the console turns the controls off" },
+  { re = 'softlock: controls_held for 5 s: scripts hold the controls \(movement, Pip-Boy, fighting, POV\), outside any conversation or menu, and no story event has happened', label = "5 s later the hold is reported" },
+]]
+expect = [
+  { re = 'WARN nvf_play::softlock: softlock: ', count = 1, label = "one finding for the one hold, none while the player was free" },
+]
+
+[[scenario]]
+name = "softlock-hardin-training"
+source = "issue #2309 (found by the watchdog of #2365): Hardin's power armor training restrains the player and Hardin, turns the controls off and, 4 s on, gives Hardin the Dialogue package HVHardinPowerArmorTrainingPackage; only the line that package opens releases them [observed: INFO 0x001633C9's result script, SCPT HVMcNamaraHardinConvoScript]"
+note = "The console does what the line's result script does (the conversation that leads to it needs the Brotherhood's quests). Hidden Valley bunker L2, beside Hardin; the player is unseen because a bare start has the Brotherhood hostile"
+areas = ["ai", "quests", "dialogue"]
+paths = ["crates/fnv-game/src/softlock.rs", "engine/nvf-play/src/softlock.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.SetRestrained 1;6.2:EdgarHardinREF.SetRestrained 1;6.4:DisablePlayerControls;6.6:set HVMcNamaraHardinConvoTriggerREF.HardinTraining to 1;7:close" }
+args = ["--cell", "HiddenValley02", "--play", "--pos=3400,-3200,15546", "--hour", "12", "--no-voice"]
+run_seconds = 60
+expect = [
+  { re = 'player controls: movement, Pip-Boy, fighting, POV disabled by scripts', label = "the controls go off as the line's script turns them" },
+  { re = 'dialogue: conversation with EdgarHardinREF started', label = "Hardin, restrained, starts the training conversation", known_failing = "#2309: a restrained actor's Dialogue package never starts its conversation" },
+  { re = 'WARN nvf_play::softlock: softlock: ', count = 0, label = "the player is not left held", known_failing = "#2309: nothing releases the player; the watchdog reports controls_held after 30 s" },
 ]

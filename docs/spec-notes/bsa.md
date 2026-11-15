@@ -222,3 +222,44 @@ share only `characters\_1stperson\1hpaim.kf` with different contents, not testab
 screenshot) and DLC against DLC in load order (only DLC-worldspace files differ).
 `Fallout - Invalidation.bsa` is in no list and named after no plugin; the VFS ignores it
 [hypothesis that the game does too].
+
+
+## NVForever home loose files
+
+Implementation context at pinned source `6692d2da4612fa4aae9f0a9eea177452ba511c4e`:
+`EngineHome::mods` in `crates/fnv-install/src/lib.rs`, `mod_file_roots` in
+`engine/nvf-play/src/script_input.rs`, and `docs/design/install-layout.md` describe
+NVForever's own `mods` folder
+is a read-only input layer above the game's Data. The script file reader already
+searches those loose files before Data. `Vfs::open_for_plugins_in` receives this
+folder, but previously used it only to discover plugin archives; the asset reader
+therefore could not read a loose asset that the script file reader could find.
+
+[hypothesis: NVForever layout policy, not native multi-directory parity] Index
+Data loose files, then the explicitly supplied own-mods loose root. Keep the
+existing archive selection and precedence. `data_dir()` still names game Data;
+`source_of` reports `loose` for either layer, and `loose_path` names the actual
+winning file with its filesystem spelling. `read_archived` keeps the highest
+archive copy underneath both loose layers, rather than treating a hidden Data
+loose file as an archive. With no mods root, single-root behavior is retained.
+Missing optional roots add no layer; other traversal failures use the existing
+skipped-folder diagnostics. An indexed winner that later cannot be read returns
+its read error, without silently falling back to hidden bytes.
+
+[hypothesis: retained snapshot policy] Opening indexes the available paths once.
+Installing a new file requires a new VFS; this change adds no filesystem polling,
+cache invalidation, extra archive discovery, or writes to either input root.
+Top-level files remain outside the asset namespace.
+
+Authored portable controls cover home-only mixed-case paths, precedence across
+both loose layers and archives, archived fallback, absent/removed layers,
+single-root controls, top-level exclusions, read errors, and reopening after a
+new file appears. Index lifetime does not freeze an indexed file's bytes: a
+later read still opens its winning path. The same-root control preserves the
+existing archive rule that an explicitly supplied mods copy has a full-path
+archive name, even when both roots name Data.
+
+These controls validate VFS path selection and error behavior. They do not by
+themselves establish asset decoding, a live animation consumer or rendering.
+Exact-head workspace checks and those consumer checks are tracked separately;
+no complete original-mod or native opcode compatibility follows from this leaf.

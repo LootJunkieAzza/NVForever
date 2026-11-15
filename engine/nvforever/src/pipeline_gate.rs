@@ -26,7 +26,10 @@
 //!
 //! Test aid `NVF_PLAY_TEST_PIPELINE_LOG=1`: one log line for each pipeline when it is asked
 //! for and when it is ready or has failed for good, with its label and the time between.
-//! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line.
+//! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line. A pipeline
+//! whose fragment stage has terrain height blending on (`TERRAIN_HEIGHT_BLEND`, terrain.rs
+//! "Height blending") also logs `terrain height blending pipeline <n> ready` (or `failed`)
+//! when it is done, for the smoke check that the variant compiled [design, #2550].
 //!
 //! **A travel's screen and the sun's shadows** (#1732). Twelve trips through new places took
 //! 15.4 s of screens with this wait against about 10 s without [observed: one launch], and
@@ -253,7 +256,7 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
                         let name: &str = match s {
                             bevy::shader::ShaderDefVal::Bool(s, _) | bevy::shader::ShaderDefVal::Int(s, _) | bevy::shader::ShaderDefVal::UInt(s, _) => s,
                         };
-                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE") || name.starts_with("BLEND_")
+                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE" | "TERRAIN_HEIGHT_BLEND") || name.starts_with("BLEND_")
                     };
                     let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).filter(interesting).collect();
                     info!("pipeline {i} shader-defs: {fragment:?}: {}", label(&p.descriptor));
@@ -264,8 +267,18 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
             seen[i].1 = true;
             let how = if matches!(p.state, CachedPipelineState::Ok(_)) { "ready" } else { "failed" };
             info!("pipeline {i} {how} after {:.0} ms: {}", now.duration_since(seen[i].0).as_secs_f64() * 1000.0, label(&p.descriptor));
+            if height_blend_variant(&p.descriptor) {
+                info!("terrain height blending pipeline {i} {how}: {}", label(&p.descriptor));
+            }
         }
     }
+}
+
+/// Whether a pipeline is a terrain height blending variant: its fragment stage has
+/// `TERRAIN_HEIGHT_BLEND` (terrain.rs `height_blend_def`).
+fn height_blend_variant(descriptor: &PipelineDescriptor) -> bool {
+    let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return false };
+    d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == "TERRAIN_HEIGHT_BLEND"))
 }
 
 #[cfg(test)]
@@ -349,6 +362,21 @@ mod tests {
         // What draws the scene or the screen, whatever its definitions.
         assert!(!sun_shadow(&prepass("pbr_opaque_mesh_pipeline", &ortho)));
         assert!(!sun_shadow(&prepass("ui_pipeline", &ortho)));
+    }
+
+    #[test]
+    fn a_height_blend_variant_is_known_by_its_fragment_definition() {
+        let main = |defs: &[&'static str]| {
+            PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+                label: Some("pbr_opaque_mesh_pipeline".into()),
+                fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: defs.iter().map(|d| ShaderDefVal::from(*d)).collect(), ..default() }),
+                ..default()
+            }))
+        };
+        assert!(height_blend_variant(&main(&["VERTEX_UVS_A", "TERRAIN_HEIGHT_BLEND"])));
+        assert!(!height_blend_variant(&main(&["VERTEX_UVS_A"])));
+        // In the vertex stage only (not where terrain.rs puts it): not one.
+        assert!(!height_blend_variant(&prepass("pbr_opaque_mesh_pipeline", &["TERRAIN_HEIGHT_BLEND"])));
     }
 
     #[test]

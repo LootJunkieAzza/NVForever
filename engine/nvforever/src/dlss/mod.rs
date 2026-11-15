@@ -204,16 +204,24 @@ fn set_fg_availability(availability: FgAvailability) {
 
 /// Why DLSS Frame Generation cannot be chosen this session, in the settings page's words;
 /// `None` when it can (the Frame generation row's DLSS choice, `crate::frame_gen`).
-pub(crate) fn frame_generation_unavailable() -> Option<&'static str> {
-    if cfg!(not(windows)) {
+pub(crate) fn frame_generation_unavailable(download_offered: impl FnOnce() -> bool) -> Option<&'static str> {
+    frame_generation_reason(cfg!(windows), FG_AVAILABILITY.load(Ordering::Relaxed), download::current().map(|h| h.progress().phase).as_ref(), download_offered)
+}
+
+/// [design] Only missing-file refusals suggest a download or restart; the caller supplies
+/// whether its Upscaler row actually offers the download.
+fn frame_generation_reason(windows: bool, availability: u8, phase: Option<&download::Phase>, download_offered: impl FnOnce() -> bool) -> Option<&'static str> {
+    if !windows {
         return Some("Not on this GPU");
     }
-    match FG_AVAILABILITY.load(Ordering::Relaxed) {
+    match availability {
         6 => None,
         2 => Some("Needs an NVIDIA RTX 40 series or newer"),
         3 => Some("Needs hardware-accelerated GPU scheduling"),
         4 => Some("Needs a newer NVIDIA driver"),
         5 => Some("Not on this GPU"),
+        _ if matches!(phase, Some(download::Phase::Done(_))) => Some("Restart to use DLSS Frame Generation"),
+        _ if download_offered() => Some("Files missing: Download DLSS… on the Upscaler row"),
         _ => Some("The DLSS Frame Generation files are missing"),
     }
 }
@@ -1226,8 +1234,22 @@ mod tests {
     #[test]
     fn frame_generation_reasons_follow_the_loader() {
         // The tests never run the loader: as without the files.
-        assert_eq!(frame_generation_unavailable(), Some(if cfg!(windows) { "The DLSS Frame Generation files are missing" } else { "Not on this GPU" }));
+        assert_eq!(frame_generation_unavailable(|| true), Some(if cfg!(windows) { "Files missing: Download DLSS… on the Upscaler row" } else { "Not on this GPU" }));
+        for (availability, expected) in [(2, Some("Needs an NVIDIA RTX 40 series or newer")), (3, Some("Needs hardware-accelerated GPU scheduling")), (4, Some("Needs a newer NVIDIA driver")), (5, Some("Not on this GPU")), (6, None)] {
+            assert_eq!(frame_generation_reason(true, availability, None, || panic!("only missing files need the offer")), expected);
+        }
         assert_eq!(frame_generation_max(), 0);
+    }
+
+    #[test]
+    fn frame_generation_missing_files_hint_follows_the_download() {
+        for availability in [0, FgAvailability::FilesMissing as u8] {
+            assert_eq!(frame_generation_reason(true, availability, None, || true), Some("Files missing: Download DLSS… on the Upscaler row"));
+            assert_eq!(frame_generation_reason(true, availability, None, || false), Some("The DLSS Frame Generation files are missing"));
+            let done = download::Phase::Done(PathBuf::from("dlss"));
+            assert_eq!(frame_generation_reason(true, availability, Some(&done), || panic!("installed: no offer needed")), Some("Restart to use DLSS Frame Generation"));
+            assert_eq!(frame_generation_reason(false, availability, None, || panic!("Windows only")), Some("Not on this GPU"));
+        }
     }
 
     #[test]

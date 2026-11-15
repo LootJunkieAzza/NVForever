@@ -175,7 +175,8 @@ fn weapon_paths_follow_the_weapon_in_hand() {
 }
 
 /// PlayAnimationPath's sequences finish by themselves; ActivateAnim's stay until a script
-/// takes them back [documented: ActivateAnim, "adds a sequence to the active ones"]. Both
+/// takes them back [documented: ActivateAnim, "The animation will overlay any other
+/// animations playing on the actor"; DeactivateAnim deactivates it]. Both
 /// are requests in `AnimPaths::sequences`, which the renderer layers on the actor.
 #[test]
 fn activate_anim_sequences_stay_until_taken_back() {

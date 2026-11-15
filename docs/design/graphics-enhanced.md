@@ -408,6 +408,104 @@ enhanced "Bloom" (§3.3), when on, stands in for it.
 Engineering choices made by eye against the original's frames; not used to explain
 differences in the parity frames.
 
+### 3.12 Terrain height blending (`terrain-height-blend`; off in both presets)
+
+[design, #2550] An addition of NVForever's own, not a fact about the original game. The
+landscape's layer opacities live on the 33 × 33 vertex grid, 128 units apart, so where a
+layer is painted at full strength on one vertex and not at all on the next the change is
+a straight 128-unit ramp that follows the triangle grid. With this switch the folded
+terrain shader (terrain.wesl, `TERRAIN_HEIGHT_BLEND`) shapes that ramp by the textures:
+the incoming texture's brighter texels (stones, clumps, cracked tops) come through first
+and the gaps between them fill last. Prior art for this engine family: the New Vegas
+Reloaded terrain shader's `HeightBlend` and Skyrim's Community Shaders; cited only as
+prior art, nothing of either was used.
+
+- **Height source.** Height is `clamp(gain * (luma(raw_texel) - luma(reference)),
+  -0.25, 0.25)`, Rec. 709 luma on linear, sRGB-decoded colour before material or vertex
+  tint. Diffuse alpha keeps its existing role of multiplying painted opacity. `global`
+  (default) reads the existing coarsest mip at UV (0.5, 0.5), a near texture mean for a
+  full mip chain. A bright texture does not win just for being bright; broad shading in
+  the texture still contributes. A short mip chain gives an imperfect reference.
+  `local` reads a coarser mip at the texel's own UV: `LOD = min(last_mip,
+  max(4, estimated_current_lod + 2))`. Current LOD is estimated from UV derivatives scaled
+  by each texture's dimensions, including the view's mip bias. Derivatives are captured
+  before divergent control flow or discard; reference samples use explicit levels in
+  both binding forms. This local reference removes some broader spatial shading too.
+  A base without a diffuse texture has height zero. The base diffuse is read again for
+  raw colour, at the standard material's coordinate and bias.
+- **Weights.** For painted opacity * diffuse alpha `a[k]`, ordered shares are
+  `w[k+1] = a[k] * product(1 - a[j], j > k)` and `w[0] = product(1 - a[j])`.
+  They sum to one. Compute `score[i] = w[i] + clamp(height[i], -w[i], w[i])`,
+  `highest = max(score)`, and `q[i] = w[i] * max(0, depth - (highest - score[i]))`;
+  final weights are `q[i] / sum(q)`. Scores outside the depth window drop out.
+  The share cap preserves continuity when a layer appears or disappears. A zero share
+  stays zero and a sole contributor stays one. Equal heights now sharpen unequal shares;
+  there is no equal-height gate or exponential boost. Equal shares and equal heights
+  remain equal. Increasing depth converges towards the ordered blend. With shares
+  (0.5, 0.5), heights (-0.05, +0.05), depth 0.10 gives weights (0, 1).
+  Colour and normals use the same weights; the resulting normal is made unit length once.
+  terrain_weights.wesl is plain WGSL, with naga validation and a CPU mirror in terrain.rs.
+- **Default parameters** [design, #2550]: depth 0.10, gain 8, global reference, the user's choice from in-game comparisons at a painted gravel/cracked-mud transition (2026-11-15, the matrix below); height
+  limit remains 0.25. Test aid `NVF_PLAY_TEST_HEIGHT_BLEND=depth:gain[:source]` is read
+  once per process and logged at start. Source is `global` (also when omitted) or `local`.
+  Depth must be finite and at least 0.001 (also the shader's floor); gain finite and non-negative.
+  Invalid input warns and falls back to the complete default `0.10:8:global`.
+  This configures the effect; enable it with the graphics switch. Only the on variant
+  reads the appended uniform `(depth, gain, source_id, reserved)`, source IDs 0/1.
+  The material pipeline key remains its on/off bit.
+- **Picture comparison matrix** [design, #2550], compared at a road-side transition near Goodsprings, 1920x1080, 13:30. Keep camera,
+  lighting, textures and graphics settings fixed; compare roads/clumps, flat textures,
+  oblique distant ground, quadrant/cell edges and the fold limit. Restart between values.
+
+  | Comparison | Switch | `NVF_PLAY_TEST_HEIGHT_BLEND` |
+  |---|---|---|
+  | Ordered baseline | off | `0.10:4:global` |
+  | First candidate | on | `0.10:4:global` |
+  | Wider transition | on | `0.20:4:global` |
+  | Narrower transition | on | `0.05:4:global` |
+  | More height contrast (chosen default) | on | `0.10:8:global` (or unset) |
+  | Spatial reference | on | `0.10:4:local` |
+
+  Off, the gravel fades into the cracked mud as a broad gradient; on, the mud breaks into
+  islands along its cracks with gravel between. Depth 0.05 starts to show straight edges
+  along the triangles; gain 0 (no height, sharpening only) gives a hard band without shape;
+  the local source looked like the global one there, so global (no extra read) is kept.
+  Retextures with higher-resolution or higher-contrast diffuses may want another gain;
+  neither source is claimed to suit every terrain texture.
+- **What it reaches.** Only the folded draw (terrain.rs "One draw for the base and its
+  first layers"): up to six layers where the repeat divides the cell, four otherwise. A
+  quadrant's later layers that keep their blended draws, and every layer on a GPU without
+  bindless textures, blend as before: their coverage over the folded result is unchanged,
+  but height does not compete across that draw boundary, so moving a layer across the
+  fold limit can change the outline there.
+- **Quadrant and cell edges.** The two sides of an edge give the same result only where
+  they have the same contributing textures, the same effective (ordered) shares and the
+  same fold partition. Stitching (#2096, terrain.rs `stitch_layers`) makes the painted
+  opacities agree along an edge, but each quadrant keeps its own base and layer order, so
+  equal opacities can still give different ordered shares, and a layer folded on one side
+  can be a separate draw on the other. Whether that shows is checked by pictures (the
+  edge-stitch location of `terrain-edge-stitch`, quadrants at the fold limit), not
+  claimed here.
+- **Switching.** The settings row Terrain height blending (Graphics > Picture), or
+  `--graphics-only terrain-height-blend`. It is a pipeline key of the folded material
+  (`TerrainLayersKey`); switching flips every folded material in place
+  (`terrain::sync_height_blend`, logged as `terrain: height blending on|off (<n> folded
+  quadrant materials, <m> changed; …)`), and the first switch compiles the new pipeline
+  (the pause menu waits for it). With the switch off the shader's path is the one there
+  always was, operation for operation.
+- **Cost.** Global uses one coarsest-mip reference sample per contributing texture,
+  generally a small cached working set. Local uses one explicit-level spatial sample per
+  contributor at the same UV; it has a larger working set and derivative/LOD arithmetic.
+  Both also reread the base's raw diffuse, usually cached. Cost needs GPU measurements at
+  layer-heavy Goodsprings roads and the Primm junction, off/global/local. Zero-share
+  layers still have the ordinary diffuse/normal reads; skipping those is separate work.
+- Whether `enhanced` turns it on is the owner's call; until then it is off in both presets
+  and is not an effect of the Enhanced effects row. Smoke: `terrain-height-blend` (switched
+  on, off and on while running), `terrain-height-blend-start` (global from the start),
+  and `terrain-height-blend-local-start` (local from the start); all
+  want the variant's `terrain height blending pipeline <n> ready` line
+  (`NVF_PLAY_TEST_PIPELINE_LOG`, pipeline_gate.rs). The look itself is checked by pictures.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on
