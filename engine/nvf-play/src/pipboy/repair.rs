@@ -650,7 +650,7 @@ mod tests {
             .insert_resource(PipBoy { phase: super::super::Phase::Up, page: Page::Items, ..default() })
             .insert_resource(ActiveMenu(Some(model)))
             .insert_resource(SimState { forms, refs, world })
-            .insert_resource(PipRepair(Some(Session { offer, skill: 0.0, settings: MergeSettings::default(), first: 0, selected: 1 })))
+            .insert_resource(PipRepair(Some(Session { offer, skill: 0.0, settings: MergeSettings::default(), first: 0, selected: 1, preview: false })))
             .add_message::<RepairInput>()
             .add_message::<super::super::item_mod::ModInput>()
             .add_message::<crate::menu::MenuInput>()
