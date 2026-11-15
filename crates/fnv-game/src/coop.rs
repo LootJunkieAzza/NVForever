@@ -182,6 +182,18 @@ fn exchanges_chips(data: &GameData, unit: &crate::data::Compiled) -> bool {
     adds && removes && chip
 }
 
+/// A line that does nothing but end the conversation: flagged Goodbye, offering no
+/// topics, and with no script that calls anything (a quest's farewell that sets a stage
+/// or gives an item stays the host's).
+fn only_takes_leave(data: &GameData, d: &InfoDef) -> bool {
+    let calls_nothing = |u: crate::data::UnitId| {
+        let mut n = BTreeMap::new();
+        crate::intro::calls(&data.unit(u).program, &mut n);
+        n.is_empty()
+    };
+    d.has(crate::data::info_flag::GOODBYE) && d.choices.is_empty() && d.begin.into_iter().chain(d.end).all(calls_nothing)
+}
+
 /// [`Game::guest_lines`]: the lines that trade, deal Caravan or exchange a casino's
 /// chips, then, until nothing more is added, the lines whose choices (TCLT) offer a topic
 /// with such a line.
@@ -586,12 +598,20 @@ impl Game<'_> {
         out
     }
 
-    /// A guest's choices: only [`Game::guest_lines`], and Goodbye.
+    /// A guest's choices: only [`Game::guest_lines`], and Goodbye: the game's GOODBYE
+    /// topic, or a line of the speaker's own that only takes leave ([`only_takes_leave`]),
+    /// as a mod's cashier ends its talk: the Black Chip's "I need to get going." is
+    /// ALBakerCashierGoodbye, a topic of Long 15's, its line flagged Goodbye with no script
+    /// [observed: Long15Reloaded.esm INFO 06004667; overnight queue 2026-11-14 19:08, the
+    /// owner: "guests cant buy chips or say goodbye to this guuy"]. The game's GOODBYE is
+    /// added only where the speaker offers no way out of its own.
     pub(crate) fn guest_choices(&mut self, actor: FormId, mut out: Vec<crate::dialogue::Choice>) -> Vec<crate::dialogue::Choice> {
-        let goodbye = self.data.goodbye;
+        let data = self.data;
+        let goodbye = data.goodbye;
         let lines = self.guest_lines();
-        out.retain(|c| lines.contains(&c.info) || Some(c.topic) == goodbye);
-        if let Some(bye) = goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
+        let leaves = |c: &crate::dialogue::Choice| Some(c.topic) == goodbye || data.infos.get(&c.info).is_some_and(|d| only_takes_leave(data, d));
+        out.retain(|c| lines.contains(&c.info) || leaves(c));
+        if let Some(bye) = goodbye.filter(|_| !out.iter().any(leaves)) {
             out.extend(self.offer_topic(actor, bye));
         }
         out
