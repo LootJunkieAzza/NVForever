@@ -25,6 +25,11 @@
 //!   damage, and goes to the guest's game as every hit on its actor does
 //!   (`CombatStats::coop_hits`). The guest's copy plays the attack (`npc_attacks`) and
 //!   shows the weapon ([`FarFighter::weapon`]).
+//! - **Not through the land**: a hit lands only when the land does not rise between the
+//!   two ([`land_between`]); an actor the AI has under the land is put on it first
+//!   (`crate::actor_feet::on_the_land`). A guest that is down is no one's target (owner's
+//!   report 2026-11-14: lakelurks under the ground went on killing the guest, and the
+//!   hits went on while it was down).
 //! - The guest's hits on these actors land on the host already (`Game::hit_object`) and
 //!   make them fight back by the same rule.
 //!
@@ -47,6 +52,14 @@ pub const CREATURE_REACH: f32 = 150.0;
 /// How often the fights are looked at, seconds.
 const STEP: f32 = 0.25;
 const LOG_EVERY: f32 = 10.0;
+/// Where along the line between two actors the land is looked at: its eye, its target's
+/// chest, and this many points between [engineering choice].
+const LAND_STEPS: usize = 8;
+/// The height of an attack's line over the feet, game units [engineering choice: about a
+/// creature's or a person's chest].
+const LINE_UP: f32 = 60.0;
+/// How far the land must rise over the line to stop it, game units [engineering choice].
+const LAND_CLEAR: f32 = 16.0;
 
 /// One far actor's fight.
 #[derive(Debug, Clone, Default)]
@@ -59,6 +72,8 @@ pub(super) struct FarFighter {
     pub target_player: u8,
     /// How far it was from its target at the last step (for the log).
     distance: f32,
+    /// Whether the land in the way was logged for this fight.
+    blocked_logged: bool,
 }
 
 /// The host's far fights.
@@ -69,6 +84,8 @@ pub(super) struct FarFights {
     last_log: f32,
     hits: u32,
     misses: u32,
+    /// Attacks the land stopped.
+    blocked: u32,
     rng: u64,
 }
 
@@ -88,6 +105,17 @@ pub fn attack_every(gun: bool, automatic: bool, fire_rate: f32, shots_per_sec: f
 pub fn hit_chance(distance: f32, max_range: f32) -> f32 {
     let r = if max_range > 0.0 { (distance / max_range).clamp(0.0, 1.0) } else { 0.5 };
     0.85 - 0.5 * r
+}
+
+/// Whether the land rises between an attacker at `from` and its target at `to` (feet), on
+/// the line [`LINE_UP`] over both, by more than [`LAND_CLEAR`]: the far actors have no
+/// collision to cast a sight line through, but the land's heights are in the data.
+pub fn land_between(from: [f32; 3], to: [f32; 3], land: impl Fn(f32, f32) -> Option<f32>) -> bool {
+    (0..=LAND_STEPS).any(|i| {
+        let t = i as f32 / LAND_STEPS as f32;
+        let at = |k: usize| from[k] + (to[k] - from[k]) * t;
+        land(at(0), at(1)).is_some_and(|g| g > at(2) + LINE_UP + LAND_CLEAR)
+    })
 }
 
 fn space_of(place: Place) -> Space {
@@ -127,7 +155,8 @@ pub(super) fn far_fights(
     let guests: Vec<(u8, FormId, Space, [f32; 3])> = coop
         .peers
         .iter()
-        .filter(|(_, p)| !p.lost)
+        // One that is down is no one's target until it is up again.
+        .filter(|(_, p)| !p.lost && !p.down)
         .filter_map(|(&id, p)| Some((id, p.actor?, p.samples.back().map(|(_, s)| (space_of(s.place), s.feet))?)))
         .map(|(id, a, (sp, f))| (id, a, sp, f))
         .collect();
@@ -177,7 +206,7 @@ pub(super) fn far_fights(
             let gun = weapon.is_some_and(|w| combat.forms.weapons.get(&w).is_some_and(|ws| crate::npc_combat::is_gun(&combat, ws, w)));
             let own = if weapon.is_none() { game.creature_attack(me).map_or("fists".to_string(), |c| format!("its own attack ({} damage)", c.0)) } else { String::new() };
             info!("co-op far fights: {me} fights player {} away from the host, with {}", pid + 1, weapon.map_or(own, |w| w.to_string()));
-            FarFighter { weapon, gun, next: now, target_player: pid, distance: 0.0 }
+            FarFighter { weapon, gun, next: now, target_player: pid, distance: 0.0, blocked_logged: false }
         });
         f.target_player = pid;
         let ws = f.weapon.or(combat.fists_id()).and_then(|w| combat.forms.weapons.get(&w));
@@ -205,6 +234,17 @@ pub(super) fn far_fights(
             continue;
         }
         f.next = now + ws.map_or(BLOW_SECONDS, |w| attack_every(f.gun, w.automatic, w.fire_rate, w.attack_shots_per_sec, w.attack_mult));
+        // Not through the land: the attack is held, as a drawn one's sight line would be.
+        if let Space::World(ws) = space {
+            if land_between(feet, tfeet, |x, y| crate::actor_feet::land_height_in(&world, ws, x, y)) {
+                far.blocked += 1;
+                if !f.blocked_logged {
+                    f.blocked_logged = true;
+                    info!("co-op far fights: {me} holds its attack on player {}: the land is between them ({:.0} units, feet z {:.0} and {:.0})", pid + 1, d, feet[2], tfeet[2]);
+                }
+                continue;
+            }
+        }
         *coop.npc_attacks.entry(r).or_default() = coop.npc_attacks.get(&r).copied().unwrap_or(0).wrapping_add(1);
         let lands = !f.gun || crate::npc_combat::next_unit(&mut far.rng) < hit_chance(d, gun_range);
         if !lands {
@@ -228,7 +268,7 @@ pub(super) fn far_fights(
         far.last_log = now;
         let mut each: Vec<String> = far.fighters.iter().map(|(r, f)| format!("{:#010X} {:.0} away", r, f.distance)).collect();
         each.sort();
-        info!("co-op far fights: {} actors fighting guests away from the host; {} hits, {} misses so far; {}", far.fighters.len(), far.hits, far.misses, each.join(", "));
+        info!("co-op far fights: {} actors fighting guests away from the host; {} hits, {} misses, {} held by the land so far; {}", far.fighters.len(), far.hits, far.misses, far.blocked, each.join(", "));
     }
 }
 
@@ -245,5 +285,29 @@ mod tests {
         // Nearer hits more often; never 0 or 1.
         assert!(hit_chance(100.0, 2000.0) > hit_chance(1800.0, 2000.0));
         assert!(hit_chance(0.0, 2000.0) < 1.0 && hit_chance(5000.0, 2000.0) > 0.0);
+    }
+
+    #[test]
+    fn the_land_stops_a_far_attack() {
+        let flat = |_: f32, _: f32| Some(0.0);
+        // On flat land, two actors standing on it: nothing between them.
+        assert!(!land_between([0.0, 0.0, 0.0], [300.0, 0.0, 0.0], flat));
+        // A lakelurk 200 units under the land: the land is over its line.
+        assert!(land_between([0.0, 0.0, -200.0], [300.0, 0.0, 0.0], flat));
+        // A ridge between them.
+        let ridge = |x: f32, _: f32| Some(if (100.0..200.0).contains(&x) { 300.0 } else { 0.0 });
+        assert!(land_between([0.0, 0.0, 0.0], [300.0, 0.0, 0.0], ridge));
+        // No land there (out of the worldspace's grid): not held.
+        assert!(!land_between([0.0, 0.0, -200.0], [300.0, 0.0, 0.0], |_, _| None));
+    }
+
+    #[test]
+    fn an_actor_under_the_land_is_put_on_it() {
+        use crate::actor_feet::{on_the_land, BELOW_LAND};
+        assert_eq!(on_the_land([1.0, 2.0, -500.0], Some(-100.0)), [1.0, 2.0, -100.0]);
+        // Within the land mesh's error, or above it (swimming, on a rock): left.
+        assert_eq!(on_the_land([1.0, 2.0, -100.0 - BELOW_LAND + 1.0], Some(-100.0))[2], -100.0 - BELOW_LAND + 1.0);
+        assert_eq!(on_the_land([1.0, 2.0, 50.0], Some(-100.0))[2], 50.0);
+        assert_eq!(on_the_land([1.0, 2.0, -500.0], None)[2], -500.0);
     }
 }

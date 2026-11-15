@@ -59,6 +59,11 @@ pub fn get_stage_done(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 pub fn start_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     g.start_quest(q);
+    // A replication guest's own script started it: its script runs here
+    // (`Game::guest_own_quest`).
+    if g.guest_own_quest(q, true) {
+        tracing::info!("co-op: this guest's own script started quest {}: its script runs here until it stops", q);
+    }
     none()
 }
 
@@ -67,6 +72,7 @@ pub fn start_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn stop_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     g.stop_quest(q);
+    g.guest_own_quest(q, false);
     none()
 }
 

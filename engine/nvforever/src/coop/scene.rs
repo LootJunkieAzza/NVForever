@@ -38,6 +38,12 @@
 //!   brought beside it (the host's right, [`BESIDE`] units off), as the leash brings it
 //!   to another place (`super::leash`); so every player watches the scene from the same
 //!   spot.
+//! - **Not inside the host.** A guest that stands in the host's body ([`in_body`]) for
+//!   [`SETTLE`] seconds while no scene holds the view steps to its place beside the host,
+//!   in place. Both new games start on the opening's one spot in Doc Mitchell's house,
+//!   and a scene that held the view put the guest on the host's spot; the guest's camera
+//!   then looked out of the host's head (item 205 questsync frame
+//!   guest_quest_failed_IForgot, 2026-11-14).
 //!
 //! - **Dressed as the host.** What the host's scripts put on the host's player
 //!   (EquipItem, `Game::script_worn`) and it still wears goes too: each guest wears it,
@@ -60,7 +66,7 @@
 //! Log: `co-op: the host's scene holds this player (…)`, `co-op: the host's scene lets
 //! this player go`, `co-op: the host's scene: image space modifier 0x… on this screen`,
 //! `co-op: the host's scene: <texture> on 0x… (<shape>)`,
-//! `co-op: scene: beside the host at …`.
+//! `co-op: scene: beside the host at …`, `co-op: scene: out of the host's body: …`.
 
 use super::{place_of, Coop};
 use bevy::prelude::*;
@@ -84,6 +90,11 @@ const NEAR: f32 = 400.0;
 const ON_SPOT: f32 = 8.0;
 /// How far to the host's right a guest is put (game units).
 const BESIDE: f32 = 72.0;
+/// Two players' feet nearer than this across (game units) stand in one body: about two
+/// bodies' radii [engineering choice].
+const IN_BODY: f32 = 40.0;
+/// ... and nearer than this up or down (a floor above or below is not one body).
+const IN_BODY_UP: f32 = 100.0;
 /// A modifier on the host's screen whose seconds went back by more than this started
 /// again.
 const RESTARTED: f32 = 0.1;
@@ -106,6 +117,8 @@ pub(super) struct Shared {
     /// this player was last turned to face as (since the hold began).
     moving_held_since: Option<f32>,
     turned: Option<(Place, f32)>,
+    /// Since when this player has stood in the host's body ([`in_body`]).
+    in_host_since: Option<f32>,
     /// The modifiers put on this screen for the host, with the host's seconds for each as
     /// last heard.
     mods: HashMap<u32, f32>,
@@ -378,6 +391,12 @@ fn angle_apart(a: f32, b: f32) -> f32 {
 /// guest was summoned to one point at the Zion intro]. Slot 1 [`BESIDE`] to the right,
 /// 2 as far to the left, 3 twice as far to the right, 4 to the left, and so on (yaw is a
 /// compass bearing: 0 north, +Y; π/2 east, +X).
+/// Whether two players' feet stand in one body ([`IN_BODY`], [`IN_BODY_UP`]).
+fn in_body(a: [f32; 3], b: [f32; 3]) -> bool {
+    let (dx, dy, dz) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    dx * dx + dy * dy < IN_BODY * IN_BODY && dz.abs() < IN_BODY_UP
+}
+
 pub(crate) fn beside_slot(feet: [f32; 3], yaw: f32, slot: u8) -> [f32; 3] {
     let slot = slot.max(1);
     let side = if slot.is_multiple_of(2) { -1.0 } else { 1.0 };
@@ -539,7 +558,29 @@ pub(super) fn share_scene(
         s.turned = Some((host.place, host.yaw));
         info!("co-op: scene: this player faces as the host ({:.0} deg)", host.yaw.to_degrees());
     }
-    if !settled || loading.is_some_and(|l| l.active()) || coop.downed_at.is_some() {
+    // Out of the host's body, when no scene holds the view (module notes).
+    let loads = loading.as_deref().is_some_and(|l| l.active());
+    let in_host = !scene_holds_view(held) && place_of(&loc) == host.place && in_body(player.feet, host.feet);
+    s.in_host_since = if in_host { s.in_host_since.or(Some(now)) } else { None };
+    if s.in_host_since.is_some_and(|t| now - t >= SETTLE) && !loads && coop.downed_at.is_none() {
+        let feet = beside_slot(host.feet, host.yaw, coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1));
+        if let Some(phys) = phys.as_deref_mut().filter(|p| p.player.is_some() && p.ready_at(feet)) {
+            let was = player.feet;
+            phys.place_player(feet, 60.0, 200.0);
+            let at = phys.player.as_ref().map_or(feet, |c| c.feet);
+            player.feet = at;
+            player.placed = Some(at);
+            coop.scene.in_host_since = None;
+            coop.last_leash = Some(now);
+            info!(
+                "co-op: scene: out of the host's body: this player stood in it at {:?} ({:.0} units from the host's feet); put beside it at {at:?}",
+                host.place,
+                ((was[0] - host.feet[0]).powi(2) + (was[1] - host.feet[1]).powi(2)).sqrt()
+            );
+            return;
+        }
+    }
+    if !settled || loads || coop.downed_at.is_some() {
         return;
     }
     let (dx, dy) = (player.feet[0] - host.feet[0], player.feet[1] - host.feet[1]);
@@ -678,6 +719,19 @@ pub(super) fn hide_players_in_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_player_on_the_hosts_feet_stands_in_its_body() {
+        let host = [2257.0, 2318.0, 7360.0];
+        // Both new games start on one spot (Doc Mitchell's house).
+        assert!(in_body(host, host));
+        assert!(in_body([2257.0 + 30.0, 2318.0, 7362.0], host));
+        // Beside it, as a guest is put: not in it.
+        assert!(!in_body(beside_slot(host, 0.0, 1), host));
+        assert!(!in_body(beside_slot(host, 1.0, 2), host));
+        // A floor above.
+        assert!(!in_body([2257.0, 2318.0, 7360.0 + 200.0], host));
+    }
 
     #[test]
     fn a_reconnect_takes_no_story_gear_off_until_the_host_sends_it_again() {

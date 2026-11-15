@@ -2212,3 +2212,20 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      3. Note the frame times of each on/off change for one group.
      Video goes in `observer-runs\125\`. If the original blinks hard (no fade), the
      difference is our default fade on `Enable` with no argument, not the timing.
+
+## Added 2026-11-14 (Dead Money's slideshow screen at 16:9, parity item 214 follow-up)
+
+123. **Does Dead Money's slideshow screen fill a 16:9 view from NVDLC01SlideshowMarker?**
+     In NVForever at 16:9 (960 x 540, the FOV setting 75: 91.3 degrees horizontal,
+     camera.md section 3) the slides' screen (NVDLC01SlideIntroRef 0x010138B2 at (2804,
+     370, 10233), the same spot as NVDLC01SlideEndRef) covers the middle 92% of the width:
+     columns 0-45 and 930-959 are black on every slide, with a hard edge (the mesh's), and
+     the slide fills the height [observed: item 214 runs, 2026-11-14, dm214 frames]. The
+     player stands on NVDLC01SlideshowMarker (2802, 257, 10112), facing the screen 113 units
+     away, its eye about 121 above the feet [observed: DeadMoney.esm; player.rs EYE_HEIGHT
+     note]. A narrower view or an eye closer to the screen would fill the width; which one
+     the original has is not known. To check, in the original at 1280 x 720 and the default
+     FOV: start Dead Money's intro (or the end slides) and capture one slide. Are there
+     black bars at the left and right, and how wide (in pixels)? Does the slide reach the
+     top and bottom edges? With no bars, measure the slide's width against the frame's:
+     that gives the eye's distance or the view's angle in the slideshow.

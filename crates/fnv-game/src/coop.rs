@@ -530,6 +530,20 @@ impl Game<'_> {
     /// offers no second conversation, "Wait for <host>" as a story NPC does (parity,
     /// 2026-11-14: guest B was offered "Talk" on Sarah Weintraub while the host talked
     /// to her) [design: one conversation per NPC].
+    /// A replication guest's own script started (`started`) or stopped quest `q`: a story
+    /// quest it started runs its script here until it stops ([`Game::guest_own_quests`]).
+    /// True when the set changed; nothing off a replication guest.
+    pub fn guest_own_quest(&mut self, q: FormId, started: bool) -> bool {
+        if !self.world_logic_off {
+            return false;
+        }
+        if started {
+            self.guest_own_quests.insert(q)
+        } else {
+            self.guest_own_quests.remove(&q)
+        }
+    }
+
     pub fn in_another_players_talk(&self, actor: FormId) -> bool {
         let actor = self.talker(actor).0;
         let own = self.dialogue.as_ref().map(|c| self.talker(c.actor).0);

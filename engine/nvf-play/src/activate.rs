@@ -280,6 +280,7 @@ pub(crate) fn find_target(
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
     mut logged: Local<Option<(u32, Action, bool, bool)>>,
+    talk: Option<Res<crate::coop_talk::TalkGuard>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -378,7 +379,13 @@ pub(crate) fn find_target(
                     Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => (n, Action::Drink),
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
-                        (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
+                        let action = match actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers) {
+                            // Another player talks to it: wait for that one, by name
+                            // (`crate::coop_talk`; a guest waits for a guest as for the host).
+                            Action::HostOnly { host } => Action::HostOnly { host: talk.as_deref().and_then(|t| t.talkers.get(&id).cloned()).unwrap_or(host) },
+                            a => a,
+                        };
+                        (name, action)
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
                     // An interior a script renamed (Fallout 3's SetCellFullName,
