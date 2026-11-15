@@ -5,8 +5,9 @@
 //!   from its partitions: an exploded part's partitions (and the torso sections that
 //!   go with it) leave the body, a gone part's torso cap shows, a severed part's section
 //!   cap shows (it leaves with the severed bones). A shape skinned to bones on both sides of
-//!   a severed part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
-//!   to its own bones only, so none stretches from the body to the piece. A shape without partitions whose bones
+//!   a gone part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
+//!   to its own bones only, so none stretches from the body to the piece and a torso cap
+//!   stays on the cut (an exploded part's side is not drawn). A shape without partitions whose bones
 //!   all lie in an exploded part's bone tree (head, hair, eyes, hat) is not drawn. Hidden
 //!   shapes are given a mesh with no triangles, so the visibility other systems set
 //!   (`RefVisual`) does not bring them back. Done again whenever shapes are spawned
@@ -182,14 +183,14 @@ pub fn piece_of(bp: u16, cap: bool, sides: &[u16]) -> Option<u8> {
     sides.iter().position(|&l| l == location).map(|k| k as u8 + 1)
 }
 
-/// How a skinned shape carried by bones both of the body and of a severed piece is cut
-/// apart (nvf_assets `sever_mesh`): its drawn triangles by side, the side of each of its
-/// joints and the joint carrying a vertex left with no weight on its side (for a piece,
-/// its bone nearest the cut; for the body, the nearest bone above a cut). A shape with
-/// partitions goes by them (`piece_of`, else `partition_drawn`); one without, triangle
-/// by triangle, with the side most of its corners' weight lies on. None for a shape all
-/// on one side.
-type Sever = (Vec<(u8, Vec<u32>)>, Vec<u8>, Vec<Option<u16>>);
+/// How a skinned shape carried by bones both of the body and of a gone (severed or
+/// exploded) part is cut apart (nvf_assets `sever_mesh`): its drawn triangles by side, the
+/// side of each of its joints, the joint carrying a vertex left with no weight on its side
+/// (for a piece, its bone nearest the cut; for the body, the nearest bone above the first
+/// cut), and per piece the body's joint above its cut. A shape with partitions goes by them
+/// (`piece_of`, else `partition_drawn`); one without, triangle by triangle, with the side
+/// most of its corners' weight lies on. None for a shape all on one side.
+type Sever = (Vec<(u8, Vec<u32>)>, Vec<u8>, Vec<Option<u16>>, Vec<Option<u16>>);
 fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String>)], exploded: &BTreeSet<u16>, severed: &BTreeSet<u16>) -> Option<Sever> {
     let (joints, weights) = skin_weights(&shape.cpu)?;
     let side: Vec<u8> = shape
@@ -209,16 +210,21 @@ fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String
     for (k, f) in fallback.iter_mut().enumerate().skip(1) {
         *f = (0..side.len()).filter(|&j| side[j] as usize == k).filter_map(|j| Some((joint_depth(j)?, j))).min().map(|(_, j)| j as u16);
     }
-    // The body's: the bone above the first piece's top, or the one above that, …
-    let top = sides.iter().flat_map(|(_, names)| names.iter()).filter_map(|b| node(rig, b)).min_by_key(|&i| depth(rig, i));
-    let mut cur = top.and_then(|t| rig.skel.parents[t]);
-    while let Some(c) = cur {
-        if let Some(j) = shape.bones.iter().position(|b| rig.skel.names[c].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(b))) {
-            fallback[0] = Some(j as u16);
-            break;
+    // The body's joint above a cut: the bone above the piece's top, or the one above
+    // that, … ; for the body's fallback, above the first piece's top.
+    let above_top = |top: Option<usize>| {
+        let mut cur = top.and_then(|t| rig.skel.parents[t]);
+        while let Some(c) = cur {
+            if let Some(j) = shape.bones.iter().position(|b| rig.skel.names[c].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(b))) {
+                return Some(j as u16);
+            }
+            cur = rig.skel.parents[c];
         }
-        cur = rig.skel.parents[c];
-    }
+        None
+    };
+    let top_of = |names: &HashSet<String>| names.iter().filter_map(|b| node(rig, b)).min_by_key(|&i| depth(rig, i));
+    fallback[0] = above_top(sides.iter().filter_map(|(_, names)| top_of(names)).min_by_key(|&i| depth(rig, i)));
+    let above: Vec<Option<u16>> = std::iter::once(None).chain(sides.iter().map(|(_, names)| above_top(top_of(names)))).collect();
     let mut groups: Vec<(u8, Vec<u32>)> = (0..n as u8).map(|k| (k, Vec::new())).collect();
     if shape.partitions.is_empty() {
         let tris: Vec<u32> = match shape.cpu.indices() {
@@ -251,7 +257,7 @@ fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String
     if groups.iter().skip(1).all(|g| g.1.is_empty()) && !groups[0].1.iter().any(reaches) {
         return None;
     }
-    Some((groups, side, fallback))
+    Some((groups, side, fallback, above))
 }
 
 /// The nodes of the part at `location`.
@@ -312,8 +318,13 @@ fn apply_skins(
         let exploded: BTreeSet<u16> = gone.iter().filter(|g| g.1).map(|g| g.0 as u16).collect();
         let severed: BTreeSet<u16> = gone.iter().filter(|g| !g.1).map(|g| g.0 as u16).collect();
         let blown: HashSet<String> = exploded.iter().flat_map(|&l| part_names(rig, data, l)).collect();
-        // The severed pieces, side 1, 2, … (0 is the body), and the bones each carries.
-        let sides: Vec<(u16, HashSet<String>)> = severed.iter().map(|&l| (l, part_names(rig, data, l))).collect();
+        // The gone parts, side 1, 2, … (0 is the body), and the bones each carries: the
+        // severed pieces, then the exploded parts. An exploded part's triangles are not
+        // drawn, but the body's are cut from its bones all the same: its ragdoll bodies
+        // stay jointed and undrawn, and a torso cap weighted to them (`republican_02.nif`'s
+        // cap 210, ~92 % on the right thigh [observed: `fnvtool nif decode`]) swung away
+        // with the unseen leg and left the cut open.
+        let sides: Vec<(u16, HashSet<String>)> = severed.iter().chain(exploded.iter().filter(|&&l| l != 0)).map(|&l| (l, part_names(rig, data, l))).collect();
         let torso_gone = exploded.contains(&0);
         let mut redrawn = 0;
         let mut cut = (0, 0);
@@ -321,10 +332,13 @@ fn apply_skins(
             if r.0 != rig.reference {
                 continue;
             }
-            if let Some((groups, side, fallback)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
+            if let Some((mut groups, side, fallback, above)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
+                for g in groups.iter_mut().filter(|g| g.0 > 0 && exploded.contains(&sides[g.0 as usize - 1].0)) {
+                    g.1.clear();
+                }
                 cut.0 += 1;
                 cut.1 += groups.iter().filter(|g| g.0 > 0).map(|g| g.1.len() / 3).sum::<usize>();
-                mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback));
+                mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback, &above));
                 commands.entity(e).try_insert(CutMesh(mesh.0.id()));
                 redrawn += 1;
                 continue;
@@ -349,7 +363,14 @@ fn apply_skins(
             redrawn += 1;
         }
         if cut.0 > 0 {
-            info!("dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces", rig.reference, severed.iter().collect::<Vec<_>>(), cut.0, cut.1);
+            info!(
+                "dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces; exploded {:?}",
+                rig.reference,
+                severed.iter().collect::<Vec<_>>(),
+                cut.0,
+                cut.1,
+                exploded.iter().collect::<Vec<_>>()
+            );
         }
         gore.shapes_redrawn += redrawn;
         debug!("dismember: {:08X} drawn without {:?}, with stumps for {:?}: {redrawn} shapes", rig.reference, exploded, severed);

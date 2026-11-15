@@ -1206,9 +1206,12 @@ pub fn skin_weights(m: &Mesh) -> Option<SkinWeights<'_>> {
 /// and k > 0 a severed piece, and `side[j]` is the side joint j lies on. Every triangle
 /// gets vertices of its own whose weights on joints of other sides are dropped and the
 /// rest scaled back up to 1; a vertex left with no weight on its side is carried whole by
-/// `fallback[k]`, or keeps its weights when there is none. So no triangle is stretched
-/// between a piece and the body.
-pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>]) -> Mesh {
+/// `fallback[k]`, or keeps its weights when there is none. For the body, a vertex carried
+/// only by pieces goes to `above[s]`, the body's joint above the cut of the piece `s`
+/// carrying most of it, else to `fallback[0]` (a torso cap weighted to the gone limb's
+/// own bones stays at the cut it covers). So no triangle is stretched between a piece and
+/// the body.
+pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>], above: &[Option<u16>]) -> Mesh {
     let mut m = cpu.clone();
     let corner_side: Vec<u8> = groups.iter().flat_map(|(k, t)| std::iter::repeat_n(*k, t.len())).collect();
     m.insert_indices(Indices::U32(groups.iter().flat_map(|(_, t)| t.iter().copied()).collect()));
@@ -1223,9 +1226,12 @@ pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: 
             }
         }
         let sum: f32 = kept.iter().sum();
+        let carrier = |s: usize| (0..4).filter(|&c| side.get(j[c] as usize).copied().unwrap_or(0) as usize == s).map(|c| w[c]).sum::<f32>();
+        let body_above = || (1..above.len()).filter(|&s| carrier(s) > 0.0).max_by(|&a, &b| carrier(a).total_cmp(&carrier(b))).and_then(|s| above[s]);
+        let to = if k == 0 { body_above().or(fallback.first().copied().flatten()) } else { fallback.get(k as usize).copied().flatten() };
         if sum > 1e-4 {
             *w = kept.map(|x| x / sum);
-        } else if let Some(f) = fallback.get(k as usize).copied().flatten() {
+        } else if let Some(f) = to {
             *j = [f, 0, 0, 0];
             *w = [1.0, 0.0, 0.0, 0.0];
         }
@@ -1389,7 +1395,7 @@ mod tests {
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 4]);
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0]]));
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
-        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)]);
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)], &[]);
         let (j, w) = skin_weights(&out).unwrap();
         assert_eq!(out.count_vertices(), 6);
         // The body's copies: all on joint 0.
@@ -1398,6 +1404,29 @@ mod tests {
         // the fallback carries it.
         assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
         assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn a_torso_cap_carried_by_the_gone_limb_stays_on_the_body_bone_above_its_cut() {
+        // Joints: 0 the pelvis, 1 the neck (body); 2 the right thigh (piece 1), 3 the head
+        // (piece 2). Like `republican_02.nif`'s torso cap 210, weighted ~92 % to the right
+        // thigh: vertex 0 all on the thigh, 1 mostly on it, 2 all on the head.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[2, 0, 0, 0], [2, 3, 0, 0], [3, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.7, 0.3, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let side = [0, 0, 1, 2];
+        // The body's triangle: the thigh's vertices go to the pelvis (above piece 1's
+        // cut), the head's to the neck (above piece 2's), not all to one bone.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![]), (2, vec![])], &side, &[Some(1), Some(2), Some(3)], &[None, Some(0), Some(1)]);
+        let (j, w) = skin_weights(&out).unwrap();
+        assert_eq!((j[0], w[0]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[1], w[1]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[2], w[2]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        // Without a bone above a piece's cut, the body's fallback carries the vertex.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2])], &side, &[Some(1)], &[None, None, None]);
+        let (j, _) = skin_weights(&out).unwrap();
+        assert!(j.iter().all(|j| j[0] == 1));
     }
 
     #[test]

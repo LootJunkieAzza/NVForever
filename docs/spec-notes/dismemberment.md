@@ -401,8 +401,15 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   vertex with no weight on its side is carried whole by the piece's bone nearest the cut, or for
   the body by the nearest bone above the cut. A shape without partitions (head, hair, hat) is
   split triangle by triangle, by the side most of its corners' weight lies on [design].
+  An exploded part is cut from the body the same way, its side's triangles not drawn: its
+  ragdoll bodies stay jointed and undrawn (§6), and a torso cap is weighted mostly to the
+  gone part's own bones [observed: `armor\republicans\republican_02.nif` `MeatCapBody:0`,
+  cap 210: 83 of its 90 weight units on `Bip01 R Thigh`, 7 on the calf, 0.4 on the pelvis].
+  Left on them, the cap swung away with the unseen leg and the cut showed through the body
+  (owner, 2026-11-15, Easy Pete). A body vertex carried only by gone parts goes to the
+  body's bone above the cut of the part carrying most of it [design].
   Log: `dismember: <ref> cut apart for severed [<locations>]: <n> shapes, <m> triangles leave
-  with the pieces`.
+  with the pieces; exploded [<locations>]`.
 - **Severing.** The ragdoll joints between the part's bones and the rest are cut. The limb
   falls away with its own skin. The cut survives the ragdoll's rest and rouse rebuilds.
 - **Exploding.** The part's skin goes. `fExplodeLimbRemovalDelay` (0.03 s) is not applied: the
@@ -448,8 +455,8 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   their percentages [hypothesis].
 - Exploding the **torso** draws none of the body. The invisible ragdoll stays, so the corpse is
   still searched where it lies.
-- An exploded part's ragdoll bodies stay jointed and undrawn. The body's skin partly weighted to
-  them keeps its shape.
+- An exploded part's ragdoll bodies stay jointed and undrawn. The body's skin and its torso
+  cap no longer follow them: their weights on the part's bones go to the body's (§5).
 
 ## 7. Not built
 
