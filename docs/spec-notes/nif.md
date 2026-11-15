@@ -911,6 +911,17 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   which an unlit shape's texture × emissive colour is; a lit shape's colour is the light
   Bevy computes, and over a picture of display 0.44 the sum turns 0.018 of it into 0.16.
   Unlit additive shapes are unchanged.
+
+  What the rule reaches [observed, `crates/fnv-nif/examples/blend_survey.rs` over
+  `Fallout - Meshes.bsa`, `Update.bsa` and the Main archives of Dead Money, Honest Hearts,
+  Old World Blues, Lonesome Road and Gun Runners' Arsenal, 2026-11-15]: 56 visible lit
+  ONE / ONE shapes and 185 lit SRC_ALPHA / ONE shapes (against 187 and 2,113 unlit). The
+  ONE / ONE ones by texture: 20 `pipboy3000\screenglare.dds` glare layers over screens
+  (the Securitrons' faces, Yes Man, House's screens, the wall control panels), 11
+  `MZGrateLighting01`, 9 the Think Tank screens' glass, 3 each `ShinyBright_e` and
+  `MZGlass03`, and single jars, maps and pods. The lit SRC_ALPHA / ONE ones include the
+  plasma rifles' glass tubes (`##PLRGlassTube:0`). Those were not compared after the
+  change except the Securitron face named in the item 207 run notes.
 - **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
   BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
   system, which `nvf_assets::particles` draws with the same material). The blend is
