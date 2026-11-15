@@ -70,7 +70,7 @@ fn app(scratch: &Scratch) -> App {
         .insert_resource(Probe::configured("OwnedGun".into(), scratch.home.clone(), &scratch.root).unwrap())
         .add_message::<AppExit>()
         .add_message::<ActorFire>().add_message::<ActorStrike>().add_message::<ShotFired>()
-        .add_message::<PlaySound>().add_message::<ActorHit>().add_message::<ActorPush>()
+        .add_message::<PlaySound>().add_message::<crate::sfx::ScaledSound>().add_message::<ActorHit>().add_message::<ActorPush>()
         .add_message::<ImpactFx>().add_message::<WeaponBroken>().add_message::<Knockback>()
         .add_message::<ExplosionFx>().add_message::<crate::world_sounds::ImpactPicked>()
         .add_message::<crate::RefChanged>()

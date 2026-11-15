@@ -869,7 +869,7 @@ fn pick(
     }
     let Some(at) = at else { return };
     let Ok(ray) = cam.viewport_to_world(cam_t, at) else { return };
-    let picked = crate::console::pick_under(ray.origin, *ray.direction, REACH, phys.map(|p| p.into_inner()), &visuals).picked;
+    let picked = crate::console::pick_under(ray.origin, *ray.direction, REACH, phys.map(|p| p.into_inner()), &visuals, |_| true).picked;
     let Some(id) = picked else {
         info!("editor: nothing there to select");
         return;

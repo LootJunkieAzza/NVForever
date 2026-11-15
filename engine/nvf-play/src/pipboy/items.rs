@@ -318,12 +318,15 @@ fn ammo_card_effects(i: &mut Info, item: FormId, forms: &fnv_combat::data::Comba
 /// are those that would apply to the player now (`fnv_game::Game::aid_preview`: the
 /// effects' conditions, one line per value), read from the records only without the
 /// scripts' game.
-pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>, script: Option<&mut crate::script::ScriptState>) -> Info {
+pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>, mut script: Option<&mut crate::script::ScriptState>) -> Info {
     use fnv_sim::forms::ItemKind;
-    let n = r.count.max(1) as f32;
+    let tweaks = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.tweaks.clone()).unwrap_or_default();
+    // The player's tweaks: one item's figures, and none for quest items and keys [design: docs/design/tweaks.md].
+    let n = if tweaks.single_item_figures { 1.0 } else { r.count.max(1) as f32 };
+    let hidden = tweaks.hide_quest_item_figures && (r.quest || r.kind == Some(ItemKind::Key));
     let mut i = Info {
-        weight: r.weight.and_then(|w| figure(w * n, true)),
-        value: r.value.and_then(|v| figure(v as f32 * n, false)),
+        weight: r.weight.filter(|_| !hidden).and_then(|w| figure(w * n, true)),
+        value: r.value.filter(|_| !hidden).and_then(|v| figure(v as f32 * n, false)),
         condition: r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor))),
         ..Info::default()
     };
@@ -347,6 +350,20 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 if w.base_damage > 0 {
                     i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
                 }
+                // The player's tweak compares with the weapon in hand, both whole [design: docs/design/tweaks.md].
+                if tweaks.compare_weapons && w.base_damage > 0 {
+                    let held = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default().into_iter().find(|&e| sim.forms.item(e).is_some_and(|it| it.kind == ItemKind::Weapon));
+                    if let Some(cur) = held.filter(|&e| e != r.item).and_then(|e| cf.and_then(|f| f.weapons.get(&e))) {
+                        let dam = i64::from(w.base_damage) - i64::from(cur.base_damage);
+                        let dps = weapon_dps(w, 1.0) - weapon_dps(cur, 1.0);
+                        if let Some((_, _, v)) = i.first.as_mut() {
+                            *v = format!("{v} ({dam:+})");
+                        }
+                        if let Some(v) = i.dps.as_mut() {
+                            *v = format!("{v} ({dps:+.0})");
+                        }
+                    }
+                }
                 // Always bright: the mod menu also takes mods off [design: the owner's
                 // rule, 2026-10-27].
                 i.mod_hint = w.mods.iter().any(|m| m.item.is_some());
@@ -360,30 +377,68 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                     // In the clip: as much as a clip holds of what is carried [hypothesis:
                     // "(2/30)" on the owner's screenshot reads as clip/carried].
                     let clip = (w.clip_size as i32).min(count).max(0);
-                    i.beside = Some(format!("{name} ({clip}/{count})"));
+                    // The player's tweak: rounds a shot when more than one [design: docs/design/tweaks.md].
+                    let per_shot = if tweaks.show_weapon_ammo_use && w.ammo_use > 1 { format!(" x{}", w.ammo_use) } else { String::new() };
+                    // The player's tweak marks other ammo carried [design: docs/design/tweaks.md].
+                    let other = if tweaks.mark_other_ammo && carried.iter().filter(|n| **n > 0).count() > 1 { "+" } else { "" };
+                    i.beside = Some(format!("{name}{per_shot} ({clip}/{count}){other}"));
                 }
             }
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
                 i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                // The player's tweak compares with the worn pieces in the same slots, which
+                // it would replace (DR is 0 on New Vegas armour, so DT only) [design: docs/design/tweaks.md].
+                let worn = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default();
+                if tweaks.compare_armor && a.slots != 0 && !worn.contains(&r.item) {
+                    let replaced: f32 = worn.iter().filter_map(|e| cf.and_then(|f| f.armor.get(e))).filter(|o| o.slots & a.slots != 0).map(|o| o.dt).sum();
+                    if let Some((_, _, v)) = i.first.as_mut() {
+                        *v = format!("{v} ({:+.0})", a.dt - replaced);
+                    }
+                }
             }
             i.beside = sim.forms.item(r.item).map(|it| format!("{:?}", it.armor_class));
         }
         _ => {}
     }
     if let Some(forms) = forms {
-        let preview = script.and_then(|s| s.rt.as_mut()).filter(|_| r.kind == Some(ItemKind::Aid)).map(|rt| crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, r.item)));
+        let preview = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|_| r.kind == Some(ItemKind::Aid)).map(|rt| crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, r.item)));
         if let Some(lines) = preview {
             let changes: Vec<super::stats::model::Change> = lines.into_iter().filter(|(_, amount)| amount.abs() >= 0.5).map(|(code, amount)| super::stats::model::Change { value: forms.short_name(code), amount: amount.abs(), detrimental: amount < 0.0 }).collect();
             i.effects = (!changes.is_empty()).then(|| super::stats::model::changes_text(&changes));
             return i;
+        }
+        // The player's tweak: a skill book says what it teaches [design: docs/design/tweaks.md]: the skill and the
+        // points it would give now (the perks' Adjust Book Skill Points applied).
+        if tweaks.show_book_effects && r.kind == Some(ItemKind::Book) {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                if let Some(skill) = rt.game.book_skill(r.item) {
+                    let base = rt.game.world.setting_f32("fBookPerkBonus").map_or(fnv_game::books::DEFAULT_BOOK_POINTS, f64::from);
+                    let (worth, _) = rt.game.entry_point(FormId::PLAYER_REF, fnv_game::perks::ADJUST_BOOK_SKILL_POINTS, base);
+                    i.effects = Some(format!("Permanent {} +{}", fnv_game::chargen::skill_name(&rt.game, skill), worth.trunc()));
+                    return i;
+                }
+            }
         }
         // Aid items carry their effects; apparel and weapons their enchantment's.
         let ench = if r.kind == Some(ItemKind::Aid) { Some(r.item.0) } else { forms.item_ench(r.item.0) };
         if let Some(e) = ench.map(|e| forms.ench(e)).filter(|e| !e.changes.is_empty()) {
             let changes: Vec<super::stats::model::Change> = e.changes.iter().map(|&(code, amount, detrimental)| super::stats::model::Change { value: forms.short_name(code), amount, detrimental }).collect();
             i.effects = Some(super::stats::model::changes_text(&changes));
+        }
+        // The player's Show Weapon Poison Effects tweak: a poisoned weapon's poison, its hits
+        // left and its effects after the weapon's own (`fnv_game::weapon_poison`) [design:
+        // docs/design/tweaks.md, our own words].
+        let poison = script.as_ref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.show_poison_effects && r.kind == Some(ItemKind::Weapon)).and_then(|rt| rt.game.poison_on(r.item).map(|(p, hits)| (rt.game.data.name(p), p, hits)));
+        if let Some((name, p, hits)) = poison {
+            let e = forms.ench(p.0);
+            let changes: Vec<super::stats::model::Change> = e.changes.iter().map(|&(code, amount, detrimental)| super::stats::model::Change { value: forms.short_name(code), amount, detrimental }).collect();
+            let line = if changes.is_empty() { format!("{name} ({hits} hits)") } else { format!("{name} ({hits} hits): {}", super::stats::model::changes_text(&changes)) };
+            i.effects = Some(match i.effects.take() {
+                Some(own) => format!("{own}, {line}"),
+                None => line,
+            });
         }
     }
     i
@@ -405,9 +460,12 @@ pub fn keys(
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     (pads, bindings): (crate::pad::ActionPads, Option<Res<crate::bindings::Bindings>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     taken: Res<super::KeysTaken>,
 ) {
     let keys = keys.snapshot();
+    let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+    let drop_key = tweaks.as_ref().is_some_and(|t| t.drop_key);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
@@ -425,6 +483,10 @@ pub fn keys(
     if active.0.as_ref().is_some_and(|m| m.category[Side::Player as usize] != want) {
         send(Command::SetCategory(Side::Player, want));
     }
+    // The order the player's tweak chose (`super::PipBoy::item_sort`).
+    if active.0.as_ref().is_some_and(|m| m.sort != pip.item_sort) {
+        send(Command::SetSort(pip.item_sort));
+    }
     for (k, c) in [([ArrowUp, KeyW], Command::Up), ([ArrowDown, KeyS], Command::Down), ([PageUp, PageUp], Command::PageUp), ([PageDown, PageDown], Command::PageDown)] {
         if keys.any_just_pressed(k) {
             send(c);
@@ -435,7 +497,7 @@ pub fn keys(
         match hold.slot {
             Some(slot) => {
                 if let Some(r) = active.0.as_ref().and_then(|m| m.selected_row(Side::Player)) {
-                    hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, r));
+                    hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, r, deselect));
                 }
             }
             None => send(Command::One),
@@ -449,6 +511,10 @@ pub fn keys(
     // while "How many?" is up (the model would ignore it there too).
     let asking = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
     if !asking && crate::pad::menu_button(&pads, bindings.as_deref(), GamepadButton::West) {
+        send(Command::Drop);
+    }
+    // The player's tweak: Q drops the selected item too [design: docs/design/tweaks.md].
+    if !asking && drop_key && keys.just_pressed(KeyCode::KeyQ) {
         send(Command::Drop);
     }
     for w in wheel.read() {
@@ -488,10 +554,14 @@ fn on_row_click(
     keys: crate::pad::ActionButtons<KeyCode>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     mut out: MessageWriter<MenuInput>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let keys = keys.snapshot();
+    let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+    // The player's tweak: a right click does not drop [design: docs/design/tweaks.md].
+    let no_right_drop = tweaks.as_ref().is_some_and(|t| t.no_right_click_drop);
     let Ok(r) = rows.get(click.entity) else { return };
-    if click.button == PointerButton::Secondary {
+    if click.button == PointerButton::Secondary && !no_right_drop {
         if hold.slot.is_none() {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
             out.write(MenuInput(Command::Hover(Side::Player, r.0)));
@@ -502,7 +572,7 @@ fn on_row_click(
     match hold.slot {
         Some(slot) if click.button == PointerButton::Primary => {
             if let Some(row) = active.0.as_ref().and_then(|m| m.list(Side::Player).rows.get(r.0)) {
-                hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, row));
+                hold.said = Some(super::hotkey_panel::assign_row(&mut hotkeys, slot, row, deselect));
             }
         }
         Some(_) => {}
@@ -790,7 +860,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, 
         if i == selected {
             c.boxed(p, Rect::new(x0, y, x0 + ROW_W, y + h), line, None);
         }
-        if r.equipped {
+        if r.equipped || r.loaded {
             let mk = Rect::new(x0 + MARK.min.x, y + MARK.min.y, x0 + MARK.max.x, y + MARK.max.y);
             if c.image(p, "square_filled.dds", at(mk.min.x, mk.min.y, mk.width(), mk.height()), bright).is_none() {
                 p.spawn((at(mk.min.x, mk.min.y, mk.width(), mk.height()), BackgroundColor(bright)));
@@ -906,7 +976,7 @@ mod tests {
             condition: None,
             icon: None,
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: 0,
             mods_value: 0,
             folder: None,
@@ -919,7 +989,7 @@ mod tests {
     }
 
     fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
-        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: None, reference: None, live: false }
     }
 
     fn shown(h: &[Hint]) -> Vec<(String, bool)> {

@@ -81,6 +81,22 @@ pub const STICK_WALK_BELOW: f32 = 0.6;
 /// first].
 pub const STICK_DEAD: f32 = 0.12;
 
+/// The sticks' dead zones (left, right) as `f32` bits: [`STICK_DEAD`] unless the player's
+/// Controller Dead Zones tweak sets its own [design: docs/design/tweaks.md].
+static DEAD_ZONES: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0x3DF5_C28F), std::sync::atomic::AtomicU32::new(0x3DF5_C28F)];
+
+/// Set the sticks' dead zones (`None`: [`STICK_DEAD`] for both).
+pub fn set_dead_zones(zones: Option<(f32, f32)>) {
+    let (l, r) = zones.unwrap_or((STICK_DEAD, STICK_DEAD));
+    DEAD_ZONES[0].store(l.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    DEAD_ZONES[1].store(r.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The dead zone of the left stick, or the right.
+pub fn dead_zone(left: bool) -> f32 {
+    f32::from_bits(DEAD_ZONES[usize::from(!left)].load(std::sync::atomic::Ordering::Relaxed))
+}
+
 /// The game's controller code `JJ` of a `[Controls]` value as a controller input
 /// [hypothesis]. The fit: the original's console layout puts Activate on A, the Pip-Boy
 /// on B, Ready/Reload on X, Jump on Y, Aim on LT, Attack on RT, V.A.T.S. on RB, Wait on
@@ -920,14 +936,15 @@ impl StickButtons {
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
 pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
-    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }))
+    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), left)
 }
 
 // Physical history and filtered actions share the existing stick normalization
-// [design, #2200; stick, update_stick_buttons].
-fn stick_vector(sticks: impl Iterator<Item = Vec2>) -> Vec2 {
+// [design, #2200; stick, update_stick_buttons]; the dead zone is the player's
+// (`dead_zone`, the Stick Dead Zones tweak).
+fn stick_vector(sticks: impl Iterator<Item = Vec2>, left: bool) -> Vec2 {
     let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
-    if v.length() < STICK_DEAD {
+    if v.length() < dead_zone(left) {
         Vec2::ZERO
     } else {
         v.clamp_length_max(1.0)
@@ -937,7 +954,7 @@ fn stick_vector(sticks: impl Iterator<Item = Vec2>) -> Vec2 {
 // Derived physical edges must not turn a continued stick hold into a fresh press
 // on the frame after switching [design, #2200].
 pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
-    let v = stick_vector(pads.iter().map(|g| g.left_stick()));
+    let v = stick_vector(pads.iter().map(|g| g.left_stick()), true);
     s.before = s.now;
     for d in StickDir::ALL {
         s.now[d.index()] = d.amount(v) >= STICK_PRESS;

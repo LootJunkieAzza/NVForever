@@ -205,6 +205,14 @@ struct Slide;
 struct Logo;
 #[derive(Component, Clone, Copy)]
 struct EntryNode(usize);
+/// The picture of the save Continue loads, under the logo while Continue is chosen (the
+/// player's Continue Shows Its Save tweak) [design: docs/design/tweaks.md].
+#[derive(Component)]
+struct ContinuePicture;
+
+/// The Continue picture's place and width in the menu's units, under the logo [design].
+const PICTURE_TOP: f32 = 620.0;
+const PICTURE_WIDTH: f32 = 360.0;
 
 pub struct MainMenuPlugin;
 
@@ -220,7 +228,7 @@ impl Plugin for MainMenuPlugin {
             }
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
-        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, theme).chain().in_set(PlaySet::Ui));
+        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, continue_picture, theme).chain().in_set(PlaySet::Ui));
     }
 }
 
@@ -360,6 +368,7 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
                     let h = LOGO_WIDTH * size.y / size.x.max(1.0);
                     root.spawn((Logo, ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
                 }
+                root.spawn((ContinuePicture, ImageNode::default(), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(PICTURE_TOP), width: u(PICTURE_WIDTH), ..default() }, Visibility::Hidden));
                 let Some(f) = menu.face.as_ref() else { return };
                 let n = Entry::ALL.len() as f32;
                 let top = (960.0 - n * ITEM) / 2.0;
@@ -423,6 +432,7 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    (tweaks, mut auto_done): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>),
 ) {
     let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -480,6 +490,16 @@ fn choose(
     }
     if menu.selected != before {
         sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Focus });
+    }
+    // The player's tweak continues the newest save once, at the first menu; Shift held
+    // stays on the menu (a way back to it) [design: docs/design/tweaks.md].
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    if take.is_none() && !*auto_done && !shift && tweaks.as_ref().is_some_and(|t| t.auto_continue) {
+        *auto_done = true;
+        if Entry::Continue.enabled(saves) {
+            info!("main menu: continuing the newest save (tweak)");
+            take = Some(Entry::Continue);
+        }
     }
     let Some(e) = take else { return };
     info!("main menu: {}", e.label());
@@ -613,6 +633,49 @@ fn show_entries(
                 info!("main menu: {} glyph colour rgba {:?} ({count} glyphs)", entry.label(), colour.to_srgba().to_u8_array());
             }
             drawn[e.0] = now;
+        }
+    }
+}
+
+/// The Continue Shows Its Save tweak: while Continue is the chosen entry on the main page,
+/// the newest save's thumbnail under the logo, read once (none for a save without one).
+#[allow(clippy::type_complexity)]
+fn continue_picture(
+    menu: Res<MainMenu>,
+    page: Res<Page>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mut images: ResMut<Assets<Image>>,
+    mut read: Local<Option<(PathBuf, Option<(Handle<Image>, f32)>)>>,
+    mut picture: Query<(&mut ImageNode, &mut Node, &mut Visibility), With<ContinuePicture>>,
+) {
+    let Ok((mut image, mut node, mut vis)) = picture.single_mut() else { return };
+    let wanted = menu.open && *page == Page::Main && tweaks.as_ref().is_some_and(|t| t.continue_shows_save) && Entry::ALL.get(menu.selected) == Some(&Entry::Continue);
+    let path = menu.newest.as_ref().filter(|_| wanted);
+    let Some(path) = path else {
+        vis.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    if read.as_ref().is_none_or(|(p, _)| p != path) {
+        let decoded = fnv_save::read_header(path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot));
+        let handle = decoded.and_then(|(w, h, rgba)| {
+            let format = TextureFormat::Rgba8UnormSrgb;
+            let mut img = nvf_assets::texture::checked_image(w, h, 1, format, rgba).map_err(|e| warn!("main menu: the newest save's picture: {e}")).ok()?;
+            img.asset_usage = RenderAssetUsages::default();
+            Some((images.add(img), h as f32 / (w as f32).max(1.0)))
+        });
+        info!("main menu: Continue's save picture {}", if handle.is_some() { "read" } else { "missing" });
+        *read = Some((path.clone(), handle));
+    }
+    match read.as_ref().and_then(|(_, h)| h.as_ref()) {
+        Some((h, aspect)) => {
+            if image.image != *h {
+                image.image = h.clone();
+                node.height = u(PICTURE_WIDTH * aspect);
+            }
+            vis.set_if_neq(Visibility::Inherited);
+        }
+        None => {
+            vis.set_if_neq(Visibility::Hidden);
         }
     }
 }

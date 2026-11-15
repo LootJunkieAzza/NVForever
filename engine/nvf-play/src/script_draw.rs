@@ -278,9 +278,13 @@ fn sync(
                             if let Some(p) = posed.as_ref().filter(|_| st.posed_told.insert(id)) {
                                 info!("clutter pose: 0x{id:08X} {} drawn in its stored pose, enabled at run time ({} bodies)", d.path, p.bodies);
                             }
+                            // Shapes below a billboard node under an entity for it that
+                            // turns to the camera, as render streaming draws them (#2549).
+                            let mut boards = nvf_assets::model::BakedBillboards::default();
                             for s in &model.shapes {
                                 let shape = clutter_pose::shape_transform(posed.as_ref(), s);
-                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(shape)), RefVisual(id), ChildOf(root))).id();
+                                let (parent, shape) = posed.is_none().then(|| boards.place(&mut commands, root, &model, Affine3A::IDENTITY, s, ())).flatten().unwrap_or((root, shape));
+                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(shape)), RefVisual(id), ChildOf(parent))).id();
                                 if let Some(x) = d.placement.emittance.filter(|_| s.external_emittance) {
                                     commands.entity(e).insert(WantsEmittance(x));
                                 }

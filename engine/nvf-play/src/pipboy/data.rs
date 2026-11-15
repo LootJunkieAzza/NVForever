@@ -81,6 +81,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use fnv_game::quest_targets::{DoorGraph, Place as QuestPlace};
 use fnv_sim::FormId;
 use marker::{CustomMarker, LineTo, Piece};
 use model::{ObjectiveLine, QuestKey, WorldMap};
@@ -221,6 +222,8 @@ const LOCAL_SCALE: f32 = 28.0;
 /// The local map reads the doors of the cells this many across and down from the one at
 /// its middle (enough for the window at a magnification of 1).
 const LOCAL_CELLS: (i32, i32) = (3, 2);
+/// How strong the Local Map Shows Reset Areas tweak's red is [design].
+const RESET_CELL_ALPHA: f32 = 0.18;
 /// Each wheel step zooms a map by this factor, between 1 and 4 times [design].
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM: (f32, f32) = (1.0, 4.0);
@@ -283,6 +286,14 @@ const PATH_H: f32 = NODE / 3.0;
 /// line's height [hypothesis: the template tiles the file (`tile`) at the menu's scale].
 const PATH_TILE: f32 = PATH_H * 4.0;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
+/// The doors' pictures under the player's Exterior and Interior Door Icons tweak: the
+/// files Stewie's Tweaks names (its readme), drawn when the load order has them; without
+/// them the plain door, an interior one dimmer [design: docs/design/tweaks.md].
+const DOOR_ICON_OUTSIDE: &str = "interface\\icons\\local map\\iron_exterior_door.dds";
+const DOOR_ICON_INSIDE: &str = "interface\\icons\\local map\\iron_interior_door.dds";
+/// How bright an interior door is drawn, of a door's brightness, with the tweak on and its
+/// own pictures missing [design].
+const INSIDE_DOOR_DIM: f32 = 0.55;
 
 // ---- state --------------------------------------------------------------------------------
 
@@ -374,6 +385,10 @@ struct PaneMoves {
     drag: f32,
 }
 
+/// A marked target's doors on the maps: the World Map's door outdoors, the Local Map's
+/// first door of the way (`None`: the target itself, or no way).
+type TargetDoors = (Option<FormId>, Option<FormId>);
+
 /// The DATA page's state.
 #[derive(Resource, Default)]
 pub struct DataState {
@@ -420,6 +435,9 @@ pub struct DataState {
     discovered: BTreeSet<u32>,
     /// Markers found since `crate::compass` last took them (for "You have discovered").
     newly_found: Vec<u32>,
+    /// Markers found since this run started, not saved (the Color Recently Added Map
+    /// Markers tweak) [design: docs/design/tweaks.md].
+    found_this_run: BTreeSet<u32>,
     /// Where the player was last outdoors: worldspace, feet, heading.
     outdoors: Option<(u32, [f32; 3], f32)>,
     // The plugins' records, read when first wanted.
@@ -450,6 +468,15 @@ pub struct DataState {
     last_tab: Option<usize>,
     /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
     doors_into: HashMap<u32, Vec<FormId>>,
+    /// The places joined by load doors, built once, for the ways to targets several doors
+    /// away (`fnv_game::quest_targets::DoorGraph`, #2458).
+    door_graph: Option<fnv_game::quest_targets::DoorGraph>,
+    /// Each marked target check's (quest, objective, place in its list) door on the maps
+    /// last logged: the world map's door outdoors and the local map's first door of the
+    /// way (`None`: the target itself, or no way).
+    target_doors_logged: HashMap<(u32, i32, usize), TargetDoors>,
+    /// The references the World Map's quest markers stand for, last logged.
+    world_quests_logged: Option<Vec<u32>>,
     /// The active quest's targets of the objectives shown and not done, with whether their
     /// conditions passed when last evaluated (`refresh_quest_targets`).
     target_checks: Vec<fnv_game::quest_targets::TargetCheck>,
@@ -469,6 +496,11 @@ pub struct DataState {
     outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
+    /// The World Map's companion count at the last log.
+    companions_logged: Option<usize>,
+    /// The companions under the World Map's highlight box (the player's Map Selectable
+    /// Companions tweak).
+    companions_under: Vec<FormId>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
     /// The marker the Travel hint, Enter and the controller's A travel to
@@ -518,6 +550,9 @@ pub struct DataState {
     /// The place under each map's highlight box when last drawn: where Place Marker puts
     /// the marker.
     spot: [Option<CustomMarker>; 2],
+    /// Where each map drew the custom marker when last drawn (window units), for the No
+    /// Place Marker Popup tweak's "on it".
+    custom_on_map: [Option<Vec2>; 2],
     /// Where each map showed the custom marker when last logged (whole units; `None`:
     /// not shown).
     custom_logged: [Option<Option<(i32, i32)>>; 2],
@@ -576,13 +611,22 @@ pub(crate) struct MapMark {
     /// puts it on this marker.
     pub(crate) name: String,
     pub(crate) detail: Option<String>,
+    /// Drawn in red: found in this run, under the player's tweak.
+    pub(crate) recent: bool,
+    /// A door under the player's Exterior and Interior Door Icons tweak: whether it leads
+    /// outside.
+    pub(crate) outside: Option<bool>,
 }
 
 impl MapMark {
     pub(crate) fn picture(&self) -> String {
         match self.icon {
             Some((kind, found)) => model::marker_icon(kind, found),
-            None => DOOR_ICON.into(),
+            None => match self.outside {
+                Some(true) => DOOR_ICON_OUTSIDE.into(),
+                Some(false) => DOOR_ICON_INSIDE.into(),
+                None => DOOR_ICON.into(),
+            },
         }
     }
 }
@@ -593,6 +637,9 @@ pub(crate) struct MapShown {
     picture: Option<(String, Rect)>,
     /// The Local Map's outline picture and where it lies in the window.
     outline: Option<(Handle<Image>, Rect)>,
+    /// The Local Map's squares that will reset at their next load, in the window (the
+    /// player's Local Map Shows Reset Areas tweak).
+    reset_cells: Arc<Vec<Rect>>,
     marks: Vec<MapMark>,
     /// The player's arrow: its middle and heading (radians).
     player: Option<(Vec2, f32)>,
@@ -610,6 +657,11 @@ pub(crate) struct MapShown {
     /// The line under the name: a World Map marker's reputation and the player's
     /// standing with it ([`model::reputation_line`]).
     detail: Option<String>,
+    /// The World Map's companions ([`map_companions`]): where each name stands, the name,
+    /// and whether it is knocked out (shown in red, under the player's tweak).
+    companions: Vec<(Vec2, String, bool)>,
+    /// Their names in the locations' font (the player's tweak), else font 2.
+    companion_font: usize,
     /// The World Map's view and its parts in texture coordinates, for the page drawn from the
     /// file (`crate::tiles::map_menu`); none on the Local Map.
     pub(crate) world: Option<WorldParts>,
@@ -730,6 +782,7 @@ pub struct Input<'w, 's> {
     buttons: crate::pad::ActionButtons<'w, MouseButton>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
+    summon: MessageWriter<'w, SummonCompanions>,
     go: MessageWriter<'w, FastTravelGo>,
     pads: crate::pad::ActionPads<'w, 's>,
     bindings: Option<Res<'w, Bindings>>,
@@ -1227,8 +1280,26 @@ impl DataState {
 
     /// The named map markers of worldspace `world` the plugins place (read once the DATA
     /// page first tracked the player): reference, place and whether the player found it.
+    /// The markers of `world` with their names: FormID, place, name, found.
+    pub fn named_markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], &str, bool)> {
+        self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, m.name.as_str(), self.discovered.contains(&m.form))).collect()
+    }
+
     pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
         self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
+    }
+
+    /// The markers of `world` not found yet that the map does not show either (no
+    /// Visible flag, not shown by a script), for the compass's Hide Unmapped Places tweak
+    /// [design: docs/design/tweaks.md].
+    pub fn unmapped_of(&self, world: u32, game: Option<&fnv_game::Game>) -> std::collections::HashSet<u32> {
+        self.markers
+            .iter()
+            .flatten()
+            .filter(|m| m.world == world && !self.discovered.contains(&m.form) && m.flags & 1 == 0)
+            .filter(|m| !game.is_some_and(|g| g.map_marker_shown(FormId(m.form), m.flags & 4 != 0)))
+            .map(|m| m.form)
+            .collect()
     }
 }
 
@@ -1330,6 +1401,7 @@ fn track(st: &mut DataState, game: &Game) {
             if st.discovered.insert(f) {
                 info!("pipboy data: map marker {} found", FormId(f));
                 st.newly_found.push(f);
+                st.found_this_run.insert(f);
             }
         }
     }
@@ -1355,7 +1427,10 @@ fn listed(g: &fnv_game::game::Game, q: FormId, s: &fnv_game::quest::QuestState) 
 /// The Pip-Boy came up on this page: the maps centre on the player, the quest list on
 /// the active quest.
 fn opened(st: &mut DataState, game: &Game) {
-    st.centre = [None, None];
+    // The player's tweak leaves the maps where they were [design: docs/design/tweaks.md].
+    if !game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.remember_map_position) {
+        st.centre = [None, None];
+    }
     st.cursor = [None, None];
     st.boxed = false;
     st.text_first = 0.0;
@@ -1388,7 +1463,8 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     out.quests = g
         .quests
         .iter()
-        .filter(|(q, s)| listed(g, **q, s))
+        // The player's tweak lists only quests under way [design: docs/design/tweaks.md].
+        .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
     model::sort_quests(&mut out.quests);
@@ -1402,14 +1478,24 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         }
     }
     if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
-        st.active_quest = out.quests.iter().find(|q| !q.done).map(|q| q.form);
+        // The player's tweaks: no quest is made the active one by itself, neither when
+        // the active one is done nor when objectives come with none active [design: docs/design/tweaks.md].
+        let by_hand_only = g.tweaks.no_quest_set_on_objective || g.tweaks.no_quest_set_on_complete;
+        st.active_quest = if by_hand_only { None } else { out.quests.iter().find(|q| !q.done).map(|q| q.form) };
     }
     out.has_notes = !g.player.notes.is_empty();
     if let Some(w) = game.world.as_ref() {
         for n in &g.player.notes {
+            // The player's tweak: notes already read are left out, but for the one on
+            // screen (showing a note reads it) [design: docs/design/tweaks.md].
+            if g.tweaks.hide_read_notes && g.note_read(*n) && st.note_shown != Some(n.0) {
+                continue;
+            }
             let note = st.notes.entry(n.0).or_insert_with(|| read::note(w.lo, w.schema, n.0));
             if let Some(note) = note {
-                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) {
+                // The player's tweak takes in every quest under way [design: docs/design/tweaks.md].
+                let under_way = g.tweaks.notes_of_all_quests && note.quest.and_then(|q| g.quests.get_key_value(&FormId(q))).is_some_and(|(q, s)| listed(g, *q, s) && !s.completed && !s.failed);
+                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) || under_way {
                     // The player string codes as they read now (the bounty notices'
                     // "&PCName;", "&PCRace;" [observed: FalloutNV.esm]); the cache keeps
                     // the record's text.
@@ -1514,11 +1600,25 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
+    // The player's tweak: a right click marks the selected note unread [design: docs/design/tweaks.md].
+    if tab == NOTES && !st.challenges && input.buttons.just_pressed(MouseButton::Right) {
+        if let (Some(note), Some(rt)) = (l.notes.get(st.sel[NOTES]).map(|n| n.form), game.script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.mark_notes_unread)) {
+            rt.game.mark_note_unread(FormId(note));
+            info!("pipboy data: note {} marked unread (tweak)", FormId(note));
+        }
+    }
+    // The player's tweak: C puts a map back on the player [design: docs/design/tweaks.md].
+    let recentre = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_recentre_key);
+    if recentre && (tab == LOCAL || tab == WORLD) && input.keys.just_pressed(KeyC) && st.centre[tab].take().is_some() {
+        info!("pipboy data: map centred on the player again (C, tweak)");
+    }
     // X (with a controller X, `crate::pad::menu_buttons`) is the tab's X button (#1897).
     if input.keys.just_pressed(KeyX) {
+        // The player's tweak drops Show Location [design: docs/design/tweaks.md].
+        let show_location = !game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location);
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
-            QUESTS if !l.quests.is_empty() => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
+            QUESTS if !l.quests.is_empty() && show_location => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
             NOTES if l.challenges.is_none() => st.acts.push(Act::Button(ButtonKind::NotesFilter)),
             NOTES => st.acts.push(Act::Button(ButtonKind::NextChallenge)),
             _ => {}
@@ -1545,7 +1645,17 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     if notches != 0.0 {
         match tab {
-            LOCAL | WORLD => st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1),
+            LOCAL | WORLD => {
+                let before = st.magnify[tab].max(ZOOM.0);
+                st.magnify[tab] = (before * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1);
+                // The player's tweak keeps the place under the pointer there: the map is
+                // moved as a drag would by the pointer's offset from the middle times the
+                // growth [design: docs/design/tweaks.md].
+                let at_pointer = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_zoom_at_pointer);
+                if let Some(p) = in_window(map_window(st, tab), pointer).filter(|_| at_pointer) {
+                    st.drag -= (p - MAP_MID) * (st.magnify[tab] / before - 1.0);
+                }
+            }
             NOTES | QUESTS if wheel_on_pane(tab, pointer, st.pane_rect) => pane.notches += notches,
             // The tile page's list scrolls itself (`crate::tiles::map_menu`).
             _ if tiles_list => st.list_notches += notches,
@@ -1598,7 +1708,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             }
             // The A button's hints do what Enter does on the tab.
             Act::Button(k) if k.is_a() => use_it = true,
-            Act::Button(k) => button(st, tab, k, input),
+            Act::Button(ButtonKind::PlaceMarker) => place_marker(st, tab, game, input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])),
+            Act::Button(k) => button(st, k, input),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             Act::PaneTo(v) if tab == QUESTS || tab == NOTES => pane.drag += v - st.text_first,
             _ => {}
@@ -1622,7 +1733,13 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // asks to travel there (`travel`); so does the controller's A (the confirm button) on a
     // highlighted marker [observed: the original; docs/design/controller.md §3].
     let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
-    if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
+    // The player's Map Selectable Companions tweak: a click on companions summons them,
+    // not a travel [design: docs/design/tweaks.md].
+    let summon_click = tab == WORLD && mouse.1 && !st.companions_under.is_empty() && !on_button(st, tab, pointer) && st.press.is_some_and(|(_, moved)| moved <= CLICK_SLOP);
+    if summon_click {
+        st.press = None;
+        input.summon.write(SummonCompanions(st.companions_under.clone()));
+    } else if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
         st.travel_pending = Some(m);
     }
     // Dragging a map moves the point at its middle: the left button held down on it (not
@@ -1962,12 +2079,21 @@ fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput
 
 /// Place Marker: ask about the place under the highlight box ([`marker::ask`]) in the
 /// question box, its words from the load order's settings, else NVForever's own
-/// ([`marker::Words`]).
-fn place_marker(st: &mut DataState, tab: usize) {
+/// ([`marker::Words`]). Under the player's No Place Marker Popup tweak it answers at once
+/// ([`marker::quick`]) [design: docs/design/tweaks.md].
+fn place_marker(st: &mut DataState, tab: usize, game: &mut Game, shift: bool) {
     let Some(at) = st.spot.get(tab).copied().flatten() else {
         info!("pipboy map: Place Marker: no place under the highlight box");
         return;
     };
+    let quick = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks).filter(|t| t.no_marker_popup).map(|t| marker::Quick::of(t.marker_shift_removes, t.marker_removed_on_it));
+    if let Some(how) = quick {
+        let box_at = st.cursor.get(tab).copied().flatten();
+        let on_it = matches!((box_at, st.custom_on_map[tab]), (Some(b), Some(c)) if b.distance(c) <= SNAP);
+        info!("pipboy map: Place Marker answers at once ({how:?}, tweak)");
+        answer_marker(st, game, marker::quick(st.custom, at, how, shift, on_it));
+        return;
+    }
     let ask = marker::ask(st.custom, at);
     let (text, buttons) = marker::Words::of(ask, |(name, ours)| super::labels::label(name, ours).to_string());
     info!("pipboy map: Place Marker asks {text:?} ({} answers) for ({:.0}, {:.0}) in {}", buttons.len(), at.pos[0], at.pos[1], FormId(at.space));
@@ -1992,7 +2118,7 @@ fn answer_marker(st: &mut DataState, game: &mut Game, a: marker::MarkerAnswer) {
     }
 }
 
-fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
+fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
     match k {
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
@@ -2009,7 +2135,8 @@ fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
-        ButtonKind::PlaceMarker => place_marker(st, tab),
+        // With the game, in the acts' loop ([`place_marker`]).
+        ButtonKind::PlaceMarker => {}
         ButtonKind::NextChallenge => info!("pipboy data: {k:?} is not built"),
         // Taken as Enter in `take_input`.
         ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::PlayAudio | ButtonKind::Tune => {}
@@ -2037,7 +2164,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     // Under the question box the map stands still.
     let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
-    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
+    let twelve = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.pipboy_12_hour);
+    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time_with(&c, twelve)).unwrap_or_default();
     let body = match tab {
         LOCAL | WORLD => Body::Map(Box::new(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) })),
         QUESTS => {
@@ -2054,6 +2182,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
             let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
                 let state = if c.completed { "Completed".to_string() } else { format!("{}/{}", c.progress, c.threshold) };
+                // The player's tweak says a challenge repeats [design: docs/design/tweaks.md].
+                let state = if c.recurring { format!("{state} (repeats)") } else { state };
                 Right::Text { text: format!("{}\n\n{state}", c.description), first: st.text_first }
             });
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
@@ -2084,6 +2214,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         pad: crate::pad::labels() != crate::pad::Labels::Keys,
         marker: st.travel_marker.is_some(),
         quests: !l.quests.is_empty(),
+        no_show_location: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location),
         quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
         notes: l.has_notes,
         notes_of_active: st.notes_of_active,
@@ -2123,6 +2254,8 @@ struct HintFacts {
     /// Quests are listed, and whether the selected one is done.
     quests: bool,
     quest_done: Option<bool>,
+    /// The player's tweak drops Show Location [design: docs/design/tweaks.md].
+    no_show_location: bool,
     /// The player has a note (whatever the filter keeps); the notes' filter is on; the
     /// selected note is an audio note, and whether it plays; Misc shows the challenges.
     notes: bool,
@@ -2184,7 +2317,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         // the original's World Map and Local Map with no controller, `MM_ButtonX` visible and a
         // target, "Place Marker" at the top right with no key; capture 2026-11-10].
         LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, false, ButtonKind::PlaceMarker)),
-        QUESTS if f.quests => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
+        QUESTS if f.quests && !f.no_show_location => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
         NOTES if f.notes && f.challenges => Some(b(built_in_label("sNextChallenge"), x_key(), true, ButtonKind::NextChallenge)),
         NOTES if f.notes => {
             let filter = built_in_label(if f.notes_of_active { "sShowAllNotes" } else { "sShowActiveNotes" });
@@ -2395,6 +2528,75 @@ fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
 }
 
+/// The original's companions on the World Map: their names, in font 2 [documented: Stewie's
+/// Tweaks' readme, bCompanionsUseLocationFontOnMap, "Vanilla is hardcoded to use font 2"],
+/// left off within a distance of the player [documented: the same readme,
+/// bNoMinCompanionMapDistance; hypothesis: the distance, [`COMPANION_MIN_DISTANCE`]] and while
+/// knocked out [documented: the same readme, bMapShowUnconsciousCompanions]. The original's
+/// map file has no companion template and the archives no companion icon [observed:
+/// map_menu.xml, the texture archives' list], so they are text only.
+const COMPANION_FONT: usize = 2;
+/// The font the highlight box names locations in.
+const LOCATION_FONT: usize = 1;
+/// Within this distance of the player (game units, same worldspace) a companion is not
+/// written [hypothesis: about a cell, so the companions at the player's side do not cover
+/// the arrow].
+pub const COMPANION_MIN_DISTANCE: f32 = 4096.0;
+/// How far above its place a companion's name stands (canvas units) [design].
+const COMPANION_NAME_RISE: f32 = 14.0;
+/// How near the highlight box's middle a companion's place must be for a click to summon it,
+/// under the player's Map Selectable Companions tweak (canvas units) [design].
+const SUMMON_REACH: f32 = 24.0;
+
+/// The World Map asks for these companions beside the player (the player's Map Selectable
+/// Companions tweak); `summon_companions` does it.
+#[derive(Message, Clone, Debug, PartialEq)]
+pub struct SummonCompanions(pub Vec<FormId>);
+
+/// Put the companions the World Map asked for beside the player
+/// (`fnv_game::Game::summon_teammates`), and log them.
+pub(crate) fn summon_companions(mut asks: MessageReader<SummonCompanions>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
+    let asked: Vec<FormId> = asks.read().flat_map(|a| a.0.iter().copied()).collect();
+    if asked.is_empty() {
+        return;
+    }
+    let (Some(rt), Some(mut sim)) = (script.and_then(|s| s.into_inner().rt.as_mut()), sim) else { return };
+    let done = crate::script::with_world(rt, &mut sim, |rt| rt.game.summon_teammates(&asked));
+    let names: Vec<String> = done.iter().map(|f| rt.game.data.name(*f)).collect();
+    info!("pipboy map: summoned {} beside the player (Map Selectable Companions)", if names.is_empty() { "nobody".to_string() } else { names.join(", ") });
+}
+
+/// A companion written on the World Map.
+struct MapCompanion {
+    form: FormId,
+    world: u32,
+    pos: [f32; 3],
+    name: String,
+    down: bool,
+}
+
+/// The player's companions (teammates) in an exterior cell, with their worldspace; those
+/// within [`COMPANION_MIN_DISTANCE`] of `player` (worldspace, place) left out when it is
+/// given, and the knocked-out ones unless `show_down`.
+fn map_companions(game: &Game, player: Option<(u32, [f32; 3])>, show_down: bool) -> Vec<MapCompanion> {
+    let (Some(rt), Some(sim)) = (game.script.as_ref().and_then(|s| s.rt.as_ref()), game.sim.as_ref()) else { return Vec::new() };
+    let mut out = Vec::new();
+    for id in rt.game.teammates() {
+        let Some(s) = sim.world.peek(id) else { continue };
+        let Some(world) = s.cell.and_then(|c| sim.refs.cell_world.get(&c)).map(|w| w.0) else { continue };
+        let down = rt.game.knockout(id).is_some();
+        if (down && !show_down) || !sim.present(id.0) {
+            continue;
+        }
+        if player.is_some_and(|(w, p)| w == world && (s.pos[0] - p[0]).hypot(s.pos[1] - p[1]) < COMPANION_MIN_DISTANCE) {
+            continue;
+        }
+        let name = sim.ref_name(Some(&rt.game), id.0).map(str::to_string).unwrap_or_else(|| rt.game.data.name(id));
+        out.push(MapCompanion { form: id, world, pos: s.pos, name, down });
+    }
+    out
+}
+
 fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: bool) -> MapShown {
     let Some(world) = game.location.as_ref().map(|l| l.world) else { return empty_map() };
     let Some(m) = map_of(st, game) else { return empty_map() };
@@ -2409,32 +2611,49 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let mut names = Vec::new();
     let mut forms = Vec::new();
     let mut details = Vec::new();
+    let show_distance = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_marker_distance);
     let mut total = 0;
     let mut drawn_other = 0;
+    let red_recent = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.recent_markers_red);
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in &all {
         let Some(projection) = map_for(st, game, mk.world).filter(|p| p.root == m.root) else { continue };
         total += 1;
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
+        let recent = red_recent && st.found_this_run.contains(&mk.form);
         let uv = projection.uv(mk.pos[0], mk.pos[1]);
         let detail = mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
         let (name, tile_detail) = if st.tile_rows { (mk.name.clone(), detail.clone()) } else { (String::new(), None) };
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail });
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(uv), form: mk.form, uv: Some(uv), name, detail: tile_detail, recent, outside: None });
         names.push(mk.name.clone());
         forms.push(mk.form);
-        details.push(detail);
+        // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
+        let rep_off = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
+        let rep = mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        // The player's tweak: how far the marker is, on the same line [design: docs/design/tweaks.md].
+        let far = player.filter(|_| show_distance && mk.world == world).map(|(p, _)| model::distance_text(((mk.pos[0] - p[0]).powi(2) + (mk.pos[1] - p[1]).powi(2)).sqrt()));
+        details.push(match (rep, far) {
+            (Some(r), Some(d)) => Some(format!("{r}, {d}")),
+            (r, d) => r.or(d),
+        });
     }
     let mut quests = Vec::new();
     let mut targets = Vec::new();
     let mut target_uvs = Vec::new();
-    for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {
+    for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none() && t.world_map) {
         let Some(projection) = map_for(st, game, t.world).filter(|p| p.root == m.root) else { continue };
         let uv = projection.uv(t.pos[0], t.pos[1]);
         let at = on_map(uv);
         targets.push(at);
         target_uvs.push((t.form, uv));
         quests.push(quest_corner(at));
+    }
+    let drawn: Vec<u32> = target_uvs.iter().map(|t| t.0).collect();
+    if st.world_quests_logged.as_ref() != Some(&drawn) {
+        let list: Vec<String> = drawn.iter().map(|&f| FormId(f).to_string()).collect();
+        info!("pipboy data: world map draws {} quest marker(s): [{}]", drawn.len(), list.join(", "));
+        st.world_quests_logged = Some(drawn);
     }
     // The custom marker, placed in any worldspace of this map's family.
     let custom_uv = st.custom.and_then(|c| {
@@ -2443,6 +2662,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     });
     let custom = st.custom.zip(custom_uv).map(|(c, uv)| (c, on_map(uv)));
     log_custom(st, WORLD, custom.map(|c| c.0));
+    st.custom_on_map[WORLD] = custom.map(|c| c.1);
     let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
     if st.world_logged != Some(logged) {
@@ -2477,9 +2697,38 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         }
         st.lines_logged = Some((kinds, st.custom));
     }
+    // The player's companions out in this map's worldspaces [see `map_companions`].
+    let tw = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.no_min_companion_distance, rt.game.tweaks.map_unconscious_companions, rt.game.tweaks.companions_location_font));
+    let (no_min, show_down, location_font) = tw.unwrap_or_default();
+    let summon = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.map_summon_companions, rt.game.tweaks.summon_unconscious));
+    let mut companions = Vec::new();
+    let mut forms_shown = Vec::new();
+    for c in map_companions(game, player.filter(|_| !no_min).map(|(p, _)| (world, p)), show_down) {
+        let Some(projection) = map_for(st, game, c.world).filter(|p| p.root == m.root) else { continue };
+        forms_shown.push((c.form, c.down));
+        companions.push((on_map(projection.uv(c.pos[0], c.pos[1])), c.name, c.down));
+    }
+    // The player's Map Selectable Companions tweak: the companions under the highlight box,
+    // which a click summons [design: docs/design/tweaks.md].
+    st.companions_under = match summon {
+        Some((true, down_too)) => companions
+            .iter()
+            .zip(&forms_shown)
+            .filter(|((at_, _, _), (_, down))| at_.distance(cursor) <= SUMMON_REACH && (!down || down_too))
+            .map(|(_, (f, _))| *f)
+            .collect(),
+        _ => Vec::new(),
+    };
+    if st.companions_logged != Some(companions.len()) {
+        st.companions_logged = Some(companions.len());
+        info!("pipboy data: world map shows {} companions", companions.len());
+    }
     MapShown {
+        companions,
+        companion_font: if location_font { LOCATION_FONT } else { COMPANION_FONT },
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
+        reset_cells: Arc::default(),
         marks,
         player: arrow.zip(player).map(|(a, (_, h))| (a, h)),
         quests,
@@ -2529,7 +2778,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, world: None }
+    MapShown { picture: None, outline: None, reset_cells: Arc::default(), marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None, world: None, companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -2642,21 +2891,41 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         info!("pipboy data: local map: {} doors leading elsewhere", doors.len());
         e.insert(doors);
     }
+    // The player's tweak: the squares around that will reset at their next load, tinted
+    // [design: docs/design/tweaks.md].
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
+    let reset_cells: Vec<Rect> = match (rt.filter(|rt| rt.game.tweaks.local_map_reset_cells), loc.interior, game.world.as_ref()) {
+        (Some(rt), None, Some(w)) => {
+            let g = w.index.worldspaces.get(&loc.world).map(|ws| &ws.grid);
+            (-LOCAL_CELLS.0 - 1..=LOCAL_CELLS.0 + 1)
+                .flat_map(|dx| (-LOCAL_CELLS.1 - 1..=LOCAL_CELLS.1 + 1).map(move |dy| (grid.0 + dx, grid.1 + dy)))
+                .filter(|k| g.and_then(|g| g.get(k)).is_some_and(|&c| rt.game.cell_expired(FormId(c)) == Some(true)))
+                .map(|(x, y)| {
+                    let (x0, y0) = (x as f32 * model::CELL, y as f32 * model::CELL);
+                    Rect::from_corners(on_map(x0, y0 + model::CELL), on_map(x0 + model::CELL, y0))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
     let mut rows = Vec::new();
     let mut marks = Vec::new();
     let mut names = Vec::new();
     // A door disabled now (a script's Disable, an enable parent off) is not drawn
     // [hypothesis: as a disabled marker is not, `known`].
     let enabled = |form: u32| game.sim.as_ref().is_none_or(|s| s.present(form));
+    // The player's tweak tells doors leading outside from those leading in [design:
+    // docs/design/tweaks.md].
+    let door_kinds = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_door_kinds);
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         let uv = Some(view.local_uv(d.pos[0], d.pos[1]));
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None });
+            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: String::new(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
             names.push(d.name.clone());
         }
         if st.tile_rows {
-            rows.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None });
+            rows.push(MapMark { icon: None, highlighted: false, at, form: d.form, uv, name: d.name.clone(), detail: None, recent: false, outside: door_kinds.then_some(d.outside) });
         }
     }
     if loc.interior.is_none() {
@@ -2666,11 +2935,11 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let at = on_map(mk.pos[0], mk.pos[1]);
             let uv = Some(view.local_uv(mk.pos[0], mk.pos[1]));
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: String::new(), detail: None, recent: false, outside: None });
                 names.push(mk.name.clone());
             }
             if st.tile_rows {
-                rows.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: mk.name.clone(), detail: None });
+                rows.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, uv, name: mk.name.clone(), detail: None, recent: false, outside: None });
             }
         }
     }
@@ -2695,10 +2964,11 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
+    st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
     let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: st.tile_rows.then_some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) }
+    MapShown { picture: None, outline, reset_cells: Arc::new(reset_cells), marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) , companions: Vec::new(), companion_font: COMPANION_FONT }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -2773,6 +3043,9 @@ struct Target {
     world: u32,
     pos: [f32; 3],
     form: u32,
+    /// Drawn on the World Map too (outdoors); `false` for the door of the player's place
+    /// that starts the way to a target elsewhere, which only the Local Map shows.
+    world_map: bool,
 }
 
 /// How often the active quest's target conditions are evaluated, in seconds [hypothesis:
@@ -2810,16 +3083,34 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
 }
 
 /// The targets of the active quest's objectives shown and not done whose conditions pass
-/// (`refresh_quest_targets`), where they are now; a target indoors also at a door
-/// outdoors into its interior (`quest_targets::marker_door`: one not locked, unless the target
-/// ignores locks) [hypothesis: as the owner's screenshots show the marker of "Talk to
-/// Sunny Smiles in the Prospector Saloon" outdoors in Goodsprings].
+/// (`refresh_quest_targets`), where they are now; a target indoors also at a door outdoors
+/// for the World Map (`quest_targets::outdoor_marker_door`: a door straight into its
+/// interior, one not locked unless the target ignores locks, else the door outdoors that
+/// starts the way through other interiors, #2458) [hypothesis: as the owner's screenshots
+/// show the marker of "Talk to Sunny Smiles in the Prospector Saloon" outdoors in
+/// Goodsprings]; and a target in another place than the player's also at the door of the
+/// player's place that starts the way there, for the Local Map, as the compass marks it
+/// (`crate::compass`) [hypothesis: observer-checks.md question 179].
 fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
     let mut out = Vec::new();
     let (Some(q), Some(sim)) = (st.active_quest, game.sim.as_ref()) else { return out };
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let refs = sim.refs;
+    let here = game.location.as_deref().map(|l| match l.interior {
+        Some(c) => QuestPlace::Interior(FormId(c)),
+        None => QuestPlace::World(FormId(l.world)),
+    });
     let checks: Vec<_> = st.target_checks.iter().filter(|c| c.quest.0 == q && c.shown).copied().collect();
+    let graph = st.door_graph.get_or_insert_with(|| DoorGraph::build(refs));
+    // A door's place now: its interior (or `None`), its worldspace, where it stands.
+    let door_at = |d: FormId| {
+        let pos = sim.world.peek(d).map(|s| s.pos).or_else(|| refs.get(d).map(|p| p.pos))?;
+        let cell = refs.get(d)?.cell?;
+        Some(match refs.cell_world.get(&cell) {
+            Some(w) => (None, w.0, pos),
+            None => (Some(cell.0), 0, pos),
+        })
+    };
     for c in checks {
         let r = c.target;
         let (cell, pos) = match sim.world.peek(r) {
@@ -2830,15 +3121,37 @@ fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
             },
         };
         let Some(cell) = cell else { continue };
-        if let Some(w) = refs.cell_world.get(&cell) {
-            out.push(Target { interior: None, world: w.0, pos, form: r.0 });
-            continue;
+        let there = QuestPlace::of_cell(refs, cell);
+        let mut outdoors = None;
+        match refs.cell_world.get(&cell) {
+            Some(w) => out.push(Target { interior: None, world: w.0, pos, form: r.0, world_map: true }),
+            None => {
+                out.push(Target { interior: Some(cell.0), world: 0, pos, form: r.0, world_map: true });
+                let direct = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
+                outdoors = fnv_game::quest_targets::outdoor_marker_door(&sim.world, graph, direct, cell, c.ignores_locks);
+                if let Some((d, (None, w, p))) = outdoors.and_then(|d| Some((d, door_at(d)?))) {
+                    out.push(Target { interior: None, world: w, pos: p, form: d.0, world_map: true });
+                }
+            }
         }
-        out.push(Target { interior: Some(cell.0), world: 0, pos, form: r.0 });
-        let doors = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
-        let door = fnv_game::quest_targets::marker_door(&sim.world, doors, c.ignores_locks).and_then(|d| Some((d, refs.get(d)?))).and_then(|(id, d)| Some((refs.cell_world.get(&d.cell?)?.0, d.pos, id)));
-        if let Some((w, p, id)) = door {
-            out.push(Target { interior: None, world: w, pos: p, form: id.0 });
+        let first = here.filter(|&h| h != there).and_then(|h| graph.first_door(&sim.world, h, there, c.ignores_locks));
+        if let Some((d, (interior, w, p))) = first.filter(|&d| Some(d) != outdoors).and_then(|d| Some((d, door_at(d)?))) {
+            out.push(Target { interior, world: w, pos: p, form: d.0, world_map: false });
+        }
+        let key = (c.quest.0, c.objective, c.index);
+        if st.target_doors_logged.get(&key) != Some(&(outdoors, first)) {
+            st.target_doors_logged.insert(key, (outdoors, first));
+            let world_map = match outdoors.and_then(|d| Some((d, door_at(d)?))) {
+                Some((d, (_, w, p))) => format!("at door {d} in worldspace {} ({:.0}, {:.0})", FormId(w), p[0], p[1]),
+                None if refs.cell_world.contains_key(&cell) => format!("itself ({:.0}, {:.0})", pos[0], pos[1]),
+                None => "nowhere (no way outdoors)".to_string(),
+            };
+            let local = match first {
+                Some(d) => format!("at door {d}, the first of the way there"),
+                None if here == Some(there) => "itself".to_string(),
+                None => "nowhere (no way from here)".to_string(),
+            };
+            info!("quest targets: {r} in cell {cell} marked on the world map {world_map}; on the local map {local}");
         }
     }
     out
@@ -3504,11 +3817,23 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         if let Some((image, r)) = &m.outline {
             p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ImageNode { color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }, Pickable::IGNORE));
         }
+        // The player's Local Map Shows Reset Areas tweak: a faint red over each square
+        // [design: docs/design/tweaks.md].
+        for r in m.reset_cells.iter() {
+            p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), BackgroundColor(Color::srgba(1.0, 0.2, 0.15, RESET_CELL_ALPHA)), Pickable::IGNORE));
+        }
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
             let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
-            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), amber(brightness));
+            // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
+            let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
+            let node = at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size);
+            if c.image(p, &mk.picture(), node.clone(), colour).is_none() && mk.outside.is_some() {
+                // The tweak's own pictures missing: the plain door, an interior one dimmer.
+                let colour = if mk.outside == Some(false) { colour.with_alpha(colour.alpha() * INSIDE_DOOR_DIM) } else { colour };
+                c.image(p, DOOR_ICON, node, colour);
+            }
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);
@@ -3526,6 +3851,12 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         }
         if let Some(q) = m.custom {
             c.image(p, PC_MARKER_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), c.bright());
+        }
+        // The companions' names where they stand, under the player's arrow [design: the
+        // order]; a knocked-out one red (the player's tweak).
+        for (at_, name, down) in &m.companions {
+            let colour = if *down { Color::srgb(1.0, 0.25, 0.2).with_alpha(c.bright().alpha()) } else { c.bright() };
+            c.text(p, m.companion_font, name, at_.x, at_.y - COMPANION_NAME_RISE, Align::Centre, colour);
         }
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
@@ -3599,6 +3930,15 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 mod tests {
     use super::*;
 
+    /// Exterior and Interior Door Icons: each kind its picture; off, the plain door.
+    #[test]
+    fn doors_take_their_kind_s_picture_under_the_tweak() {
+        let door = |outside| MapMark { icon: None, highlighted: false, at: Vec2::ZERO, form: 0, uv: None, name: String::new(), detail: None, recent: false, outside };
+        assert_eq!(door(None).picture(), DOOR_ICON);
+        assert_eq!(door(Some(true)).picture(), DOOR_ICON_OUTSIDE);
+        assert_eq!(door(Some(false)).picture(), DOOR_ICON_INSIDE);
+    }
+
     /// #2571: a playing audio note's time and meter alone are what a held press does not
     /// redraw the page for; any other change is.
     #[test]
@@ -3658,6 +3998,7 @@ mod tests {
         w.init_resource::<Messages<MenuInput>>();
         w.init_resource::<Messages<PipBoyInput>>();
         w.init_resource::<Messages<FastTravelAsk>>();
+        w.init_resource::<Messages<SummonCompanions>>();
         w.init_resource::<Messages<FastTravelGo>>();
         w
     }
@@ -3804,6 +4145,15 @@ mod tests {
         assert!(!st.was_open, "no body: the drawing closed the page, as before");
         assert!(st.prepared.is_none() && st.last_tab.is_none());
         assert!(!prepares_early(None) && !prepares_early(Some(&crate::tiles::vanilla::TileMenus::default())));
+    }
+
+    #[test]
+    fn unmapped_places_are_the_unfound_ones_without_the_visible_flag() {
+        let marker = |form, world, flags| read::Marker { form, world, pos: [0.0; 3], name: format!("Place {form}"), kind: 1, flags, radius: 10.0, reputation: None };
+        let mut st = DataState { markers: Some(vec![marker(10, 1, 0), marker(20, 1, 1), marker(30, 1, 0), marker(40, 2, 0)]), ..DataState::default() };
+        st.discovered.insert(30);
+        assert_eq!(st.unmapped_of(1, None), [10].into_iter().collect());
+        assert_eq!(st.unmapped_of(2, None), [40].into_iter().collect());
     }
 
     #[test]
@@ -4025,7 +4375,7 @@ mod tests {
     fn the_local_maps_parts_come_from_one_viewport_indoors_and_out() {
         use bevy::ecs::system::SystemState;
 
-        let door = |form, x: f32, y: f32| read::Door { form, pos: [x, y, 0.0], name: format!("Door {form}") };
+        let door = |form, x: f32, y: f32| read::Door { form, pos: [x, y, 0.0], name: format!("Door {form}"), outside: true };
         for interior in [Some(0x0001_2345_u32), None] {
             // The early preparation's (`MapMenu` on): the tile page's rows gathered too.
             let mut st = DataState { tile_rows: true, ..DataState::default() };
@@ -4351,7 +4701,7 @@ mod tests {
         let (mut app, pad) = playing_app(InputDevice::KeyboardMouse);
         app.insert_resource(DataState { cursor_marker: Some(7), ..default() })
             .init_resource::<PipBoyAid>().add_message::<MenuInput>().add_message::<PipBoyInput>()
-            .add_message::<FastTravelAsk>().add_message::<FastTravelGo>().add_systems(Update, read);
+            .add_message::<FastTravelAsk>().add_message::<FastTravelGo>().add_message::<SummonCompanions>().add_systems(Update, read);
         let mouse = MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window: Entity::PLACEHOLDER };
         app.world_mut().write_message(mouse);
         app.update();
@@ -4917,7 +5267,7 @@ mod tests {
         st.cursor[WORLD] = Some(MAP_MID + off);
         let shown = world_map(&mut st, &game, None, false);
         assert_eq!((shown.custom, shown.nodes.len(), shown.lines.len()), (None, 0, 0));
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, false);
         let (ask, answers) = asked(&st);
         assert!(matches!(ask, marker::MarkerAsk::Set(_)));
         assert_eq!(answers, 2);
@@ -4943,7 +5293,7 @@ mod tests {
         // Moved from the Local Map: 100 left of its middle is 2800 west of the player.
         st.cursor[LOCAL] = Some(MAP_MID - Vec2::new(100.0, 0.0));
         local_map(&mut st, &game, None);
-        place_marker(&mut st, LOCAL);
+        place_marker(&mut st, LOCAL, &mut game, false);
         let (ask, answers) = asked(&st);
         assert_eq!(answers, 3);
         answer_marker(&mut st, &mut game, marker::answer(ask, 0));
@@ -4954,7 +5304,7 @@ mod tests {
         let left = -2800.0 / (4.0 * model::CELL) * model::MAP_SPAN * 2048.0;
         assert!(near(shown.custom.unwrap(), quest_corner(MAP_MID + Vec2::new(left, 0.0))), "{:?}", shown.custom);
         // Keep leaves it; remove takes it away from both maps.
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, false);
         let (ask, _) = asked(&st);
         answer_marker(&mut st, &mut game, marker::answer(ask, 2));
         assert_eq!(st.custom, Some(moved));

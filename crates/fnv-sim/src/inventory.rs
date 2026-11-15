@@ -229,11 +229,46 @@ impl From<BTreeMap<FormId, StackRepr>> for Inventory {
 pub struct WeightRules {
     pub light: Option<(f32, f32)>,
     pub heavy_weapons: Option<(f32, f32)>,
+    /// The player's weightless tweaks (NVForever's settings, `fnv_game::tweaks`) [design: docs/design/tweaks.md]:
+    /// item kinds that weigh nothing ([`WEIGHTLESS_ARMOR`] …, bits), and armour or
+    /// power armour that weighs nothing while worn. Absent from older saves.
+    #[serde(default)]
+    pub weightless: u8,
+    #[serde(default)]
+    pub weightless_worn_armor: bool,
+    #[serde(default)]
+    pub weightless_worn_power_armor: bool,
+    /// The player's Hardcore Tweaks (`fnv_game::tweaks`): ammunition weighs (`Some(true)`)
+    /// or does not (`Some(false)`) whatever the Hardcore switch; `None` follows it
+    /// [design: docs/design/tweaks.md]. Absent from older saves.
+    #[serde(default)]
+    pub ammo_weight: Option<bool>,
 }
+
+/// [`WeightRules::weightless`]'s bits.
+pub const WEIGHTLESS_ARMOR: u8 = 1;
+pub const WEIGHTLESS_AID: u8 = 2;
+pub const WEIGHTLESS_AMMO: u8 = 4;
+pub const WEIGHTLESS_WEAPONS: u8 = 8;
+pub const WEIGHTLESS_MISC: u8 = 16;
 
 impl WeightRules {
     pub fn is_none(&self) -> bool {
-        self.light.is_none() && self.heavy_weapons.is_none()
+        self.light.is_none() && self.heavy_weapons.is_none() && self.weightless == 0 && !self.weightless_worn_armor && !self.weightless_worn_power_armor && self.ammo_weight.is_none()
+    }
+
+    /// Whether an item of `kind` weighs nothing under the weightless tweaks, `worn` and
+    /// `power_armor` saying how it is held.
+    pub fn weightless(&self, kind: ItemKind, worn: bool, power_armor: bool) -> bool {
+        let bit = match kind {
+            ItemKind::Armor => WEIGHTLESS_ARMOR,
+            ItemKind::Aid => WEIGHTLESS_AID,
+            ItemKind::Ammo => WEIGHTLESS_AMMO,
+            ItemKind::Weapon => WEIGHTLESS_WEAPONS,
+            ItemKind::Misc => WEIGHTLESS_MISC,
+            _ => 0,
+        };
+        self.weightless & bit != 0 || (kind == ItemKind::Armor && worn && (self.weightless_worn_armor || (power_armor && self.weightless_worn_power_armor)))
     }
 
     /// One unit's weight `w` (its mods applied) of an item of `kind`.
@@ -552,6 +587,7 @@ impl Inventory {
 
     /// [`Inventory::totals`] with a carrier's [`WeightRules`].
     pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
+        let hardcore = rules.ammo_weight.unwrap_or(hardcore);
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
@@ -567,6 +603,9 @@ impl Inventory {
                         ) => {}
                         Some(_) => {
                             for &(e, c) in &s.groups {
+                                if rules.weightless(i.kind, e.equipped, i.power_armor) {
+                                    continue;
+                                }
                                 t.weight += rules.unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind) as f64 * c as f64;
                             }
                         }
@@ -599,7 +638,7 @@ mod tests {
 
     #[test]
     fn perk_weight_rules_halve_light_items_and_heavy_weapons() {
-        let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((10.0, 0.5)) };
+        let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((10.0, 0.5)), ..Default::default() };
         // Pack Rat: 2 or less halves, more stays; nothing weighs nothing.
         assert_eq!(rules.unit(2.0, ItemKind::Misc), 1.0);
         assert_eq!(rules.unit(0.5, ItemKind::Aid), 0.25);
@@ -613,6 +652,28 @@ mod tests {
         assert_eq!(rules.unit(1.0, ItemKind::Weapon), 0.5);
         assert!(WeightRules::default().is_none());
         assert_eq!(WeightRules::default().unit(3.0, ItemKind::Weapon), 3.0);
+    }
+
+    #[test]
+    fn the_hardcore_tweaks_rule_counts_as_a_rule() {
+        assert!(!WeightRules { ammo_weight: Some(false), ..Default::default() }.is_none());
+        assert!(WeightRules { ammo_weight: None, ..Default::default() }.is_none());
+    }
+
+    #[test]
+    fn weightless_tweaks_pick_kinds_and_worn_armor() {
+        let rules = WeightRules { weightless: WEIGHTLESS_AID | WEIGHTLESS_MISC, ..Default::default() };
+        assert!(!rules.is_none());
+        assert!(rules.weightless(ItemKind::Aid, false, false));
+        assert!(rules.weightless(ItemKind::Misc, false, false));
+        assert!(!rules.weightless(ItemKind::Weapon, false, false));
+        let worn = WeightRules { weightless_worn_power_armor: true, ..Default::default() };
+        assert!(worn.weightless(ItemKind::Armor, true, true));
+        assert!(!worn.weightless(ItemKind::Armor, false, true), "carried, not worn");
+        assert!(!worn.weightless(ItemKind::Armor, true, false), "not power armour");
+        let any = WeightRules { weightless_worn_armor: true, ..Default::default() };
+        assert!(any.weightless(ItemKind::Armor, true, false));
+        assert!(!WeightRules::default().weightless(ItemKind::Armor, true, true));
     }
 
     #[test]

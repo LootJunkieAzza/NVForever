@@ -87,13 +87,62 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    // The Tweaks tab's keys (`crate::tweaks`, docs/design/tweaks.md): none bound unless
+    // the player binds them.
+    /// Holster the weapon at once (Stewie's Tweaks iHolsterWeaponKey).
+    HolsterWeapon,
+    /// The Pip-Boy light on or off (iTogglePipboyLightKey).
+    ToggleLight,
+    /// The crosshair shown or hidden (iToggleCrosshairKey).
+    ToggleCrosshair,
+    /// The sneak label shown or hidden (iToggleSneakIndicatorKey).
+    ToggleSneakLabel,
+    /// Every menu and the HUD hidden or shown, as ToggleMenus (iToggleMenusKey).
+    ToggleMenus,
+    /// Back to the main menu at once (iExitToMainMenuKey).
+    ExitToMainMenu,
+    /// Quit at once (iExitGameKey).
+    ExitGame,
+    /// No collision while held (iDisableCollisionKey).
+    NoCollision,
+    /// The Pip-Boy opened on a page (iPipboyStatsKey, iPipboyItemsKey, iPipboyDataKey).
+    PipBoyStats,
+    PipBoyItems,
+    PipBoyData,
+    /// The Pip-Boy opened on a DATA tab (iOpenLocalMapKey, iOpenMapKey, iOpenQuestsKey,
+    /// iOpenRadioKey).
+    OpenLocalMap,
+    OpenWorldMap,
+    OpenQuests,
+    OpenRadio,
+    /// True iron sights on or off (iToggleTrueIronSightsKey).
+    ToggleIronSights,
+    /// The weapon in hand dropped (iDropEquippedWeaponKey).
+    DropWeapon,
+    /// The Radio volume a tenth up or down (iRadioVolumeUpKey, iRadioVolumeDownKey).
+    RadioVolumeUp,
+    RadioVolumeDown,
+    /// The weapon equipped before the one now (iEquipLastWeaponKey).
+    LastWeapon,
+    /// Smoothed looking on or off (iToggleSmoothCameraKey).
+    SmoothCamera,
+    /// Activate again and again while held (iRepeatActivateKey).
+    RepeatActivate,
+    /// The iron sights on the weapon's second sighting node or back (iToggleSightingNodeHotkey).
+    ToggleSightingNode,
+    /// The custom map marker where the player stands (iPlaceMapMarkerAtPlayerPosKey).
+    PlaceMarkerHere,
+    /// Hide the chosen parts of the HUD or show them again (iHideHUDKey).
+    HideHud,
+    /// End the Pip-Boy radio's song or talk now (iSkipRadioSongKey).
+    SkipRadioSong,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 55] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -123,7 +172,37 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
+    (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
+    (Control::ToggleCrosshair, "Toggle Crosshair", 0xFFFFFFFF),
+    (Control::ToggleSneakLabel, "Toggle Sneak Label", 0xFFFFFFFF),
+    (Control::ToggleMenus, "Toggle Menus", 0xFFFFFFFF),
+    (Control::ExitToMainMenu, "Exit to Main Menu", 0xFFFFFFFF),
+    (Control::ExitGame, "Exit Game", 0xFFFFFFFF),
+    (Control::NoCollision, "No Collision", 0xFFFFFFFF),
+    (Control::PipBoyStats, "Pip-Boy Stats", 0xFFFFFFFF),
+    (Control::PipBoyItems, "Pip-Boy Items", 0xFFFFFFFF),
+    (Control::PipBoyData, "Pip-Boy Data", 0xFFFFFFFF),
+    (Control::OpenLocalMap, "Local Map", 0xFFFFFFFF),
+    (Control::OpenWorldMap, "World Map", 0xFFFFFFFF),
+    (Control::OpenQuests, "Quests", 0xFFFFFFFF),
+    (Control::OpenRadio, "Radio", 0xFFFFFFFF),
+    (Control::ToggleIronSights, "Toggle Iron Sights", 0xFFFFFFFF),
+    (Control::DropWeapon, "Drop Weapon", 0xFFFFFFFF),
+    (Control::RadioVolumeUp, "Radio Volume Up", 0xFFFFFFFF),
+    (Control::RadioVolumeDown, "Radio Volume Down", 0xFFFFFFFF),
+    (Control::LastWeapon, "Last Weapon", 0xFFFFFFFF),
+    (Control::SmoothCamera, "Smooth Camera", 0xFFFFFFFF),
+    (Control::RepeatActivate, "Repeat Activate", 0xFFFFFFFF),
+    (Control::ToggleSightingNode, "Toggle Sighting Node", 0xFFFFFFFF),
+    (Control::PlaceMarkerHere, "Place Marker Here", 0xFFFFFFFF),
+    (Control::HideHud, "Hide HUD", 0xFFFFFFFF),
+    (Control::SkipRadioSong, "Skip Radio Song", 0xFFFFFFFF),
 ];
+
+/// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
+/// player binds it (`crate::tweaks`).
+pub const TWEAK_CONTROLS: usize = 29;
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
 pub const GAME_INI_CONTROLS: usize = 28;
@@ -308,6 +387,9 @@ pub struct Bindings {
     pub rumble: bool,
     /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
     pub stick_sensitivity: f32,
+    /// A key may serve two controls (the Duplicate Binds tweak, set by `crate::tweaks`):
+    /// rebinding does not swap.
+    pub allow_duplicates: bool,
     /// The Controls tab's Vertical Sensitivity of keyboard and mouse and of the controller
     /// ([`device_slot`]): the vertical look's speed as a multiple of the horizontal's, 1 as
     /// the game has it (the mouse's one value for both axes, the stick's own vertical look
@@ -356,6 +438,7 @@ impl Bindings {
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
+            allow_duplicates: false,
             vertical: [1.0, 1.0],
         }
     }
@@ -377,7 +460,8 @@ impl Bindings {
     pub fn rebind_pad(&mut self, c: Control, p: PadInput) -> Vec<Control> {
         let old = self.pad(c);
         let mut swapped = Vec::new();
-        for (k, x) in self.pad.iter_mut().filter(|(k, x)| *k != c && *x == Some(p)) {
+        let swaps = !self.allow_duplicates;
+        for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && *x == Some(p)) {
             *x = old;
             swapped.push(*k);
         }
@@ -432,7 +516,9 @@ impl Bindings {
     pub fn rebind(&mut self, c: Control, input: Input) -> Vec<Control> {
         let old = self.get(c);
         let mut swapped = Vec::new();
-        for (k, b) in self.map.iter_mut().filter(|(k, _)| *k != c) {
+        // The player's tweak lets two controls share an input [design: docs/design/tweaks.md].
+        let swaps = !self.allow_duplicates;
+        for (k, b) in self.map.iter_mut().filter(|(k, _)| swaps && *k != c) {
             match input {
                 Input::Key(key) if b.key == Some(key) => b.key = old.key,
                 Input::Mouse(m) if b.mouse == Some(m) => b.mouse = old.mouse,
@@ -505,6 +591,32 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        HolsterWeapon => "Holster Weapon",
+        ToggleLight => "Pip-Boy Light",
+        ToggleCrosshair => "Show/Hide Crosshair",
+        ToggleSneakLabel => "Show/Hide Sneak Label",
+        ToggleMenus => "Show/Hide HUD",
+        ExitToMainMenu => "Main Menu",
+        ExitGame => "Quit Game",
+        NoCollision => "No Collision (held)",
+        PipBoyStats => "Pip-Boy: Stats",
+        PipBoyItems => "Pip-Boy: Items",
+        PipBoyData => "Pip-Boy: Data",
+        OpenLocalMap => "Pip-Boy: Local Map",
+        OpenWorldMap => "Pip-Boy: World Map",
+        OpenQuests => "Pip-Boy: Quests",
+        OpenRadio => "Pip-Boy: Radio",
+        ToggleIronSights => "True Iron Sights",
+        DropWeapon => "Drop Weapon",
+        RadioVolumeUp => "Radio Volume Up",
+        RadioVolumeDown => "Radio Volume Down",
+        LastWeapon => "Last Weapon",
+        SmoothCamera => "Smooth Camera",
+        RepeatActivate => "Repeat Activate",
+        ToggleSightingNode => "Second Iron Sights",
+        PlaceMarkerHere => "Place Marker Here",
+        HideHud => "Hide HUD",
+        SkipRadioSong => "Skip Radio Song",
     }
 }
 
@@ -1122,6 +1234,19 @@ pub struct ControlInput<'w, 's> {
     pub capture: Option<Res<'w, KeyboardCapture>>,
 }
 
+/// The player's Keyboard and Mouse With a Controller tweak: with the controller as the
+/// input device, the play controls' keys and mouse buttons (and the mouse's look) work
+/// too; menus keep the device's [design: docs/design/tweaks.md]. Set by `crate::tweaks`.
+static KEYS_WITH_PAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_keys_with_pad(on: bool) {
+    KEYS_WITH_PAD.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn keys_with_pad() -> bool {
+    KEYS_WITH_PAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// How a controller input is asked about.
 #[derive(Clone, Copy)]
 enum Ask {
@@ -1144,7 +1269,10 @@ impl ControlInput<'_, '_> {
     /// A playing kill camera holds `c`: every control but those that open a menu or
     /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
     pub fn held(&self, c: Control) -> bool {
-        self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+        self.kill_cam.as_ref().is_some_and(|k| k.active())
+            && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+            // The player's tweak leaves walking and running (docs/design/tweaks.md).
+            && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove))
     }
 
     /// A controller works the controls.
@@ -1185,8 +1313,12 @@ impl ControlInput<'_, '_> {
             return false;
         }
         if self.controller() {
-            return self.pad_is(c, Ask::Pressed);
+            return self.pad_is(c, Ask::Pressed) || (keys_with_pad() && self.keys_pressed(c));
         }
+        self.keys_pressed(c)
+    }
+
+    fn keys_pressed(&self, c: Control) -> bool {
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m) && self.open_button(m))
     }
@@ -1203,11 +1335,12 @@ impl ControlInput<'_, '_> {
         if self.suppressed() || self.held(c) {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustPressed);
-        }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m))
+        let keys = || b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m));
+        if self.controller() {
+            return self.pad_is(c, Ask::JustPressed) || (keys_with_pad() && keys());
+        }
+        keys()
     }
 
     /// Released this frame, and neither of its inputs is still down.
@@ -1403,11 +1536,24 @@ mod tests {
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
-        // Every control has a key or a button.
-        for (c, _, _) in GAME_CONTROLS {
-            let x = b.get(c);
+        // Every control has a key or a button, but the Tweaks tab's, which start unbound.
+        for (c, _, _) in &GAME_CONTROLS[..TWEAK_CONTROLS] {
+            let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
+        for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..] {
+            assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
+        }
+    }
+
+    #[test]
+    fn shared_keys_leave_the_other_control_alone() {
+        let mut b = Bindings::game_defaults();
+        b.allow_duplicates = true;
+        let jump = b.get(Control::Jump).key;
+        assert!(b.rebind(Control::Activate, Input::Key(jump.unwrap())).is_empty());
+        assert_eq!(b.get(Control::Jump).key, jump, "Jump keeps its key");
+        assert_eq!(b.get(Control::Activate).key, jump);
     }
 
     #[test]

@@ -173,6 +173,12 @@ impl Game<'_> {
     /// needs rise (Hardcore) hour by hour, a sleep lowers sleep deprivation, and stages
     /// follow. A sleep outside Hardcore restores Health and heals crippled limbs.
     pub fn pass_hours(&mut self, hours: f64, sleeping: bool) -> Passed {
+        self.pass_hours_healing(hours, sleeping, true)
+    }
+
+    /// As [`Game::pass_hours`]; `heal` false keeps a sleep from healing (the Sleep
+    /// Healing Min Duration tweak before its hours are slept, docs/design/tweaks.md).
+    pub fn pass_hours_healing(&mut self, hours: f64, sleeping: bool, heal: bool) -> Passed {
         let seconds = hours.max(0.0) * 3600.0 / self.time_scale();
         let p = FormId::PLAYER_REF;
         let started: Vec<u32> = self.effects.iter().filter(|e| e.target == p).map(|e| e.id).collect();
@@ -200,7 +206,10 @@ impl Game<'_> {
             }
         }
         self.update_need_stages();
-        let healing = sleeping && hours > 0.0 && !self.hardcore();
+        // The player's Hardcore Tweaks set that rule apart from the mode [design:
+        // docs/design/tweaks.md].
+        let sleep_heals = if self.tweaks.hardcore_tweaks { self.tweaks.hardcore_sleep_heals } else { !self.hardcore() };
+        let healing = heal && sleeping && hours > 0.0 && sleep_heals;
         let limbs_healed = if healing { self.heal_limbs(p) } else { Vec::new() };
         let health_restored = if healing { self.restore_health(p) } else { 0.0 };
         self.emit(EventKind::TimePassed { hours, seconds, sleeping });
@@ -263,13 +272,72 @@ impl Game<'_> {
                 }
             }
             self.emit(EventKind::NeedStage { actor: p, value: code, level: value, stage: want.map(|s| s.stage), spell: want.map(|s| s.spell) });
+            // The masters' words for a dehydration or sleep stage changing, in the corner
+            // [observed: FalloutNV.esm sDehydrationIncrease / Decrease / NotSick,
+            // sSleepDeprevationIncrease / Decrease / NotSick; hypothesis: which change says
+            // which, and that hunger and radiation say nothing (no such settings); observer
+            // check 194]. The player's Disable Needs Messages tweak keeps them off
+            // [design: docs/design/tweaks.md].
+            let pos = |s: Option<FormId>| s.and_then(|s| stages.iter().position(|x| x.stage == s));
+            let change = need_change(pos(held), pos(want.map(|s| s.stage)));
+            let prefix = match code {
+                DEHYDRATION if !self.tweaks.no_dehydration_messages => Some("sDehydration"),
+                SLEEP_DEPRIVATION if !self.tweaks.no_sleep_messages => Some("sSleepDeprevation"),
+                _ => None,
+            };
+            if let (Some(prefix), Some(change)) = (prefix, change) {
+                let name = format!("{prefix}{change}");
+                if let Some(fnv_sim::settings::Setting::Str(text)) = self.world.setting_value(&name).cloned() {
+                    if !text.trim().is_empty() {
+                        // The player's Custom Popup Icons tweak gives the line a picture.
+                        let icon = self.tweaks.need_icons.then(|| need_icon(code)).flatten().map(str::to_string);
+                        self.emit(EventKind::NoteShown { text, icon, seconds: NEED_NOTE_SECONDS });
+                    }
+                }
+            }
         }
+    }
+}
+
+/// The picture a need's message has under the player's Custom Popup Icons tweak: the
+/// masters' water for dehydration, their Healing Rate for sleep (rest heals) [design: our
+/// picks among the interface's icons; the tweak names none].
+pub fn need_icon(code: u16) -> Option<&'static str> {
+    match code {
+        DEHYDRATION => Some(r"Interface\Icons\PipboyImages_small\Items_small\glow_items_water.dds"),
+        SLEEP_DEPRIVATION => Some(r"Interface\Icons\PipboyImages_small\Derived Statistics_small\glow_healing_rate.dds"),
+        _ => None,
+    }
+}
+
+/// How long a need's message shows, seconds [design].
+const NEED_NOTE_SECONDS: f32 = 3.0;
+
+/// The setting's last word for a need's stage moving from place `from` to `to` among its
+/// stages (`None`: no stage): `Increase` going up, `Decrease` going down to another stage,
+/// `NotSick` leaving the last; nothing when it stays [hypothesis, observer check 194].
+pub fn need_change(from: Option<usize>, to: Option<usize>) -> Option<&'static str> {
+    match (from, to) {
+        (None, Some(_)) => Some("Increase"),
+        (Some(a), Some(b)) if b > a => Some("Increase"),
+        (Some(a), Some(b)) if b < a => Some("Decrease"),
+        (Some(_), None) => Some("NotSick"),
+        _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stage_change_picks_its_message() {
+        assert_eq!(need_change(None, Some(0)), Some("Increase"));
+        assert_eq!(need_change(Some(0), Some(2)), Some("Increase"));
+        assert_eq!(need_change(Some(2), Some(1)), Some("Decrease"));
+        assert_eq!(need_change(Some(1), None), Some("NotSick"));
+        assert_eq!(need_change(Some(1), Some(1)), None);
+    }
 
     #[test]
     fn the_masters_rates_make_dehydration_fastest_and_sleep_slowest() {

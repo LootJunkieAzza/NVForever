@@ -24,9 +24,8 @@
 //!   end by the place of its `BeamEnd` node [hypothesis: the node's meaning, from its
 //!   name and its place at the far end of the beam's geometry].
 //! - **Billboards.** A `NiBillboardNode` of these models turns to the camera each
-//!   frame: about its own y axis for the "rotate about up" modes (1, 5, 9), freely for
-//!   the others [documented: nif.xml BillboardMode names; hypothesis: that the node's +z
-//!   is the side shown and +y the "up" it turns about].
+//!   frame (`crate::world::face_camera`, with placed models' ones; the turn per mode in
+//!   docs/spec-notes/billboard-nodes.md).
 //! - **Add-on nodes.** A `BSValueNode` of these models becomes an emitter of its ADDN's
 //!   particle effect for as long as the model is there (`crate::particles`): the sparks
 //!   and smoke of a flash, a missile's trail, the flamer's flame.
@@ -78,7 +77,7 @@ use bevy::prelude::*;
 use fnv_phys::{layers, Filter};
 use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
-use nvf_assets::model::{ModelCtx, PreparedModel};
+use nvf_assets::model::{Billboard, ModelCtx, PreparedModel};
 use nvf_assets::nif_material::NifMaterial;
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ExplosionLook, ImpactFx, ShotFired, ShotVisual, ShotVisuals, WATER_SURFACE_EXPLOSION};
 use nvf_play::phys::PhysState;
@@ -91,12 +90,6 @@ use crate::player_body::PlayerBody;
 use crate::weapons::{HeldWeapon, Muzzle};
 use crate::world::{WorldData, WorldRoot};
 
-/// A `NiBillboardNode`: its billboard mode and its rotation in the file.
-#[derive(Component)]
-struct Billboard {
-    mode: u16,
-    bind: Quat,
-}
 
 /// A shell casing in the air or on the ground: its velocity and spin (game space) and
 /// how long it has left.
@@ -220,7 +213,7 @@ impl Plugin for ShotFxPlugin {
         app.init_resource::<ShotFx>()
             // The casings' knocks are sounds: before sfx plays them.
             .configure_sets(Update, ShotFxSet.before(nvf_play::sfx::SfxSet))
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -320,10 +313,8 @@ fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &
         commands.entity(*e).insert(NotShadowCaster);
     }
     for n in &pm.nodes {
+        // Its billboards come with the rig (`Rig::spawn_playing`).
         let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
-        if let Some(mode) = n.billboard {
-            commands.entity(e).insert(Billboard { mode, bind: local(&n.local).rotation });
-        }
         if let Some(index) = n.addon {
             commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
         }
@@ -770,6 +761,7 @@ fn explosions(
     time: Res<Time>,
     mut boom: MessageReader<ExplosionFx>,
     (sfx, combat, mut screen): (Option<Res<Sfx>>, Res<Combat>, Option<ResMut<crate::imagespace::ScreenModifiers>>),
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
@@ -830,7 +822,9 @@ fn explosions(
         // them; nothing says the effect weakens towards the edge].
         let stats = combat.forms.explosions.get(&b.explosion);
         if let (Some(s), Some(eye), Some(screen)) = (stats, eye, screen.as_deref_mut()) {
-            if let Some(imod) = s.image_space_modifier.filter(|_| eye.distance(Vec3::from_array(b.point)) <= s.is_radius) {
+            // The player's tweak leaves out the blur of a blast in the face [design: docs/design/tweaks.md].
+        let blur_off = tweaks.as_ref().is_some_and(|t| t.no_explosion_blur);
+        if let Some(imod) = s.image_space_modifier.filter(|_| !blur_off && eye.distance(Vec3::from_array(b.point)) <= s.is_radius) {
                 screen.play(imod.0, time.elapsed_secs());
                 fx.screen_effects += 1;
             }
@@ -860,45 +854,6 @@ pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
     match normal.map(Vec3::from_array).filter(|n| !world_up && n.length_squared() > 1e-6) {
         Some(n) => Quat::from_rotation_arc(Vec3::Z, n.normalize()),
         None => Quat::IDENTITY,
-    }
-}
-
-/// Turn the billboards of the effect models to the camera (see the module notes).
-fn face_camera(
-    camera: Query<Entity, crate::fly::WorldCamera>,
-    boards: Query<(Entity, &Billboard, &ChildOf)>,
-    parents: Query<&ChildOf>,
-    mut transforms: Query<&mut Transform>,
-) {
-    let Ok(cam) = camera.single() else { return };
-    // An entity's place in the world from this frame's transforms: the propagated ones
-    // are a frame old (the camera has moved since) and missing for what was spawned
-    // this frame.
-    let world = |transforms: &Query<&mut Transform>, e: Entity| {
-        let mut m = Affine3A::IDENTITY;
-        let mut at = Some(e);
-        while let Some(p) = at {
-            if let Ok(t) = transforms.get(p) {
-                m = t.compute_affine() * m;
-            }
-            at = parents.get(p).ok().map(ChildOf::parent);
-        }
-        m
-    };
-    let eye = Vec3::from(world(&transforms, cam).translation);
-    for (e, b, parent) in &boards {
-        let m = world(&transforms, parent.parent());
-        let Ok(mut t) = transforms.get_mut(e) else { continue };
-        // The way to the camera in the node's own frame as the file has it.
-        let d = b.bind.inverse() * (m.inverse().transform_point3(eye) - t.translation);
-        let turn = match b.mode {
-            1 | 5 | 9 => Quat::from_rotation_y(d.x.atan2(d.z)),
-            _ => Quat::from_rotation_arc(Vec3::Z, d.normalize_or(Vec3::Z)),
-        };
-        let rotation = b.bind * turn;
-        if t.rotation != rotation {
-            t.rotation = rotation;
-        }
     }
 }
 

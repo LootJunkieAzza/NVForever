@@ -87,6 +87,9 @@ pub const SINK: f32 = 1.0;
 pub const ROLL: f32 = 1.2;
 /// The camera keeps this far in front of what it would go into, game units.
 pub const WALL_MARGIN: f32 = 8.0;
+/// Where a skipped death camera stands (real seconds after the death): past the fade to
+/// black and the slow motion's end.
+const SKIPPED: f32 = FADE_DELAY + FADE_SECONDS + SLOW_END + SLOW_OUT;
 
 /// The bones the third-person camera looks at, in order of preference.
 const BODY_BONES: [&str; 3] = ["Bip01 Spine1", "Bip01 Spine", "Bip01 Pelvis"];
@@ -197,7 +200,7 @@ pub fn black_at(t: f32) -> f32 {
 
 /// Start the death camera when the player dies, end it when the player lives again, and
 /// keep the clock's slow motion.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn watch(
     mut commands: Commands,
     (real, virt): (Res<Time<Real>>, Res<Time<Virtual>>),
@@ -210,6 +213,7 @@ pub(crate) fn watch(
     mut cam: ResMut<DeathCam>,
     mut scale: Option<ResMut<ClockScale>>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
+    (keys, mouse, tweaks): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>, Option<Res<nvf_play::tweaks::TweakSettings>>),
 ) {
     let player = FormId::PLAYER_REF.0;
     let dead = nvf_play::combat::is_dead(script.as_deref(), player);
@@ -253,6 +257,16 @@ pub(crate) fn watch(
                 if d.body.is_some() && p.world.ragdoll_asleep(player) {
                     d.rested = true;
                     info!("death camera: the body is on the ground {:.1} s after the death ({:.1} s of game time)", d.real, d.game);
+                }
+            }
+            // The player's Skip Death Camera tweak: Left Alt, or an attack once its wait is
+            // over, goes straight to the end: the screen black, the clock at full speed
+            // [design: docs/design/tweaks.md].
+            if let Some(t) = tweaks.as_deref().filter(|t| t.skip_death_cam) {
+                let attack = t.skip_death_cam_attack > 0.0 && d.real >= t.skip_death_cam_attack && mouse.just_pressed(MouseButton::Left);
+                if d.real < SKIPPED && (keys.just_pressed(KeyCode::AltLeft) || attack) {
+                    info!("death camera: skipped {:.1} s after the death ({}, tweak)", d.real, if attack { "attack" } else { "Left Alt" });
+                    d.real = SKIPPED;
                 }
             }
             if !d.fading && black_at(d.real) > 0.0 {

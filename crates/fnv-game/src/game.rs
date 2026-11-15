@@ -44,6 +44,10 @@ fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
 
+/// The script of the activator that offers to remake the character as the player leaves
+/// the start (the Disable Character Respec tweak) [observed: FalloutNV.esm SCPT 0x001164A4].
+const RESPEC_SCRIPT: &str = "VCG04ActivatorScript";
+
 /// Begin-block event codes (docs/spec-notes/script-functions.md §3.3 [observed]).
 pub mod event {
     pub const GAME_MODE: u16 = 0x00;
@@ -499,6 +503,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// The player's bobby pin's health left at the last lock, for the Remember Bobby Pin
+    /// Health tweak (the player's only) [design: docs/design/tweaks.md].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pin_health: Option<f32>,
     /// SetDisposition: the disposition towards an actor, set by a script
     /// (`functions::actor::get_disposition`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
@@ -849,6 +857,14 @@ pub struct PlayerState {
     /// Map markers ShowMap made fast-travel targets (its canTravel argument).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub travel_markers: BTreeSet<FormId>,
+    /// The poisons on the player's weapons (`crate::weapon_poison`): weapon, the poison and
+    /// the hits it has left.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub weapon_poisons: BTreeMap<FormId, crate::weapon_poison::WeaponPoison>,
+    /// A poison used once, asking to be used again (`crate::weapon_poison`): it and the
+    /// weapon it would go on. Not kept with the save.
+    #[serde(skip)]
+    pub poison_asked: Option<(FormId, FormId)>,
     /// Map markers the player found by coming near them: the engine's discovery
     /// (`nvf-play` compass), told to the rules (`Game::set_found_markers`).
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
@@ -1479,6 +1495,8 @@ pub struct Game<'a> {
     pub ui_pointer: fnv_ui::input::Pointer,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
     pub difficulty: crate::difficulty::Difficulty,
+    /// The player's tweaks (`crate::tweaks`): the engine sets them from its settings.
+    pub tweaks: crate::tweaks::Tweaks,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -2188,7 +2206,7 @@ pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 /// `fnv_save::remap_json_with`: in a save's JSON such a tuple looks like a list of form
 /// IDs, and the remap must not shorten it when a plugin is gone (#1981). Every such
 /// field is listed, saved or not (`tests/save_pairs.rs` reads the sources for them).
-pub const SAVE_PAIR_FIELDS: [&str; 9] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running"];
+pub const SAVE_PAIR_FIELDS: [&str; 10] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running", "poison_asked"];
 
 /// What the default action of the player's own activation did
 /// ([`Game::default_activation_by_hand`]).
@@ -2474,6 +2492,7 @@ impl<'a> Game<'a> {
             ui_extra: Default::default(),
             ui_pointer: fnv_ui::input::Pointer::default(),
             difficulty: Default::default(),
+            tweaks: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
@@ -4002,8 +4021,10 @@ impl<'a> Game<'a> {
         // set them again (`functions::navigation::FrameSwitches`).
         self.frame_switches = Default::default();
         // The world refuses power armour on an untrained player (a loaded game's flag
-        // reaches it here too).
-        self.world.set_power_armor_training(self.player.power_armor);
+        // reaches it here too); the player's tweak lets anyone wear it.
+        self.world.set_power_armor_training(self.player.power_armor || self.tweaks.power_armor_needs_no_training);
+        // The player's Equip Broken Items tweak [design: docs/design/tweaks.md].
+        self.world.set_player_equips_broken(self.tweaks.equip_broken_items);
         // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
         if !self.perk_acts.is_empty() {
             self.finish_perk_acts();
@@ -5279,6 +5300,14 @@ impl<'a> Game<'a> {
         if !self.activation_goes_on(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
+        // The player's Disable Character Respec tweak: the activator that offers to remake
+        // the character on leaving the start (VCG04ActivatorScript) does nothing
+        // [observed: FalloutNV.esm SCPT 0x001164A4 shows the offer, MESG 0x001164A1; design:
+        // docs/design/tweaks.md].
+        if self.tweaks.no_respec && self.ref_script(target).is_some_and(|s| self.data.by_edid(RESPEC_SCRIPT) == Some(s)) {
+            tracing::info!("respec: {target}'s offer to remake the character skipped (tweak)");
+            return Ok(serde_json::json!({"result": "respec skipped"}));
+        }
         if npc_door && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
         }
@@ -5371,6 +5400,14 @@ impl<'a> Game<'a> {
             self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
+        // The player's tweak: a key's opening earns a share of the picking's experience
+        // [design: docs/design/tweaks.md].
+        if act.unlocked_with.is_some() && actor == FormId::PLAYER_REF && self.tweaks.key_xp_share > 0.0 {
+            if let Some(lock) = self.world.peek(target).and_then(|s| s.lock) {
+                let x = crate::lockpick::xp(self, crate::lockpick::Level::of(lock.level)) * f64::from(self.tweaks.key_xp_share);
+                crate::experience::award(self, crate::experience::Source::PickLock, x.round());
+            }
+        }
         self.note_activating(actor, target);
         // The player's activation asks the idle tree's activation root, whose conditions
         // choose (the drinking idles, docs/spec-notes/idles.md §16, #2349). The drink's
@@ -5418,6 +5455,14 @@ impl<'a> Game<'a> {
                 self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
                 let x = crate::experience::mine_disarm_xp(self);
                 crate::experience::award(self, crate::experience::Source::DisarmMine, x);
+                // The player's tweak picks the disarmed mine up [design: docs/design/tweaks.md].
+                if let (true, Outcome::Disarmed { placed: Some(p), .. }) = (self.tweaks.pick_up_disarmed, &act.outcome) {
+                    let p = *p;
+                    match self.world.activate(actor, p) {
+                        Ok(_) => tracing::info!("mines: disarmed {p} picked up (tweak)"),
+                        Err(e) => tracing::info!("mines: disarmed {p} not picked up: {e}"),
+                    }
+                }
             }
             _ => {}
         }
@@ -5809,7 +5854,8 @@ impl<'a> Game<'a> {
     /// name; hypothesis: when, docs/spec-notes/default-objects.md].
     fn drug_wore_off(&mut self, target: FormId, source: FormId) {
         let chem = self.data.ingestibles.get(&source).is_some_and(|i| i.equip_type == crate::data::IngestibleDef::CHEMS);
-        if target != FormId::PLAYER_REF || !chem || self.effects.iter().any(|x| x.target == target && x.source == source) {
+        // The player's tweak can leave the effect out [design: docs/design/tweaks.md].
+        if target != FormId::PLAYER_REF || !chem || self.tweaks.no_chem_wore_off_effect || self.effects.iter().any(|x| x.target == target && x.source == source) {
             return;
         }
         if let Some(m) = self.data.default_object(crate::data::DefaultObject::DrugWearsOffImageSpace).filter(|m| self.data.image_modifiers.contains_key(m)) {
@@ -6714,7 +6760,13 @@ impl Host for Exec<'_, '_> {
 
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
-        self.game.console_out.push(text.to_string());
+        // The player's tweak names the plugin the script is from (the key's first part)
+        // [design: docs/design/tweaks.md].
+        let line = match unit.split_once('|').filter(|_| self.game.tweaks.print_plugin_names) {
+            Some((plugin, _)) => format!("[{plugin}] {text}"),
+            None => text.to_string(),
+        };
+        self.game.console_out.push(line);
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
     }
 

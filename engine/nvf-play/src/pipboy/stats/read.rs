@@ -256,6 +256,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 row.value = Some(format!("{}", g.misc_stat(code).round() as i64));
             }
         }
+        // The player's tweak sorts them by name [design: docs/design/tweaks.md].
+        if g.tweaks.sort_misc_stats {
+            s.general.sort_by(|a, b| a.name.cmp(&b.name));
+        }
         // HP and AP out of a whole that an aid item's temporary modifier raises with them
         // (Buffout, Jet) [hypothesis].
         let whole = |g: &mut fnv_game::Game<'static>, code: u16| {
@@ -265,6 +269,11 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         s.hp = whole(g, av::HEALTH);
         s.ap = whole(g, av::ACTION_POINTS);
         s.xp = Some((g.player.xp, model::xp_for_level(level + 1.0, xp_base, xp_bump)));
+        // The player's tweak: the way through this level as a percentage [design: docs/design/tweaks.md].
+        if g.tweaks.stats_xp_percent {
+            let (from, to) = (model::xp_for_level(level, xp_base, xp_bump), model::xp_for_level(level + 1.0, xp_base, xp_bump));
+            s.xp_percent = Some(if to > from { ((g.player.xp - from) / (to - from) * 100.0).clamp(0.0, 100.0) } else { 100.0 });
+        }
         for (i, &code) in LIMBS.iter().enumerate() {
             if let Some((v, max)) = value(g, code).filter(|v| v.1 > 0.0) {
                 s.limbs[i] = (v / max).clamp(0.0, 1.0);
@@ -274,7 +283,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let hardcore = g.hardcore();
         for hint in [model::STIMPAK, model::DOCTORS_BAG] {
             let hp = s.hp.unwrap_or((0.0, 0.0));
-            s.hints.lit[hint] = model::refusal(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore).is_none();
+            s.hints.lit[hint] = model::refusal_with(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore, g.tweaks.aid_at_full_health).is_none();
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));
@@ -283,10 +292,19 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         for (rows, codes) in [(&mut s.special, SPECIALS.collect::<Vec<_>>()), (&mut skills, SKILLS.filter(|&c| c != av::BIG_GUNS).collect())] {
             for (row, code) in rows.iter_mut().zip(codes) {
                 if let Some((shown, permanent)) = value(g, code) {
-                    let shown = av::capped(code, shown);
+                    // The player's tweak: past the cap, and the amount in the mark [design: docs/design/tweaks.md].
+                    let detailed = g.tweaks.detailed_stats;
+                    let cap = |v: f64| if detailed { v } else { av::capped(code, v) };
+                    let (shown, permanent) = (cap(shown), cap(permanent));
                     row.value = Some(model::whole(shown));
-                    row.mark = model::modified_mark(shown, av::capped(code, permanent));
+                    row.mark = model::modified_mark(shown, permanent).map(|m| if detailed { format!("({:+})", (shown.round() - permanent.round()) as i64) } else { m.to_string() });
                 }
+            }
+        }
+        // The player's tweak: the tag skills in bold [design: docs/design/tweaks.md].
+        if g.tweaks.embolden_tags {
+            for row in &mut skills {
+                row.bold = matches!(row.key, RowKey::Av(code) if g.player.tag_skills.contains(&code));
             }
         }
         // Perks the player has, playable and not hidden [hypothesis: traits are listed
@@ -298,7 +316,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 continue;
             }
             let t = forms.text(perk.0).clone();
-            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None });
+            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
         s.perks = perks;
@@ -311,9 +329,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let scale = g.data.reputations.get(&rep).copied().unwrap_or(0.0) as f64;
             let t = forms.text(rep.0).clone();
             let title = model::reputation_title(gf::reputation_level(fame, scale), gf::reputation_level(infamy, scale));
-            standings.push(Standing { form: rep, name: t.name, title, fame, infamy, icon: t.icon });
+            // The player's tweak shows fame and infamy [design: docs/design/tweaks.md].
+            let name = if g.tweaks.show_fame_infamy { format!("{} (fame {fame:.0}, infamy {infamy:.0})", t.name) } else { t.name };
+            standings.push(Standing { form: rep, name, title, fame, infamy, icon: t.icon });
         }
         standings.sort_by(|a, b| a.name.cmp(&b.name));
+        s.hide_reputation = g.tweaks.hide_empty_reputation && standings.is_empty();
         s.standings = standings;
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
@@ -367,7 +388,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 })
                 .collect();
             if !changes.is_empty() {
-                s.effects.push(EffectLine { name: forms.text(e.source.0).name.clone(), text: model::changes_text(&changes) });
+                // The player's tweak adds the seconds left [design: docs/design/tweaks.md].
+                let name = forms.text(e.source.0).name.clone();
+                let name = if g.tweaks.effect_time_left && e.duration > 0.0 { format!("{name} ({:.0}s)", (e.duration - e.elapsed).max(0.0)) } else { name };
+                s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
             }
         }
     });
@@ -376,10 +400,14 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s
 }
 
+/// The player's health (now, most), limb conditions, Hardcore, and the Aid at Full
+/// Health tweak.
+pub type Condition = ((f64, f64), [f64; 6], bool, bool);
+
 /// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
 /// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
 /// by; `None` without the scripts' game.
-pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6], bool)> {
+pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<Condition> {
     let rt = script?.rt.as_mut()?;
     Some(crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
@@ -391,7 +419,7 @@ pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option
                 limbs[i] = (v / max).clamp(0.0, 1.0);
             }
         }
-        (hp, limbs, g.hardcore())
+        (hp, limbs, g.hardcore(), g.tweaks.aid_at_full_health)
     }))
 }
 
@@ -449,7 +477,7 @@ fn short(forms: &mut Forms, code: u16) -> String {
 /// A list row of an actor value, its figure not read yet.
 fn av_row(forms: &mut Forms, code: u16) -> Row {
     let t = forms.value(code);
-    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None }
+    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false }
 }
 
 impl Forms {

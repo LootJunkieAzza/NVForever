@@ -61,7 +61,16 @@ keeps the physics' pace (§8.3); the zoom's times (§5).
 Every living actor with a hit volume that is
 
 - within the weapon's reach and `fVATSMaxEngageDistance` (5000) [documented:
-  fallout.wiki "Fallout 3 V.A.T.S.", settings table];
+  fallout.wiki "Fallout 3 V.A.T.S.", settings table]. A melee or unarmed weapon's reach
+  is the swing's (`fCombatDistance` 107 x the weapon's Reach) times `fVATSMeleeReachMult`
+  (2), at most `fVATSMeleeMaxDistance` (300), from the body [documented: GECK wiki "VATS
+  Settings"; neither setting is in FalloutNV.esm, so these defaults apply, observed; that
+  New Vegas keeps the page's Fallout 3 defaults is a hypothesis]: the Fists 214, a
+  machete 107, a lead pipe 268, plus the player's capsule radius from the eye, to the
+  target's body (its radius off the distance to its middle), as the swing itself reaches
+  (`fnv_combat::damage::vats_melee_reach`, issue #2656). Until then it was Dead Eye's flat
+  350 (`MELEE_MARK_REACH`), which Dead Eye keeps [design: the maintainer's choice for that
+  style];
 - within `CLASSIC_FRONT` (55 degrees) of the line the player looked along on entering
   [design: about what the view shows];
 - in sight from the eye: its aim point or the middle of any of its body part capsules,

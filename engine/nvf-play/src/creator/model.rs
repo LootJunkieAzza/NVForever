@@ -274,6 +274,8 @@ pub struct Model {
     pub view: View,
     /// Which function opened the menu: what may be changed.
     pub kind: RaceMenu,
+    /// The player's tweak: a woman may have facial hair too [design: docs/design/tweaks.md].
+    pub female_beards: bool,
 }
 
 fn tab_index(t: Tab) -> usize {
@@ -311,7 +313,13 @@ impl Model {
             on_actions: None,
             view: if kind == RaceMenu::Barber { View::default() } else { View::face_on(Tab::Basics) },
             kind,
+            female_beards: false,
         }
+    }
+
+    /// Whether the look has no facial hair rows: a woman's, unless the tweak allows it.
+    fn beardless(&self) -> bool {
+        self.look.female && !self.female_beards
     }
 
     /// The tabs this menu shows.
@@ -410,7 +418,7 @@ impl Model {
             Tab::Skin => [vec![Row::Group], sliders_of(&group, Space::Skin)].concat(),
             Tab::Hair => {
                 let mut r = vec![Row::Hair, Row::HairColour, Row::HairTone(0), Row::HairTone(1), Row::HairTone(2)];
-                if !self.look.female {
+                if !self.beardless() {
                     r.push(Row::FacialHair);
                 }
                 // The barber does the hair and the beard only [documented: GECK wiki
@@ -425,7 +433,7 @@ impl Model {
                 let groups = self.groups(Tab::Hair);
                 let shading = |g: &str| if groups.iter().any(|x| x == g) { sliders_of(&Some(g.to_string()), Space::Skin) } else { vec![] };
                 // A woman has no beard [design], so no beard shading either.
-                if !self.look.female {
+                if !self.beardless() {
                     r.extend(shading("Beard"));
                 }
                 r.push(Row::Brows);
@@ -968,6 +976,15 @@ mod tests {
         assert!(m.undo());
         assert_eq!(m.look.facegen.fggs[0], 0.0);
         assert!(!m.undo());
+    }
+
+    #[test]
+    fn the_tweak_offers_a_woman_facial_hair() {
+        let mut m = Model::new(data(), Look { female: true, ..look() });
+        m.set_tab(Tab::Hair);
+        assert!(!m.rows().contains(&Row::FacialHair));
+        m.female_beards = true;
+        assert!(m.rows().contains(&Row::FacialHair), "bRaceMenuAllowFemaleFacialHair");
     }
 
     #[test]

@@ -1403,6 +1403,10 @@ impl EffectCtx for PlayCtx<'_> {
         self.display(form)
     }
 
+    fn tweaks(&self) -> Option<&fnv_game::tweaks::Tweaks> {
+        Some(&self.game.tweaks)
+    }
+
     fn is_actor_base(&self, base: FormId) -> bool {
         fnv_game::ai::is_actor_base(self.sim.world.forms, base)
     }
@@ -2219,6 +2223,12 @@ pub(crate) fn run_scripts(
             if crate::aid::read_book(rt, item) {
                 continue;
             }
+            // A poison goes on the weapon in hand (`fnv_game::weapon_poison`).
+            if rt.game.is_poison(item) {
+                crate::aid::use_poison(rt, item);
+                continue;
+            }
+            rt.game.forget_poison_question();
             let r = crate::aid::use_item(rt, item, limb);
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }

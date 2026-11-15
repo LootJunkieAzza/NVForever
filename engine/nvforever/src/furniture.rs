@@ -74,6 +74,19 @@ const APPROACH_MAX: f32 = 400.0;
 /// instead of turning to face the way and back [design].
 const STEP_MIN: f32 = 16.0;
 
+/// Whether an actor `d` units from its entry point is put on the furniture at once
+/// rather than stepping there and playing the getting-on clip: on a cross (marker ID 10,
+/// `fnv_ai::furniture::CRUCIFIX_MARKER`) standing within a shuffle ([`STEP_MIN`]) of it.
+/// A crucified actor's package holds it at its cross from the start (Anders 0x001413C3
+/// is placed 8 units from his), and a sidestep there played the walk clips (with a
+/// crippled leg, the limping ones) and then the climb onto the cross in sight of the
+/// player [observed: issue #2471's log, smoke anders-cross-head-limit]. Found on it
+/// instead [design; whether the original shows the climb is observer check 174].
+/// One walked to a cross from further away still climbs on.
+pub fn found_on_cross(marker_id: u8, d: f32) -> bool {
+    marker_id == fnv_ai::furniture::CRUCIFIX_MARKER && d < STEP_MIN
+}
+
 /// An actor is to use this furniture reference (put on the actor's root entity).
 #[derive(Component, Debug, Clone, Copy)]
 pub struct SitOn {
@@ -600,10 +613,19 @@ pub fn drive_actors(
         });
         match plan {
             Ok((plan, d)) => {
+                // Already at a cross: held on it at once (#2471).
+                let found_on = !sit.at_once && found_on_cross(plan.entry.marker_id, d);
+                let at_once = sit.at_once || found_on;
                 info!(
                     "furniture: {:08X} {} {:08X} by marker {} (ID {}), {d:.0} units away; clips {} / {}",
                     rig.reference,
-                    if sit.at_once { "is back on" } else { "goes to" },
+                    if sit.at_once {
+                        "is back on"
+                    } else if found_on {
+                        "is put on (a cross it stands at: no steps, no getting-on clip)"
+                    } else {
+                        "goes to"
+                    },
                     plan.furniture,
                     plan.entry.index,
                     plan.entry.marker_id,
@@ -617,7 +639,7 @@ pub fn drive_actors(
                 let origin = at - t.translation;
                 // Back on it at once: a use whose getting-on takes no time, so the next
                 // update has the actor on, in the loop (scripts are told as for any use).
-                let (stage, pose) = if sit.at_once {
+                let (stage, pose) = if at_once {
                     tell_scripts(&mut script, rig.reference, Some((&plan, state::GETTING_ON)));
                     let on = if plan.stay.is_some() { plan.frames.on } else { Frame { pos: plan.frames.clip.point(plan.travel.to_array()), heading: plan.frames.clip.heading } };
                     t.translation = Vec3::from_array(on.pos) - origin;
@@ -865,8 +887,9 @@ pub fn drive_player(
     let st = &mut *state_;
     for UseFurniture { reference } in asked.read().copied() {
         match &mut st.using {
-            // Activating the furniture one is on: get up.
-            Some(u) if u.plan.furniture == reference => seat.leave = true,
+            // Activating the furniture one is on: get up (not under the player's Activate
+            // Doesn't Stand Up tweak, docs/design/tweaks.md).
+            Some(u) if u.plan.furniture == reference => seat.leave |= !nvf_play::tweaks::SEAT_KEEPS_ON_ACTIVATE.load(std::sync::atomic::Ordering::Relaxed),
             Some(_) => {}
             None => match f.plan(&world, &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
                 // Beds as seats: the player lies down as a sleeping actor does [owner
@@ -1076,6 +1099,15 @@ mod tests {
         // From just west of north to just east of it: through north, not round the south.
         assert!(close(lerp_heading(TAU - 0.2, 0.2, 0.5).rem_euclid(TAU), 0.0) || close(lerp_heading(TAU - 0.2, 0.2, 0.5), TAU));
         assert!(close(lerp_heading(0.3, 0.3 + PI - 0.01, 1.0), 0.3 + PI - 0.01));
+    }
+
+    #[test]
+    fn a_crucified_actor_at_its_cross_is_found_on_it() {
+        // Anders stands 8 units from his cross's marker: put on it, no steps.
+        assert!(found_on_cross(fnv_ai::furniture::CRUCIFIX_MARKER, 8.0));
+        // Walked there from further away, or any other furniture: the steps and the clip.
+        assert!(!found_on_cross(fnv_ai::furniture::CRUCIFIX_MARKER, STEP_MIN + 1.0));
+        assert!(!found_on_cross(14, 8.0));
     }
 
     #[test]

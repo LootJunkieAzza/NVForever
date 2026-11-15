@@ -306,6 +306,54 @@ pub struct MenuView {
     pub welcome: String,
 }
 
+/// The terminal entries whose note the player has read, by terminal (FormID) and item
+/// index, under the Grey Read Notes tweak (an entry read with it off is not counted);
+/// the menu draws them dimmer while the tweak is on. Kept with the save
+/// ([`READ_ENTRIES_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+#[derive(Resource, Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReadEntries(pub std::collections::BTreeSet<(u32, u32)>);
+
+impl ReadEntries {
+    pub fn has(&self, terminal: FormId, item: usize) -> bool {
+        self.0.contains(&(terminal.0, item as u32))
+    }
+}
+
+/// The player's Grey Read Notes tweak, set by `crate::tweaks` each frame.
+static GREY_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Switch the Grey Read Notes tweak on or off.
+pub fn set_grey_read(on: bool) {
+    GREY_READ.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn grey_read() -> bool {
+    GREY_READ.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`ReadEntries`] in the save; the terminals moved to the current load order, those of
+/// a plugin no longer loaded dropped.
+pub const READ_ENTRIES_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "terminal_read_entries",
+    save: |w| w.get_resource::<ReadEntries>().filter(|r| !r.0.is_empty()).and_then(|r| serde_json::to_value(r).ok()),
+    load: |w, v| {
+        if let (Ok(r), Some(mut read)) = (serde_json::from_value::<ReadEntries>(v.clone()), w.get_resource_mut::<ReadEntries>()) {
+            *read = r;
+        }
+    },
+    remap: Some(|v, r| {
+        if let Some(list) = v.as_array_mut() {
+            list.retain_mut(|e| match e.get(0).and_then(serde_json::Value::as_u64).and_then(|n| r.map(n as u32)) {
+                Some(n) => {
+                    e[0] = serde_json::Value::from(n);
+                    true
+                }
+                None => false,
+            });
+        }
+    }),
+};
+
 /// A command for the open terminal.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub enum TerminalInput {
@@ -428,6 +476,7 @@ impl Plugin for TerminalPlugin {
             }
             Err(_) => Vec::new(),
         };
+        crate::save::add_save_hook(app, READ_ENTRIES_SAVE_HOOK);
         app.init_resource::<TerminalScreen>()
             .init_resource::<TerminalStats>()
             .init_resource::<Words>()
@@ -435,6 +484,7 @@ impl Plugin for TerminalPlugin {
             .init_resource::<PowerAid>()
             .init_resource::<MenuRows>()
             .init_resource::<TerminalOpening>()
+            .init_resource::<ReadEntries>()
             .insert_resource(TerminalAid { steps, science: None })
             .add_message::<OpenTerminal>()
             .add_message::<TerminalInput>()
@@ -447,6 +497,7 @@ impl Plugin for TerminalPlugin {
                     .in_set(PlaySet::Ui),
             )
             .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(Update, fade_out.in_set(PlaySet::Ui))
             .add_systems(Last, report);
     }
 }
@@ -668,6 +719,8 @@ fn open(
                     fnv_util::words::trf("You need a Science skill of {needed} to hack this terminal.", &[("needed", &format!("{needed:.0}"))])
                 }
             };
+            // The player's tweak says the player's own Science [design: docs/design/tweaks.md].
+            let line = if matches!(r, fnv_game::hacking::Refusal::Science { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {sci:.0})", line.trim_end_matches('.')) } else { line };
             info!("terminal: {reference} {name} refused (Science {sci:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {
@@ -678,10 +731,13 @@ fn open(
         }
         Opening::Hack { difficulty, words: n } => {
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let Some(puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
+            let Some(mut puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
                 warn!("terminal: {reference} {name}: the word list has too few words for {}", difficulty.name());
                 return;
             };
+            // The player's hacking tweaks [design: docs/design/tweaks.md].
+            let t = &rt.game.tweaks;
+            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",
@@ -743,14 +799,20 @@ pub fn step_cursor(p: &Puzzle, cursor: usize, dx: i32, dy: i32) -> usize {
     }
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+/// How long the granted screen stays with the Faster Hacking tweak [design: docs/design/tweaks.md].
+const FAST_GRANTED_SECONDS: f32 = 0.5;
+
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let keys = keys.snapshot();
     use KeyCode::*;
     let Some(s) = screen.0.as_ref() else { return };
     let mut send = |i| {
         out.write(i);
     };
-    if keys.just_pressed(Escape) {
+    // The player's tweak: Tab closes the terminal from any page (Backspace still goes
+    // back) [design: docs/design/tweaks.md].
+    let tab_closes = tweaks.as_ref().is_some_and(|t| t.tab_closes_terminals);
+    if keys.just_pressed(Escape) || (tab_closes && keys.just_pressed(Tab)) {
         send(TerminalInput::Exit);
         return;
     }
@@ -762,6 +824,16 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, m
         send(TerminalInput::Select);
     }
     let hacking = matches!(s.page, Page::Hacking(_));
+    // The player's tweak: 1 to 9 and 0 (the tenth) choose a row [design: docs/design/tweaks.md].
+    if !hacking && tweaks.as_ref().is_some_and(|t| t.numbered_terminal_keys) {
+        let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0];
+        let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9, Numpad0];
+        if let Some(row) = (0..10).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])) {
+            send(TerminalInput::Row(row));
+            send(TerminalInput::Select);
+            return;
+        }
+    }
     if keys.any_just_pressed([ArrowUp, KeyW]) {
         send(TerminalInput::Step(0, -1));
     }
@@ -846,7 +918,7 @@ fn apply(
     real: Res<Time<Real>>,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
-    (mut sounds, mut opened): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>),
+    (mut sounds, mut opened, mut read): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>, ResMut<ReadEntries>),
 ) {
     let now = time.elapsed_secs();
     // The hover sound's gap is real time: the menu's pause and the game's speed do not
@@ -878,6 +950,11 @@ fn apply(
         let (reference, base) = (s.reference, s.base);
         match &mut s.page {
             Page::Hacking(h) => {
+                // The player's tweak: no leaving once a guess is made, until the game ends [design: docs/design/tweaks.md].
+                if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) && h.ended.is_none() && !h.puzzle.log.is_empty() && rt.game.tweaks.no_exit_hacking {
+                    info!("terminal: leaving refused, a guess was made (tweak)");
+                    continue;
+                }
                 if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) {
                     // Leaving keeps nothing: the next visit is a new game with every
                     // attempt [the owner, 2026-10-11]; a lockout stays.
@@ -1008,6 +1085,9 @@ fn apply(
                 let from = rt.game.events.len();
                 let chosen = with_world(rt, &mut sim, |rt| rules::choose(&mut rt.game, reference, terminal, item));
                 let Some(c) = chosen else { continue };
+                if c.note.is_some() && grey_read() && read.0.insert((terminal.0, item as u32)) {
+                    debug!("terminal: item {item} of {} read (Grey Read Notes)", rt.game.data.name(terminal));
+                }
                 let ran: Vec<String> = rt.game.events[from..].iter().take(8).map(|e| format!("{:?}", e.kind)).collect();
                 if !ran.is_empty() {
                     info!("terminal: its result script: {}", ran.join("; "));
@@ -1084,7 +1164,10 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
     let Page::Hacking(h) = &s.page else { return };
     let Some(ended) = h.ended else { return };
     let won = h.puzzle.state == GameState::Granted;
-    if now - ended < if won { GRANTED_SECONDS } else { LOCKED_SECONDS } {
+    // The player's tweak keeps the granted screen up briefly only [design: docs/design/tweaks.md].
+    let fast = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.faster_hacking_transition);
+    let granted = if fast { FAST_GRANTED_SECONDS } else { GRANTED_SECONDS };
+    if now - ended < if won { granted } else { LOCKED_SECONDS } {
         return;
     }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -1123,17 +1206,30 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, With<screen::ScreenRoot>>,
+    fading: Query<Entity, With<FadeOut>>,
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
     time: Res<Time<Real>>,
     image: Option<Res<TerminalImage>>,
-    mut rows: ResMut<MenuRows>,
+    (mut rows, read): (ResMut<MenuRows>, Res<ReadEntries>),
     mut faces: Local<Option<screen::Faces>>,
     mut shown: Local<Option<String>>,
 ) {
     // The screen is laid out in its own texture, at its size whatever the UI scale; the
     // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
     let _canvas = crate::interface::original_units();
-    let key = screen.0.as_ref().map(view_key);
+    let grey = grey_read();
+    let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
+    // A closing screen keeps its picture while it fades (`fade_out`); one opened meanwhile
+    // takes its place at once.
+    if !fading.is_empty() {
+        if key.is_none() {
+            return;
+        }
+        for e in &fading {
+            commands.entity(e).try_despawn();
+        }
+        *shown = None;
+    }
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
     if key == *shown {
         for mut v in &mut blinks {
@@ -1148,9 +1244,46 @@ fn draw(
     rows.0.clear();
     let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on);
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read));
 }
 
+/// How long the screen fades out as it closes, seconds [documented:
+/// `menus\computers_menu.xml` `menufade` 0.25; hypothesis: that the trait is the close's
+/// fade].
+pub const CLOSE_FADE: f32 = 0.25;
+
+/// A closed terminal's backdrop and screen, fading out: seconds left of how many.
+#[derive(Component)]
+struct FadeOut {
+    left: f32,
+    total: f32,
+}
+
+/// The closing screen fades: its backdrop's shade and pictures lose their strength, and
+/// all of it goes once the fade is over.
+fn fade_out(mut commands: Commands, time: Res<Time<Real>>, mut fading: Query<(Entity, &mut FadeOut, Option<&mut BackgroundColor>, Option<&Children>)>, mut pictures: Query<&mut ImageNode>) {
+    for (e, mut f, bg, children) in &mut fading {
+        let start = f.left / f.total.max(1e-3);
+        f.left -= time.delta_secs();
+        if f.left <= 0.0 {
+            commands.entity(e).try_despawn();
+            continue;
+        }
+        let k = (f.left / f.total.max(1e-3)) / start.max(1e-3);
+        if let Some(mut bg) = bg {
+            let a = bg.0.alpha();
+            bg.0.set_alpha(a * k);
+        }
+        for c in children.into_iter().flatten() {
+            if let Ok(mut img) = pictures.get_mut(*c) {
+                let a = img.color.alpha();
+                img.color.set_alpha(a * k);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn close(
     mut commands: Commands,
     mut screen: ResMut<TerminalScreen>,
@@ -1158,7 +1291,11 @@ fn close(
     backdrops: Query<Entity, With<screen::Backdrop>>,
     script: Option<ResMut<ScriptState>>,
     doors: Option<ResMut<crate::doors::Doors>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's Terminal Fade Time tweak sets the fade's length [design: docs/design/tweaks.md].
+    let fade = tweaks.as_ref().filter(|t| t.terminal_fade).map_or(CLOSE_FADE, |t| t.terminal_fade_seconds);
+    let had = screen.0.is_some();
     if let Some(s) = screen.0.take() {
         close_model(doors.map(|d| d.into_inner()), s.reference.0);
         if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
@@ -1168,7 +1305,11 @@ fn close(
         }
     }
     for e in roots.iter().chain(&backdrops) {
-        commands.entity(e).despawn();
+        if had && fade > 0.0 {
+            commands.entity(e).insert(FadeOut { left: fade, total: fade });
+        } else {
+            commands.entity(e).despawn();
+        }
     }
 }
 
@@ -1242,6 +1383,18 @@ mod tests {
     use super::*;
     use fnv_game::hacking::{Word, ATTEMPTS, DUMP_CHARS};
 
+    #[test]
+    fn read_entries_are_kept_by_terminal_and_item() {
+        let mut r = ReadEntries::default();
+        r.0.insert((0x1234, 2));
+        assert!(r.has(FormId(0x1234), 2));
+        assert!(!r.has(FormId(0x1234), 1) && !r.has(FormId(0x1235), 2));
+        // Saved as pairs, the terminal first (the save hook's remap moves it).
+        let v = serde_json::to_value(&r).expect("saved");
+        assert_eq!(v, serde_json::json!([[0x1234, 2]]));
+        assert_eq!(serde_json::from_value::<ReadEntries>(v).expect("loaded"), r);
+    }
+
     fn puzzle() -> Puzzle {
         let mut chars = vec!['.'; DUMP_CHARS];
         // Row 0 of column 1 ends in "LOO", row 1 starts with "TING".
@@ -1251,7 +1404,7 @@ mod tests {
             }
         }
         let words = vec![Word { text: "LOOTING".into(), len: 7, start: 9, removed: false }, Word { text: "MEETING".into(), len: 7, start: 204, removed: false }];
-        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing }
+        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing, rules: Default::default(), guessed: Vec::new() }
     }
 
     #[test]

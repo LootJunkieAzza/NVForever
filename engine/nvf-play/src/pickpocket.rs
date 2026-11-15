@@ -67,6 +67,23 @@ pub enum Placed {
 
 /// A live explosive's explosion and blast, when `item` is one once placed in a pocket
 /// ([`live_explosive`], [`blast_of`]).
+/// Whether the player's skill is under the requirement of the weapon `item` while the
+/// Planting Needs the Skill tweak is on: such an explosive goes in as a plain item
+/// [design: docs/design/tweaks.md].
+pub(crate) fn under_skill(rt: &mut crate::script::Runtime, sim: &mut SimState, c: &Combat, item: FormId) -> bool {
+    if !rt.game.tweaks.planting_needs_skill {
+        return false;
+    }
+    let need = c.forms.weapons.get(&item).and_then(|w| Some((fnv_game::functions::av_by_name(w.skill.as_deref()?)?, w.skill_req)));
+    let Some((skill, req)) = need else { return false };
+    let has = crate::script::with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, skill));
+    let short = has < f64::from(req);
+    if short {
+        info!("pickpocket: {} goes in not live (skill {has:.0} under {req}, tweak)", item_name(sim, item));
+    }
+    short
+}
+
 pub(crate) fn explosive_of(c: &Combat, item: FormId) -> Option<(FormId, fnv_game::pickpocket::Explosive)> {
     let explosion = live_explosive(c, item)?;
     Some((explosion, blast_of(c, item, explosion)))
@@ -187,6 +204,15 @@ fn results(mut done: MessageReader<Pickpocketed>, mut sim: ResMut<SimState>, mut
         for &(item, n) in &p.taken {
             stats.taken += 1;
             crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_took(victim, item, n));
+            // The player's Pickpocket Overhaul tweak's experience [design: docs/design/tweaks.md].
+            if rt.game.tweaks.pickpocket_overhaul && rt.game.tweaks.pp_reward_xp {
+                let it = sim.forms.item(item);
+                let (value, weight) = it.map_or((0.0, 0.0), |i| (f64::from(i.value.unwrap_or(0).max(0)) * f64::from(n), f64::from(i.weight.unwrap_or(0.0).max(0.0)) * f64::from(n)));
+                let xp = crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_overhaul(victim).map_or(0.0, |o| o.xp(value, weight)));
+                if xp > 0.0 {
+                    crate::script::with_world(rt, &mut sim, |rt| fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Pickpocket, xp));
+                }
+            }
             info!("pickpocket: took {} x{n} from {name} {victim} unseen", item_name(&sim, item));
         }
         // The placements were armed by the menu as they went in (`arm_given`).

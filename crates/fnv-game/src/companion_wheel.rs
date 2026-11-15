@@ -40,6 +40,12 @@ use serde::Serialize;
 use crate::game::Game;
 use crate::package::{PackageType, TargetKind};
 
+/// The creature type Robot [documented: xEdit wbCreatureTypeEnum, 6].
+const ROBOT: i64 = 6;
+/// The master's Scrap Metal and Robotics Expert, by Editor ID [observed: FalloutNV.esm].
+const SCRAP_METAL: &str = "SpareParts";
+const ROBOTICS_EXPERT: &str = "RoboticsExpert";
+
 /// The wheel's menu code [hypothesis: the GECK wiki's MenuMode list as remembered: 1075
 /// "Companion Wheel", between the Vigor Tester's 1074 and the trait menu's 1084 which were
 /// observed; no shipped script asks for it].
@@ -278,6 +284,30 @@ impl Game<'_> {
         found.first().map(|(i, _)| (*i, total))
     }
 
+    /// Under the player's Robot Companions Heal With Scrap Metal tweak, for a robot
+    /// companion (creature type 6, Robot [documented: xEdit wbCreatureTypeEnum]): the
+    /// master's Scrap Metal (`SpareParts` [observed: FalloutNV.esm]) and how many the player
+    /// carries, which the wheel's Use Stimpak gives instead of a stimpak [design:
+    /// docs/design/tweaks.md].
+    pub fn wheel_scrap(&self, companion: FormId) -> Option<(FormId, i32)> {
+        if !self.tweaks.robots_heal_with_scrap || self.creature_type(companion) != Some(ROBOT) {
+            return None;
+        }
+        let item = self.data.by_edid(SCRAP_METAL)?;
+        let n = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.iter().filter(|(i, _)| *i == item).map(|(_, n)| n).sum());
+        Some((item, n))
+    }
+
+    /// The health one Scrap Metal gives a robot companion: the tweak's base, its share of
+    /// the player's Repair, and its bonus with Robotics Expert [design: the readme's three
+    /// figures, our defaults].
+    fn scrap_heal(&mut self) -> f64 {
+        let (base, per, bonus) = (self.tweaks.robot_heal_base, self.tweaks.robot_heal_per_repair, self.tweaks.robot_heal_expert);
+        let repair = crate::functions::actor_value(self, FormId::PLAYER_REF, crate::actor_values::REPAIR).unwrap_or(0.0);
+        let expert = self.data.by_edid(ROBOTICS_EXPERT).is_some_and(|p| self.player.perks.contains_key(&p));
+        f64::from(base) + f64::from(per) * repair / 10.0 + if expert { f64::from(bonus) } else { 0.0 }
+    }
+
     /// Whether `companion` has a line of the topic named `topic` it can say to the player
     /// now (no random pick).
     fn can_say_topic(&mut self, companion: FormId, topic: &str) -> bool {
@@ -305,6 +335,12 @@ impl Game<'_> {
                         context = Some(format!("WG {:.0}/{:.0}", e.weight.floor(), e.capacity));
                     }
                     c.topic(alt).is_some_and(|t| self.can_say_topic(companion, t))
+                }
+                Command::UseStimpak if self.wheel_scrap(companion).is_some() => {
+                    let n = self.wheel_scrap(companion).map_or(0, |(_, n)| n);
+                    let (now, full) = self.health_now_and_full(companion);
+                    context = Some(format!("HP {:.0}/{:.0}\nScrap Metal {n}", now.max(0.0).ceil(), full));
+                    n > 0 && now < full
                 }
                 Command::UseStimpak => {
                     let carried = self.wheel_stimpak();
@@ -339,6 +375,19 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
             Command::BackUp => {
                 self.companions.back_ups.insert(c, self.time);
                 Ok(Outcome::BackUp)
+            }
+            Command::UseStimpak if self.wheel_scrap(c).is_some() => {
+                let (item, _) = self.wheel_scrap(c).filter(|(_, n)| *n > 0).ok_or("the player carries no scrap metal")?;
+                let n = self.world.remove_item(FormId::PLAYER_REF, item, 1).map_err(|e| e.to_string())?;
+                if n > 0 {
+                    self.emit(crate::trace::EventKind::ItemRemoved { from: FormId::PLAYER_REF, item, count: n, silent: false });
+                }
+                let heal = self.scrap_heal();
+                crate::functions::actor::restore(self, c, crate::combat::HEALTH, heal);
+                tracing::info!("companion wheel: Scrap Metal heals {} by {heal:.0} (tweak)", self.data.name(c));
+                let topic = self.data.by_edid("Regenerating");
+                let line = topic.and_then(|t| self.say(c, player, t, true));
+                Ok(Outcome::Stimpak { item, line })
             }
             Command::UseStimpak => {
                 let (item, _) = self.wheel_stimpak().ok_or("the player carries no stimpak")?;

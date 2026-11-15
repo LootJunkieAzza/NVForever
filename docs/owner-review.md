@@ -214,6 +214,49 @@ the spec it links to.
     face buttons; menu hints write the names (the game fonts have no symbols). Select and
     Start rather than Share/Create and Options. Right choices, and do the glyphs look
     right? ([controller §3a](design/controller.md))
+65. **Held menu keys repeat; explosions shake the view (#1891).** Both are on for
+    everyone, with no tweak turned on: an arrow key, W/A/S/D or Page Up/Down held in a
+    menu (or the D-pad) presses again after 0.4 s and then 10 times a second; an
+    explosion near the player turns the view up to about 0.8° for the same time the pad
+    rumbles. The Tweaks tab's Key Repeat Acceleration and Scale Explosion Shake (0 turns
+    it off) build on them. Our own numbers; if you rule otherwise, either goes back to off
+    and its tweak waits. (`engine/nvf-play/src/key_repeat.rs`, `shake.rs`)
+66. **A grenade indicator on the HUD (#1891).** NVForever had none; it now draws the
+    menu files' own explosive indicator for every live grenade whose blast would reach
+    you, on the grenade or on the view's edge pointing at it, for everyone. Where the
+    original puts it is a guess (observer check 190). The Tweaks tab's Hide Grenade
+    Indicator turns it off. (`engine/nvf-play/src/grenade_indicator.rs`)
+67. **An idle vanity camera (#1891).** After 120 s with no input (the master's
+    `fVanityModeAutoDelay`), the camera goes to third person and slowly circles you (a
+    turn in about 42 s, our number); any input ends it and the view stays third person,
+    as after Toggle POV held. New for everyone. The Tweaks tab's Vanity Camera Returns to
+    First Person puts a first-person view back. (`engine/nvf-play/src/vanity.rs`)
+68. **A heartbeat at low health (#1891).** Under a quarter of your health, the master's
+    `UIHealthHeartbeatALP` loops until you heal, for everyone. The threshold is ours (no
+    setting names one); observer check 192 asks the original's. The Tweaks tab's
+    Heartbeat Fades lets it fade. (`engine/nvf-play/src/heartbeat.rs`)
+69. **Loaded ammo marked (#1891).** The Pip-Boy's ammo list now gives the ammo your weapon
+    loads the equipped square, for everyone (observer check 193); the Tweaks tab's
+    Containers Show Equipped Ammo shows it in containers too. Terminals also fade out as
+    they close now (the menu file's 0.25 s). (`menu/model.rs`, `terminal.rs`)
+70. **Critical-hit corner message (#1891).** A critical by the player now shows "Critical
+    hit on <name>" in the corner with the masters' critical icon (`sCriticalStrikeIcon`),
+    for everyone; the words are ours (the original's are not in the data). The Tweaks
+    tab's Critical Hit Messages Name the Limb adds the part. (`combat.rs`)
+82. **"Map marker added" (#1891).** When a script puts a place on your map (ShowMap), a
+    corner message now says "Map marker added", for everyone (our words; the original's
+    pop-up is only known from a mod's readme). The Tweaks tab's Map Marker Added Names
+    the Place adds the name. (`engine/nvf-play/src/marker_added.rs`)
+83. **Hardcore need messages (#1891).** In Hardcore, a dehydration or sleep stage changing
+    now shows the masters' own line ("Your dehydration level has increased." and the
+    rest), for everyone; which change says which is our reading (observer check 194). The
+    Tweaks tab can turn each off. (`crates/fnv-game/src/needs.rs`)
+73. **World borders (#1891).** A region flagged Border Region now keeps the player inside
+    its areas: step past and you are put back with the masters' "You cannot proceed in
+    that direction" line in the corner. No master flags a region of a played worldspace,
+    so only plugins meet it; how the original stops you is a guess (observer check 195).
+    The Tweaks tab's World Borders: Warning Only keeps the line without the stop.
+    (`crates/fnv-game/src/borders.rs`, `engine/nvf-play/src/borders.rs`)
 58. **Followers come in once you stop (#2122).** A follower on its way now stops 150
     units inside its package's distance (not nearer than 128): Boone 180 of his 330,
     DefaultFollowPlayerFar 362 of 512, the usual 256 at 128; before, it stood near the
@@ -481,6 +524,13 @@ the spec it links to.
     (item 5, second part) is not built yet.
     ([pickpocket §5](spec-notes/pickpocket.md))
 
+70. **Children never fight (#2438).** As you decided: every actor whose race has the
+    Child flag flees a fight at once and never attacks or draws, whatever its record's
+    confidence, aggression or combat style; it still turns hostile, so crime and faction
+    rules stay. The race's flag, not the actor's name, says who is a child. Two calls
+    of ours: the child flees even before it is hurt (children take no damage, so the "once hurt" rule would never start it), and a
+    scripted UseWeapon on a child in a fight no longer draws its weapon either. Observer
+    check 178 asks what the original does. ([combat-ai §12.2](design/combat-ai.md))
 71. **Armour only ever worn has no look on the ground (#2439).** The two floating
     backpacks at the Fort were not the slaves' packs. They are two placed references of
     the Slave Backpack armour (0x0013732C and 0x0013732D), 565 and 913 units up with
@@ -591,6 +641,27 @@ the spec it links to.
     again. IsEssential still reads only the flag (0 for Cass). If a companion should
     still die in some case outside Hardcore, say which. Observer check 165 asks the
     original. ([unconscious §2.2a](spec-notes/unconscious.md))
+82. **Anders can be cut down only after Diane's errand (#2472).** In FalloutNV.esm the
+    choice "Let's get you down from there." is reached only through "Are you Anders?
+    Jack and Diane sent me…", a topic that is not top-level and is learnt only from
+    Diane's two lines at Red Rock Canyon (taking her errand in VMS46, or a VMS45 line).
+    Before that he offers "Who did this to you?" and the drugs topic, as your log shows;
+    no condition tests a Great Khans' quest stage, and no script or activator frees him
+    any other way. Ours follows the data and is unchanged; after her errand the choice is
+    offered, frees him and he leaves the cross. You remember freeing him at any stage: if
+    you did so without having spoken to Diane, say so; observer check 175 asks the
+    original. ([anders-cross](spec-notes/anders-cross.md))
+83. **Anders on the cross: his head no longer turns over, and he is found on the cross
+    (#2471).** His cross clips hang his head past straight down; ours read that head's
+    direction from its forward alone, got the opposite way, and turned it to you upside
+    down. The 60° limit did hold, measured from his chest (his body faces away from
+    his reference's heading on the cross; the logged yaw was the root's). Ours now: the
+    head is lifted to you right side up, within 60° of his chest (plus the talk clip's
+    own nods); the same reading fixes head tracking for any hanging head. He also used
+    to sidestep 8 units on a limping clip and climb onto the cross in front of you; an
+    actor standing at its cross is now put on it at once. Say if the crucified should
+    not turn their heads to you at all, or if you have seen the climb in the original.
+    Observer check 174 asks the original. ([anders-cross-head](spec-notes/anders-cross-head.md))
 81. **A faction disguise outranks the player's bad standing with that faction (#2611).**
     In NCR armour on the Legion route, every NCR soldier at Hoover Dam attacked: the
     player's enemy flag with NCRFactionNV (a crime, SetPCEnemyOfFaction) won over the
@@ -614,6 +685,53 @@ the spec it links to.
     only lift the Activate rule for the player (the player would then be hidden and
     "gone" to scripts that test it). Observer check 172 asks the original.
     ([doors §6](spec-notes/doors.md))
+
+66. **A script package added again after it is done starts over (#2424).** The Lucky
+    38 elevator Victor's script adds his talk package on every talk and waits for the
+    conversation before it shows the floor box; after Stay Here a second talk opened
+    nothing and the floor menu never came back. Now the same package added again once
+    its goal was met begins afresh (a call while it still runs changes nothing). This
+    holds for every script that re-adds a finished package, so an actor whose script
+    adds a Travel package every frame after arriving would begin it again each time
+    [hypothesis: no shipped script was found doing so; the original's rule is not
+    documented, observer check 183]. A save made in the stuck state stays stuck: the
+    script's waiting flag (delaycounter 1) is saved and only a conversation menu clears
+    it, so NVForever does not mend it on load (that would mean naming this script).
+    ([packages §1](spec-notes/packages.md))
+67. **Idles now show over a standing actor's base idle whatever their priorities
+    (#2425).** Mr. House's chamber was drawn open from the start because his sealed and
+    opening idles carry lower track priorities than his base idle, whose pose is the open
+    pod; the blend by priority kept the base idle. Now an idle of an actor standing still
+    shows on every bone it drives (a drawn weapon's or an attack's clip still keeps its
+    own priority; over a walk nothing changes). That also changes 128 other idle files of
+    the base archive (Protectron, Robobrain, the penthouse screens' idles, the Hill Folk
+    dances' fingers): bones they drive at a lower priority than the base idle now move
+    with the idle. Please look at House's chamber (closed until the terminal, then
+    opening) and, if you see one, a Protectron or Robobrain playing an idle.
+    ([animation §9.4](spec-notes/animation.md))
+68. **Fixtures never fight: Mr. House's screens and chamber, and Festus (#2431).** An
+    Immobile creature that is Unaggressive, Helps Nobody and carries no weapon is never
+    hostile, takes no combat target and never turns, whatever the player did (murder,
+    hits, faction enmity). That rule, from the records alone, covers MrHouse,
+    MrHouseOFFLINE, NVCRMrHouse and also NVCRFestus; turrets are untouched (they carry
+    guns). The screens take no damage (their records are Invulnerable); House's body
+    can still be killed once the terminal unseals the chamber, as you ruled. Please
+    check Festus behaves as you expect, and the penthouse screen after House's death.
+    ([actor flags §11](spec-notes/actor-flags.md))
+69. **Quest targets several doors deep: which door the World Map marks (#2458).** Colonel
+    Moore (For the Republic, Part 2) stands in a power plant room of Hoover Dam that no
+    outdoor door leads into directly, so the World Map had no marker for her. The same
+    was true of 213 quest targets indoors in the master [observed: the count the data
+    test crates/fnv-game/tests/quest_marker_data.rs prints]. Now the World Map marks the
+    outdoor door that starts the way in with the fewest load doors. For Moore that is
+    the hatch of intake tower 3 on top of the dam (tower 3, then its elevator), not the
+    observation deck's door that the quest marks while you are in the Mojave. From the
+    Strip, the compass and the Local Map mark the gate to Freeside, the first door of
+    the way. Fewest doors may not be the way the original picks (walking distance, or
+    the doors players use); observer check 179 asks. If you prefer, the World Map could
+    follow the player's own way from where they stand instead (the last outdoor door
+    of that way), which can differ for buildings with several entrances.
+    ([quests-dialogue §2](spec-notes/quests-dialogue.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

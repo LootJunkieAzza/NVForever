@@ -221,6 +221,32 @@ fn age_race_follows_the_links_and_clamps() {
     assert_eq!(g.extra[&joe].race, Some(FormId(HUMAN_CHILD)));
 }
 
+/// A child never fights (#2438, `Game::never_fights`): in a fight its flee check always
+/// fails, unhurt and whatever its confidence, and its weapon stays away; the same actor
+/// as an adult fights with its weapon out and does not flee from nobody.
+#[test]
+fn a_child_in_a_fight_only_flees() {
+    let f = fixture();
+    let mut g = game(&f);
+    let joe = FormId(JOE_REF);
+    g.start_combat(joe, P);
+    assert!(!g.never_fights(joe), "an adult fights");
+    assert!(!g.flee_check(joe, 0.0).flees, "an adult with no threat does not flee");
+    assert!(g.wants_weapon_out(joe), "an adult fighting draws its weapon");
+    call(&mut g, Some(joe), AGE_RACE, &[num(-1.0)]);
+    assert!(is_race(&mut g, joe, HUMAN_CHILD));
+    assert!(g.never_fights(joe));
+    assert!(g.awareness.state(joe).in_combat(), "a child still turns hostile");
+    assert!(g.flee_check(joe, 0.0).flees, "a child flees, unhurt");
+    assert!(!g.wants_weapon_out(joe), "a child keeps its weapon away");
+    // At its flee spot it checks again and flees on: it never turns to fight.
+    g.start_flight(joe, P, [0.0; 3]);
+    g.boost_confidence(joe);
+    g.boost_confidence(joe);
+    assert!(g.flee_check(joe, 0.0).flees, "boosted to foolhardy, a child still flees");
+    assert!(!g.never_fights(P), "the player is never held to the rule");
+}
+
 /// SexChange on an NPC: a given sex, or the other one; GetIsSex reads it; reset counts
 /// on the player only, and only for a real change.
 #[test]
