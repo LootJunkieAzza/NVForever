@@ -91,6 +91,17 @@ actor meshes`]:
   render in place]: a part whose root stores the bone's inverse bind rotation is an
   ordinary child of the bone; any other part gets that inverse rotation from the
   attachment; node transforms are kept in both cases.
+- **One head part is in the bone's axes**: General Oliver's cap (ARMO 0x00134490
+  `NVGenOliverCap`, `armor\headgear\generalolivercap\genolivercap.nif`; a BSFadeNode
+  root and one NiTriStrips, both identity, no skin, no `Prn`) spans x 8.9…17.7, y
+  −7.7…11.0, z −8.6…8.6: symmetric in z and along +x, the head bone's up axis. The other
+  32 unskinned headgear models placed NPCs wear are centred at x −2.1…0.9, z 6.2…16.9
+  [observed: `fnvtool bsa extract` and `nif decode` over the headgear of
+  `actor appearance --all`, 2026-11-14]. Under the head rule the cap floated beside his
+  head at neck height (upstream #2529). Rule [hypothesis: consistent with his cap in the
+  original; nothing in the record or the file marks it]: a part whose unskinned
+  geometry, root and shape transforms applied, is centred further along x than along z
+  (by more than 2 units) is an ordinary child of the bone (`PreparedPart::rigid_in_bone_axes`).
 - A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
   transforms kept, no rotation added. Over the worn models of every ARMO in the ten
   masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61

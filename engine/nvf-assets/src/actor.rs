@@ -178,6 +178,40 @@ impl PreparedPart {
     pub fn attach_bone(&self) -> &str {
         self.prn.as_deref().unwrap_or(DEFAULT_RIGID_BONE)
     }
+
+    /// Whether the part's unskinned shapes are modelled in the head bone's own axes
+    /// rather than the skeleton's, judged by where their geometry lies
+    /// ([`centre_in_bone_axes`] of the centre of their bounds, root and shape transforms
+    /// applied). Such a part hangs from the bone as an ordinary child, without the head
+    /// rule of [`rigid_local`].
+    pub fn rigid_in_bone_axes(&self) -> bool {
+        let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+        for s in self.shapes.iter().filter(|s| s.skin.is_none()) {
+            let Some(VertexAttributeValues::Float32x3(ps)) = s.cpu.attribute(Mesh::ATTRIBUTE_POSITION) else { continue };
+            let t = self.root * s.transform;
+            for p in ps {
+                let p = t.transform_point3(Vec3::from(*p));
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+        }
+        lo.cmple(hi).all() && centre_in_bone_axes((lo + hi) * 0.5)
+    }
+}
+
+/// Whether a rigid head part whose bounds are centred at `c` (part space) is modelled in
+/// the axes of `Bip01 Head` (its x axis points up the head) rather than the skeleton's (z
+/// up): its centre lies further along x than along z. Of the 33 unskinned headgear
+/// models placed NPCs wear, 32 are centred at x -2.1..0.9, z 6.2..16.9 (skeleton axes,
+/// on top of the head under the head rule) and one, General Oliver's cap
+/// (`armor\headgear\generalolivercap\genolivercap.nif`), at x 13.3, z 0.0; with the head
+/// rule it floated beside his head at neck height (upstream #2529) and as an ordinary
+/// child it sits on his head [observed: survey of the headgear models of
+/// `actor appearance --all`; hypothesis: the original places it the same way, consistent
+/// with his cap in the original]. The 2-unit margin keeps parts centred near the bone's
+/// origin under the head rule.
+pub fn centre_in_bone_axes(c: Vec3) -> bool {
+    c.x > c.z.abs() + 2.0
 }
 
 /// Prepared skeletons and parts by archive path; `None` remembers a failure. Materials
@@ -1166,6 +1200,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
     let nodes = &out.nodes;
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
+        let bone_axes = u.part.rigid_in_bone_axes();
         for (i, s) in u.part.shapes.iter().enumerate() {
             if s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
                 continue;
@@ -1218,6 +1253,8 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                                 let (b, local) = creature_rigid_attach(skel, &u.part, s);
                                 (nodes[b], local)
                             }
+                            // Authored in the bone's own axes: an ordinary child.
+                            Some(b) if bone_axes => (nodes[b], u.part.root * s.transform),
                             Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
                             None => (nodes[0], s.transform),
                         };
@@ -1485,5 +1522,54 @@ mod tests {
         assert_eq!(rigid_local(&skel, 1, &Affine3A::IDENTITY, &shape), shape);
         // A bone the skeleton does not have: the same.
         assert_eq!(rigid_local(&skel, 9, &Affine3A::IDENTITY, &shape), shape);
+    }
+
+    #[test]
+    fn head_parts_modelled_in_bone_axes_are_plain_children() {
+        // Bounds centres from the headgear survey: hats in skeleton axes, General
+        // Oliver's cap in the head bone's axes.
+        assert!(!centre_in_bone_axes(Vec3::new(0.0, 0.8, 12.1)));
+        assert!(!centre_in_bone_axes(Vec3::new(-2.1, 0.0, 10.8)));
+        assert!(!centre_in_bone_axes(Vec3::new(0.9, 0.0, 6.2)));
+        assert!(centre_in_bone_axes(Vec3::new(13.3, 1.65, 0.0)));
+        // Near the bone's origin: the head rule.
+        assert!(!centre_in_bone_axes(Vec3::new(1.0, 0.0, 0.0)));
+        // A part built from a cap-like quad (x 8.9..17.7, z ±8.6) is judged in bone axes
+        // and one from a hat-like quad (z 4..17) is not; a skinned shape is not counted.
+        let quad = |a: [f32; 3], b: [f32; 3]| {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![a, b, [a[0], b[1], a[2]]]);
+            PartShape {
+                name: None,
+                mesh: Handle::default(),
+                material: Handle::default(),
+                props: Props::default(),
+                cpu: Arc::new(m),
+                skin: None,
+                transform: Affine3A::IDENTITY,
+                cap: false,
+                partitions: Arc::default(),
+                ancestors: Vec::new(),
+                own: Affine3A::IDENTITY,
+                geometry_index: 0,
+            }
+        };
+        let cap = PreparedPart { shapes: vec![quad([8.9, -7.7, -8.6], [17.7, 11.0, 8.6])], ..Default::default() };
+        assert!(cap.rigid_in_bone_axes());
+        let hat = PreparedPart { shapes: vec![quad([-9.5, -9.2, 4.4], [9.2, 10.8, 16.1])], ..Default::default() };
+        assert!(!hat.rigid_in_bone_axes());
+        let mut skinned = cap.clone();
+        skinned.shapes[0].skin = Some((Handle::default(), Vec::new()));
+        assert!(!skinned.rigid_in_bone_axes());
+        // The cap as an ordinary child of a head bone whose x points up sits above the
+        // bone; under the head rule it would be off to the side.
+        let rot = Mat3::from_cols(Vec3::Z, Vec3::Y, -Vec3::X);
+        let bone = Affine3A::from_mat3_translation(rot, Vec3::new(0.0, 0.4, 112.8));
+        let centre = Vec3::new(13.3, 1.65, 0.0);
+        let child = bone.transform_point3(centre);
+        assert!((child - Vec3::new(0.0, 2.05, 126.1)).length() < 1e-3, "{child}");
+        let skel = PreparedSkeleton { bind_world: vec![Affine3A::IDENTITY, bone], names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())], ..Default::default() };
+        let ruled = (bone * rigid_local(&skel, 1, &Affine3A::IDENTITY, &Affine3A::IDENTITY)).transform_point3(centre);
+        assert!(ruled.x.abs() > 13.0 && (ruled.z - 112.8).abs() < 1e-3, "{ruled}");
     }
 }
