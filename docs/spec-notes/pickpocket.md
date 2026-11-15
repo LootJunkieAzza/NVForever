@@ -29,7 +29,11 @@ FalloutNV.esm's settings [observed: raw read, 2026-10-24]. Code: `fnv_game::pick
   PLAYERPICKPOCKET topic is "used when the player is sneaking near an actor"; the
   original's E while sneaking opens the pocket].
 
-The prompt reads **Steal** [hypothesis: the original's word is not in the masters' GMSTs].
+The prompt reads **Pickpocket** [owner 2026-11-14: "F) Steal" on an NPC "should read
+Pickpocket"]. No game setting of the masters holds it [observed: FalloutNV.esm's GMSTs have
+only `sNoPickPocketAgain` and the fPickPocket values]; the word is spelled as the master's
+DIAL `Pickpocket` names its topic (FULL "Pickpocket"). An owned item reads Steal
+(`reticle::Prompt::of`).
 
 ## 2. The chance
 
