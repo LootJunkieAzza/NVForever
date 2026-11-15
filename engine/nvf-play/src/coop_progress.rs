@@ -101,6 +101,40 @@ pub struct CoopProgress {
     pub saves: SharedSaves,
     /// A guest: the hand-out batch being taken, and whether it had Caravan cards before it.
     pub gift_batch: Option<(u32, bool)>,
+    /// A guest: hand-outs taken, waiting for their corner lines ([`HandOuts`]).
+    pub hand_outs: HandOuts,
+}
+
+/// A guest's hand-outs taken and not yet told: their lines ([`gift_lines`]) wait until
+/// no hand-out has come for [`HandOuts::HOLD`], so a stack the host's script adds a piece
+/// at a time is one line even when the pieces arrive over several frames (b21 duo: Doc
+/// Mitchell's 22 single 9mm rounds came in two frames 5 ms apart, "9mm Round (7)" then
+/// "9mm Round (15)") [design].
+#[derive(Debug, Default)]
+pub struct HandOuts {
+    pending: Vec<(u32, String, i32)>,
+    last: Option<std::time::Instant>,
+}
+
+impl HandOuts {
+    /// How long the lines wait for more of the same hand-out.
+    pub const HOLD: std::time::Duration = std::time::Duration::from_millis(500);
+
+    pub fn add(&mut self, now: std::time::Instant, item: u32, name: String, n: i32) {
+        self.pending.push((item, name, n));
+        self.last = Some(now);
+    }
+
+    /// The lines to show now: all of them once [`Self::HOLD`] has passed since the last.
+    pub fn due(&mut self, host: &str, now: std::time::Instant) -> Vec<String> {
+        match self.last {
+            Some(t) if now.duration_since(t) >= Self::HOLD => {
+                self.last = None;
+                gift_lines(host, &std::mem::take(&mut self.pending))
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// What a game does about its own save just written ([`SharedSaves::saved`]).
@@ -294,6 +328,7 @@ fn take_inbox(
 ) {
     let p = &mut *p;
     let mut script = script;
+    let now = std::time::Instant::now();
     for (id, what) in std::mem::take(&mut p.inbox) {
         match what {
             Shared::Reward { quest, xp, caps } if p.role == Role::Guest && id == 0 => {
@@ -347,7 +382,10 @@ fn take_inbox(
                     Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
                     Ok(_) if card && !first_card => {}
                     Ok(_) if card => say(&mut corner, format!("{} handed out Caravan cards", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()))),
-                    Ok(n) => say(&mut corner, format!("{} handed out {name}{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()), if n > 1 { format!(" ({n})") } else { String::new() })),
+                    Ok(n) => {
+                        debug!("co-op: the host's hand-out {name}: {n} taken (batch {batch})");
+                        p.hand_outs.add(now, item, name, n);
+                    }
                     Err(e) => warn!("co-op: the hand-out {name} could not be given: {e}"),
                 }
             }
@@ -399,6 +437,27 @@ fn take_inbox(
             other => debug!("co-op: dropped {other:?} from player {}", id + 1),
         }
     }
+    let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str());
+    for line in p.hand_outs.due(host, now) {
+        say(&mut corner, line);
+    }
+}
+
+/// The corner lines of hand-outs taken together (item, name, count given; [`HandOuts`]):
+/// one per item, its counts added up, in the order the items first came. A script that adds a
+/// stack a round at a time (Doc Mitchell's 9mm rounds: 25 AddItem calls of 1, b20 duo)
+/// was one uncounted "9mm Round" line. The count in brackets after the name, as this
+/// game's own item lines have it (`script_events`) [design: the original's wording for a
+/// counted hand-out is not in the data files; observer-checks.md].
+fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
+    let mut order: Vec<(u32, &str, i32)> = Vec::new();
+    for (item, name, n) in handed {
+        match order.iter_mut().find(|(i, _, _)| i == item) {
+            Some(o) => o.2 += n,
+            None => order.push((*item, name, *n)),
+        }
+    }
+    order.into_iter().map(|(_, name, n)| if n > 1 { format!("{host} handed out {name} ({n})") } else { format!("{host} handed out {name}") }).collect()
 }
 
 /// The host: rewards of the quests it completed, for the guests.
@@ -530,6 +589,40 @@ mod tests {
 
     fn path(s: &str) -> PathBuf {
         PathBuf::from(s)
+    }
+
+    #[test]
+    fn one_line_per_item_handed_out_with_its_count() {
+        let mut handed = vec![(0x15, "Stimpak".to_string(), 4), (0x0A, "Bobby Pin".to_string(), 6), (0xE3778, "9mm Pistol".to_string(), 1)];
+        // Doc Mitchell's 9mm rounds: one AddItem of 1 each, 25 times.
+        handed.extend(std::iter::repeat_n((0x4241, "9mm Round".to_string(), 1), 25));
+        assert_eq!(
+            gift_lines("Host", &handed),
+            ["Host handed out Stimpak (4)", "Host handed out Bobby Pin (6)", "Host handed out 9mm Pistol", "Host handed out 9mm Round (25)"]
+        );
+        // An item that comes again later in the same inbox joins its first line.
+        let again = [(1, "A".to_string(), 1), (2, "B".to_string(), 2), (1, "A".to_string(), 2)];
+        assert_eq!(gift_lines("Host", &again), ["Host handed out A (3)", "Host handed out B (2)"]);
+        assert!(gift_lines("Host", &[]).is_empty());
+    }
+
+    #[test]
+    fn a_stack_over_two_frames_is_one_line() {
+        let t0 = std::time::Instant::now();
+        let ms = |n: u64| t0 + std::time::Duration::from_millis(n);
+        let mut h = HandOuts::default();
+        h.add(t0, 0xE3778, "9mm Pistol".into(), 1);
+        for _ in 0..7 {
+            h.add(t0, 0x4241, "9mm Round".into(), 1);
+        }
+        // The next frame: still waiting for more.
+        assert!(h.due("Host", ms(5)).is_empty());
+        for _ in 0..15 {
+            h.add(ms(5), 0x4241, "9mm Round".into(), 1);
+        }
+        assert!(h.due("Host", ms(400)).is_empty(), "under HOLD since the last piece");
+        assert_eq!(h.due("Host", ms(505)), ["Host handed out 9mm Pistol", "Host handed out 9mm Round (22)"]);
+        assert!(h.due("Host", ms(2000)).is_empty(), "told once");
     }
 
     #[test]

@@ -255,6 +255,36 @@ fn a_quest_item_is_handed_out_once() {
     }
 }
 
+/// Doc Mitchell's hand-out reaches a fresh guest whole: the 6 bobby pins (a misc stack,
+/// once 1, b20 duo) and every 9mm round his script adds one at a time.
+#[test]
+fn doc_mitchells_stacks_reach_a_guest_whole() {
+    let Some(dir) = data_dir() else { return };
+    let l = load(&dir);
+    let Some(vcg01) = l.data.by_edid("VCG01") else { return };
+    let mut host = game(&l);
+    host.coop_rewards.on = true;
+    play(&mut host, vcg01);
+    let gifts = std::mem::take(&mut host.coop_rewards.gifts);
+    let lockpick = l.data.by_edid("Lockpick").expect("the bobby pin's record");
+    let ammo = l.data.by_edid("Ammo9mm").expect("the 9mm round's record");
+    let total = |item: FormId| gifts.iter().filter(|g| g.item == item).map(|g| g.count).sum::<i32>();
+    let (pins, rounds) = (total(lockpick), total(ammo));
+    eprintln!("VCG01 hands out {pins} bobby pins and {rounds} 9mm rounds in {} gift(s)", gifts.iter().filter(|g| g.item == ammo).count());
+    assert!(pins > 1 && rounds > 1, "Doc Mitchell hands out stacks: {pins} pins, {rounds} rounds");
+    let mut a = game(&l);
+    let (pins_before, rounds_before) = (held(&mut a, lockpick), held(&mut a, ammo));
+    assert_eq!(pins_before, 0, "a new game has no bobby pins");
+    let mut last = None;
+    let mut taken = BTreeMap::new();
+    for g in &gifts {
+        let fresh = Gift { stage: None, quest: None, ..*g };
+        *taken.entry(g.item).or_insert(0) += a.take_coop_gift(&fresh, &mut last).unwrap();
+    }
+    assert_eq!((taken[&lockpick], held(&mut a, lockpick)), (pins, pins), "the guest gets all {pins} bobby pins");
+    assert_eq!((taken[&ammo], held(&mut a, ammo)), (rounds, rounds_before + rounds), "the guest gets all {rounds} rounds");
+}
+
 /// A guest that only half finished a quest in its own game (the stages before a stage
 /// that hands something out set, the quest not completed) still gets what the host's
 /// later stage hands out, and nothing of the stages it did (parity, 2026-11-14).
