@@ -105,6 +105,23 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
   `grass fire fx: <n> drawn (cap 200), <m> near (cap 24 within 400), …`. (The ambient `fxfiresmall01.nif` holds no particle
   system or shape of its own and drew nothing.)
 
+## 6a. Co-op
+
+- The host decides [design]: only the host lights, spreads and puts out fires and burns
+  NPCs. Each patch the host lights goes to every guest as a reliable `GrassFire` effect
+  (patch, ground height, fire, item, who lit it, seconds left to burn,
+  `nvf_coop::repl::Effect`); the guest burns that patch for those seconds
+  (`Fires::light_remote`), so its grass glows and chars, and its flames, smoke and
+  light come from the same events as the host's (§6), with the same patch-seeded spots.
+- A guest's own burning landing (its Flamer's flame, an incendiary round) is not lit on
+  the guest: it goes to the host as a `GrassLanded` effect and the host lights it as if
+  it had landed there, then sends the patches back as above.
+- On a guest only its own player catches fire from the flames it sees; NPCs burn on the
+  host and their burning reaches the guest with their state.
+- Not done: a guest who joins while a fire burns does not get the patches already lit;
+  this line has no scorched-ground terrain (`terrain.wesl` is not on the replication
+  build).
+
 ## 7. Not done (yet)
 
 - Trees, shrubs and placed plants do not burn; only generated grass does.

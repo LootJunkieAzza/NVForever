@@ -422,7 +422,7 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host, syncing::syncing).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
             .add_systems(Update, hold_joining_world.before(nvf_play::PlaySet::Scripts))
-            .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
+            .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate), replication::grass_fire_out.before(replication::replicate), replication::grass_fire_in.after(replication::replicate)))
             .add_systems(Update, (replication::corpses_out.before(replication::replicate), replication::corpses_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .add_systems(Update, scene::story_prompts.after(scene::share_scene).before(downed))

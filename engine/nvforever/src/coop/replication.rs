@@ -128,6 +128,12 @@ pub(super) struct Repl {
     /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
     /// those the host sent, to take off here ([`dismember_in`]).
     dismembered: Vec<Effect>,
+    /// The host's: grass patches its fires lit, for the guests ([`grass_fire_out`]); a
+    /// guest's: those the host sent, to burn here ([`grass_fire_in`]).
+    grass_lit: Vec<Effect>,
+    /// The host's: the guests' burning landings ([`grass_fire_out`] hands them to the
+    /// fires here).
+    grass_asked: Vec<nvf_play::grass_fire::Landed>,
     /// The host's: guests that asked for the syncing screen's answer (`Effect::Sync`),
     /// with their serial: their whole area goes again at the next sweep, then the answer.
     sync_asked: Vec<(u8, u32)>,
@@ -553,6 +559,8 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         }
         // The body parts gone on the host (item 176).
         effects.append(&mut r.dismembered);
+        // The grass patches the host's fires lit.
+        effects.append(&mut r.grass_lit);
         if !effects.is_empty() {
             r.effects_sent += effects.len() as u64;
             for item in repl::pack_effects(&effects, ITEM) {
@@ -636,6 +644,10 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     // A guest behind its syncing screen (item 186): its whole area again,
                     // at a sweep now, and then the answer.
                     for e in effects {
+                        if let Effect::GrassLanded { pos, item } = e {
+                            r.grass_asked.push(nvf_play::grass_fire::Landed { point: pos, item: FormId(item), by: None });
+                            continue;
+                        }
                         if let Effect::Sync { serial, done: false } = e {
                             info!("replication: player {} asks to be synced ({serial}): its whole area goes again", id + 1);
                             r.shadows.remove(&id);
@@ -927,6 +939,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     }
                                 }
                                 Effect::Dismember { .. } => r.dismembered.push(e),
+                                Effect::GrassFire { .. } => r.grass_lit.push(e),
+                                // Guest to host only.
+                                Effect::GrassLanded { .. } => {}
                                 Effect::Sync { serial, done } => {
                                     if done {
                                         info!("replication: the host's answer {serial}: this game holds the host's world here");
@@ -1327,6 +1342,72 @@ pub(super) fn dismember_out(mut coop: ResMut<Coop>, mut gone: MessageReader<nvf_
             info!("replication: {:#010X} lost part {} ({}): the guests see it too", d.form_id, d.part, if d.exploded { "exploded" } else { "severed" });
             coop.repl.dismembered.push(Effect::Dismember { actor: d.form_id, data: d.data.0, part: d.part as u16, location: d.location, exploded: d.exploded, point: d.point, dir: d.dir });
         }
+    }
+}
+
+/// The host's: the grass patches its fires light go to the guests (`Effect::GrassFire`):
+/// the host decides where a fire starts and how it spreads, each guest burns the same
+/// patches [design: owner 2026-11-14, co-op grass fires].
+pub(super) fn grass_fire_out(mut coop: ResMut<Coop>, gf: Option<ResMut<nvf_play::grass_fire::GrassFires>>, mut sent: Local<u64>) {
+    let Some(mut gf) = gf else { return };
+    let host = coop.link.as_ref().is_some_and(|l| l.is_host()) && coop.peers.values().any(|p| !p.lost);
+    gf.fires.record = host;
+    if !host {
+        gf.fires.lit.clear();
+        coop.repl.grass_asked.clear();
+        return;
+    }
+    if !coop.repl.grass_asked.is_empty() {
+        info!("replication: {} burning landing(s) of the guests: the grass there is lit here as for the host's own", coop.repl.grass_asked.len());
+        let asked = std::mem::take(&mut coop.repl.grass_asked);
+        gf.asked.extend(asked);
+    }
+    let lit = std::mem::take(&mut gf.fires.lit);
+    if lit.is_empty() {
+        return;
+    }
+    if *sent == 0 || lit.iter().any(|p| gf.fires.fires().iter().find(|f| f.id == p.fire).is_some_and(|f| f.patches == 1)) {
+        info!("replication: a grass fire burns here ({} patches lit this frame): the guests burn the same patches", lit.len());
+    }
+    *sent += lit.len() as u64;
+    for p in lit {
+        // A player's (the host's own reference is another player on a guest): none.
+        let by = p.by.filter(|b| *b != FormId::PLAYER_REF).map_or(0, |b| b.0);
+        coop.repl.grass_lit.push(Effect::GrassFire { x: p.key.0, y: p.key.1, z: p.z, fire: p.fire, item: p.item.0, by, secs: p.secs });
+    }
+}
+
+/// A guest's: the host's lit grass patches, handed to the fires here
+/// (`nvf_play::grass_fire::GrassFires::remote`), which light nothing of their own while
+/// this game is a guest.
+pub(super) fn grass_fire_in(mut coop: ResMut<Coop>, gf: Option<ResMut<nvf_play::grass_fire::GrassFires>>) {
+    let Some(mut gf) = gf else {
+        coop.repl.grass_lit.clear();
+        return;
+    };
+    let guest = coop.link.as_ref().is_some_and(|l| !l.is_host());
+    if gf.guest != guest {
+        info!("replication: grass fires {}", if guest { "follow the host's (this game lights none of its own)" } else { "are this game's own again" });
+        gf.guest = guest;
+    }
+    if !guest {
+        gf.remote.clear();
+        gf.ask.clear();
+        return;
+    }
+    let ask = std::mem::take(&mut gf.ask);
+    if !ask.is_empty() {
+        if let Some(link) = coop.link.as_mut() {
+            info!("replication: {} burning landing(s) of this player: the host lights the grass", ask.len());
+            let effects: Vec<Effect> = ask.iter().map(|l| Effect::GrassLanded { pos: l.point, item: l.item.0 }).collect();
+            for item in repl::pack_effects(&effects, ITEM) {
+                link.send_reliable(None, item);
+            }
+        }
+    }
+    for e in std::mem::take(&mut coop.repl.grass_lit) {
+        let Effect::GrassFire { x, y, z, fire, item, by, secs } = e else { continue };
+        gf.remote.push(nvf_play::grass_fire::LitPatch { key: (x, y), z, fire, item: FormId(item), by: (by != 0).then_some(FormId(by)), secs });
     }
 }
 

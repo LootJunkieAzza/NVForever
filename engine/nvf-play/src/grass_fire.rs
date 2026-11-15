@@ -43,6 +43,8 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 /// The side of a patch, game units (about 0.9 m) [design].
 pub const PATCH: f32 = 64.0;
+/// An exterior cell's side (game units): a patch's cell for a guest's remote patches.
+const CELL: f32 = 4096.0;
 /// Patches along each side of the burn map: 32,768 units (eight cells) before it wraps,
 /// more than the loaded cells span [design].
 pub const MAP: usize = 512;
@@ -208,6 +210,24 @@ pub enum FireEvent {
     Ended { fire: Fire },
 }
 
+/// A patch the host's fire lit, for the co-op guests ([`Fires::record`]) and lit on a
+/// guest as the host's ([`Fires::light_remote`]): the host decides where a fire starts
+/// and how it spreads, and every player sees the same patches burn [design: owner
+/// 2026-11-14, "i want that in here too", co-op].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LitPatch {
+    pub key: Key,
+    /// Its ground's height on the host.
+    pub z: f32,
+    pub fire: u32,
+    pub item: FormId,
+    /// Who started the fire: an NPC's reference; `None` for a player (the host's own
+    /// reference means another player on a guest).
+    pub by: Option<FormId>,
+    /// How long it burns.
+    pub secs: f32,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FireStats {
     pub fires: u32,
@@ -245,6 +265,9 @@ pub struct Fires {
     pub dirty: bool,
     pub events: Vec<FireEvent>,
     pub stats: FireStats,
+    /// The host's in co-op: every patch lit is also kept in [`Fires::lit`] for the guests.
+    pub record: bool,
+    pub lit: Vec<LitPatch>,
 }
 
 impl Default for Fires {
@@ -271,6 +294,8 @@ impl Fires {
             dirty: false,
             events: Vec::new(),
             stats: FireStats::default(),
+            record: false,
+            lit: Vec::new(),
         }
     }
 
@@ -413,6 +438,10 @@ impl Fires {
         let origin = f.origin;
         self.set_texel(k, 2);
         self.events.push(FireEvent::Lit { key: k, z });
+        if self.record {
+            let f = &self.fires[i];
+            self.lit.push(LitPatch { key: k, z, fire: id, item: f.item, by: f.by, secs: until - self.now });
+        }
         let wind_len = (self.wind[0] * self.wind[0] + self.wind[1] * self.wind[1]).sqrt();
         let jump = rules.jump;
         for dx in -jump..=jump {
@@ -439,6 +468,47 @@ impl Fires {
                 self.fires[i].pending += 1;
             }
         }
+    }
+
+    /// A co-op guest's: light a patch as the host's fire did. No spread is planned here
+    /// (the host sends each patch it lights) and no grass need grow here (a guest's grass
+    /// may be thinner). Returns whether this started the fire here; `None` when the patch
+    /// burns already.
+    pub fn light_remote(&mut self, p: LitPatch) -> Option<bool> {
+        let k = p.key;
+        if self.burns.contains_key(&k) {
+            return None;
+        }
+        let i = match self.fires.iter().position(|f| f.id == p.fire) {
+            Some(i) => (i, false),
+            None => {
+                let c = centre(k);
+                self.fires.push(Fire { id: p.fire, origin: [c[0], c[1], p.z], item: p.item, by: p.by, patches: 0, burning: 0, pending: 0, reached: 0.0, started: self.now, held: 0, caught: HashSet::new() });
+                self.stats.fires += 1;
+                self.events.push(FireEvent::Started { fire: p.fire });
+                (self.fires.len() - 1, true)
+            }
+        };
+        let (i, new) = i;
+        // The ground for `burning_at`, kept with its cell so it goes when the cell does.
+        if let std::collections::hash_map::Entry::Vacant(v) = self.fuel.entry(k) {
+            let per = (CELL / PATCH) as i32;
+            let cell = (k.0.div_euclid(per), k.1.div_euclid(per));
+            v.insert(Fuel { z: p.z, cell });
+            self.by_cell.entry(cell).or_default().push(k);
+        }
+        self.burns.insert(k, Burn::Burning { fire: p.fire, since: self.now, until: self.now + p.secs.max(0.0) });
+        self.active.insert(k);
+        self.burning += 1;
+        self.stats.patches += 1;
+        self.stats.peak_burning = self.stats.peak_burning.max(self.burning);
+        let f = &mut self.fires[i];
+        f.patches += 1;
+        f.burning += 1;
+        f.reached = f.reached.max(dist2(f.origin, centre(k)));
+        self.set_texel(k, 2);
+        self.events.push(FireEvent::Lit { key: k, z: p.z });
+        Some(new)
     }
 
     /// Advance the fires by `dt` seconds.
@@ -577,6 +647,18 @@ pub struct GrassFires {
     catch_clock: f32,
     /// A landing found no grass: said once, with the nearest grass.
     told_no_grass: bool,
+    /// A co-op guest's (set by `nvforever`'s co-op): the host decides where fires start
+    /// and spread; this game lights nothing itself and burns the patches the host sends
+    /// ([`GrassFires::remote`]), and only its own player catches fire here (the host's
+    /// fire burns its NPCs).
+    pub guest: bool,
+    /// The host's patches to light here this frame (a guest's).
+    pub remote: Vec<LitPatch>,
+    /// A guest's: its own burning shots and blasts that landed, for the host to light
+    /// (or not) as its fire rules say.
+    pub ask: Vec<Landed>,
+    /// The host's: the guests' burning landings, lit here as the host's own are.
+    pub asked: Vec<Landed>,
 }
 
 pub struct GrassFirePlugin;
@@ -634,9 +716,19 @@ pub(crate) fn tick(
     // without one.
     gf.fires.events.clear();
     let landed = c.take_fire_landed();
-    if !grass_fire_on() {
+    if gf.guest {
+        // The host's fires only, whatever this game's own switch says.
+        for p in std::mem::take(&mut gf.remote) {
+            if gf.fires.light_remote(p) == Some(true) {
+                info!("grass fire {}: the host's fire, first patch here at ({:.0}, {:.0}, {:.0}) with {}", p.fire, centre(p.key)[0], centre(p.key)[1], p.z, item_name(script.as_deref(), p.item));
+            }
+        }
+    } else if !grass_fire_on() {
+        gf.asked.clear();
         return;
     }
+    let mut landed = landed;
+    landed.append(&mut gf.asked);
     for l in landed {
         let burns = match gf.burns.get(&l.item) {
             Some(&b) => b,
@@ -648,6 +740,11 @@ pub(crate) fn tick(
             }
         };
         if !burns {
+            continue;
+        }
+        // A guest's own burning shots go to the host, which decides.
+        if gf.guest {
+            gf.ask.push(Landed { by: None, ..l });
             continue;
         }
         match gf.fires.ignite(l.point, l.item, l.by) {
@@ -666,7 +763,7 @@ pub(crate) fn tick(
     gf.fires.step(time.delta_secs());
     for e in &gf.fires.events {
         match e {
-            FireEvent::Started { fire } => {
+            FireEvent::Started { fire } if !gf.guest => {
                 if let Some(f) = gf.fires.fires().iter().find(|f| f.id == *fire) {
                     let by = f.by.map_or("no one".to_string(), |b| who(script.as_deref(), b));
                     info!("grass fire {fire}: started at ({:.0}, {:.0}, {:.0}) by {by} with {}", f.origin[0], f.origin[1], f.origin[2], item_name(script.as_deref(), f.item));
@@ -699,7 +796,8 @@ fn catch(gf: &mut GrassFires, dt: f32, phys: &PhysState, mut script: Option<&mut
         return;
     }
     gf.catch_clock = 0.0;
-    let mut actors: Vec<(FormId, V3)> = phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (FormId(id), v.center()))).collect();
+    // A guest's NPCs are the host's: its fire burns them there.
+    let mut actors: Vec<(FormId, V3)> = if gf.guest { Vec::new() } else { phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (FormId(id), v.center()))).collect() };
     if let Some(ch) = phys.player.as_ref() {
         actors.push((FormId::PLAYER_REF, [ch.feet[0], ch.feet[1], ch.feet[2] + ch.params.height.max(0.0) / 2.0]));
     }
@@ -776,6 +874,40 @@ mod tests {
     fn point(k: Key) -> V3 {
         let c = centre(k);
         [c[0], c[1], 100.0]
+    }
+
+    /// Co-op: a guest with no grass of its own, lit only from the host's recorded
+    /// patches as they come, burns the same patches and ends up with the same map.
+    #[test]
+    fn a_guest_burns_what_the_host_sends() {
+        let mut host = field(8);
+        host.record = true;
+        let mut guest = Fires::default();
+        host.ignite(point((4, 4)), ITEM, None).unwrap();
+        let mut t = 0.0;
+        while t < 60.0 {
+            for p in std::mem::take(&mut host.lit) {
+                assert!(guest.light_remote(p).is_some(), "each patch is sent once");
+            }
+            host.step(0.1);
+            guest.step(0.1);
+            t += 0.1;
+        }
+        assert_eq!(host.stats.patches, 64);
+        assert_eq!(guest.stats.patches, 64);
+        assert!(guest.fires().is_empty(), "the guest's copy of the fire ends too");
+        assert_eq!(guest.map, host.map);
+        // A patch already burning is not lit twice; nothing is recorded unless asked.
+        let mut g = Fires::default();
+        let p = LitPatch { key: (1, 1), z: 100.0, fire: 7, item: ITEM, by: None, secs: 5.0 };
+        assert_eq!(g.light_remote(p), Some(true));
+        assert_eq!(g.light_remote(LitPatch { key: (1, 2), ..p }), Some(false));
+        assert_eq!(g.light_remote(p), None);
+        assert!(g.lit.is_empty());
+        // The guest's player standing in it is found burning (its own catch).
+        assert_eq!(g.burning_at([centre((1, 1))[0], centre((1, 1))[1], 150.0]).map(|f| f.id), Some(7));
+        // The patch goes with its cell.
+        assert_eq!(g.forget_cell((0, 0)), 2);
     }
 
     #[test]
