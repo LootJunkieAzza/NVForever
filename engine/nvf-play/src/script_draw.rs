@@ -14,12 +14,18 @@
 //! where the simulation holds it ([`follow`]; `crate::moved` only moves render
 //! streaming's entities, the children of a cell).
 //!
+//! A posable reference with a fitting `XRGD` (a clutter skeleton) is drawn in its stored
+//! pose by the same rule render streaming uses (`crate::clutter_pose::drawn`, issue #2339:
+//! the Wild Wasteland refrigerator skeleton, under an initially disabled enable parent,
+//! stood upright). Presence comes from the simulation, so a save with the parent already
+//! enabled is drawn here, posed, too.
+//!
 //! Not drawn here: actors (ACHR/ACRE; `actors.rs` builds them), SpeedTrees, markers, and
 //! lights' light sources (only a light's model). The enabled-at-start rule is a copy of
 //! world.rs's (`WorldData::enabled`) [coordination: one shared function would keep the
 //! two from drifting; docs/design/layer5-play.md].
 
-use crate::moved::ref_affine;
+use crate::clutter_pose::{self, BodyNodes, Posed};
 use crate::phys::PhysState;
 use crate::script::ScriptState;
 use crate::sim::SimState;
@@ -29,8 +35,8 @@ use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
-use nvf_assets::model::ModelCtx;
-use std::collections::{BTreeMap, HashMap};
+use nvf_assets::model::{ModelCtx, PreparedModel};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Base types render streaming draws (world.rs `DRAWN`), without TREE (SpeedTree).
 const DRAWN: [&[u8; 4]; 24] = [
@@ -43,6 +49,8 @@ const DRAWN: [&[u8; 4]; 24] = [
 struct Dormant {
     placement: Placement,
     path: String,
+    /// The base form's record type (whether its `XRGD` can pose it, `clutter_pose::posable`).
+    sig: [u8; 4],
 }
 
 #[derive(Component, Clone, Copy, Debug)]
@@ -61,6 +69,19 @@ pub struct WantsEmittance(pub u32);
 #[derive(Component, Clone, Debug)]
 pub struct ScriptDrawnModel(pub String);
 
+/// On the rig root of a door that opens in place drawn here: what nvforever's door
+/// drawing (`nvforever::doors::DoorRig`) needs to pose it from `crate::doors::Doors`,
+/// as for one render streaming drew (#2420).
+#[derive(Component, Clone, Debug)]
+pub struct ScriptDrawnDoor {
+    pub reference: u32,
+    pub path: String,
+    /// The rig's node entities by name.
+    pub nodes: HashMap<String, Entity>,
+    /// ONAM "Open by Default" of the placement.
+    pub open_by_default: bool,
+}
+
 /// On the rig root of a model drawn here whose rig has named sequences (`Forward`,
 /// `Left`, …): its node entities by name, so the engine can play the groups scripts
 /// ask for on it as on one render streaming drew (`nvforever::object_anims`). VMS15's
@@ -78,6 +99,9 @@ pub struct ScriptDrawn {
     cells: HashMap<RenderCell, Vec<Dormant>>,
     /// Drawn: reference → (root, the cell entity it hangs under).
     pub drawn: BTreeMap<u32, (Entity, Entity)>,
+    /// References whose stored pose was logged (once per reference, however often its
+    /// cell comes back).
+    posed_told: HashSet<u32>,
 }
 
 pub struct ScriptDrawPlugin;
@@ -140,7 +164,7 @@ fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant
                 return None;
             }
             let path = b.world_model_path().filter(|m| !is_marker(m) && !m.ends_with(".spt"))?;
-            Some(Dormant { placement: p, path })
+            Some(Dormant { placement: p, path, sig: b.sig })
         })
         .collect()
 }
@@ -154,19 +178,29 @@ fn pose(sim: &SimState, p: &Placement) -> Affine3A {
     Affine3A::from_mat3_translation(m * scale, Vec3::from_array(pos))
 }
 
+/// The stored pose a dormant reference is drawn in (`clutter_pose::drawn`, the rule render
+/// streaming uses), or `None` for the file's own. `bodies` gives the model's body nodes
+/// (`clutter_pose::body_nodes`; tests hand them in).
+fn stored_pose(play: &PlayWorld, d: &Dormant, model: &PreparedModel, bodies: impl FnOnce() -> Option<BodyNodes>) -> Option<Posed> {
+    clutter_pose::drawn(play.lo, &d.sig, d.placement.form_id, &d.path, &model.nodes, bodies)
+}
+
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<ScriptDrawnRoot>>;
 
 /// Move the roots of the references physics moved this frame
 /// (`PhysState::settle_placed`), a script's Rotate turned or SetScale resized
 /// (`Game::turned`), or the console moved (`crate::RefRepose`, which still names what the
-/// tick cleared from `turned`), to the simulation's pose and scale.
+/// tick cleared from `turned`), to the simulation's pose and scale; a body moving under
+/// physics is drawn between the last two steps instead (`crate::moved::drawn_affine`).
 fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, mut repose: MessageReader<crate::RefRepose>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
     let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
-    for id in phys.moved_now.iter().copied().chain(turned).chain(repose.read().map(|m| m.form_id)) {
+    // Clutter drawn between physics steps too (`PhysState::between`), every frame while it
+    // moves and once after.
+    let moving = phys.moved_now.iter().chain(&phys.between.redraw).copied();
+    for id in moving.chain(turned).chain(repose.read().map(|m| m.form_id)) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
-        let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
-        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, sim.ref_scale(id))));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * crate::moved::drawn_affine(&sim, &phys, id, p)));
     }
 }
 
@@ -224,6 +258,13 @@ fn sync(
                             }
                             // Its nodes by name, for what follows one (`crate::RefNodes`): the
                             // map spawn_nodes made, kept rather than dropped.
+                            // A door that opens in place: nvforever's door drawing poses it
+                            // as it does render streaming's (#2420: Ranger Station
+                            // Charlie's door, enabled with its enable parent, stayed drawn
+                            // shut while it opened and its collision swung away).
+                            if rig.door.is_some() {
+                                commands.entity(r).insert(ScriptDrawnDoor { reference: id, path: d.path.clone(), nodes: nodes.clone(), open_by_default: d.placement.open_by_default });
+                            }
                             commands.entity(r).insert(crate::RefNodes { reference: id, nodes });
                             for e in &drawn {
                                 commands.entity(*e).insert(RefVisual(id));
@@ -231,8 +272,15 @@ fn sync(
                             drawn.len()
                         }
                         None => {
+                            // A jointed object left posed by its designer (`XRGD`), as render
+                            // streaming draws one enabled from the start (issue #2339).
+                            let posed = stored_pose(&play, d, &model, || clutter_pose::body_nodes(&models.data, &d.path));
+                            if let Some(p) = posed.as_ref().filter(|_| st.posed_told.insert(id)) {
+                                info!("clutter pose: 0x{id:08X} {} drawn in its stored pose, enabled at run time ({} bodies)", d.path, p.bodies);
+                            }
                             for s in &model.shapes {
-                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), RefVisual(id), ChildOf(root))).id();
+                                let shape = clutter_pose::shape_transform(posed.as_ref(), s);
+                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(shape)), RefVisual(id), ChildOf(root))).id();
                                 if let Some(x) = d.placement.emittance.filter(|_| s.external_emittance) {
                                     commands.entity(e).insert(WantsEmittance(x));
                                 }
@@ -366,5 +414,112 @@ pub(crate) mod tests {
             let p = placement(play.lo, play.schema, id).unwrap();
             assert_eq!(enabled_at_start(&play, &p, 0), want, "0x{id:X}");
         }
+    }
+
+    /// Issue #2339: a posable MSTT with `XRGD` under an initially disabled enable parent
+    /// (the Wild Wasteland refrigerator skeleton) is left to this module, and once its
+    /// parent is enabled it is drawn in its stored pose, by the rule render streaming
+    /// uses, not in the file's own.
+    #[test]
+    fn a_posed_reference_under_a_disabled_parent_is_drawn_posed_once_enabled() {
+        use fnv_sim::refs::{EnableParent, PlacedRef};
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+        use nvf_assets::model::{ModelNode, PreparedShape};
+        use std::sync::Arc;
+        const SKELETON: u32 = 0x100;
+        const PLANT: u32 = 0x101;
+        const CELL: u32 = 0x200;
+        const PARENT: u32 = 0x300;
+        const POSED: u32 = 0x301;
+        const NO_XRGD: u32 = 0x302;
+        const NOT_POSABLE: u32 = 0x303;
+        const FLAGGED: u32 = 0x800;
+        // Two entries: the torso at the reference turned 90 degrees about z (a clockwise
+        // angle, as references store it), the head 45 out along it (clutter_pose's own test).
+        let xrgd: Vec<u8> = [([0.0f32; 3], [0.0, 0.0, -std::f32::consts::FRAC_PI_2]), ([45.0, 0.0, 0.0], [0.0; 3])]
+            .iter()
+            .flat_map(|(pos, angles)| [&[0u8, 0, 0, 0][..], &pos.iter().chain(angles).flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()[..]].concat())
+            .collect();
+        let refr = |fid: u32, flags: u32, base: u32, parent: bool, with_xrgd: bool| {
+            let mut subs = vec![sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])];
+            if parent {
+                subs.push(sub(b"XESP", [&PARENT.to_le_bytes()[..], &[0, 0, 0, 0]].concat()));
+            }
+            if with_xrgd {
+                subs.push(sub(b"XRGD", xrgd.clone()));
+            }
+            record(b"REFR", flags, fid, &subs)
+        };
+        // The parent's base is not a drawn type (no record): only the children are dormant.
+        let refs = [refr(PARENT, FLAGGED, 0x999, false, false), refr(POSED, 0, SKELETON, true, true), refr(NO_XRGD, 0, SKELETON, true, false), refr(NOT_POSABLE, 0, PLANT, true, true)].concat();
+        let label = CELL.to_le_bytes();
+        let children = group(label, 6, &group(label, 9, &refs));
+        let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", b"TestCell\0".to_vec())]);
+        let cells = top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat())));
+        let base = |sig: &[u8; 4], fid: u32, edid: &[u8]| top(sig, &record(sig, 0, fid, &[sub(b"EDID", edid.to_vec()), sub(b"MODL", b"clutter\\test\\skeleton.nif\0".to_vec())]));
+        let play = play_over(&[base(b"MSTT", SKELETON, b"TestSkeleton\0"), base(b"ACTI", PLANT, b"TestPlant\0"), cells]);
+
+        // The simulation's side: the parent initially disabled, the children following it.
+        let child = |id: u32, base: u32| PlacedRef {
+            base: FormId(base),
+            enable_parent: Some(EnableParent { reference: FormId(PARENT), opposite: false, pop_in: false }),
+            ..crate::sim::placed_ref(id)
+        };
+        let placed = [PlacedRef { flags: FLAGGED, base: FormId(0x999), ..crate::sim::placed_ref(PARENT) }, child(POSED, SKELETON), child(NO_XRGD, SKELETON), child(NOT_POSABLE, PLANT)];
+        let mut table = RefTable::default();
+        for p in placed {
+            table.by_cell.entry(FormId(CELL)).or_default().push(p.id);
+            table.refs.insert(p.id, p);
+        }
+        let forms: &'static FormStore = Box::leak(Box::default());
+        let table: &'static RefTable = Box::leak(Box::new(table));
+        let mut sim = SimState { forms, refs: table, world: World::new(forms, table, SimConfig::default()) };
+
+        let dormant = dormant_in(&play, &sim, RenderCell::Interior(CELL));
+        let ids: Vec<u32> = dormant.iter().map(|d| d.placement.form_id).collect();
+        assert_eq!(ids, [POSED, NO_XRGD, NOT_POSABLE], "render streaming leaves them out: their parent starts disabled");
+        assert!(!sim.present(POSED));
+        sim.world.set_enabled(FormId(PARENT), true).unwrap();
+        assert!(sim.present(POSED), "the parent enabled (a script, or a save that holds it so)");
+
+        // Its model: Torso (body 0) on the root, Head (body 1) under it; one shape on the
+        // head, one on the root.
+        let node = |name: &str, parent: Option<usize>, t: Vec3| ModelNode { name: Some(name.into()), parent, local: Affine3A::from_translation(t), billboard: None, addon: None, damage_stages: None };
+        let shape = |node: Option<usize>, transform: Affine3A| PreparedShape {
+            mesh: Handle::default(),
+            material: Handle::default(),
+            transform,
+            name: None,
+            ancestors: Vec::new(),
+            node,
+            own: Affine3A::IDENTITY,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+        };
+        let model = PreparedModel {
+            nodes: vec![node("Torso", None, Vec3::new(0.0, 0.0, 69.0)), node("Head", Some(0), Vec3::new(45.0, 0.0, 0.0))],
+            shapes: vec![shape(Some(1), Affine3A::from_translation(Vec3::new(45.0, 0.0, 69.0))), shape(None, Affine3A::IDENTITY)],
+            ..Default::default()
+        };
+        let bodies = || Some(Arc::new(vec![Some("Torso".to_string()), Some("Head".to_string())]));
+        let d = |id: u32| dormant.iter().find(|d| d.placement.form_id == id).unwrap();
+
+        let posed = stored_pose(&play, d(POSED), &model, bodies).expect("posed from its XRGD");
+        assert_eq!(posed.bodies, 2);
+        let head = clutter_pose::shape_transform(Some(&posed), &model.shapes[0]);
+        assert!((Vec3::from(head.translation) - Vec3::new(0.0, 45.0, 0.0)).length() < 1e-4, "the head lies where the entries put it: {head:?}");
+        assert_eq!(clutter_pose::shape_transform(Some(&posed), &model.shapes[1]), Affine3A::IDENTITY, "a shape on the root keeps its place");
+
+        // No XRGD, or a base type the clutter pose leaves alone: the file's own pose, and
+        // the model's bodies are not even read.
+        let unread = || -> Option<clutter_pose::BodyNodes> { panic!("the bodies are read only for a posable reference with XRGD") };
+        assert!(stored_pose(&play, d(NO_XRGD), &model, unread).is_none());
+        assert!(stored_pose(&play, d(NOT_POSABLE), &model, unread).is_none());
+        assert_eq!(clutter_pose::shape_transform(None, &model.shapes[0]), model.shapes[0].transform);
+        // Entries that do not fit the bodies: refused, the file's own pose.
+        let three = || Some(Arc::new(vec![Some("Torso".to_string()), Some("Head".to_string()), Some("Head".to_string())]));
+        assert!(stored_pose(&play, d(POSED), &model, three).is_none());
     }
 }

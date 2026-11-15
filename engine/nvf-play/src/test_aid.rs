@@ -109,7 +109,7 @@
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -131,6 +131,7 @@ use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
 
 pub mod melee_knockback;
+pub(crate) mod activation_sweep;
 
 /// How far in front of the reference `NVF_PLAY_TEST_FACE` puts the feet (game units;
 /// inside the activation reach).
@@ -457,7 +458,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 8] = [
+pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -466,6 +467,8 @@ pub const MEASURING_AIDS: [&str; 8] = [
     "NVF_PLAY_TEST_TILE_COUNTS",
     "NVF_PLAY_TEST_HITVOL_SCAN",
     "NVF_PLAY_TEST_HITVOL_COMPARE",
+    // The mod log is for a mod list played by hand (`crate::mod_log`).
+    crate::mod_log::ENV,
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any
@@ -505,6 +508,7 @@ struct Aids {
 
 pub(crate) fn setup(app: &mut App) {
     app.insert_resource(Unattended::from_env());
+    activation_sweep::setup(app);
     // The test aid and the debug switch of the same name do the same; only the test aid
     // makes the run unattended.
     for (name, what) in [("NVF_PLAY_TEST_GIVE", "test aid"), ("NVF_PLAY_DEBUG_GIVE", "debug switch")] {
@@ -1015,6 +1019,9 @@ mod tests {
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_SPANS"));
         assert!(!drives_run("NVF_PLAY_TEST_TILE_COUNTS"));
+        // The mod log's run is the owner's, by hand: with the aid driving it the cursor
+        // was not grabbed and the mouse did not turn the view (the first run of 2026-11-12).
+        assert!(!drives_run(crate::mod_log::ENV));
         assert!(drives_run("NVF_PLAY_TEST_UNATTENDED"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");

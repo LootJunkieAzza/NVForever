@@ -10,6 +10,8 @@
 //! same field through `crate::nvse::record_value`, see the change; the engine's drawing,
 //! combat and sky go on reading the records [hypothesis: not saved, as the other
 //! record setters].
+//! CSTY setters additionally update typed session combat readers
+//! (docs/spec-notes/combat-style-session.md), without replacing raw getter defaults.
 
 use crate::game::Game;
 use fnv_script::vm::XVal;
@@ -141,72 +143,133 @@ fn class_flag(id: i64) -> Option<(&'static str, i64)> {
 /// CSSD, CSTD and CSAD in the record's field order. For 43–63 the order is the record's,
 /// not the page's, which lists three base/mult pairs base first [observed: jip4 probe set,
 /// FollowersCombatStyleRanged 43 reads CSAD's first field, -20].
-const CSTY_TRAITS: [(&str, &str); 64] = [
-    ("CSSD", "cover_search_radius"),
-    ("CSSD", "take_cover_chance"),
-    ("CSSD", "wait_timer_min"),
-    ("CSSD", "wait_timer_max"),
-    ("CSSD", "wait_to_fire_timer_min"),
-    ("CSSD", "wait_to_fire_timer_max"),
-    ("CSSD", "fire_timer_min"),
-    ("CSSD", "fire_timer_max"),
-    ("CSSD", "ranged_weapon_range_mult_min"),
-    ("CSSD", "weapon_restrictions"),
-    ("CSSD", "ranged_weapon_range_mult_max"),
-    ("CSSD", "max_targeting_fov"),
-    ("CSSD", "combat_radius"),
-    ("CSSD", "semi_auto_firing_delay_mult_min"),
-    ("CSSD", "semi_auto_firing_delay_mult_max"),
-    ("CSTD", "dodge_chance"),
-    ("CSTD", "left_right_chance"),
-    ("CSTD", "dodge_lr_timer_min"),
-    ("CSTD", "dodge_lr_timer_max"),
-    ("CSTD", "dodge_forward_timer_min"),
-    ("CSTD", "dodge_forward_timer_max"),
-    ("CSTD", "dodge_back_timer_min"),
-    ("CSTD", "dodge_back_timer_max"),
-    ("CSTD", "idle_timer_min"),
-    ("CSTD", "idle_timer_max"),
-    ("CSTD", "block_chance"),
-    ("CSTD", "attack_chance"),
-    ("CSTD", "recoil_stagger_bonus_to_attack"),
-    ("CSTD", "unconscious_bonus_to_attack"),
-    ("CSTD", "hand_to_hand_bonus_to_attack"),
-    ("CSTD", "power_attack_chance"),
-    ("CSTD", "recoil_stagger_bonus_to_power"),
-    ("CSTD", "unconscious_bonus_to_power_attack"),
-    ("CSTD", "power_attack_normal"),
-    ("CSTD", "power_attack_forward"),
-    ("CSTD", "power_attack_back"),
-    ("CSTD", "power_attack_left"),
-    ("CSTD", "power_attack_right"),
-    ("CSTD", "hold_timer_min"),
-    ("CSTD", "hold_timer_max"),
-    ("CSTD", "acrobatic_dodge_chance"),
-    ("CSTD", "rushing_attack_chance"),
-    ("CSTD", "rushing_attack_distance_mult"),
-    ("CSAD", "dodge_fatigue_mod_mult"),
-    ("CSAD", "dodge_fatigue_mod_base"),
-    ("CSAD", "encumbered_speed_mod_base"),
-    ("CSAD", "encumbered_speed_mod_mult"),
-    ("CSAD", "dodge_while_under_attack_mult"),
-    ("CSAD", "dodge_not_under_attack_mult"),
-    ("CSAD", "dodge_back_while_under_attack_mult"),
-    ("CSAD", "dodge_back_not_under_attack_mult"),
-    ("CSAD", "dodge_forward_while_attacking_mult"),
-    ("CSAD", "dodge_forward_not_attacking_mult"),
-    ("CSAD", "block_skill_modifier_mult"),
-    ("CSAD", "block_skill_modifier_base"),
-    ("CSAD", "block_while_under_attack_mult"),
-    ("CSAD", "block_not_under_attack_mult"),
-    ("CSAD", "attack_skill_modifier_mult"),
-    ("CSAD", "attack_skill_modifier_base"),
-    ("CSAD", "attack_while_under_attack_mult"),
-    ("CSAD", "attack_not_under_attack_mult"),
-    ("CSAD", "attack_during_block_mult"),
-    ("CSAD", "power_attack_fatigue_mod_base"),
-    ("CSAD", "power_attack_fatigue_mod_mult"),
+struct CombatStyleTrait {
+    sub: &'static str,
+    path: &'static str,
+    write: fn(&mut crate::data::CombatStyleDef, f64),
+}
+
+macro_rules! csty_trait {
+    ($sub:literal, $path:literal, $($target:tt)+) => {
+        CombatStyleTrait { sub: $sub, path: $path, write: |style, value| { style.$($target)+ = value as _; } }
+    };
+}
+
+const CSTY_TRAITS: [CombatStyleTrait; 64] = [
+    csty_trait!("CSSD", "cover_search_radius", cover_search_radius),
+    csty_trait!("CSSD", "take_cover_chance", take_cover_chance),
+    csty_trait!("CSSD", "wait_timer_min", wait_timer.0),
+    csty_trait!("CSSD", "wait_timer_max", wait_timer.1),
+    csty_trait!("CSSD", "wait_to_fire_timer_min", wait_to_fire_timer.0),
+    csty_trait!("CSSD", "wait_to_fire_timer_max", wait_to_fire_timer.1),
+    csty_trait!("CSSD", "fire_timer_min", fire_timer.0),
+    csty_trait!("CSSD", "fire_timer_max", fire_timer.1),
+    csty_trait!("CSSD", "ranged_weapon_range_mult_min", range_mult.0),
+    csty_trait!("CSSD", "weapon_restrictions", weapon_restrictions),
+    csty_trait!("CSSD", "ranged_weapon_range_mult_max", range_mult.1),
+    csty_trait!("CSSD", "max_targeting_fov", max_targeting_fov),
+    csty_trait!("CSSD", "combat_radius", combat_radius),
+    csty_trait!("CSSD", "semi_auto_firing_delay_mult_min", semi_auto_delay_mult.0),
+    csty_trait!("CSSD", "semi_auto_firing_delay_mult_max", semi_auto_delay_mult.1),
+    csty_trait!("CSTD", "dodge_chance", dodge_chance),
+    csty_trait!("CSTD", "left_right_chance", left_right_chance),
+    csty_trait!("CSTD", "dodge_lr_timer_min", dodge_lr_timer.0),
+    csty_trait!("CSTD", "dodge_lr_timer_max", dodge_lr_timer.1),
+    csty_trait!("CSTD", "dodge_forward_timer_min", dodge_forward_timer.0),
+    csty_trait!("CSTD", "dodge_forward_timer_max", dodge_forward_timer.1),
+    csty_trait!("CSTD", "dodge_back_timer_min", dodge_back_timer.0),
+    csty_trait!("CSTD", "dodge_back_timer_max", dodge_back_timer.1),
+    csty_trait!("CSTD", "idle_timer_min", idle_timer.0),
+    csty_trait!("CSTD", "idle_timer_max", idle_timer.1),
+    csty_trait!("CSTD", "block_chance", block_chance),
+    csty_trait!("CSTD", "attack_chance", attack_chance),
+    csty_trait!("CSTD", "recoil_stagger_bonus_to_attack", recoil_stagger_bonus),
+    csty_trait!("CSTD", "unconscious_bonus_to_attack", unconscious_bonus),
+    csty_trait!("CSTD", "hand_to_hand_bonus_to_attack", hand_to_hand_bonus),
+    csty_trait!("CSTD", "power_attack_chance", power_attack_chance),
+    csty_trait!("CSTD", "recoil_stagger_bonus_to_power", recoil_stagger_power_bonus),
+    csty_trait!("CSTD", "unconscious_bonus_to_power_attack", unconscious_power_bonus),
+    csty_trait!("CSTD", "power_attack_normal", power_attack_dirs[0]),
+    csty_trait!("CSTD", "power_attack_forward", power_attack_dirs[1]),
+    csty_trait!("CSTD", "power_attack_back", power_attack_dirs[2]),
+    csty_trait!("CSTD", "power_attack_left", power_attack_dirs[3]),
+    csty_trait!("CSTD", "power_attack_right", power_attack_dirs[4]),
+    csty_trait!("CSTD", "hold_timer_min", hold_timer.0),
+    csty_trait!("CSTD", "hold_timer_max", hold_timer.1),
+    CombatStyleTrait { sub: "CSTD", path: "acrobatic_dodge_chance", write: |_, _| {} }, // No AI consumer yet.
+    csty_trait!("CSTD", "rushing_attack_chance", rushing_attack_chance),
+    csty_trait!("CSTD", "rushing_attack_distance_mult", rushing_attack_distance_mult),
+    csty_trait!("CSAD", "dodge_fatigue_mod_mult", dodge_fatigue_mod.1),
+    csty_trait!("CSAD", "dodge_fatigue_mod_base", dodge_fatigue_mod.0),
+    csty_trait!("CSAD", "encumbered_speed_mod_base", encumbered_speed_mod.0),
+    csty_trait!("CSAD", "encumbered_speed_mod_mult", encumbered_speed_mod.1),
+    csty_trait!("CSAD", "dodge_while_under_attack_mult", dodge_mult.0),
+    csty_trait!("CSAD", "dodge_not_under_attack_mult", dodge_mult.1),
+    csty_trait!("CSAD", "dodge_back_while_under_attack_mult", dodge_back_mult.0),
+    csty_trait!("CSAD", "dodge_back_not_under_attack_mult", dodge_back_mult.1),
+    csty_trait!("CSAD", "dodge_forward_while_attacking_mult", dodge_forward_mult.0),
+    csty_trait!("CSAD", "dodge_forward_not_attacking_mult", dodge_forward_mult.1),
+    csty_trait!("CSAD", "block_skill_modifier_mult", block_skill_mod.1),
+    csty_trait!("CSAD", "block_skill_modifier_base", block_skill_mod.0),
+    csty_trait!("CSAD", "block_while_under_attack_mult", block_under_attack_mult),
+    csty_trait!("CSAD", "block_not_under_attack_mult", block_not_under_attack_mult),
+    csty_trait!("CSAD", "attack_skill_modifier_mult", attack_skill_mod.1),
+    csty_trait!("CSAD", "attack_skill_modifier_base", attack_skill_mod.0),
+    csty_trait!("CSAD", "attack_while_under_attack_mult", attack_under_attack_mult),
+    csty_trait!("CSAD", "attack_not_under_attack_mult", attack_not_under_attack_mult),
+    csty_trait!("CSAD", "attack_during_block_mult", attack_during_block_mult),
+    csty_trait!("CSAD", "power_attack_fatigue_mod_base", power_attack_fatigue_mod.0),
+    csty_trait!("CSAD", "power_attack_fatigue_mod_mult", power_attack_fatigue_mod.1),
 ];
+
+/// Raw public values stay separate from the AI parser's defaults/representation.
+fn combat_style_trait(g: &Game, style: FormId, index: usize) -> f64 {
+    let Some(field) = CSTY_TRAITS.get(index) else { return 0.0 };
+    if g.combat_style_origin(style).is_none() {
+        return 0.0;
+    }
+    match g.combat_style_edits.raw_clones.get(&style) {
+        Some(copy) => match g.field_overrides.get(&(style, key(field.sub, field.path))) {
+            Some(XVal::Num(value)) => *value,
+            _ => copy.traits[index],
+        },
+        None => get_num(g, style, field.sub, field.path),
+    }
+}
+
+fn combat_style_flags(g: &Game, style: FormId) -> u64 {
+    if g.combat_style_origin(style).is_none() {
+        return 0;
+    }
+    match g.combat_style_edits.raw_clones.get(&style) {
+        Some(copy) => match g.field_overrides.get(&(style, key("CSTD", "flags"))) {
+            Some(XVal::Num(value)) => *value as u64,
+            _ => copy.flags,
+        },
+        None => get_num(g, style, "CSTD", "flags") as u64,
+    }
+}
+
+pub(crate) fn combat_style_raw_snapshot(g: &Game, style: FormId) -> crate::combat_style_session::RawCombatStyle {
+    crate::combat_style_session::RawCombatStyle {
+        traits: std::array::from_fn(|index| combat_style_trait(g, style, index)),
+        flags: combat_style_flags(g, style),
+    }
+}
+
+fn write_combat_style_flag(style: &mut crate::data::CombatStyleDef, bit: i64, on: bool) {
+    match bit {
+        0 => style.power_by_chance = on,
+        1 => style.melee_alert_ok = on,
+        2 => style.flee_personal_survival = on,
+        4 => style.ignore_threats = on,
+        5 => style.ignore_damaging_self = on,
+        6 => style.ignore_damaging_group = on,
+        7 => style.ignore_damaging_spectators = on,
+        8 => style.cannot_use_stealthboy = on,
+        _ => {} // Raw flag bits without a typed AI field keep their public value.
+    }
+}
 
 /// The light trait IDs 0–6 [documented: GetLightTraitNumeric]: radius, red, green, blue,
 /// falloff exponent, FOV (DATA) and fade (FNAM).
@@ -362,15 +425,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // Combat styles [documented: Get/SetCombatStyleFlag, the flag IDs are CSTD flags'
         // bits as the schema names them; Get/SetCombatStyleTraitNumeric].
-        "getcombatstyleflag" => yes(get_bit(g, f0, "CSTD", "flags", k)),
+        "getcombatstyleflag" => yes((0..32).contains(&k) && combat_style_flags(g, f0) & (1u64 << k) != 0),
         "setcombatstyleflag" => {
-            set_bit(g, f0, "CSTD", "flags", k, num(args, 2, 0.0) != 0.0);
+            let on = num(args, 2, 0.0) != 0.0;
+            if (0..32).contains(&k) && g.edit_combat_style(f0, |style| write_combat_style_flag(style, k, on)) {
+                let now = combat_style_flags(g, f0);
+                let new = if on { now | (1u64 << k) } else { now & !(1u64 << k) };
+                set(g, f0, "CSTD", "flags", XVal::Num(new as f64));
+            }
             zero
         }
-        "getcombatstyletraitnumeric" => XVal::Num(usize::try_from(k).ok().and_then(|i| CSTY_TRAITS.get(i)).map_or(0.0, |(s, p)| get_num(g, f0, s, p))),
+        "getcombatstyletraitnumeric" => XVal::Num(usize::try_from(k).ok().map_or(0.0, |i| combat_style_trait(g, f0, i))),
         "setcombatstyletraitnumeric" => {
-            if let Some((s, p)) = usize::try_from(k).ok().and_then(|i| CSTY_TRAITS.get(i)) {
-                set(g, f0, s, p, XVal::Num(num(args, 2, 0.0)));
+            if let Some(field) = usize::try_from(k).ok().and_then(|i| CSTY_TRAITS.get(i)) {
+                let value = num(args, 2, 0.0);
+                if g.edit_combat_style(f0, |style| (field.write)(style, value)) {
+                    set(g, f0, field.sub, field.path, XVal::Num(value));
+                }
             }
             zero
         }

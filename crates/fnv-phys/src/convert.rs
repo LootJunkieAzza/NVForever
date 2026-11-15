@@ -205,7 +205,8 @@ fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Arc<[u32]>), Conver
         Shape::Capsule { a, b, radius } => (SharedShape::capsule(p(a)?, p(b)?, finite_pos(radius * s)?), Arc::default()),
         Shape::ConvexHull { points } => {
             let pts = points.iter().map(p).collect::<Result<Vec<_>, _>>()?;
-            (SharedShape::convex_hull(&pts).ok_or(ConvertError::DegenerateHull(pts.len()))?, Arc::default())
+            // Large faces keep their whole face in contact (`crate::hull`).
+            (crate::hull::convex_hull(&pts).ok_or(ConvertError::DegenerateHull(pts.len()))?, Arc::default())
         }
         Shape::TriMesh { vertices, triangles, materials } => {
             let verts = vertices.iter().map(p).collect::<Result<Vec<_>, _>>()?;

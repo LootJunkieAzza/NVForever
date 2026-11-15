@@ -169,6 +169,8 @@ pub struct Info {
     pub beside: Option<String>,
     /// The effects' text ("HP +40", "AGL -1").
     pub effects: Option<String>,
+    /// Omit the effects heading for ammo [design, #2502].
+    pub ammo_effects: bool,
     /// A weapon's damage a second, over the DAM card.
     pub dps: Option<String>,
     /// A weapon's skill picture for the badge ([`skill_badge`]).
@@ -260,7 +262,15 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
         row = 2.0;
     }
     if let Some(e) = &i.effects {
-        out.push(tile(0.0, row * h, 3.0 * w + 20.0, label("sInventoryEffects", "EFFECTS"), e.clone()));
+        if i.ammo_effects {
+            // Hand-built card text draws one line (`frame::Ctx::text`); give each
+            // ammo effect its own row [design, #2502].
+            for (n, line) in e.lines().enumerate() {
+                out.push(tile(0.0, (row + n as f32) * h, 3.0 * w + 20.0, "", line.to_string()));
+            }
+        } else {
+            out.push(tile(0.0, row * h, 3.0 * w + 20.0, label("sInventoryEffects", "EFFECTS"), e.clone()));
+        }
     }
     out
 }
@@ -269,6 +279,38 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
 /// VAL 675 is 9 × 75, so the figures are the stack's (hypothesis for the weight)].
 fn figure(v: f32, decimals: bool) -> Option<String> {
     (v > 0.0).then(|| if decimals { format!("{v:.2}") } else { format!("{v:.0}") })
+}
+
+/// FULL wins; fallback words and number formatting are ours [design, #2502].
+/// Operations follow `fnv_combat::damage::apply_effects` and `schemas/fnv/combat.json`.
+fn ammo_effect_line(e: &fnv_combat::data::AmmoEffect) -> Option<String> {
+    use fnv_util::words::tr;
+    let value = match e.operation.as_deref()? {
+        "Multiply" => format!("x{:.2}", e.value),
+        "Add" => format!("{:+}", e.value),
+        "Subtract" => format!("{:+}", -e.value),
+        _ => return None,
+    };
+    let name = e.name.as_deref().filter(|n| !n.trim().is_empty()).map(str::to_string).unwrap_or_else(|| {
+        tr(match e.kind.as_deref() {
+            Some("Damage Mod") => "Damage",
+            Some("DR Mod") => "Damage resist",
+            Some("DT Mod") => "Damage threshold",
+            Some("Spread Mod") => "Spread",
+            Some("Weapon Condition Mod") => "Weapon wear",
+            Some("Fatigue Mod") => "Fatigue",
+            _ => "Ammo effect",
+        }).to_string()
+    });
+    Some(format!("{name} {value}"))
+}
+
+/// RCIL order, resolved through the loaded combat forms [design, #2502; data.rs].
+fn ammo_card_effects(i: &mut Info, item: FormId, forms: &fnv_combat::data::CombatForms) {
+    i.ammo_effects = true;
+    let lines: Vec<String> = forms.ammo.get(&item).into_iter().flat_map(|a| &a.effects)
+        .filter_map(|id| forms.ammo_effects.get(id)).filter_map(ammo_effect_line).collect();
+    i.effects = (!lines.is_empty()).then(|| lines.join("\n"));
 }
 
 /// What the figures show of a row, from the records (the ITEMS page's, and the
@@ -287,6 +329,12 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
     };
     let cf = combat.map(|c| &c.forms);
     match r.kind {
+        Some(ItemKind::Ammo) => {
+            if let Some(f) = cf {
+                ammo_card_effects(&mut i, r.item, f);
+            }
+            return i;
+        }
         Some(ItemKind::Weapon) => {
             if let Some(w) = cf.and_then(|f| f.weapons.get(&r.item)).map(|w| w.modded(r.mods)) {
                 let w = &w;
@@ -357,14 +405,14 @@ pub fn keys(
     mut out: MessageWriter<MenuInput>,
     (mut hold, mut hotkeys): (ResMut<HotkeyHold>, ResMut<Hotkeys>),
     (pads, bindings): (crate::pad::ActionPads, Option<Res<crate::bindings::Bindings>>),
+    taken: Res<super::KeysTaken>,
 ) {
     let keys = keys.snapshot();
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
-    // The repair list and the mod menu have the keys while one is shown (`super::repair`,
-    // `super::item_mod`, which opens on X before this runs).
-    let items = pip.open() && pip.page == Page::Items && !repair.is_open() && !modding.is_open() && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    // [design, #2553] Repair/mod keys stay theirs through the frame that closes the list.
+    let items = pip.open() && pip.page == Page::Items && !taken.taken() && !repair.is_open() && !modding.is_open() && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
@@ -529,7 +577,7 @@ pub fn draw(
     // the player meets (worn armour at its condition and the DT actor value,
     // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
     // screenshots; hypothesis: the figure is the one combat uses].
-    let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
+    let hp = super::stats::read::player_hp(sim, script.as_deref_mut());
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
     let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());
@@ -772,6 +820,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ammo_effect_lines_format_each_operation() {
+        use fnv_combat::data::AmmoEffect;
+        for (operation, value, want) in [
+            ("Multiply", 0.8, "Test label x0.80"),
+            ("Multiply", 2.0, "Test label x2.00"),
+            ("Add", 5.0, "Test label +5"),
+            ("Add", -1.25, "Test label -1.25"),
+            ("Subtract", 5.0, "Test label -5"),
+            ("Subtract", 0.75, "Test label -0.75"),
+            ("Subtract", -2.0, "Test label +2"),
+        ] {
+            let e = AmmoEffect { name: Some("Test label".into()), operation: Some(operation.into()), value, ..AmmoEffect::default() };
+            assert_eq!(ammo_effect_line(&e).as_deref(), Some(want));
+        }
+        assert_eq!(ammo_effect_line(&AmmoEffect { operation: Some("99".into()), ..AmmoEffect::default() }), None);
+        assert_eq!(ammo_effect_line(&AmmoEffect::default()), None);
+    }
+
+    #[test]
+    fn ammo_effect_lines_use_full_else_our_kind_label() {
+        use fnv_combat::data::AmmoEffect;
+        for (kind, label) in [
+            ("Damage Mod", "Damage"), ("DR Mod", "Damage resist"),
+            ("DT Mod", "Damage threshold"), ("Spread Mod", "Spread"),
+            ("Weapon Condition Mod", "Weapon wear"), ("Fatigue Mod", "Fatigue"),
+            ("99", "Ammo effect"),
+        ] {
+            let mut e = AmmoEffect { name: None, kind: Some(kind.into()), operation: Some("Add".into()), value: 3.5, ..AmmoEffect::default() };
+            let want = format!("{label} +3.5");
+            assert_eq!(ammo_effect_line(&e).as_deref(), Some(want.as_str()));
+            e.name = Some("  ".into());
+            assert_eq!(ammo_effect_line(&e).as_deref(), Some(want.as_str()));
+            e.name = Some("Mod author's label".into());
+            assert_eq!(ammo_effect_line(&e).as_deref(), Some("Mod author's label +3.5"));
+        }
+    }
+
+    #[test]
+    fn ammo_card_with_and_without_effects() {
+        use fnv_combat::data::{AmmoEffect, AmmoStats, CombatForms};
+        let mut forms = CombatForms::default();
+        forms.ammo.insert(FormId(1), AmmoStats { effects: vec![FormId(3), FormId(99), FormId(2)], ..AmmoStats::default() });
+        forms.ammo.insert(FormId(4), AmmoStats::default());
+        forms.ammo_effects.insert(FormId(2), AmmoEffect { name: Some("Test damage".into()), operation: Some("Multiply".into()), value: 0.8, ..AmmoEffect::default() });
+        forms.ammo_effects.insert(FormId(3), AmmoEffect { name: Some("Test threshold".into()), operation: Some("Subtract".into()), value: 5.0, ..AmmoEffect::default() });
+        let mut info = Info { weight: Some("1.00".into()), value: Some("12".into()), ..Info::default() };
+        ammo_card_effects(&mut info, FormId(1), &forms);
+        assert_eq!(info.effects.as_deref(), Some("Test threshold -5\nTest damage x0.80"));
+        for size in [INFO.size(), Vec2::new(530.0, 120.0)] {
+            let tiles = tiles_in(&info, size);
+            assert_eq!(tiles.len(), 4);
+            assert_eq!(tiles[2].title, "");
+            assert_eq!(tiles[2].value, "Test threshold -5");
+            assert_eq!(tiles[3].value, "Test damage x0.80");
+            assert_eq!(tiles[2].rect.min.y, size.y / 3.0);
+            assert_eq!(tiles[3].rect.min.y, 2.0 * size.y / 3.0);
+        }
+        ammo_card_effects(&mut info, FormId(4), &forms);
+        assert_eq!(info.effects, None);
+        assert_eq!(info_tiles(&info), info_tiles(&Info { weight: Some("1.00".into()), value: Some("12".into()), ..Info::default() }));
+        ammo_card_effects(&mut info, FormId(99), &forms);
+        assert_eq!(info.effects, None);
+    }
+
+    #[test]
     fn the_selected_row_stops_short_of_the_figures() {
         // The box ends 5 short of the list's edge, left of the figures and the badge.
         assert_eq!(LIST.min.x + ROW_X + ROW_W, LIST.max.x - 5.0);
@@ -962,6 +1075,7 @@ mod tests {
             condition: Some(0.8),
             beside: Some("40mm Grenade (1/19)".into()),
             effects: None,
+            ammo_effects: false,
             dps: Some("72".into()),
             badge: None,
             skill_req: None,

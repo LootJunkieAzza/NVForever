@@ -506,7 +506,7 @@ fn close_container(g: &mut Game) {
 
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
-    let snap = g.snapshot();
+    let snap = g.checked_snapshot()?;
     let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
     let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
     let file = fnv_save::decode(std::path::Path::new("runner save"), &bytes, true).map_err(|e| e.to_string())?;
@@ -2527,6 +2527,40 @@ fn action_label(a: &Action) -> Option<String> {
         Action::Terminal { label, .. } | Action::Consume { label, .. } | Action::PlayNote { label, .. } | Action::SaveLoad { label, .. } => label.clone(),
         Action::GetQuest { label, .. } | Action::SampleVar { label, .. } => label.clone(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod combat_style_save_tests {
+    use super::save_and_load;
+    use crate::combat_style_session_tests::{fixture, game};
+    use fnv_script::vm::XVal;
+    use fnv_sim::FormId;
+
+    #[test]
+    fn headless_save_load_allows_a_temporary_style_and_resets_its_session_copy() {
+        let f = fixture(); let mut g = game(&f);
+        let value = g.run_query("Begin Function { }\nSetFunctionValue (TempCloneForm OwnedStyle 0)\nEnd\n", Default::default()).unwrap();
+        let XVal::Ref(alias) = value else { panic!("the source must create a real alias") };
+        g.extra.entry(FormId::PLAYER_REF).or_default().combat_style = Some(FormId(alias));
+        assert!(g.combat_style_form(FormId(alias)).is_some());
+        assert!(save_and_load(&mut g).unwrap() > 0);
+        assert_eq!(g.extra[&FormId::PLAYER_REF].combat_style, Some(FormId(alias)), "the serialized carrier is preserved");
+        assert!(g.combat_style_form(FormId(alias)).is_none());
+        assert_eq!(g.combat_style_id(FormId::PLAYER_REF), None);
+        assert_eq!(*g.combat_style(FormId::PLAYER_REF).unwrap(), f.data.combat_styles[&FormId(0x3D)], "the old authored default remains the fallback");
+    }
+
+    #[test]
+    fn headless_plain_authored_edits_roundtrip_with_the_existing_session_reset() {
+        let f = fixture(); let mut g = game(&f);
+        let reference = g.world.place(FormId(0xD10), None, [0.0; 3], [0.0; 3], 1).unwrap();
+        g.run_query("Begin Function { }\nSetCombatStyleTraitNumeric OwnedStyle 42 7\nEnd\n", Default::default()).unwrap();
+        assert_eq!(g.combat_style_form(FormId(0xA10)).unwrap().rushing_attack_distance_mult, 7.0);
+        assert!(save_and_load(&mut g).unwrap() > 0);
+        assert_eq!(g.world.peek(reference).unwrap().base, FormId(0xD10));
+        assert_eq!(g.combat_style_form(FormId(0xA10)).unwrap().rushing_attack_distance_mult, 0.0);
+        assert_eq!(g.run_query("Begin Function { }\nSetFunctionValue (GetCombatStyleTraitNumeric OwnedStyle 42)\nEnd\n", Default::default()).unwrap(), XVal::Num(0.0));
     }
 }
 

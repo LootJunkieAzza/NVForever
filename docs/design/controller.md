@@ -250,6 +250,7 @@ Start cannot be bound.
   | Repair services | X Repair All |
   | Level up, traits | Y Reset, X Continue, B Back |
   | Tag skills | Y Reset, X Done |
+  | Vigor Tester, SPECIAL page (1048), traits | the left stick is the D-pad: left / right lower / raise the attribute (the Vigor Tester's review row, the SPECIAL page's row), up / down the rows; a step a push past half way (`pad::STICK_PRESS`), no repeat while held (`pad::menu_stick`) [documented: `love_tester_menu.xml`, `specialbookmenu.xml` give `increase_value` / `decrease_value` the left stick's picture, `trait_select_menu.xml` its Navigate hint; hypothesis: the stick works their `xleft` / `xright`; design: the trait menu, whose file names no stick, #2313] |
   | Lockpicking | X Force Lock |
   | Blackjack | A Hit, Y Double/Deal, RT Split/Raise, LT Switch/Lower, X Surrender/Max Bet, B Stay/Exit |
   | Roulette | A Place, Y Remove, X Finish, LT Lower, RT Raise, B Exit |

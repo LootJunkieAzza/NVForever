@@ -509,9 +509,29 @@ pub struct ScreenShade;
 
 pub struct PipBoyPlugin;
 
+/// [design, #2553] A repair/mod key stays consumed even if it closes its list before ITEMS.
+#[derive(Resource, Default)]
+pub struct KeysTaken(bool);
+
+impl KeysTaken {
+    pub fn take(&mut self) {
+        self.0 = true;
+    }
+
+    pub fn taken(&self) -> bool {
+        self.0
+    }
+}
+
+/// [design, #2553] First runs once per frame, before any Update key handler.
+fn clear_keys_taken(mut taken: ResMut<KeysTaken>) {
+    taken.0 = false;
+}
+
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PipBoy>()
+            .init_resource::<KeysTaken>()
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
             .init_resource::<PointerMoved>()
@@ -533,6 +553,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<data::travel::Pending>()
             .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
+            .add_systems(First, clear_keys_taken)
             .add_systems(
                 Update,
                 (
@@ -574,7 +595,8 @@ impl Plugin for PipBoyPlugin {
                 key: SETTING_KEY,
                 group: crate::pause::GROUP_MENUS,
                 label: "Use Pip-Boy",
-                note: "On: the Pip-Boy and its glove are worn and the menus come up on the arm. Off: both are taken off and the menus show full screen. Without a Pip-Boy worn the menus are always full screen.",
+                note: "On: the Pip-Boy is worn and the menus come up on the arm. Off: it is taken off and the menus show full screen, as always without a Pip-Boy.",
+                switches: "",
                 get: |w| w.resource::<UsePipBoy>().on,
                 set: |w, on| w.resource_mut::<UsePipBoy>().set(on),
                 slider: None,

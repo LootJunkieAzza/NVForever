@@ -675,7 +675,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the byte raw]. `textures\sky\` ships `masser_{full,new,half_wax,half_wan,one_wax,one_wan,
   three_wax,three_wan}.dds`, `skymoonfull.dds` and `moonshadow.dds`; which one the engine
   draws for that flag is not known. NVWastelandClearNight's cloud layer 0
-  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive. The NAM0 "stars" colour of
+  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive; the renderer leaves that layer
+  without a texture and, the weather being the base game's own, says so at debug only (a
+  mod's weather naming a missing texture is still warned about; issue #2408; what the
+  original draws on that layer is not captured). The NAM0 "stars" colour of
   NVWastelandClear is black at sunrise and white at day, sunset and night, so day-time
   hiding of the stars must come from elsewhere (engine) [hypothesis]. The renderer
   fades the stars in as the sun sinks from 0° to −12° and the moon from +5° to −6°,

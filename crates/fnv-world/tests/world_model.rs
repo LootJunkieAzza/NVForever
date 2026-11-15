@@ -28,6 +28,13 @@ const REVOLVER: u32 = 0x200;
 const KNUCKLES: u32 = 0x201;
 const VARMINT: u32 = 0x202;
 const CAN: u32 = 0x300;
+const SLAVE_PACK: u32 = 0x102;
+const PLAYABLE_PACK: u32 = 0x103;
+
+/// BMDT: biped flags (Backpack), general flags, three unused bytes.
+fn bmdt(general: u8) -> Subrecord {
+    Subrecord { sig: *b"BMDT", data: [0x80u32.to_le_bytes().as_slice(), &[general, 0, 0, 0]].concat(), extended: false }
+}
 
 fn plugin_bytes() -> Vec<u8> {
     let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
@@ -44,6 +51,9 @@ fn plugin_bytes() -> Vec<u8> {
             ],
         ),
         record(b"ARMO", NO_GROUND, &[sub(b"EDID", "NoGroundModel"), sub(b"MODL", "Armor\\Worn.NIF")]),
+        // The Fort's slave backpack: Non-Playable, no MOD2 (#2439).
+        record(b"ARMO", SLAVE_PACK, &[sub(b"EDID", "NVSlaveBackpack"), bmdt(0x40), sub(b"MODL", "armor\\NV_SlaveBackpack\\NV_SlaveBackpack.NIF")]),
+        record(b"ARMO", PLAYABLE_PACK, &[sub(b"EDID", "PlayablePack"), bmdt(0), sub(b"MODL", "armor\\Pack.NIF")]),
     ]
     .concat();
     let weap = [
@@ -93,4 +103,22 @@ fn items_lie_in_the_world_as_their_world_model() {
     assert_eq!(world(VARMINT).as_deref(), Some("meshes\\weapons\\2handrifle\\varmintrifle.nif"));
 
     assert_eq!(world(CAN).as_deref(), Some("meshes\\clutter\\junk\\tincan01.nif"));
+}
+
+/// #2439: Non-Playable armour without a world model (the Fort's slave backpacks) has no
+/// look of its own in the world, so a placed reference of it is not drawn hanging in the
+/// air; its worn model stays. Playable armour without MOD2 still lies as its MODL.
+#[test]
+fn armour_only_ever_worn_has_no_world_model() {
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let pack = base_object(&lo, &schema, SLAVE_PACK).unwrap();
+    assert!(pack.worn_only);
+    assert_eq!(pack.world_model_path(), None);
+    assert_eq!(pack.model_path().as_deref(), Some("meshes\\armor\\nv_slavebackpack\\nv_slavebackpack.nif"));
+    let playable = base_object(&lo, &schema, PLAYABLE_PACK).unwrap();
+    assert!(!playable.worn_only);
+    assert_eq!(playable.world_model_path().as_deref(), Some("meshes\\armor\\pack.nif"));
+    assert!(!base_object(&lo, &schema, LEATHER).unwrap().worn_only);
 }

@@ -941,3 +941,78 @@ SayTo from the speaker's script.
 - A listener's body stays for SayTo lines: with the speaker behind it, its head stops
   at its limit (60°).
 
+## 10. Fort equipment return regression (#2534)
+
+[documented: #2534 owner brief, fnvtool ESM decode/script decompile,
+FalloutNV.esm, main session 2026-11-14] The weather-station guard's GREETING
+`0x0015BCA2` offers Topic000 (INFO `0x0015BCA1`). That choice and Topic010's
+"Done." INFO `0x00165712` set `FortEquipmentConfiscationQuest.bGimme` in their
+begin result and start the equipment quest in their end result. The quest
+(`0x00164762`, script `0x00164763`, delay 0.1 seconds) transfers all eligible
+items from persistent `NVCCPlayerStorageREF` (`0x00139B6B`, Cottonwood Cove)
+to the player when `bFortEquipmentStored` and `bGimme` are 1, clears both flags
+and stops. Its return notification follows the transfer, except in
+`FortificationHillWeatherStation` (`0x0012428F`), where it is omitted.
+
+[observed: main session's authorized `fnvtool script run` and `script roundtrip`
+results on upstream main, 2026-11-14, supplied in the #2534 owner brief] One
+`Weap10mmPistol` moves from the player into storage at the entrance and returns
+after Caesar's bunker task and the weather guard's Topic000. A save/load before
+the middle step also succeeds. This is headless evidence; the reported engine
+failure has not been reproduced in this worktree.
+
+[design: `engine/nvf-play/src/dialogue.rs` input, `script.rs` `with_world`,
+`Runtime::player_action` and `tick`; `crates/fnv-game/src/dialogue.rs`
+`run_line_result` and `finish_line`] Engine dialogue choices and skipped
+responses call the shared `Game` implementation while the played simulation
+world is swapped in. Begin and end results run through that shared code; the
+runtime's inventory snapshot records the outcome rather than restoring an older
+inventory. The engine tick likewise calls `Game::tick` on the played world.
+
+[design: `crates/fnv-game/src/game.rs` `tick`, `start_quest`, `stop_quest`]
+Only running quests are scheduled. Their configured delay advances on separate
+GameMode and MenuMode counters. Dialogue and message boxes hold GameMode; after
+leaving dialogue or closing a box, the equipment quest can run its GameMode
+return branch. Starting a stopped quest resets its counters; stopping it prevents
+later ticks. No separate engine quest scheduler was found in this path.
+
+[documented: GECK wiki **RemoveAllTypedItems**, offline snapshot 2026-10-28,
+revision 31990] Omitting the type code transfers all eligible items; the
+suppress-messages argument hides the item notification. [design:
+`crates/fnv-game/src/functions/items.rs` `remove_all_typed_items`, `remove_all`;
+`crates/fnv-sim/src/world.rs` `get`, `inventory_mut`; `refs.rs` `from_index`;
+`engine/nvf-play/src/sim.rs` `SimState::new`] The transfer directly changes
+the shared `World` inventory. References are indexed independently of rendered
+cells, and inventory access materializes reference state on demand; the transfer
+does not require the storage container's cell to be streamed or its lock opened.
+
+[design: `engine/nvf-play/src/menu.rs` `open_menus`;
+`menu/model.rs` `MenuModel::open_inventory`; `pipboy/items.rs` `draw`]
+Opening the Pip-Boy builds its inventory model from the played world, and the
+ITEMS page renders that model. A return made before opening it therefore needs
+no separate inventory-copy notification. No supported engine cause was identified
+by this source inspection, so #2534 adds regression coverage without changing
+runtime behavior. An in-game pass remains necessary before claiming the report
+is resolved.
+
+[design, #2534] Smoke coverage:
+
+- `mq-fort-gear-returned` runs
+  `crates/fnv-game/walkthrough/fort-gear-returned.actions.json`, preserving the
+  supplied actions with rewritten explanatory notes. It checks the return
+  greeting/choice, player/storage pistol counts 0/1 then 1/0, and stopped quest
+  with both flags reset.
+- `fort-gear-returned` isolates the engine bridge in Goodsprings while the storage
+  is remote. Console aids confiscate a test pistol, seed both quest flags and start
+  the quest. The console closes before GameMode is allowed to return it. Later
+  console reads check the same four counts, stopped quest and cleared flags. This
+  scenario bypasses the long dialogue route; it does not establish that the
+  reported weather-guard conversation succeeds in-game.
+
+[design, #2534] If both checks pass but the report persists, reproduce the full
+guard conversation in the engine and inspect the chosen INFO, its begin/end
+results, the two quest variables, running state and any menu still holding
+GameMode. The existing `mq-legion` and `console-quest-info` scenarios provide
+related chain and console coverage. No new parity value, setting, or maintainer
+choice is introduced.
+

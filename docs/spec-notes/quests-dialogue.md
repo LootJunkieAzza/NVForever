@@ -98,7 +98,12 @@ recorded in §5.
     its interior; NVForever picks a door that is not locked when there is one, and the
     first door when the target ignores locks or every door is locked [hypothesis: the
     Objectives Tab describes a path that avoids locked doors "if possible"; NVForever
-    takes one door, not a path through several cells].
+    takes one door, not a path through several cells]. Only doors in the world count, on
+    the compass's way through doors and on the world map alike: a disabled door (its
+    flag, its enable parent, a script's Disable) is no way and no marker [hypothesis;
+    issue #2566: Nellis's two hangar versions have their doors on the same spots, and
+    the marker for Loyal led through the disabled pair, at the hangar door outdoors and
+    back out of it indoors; navmesh.md §4 "Disabled load doors"].
 - An objective is **displayed or not** and **completed or not**, set by
   SetObjectiveDisplayed / SetObjectiveCompleted (value 1 or 0) and read by the matching Get
   functions. CompleteAllObjectives completes every displayed objective [documented:

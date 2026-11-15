@@ -58,6 +58,9 @@ const LEAD_LINE: f32 = 50.0;
 const CARD_TEXT_X: f32 = 5.0;
 const CARD_TEXT_Y: f32 = 20.0;
 const CARD_VALUE_IN: f32 = 10.0;
+/// The least room kept between a card's title and its value when the value is broken
+/// into lines ([`card_value_lines`]) [design, #2537].
+const CARD_GAP: f32 = 10.0;
 /// A button's text under the button's own y: `text_box.xml` centres the text in a box
 /// `_verbuf` (15 in the menus' buttons) taller than it, then 7 + 3 lower (not glowing)
 /// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
@@ -405,16 +408,49 @@ pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, nam
     }
 }
 
+/// A card's value as the lines it is drawn in, each right-aligned under the one before:
+/// one line while it fits beside the title, else broken between its comma-separated parts
+/// (an item's effects, "HP +5, Rads -3, FOD +41, STR -1") so that no line reaches the
+/// title; a part is never cut, so one wider than the room stands on a line of its own.
+/// `width` is the card's, `font` the face both are set in (issue #2537: a long effects
+/// line ran over its "EFFECTS" title) [design: where it breaks; the original's
+/// `card_info.xml` gives `CI_ValueText` a `wrapwidth` (441 of the effects card's 466)
+/// [documented], so its value is broken into lines too; how its lines look is not
+/// captured].
+pub fn card_value_lines(font: &Font, title: &str, width: f32, value: &str) -> Vec<String> {
+    let room = width - CARD_VALUE_IN - CARD_TEXT_X - font.width(title) - CARD_GAP;
+    if value.is_empty() {
+        return Vec::new();
+    }
+    if font.width(value) <= room {
+        return vec![value.to_string()];
+    }
+    let parts: Vec<&str> = value.split(", ").collect();
+    let mut lines: Vec<Vec<&str>> = Vec::new();
+    for (i, part) in parts.iter().enumerate() {
+        // A line that another follows ends with the comma between the parts.
+        let comma = if i + 1 < parts.len() { "," } else { "" };
+        match lines.last_mut() {
+            Some(last) if font.width(&format!("{}, {part}{comma}", last.join(", "))) <= room => last.push(part),
+            _ => lines.push(vec![part]),
+        }
+    }
+    let n = lines.len();
+    lines.iter().enumerate().map(|(i, l)| format!("{}{}", l.join(", "), if i + 1 < n { "," } else { "" })).collect()
+}
+
 /// A card: a line along its top, one fading down its right side, the title at the left
-/// and the value right-aligned, both in font 2.
+/// and the value right-aligned, both in font 2; a value too long for the room beside the
+/// title goes on in further lines under it ([`card_value_lines`]).
 pub fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, width: f32, title: &str, value: &str) {
     let line = amber(LINE);
     let bright = c.bright();
     c.line(p, x, y, width, THICK, line);
     c.fade(p, x + width - THICK, y, FADE, false, line);
     c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
-    if !value.is_empty() {
-        c.text(p, 2, value, x + width - CARD_VALUE_IN, y + CARD_TEXT_Y, Align::Right, bright);
+    let pitch = c.line_height(2);
+    for (i, l) in card_value_lines(&c.kit.face(2).font, title, width, value).iter().enumerate() {
+        c.text(p, 2, l, x + width - CARD_VALUE_IN, y + CARD_TEXT_Y + pitch * i as f32, Align::Right, bright);
     }
 }
 
@@ -683,6 +719,16 @@ fn on_header_out(out: On<PointerOut>, children: Query<&Children>, mut boxes: Que
 // ---- Added for the STATS page ------------------------------------------------------
 
 impl Ctx<'_> {
+    /// Adjust only an actually selected own image. Atlas pieces retain the existing
+    /// texel layout; a loose file shadowed by an atlas must not set their density.
+    pub fn picture_zoom(&mut self, path: &str, logical_height: f32) -> f32 {
+        let Some((image, None)) = self.picture(path) else { return 1.0 };
+        self.images.get(&image).map_or(1.0, |image| {
+            let height = image.size().y;
+            if height == 0 { 1.0 } else { logical_height / height as f32 }
+        })
+    }
+
     /// A picture's size in its file's pixels: its atlas piece's, or the whole file's.
     pub fn picture_size(&mut self, path: &str) -> Option<Vec2> {
         let (image, rect) = self.picture(path)?;
@@ -705,16 +751,68 @@ impl Ctx<'_> {
             Some(r) => r,
             None => Rect::from_corners(Vec2::ZERO, self.images.get(&image)?.size().as_vec2()),
         };
-        let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
-        let size = cut.size() * zoom;
+        let (cut, size) = cut_picture(full, w, h, zoom);
         p.spawn((at(x, y, size.x, size.y), ImageNode { rect: Some(cut), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
         Some(size)
     }
 }
 
+fn cut_picture(full: Rect, w: f32, h: f32, zoom: f32) -> (Rect, Vec2) {
+    let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
+    (cut, cut.size() * zoom)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #2537: an aid item's Hardcore effects ran over the card's "EFFECTS" title.
+    /// Every character 13 wide: the effects card (466) has room for 26 beside its title.
+    #[test]
+    fn a_long_card_value_breaks_between_its_parts() {
+        let font = plain_font(31.0, 13.0);
+        let lines = |width: f32, value: &str| card_value_lines(&font, "EFFECTS", width, value);
+        assert_eq!(lines(466.0, "HP +40"), ["HP +40"]);
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +41, STR -1"), ["HP +5, Rads -3, FOD +41,", "STR -1"]);
+        // Just fitting stays one line; one character more breaks before the last part.
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +4, S1"), ["HP +5, Rads -3, FOD +4, S1"]);
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +41, S1"), ["HP +5, Rads -3, FOD +41,", "S1"]);
+        // A part wider than the room is not cut: a line of its own.
+        assert_eq!(lines(150.0, "Speech +2, Melee Weap. +2"), ["Speech +2,", "Melee Weap. +2"]);
+        assert!(lines(466.0, "").is_empty());
+        // No line reaches the title.
+        let room = 466.0 - CARD_VALUE_IN - CARD_TEXT_X - font.width("EFFECTS") - CARD_GAP;
+        for l in lines(466.0, "HP +5, Rads -3, FOD +41, STR -1, H2O +10, AGL -2, END +1") {
+            assert!(font.width(&l) <= room, "{l}");
+        }
+    }
+
+    #[test]
+    fn paperdoll_hd_cut_keeps_logical_size_and_samples_the_same_art() {
+        // Authored atlas rectangles with the same normalized art at 1x and 4x.
+        let native = Rect::new(128.0, 256.0, 255.0, 383.0);
+        let hd = Rect::new(512.0, 1024.0, 1020.0, 1532.0);
+        let (a, sa) = cut_picture(native, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        let (b, sb) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45 / 4.0);
+        assert!((sa - sb).length() < 0.001);
+        assert!((b.min - a.min * 4.0).length() < 0.001);
+        assert!((b.max - a.max * 4.0).length() < 0.001);
+        // The old 1px/unit zoom on HD samples only a quarter of each intended edge.
+        let (wrong, _) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        assert!((wrong.width() * 4.0 - b.width()).abs() < 0.001);
+    }
+
+    #[test]
+    fn paperdoll_density_adjustment_retains_partial_piece_clipping_and_native_rectangles() {
+        let native = Rect::new(9.0, 7.0, 29.0, 17.0);
+        let hd = Rect::new(36.0, 28.0, 116.0, 68.0);
+        let (a, sa) = cut_picture(native, 50.0, 50.0, 1.0);
+        let (b, sb) = cut_picture(hd, 50.0, 50.0, 0.25);
+        assert_eq!(a, native);
+        assert_eq!(b, hd);
+        assert_eq!(sa, Vec2::new(20.0, 10.0));
+        assert_eq!(sb, sa);
+    }
 
     /// A hint column's words end at the heading's right end while every key fits in the
     /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")

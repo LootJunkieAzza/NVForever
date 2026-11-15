@@ -205,6 +205,16 @@ impl Origin {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TraitWriteSerial(NonZeroU64);
 
+/// One existing, non-expression trait write, conditional on its current external-write token.
+/// A batch publishes all sinks together or leaves every sink unchanged [design].
+#[derive(Clone, Debug)]
+pub struct ConditionalTraitWrite<'a> {
+    pub tile: TileId,
+    pub name: &'a str,
+    pub expected: TraitWriteSerial,
+    pub value: Value,
+}
+
 /// One trait of a tile.
 #[derive(Clone, Debug)]
 pub struct Trait {
@@ -285,6 +295,21 @@ impl Tile {
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.trait_index(name).map(|k| &self.traits[k].value)
     }
+}
+
+/// How a path's `name:N` / `*:N` counts the children that match (`Ui::find_trait_counted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Count {
+    /// From the last child, from 0: JIP's functions (GetUIFloatAlt and the rest) [observed:
+    /// private jobs hud_hardcore hc0, hud_xp_limbs, hud_prompt2 p0-p8; hud.md §14.8].
+    FromLast,
+    /// From the first child, from 1, with 0 the last and nothing past the one before the
+    /// last: the extender's GetUIFloat, SetUIFloat, SetUIString and SetUIStringEx
+    /// [observed: GetUIFloat under the pause column, `*:1` its first child, `*:0` its last,
+    /// `*:8` of 8 nothing, menu-xml.md §10.1; documented: MCM Guide v6, Introduction and The
+    /// Options Panel: `StartMenu/MCM/*:4` is MCM's fourth child, `*:1/*:2` the options
+    /// panel's Option2, `*:9` MCM_Info, the ninth; menu-xml.md §10.4].
+    FromFirst,
 }
 
 /// The menus' tile tree.
@@ -837,17 +862,36 @@ impl Ui {
         let segs = split(path);
         let (first, rest) = segs.split_first()?;
         let root = self.root_named(first)?;
-        self.walk(root, rest)
+        self.walk(root, rest, Count::FromLast)
     }
 
     /// The tile and trait a path names: [`Ui::find_tile`] of all but the last segment,
     /// and the last a trait of it.
     pub fn find_trait(&self, path: &str) -> Option<(TileId, usize)> {
+        self.find_trait_counted(path, Count::FromLast)
+    }
+
+    /// [`Ui::find_trait`] with `name:N` / `*:N` counted as `count` says (the extender's
+    /// GetUIFloat and SetUIFloat count from the first child, [`Count::FromFirst`]).
+    pub fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
-        self.walk_to_trait(root, rest, name)
+        self.walk_to_trait(root, rest, name, count)
+    }
+
+    /// A trait's value by a path counted as `count` says ([`Ui::find_trait_counted`]).
+    pub fn get_counted(&self, path: &str, count: Count) -> Option<&Value> {
+        let (t, k) = self.find_trait_counted(path, count)?;
+        Some(&self.tile(t).traits[k].value)
+    }
+
+    /// Sets a trait by a path counted as `count` says, as [`Ui::set`] does.
+    pub fn set_counted(&mut self, path: &str, count: Count, v: Value) -> bool {
+        let Some((t, k)) = self.find_trait_counted(path, count) else { return false };
+        self.set_at(t, k, v);
+        true
     }
 
     /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
@@ -856,7 +900,7 @@ impl Ui {
     pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
-        self.walk_to_trait(at, tiles, name)
+        self.walk_to_trait(at, tiles, name, Count::FromLast)
     }
 
     fn root_named(&self, seg: &str) -> Option<TileId> {
@@ -864,28 +908,31 @@ impl Ui {
     }
 
     /// The children of `at` a segment matches, in order.
-    fn matching(&self, at: TileId, seg: &str) -> Vec<TileId> {
+    fn matching(&self, at: TileId, seg: &str, count: Count) -> Vec<TileId> {
         let (name, index) = match seg.rsplit_once(':') {
             Some((n, k)) if k.trim().parse::<usize>().is_ok() => (n, k.trim().parse::<usize>().ok()),
             _ => (seg, None),
         };
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
-        match index {
-            Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
-            None => named,
+        match (index, count) {
+            (Some(k), Count::FromLast) => named.iter().rev().nth(k).copied().into_iter().collect(),
+            // 0 the last, 1 the first, N the N-th, none past the one before the last.
+            (Some(0), Count::FromFirst) => named.last().copied().into_iter().collect(),
+            (Some(k), Count::FromFirst) => named.get(k - 1).filter(|_| k < named.len()).copied().into_iter().collect(),
+            (None, _) => named,
         }
     }
 
-    fn walk(&self, at: TileId, segs: &[&str]) -> Option<TileId> {
+    fn walk(&self, at: TileId, segs: &[&str], count: Count) -> Option<TileId> {
         let Some((seg, rest)) = segs.split_first() else { return Some(at) };
-        self.matching(at, seg).into_iter().find_map(|c| self.walk(c, rest))
+        self.matching(at, seg, count).into_iter().find_map(|c| self.walk(c, rest, count))
     }
 
-    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str) -> Option<(TileId, usize)> {
+    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str, count: Count) -> Option<(TileId, usize)> {
         match segs.split_first() {
             None => self.tile(at).trait_index(name).map(|k| (at, k)),
-            Some((seg, rest)) => self.matching(at, seg).into_iter().find_map(|c| self.walk_to_trait(c, rest, name)),
+            Some((seg, rest)) => self.matching(at, seg, count).into_iter().find_map(|c| self.walk_to_trait(c, rest, name, count)),
         }
     }
 
@@ -1001,6 +1048,43 @@ impl Ui {
     pub fn trait_write_serial(&self, tile: TileId, name: &str) -> Option<TraitWriteSerial> {
         let t = self.tile(tile);
         t.traits.get(t.trait_index(name)?)?.write_serial
+    }
+
+    /// Atomically write 1..=8 distinct existing plain traits whose complete IDs and
+    /// external-write tokens still match. Limits (4096-byte names, 65536-byte values)
+    /// are engine policy. Validate all targets and counters before the first write.
+    /// Success calls `set_at` directly, without `set_trait`'s reshape-diagnostic entrypoint;
+    /// the batch neither creates traits nor reshapes the tree.
+    pub fn set_existing_batch_if_unchanged(&mut self, writes: &[ConditionalTraitWrite<'_>]) -> Option<Vec<TraitWriteSerial>> {
+        if writes.is_empty() || writes.len() > 8 { return None; }
+        let count=u64::try_from(writes.len()).ok()?;
+        self.last_write_serial.checked_add(count)?;
+        self.gen.checked_add(count)?;
+        self.trait_writes.checked_add(count)?;
+        let mut bytes=0usize;
+        for write in writes {
+            if write.name.len()>4096 { return None; }
+            bytes=bytes.checked_add(match &write.value {Value::Str(s)|Value::Sym(s)=>s.len(),Value::Num(_)=>8})?;
+            if bytes>65536 { return None; }
+        }
+        let mut at = Vec::with_capacity(writes.len());
+        for (i, write) in writes.iter().enumerate() {
+            if writes[..i].iter().any(|other| other.tile == write.tile && other.name.eq_ignore_ascii_case(write.name)) { return None; }
+            let tile = self.tile(write.tile);
+            if !tile.live { return None; }
+            let index = tile.trait_index(write.name)?;
+            let tr = &tile.traits[index];
+            if tr.expr.is_some() || tr.write_serial != Some(write.expected) { return None; }
+            at.push((write.tile, index));
+        }
+        let changes=writes.iter().zip(&at).filter(|(write,(tile,index))|write.value.differs(&self.tiles[tile.index as usize].traits[*index].value)).count();
+        self.trait_changes.checked_add(u64::try_from(changes).ok()?)?;
+        let mut assigned = Vec::with_capacity(writes.len());
+        for (write, (tile, index)) in writes.iter().zip(at) {
+            self.set_at(tile, index, write.value.clone());
+            assigned.push(self.trait_write_serial(tile, write.name).expect("bounded checked batch reserved serials"));
+        }
+        Some(assigned)
     }
 
     fn next_write_serial(&mut self) -> Option<TraitWriteSerial> {
@@ -1326,6 +1410,10 @@ impl Ui {
             }
             Src::Child(None) => self.tile(me).children.first().copied(),
             Src::Child(Some(n)) => child_named(me, n),
+            // A menu's siblings are the other menus [observed: Vanilla UI Plus's start menu
+            // reads `<copy src="sibling(HUDMainMenu)" trait="_VUI+"/>` on its root, and its
+            // own check shows an "installation error" unless that gives its 1, #2298].
+            Src::Sibling(Some(n)) if parent(me).is_none() => self.root_named(n).filter(|&r| r != me),
             Src::Sibling(n) => {
                 let p = parent(me)?;
                 let kids = &self.tile(p).children;
@@ -1343,7 +1431,25 @@ impl Ui {
             Src::Io => Some(self.root_of(me)),
             Src::Named(n) => {
                 let root = self.root_of(me);
-                self.find_named(root, n).or_else(|| self.root_named(n))
+                // `src="me"`, the brackets left off, is the tile itself when no tile bears
+                // the name [observed: MCM 1.5's Options.xml, `<_x1> <copy src="me"
+                // trait="x"/> <add> 20 </add> </_x1>` on MCM_Options, whose rows stand in
+                // the right pane in the original; read as a name it gave 0 and the rows
+                // stood at the screen's left, the owner's run of 2026-11-12].
+                // Likewise every source that takes no argument: `parent`, `grandparent`,
+                // `child`, `sibling`, `globals`, `screen`, `io` and `strings` [observed:
+                // Vanilla UI Plus writes them so throughout its menus, `parent` 1,739 times,
+                // `sibling` 614, `child` 15 in the Blue Moon list's files; its MCM
+                // OptionRect.xml places each option's title by `<copy src="parent"
+                // trait="_y"/>`, and read as a name every title stood at y 0, one over the
+                // other at the top of the screen, the owner's run of 2026-11-13, #2298].
+                self.find_named(root, n).or_else(|| self.root_named(n)).or_else(|| {
+                    let bare = Src::parse(&format!("{n}()"));
+                    match bare {
+                        Src::Me | Src::Parent | Src::Grandparent | Src::Child(None) | Src::Sibling(None) | Src::Globals | Src::Screen | Src::Io | Src::Strings => self.resolve(me, &bare),
+                        _ => None,
+                    }
+                })
             }
         }
     }
@@ -1448,6 +1554,11 @@ fn split(path: &str) -> Vec<&str> {
     path.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).collect()
 }
 
+/// Invalid/overflowing extra-operator results do not enter renderer traits [hypothesis].
+fn finite_extra(value: f64) -> Value {
+    Value::Num(if value.is_finite() { value } else { 0.0 })
+}
+
 fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
     let (x, y) = (acc.num(), a.num());
     let num = Value::Num;
@@ -1468,6 +1579,14 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
         OpKind::Round => num(x.round()),
         OpKind::Trunc => num(x.trunc()),
         OpKind::Abs => num(x.abs()),
+        // [documented: ui-neg-operator.md] Unlike abs/floor, neg uses the argument.
+        OpKind::Neg => num(-y),
+        // UIO's unary arguments and accumulated exponentiation. Only the added
+        // operators use this finite-output policy; existing arithmetic is unchanged.
+        OpKind::Sin => finite_extra(y.to_radians().sin()),
+        OpKind::Cos => finite_extra(y.to_radians().cos()),
+        OpKind::Log => finite_extra(y.ln()),
+        OpKind::Pow => finite_extra(x.powf(y)),
         // A whole number from 0 below the argument, the same for this tile and operator
         // every time [design: when the original draws is not known].
         OpKind::Rand => {
@@ -1535,5 +1654,73 @@ mod write_serial_tests {
         assert_eq!(ui.trait_write_serial(screen, "x"), None);
         assert_eq!(ui.trait_write_serial(screen, "y"), None);
         assert_eq!(ui.last_write_serial, u64::MAX);
+    }
+    #[test]
+    fn conditional_batch_rejects_an_equal_external_writer_without_partial_values() {
+        let mut ui=Ui::new();let tile=ui.screen();
+        ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        ui.set_trait(tile,"x",Value::Num(1.0));let before=ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(9.0)},
+            ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(8.0)},
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(),before);assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(2.0)));
+    }
+    #[test]
+    fn conditional_batch_checks_exhaustion_before_any_accepted_legacy_write() {
+        let mut ui=Ui::new();let tile=ui.screen();ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        ui.last_write_serial=u64::MAX-1;let before=ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(8.0)},
+            ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(9.0)},
+        ]).is_none());assert_eq!(ui.last_write_serial,u64::MAX-1);assert_eq!(ui.trait_write_counts(),before);
+        assert_eq!(ui.tile(tile).get("x"),Some(&Value::Num(1.0)));assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(2.0)));
+    }
+    #[test]
+    fn conditional_batch_assigns_all_sinks_and_rejects_aliasing_duplicates() {
+        let mut ui=Ui::new();let tile=ui.screen();ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        assert!(ui.set_existing_batch_if_unchanged(&[ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(3.0)},ConditionalTraitWrite {tile,name:"X",expected:x,value:Value::Num(4.0)}]).is_none());
+        let got=ui.set_existing_batch_if_unchanged(&[ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(3.0)},ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(4.0)}]).unwrap();
+        assert_eq!(got.len(),2);assert_ne!(got[0],x);assert_ne!(got[0],got[1]);assert_eq!(ui.tile(tile).get("x"),Some(&Value::Num(3.0)));assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(4.0)));
+    }
+
+    #[test]
+    fn conditional_batch_rejects_expression_sink_before_any_plain_sink_write() {
+        let src = MemSource::default().with("batch.xml", r#"<menu name="Batch"><x>1</x><y><copy src="me()" trait="x"/></y></menu>"#);
+        let mut ui = Ui::new();
+        let tile = ui.load_menu(&src, "batch.xml").unwrap();
+        ui.update();
+        let x = ui.trait_write_serial(tile, "x").unwrap();
+        let y = ui.trait_write_serial(tile, "y").unwrap();
+        let before = ui.trait_write_counts();
+        assert!(ui.tile(tile).traits[ui.tile(tile).trait_index("y").unwrap()].expr.is_some());
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite { tile, name: "x", expected: x, value: Value::Num(8.) },
+            ConditionalTraitWrite { tile, name: "y", expected: y, value: Value::Num(9.) },
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(), before);
+        assert_eq!(ui.tile(tile).get("x"), Some(&Value::Num(1.)));
+        assert_eq!(ui.tile(tile).get("y"), Some(&Value::Num(1.)));
+    }
+
+    #[test]
+    fn conditional_batch_rejects_old_tile_generation_after_reload_without_partial_write() {
+        let src = MemSource::default().with("batch.xml", r#"<menu name="Batch"><x>1</x></menu>"#);
+        let mut ui = Ui::new();
+        let old = ui.load_menu(&src, "batch.xml").unwrap();
+        let expected = ui.trait_write_serial(old, "x").unwrap();
+        let current = ui.load_menu(&src, "batch.xml").unwrap();
+        assert_ne!(old, current);
+        let now = ui.trait_write_serial(current, "x").unwrap();
+        let before = ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite { tile: current, name: "x", expected: now, value: Value::Num(8.) },
+            ConditionalTraitWrite { tile: old, name: "x", expected, value: Value::Num(9.) },
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(), before);
+        assert_eq!(ui.tile(current).get("x"), Some(&Value::Num(1.)));
     }
 }

@@ -635,6 +635,49 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
   still on the back. Before, the holstered flamer hung whole, tank included, from the
   hand bone (the `2hh` holster bone is `Bip01 R Hand`) [observed in NVForever: owner,
   2026-10-16].
+- The round seen in the weapon, `##NifRound` [observed: `fnvtool nif nodes` over the
+  game's and the DLCs' archives; `fnvtool nif decode` of the clips, 2026-11-14, #2470]:
+  - seven models have the node: `missilelauncher.nif` (with its guidance-system and
+    unique forms), `fatman.nif`, `fatmanlittleboy.nif`, the Gun Runners' Arsenal unique
+    Fat Man and `dartgun.nif`; in `missilelauncher.nif` it holds a copy of the missile's
+    shape (the mesh of `projectiles\mlprojectile.nif`, 444 vertices) in the tube. The
+    world models (`missilelaunchergo.nif`) have none.
+  - its `NiVisController` tracks: `2hlattackright.kf` and `2hlattackleft.kf` show it to
+    0.033 s and hide it from 0.067 s (the `Hit` key) to their end, in `_1stperson`
+    (priority 55) and `_male` (57); `2hlreloada.kf` hides it until 0.867 s and
+    `2hlreloade.kf` until 1.833 s (`_male` 1.867 s), then shows it; `2hlattack3.kf`,
+    the equip, unequip, holster and jam clips have no track for it. `_1stperson\2hlaim.kf`
+    shows it throughout (an interpolator value of true, no keys, priority 45);
+    `_male\2hlaim.kf` has no track. The `1hp` clips do the same for the dart gun
+    (`1hpattackright.kf` hides it from 0.033 s; `_1stperson\1hpaim.kf` shows it, 55;
+    `1hpreloadb.kf` shows it from 1.333 s, `_male` 1.0 s).
+  - Reading [hypothesis]: the round is shown while one is loaded; the first-person aim
+    clip's track would show it again in an empty launcher once the attack clip ends,
+    unless a reload follows the shot at once. How the original hides it in an empty
+    weapon is not known.
+  - Engine: the round is drawn as the clips say; an empty weapon's round is not hidden
+    [design]. It is not seen from the player's cameras [observed: NVForever on main,
+    2026-11-14, pictures kept privately: first person after the shot, third person after
+    the shot and an empty launcher drawn in third person, the back of the tube dark].
+  - NPC rule [design, #2512, owner decision]: `nvforever::weapons::reparent` applies
+    the current attack/reload clip's visibility tracks to matching targets in the
+    held weapon model, with the advanced time supplied by `attack_anims::CombatPose`.
+    A frame crossing the clip's end samples its exact end, including a final show key.
+    A missing track (the `_male` aim clip's round track, as documented above) keeps
+    the last state. Entering equip, unequip or holster restores the model default
+    before applying that stage's visibility tracks. `PreparedPart` omits model-hidden
+    geometry (`nvf-assets/src/actor.rs::prepare_part`), so all retained shapes start
+    shown. Visibility of every named ancestor and the shape itself is combined; shared
+    nodes change all their shapes together. Package hiding masks this combined state
+    without changing the retained clip state, including for parts on separate back
+    bones [design, #2512]. `alert::show` runs before `weapons::reparent`, which reads
+    its package-hidden marker and writes the final model-shape visibility; clearing
+    the marker restores the retained clip state. No attack/reload transform tracks are
+    applied to NPC weapon parts. A state change logs `npc weapon part: <actor> <node>
+    hidden/shown` once per model target, independent of the number of shapes below it.
+    Original-game parity of the persistent state and reset rule is [hypothesis];
+    observer check 167 covers it. Synthetic regressions are in `weapons.rs` and
+    `attack_anims.rs`, with the game smoke `npc-launcher-round`.
 
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 

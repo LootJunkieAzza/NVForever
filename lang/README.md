@@ -69,6 +69,11 @@ The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fon
 so a translation can only use the letters that code page has: Cyrillic on a Russian
 install (`[Text] CodePage=1251`), but not Chinese.
 
+The ammo card's fallback labels also use these files when an AMEF has no FULL name:
+`Damage`, `Damage resist`, `Damage threshold`, `Spread`, `Weapon wear`, `Fatigue`,
+`Ammo effect` [design, #2502; `engine/nvf-play/src/pipboy/items.rs`]. An effect's own
+FULL remains the load order's text [design, #2502].
+
 So the language shown must suit the install's code page: German, French, Italian and
 Spanish need Windows-1252 (an English, German, French, Italian or Spanish install), and
 Russian needs Windows-1251 (a Russian install). A letter the fonts lack is drawn as `?`.

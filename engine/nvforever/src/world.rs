@@ -263,7 +263,7 @@ pub struct StreamStats {
     pub refs_doors: usize,
     /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
     pub refs_group_rigs: usize,
-    /// References drawn in the pose their `XRGD` stores (clutter skeletons, clutter_pose.rs).
+    /// References drawn in the pose their `XRGD` stores (clutter skeletons, `nvf_play::clutter_pose`).
     pub refs_posed: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
@@ -889,6 +889,7 @@ pub fn note_other_cameras(
 /// worldspace and an interior; streaming reloads around the camera, which the player
 /// systems have moved to the destination. With `--play` this happens behind a loading
 /// screen, which stays until `Streamer::settled` ([`loading_gate`]).
+#[allow(clippy::too_many_arguments)]
 pub fn travel(
     mut commands: Commands,
     mut msgs: MessageReader<nvf_play::Travel>,
@@ -897,6 +898,7 @@ pub fn travel(
     mut sky: ResMut<crate::sky::SkyState>,
     mut lod: ResMut<crate::lod::LodState>,
     args: Res<crate::Args>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
     for (_, e) in streamer.loaded.drain() {
@@ -911,9 +913,38 @@ pub fn travel(
     streamer.settled = false;
     streamer.interior = t.interior;
     streamer.arrival = t.interior.is_none().then(|| cell_of(t.feet[0], t.feet[1]));
-    sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    sky.set_interior(t.interior.and_then(|id| effective_cell_lighting(&world, game, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
+}
+
+/// The actual cell-lighting reader shared by startup/travel and authored
+/// headless camera controls. No ScriptState testing constructor is needed.
+pub(crate) fn effective_cell_lighting(world: &WorldData, game: Option<&fnv_game::Game<'_>>, cell: u32) -> Option<fnv_world::lighting::CellLighting> {
+    match game {
+        Some(game) => game.session_cell_lighting(world.lo, world.schema, fnv_sim::FormId(cell)),
+        None => fnv_world::lighting::cell_lighting(world.lo, world.schema, cell),
+    }
+}
+
+/// Reapply lighting when the cell is applied by travel, or when its runtime
+/// becomes available/unavailable. Live setter-driven refresh is deliberately a
+/// separate timing policy; unchanged frames neither resolve fields nor allocate.
+pub fn cell_lighting(
+    mut travels: MessageReader<nvf_play::Travel>,
+    streamer: Res<Streamer>, world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut seen: Local<Option<(Option<u32>, bool)>>,
+) {
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let key = (streamer.interior, game.is_some());
+    let travelled = travels.read().count() > 0;
+    if *seen == Some(key) && !travelled { return; }
+    *seen = Some(key);
+    let light = streamer.interior.and_then(|cell| effective_cell_lighting(&world, game, cell));
+    if sky.interior != light { sky.set_interior(light); }
 }
 
 /// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
@@ -1206,6 +1237,13 @@ pub fn spawn_model(
     hide: &[String],
     stats: &mut StreamStats,
 ) {
+    // Armour only ever worn (Non-Playable, no world model): its biped model would hang in
+    // the air at the reference (the Fort's slave backpacks, #2439; `fnv_world::placed::worn_only`).
+    if base.worn_only {
+        stats.refs_no_model += 1;
+        info!("world: 0x{r:08X} {}: armour only ever worn (Non-Playable, no world model), not drawn on its own", base.edid.as_deref().unwrap_or("?"));
+        return;
+    }
     let Some(path) = base.world_model_path() else {
         stats.refs_no_model += 1;
         return;
@@ -1309,27 +1347,18 @@ pub fn spawn_model(
         stats.refs_animated += 1;
         return;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
-    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
-    // named node below the model's root), the same condition the collision uses.
-    let posed = crate::clutter_pose::posable(&base.sig)
-        .then(|| crate::clutter_pose::stored(world.lo, r))
-        .flatten()
-        .and_then(|bones| {
-            let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
-            let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match &posed {
-                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
-            }
-            posed.ok()
-        });
+    // A jointed object left posed by its designer (`XRGD`, `nvf_play::clutter_pose`).
+    // Whether it poses is decided by `clutter_pose::drawn` (the matching rule and every
+    // body on a named node below the model's root), the same condition the collision
+    // uses and the same function `nvf_play::script_draw` draws references enabled later
+    // with (issue #2339).
+    let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path));
+    if let Some(p) = &posed {
+        info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
+    }
     stats.refs_posed += usize::from(posed.is_some());
     for s in &model.shapes {
-        let shape = match (&posed, s.node) {
-            (Some(p), Some(n)) => p[n] * s.own,
-            _ => s.transform,
-        };
+        let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
         let m = Mat4::from(rt * shape);
         // External emittance: the reference's XEMI source drives the colour.
         let material = p

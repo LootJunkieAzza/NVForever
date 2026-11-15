@@ -462,7 +462,17 @@ A speaker **can say** a line when:
   unless the line has its own GetIsID condition on the speaker, which then decides
   [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
   speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
-  observer check 29];
+  observer check 29]. A condition on the speaker naming a group (GetInFaction,
+  GetIsClass, GetIsRace, GetIsVoiceType, IsInList) decides as well [hypothesis, #2548,
+  observer check 162]: Cottonwood Cove's "Halt!" greeting 0x0013AC97 names the AAM
+  explorer and tests VCaesarsLegionCCoveExplorerFaction, which all four explorers are
+  in, and the other three have GREETING force-greet packages of their own
+  (0x001789B6-B8) that would end on the generic "Move along." otherwise. 19 lines of
+  FalloutNV.esm have a fixed speaker and such a condition without GetIsID [observed]:
+  the Cottonwood Cove explorer lines (7), the Tops' random bartender (3) and the
+  Strip's Securitron messenger (9 with VVictorFaction, said by the messenger itself).
+  Such a line said by another actor plays the fixed speaker's voice file when the
+  actor's own voice has none (voice.rs, as for a GetIsID line);
   - **a script's Say or SayTo** whose topic has no line passing this check, judged from
     the data alone (every line names another fixed speaker and has no own-ID condition;
     a line the speaker passes the check for but cannot say now, because it was said
@@ -768,8 +778,18 @@ Joe Cobb and Trudy (below).
   Stations]. Tests: `dialogue.rs`
   `a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats`,
   `a_follow_up_between_actors_keeps_the_topics_of_the_conversation`.
+- **A talking activator** can take part (issue #2451): it says its talking actor's
+  lines, chosen with that actor as the speaker and IsActorTalkingThroughActivator 1
+  (`Game::talker`), and the line is said by that actor through it (`Speech::through`),
+  so the other side's next line is said to the activator. Veronica's package at Hidden
+  Valley talks to HVIntercomREF, which speaks for Ramos.
 - **The next line** (`Game::next_conversation_line`), when a line has ended and its end
-  result has run: a Goodbye line ends the conversation [documented]; so does either
+  result has run: a Goodbye line ends the conversation [documented] unless it links on
+  (Link To or follow-ups), when it goes on [hypothesis from the data: 19 Conversation
+  lines of FalloutNV.esm are Goodbye with links; Jason Bright's speech is started at its
+  first part only (SCPT 0008D41A) and its Goodbye part 4 links to parts 5-9; Veronica's
+  exchange with Ramos (HVVeronicaEnter, four Goodbye lines) opens the bunker only at its
+  third line; observer check 139]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
   Target is the other actor, Self the same one, Either the other and else the same one
   [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the

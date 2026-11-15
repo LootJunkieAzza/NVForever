@@ -31,6 +31,15 @@ no damage off.
   use is gone, the actor takes up its package again (`AiEvent::WeaponUseOver`).
 - **In place** the actor turns to its target at the standing turn rate (a package's use
   only out of combat, unless the package has Continue During Combat).
+- **A rooted actor** (`Ai::root`: an Immobile turret, a creature without movement
+  clips) never reaches `weapon_step`; its use (a script's or its package's) is put in
+  place at once where it stands, and `rooted_turn` turns it to the use's target at the
+  combat turn rate, before its combat target, unless the fight took the use over
+  (#2544). Before, HELIOS One's ARCHIMEDES turret (ARCHIMEDESMarkerREF2, SCPT 0x000E07CE's
+  UseWeapon on TestTrooperREF1-5) never fired, and That Lucky Old Sun's armed strike
+  never came [observed: the owner's log; smoke `archimedes-strike`]. That the original
+  fires it from where it stands is [documented: the script names the turret as its own
+  stand reference]; the turn rate is [design].
 - **Continue During Combat** (#2120): with the flag, `alert_step` hands the actor back to
   its package in a combat state (`Game::continues_during_combat`; docs/design/alert.md §5),
   so a Use Weapon package keeps walking it to its stand and keeping it there, and its use

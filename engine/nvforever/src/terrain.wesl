@@ -53,6 +53,7 @@ struct TerrainLayers {
     normal4: u32,   // 60
     diffuse5: u32,  // 61
     normal5: u32,   // 62
+    burn: u32,      // 63
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> terrain_indices: array<TerrainIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage> terrain_layers: array<TerrainLayers>;
@@ -69,6 +70,50 @@ struct TerrainLayers {
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(60) var normal4: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(61) var diffuse5: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(62) var normal5: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(63) var burn_map: texture_2d<f32>;
+
+// Scorch (nvf_play grass_fire, docs/design/grass-fire.md): the ground under grass that
+// burns turns black and stays so until its cell unloads. The burn map holds a byte per
+// 64-unit patch, wrapping every 512: above 0 the patch has caught, and by 0.5 it is fully
+// charred. Read between the patches' middles (so the mark has no square edges) and
+// broken up with noise at its edge [chosen].
+const BURN_PATCH: f32 = 64.0;
+const BURN_MAP: i32 = 512;
+// How dark scorched ground gets (a factor on its colour) [chosen].
+const SCORCHED: f32 = 0.16;
+
+fn burn_texel(instance_index: u32, p: vec2<i32>) -> f32 {
+    let t = ((p % BURN_MAP) + BURN_MAP) % BURN_MAP;
+    @if(BINDLESS) return textureLoad(bindless_textures_2d[terrain_indices[material_slot(instance_index)].burn], t, 0).r;
+    @if(!BINDLESS) return textureLoad(burn_map, t, 0).r;
+}
+
+// How scorched the ground is at a point (Bevy world space; game (x, y) is Bevy (x, -z)).
+fn scorch(instance_index: u32, world: vec3<f32>) -> f32 {
+    let game = vec2<f32>(world.x, -world.z);
+    let p = game / BURN_PATCH - 0.5;
+    let base = vec2<i32>(floor(p));
+    let f = fract(p);
+    let a = saturate(burn_texel(instance_index, base) * 2.0);
+    let b = saturate(burn_texel(instance_index, base + vec2(1, 0)) * 2.0);
+    let c = saturate(burn_texel(instance_index, base + vec2(0, 1)) * 2.0);
+    let d = saturate(burn_texel(instance_index, base + vec2(1, 1)) * 2.0);
+    let s = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    if s <= 0.0 {
+        return 0.0;
+    }
+    // Value noise about 20 units across, so the edge is ragged.
+    let q = game / 20.0;
+    let i = floor(q);
+    let g = fract(q);
+    let h = g * g * (3.0 - 2.0 * g);
+    let n = mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), h.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), h.x), h.y);
+    return smoothstep(0.2, 0.7, s + (n - 0.5) * 0.45);
+}
+
+fn hash2(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
 
 // The material's slot in the bindless tables (unused without bindless).
 fn material_slot(instance_index: u32) -> u32 {
@@ -184,6 +229,10 @@ fn fragment(
         }
         pbr_input.material.base_color = vec4(colour, 1.0);
         pbr_input.N = normalize(normal);
+    }
+    if counts.z != 0u {
+        let s = scorch(in.instance_index, in.world_position.xyz);
+        pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * mix(1.0, SCORCHED, s), 1.0);
     }
     pbr_input.material.base_color.a = 1.0;
 

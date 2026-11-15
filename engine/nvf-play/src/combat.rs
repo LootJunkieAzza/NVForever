@@ -100,7 +100,7 @@
 //! - **The player's death**: at 0 health the player dies (`Game::hit`); every control
 //!   is held from then on (`ScriptState::locks`) and the screen says so; the death
 //!   camera (`nvforever` `death_cam.rs`) drops the body, slows the clock and blurs the
-//!   picture [design: reloading the last save is not built]. God mode ([`god_mode`]:
+//!   picture; `save::death_recovery` asks the existing loader for the newest eligible save. God mode ([`god_mode`]:
 //!   `--god`, the settings page's Developer switch, test aid `NVF_PLAY_TEST_GOD=1`): the
 //!   player takes no damage, so a long unattended run is not ended by a fight.
 //! - **Feedback** [design]: no hit marker at the crosshair (owner 2026-10-27), the last
@@ -139,8 +139,12 @@ use crate::player::{MoveIntent, Player, MAX_PITCH};
 use crate::sim::SimState;
 use crate::{space, PlaySet, PlayState, PlayWorld};
 
-mod hit_effects;
+pub(crate) mod hit_effects;
 pub mod held_grenade_probe;
+mod projectile_launch;
+mod projectile_launch_probe;
+#[cfg(test)]
+mod projectile_launch_tests;
 
 /// The shooter's id for projectiles (the player has no hit volume).
 const PLAYER: ActorId = u64::MAX;
@@ -765,10 +769,24 @@ pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats,
 /// (other actors left out): the part a blast or a blow lands on, for dismemberment
 /// (dismemberment.md §4) [design: as a shot's part is the one its ray meets].
 pub(crate) fn facing_part(world: &dyn CombatWorld, actor: ActorId, from: V3, to: V3) -> Option<(u8, V3)> {
-    let others: Vec<ActorId> = world.actors_near(to, 512.0).into_iter().map(|(a, _)| a).filter(|&a| a != actor).collect();
+    // Corpses too: one lying between does not take the part (#2346).
+    let others: Vec<ActorId> = world.blast_targets_near(to, 512.0).into_iter().map(|(a, _)| a).filter(|&a| a != actor).collect();
     let hit = world.ray(from, to, &others)?;
     (hit.actor == Some(actor)).then_some(())?;
     Some((hit.part?, hit.point))
+}
+
+/// What a blast at `at` (radius `radius`) that caught `actor` (the reference `target`)
+/// does towards dismembering it (`fly`): the part facing the blast, and the check made
+/// there with the blast's source weapon `w` for hit `r` (dismemberment.md §4.2). Without a
+/// source weapon, neither. A corpse is found among the blast's targets by its ragdoll (#2346).
+#[allow(clippy::too_many_arguments)]
+fn blast_gore(world: &dyn CombatWorld, target: FormId, actor: ActorId, at: V3, radius: f32, w: Option<&WeaponStats>, r: &HitResult, by: Option<FormId>, push: V3) -> (Option<(u8, V3)>, Option<crate::dismember::Check>) {
+    let Some(w) = w else { return (None, None) };
+    let center = world.blast_targets_near(at, radius.max(1.0)).into_iter().find(|(a, _)| *a == actor).map(|(_, p)| p);
+    let facing = center.and_then(|p| facing_part(world, actor, at, p));
+    let check = facing.and_then(|(part, point)| dismember_check(target, Some(part), w, r, by, point, push));
+    (facing, check)
 }
 
 /// Whether the script runtime has the actor dead.
@@ -885,6 +903,8 @@ pub struct CombatStats {
     pub player_died: bool,
     /// Hits of harmless shots ([`ActorFire::harmless`]): no damage dealt.
     pub harmless_hits: u32,
+    /// Of those, the hits whose target's OnHit / OnHitWith blocks ran.
+    pub harmless_scripts: u32,
 }
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
@@ -1102,6 +1122,9 @@ pub struct Combat {
     settled: Vec<SettledMine>,
     /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
     landed: Vec<LandedThrow>,
+    /// Shots and blasts with an object effect that landed on dry ground this frame, for
+    /// `crate::grass_fire` to set the grass alight where the effect burns.
+    fire_landed: Vec<crate::grass_fire::Landed>,
     /// Shots that went down into water, shown when due ([`Splash`]).
     splashes: Vec<Splash>,
     ghosts: Vec<Ghost>,
@@ -1225,6 +1248,12 @@ impl Combat {
     /// The thrown weapons that landed since the last call (`crate::thrown`).
     pub(crate) fn take_landed(&mut self) -> Vec<LandedThrow> {
         std::mem::take(&mut self.landed)
+    }
+
+    /// The shots and blasts with an object effect that landed on dry ground since the
+    /// last call (`crate::grass_fire`).
+    pub(crate) fn take_fire_landed(&mut self) -> Vec<crate::grass_fire::Landed> {
+        std::mem::take(&mut self.fire_landed)
     }
 
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
@@ -1568,11 +1597,13 @@ impl Plugin for CombatPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Slower while reloading",
                 note: "On: you and the NPCs move at 75% of your speed while a reload runs. Off: reloading does not slow anyone, as in the original.",
+                switches: "",
                 get: |_| reload_slows(),
                 set: |_, on| set_reload_slows(on),
                 slider: None,
             },
         );
+        projectile_launch_probe::install(app);
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
             .init_resource::<held_grenade_probe::Probe>()
@@ -1596,7 +1627,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, (crate::mines::tick, crate::grass_fire::tick).chain(), crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, watch_hit_effects, leave_space_shots).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -2077,6 +2108,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flying: Vec::new(),
         settled: Vec::new(),
         landed: Vec::new(),
+        fire_landed: Vec::new(),
         splashes: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
@@ -2353,11 +2385,27 @@ struct PhysView<'a> {
     /// The characters of the actors another system walks (`PhysState::npcs`).
     npcs: Vec<Key>,
     actors: Vec<(ActorId, V3, f32)>,
-    /// Each actor's body part capsule centres, widest first.
+    /// The corpses whose ragdoll took over from their hit volume (`crate::hitvol`), with
+    /// their trunk's centre and the radius of their bodies' bounds: only blasts reach them
+    /// ([`CombatWorld::blast_targets_near`], #2346).
+    corpses: Vec<(ActorId, V3, f32)>,
+    /// Each actor's body part capsule centres, widest first; a corpse's ragdoll bodies'
+    /// centres, heaviest first.
     aims: HashMap<ActorId, Vec<V3>>,
     /// The ghosts (SetGhost 1) other than the player: rays pass their hit volumes
     /// ([`ghosts`]).
     ghosts: Vec<ActorId>,
+    /// The layers [`CombatWorld::ray`] passes: a shot's (`layers::shot_ignores`), or a
+    /// melee swing's (`layers::melee_ignores`, [`PhysView::for_melee`]).
+    passes: layers::LayerSet,
+}
+
+impl PhysView<'_> {
+    /// The same view for a melee swing's rays: they stop on the Transparent layer, which
+    /// only projectiles pass (`layers::melee_ignores`; #2340).
+    fn for_melee(self) -> Self {
+        PhysView { passes: layers::melee_ignores(), ..self }
+    }
 }
 
 impl CombatWorld for PhysView<'_> {
@@ -2367,10 +2415,11 @@ impl CombatWorld for PhysView<'_> {
         if len < 1e-4 {
             return None;
         }
-        // Shots pass what the character passes (triggers, zones, water, …) and invisible
-        // walls (`layers::shot_ignores`) [design]: they splash going into water
-        // (`water_surface`, `ProjEvent::Splash`) and fly on.
-        let mut f = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
+        // Shots pass what the character passes (triggers, zones, water, …), invisible
+        // walls and the plain Transparent layer (`layers::shot_ignores`; #2340): they
+        // splash going into water (`water_surface`, `ProjEvent::Splash`) and fly on. A
+        // melee view's rays stop on Transparent (`PhysView::for_melee`).
+        let mut f = Filter { exclude_layers: self.passes, ..Default::default() };
         // Another actor's shot can hit the player's character; the player's own and
         // the rest (blasts, picks) pass it, as before.
         let other_shoots = ignore.iter().any(|&a| a != PLAYER);
@@ -2461,6 +2510,11 @@ impl CombatWorld for PhysView<'_> {
         self.actors.iter().filter(near).map(|&(id, c, _)| (id, c)).collect()
     }
 
+    fn blast_targets_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        let near = |&&(id, c, r): &&(ActorId, V3, f32)| vec::len(vec::sub(c, point)) <= radius + r && !self.ghosts.contains(&id);
+        self.actors.iter().chain(&self.corpses).filter(near).map(|&(id, c, _)| (id, c)).collect()
+    }
+
     fn aim_points(&self, actor: ActorId) -> Vec<V3> {
         self.aims.get(&actor).cloned().unwrap_or_default()
     }
@@ -2497,11 +2551,23 @@ fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&
         let h = ch.params.height.max(0.0);
         actors.push((PLAYER, [ch.feet[0], ch.feet[1], ch.feet[2] + h / 2.0], ch.params.radius));
     }
+    // A corpse's hit volume is dropped once its ragdoll is built (`crate::hitvol`): blasts
+    // reach it by its ragdoll's bodies instead, or a mine or grenade beside a settled corpse
+    // never touched it (#2346) [design]. One entry per actor: a volume not yet dropped this
+    // frame stands for it. Placed objects' ragdolls (traps) and the player are left out; gore
+    // pieces are not ragdolls.
+    let corpses: Vec<(ActorId, V3, f32)> = phys
+        .world
+        .ragdolls()
+        .filter(|&id| id != FormId::PLAYER_REF.0 && phys.world.actor_volume(id).is_none())
+        .filter_map(|id| phys.world.ragdoll_bounds(id).map(|(c, r)| (id as ActorId, c, r)))
+        .collect();
     let player = phys.player.as_ref().map(|c| c.key());
     let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
-    let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
+    let mut aims: HashMap<ActorId, Vec<V3>> = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
+    aims.extend(corpses.iter().map(|&(id, ..)| (id, phys.world.ragdoll_body_centers(id as u32))).filter(|(_, v)| !v.is_empty()));
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, aims, ghosts }
+    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores() }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -3017,6 +3083,9 @@ pub(crate) fn fire(
                     }
                     with_world(rt, &mut sim, |rt| rt.game.attack_line(FormId::PLAYER_REF, None, false, c.self_ammo));
                 }
+                let launch = projectile_launch::resolve(&c.forms, &chain, script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
+                let chain = launch.chain;
+                let projectile = launch.projectile.as_ref();
                 let Some(proj) = chain.projectile else {
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
@@ -3078,7 +3147,7 @@ pub(crate) fn fire(
                 let eye = player.eye();
                 let gravity = phys.world.params.gravity;
                 let (tracer_chance, force, range) =
-                    chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0, 0.0), |p| (p.tracer_chance, p.impact_force, p.range));
+                    projectile.map_or((0.0, 0.0, 0.0), |p| (p.tracer_chance, p.impact_force, p.range));
                 // The aim is the view ray from the eye; the shot is drawn from the
                 // muzzle, and in third person leaves it when the barrel is behind cover
                 // (docs/design/combat.md §5.1).
@@ -3096,7 +3165,7 @@ pub(crate) fn fire(
                     // VATS mode's throw: from the eye on the low arc that lands on the mark
                     // (vats-mode.md §16.3), at 45° when it is out of reach; at the speed the
                     // throw will leave with.
-                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.gravity * gravity));
+                    let (speed, g) = projectile.map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.gravity * gravity));
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
@@ -3128,7 +3197,7 @@ pub(crate) fn fire(
                     // combat-rules.md §5, issue #1471]. Not when the barrel is in a wall.
                     let arcing = vats_shot.is_none()
                         && chain.explosion.is_some()
-                        && chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).is_some_and(|p| p.gravity > 0.0 && !p.has("Hitscan") && p.kind.as_deref() == Some("Missile"));
+                        && projectile.is_some_and(|p| p.gravity > 0.0 && !p.has("Hitscan") && p.kind.as_deref() == Some("Missile"));
                     match anim.muzzle {
                         Some(m) if arcing && !leaving.covered && world.ray(eye, m, &[PLAYER]).is_none() => shot::Leaving { origin: m, seen: Seen::ON_PATH, ..leaving },
                         _ => leaving,
@@ -3136,7 +3205,7 @@ pub(crate) fn fire(
                 };
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
-                let mut shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
+                let mut shots = projectile.map_or_else(Vec::new, |p| shot::fire_projectile(p, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand));
                 // A mod's Increase Projectile Speed (weapon-data-fields.md §5).
                 if let Some(m) = w.projectile_speed_mult {
                     shots.iter_mut().for_each(|p| p.speed_up(m));
@@ -3897,7 +3966,9 @@ fn melee(
         }
         let power_mult = power_mult * vats_special.map_or(1.0, |s| s.dam_mult);
         let hits = {
-            let world = view(&mut phys, script.as_deref(), Some(&sim));
+            // A blow's rays (VATS mode's straight one, the fan, the reach across the ground
+            // and the look ahead for an impact) stop on the Transparent layer (#2340).
+            let world = view(&mut phys, script.as_deref(), Some(&sim)).for_melee();
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
                 // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
                 if !lands {
@@ -4190,6 +4261,7 @@ fn actor_attacks(
     (control, anim, player): Guard,
     mut dm: ResMut<crate::dismember::Dismemberment>,
     mut grenade_probe: ResMut<held_grenade_probe::Probe>,
+    mut launch_probe: Option<ResMut<projectile_launch_probe::Probe>>,
     time: Res<Time>,
 ) {
     sync_condition_penalty(&mut c, script.as_deref());
@@ -4200,6 +4272,7 @@ fn actor_attacks(
     let player_guard = (c.melee && control.as_deref().is_some_and(|k| k.aiming) && anim.as_deref().is_some_and(|a| a.ready)).then(|| player.as_deref().map(|p| p.look_dir())).flatten().map(|d| [d[0], d[1]]);
     let script_shots = std::mem::take(&mut c.script_shots);
     for (s, scripted) in shots.read().map(|s| (s, false)).chain(script_shots.iter().map(|s| (s, true))) {
+        if let Some(probe) = launch_probe.as_deref_mut() { probe.request(s, scripted); }
         let probe_request = grenade_probe.request(s, &sim.world);
         // The shooter's own body is never hit: the player's is `PLAYER`, not its FormID (a
         // player's FireWeapon hit the player at the muzzle, 2026-10-27).
@@ -4207,9 +4280,12 @@ fn actor_attacks(
         let carried = |a: FormId| sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
         let ammo = c.forms.ammo_for(s.weapon, carried);
         let Some(chain) = c.forms.chain(s.weapon, ammo) else { grenade_probe.finish_request(probe_request, 0); continue };
+        let launch = projectile_launch::resolve(&c.forms, &chain, script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
+        let chain = launch.chain;
+        let projectile = launch.projectile.as_ref();
         let Some(proj) = chain.projectile else { grenade_probe.finish_request(probe_request, 0); continue };
         stats.actor_shots += 1;
-        let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
+        let range = projectile.map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
@@ -4234,11 +4310,11 @@ fn actor_attacks(
                 sounds.write(PlaySound { sound, at: Some(seen_from) });
             }
         }
-        let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
+        let (tracer_chance, force) = projectile.map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
         let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
-        let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand);
+        let mut ps = projectile.map_or_else(Vec::new, |p| shot::fire_projectile(p, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand));
         // The mods on the unit it uses: Increase Projectile Speed (weapon-data-fields.md §5).
         let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
         if let Some(m) = c.forms.weapons.get(&s.weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
@@ -4256,6 +4332,7 @@ fn actor_attacks(
             c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
+                if let Some(probe) = launch_probe.as_deref_mut() { probe.inserted(s, scripted, flying, &sim.world); }
             }
         }
         grenade_probe.finish_request(probe_request, probe_created);
@@ -4834,6 +4911,11 @@ fn fly(
                 }
             }
         }
+        // A blast whose object effect burns sets the grass under it alight
+        // (`crate::grass_fire`); not one that threw up water.
+        if let (Some(item), Some(g), None) = (x.enchantment, ground.as_ref(), water) {
+            c.fire_landed.push(crate::grass_fire::Landed { point: g.point, item, by: cause.map(|k| k.actor) });
+        }
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -4887,11 +4969,25 @@ fn fly(
             }
             // A blast that kills (or hits a corpse) may dismember the part facing it, by
             // its weapon's On Hit (dismemberment.md §4, §7): most grenades and every mine are
-            // No Dismember/Explode; launchers, the Fat Man and dynamite are not.
-            if let (Some(rr), Some(w)) = (r.as_ref().filter(|r| r.died || r.corpse), cause.and_then(|k| c.forms.weapons.get(&k.weapon)).cloned()) {
-                let center = { view(&mut phys, script.as_deref(), Some(&sim)).actors_near(at, x.radius.max(1.0)).into_iter().find(|(a, _)| *a == b.actor).map(|(_, p)| p) };
-                let facing = center.and_then(|p| facing_part(&view(&mut phys, script.as_deref(), Some(&sim)), b.actor, at, p));
-                if let Some(check) = facing.and_then(|(part, point)| dismember_check(target, Some(part), &w, rr, info.attacker, point, b.push)) {
+            // No Dismember/Explode; launchers, the Fat Man and dynamite are not. A blast with
+            // no source weapon (a placed explosion, a mine without an actor owner) rolls none.
+            if let Some(rr) = r.as_ref().filter(|r| r.died || r.corpse) {
+                let w = cause.and_then(|k| c.forms.weapons.get(&k.weapon)).cloned();
+                let (facing, check) = match w.as_ref() {
+                    Some(_) => blast_gore(&view(&mut phys, script.as_deref(), Some(&sim)), target, b.actor, at, x.radius, w.as_ref(), rr, info.attacker, b.push),
+                    None => (None, None),
+                };
+                // A corpse caught by a blast says whether it reached the roll (#2346).
+                if rr.corpse {
+                    let why = match (&w, facing, &check) {
+                        (_, Some((part, _)), Some(_)) => format!("part {part} checked for dismemberment"),
+                        (None, ..) => "no dismemberment roll (no source weapon)".to_string(),
+                        (_, None, _) => "no dismemberment roll (no body part faces the blast)".to_string(),
+                        (_, Some((part, _)), None) => format!("no dismemberment roll (part {part} cannot go)"),
+                    };
+                    info!("combat: blast {} on corpse {target}: {why}", x.edid.as_deref().unwrap_or("?"));
+                }
+                if let Some(check) = check {
                     dm.checks.push(check);
                 }
             }
@@ -5013,6 +5109,11 @@ fn fly(
         let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
         let shooter = p.by.actor;
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
+        // A shot that lands on the ground (not on an actor) with a weapon whose object
+        // effect burns sets the grass there alight (`crate::grass_fire`).
+        if let Some(item) = w.enchantment.filter(|_| p.actor.is_none() && !p.by.harmless) {
+            c.fire_landed.push(crate::grass_fire::Landed { point: p.point, item, by: (shooter != FormId(0)).then_some(shooter) });
+        }
         // The impact the weapon's data set names for what was hit: an actor's is its
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
@@ -5024,9 +5125,21 @@ fn fly(
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
         }
-        // A harmless shot is seen and heard where it lands, and does nothing more.
+        // A harmless shot is seen and heard where it lands, and the OnHit and OnHitWith
+        // blocks of what it hit run (`Game::harmless_hit`); it deals no damage and does
+        // nothing more (#2433: G.I. Blues' thugs fall in their OnHit block for Orris's
+        // Do No Damage shots).
         if p.by.harmless {
             stats.harmless_hits += 1;
+            let hit = p.actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) }).or(p.object.map(|o| FormId(o as u32)));
+            if let Some(target) = hit {
+                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
+                let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.harmless_hit(target, info)));
+                stats.harmless_scripts += u32::from(ran);
+                if ran {
+                    info!("combat: a harmless shot by {shooter} hits {target}: its hit blocks ran, no damage");
+                }
+            }
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
@@ -5632,6 +5745,117 @@ mod tests {
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);
         // Below the body, through the character's legs: nothing.
         assert!(world.ray([-300.0, 0.0, 10.0], [300.0, 0.0, 10.0], &[PLAYER]).is_none());
+    }
+
+    /// A corpse lying along x at rest (its ragdoll held, so no ground is needed): a trunk,
+    /// body part 0, centred at (100, 0, 10), and a head, part 1, at (140, 0, 10); with
+    /// `stale`, the hit volume its ragdoll has not yet taken over from this frame.
+    fn corpse_world(id: u32, stale: bool) -> PhysState {
+        use fnv_collide::ragdoll::{Ragdoll, RagdollBody};
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        let body = |shape: Shape, mass: f32| {
+            let object = CollisionObject {
+                node: Some("Bip01".into()),
+                node_block: 0,
+                node_transform: Iso::IDENTITY,
+                body_transform: Iso::IDENTITY,
+                motion: Motion::Keyframed,
+                layer: fnv_phys::layers::BIPED,
+                mass,
+                friction: 0.3,
+                restitution: 0.8,
+                shape: shape.into(),
+                shell: 0.0,
+                material: None,
+                wind: false,
+            };
+            RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: Iso::IDENTITY, unit: 7.0, inertia: None }
+        };
+        let ragdoll = std::sync::Arc::new(Ragdoll { bodies: vec![body(Shape::Box { half_extents: [30.0, 10.0, 8.0] }, 20.0), body(Shape::Sphere { radius: 8.0 }, 4.0)], joints: vec![], problems: vec![] });
+        let at = |p: [f32; 3]| Iso { translation: p, rotation: Iso::IDENTITY.rotation };
+        let nodes = [at([100.0, 0.0, 10.0]), at([140.0, 0.0, 10.0])];
+        let mut phys = PhysState::default();
+        phys.world.add_ragdoll(&fnv_phys::RagdollStart { form_id: id, ragdoll: &ragdoll, scale: 1.0, nodes: &nodes, velocity: [0.0; 3], parts: &[0, 1], asleep: true });
+        // A trap's jointed bodies beside it: a placed object's, not a corpse.
+        let trap = [at([100.0, 100.0, 10.0]), at([140.0, 100.0, 10.0])];
+        phys.world.add_object_ragdoll(&fnv_phys::RagdollStart { form_id: id + 1, ragdoll: &ragdoll, scale: 1.0, nodes: &trap, velocity: [0.0; 3], parts: &[], asleep: true });
+        if stale {
+            phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [100.0, 0.0, 2.0], radius: 20.0, height: 16.0, dead: true });
+        }
+        phys
+    }
+
+    #[test]
+    fn a_blast_reaches_a_settled_corpse_once_and_checks_the_part_facing_it() {
+        // #2346: the corpse's hit volume was gone once its ragdoll was built, and blasts
+        // asked only the volumes, so a mine or grenade beside it never reached the gore check.
+        use fnv_combat::dismember::{decide, Blow, Fate, OnHit, Settings};
+        let id = 0x2346u32;
+        let e = fnv_combat::data::ExplosionStats { damage: 100.0, radius: 200.0, force: 300.0, ..Default::default() };
+        let center = [100.0, -60.0, 10.0];
+        for stale in [false, true] {
+            let mut phys = corpse_world(id, stale);
+            let world = view(&mut phys, None, None);
+            let hits = blast(&world, &CombatTuning::default(), &e, center, None);
+            assert_eq!(hits.iter().filter(|h| h.actor == id as ActorId).count(), 1, "caught once (stale volume: {stale}): {hits:?}");
+            assert!(hits.iter().all(|h| h.actor != (id + 1) as ActorId), "a trap's bodies are not a corpse: {hits:?}");
+            // Proximity fuses and swings still go by the living: a corpse sets off no mine.
+            // (A volume not yet dropped is still the living's.)
+            assert_eq!(world.actors_near(center, 200.0).iter().any(|(a, _)| *a == id as ActorId), stale);
+        }
+        let mut phys = corpse_world(id, false);
+        let world = view(&mut phys, None, None);
+        let (_, trunk) = world.blast_targets_near(center, 200.0).into_iter().find(|(a, _)| *a == id as ActorId).expect("the corpse is near");
+        assert!(vec::len(vec::sub(trunk, [100.0, 0.0, 10.0])) < 1.0, "its trunk's centre: {trunk:?}");
+        assert!(world.aim_points(id as ActorId).len() == 2, "its bodies are its aim points");
+        // Its body part data: part 0 the torso (explodable only), part 1 the head.
+        let part = |kind: &str, flags: &[&str], health: u32, av: &str| BodyPart { part_type: Some(kind.into()), flags: flags.iter().map(|f| f.to_string()).collect(), health_percent: health, explodable_chance_percent: 30, actor_value: Some(av.into()), ..BodyPart::default() };
+        let bptd = fnv_combat::data::BodyPartData { parts: vec![part("Torso", &["Explodable"], 60, "Endurance Condition"), part("Head 1", &["Severable", "Explodable"], 20, "Perception Condition")], edid: None, model: None, ragdoll: None };
+        let corpse = HitResult { corpse: true, immune: true, overkill: 60.0, max_health: 100.0, ..HitResult::default() };
+        let s = Settings::default();
+        // From each blast's hit on the corpse, as `fly` does: the part facing it, the check
+        // made there, then the rolls (fixed) on that part of its data, as `dismember::resolve`
+        // makes them.
+        let gore = |at: V3, w: &WeaponStats| {
+            let hits = blast(&world, &CombatTuning::default(), &e, at, None);
+            let b = hits.iter().find(|h| h.actor == id as ActorId).expect("the blast catches the corpse");
+            let (facing, check) = blast_gore(&world, FormId(id), b.actor, at, e.radius, Some(w), &corpse, None, b.push);
+            let check = check.expect("a corpse's facing part is checked");
+            assert_eq!(facing.map(|f| f.0 as usize), Some(check.part));
+            assert!(check.corpse && check.target == FormId(id));
+            check
+        };
+        let roll = |check: &crate::dismember::Check, bloody_mess: bool, r: f32| {
+            let blow = Blow { on_hit: check.on_hit, corpse: check.corpse, crippled: check.crippled, overkill: check.overkill, max_health: check.max_health, bloody_mess };
+            decide(&bptd.parts[check.part], &blow, &s, r)
+        };
+        // Beside its trunk: the torso faces it, and goes only with Bloody Mess (80 % on a
+        // corpse, dismemberment.md §4.2).
+        let normal = WeaponStats::default();
+        let torso = gore(center, &normal);
+        assert_eq!((torso.part, torso.on_hit), (0, OnHit::Normal));
+        assert_eq!(roll(&torso, false, 0.0), None);
+        assert_eq!(roll(&torso, true, 0.0), Some(Fate::Explode));
+        assert_eq!(roll(&torso, true, 0.9), None);
+        // Past its head: the head faces it; a severable part goes 75 % of the time, 30 % of
+        // that severed. A No Dismember/Explode weapon (every mine) takes nothing without
+        // Bloody Mess and explodes at half the odds with it: the gate left as it is.
+        let head = gore([200.0, 0.0, 10.0], &normal);
+        assert_eq!(head.part, 1);
+        assert_eq!(roll(&head, false, 0.0), Some(Fate::Explode));
+        assert_eq!(roll(&head, false, 0.6), Some(Fate::Sever));
+        assert_eq!(roll(&head, false, 0.9), None);
+        let mine = WeaponStats { on_hit: Some("No Dismember/Explode".into()), ..WeaponStats::default() };
+        let mined = gore([200.0, 0.0, 10.0], &mine);
+        assert_eq!(mined.on_hit, OnHit::Neither);
+        assert_eq!(roll(&mined, false, 0.0), None);
+        assert_eq!(roll(&mined, true, 0.4), Some(Fate::Explode));
+        assert_eq!(roll(&mined, true, 0.6), None);
+        // Without a source weapon (a placed explosion, a mine with no actor owner): no check.
+        assert_eq!(blast_gore(&world, FormId(id), id as ActorId, center, e.radius, None, &corpse, None, [0.0; 3]).1.map(|c| c.part), None);
+        // A bullet still strikes the corpse on its part (the control).
+        let shot = world.ray([140.0, -300.0, 10.0], [140.0, 300.0, 10.0], &[PLAYER]).expect("the corpse's head is struck");
+        assert_eq!((shot.actor, shot.part), (Some(id as ActorId), Some(1)));
     }
 
     #[test]

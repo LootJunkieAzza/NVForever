@@ -20,6 +20,11 @@ pub struct CameraRequests {
     /// The last SetCameraFOV's values, kept after the engine took them (Anh's
     /// GetCameraFOV); `None` for the default.
     pub fov_set: (Option<f32>, Option<f32>),
+    /// The world's and the first-person field of view the player set on the engine's
+    /// settings page (Field of view, Viewmodel field of view; `--fov`, `--viewmodel-fov`),
+    /// in degrees, as the engine tells them at start and after each change; GetCameraFOV
+    /// reads them when no SetCameraFOV value stands. `None` while no engine tells.
+    pub settings_fov: (Option<f32>, Option<f32>),
     /// ToggleMenus: the HUD, the crosshair and the corner messages are hidden.
     pub menus_hidden: bool,
     /// The fly camera is on, by the ToggleFlyCam calls so far (GetTFC).

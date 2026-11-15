@@ -1255,6 +1255,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
                 super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
+                {
+                    let _units = interface::units_at(interface::menu_scale());
+                    super::runtime_images::present(&mut pieces, kit.runtime.as_deref(), Some(ui));
+                }
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1641,10 +1645,12 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
     // The runtime pictures' revisions and sizes, so a new one under the same name repaints.
     super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
-    drawn.tex.frame();
-    drawn.tex.prune(&pieces, ui);
+    // Apply recipient metadata in the actual target's units, before final comparison.
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
     let _canvas = target.camera.map(|_| interface::original_units());
+    super::runtime_images::present(&mut pieces, kit.runtime.as_deref(), ui);
+    drawn.tex.frame();
+    drawn.tex.prune(&pieces, ui);
     if pieces == drawn.pieces && drawn.target == Some(target) {
         return;
     }
@@ -2912,4 +2918,46 @@ mod tests {
         assert_eq!(interface::atlas_index_path("Interface/InterfaceShared.tai").as_deref(), Some(interface::ATLAS_INDEX));
         assert_eq!(interface::atlas_index_path("  "), None);
     }
+
+    /// [design] A generated recipient's metadata is consumed by real paint, changes only
+    /// its in-place transform, and does not overwrite XML or the texture revision.
+    #[test]
+    fn generated_recipient_presentation_reaches_actual_image_node_without_replacing_pixels() {
+        let src = MemSource::default().with("recipient.xml", r#"<menu name="Recipient"><image name="Map"><filename>nvf:recipient</filename><width>80</width><height>40</height><zoom>-1</zoom><rotateangle>1</rotateangle><rotateaxisx>20</rotateaxisx><rotateaxisy>10</rotateaxisy></image></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "recipient.xml").unwrap();
+        ui.update();
+        let recipient = ui.find_tile("Recipient/Map").unwrap();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .add_systems(Update, paint_painted);
+        let h = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set("recipient", h.clone(), Vec2::new(80., 40.));
+        let stamp = app.world().resource::<super::super::runtime_images::RuntimeImages>().stamp("recipient");
+        let state = |app: &mut App| {
+            let world = app.world_mut();
+            world.query::<(Entity, &ImageNode, &UiTransform)>().iter(world)
+                .map(|(e, i, t)| (e, i.image.clone(), *t)).collect::<Vec<_>>()
+        };
+        assert!(app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set_recipient_axes("recipient", recipient, 1., 0.));
+        app.update();
+        let before = state(&mut app);
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].1, h);
+        assert_eq!(before[0].2, UiTransform::IDENTITY);
+        assert!(app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set_recipient_axes("recipient", recipient, 0., 1.));
+        app.update();
+        let after = state(&mut app);
+        assert_eq!(after.len(), 1);
+        assert_eq!((after[0].0, &after[0].1), (before[0].0, &h));
+        assert!((after[0].2.rotation.sin + 1.0).abs() < 1e-6 && after[0].2.rotation.cos.abs() < 1e-6);
+        assert_eq!(app.world().resource::<super::super::runtime_images::RuntimeImages>().stamp("recipient"), stamp);
+        assert_eq!(app.world().resource::<Painted>().0.get_float("Recipient/Map/rotateangle"), Some(1.));
+    }
+
 }

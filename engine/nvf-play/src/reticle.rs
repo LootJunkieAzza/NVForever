@@ -161,7 +161,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible) {
+        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Hostile | Action::Inaccessible) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }
@@ -332,14 +332,15 @@ pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui).in_set(crate::test_aid::activation_sweep::Draw));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
                 key: "dynamic-crosshair",
                 group: crate::pause::GROUP_MENUS,
                 label: "Dynamic crosshair",
-                note: "On: with a gun or thrown weapon drawn the crosshair opens to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched); Crosshair style below picks how it looks. Off: the arrows stay together whatever is drawn.",
+                note: "On: with a gun or thrown weapon drawn the crosshair opens with how wide your shots spread now. Off: the arrows stay together.",
+                switches: "",
                 get: |w| w.resource::<DynamicCrosshair>().0,
                 set: |w, on| w.resource_mut::<DynamicCrosshair>().0 = on,
                 slider: None,
@@ -351,7 +352,8 @@ impl Plugin for ReticlePlugin {
                 key: "crosshair-style",
                 group: crate::pause::GROUP_MENUS,
                 label: "Crosshair style",
-                note: "With Dynamic crosshair on and a gun or thrown weapon drawn. Cross: four bars that part with the spread. Arrows: the plain crosshair's two arrows part instead.",
+                note: "With Dynamic crosshair on. Cross: four bars that part with the spread. Arrows: the plain crosshair's two arrows part instead.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,
@@ -534,7 +536,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<Kit>>,
-    mut shown: Local<Option<Prompt>>,
+    (mut shown, mut sweep): (Local<Option<Prompt>>, Option<ResMut<crate::test_aid::activation_sweep::ActivationSweep>>),
     mut root: Query<&mut Visibility, With<Root>>,
     (mut crosses, mut bars): (
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
@@ -542,6 +544,11 @@ fn draw(
     ),
     texts: Query<Entity, With<Texts>>,
 ) {
+    // Record only what this drawing pass shows, including early hidden returns
+    // [design: #2528, test_aid/activation_sweep.rs].
+    if let Some(s) = sweep.as_deref_mut() {
+        s.drawn = None;
+    }
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     // Not over the character creator, whatever state the opening leaves the game in
@@ -590,7 +597,7 @@ fn draw(
         return;
     }
     let locks = locks.as_deref().copied().unwrap_or_default();
-    let aimed = target.0.is_some();
+    let aimed = target.0.as_ref().is_some_and(Targeted::prompted);
     let foe = hostile.is_some_and(|h| h.0);
     let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
     // The arrows' tips on the cone's edge, moving there a share of the way each frame.
@@ -656,7 +663,7 @@ fn draw(
         }
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && t.prompted() && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -669,6 +676,9 @@ fn draw(
             info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
         }
         *shown = want;
+    }
+    if let Some(s) = sweep.as_deref_mut() {
+        s.drawn = shown.clone();
     }
 }
 
@@ -771,6 +781,18 @@ mod tests {
         let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
         assert!(under_bar(&t, 0x1234));
         assert!(!under_bar(&t, 0x5678));
+    }
+
+    /// Issue #2536: a living hostile under the crosshair is a target with no prompt (and
+    /// no word for E); a peaceful creature with nothing to say keeps its name.
+    #[test]
+    fn a_hostile_actor_has_no_prompt() {
+        let of = |action| Targeted { form_id: 0x1234, name: "Radscorpion".into(), action, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false, empty: false };
+        assert!(!of(Action::Hostile).prompted());
+        assert_eq!(Action::Hostile.label(), "");
+        for shown in [Action::Name, Action::Talk, Action::Steal, Action::Search] {
+            assert!(of(shown.clone()).prompted(), "{shown:?}");
+        }
     }
 
     #[test]

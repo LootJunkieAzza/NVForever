@@ -90,6 +90,10 @@ pub struct ObjectAnims {
     /// object shows when it is drawn or given collision again, a group played once at its
     /// end (`nvforever` object_anims.rs, `nvf_play::phys`). Saved [design].
     asked: BTreeMap<FormId, (u16, String)>,
+    /// The group each new ask replaced in `asked`, while it is the last: put back when
+    /// the engine finds the newer one is not in the object's model
+    /// ([`ObjectAnims::not_in_model`]). Not saved.
+    replaced: HashMap<FormId, (u16, String)>,
 }
 
 impl ObjectAnims {
@@ -112,12 +116,32 @@ impl ObjectAnims {
         self.playing.remove(&on);
         self.traced.remove(&on);
         self.asked.remove(&on);
+        self.replaced.remove(&on);
         self.requests.retain(|r| r.on != on);
         if !self.resets.contains(&on) {
             if self.resets.len() >= crate::sound::MAX_PENDING {
                 self.resets.remove(0);
             }
             self.resets.push(on);
+        }
+    }
+
+    /// The engine found that `on`'s model has no sequence `name`: a group it cannot show
+    /// is not what it shows when drawn again. When `name` is the last group asked, the
+    /// one it replaced is the last again. A tripwire's script plays `Forward` and then
+    /// activates itself, which asks its "Open" sequence (`Game::set_ref_open`), a name
+    /// `tripwire01.nif` does not have: drawn again after a cell load, the sprung wire
+    /// showed whole and armed (issue #2420) [design].
+    pub fn not_in_model(&mut self, on: FormId, name: &str) {
+        if self.asked.get(&on).is_some_and(|(_, n)| n.eq_ignore_ascii_case(name)) {
+            match self.replaced.remove(&on) {
+                Some(before) => {
+                    self.asked.insert(on, before);
+                }
+                None => {
+                    self.asked.remove(&on);
+                }
+            }
         }
     }
 
@@ -134,6 +158,7 @@ impl ObjectAnims {
     /// The last groups asked, from a saved game.
     pub fn restore_asked(&mut self, asked: BTreeMap<FormId, (u16, String)>) {
         self.asked = asked;
+        self.replaced.clear();
     }
 
     /// The group `on` plays, as last told.
@@ -153,7 +178,9 @@ impl Game<'_> {
             self.anims.playing.insert(r.on, r.group);
         }
         if let Some(name) = &r.name {
-            self.anims.asked.insert(r.on, (r.group, name.clone()));
+            if let Some(before) = self.anims.asked.insert(r.on, (r.group, name.clone())).filter(|(_, n)| n != name) {
+                self.anims.replaced.insert(r.on, before);
+            }
         }
         let q = &mut self.anims.requests;
         if q.len() >= crate::sound::MAX_PENDING {

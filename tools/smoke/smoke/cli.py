@@ -19,7 +19,9 @@ for the scripts' first frame, so a late start on a busy machine cannot run them 
 (scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
 Up to NVF_SMOKE_SLOTS (default 3) games run on the machine at once, across every
 runner (smoke/slots.py), dealt first come, first served; --slots N / --jobs N let this
-run use at most N of them. Launches sharing an NVFOREVER_HOME run in order; the
+run use at most N of them. Launches sharing an NVFOREVER_HOME run in order, and a
+selection (not --all) takes the scenarios before a chosen one in its home's chain too,
+the ones that write what it reads (`with_home_writers`); the
 longest start first, so a long launch does not start last and hold up the end of the
 run (the report stays in plan order). --fail-fast starts no launch after the first FAIL.
 --exclusive takes both game locks per launch, one game on the machine at a time.
@@ -106,7 +108,37 @@ def out_dir(a) -> Path:
 
 
 def selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
-    """The chosen scenarios and, for --changed, the changed files."""
+    """The chosen scenarios and, for --changed, the changed files. A chosen scenario
+    whose NVFOREVER_HOME earlier scenarios write brings them along (`with_home_writers`)."""
+    chosen, files = _selection(a, suite, say)
+    if a.all:
+        return chosen, files
+    return with_home_writers(chosen, suite.scenarios, say), files
+
+
+def with_home_writers(chosen: list, scen: list, say) -> list:
+    """`chosen` with the game scenarios earlier in the file that share a chosen game
+    scenario's NVFOREVER_HOME: they write the settings or the save it reads (ui-scale-write
+    before ui-scale-menus), so it reads what it was written for, not what an earlier run
+    left in the home (or nothing, in a new tree). Homes under `{repo}` are fixtures kept in
+    the repository, which no scenario writes first. In the scenario file's order."""
+    def home(s) -> str | None:
+        h = s.env.get("NVFOREVER_HOME") if s.kind == GAME else None
+        return None if h is None or h.startswith("{repo}") else h
+    names = {s.name for s in chosen}
+    last: dict[str, int] = {}
+    for i, s in enumerate(scen):
+        if s.name in names and home(s):
+            last[home(s)] = i
+    added = [s for i, s in enumerate(scen) if s.name not in names and home(s) in last and i < last[home(s)]]
+    if not added:
+        return chosen
+    say(f"with the scenarios that write their NVFOREVER_HOME first: {', '.join(s.name for s in added)}")
+    keep = names | {s.name for s in added}
+    return [s for s in scen if s.name in keep]
+
+
+def _selection(a, suite: Suite, say) -> tuple[list, list[str] | None]:
     scen = suite.scenarios
     if a.games_only:
         scen = [s for s in scen if s.kind == GAME]

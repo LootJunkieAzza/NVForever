@@ -97,6 +97,11 @@ pub struct SmallState {
     pub ysi_tag: HashMap<FormId, String>,
     pub ysi_icon_by_tag: HashMap<String, String>,
     pub ysi_icon: HashMap<FormId, String>,
+    /// TTW_EnableRadioFix: radios are received in child worldspaces too (the engine's
+    /// radio reads it). Not saved: TTW's handler script sets it again on every load, beside
+    /// INI settings that last a session [observed: TaleOfTwoWastelands.esm
+    /// TTWGenericHandlerScript, `TTW_EnableRadioFix 1` next to SetNumericINISetting].
+    pub ttw_radio_fix: bool,
 }
 
 /// CRC-32 (the IEEE polynomial, reflected, as zip and PNG use) [decision: the page's
@@ -256,13 +261,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     let v = match name {
         // ---- Anh ----
-        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the INI's
-        // default (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV,
-        // "Returns the FOV value for the camera"; hypothesis: 75 and 55 when the INI
-        // names none, the shipped Fallout_default.ini's values].
+        // `1stPersonFOV`: the field of view the last SetCameraFOV gave, else the one the
+        // player set on the engine's settings page, else the INI's default
+        // (fDefaultWorldFOV, fDefault1stPersonFOV) [documented: GetCameraFOV, "Returns
+        // the FOV value for the camera"; decision: the settings page stands for the
+        // original's INI values, which its own FOV setting writes; hypothesis: 75 and 55
+        // when the INI names none, the shipped Fallout_default.ini's values].
         "getcamerafov" => {
             let first = num(args, 0, 0.0) != 0.0;
-            let set = if first { g.ui.camera.fov_set.1 } else { g.ui.camera.fov_set.0 };
+            let c = &g.ui.camera;
+            let set = if first { c.fov_set.1.or(c.settings_fov.1) } else { c.fov_set.0.or(c.settings_fov.0) };
             match set {
                 Some(v) => XVal::Num(f64::from(v)),
                 None => {
@@ -558,6 +566,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Fallout 3's calls ShowRaceMenu]. It opens NVForever's character creator as
         // ShowRaceMenu does [design: owner 2026-11-02, "can we reuse our character
         // creator"; before, nothing opened and the birth scene went on without it].
+        // `0/1`: radios work in child worldspaces, or not [documented: the TTW NVSE mod
+        // page, "toggle radios working in child worldspaces on/off"]; TTW turns it on in
+        // the Capital Wasteland and off in the Mojave [observed: TaleOfTwoWastelands.esm
+        // TTWFNEnableDCWasteland and TTWFNEnableNVWasteland].
+        "ttw_enableradiofix" => {
+            g.small.ttw_radio_fix = num(args, 0, 0.0) != 0.0;
+            zero
+        }
         "ttw_showgeneprojector" => {
             g.race_menu = crate::game::RaceMenu::Creator;
             g.race_menu_studio = true;

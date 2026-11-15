@@ -178,7 +178,17 @@ the unknown opcode 0x127C) decodes with values only [observed]. The functions an
   [observed].
 - **enum, animation group**: PlayGroup 864, IsAnimPlaying 114 (codes 0 Idle, 2
   SpecialIdle, 3 Forward, 4 Backward, 5 Left, 6 Right, 7–10 Fast*, 15 TurnLeft, 17 Aim,
-  24 Equip, 25 Unequip [observed]).
+  24 Equip, 25 Unequip [observed]; 227 JumpStart, 228 JumpLoop [observed: a mod's compiled
+  script, JustAssortedMods.esp 4.6 `JVSAnimEffectScript`, whose two IsAnimPlaying calls
+  carry these codes in source order; no shipped unit names them]; 44 Attack4, 47
+  Attack4IS, 50 Attack5, 62 Attack7, 201 JamB, 223 Stagger [observed: the PlayGroup calls
+  of Project Nevada 2.5's and Unofficial Patch NVSE Plus 1.7.3's compiled scripts beside
+  their source, each name with one code in every unit that has it]).
+- **enum, form type**: GetIsObjectType's parameter, stored as an animation group is
+  (xEdit's `ptFormType`). 27 Container [observed: Project Nevada - Core.esm 2.5,
+  `obj.GetIsObjectType Container` compiled to `B1 11 04 00 01 00 1B 00`; no shipped unit
+  calls the function]. Other type names are not read yet: an error in the editor's
+  compile, a warning and code 65535 in a mod's source (script-compiler.md §7).
 - **enum, sex**: GetIsSex 6, GetPCIsSex 8, SexChange 12 (0 Male, 1 Female).
 - **enum, misc stat**: ModPCMiscStat 6, GetPCMiscStat 4 (the source writes the stat name
   quoted, `"Corpses Eaten"`; the bytes hold the code).
@@ -629,7 +639,17 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   7 at 3.22 s of 3.25, 70 at 0.96 of 1.0, 95, 100 and 105 at 0.96–0.98 of 1.0,
   layer5-captures.md §10.7; `Game::mark_run`]. Round 3 counted the time since the last
   call, which made the walk-through's 85 → 90 countdown expire at once; that rule is
-  gone. **Menus and loading screens do not count**: the game time
+  gone. **A trigger's OnTrigger** is its per-frame run when the script has no GameMode
+  block (`Game::trigger_frame`); it runs once for each actor inside, and only the
+  first run of a frame gets the frame's time, the later ones 0 (`Game::trigger_again`)
+  [documented: the GECK wiki's "time since the script last ran"; hypothesis: that the
+  original also runs it once per reference inside]. No trigger block runs while the game
+  is paused (a menu, a message box, a conversation, a loading screen; nvf-play
+  `script.rs`) [hypothesis: OnTrigger is held as GameMode is]. Both made Hidden Valley's
+  virus purge (HVHuntingVirusTrigger, SCPT 0015A154, `Begin OnTrigger` with no actor,
+  20 s by GetSecondsPassed) run out in a fraction of its time, with Ibsen and two scribes
+  in the room and under message boxes (issue #2455; smoke `hv-virus-purge-timer`).
+  **Menus and loading screens do not count**: the game time
   (`Game::time`) and the GameMode quest delay stop while a menu is open or a loading
   screen is up [observed: after a 900-frame container menu the first drop was one frame
   for VCG00 and VMQ03aTimer's own 0.5 s, `L5.quest.seconds_after_menu`; a `coc` loading
@@ -1176,8 +1196,31 @@ at random, Say Once a Day), and a response is timed in one place
   [observed: docs/spec-notes/voice.md §8]. Only game time counts (menus stop a line) [hypothesis, consistent with Doc's
   stage 60 line ending after the message boxes, §10.3].
 - A speaker saying a line that starts another (SayTo in a result script, or a new SayTo)
-  stops the first without its end script [hypothesis]; a speaker that is disabled,
+  stops the first without its end script [hypothesis]; a new Say or SayTo of another
+  topic takes over at once, and one of the topic already being said (by Say or SayTo)
+  renews the speaker's talking state without a queue [observed: observer batch o30, PR
+  #2580]. Since #2582 a script's Say or SayTo of the topic its speaker is saying leaves
+  that line playing (`Game::say_by_script`) [hypothesis: the voice and the subtitle do
+  not restart with each call, observer check 144 open]: the Strip gate's kill zone
+  (SCPT 0x00119786) SayTos its topic every frame the player is inside, and its line
+  restarted every frame before. A line's own end script runs after the line is over,
+  so a chain of SayTo of one topic from end scripts says a new line each time. A
+  difference: o30 saw IsTalking stay on about 4.9 s after a line's file ended; here it
+  ends with the line. A speaker that is disabled,
   deleted or dead stops its line [hypothesis]. IsTalking is 1 while a line is said.
+- A Say or SayTo on a speaker already talking takes over at once, for the same topic or
+  another: nothing is queued and the call is not ignored [observed: campaigns o30_say,
+  o30b_say, 2026-11-14 (#1858 batch o30), the Strip Gatekeeper VFSSecuritronGreeterREF with
+  the gate volumes disabled, IsTalking read every game loop]. One line said alone keeps
+  IsTalking on for its file's length plus about 4.9 s (Halt, 4.35 s: 9.21 s; Kill lines
+  1.1-2.9 s: 5.2-6.2 s). Halt and Halt again 1 s later: 10.23 s (= 1 + 9.21; ignored
+  would be 9.21, queued about 18); 3 s later: 12.24 s (= 3 + 9.21). Kill then Halt 0.33 s
+  later: 9.58 s; Halt then Kill 1 s later: 7.15 s; Kill then Kill 0.5 s later: 5.61 s.
+  SayTo every game loop for about 20 s (Say the same, the subtitle flag 0 the same) keeps
+  IsTalking on without a break and lets it go one span after the last call. What these
+  runs could not show is whether the voice and the subtitle restart with each call too:
+  the game, not in front, played no sound into the loopback recording and the screenshots
+  caught the desktop. That is observer check 161, for the owner.
 - What this reproduces [observed, §10.2–10.3]: Doc's SayTo VCG01Intro takes the next
   unsaid line each time; three lines' end scripts chain SayTo to reach the line that sets
   stage 10; the first line of the topic is said again at stage 60 when it was never said

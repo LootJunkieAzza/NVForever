@@ -191,7 +191,7 @@ fn holstered_off(clip: &nvf_assets::anim_play::Clip) -> Vec<String> {
 
 /// `clip` with only the track of the `Weapon` node (index `weapon_node`).
 pub fn weapon_track_only(clip: &BoundClip, weapon_node: usize) -> BoundClip {
-    BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None, carried: None, unbound: Default::default() }
+    BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() }
 }
 
 /// Where `clip` leaves node `node` at its end (`bind` fills what the track leaves out);
@@ -240,16 +240,16 @@ pub struct WeaponHold {
     pub parent: usize,
     /// Test aid: draw and holster every `period` seconds; the time into the cycle.
     pub test: Option<(f32, f32)>,
-    /// The model's shapes under a node the holster clip switches off (the flamer's and
-    /// minigun's gun): the shape, that node's name and whether it was last shown.
-    pub gun: Vec<(Entity, String, Option<bool>)>,
+    /// [design, #2512] Model targets and the shapes whose visibility they control.
+    pub visibility: WeaponVisibility,
+    visibility_stage: Option<fnv_actor::weapon::Stage>,
     /// The model's shapes on a bone of their own (the flamer's tank and the minigun's
     /// backpack on `Bip01 Spine2`): on the body whether the weapon is drawn or not.
     pub back: Vec<Entity>,
     /// The model's shapes under a part the aim or draw clip moves (the pistols' hammers):
     /// the shape, its place holstered (the model's) and in the hand ([`drawn_place`]),
-    /// and which of the two it has now. NPCs play no clips on the weapon's parts: they
-    /// hold this pose, shots included.
+    /// and which of the two it has now [design: static transform poses; #2512 only
+    /// adds visibility tracks to NPC weapon parts].
     pub parts: Vec<(Entity, Transform, Transform)>,
     parts_in_hand: Option<bool>,
     /// Crouched (the actor sneaks, [`WeaponHold::set_crouched`]), and whether the clip
@@ -265,7 +265,7 @@ pub struct WeaponHold {
 
 impl WeaponHold {
     pub fn new(stance: Arc<Stance>, drawn: bool, skel_parent: usize) -> WeaponHold {
-        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), parts: Vec::new(), parts_in_hand: None, crouched: false, prev_crouched: false, logged: Vec::new(), body: false }
+        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, visibility: WeaponVisibility::default(), visibility_stage: None, back: Vec::new(), parts: Vec::new(), parts_in_hand: None, crouched: false, prev_crouched: false, logged: Vec::new(), body: false }
     }
 
     /// Crouch with the weapon or stand up with it (the actor's locomotion sneaking,
@@ -466,7 +466,9 @@ pub fn drop_broken(
 pub struct SpawnedWeapon {
     /// Every shape.
     pub all: Vec<Entity>,
-    /// Those under a node of `gun_nodes`, with its name ([`WeaponHold::gun`]).
+    /// [design, #2512] Visibility bindings for targets present in the model.
+    pub visibility: WeaponVisibility,
+    /// [design] Holster-switched shapes retained for the existing spawn diagnostic.
     pub gun: Vec<(Entity, String)>,
     /// Those on a bone of their own ([`WeaponHold::back`]).
     pub back: Vec<Entity>,
@@ -520,6 +522,7 @@ pub fn spawn_model(
         } else if let Some(g) = names().find_map(|n| gun_nodes.iter().find(|g| g.eq_ignore_ascii_case(n))) {
             out.gun.push((e, g.clone()));
         }
+        out.visibility.add_shape(e, names());
         if let Some(drawn) = bone.is_none().then(|| drawn_place(held, s)).flatten() {
             out.posed.push((e, tr, Transform::from_matrix(Mat4::from(part.root * drawn))));
         }
@@ -550,7 +553,7 @@ fn drawn_place(held: &[&nvf_assets::anim_play::Clip], s: &nvf_assets::actor::Par
     moved.then_some(m * s.own)
 }
 
-/// Whether the gun shapes under node `name` ([`WeaponHold::gun`]) show now: as the
+/// Whether the gun shapes under node `name` ([`WeaponHold::visibility`]) show now: as the
 /// current stage's clip's visibility track for that node says at the clip's time (off
 /// in `2hhholster.kf`, on from 0.500 s of `2hhequip.kf`, off from 0.500 s of
 /// `2hhunequip.kf`; observed, animation.md §9.7); a clip with no track for it (the aim
@@ -567,13 +570,81 @@ pub fn gun_shown(hold: &WeaponHold, name: &str, last: Option<bool>) -> bool {
     track.or(last).unwrap_or(true)
 }
 
-/// Hang the `Weapon` node of every armed actor from the bone its draw cycle names (the
-/// draw cycle itself advances in `locomotion::drive`), and show or hide its gun shapes
-/// ([`gun_shown`]).
-pub fn reparent(mut commands: Commands, mut q: Query<(&mut WeaponHold, &BlendPlayer)>) {
-    for (mut w, player) in &mut q {
-        let shown: Vec<bool> = w.gun.iter().map(|(_, name, last)| gun_shown(&w, name, *last)).collect();
-        for ((e, _, last), shown) in w.gun.iter_mut().zip(shown) {
+/// [design, #2512] Visibility of model targets, shared by all shapes below each target.
+/// `PreparedPart` drops model-hidden geometry (`nvf-assets/src/actor.rs::prepare_part`),
+/// so retained shapes and their ancestors have a shown model default.
+#[derive(Default)]
+pub struct WeaponVisibility {
+    nodes: Vec<(String, bool)>,
+    shapes: Vec<(Entity, Vec<usize>, Option<bool>)>,
+}
+
+impl WeaponVisibility {
+    fn add_shape<'a>(&mut self, entity: Entity, names: impl Iterator<Item = &'a str>) {
+        let mut targets = Vec::new();
+        for name in names {
+            let i = self.nodes.iter().position(|(n, _)| n.eq_ignore_ascii_case(name)).unwrap_or_else(|| {
+                self.nodes.push((name.to_string(), true));
+                self.nodes.len() - 1
+            });
+            if !targets.contains(&i) {
+                targets.push(i);
+            }
+        }
+        self.shapes.push((entity, targets, None));
+    }
+
+    /// [design, #2512] Missing tracks retain state; only model targets can change.
+    fn sample(&mut self, clip: &nvf_assets::anim_play::Clip, time: f32) {
+        for (name, shown) in &mut self.nodes {
+            if let Some(value) = clip.visibility.iter().find(|(n, ..)| n.eq_ignore_ascii_case(name)).and_then(|(_, _, track)| track.at(time)) {
+                *shown = value;
+            }
+        }
+    }
+}
+
+impl WeaponHold {
+    /// [design, #2512] Draw-cycle boundaries reset defaults. Missing tracks keep the
+    /// last state, and attack/reload transforms are never sampled here.
+    fn part_visibility(&mut self, attack: Option<&(Arc<BoundClip>, f32)>) -> Vec<(String, bool)> {
+        use fnv_actor::weapon::Stage;
+        let before: Vec<bool> = self.visibility.nodes.iter().map(|(_, shown)| *shown).collect();
+        let stage = self.anim.stage;
+        if self.visibility_stage != Some(stage) && stage != Stage::Drawn {
+            for (_, shown) in &mut self.visibility.nodes {
+                *shown = true;
+            }
+        }
+        self.visibility_stage = Some(stage);
+        let values: Vec<bool> = self.visibility.nodes.iter().map(|(name, shown)| gun_shown(self, name, Some(*shown))).collect();
+        for ((_, shown), value) in self.visibility.nodes.iter_mut().zip(values) {
+            *shown = value;
+        }
+        if let Some((clip, time)) = attack.filter(|_| stage == Stage::Drawn) {
+            self.visibility.sample(&clip.clip, *time);
+        }
+        self.visibility.nodes.iter().zip(before).filter(|((_, shown), old)| shown != old).map(|((name, shown), _)| (name.clone(), *shown)).collect()
+    }
+}
+
+/// [design, #2512] Hang the weapon from its draw-cycle bone and apply the current
+/// attack/reload visibility sample after `locomotion::drive` advanced it.
+/// What `reparent` reads per armed actor.
+type ReparentItem<'a> = (&'a mut WeaponHold, &'a BlendPlayer, Option<&'a crate::attack_anims::CombatPose>, Option<&'a Name>, Has<crate::alert::WeaponHidden>);
+
+/// [design, #2512] Hang the weapon from its draw-cycle bone and apply the current
+/// attack/reload visibility sample after `locomotion::drive` advanced it.
+pub fn reparent(mut commands: Commands, mut q: Query<ReparentItem>) {
+    for (mut w, player, pose, name, package_hidden) in &mut q {
+        for (node, shown) in w.part_visibility(pose.and_then(|p| p.weapon_visibility.as_ref())) {
+            info!("npc weapon part: {} {node} {}", name.map_or("actor", |n| n.as_str()), if shown { "shown" } else { "hidden" });
+        }
+        let WeaponVisibility { nodes, shapes } = &mut w.visibility;
+        for (e, targets, last) in shapes {
+            // [design, #2512] Package hiding masks clip state without changing it;
+            // back-mounted shapes do not inherit the Weapon node's visibility.
+            let shown = !package_hidden && targets.iter().all(|&i| nodes[i].1);
             if *last != Some(shown) {
                 commands.entity(*e).try_insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
                 *last = Some(shown);
@@ -649,7 +720,7 @@ mod tests {
         let clip = |stop: f32| {
             let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
             c.stop = stop;
-            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None, unbound: Default::default() })
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() })
         };
         // As `1hp*.kf` and `sneak1hp*.kf`: crouched forms of the equip, aim and unequip
         // clips, none of the holster clip (actors.md §9.4).
@@ -711,6 +782,143 @@ mod tests {
         assert_eq!(shown(&w, &mut player), (Some("sneak Equip".into()), Some("Equip".into())));
     }
 
+    fn visibility_clip(start: f32, tracks: Vec<(&str, Vec<(f32, bool)>)>) -> Arc<BoundClip> {
+        let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        c.start = start;
+        c.stop = start + 1.0;
+        // [design, #2512] Deliberate transform track: NPC visibility must not move it.
+        c.tracks.push(("##NifRound".into(), Arc::new(fnv_nif::anim::TransformTrack {
+            translation: fnv_nif::anim::Channel::Static(Some([1000.0, 2000.0, 3000.0])),
+            rotation: fnv_nif::anim::Channel::Static(None), euler: None,
+            scale: fnv_nif::anim::Channel::Static(None), per_cycle: None,
+        })));
+        c.priorities.push(0);
+        c.visibility = tracks.into_iter().map(|(name, keys)| (name.into(), 0, fnv_nif::anim::BoolTrack { value: None, keys })).collect();
+        Arc::new(BoundClip::bind(Arc::new(c), |_| None))
+    }
+
+    #[test]
+    fn npc_weapon_round_visibility_survives_aim_and_resets_on_draw_cycle() {
+        // [design, #2512] Synthetic weapon: two shapes share a round node below a
+        // separately keyed cover; a third shape is outside both nodes.
+        let mut app = App::new();
+        app.add_systems(Update, reparent);
+        let nodes: Vec<Entity> = (0..10).map(|_| app.world_mut().spawn_empty().id()).collect();
+        let place = Transform::from_xyz(3.0, 5.0, 7.0);
+        let round = app.world_mut().spawn((place, Visibility::Inherited)).id();
+        let round2 = app.world_mut().spawn((place, Visibility::Inherited)).id();
+        let body = app.world_mut().spawn((place, Visibility::Inherited)).id();
+        let mut w = WeaponHold::new(stance(), true, 7);
+        w.visibility.add_shape(round, ["RoundShape", "##NifRound", "Cover"].into_iter());
+        w.visibility.add_shape(round2, ["RoundShape2", "##NifRound", "Cover"].into_iter());
+        w.visibility.add_shape(body, ["Body"].into_iter());
+        let actor = app.world_mut().spawn((w, BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 10])), crate::attack_anims::CombatPose::default())).id();
+        // [design] Nonzero start and case-insensitive targets exercise actual clip time.
+        let attack = visibility_clip(4.0, vec![("##nifround", vec![(4.0, true), (4.25, false)]), ("AbsentNode", vec![(4.0, false)])]);
+        let reload = visibility_clip(8.0, vec![("##NifRound", vec![(8.0, false), (8.75, true)])]);
+        let sample = |app: &mut App, clip: Option<(Arc<BoundClip>, f32)>| {
+            app.world_mut().get_mut::<crate::attack_anims::CombatPose>(actor).unwrap().weapon_visibility = clip;
+            app.update();
+        };
+        let shown = |app: &App, e| *app.world().get::<Visibility>(e).unwrap() == Visibility::Inherited;
+        sample(&mut app, Some((attack.clone(), 4.0)));
+        assert!(shown(&app, round));
+        sample(&mut app, Some((attack.clone(), 4.25)));
+        assert!(!shown(&app, round) && !shown(&app, round2));
+        assert!(shown(&app, body));
+        sample(&mut app, None);
+        sample(&mut app, None);
+        assert!(!shown(&app, round), "aim with no round track retains the attack state");
+        sample(&mut app, Some((reload.clone(), 8.5)));
+        assert!(!shown(&app, round));
+        sample(&mut app, Some((reload.clone(), 8.75)));
+        assert!(shown(&app, round) && shown(&app, round2));
+        let cover = visibility_clip(0.0, vec![("Cover", vec![(0.0, false)])]);
+        sample(&mut app, Some((cover, 0.0)));
+        sample(&mut app, Some((reload, 9.0)));
+        assert!(!shown(&app, round), "a shown child cannot override its hidden ancestor");
+        assert!(shown(&app, body));
+        assert_eq!(*app.world().get::<Transform>(round).unwrap(), place);
+        assert_eq!(app.world().get::<WeaponHold>(actor).unwrap().visibility.nodes.len(), 5, "unknown clip targets are not bound");
+        for stage in [Stage::Unequipping, Stage::Holstered, Stage::Equipping] {
+            {
+                let mut w = app.world_mut().get_mut::<WeaponHold>(actor).unwrap();
+                w.anim.stage = stage;
+                w.visibility_stage = Some(Stage::Drawn);
+                for (_, on) in &mut w.visibility.nodes {
+                    *on = false;
+                }
+            }
+            sample(&mut app, Some((attack.clone(), 4.5)));
+            assert!(shown(&app, round) && shown(&app, round2) && shown(&app, body), "{stage:?} restores model defaults and ignores attack");
+        }
+    }
+
+    #[test]
+    fn package_hidden_back_parts_stay_hidden_on_first_update() {
+        // [design, #2512] Synthetic package input uses deferred commands, as show
+        // does. The real AlertPlugin orders show after Scripts and before reparent;
+        // its ScriptState acquisition is not exercised by this fixture.
+        #[derive(Resource)]
+        struct PackageHidden(bool);
+        fn package(mut commands: Commands, hidden: Res<PackageHidden>, actors: Query<Entity, With<WeaponHold>>) {
+            for actor in &actors {
+                if hidden.0 {
+                    commands.entity(actor).insert(crate::alert::WeaponHidden);
+                } else {
+                    commands.entity(actor).remove::<crate::alert::WeaponHidden>();
+                }
+            }
+        }
+        let mut app = App::new();
+        app.add_systems(Update, reparent)
+            .add_plugins(crate::alert::AlertPlugin)
+            .insert_resource(PackageHidden(true))
+            .add_systems(Update, package.in_set(nvf_play::PlaySet::Scripts));
+        let nodes: Vec<Entity> = (0..10).map(|_| app.world_mut().spawn_empty().id()).collect();
+        let back = app.world_mut().spawn((Visibility::Inherited, OnBack, ChildOf(nodes[6]))).id();
+        let covered = app.world_mut().spawn((Visibility::Inherited, OnBack, ChildOf(nodes[6]))).id();
+        let mut st = Arc::try_unwrap(stance()).ok().unwrap();
+        st.clips.insert(EquipClip::Holster, visibility_clip(0.0, vec![("Cover", vec![(0.0, false)])]));
+        let mut w = WeaponHold::new(Arc::new(st), false, 3);
+        w.back = vec![back, covered];
+        w.visibility.add_shape(back, ["Backpack"].into_iter());
+        w.visibility.add_shape(covered, ["Cover"].into_iter());
+        let actor = app.world_mut().spawn((w, BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; 10])))).id();
+        let visibility = |app: &App, e| *app.world().get::<Visibility>(e).unwrap();
+        app.update();
+        assert_eq!(visibility(&app, back), Visibility::Hidden, "first binding must respect package hiding");
+        assert_eq!(visibility(&app, covered), Visibility::Hidden);
+        assert_eq!(app.world().get::<WeaponHold>(actor).unwrap().visibility.nodes, [("Backpack".into(), true), ("Cover".into(), false)], "package hiding does not overwrite clip state");
+        app.update();
+        assert_eq!(visibility(&app, back), Visibility::Hidden, "stable package hide persists");
+        app.world_mut().resource_mut::<PackageHidden>().0 = false;
+        app.update();
+        assert_eq!(visibility(&app, back), Visibility::Inherited, "package release updates a shape with no clip change");
+        assert_eq!(visibility(&app, covered), Visibility::Hidden, "package release preserves clip hiding");
+        app.world_mut().resource_mut::<PackageHidden>().0 = true;
+        app.update();
+        assert_eq!(visibility(&app, back), Visibility::Hidden, "package hide updates a previously shown binding");
+        app.world_mut().resource_mut::<PackageHidden>().0 = false;
+        app.update();
+        assert_eq!(visibility(&app, back), Visibility::Inherited);
+        assert_eq!(visibility(&app, covered), Visibility::Hidden);
+    }
+
+    #[test]
+    fn npc_weapon_visibility_logs_each_node_change_once() {
+        let mut w = WeaponHold::new(stance(), true, 7);
+        w.visibility.add_shape(Entity::PLACEHOLDER, ["##NifRound"].into_iter());
+        w.visibility.add_shape(Entity::PLACEHOLDER, ["##NifRound"].into_iter());
+        let clip = visibility_clip(0.0, vec![("##NifRound", vec![(0.0, false)])]);
+        assert_eq!(w.part_visibility(Some(&(clip.clone(), 0.0))), [("##NifRound".into(), false)]);
+        assert!(w.part_visibility(Some(&(clip, 0.5))).is_empty());
+        assert!(w.part_visibility(None).is_empty());
+        w.anim.stage = Stage::Unequipping;
+        assert_eq!(w.part_visibility(None), [("##NifRound".into(), true)]);
+        assert!(w.part_visibility(None).is_empty());
+    }
+
     #[test]
     fn gun_shows_as_the_clips_say() {
         use fnv_nif::anim::BoolTrack;
@@ -722,7 +930,7 @@ mod tests {
             if !keys.is_empty() {
                 c.visibility.push(("##FlamerGun".into(), 0, BoolTrack { value: None, keys }));
             }
-            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None, unbound: Default::default() })
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() })
         };
         let mut st = Arc::try_unwrap(stance()).ok().expect("one owner");
         st.clips.insert(EquipClip::Holster, clip(0.1, vec![(0.0, false)]));
@@ -732,12 +940,15 @@ mod tests {
         st.holstered_off = holstered_off(&st.clips[&EquipClip::Holster].clip);
         assert_eq!(st.holstered_off, ["##FlamerGun"]);
         let mut w = WeaponHold::new(Arc::new(st), false, 7);
+        w.visibility.add_shape(Entity::PLACEHOLDER, ["##FlamerGun"].into_iter());
         let mut last = None;
         let mut seen = Vec::new();
         for i in 0..200 {
             w.drawn = (40..120).contains(&i);
             w.step(1.0 / 60.0);
             let shown = gun_shown(&w, "##FlamerGun", last);
+            w.part_visibility(None);
+            assert_eq!(w.visibility.nodes[0].1, shown, "generalised binding preserves holster visibility");
             if last != Some(shown) {
                 seen.push((w.anim.stage, shown));
             }

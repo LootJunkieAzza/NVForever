@@ -10,6 +10,49 @@ use fnv_sim::FormId;
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
+/// The supported session-only numeric edits needed when a new shot is created.
+/// `original` supplies the typed record; the requested clone retains its own identity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProjectileLaunchTraits {
+    pub original: FormId,
+    pub speed: Option<f32>,
+    pub impact_force: Option<f32>,
+}
+
+/// Exact backup of the two supported launch fields for a bounded engine diagnostic.
+/// It cannot expose or replace unrelated record edits, and cannot restore into a
+/// different Game even if an allocator reuses that Game's former address.
+#[derive(Debug)]
+pub struct ProjectileLaunchFieldLease {
+    owner: std::sync::Arc<()>,
+    projectile: FormId,
+    before: Option<[Option<XVal>; 2]>,
+    effective: [f64; 2],
+}
+
+impl ProjectileLaunchFieldLease {
+    pub fn belongs_to(&self, game: &Game<'_>) -> bool {
+        std::sync::Arc::ptr_eq(&self.owner, &game.projectile_launch_restore_owner)
+    }
+
+    pub fn effective_values(&self) -> [f64; 2] { self.effective }
+
+    /// Restore exact entry presence and values once. Wrong-owner rejection leaves
+    /// the capsule available for cleanup by its actual owner.
+    pub fn restore(&mut self, game: &mut Game<'_>) -> Result<(), String> {
+        if !self.belongs_to(game) { return Err("projectile field lease belongs to another Game".into()); }
+        let before = self.before.take().ok_or("projectile field lease was already restored")?;
+        for (field, before) in ["DATA/speed", "DATA/impact_force"].into_iter().zip(before) {
+            let key = (self.projectile, field.to_string());
+            match before {
+                Some(value) => { game.field_overrides.insert(key, value); }
+                None => { game.field_overrides.remove(&key); }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// One climate weather (WLST): the weather, its chance, the global that gates it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClimateWeather {
@@ -252,6 +295,56 @@ impl Game<'_> {
         crate::nvse::record_value(self, f, sub, path).and_then(|v| v.num().ok()).unwrap_or(0.0)
     }
 
+    /// Preserve only the two existing projectile launch fields before a diagnostic
+    /// runs ordinary script setters. No field is changed by taking the capsule.
+    pub fn preserve_projectile_launch_fields(&self, projectile: FormId) -> Option<ProjectileLaunchFieldLease> {
+        if self.data.sig(projectile) != Some(*b"PROJ") { return None; }
+        Some(ProjectileLaunchFieldLease {
+            owner: self.projectile_launch_restore_owner.clone(), projectile,
+            before: Some(["DATA/speed", "DATA/impact_force"].map(|path| self.field_overrides.get(&(projectile, path.to_string())).cloned())),
+            effective: [self.num_field(projectile, "DATA", "speed"), self.num_field(projectile, "DATA", "impact_force")],
+        })
+    }
+
+    /// The selected projectile at launch, keeping the typed defaults when no session
+    /// field was edited. Clearing an ammo projectile falls back to the weapon's.
+    /// This does not change other ammo/weapon traits or mutate their typed records.
+    pub fn projectile_for_launch(&self, weapon: FormId, ammo: Option<FormId>, weapon_default: Option<FormId>, ammo_default: Option<FormId>) -> (Option<FormId>, Option<&'static str>) {
+        let changed = |form, path: &str| {
+            let key = path.to_string();
+            let v = self.field_overrides.get(&(form, key.clone())).or_else(|| self.field_overrides.get(&(self.unclone(form), key)))?;
+            match v {
+                XVal::Ref(id) => Some((*id != 0).then_some(FormId(*id))),
+                XVal::Num(n) if n.is_finite() && *n >= 0.0 && *n <= f64::from(u32::MAX) && n.fract() == 0.0 => Some((*n != 0.0).then_some(FormId(*n as u32))),
+                _ => None,
+            }
+        };
+        let ammo_projectile = ammo.and_then(|a| changed(a, "DAT2/projectile").unwrap_or(ammo_default));
+        let weapon_projectile = changed(weapon, "DNAM/projectile").unwrap_or(weapon_default);
+        match ammo_projectile {
+            Some(p) => (Some(p), Some("ammo")),
+            None => (weapon_projectile, weapon_projectile.map(|_| "weapon")),
+        }
+    }
+
+    /// Only speed/impact-force overrides, with the same clone-first/original fallback
+    /// as the record getters. Absent edits leave the typed consumer's values alone.
+    /// The finite conversion guard is an engineering boundary for physical values.
+    pub fn projectile_launch_traits(&self, projectile: FormId) -> Option<ProjectileLaunchTraits> {
+        let original = self.unclone(projectile);
+        if self.data.sig(original) != Some(*b"PROJ") {
+            return None;
+        }
+        let number = |path: &str| {
+            let key = format!("DATA/{path}");
+            match self.field_overrides.get(&(projectile, key.clone())).or_else(|| self.field_overrides.get(&(original, key))) {
+                Some(XVal::Num(n)) if n.is_finite() && (*n as f32).is_finite() => Some(*n as f32),
+                _ => None,
+            }
+        };
+        Some(ProjectileLaunchTraits { original, speed: number("speed"), impact_force: number("impact_force") })
+    }
+
     fn set_field(&mut self, f: FormId, sub: &str, path: &str, v: XVal) {
         self.field_overrides.insert((f, format!("{sub}/{path}")), v);
     }
@@ -261,6 +354,9 @@ impl Game<'_> {
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let of_sig = |g: &Game, f: Option<FormId>, sig: &[u8; 4]| f.filter(|&f| g.data.sig(f) == Some(*sig));
+    // Validate the inherited type, but write to the exact session clone. Replacing
+    // the clone ID with its original here would edit every user of that original.
+    let projectile = |g: &Game, f: Option<FormId>| f.filter(|&f| g.data.sig(g.unclone(f)) == Some(*b"PROJ"));
     let zero = XVal::Num(0.0);
     // The setters of a trait return 0 [hypothesis: as the record setters of batch 5 were
     // observed to, jip-records-5.md].
@@ -312,7 +408,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- projectiles and explosions
         "setprojectiletraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| PROJ_NUMERIC.get(i));
-            if let (Some(p), Some(&(sub, path, how))) = (of_sig(g, form(args, 0), b"PROJ"), t) {
+            if let (Some(p), Some(&(sub, path, how))) = (projectile(g, form(args, 0)), t) {
                 if let Some(v) = take(num(args, 2, f64::NAN), how) {
                     g.set_field(p, sub, path, XVal::Num(v));
                 }
@@ -321,7 +417,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `projectile [light]`: left out, none [documented: SetProjectileLight].
         "setprojectilelight" => {
-            if let Some(p) = of_sig(g, form(args, 0), b"PROJ") {
+            if let Some(p) = projectile(g, form(args, 0)) {
                 g.set_field(p, "DATA", "light", XVal::Ref(form(args, 1).map_or(0, |f| f.0)));
             }
             zero
@@ -329,7 +425,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `projectile path`: the muzzle flash model (NAM1) [documented:
         // SetProjectileMuzzleFlash; the field: xEdit PROJ].
         "setprojectilemuzzleflash" => {
-            if let (Some(p), Some(path)) = (of_sig(g, form(args, 0), b"PROJ"), text(args, 1)) {
+            if let (Some(p), Some(path)) = (projectile(g, form(args, 0)), text(args, 1)) {
                 g.set_field(p, "NAM1", "", XVal::Str(path));
             }
             zero
@@ -570,3 +666,7 @@ fn impact_colour(g: &Game, i: FormId) -> f64 {
     let w = colour_word(g, i).or_else(set).unwrap_or(u32::MAX);
     f64::from(w & 0xFF) * 1_000_000.0 + f64::from((w >> 8) & 0xFF) * 1000.0 + f64::from(w >> 16)
 }
+
+#[cfg(test)]
+#[path = "nvse_jip7_launch_probe_tests.rs"]
+mod launch_probe_tests;

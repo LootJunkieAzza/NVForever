@@ -811,6 +811,9 @@ impl Game<'_> {
             }
             return;
         }
+        if self.neutral_out_of_reach(detector, target, at) {
+            return;
+        }
         let t = self.awareness_timers();
         let now = self.time;
         // Nothing to keep for a hidden hostile the actor knows nothing of.
@@ -821,6 +824,35 @@ impl Game<'_> {
         let a = self.awareness.actors.entry(detector).or_default();
         a.at = me.or(a.at);
         a.observe(target, det, at, now, &t);
+    }
+
+    /// `detector` would attack `target` only as a Very Aggressive actor attacks a
+    /// Neutral (no grudge, no forced fight, not the player), it has an aggro radius
+    /// that its package allows, and `at` (where it measured the target) is outside that
+    /// radius, and it is not in Combat: it leaves the target alone for now [hypothesis, #2547: HELIOS One's guard
+    /// dogs (CrDogNCRAggressive, Very Aggressive, aggro radius 2,000 on) went for the NCR
+    /// troopers 2,800 units off, which the owner never saw in the original; the radius
+    /// is the one distance the records give such an actor; observer checks 144 and 163].
+    /// The player is left to the aggro radius rules ([`Game::aggro_tick`]) and the
+    /// on-sight rule as before.
+    pub(crate) fn neutral_out_of_reach(&mut self, detector: FormId, target: FormId, at: [f32; 3]) -> bool {
+        // A fight once begun goes on wherever the target runs [design].
+        if target == FormId::PLAYER_REF || detector == FormId::PLAYER_REF || self.awareness.state(detector) == State::Combat {
+            return false;
+        }
+        if self.awareness.forced.contains(&(detector, target)) || self.provocations.holds(detector, target) {
+            return false;
+        }
+        if self.aggression_kept(detector) != 2 || self.relation_in_round(detector, target) != 0 {
+            return false;
+        }
+        let Some(radius) = self.aggro_radius(detector) else { return false };
+        if !self.package_allows_aggro(detector) {
+            return false;
+        }
+        let Some(me) = position(self, detector) else { return false };
+        let d = ((me[0] - at[0]).powi(2) + (me[1] - at[1]).powi(2) + (me[2] - at[2]).powi(2)).sqrt() as f64;
+        d > radius
     }
 
     /// Raise a detection event for the engine to measure (CreateDetectionEvent, an
@@ -840,6 +872,9 @@ impl Game<'_> {
     /// they are already in Combat"]. Returns whether it was.
     pub fn hear_event(&mut self, detector: FormId, ev: &DetectionEvent, det: &Detection) -> bool {
         if det.band == Band::Hidden || self.awareness.state(detector) == State::Combat || !self.would_attack(detector, ev.owner) {
+            return false;
+        }
+        if self.neutral_out_of_reach(detector, ev.owner, ev.at) {
             return false;
         }
         let t = self.awareness_timers();

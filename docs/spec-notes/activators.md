@@ -120,6 +120,23 @@ groups FalloutNV.esm's scripts play on which objects.
   its painted cream under the room's light, without the glow. The same rule now also
   drives `terminal01.nif`'s `Text01:2`, `Text02:2` and `T01Screen01:1` with the shapes
   its sequences name.
+- **Shared texturing properties** (issue #2450): the same holds for a base-texture
+  offset, scale or rotation track (`NiTextureTransformController`): it names one shape,
+  but every shape listing the same `NiTexturingProperty` block moves its texture with it
+  (`model::texturing_sharers`, log `<model>: shapes sharing a driven texturing property
+  move their texture with it: …`) [documented: nif.xml, as above; properties are shared by
+  reference]. The Hidden Valley dust storm (`HVSandStormNight`, ten persistent references
+  in WastelandNV's persistent cell, initially disabled, enabled by
+  VHiddenValleyDustStormQuestScript; `effects\nv\nvsandstormnight.nif`) is 18 dust
+  sheets `NVSandstorm01:0`..`NVSandstorm18:0` that all list one `NiTexturingProperty`
+  and one `NiMaterialProperty`; its SpecialIdle (loop, 4 s) scrolls the base texture's U
+  from 0 to 2 (quadratic keys) and holds alpha 1, naming `NVSandstorm01:0` only
+  [observed: `fnvtool nif decode`]. Before, only that sheet scrolled and the other 17
+  stood still, the storm a frozen picture (#2450; the alpha was already shared, the
+  scroll was not). Smoke `hv-sandstorm-scroll`. The weather itself (HVDustStorm) has no
+  model; its cloud layers are `sky\alpha.dds` but layer 3 (`NVCloudlight.dds`, ONAM
+  speeds 179, 0, 0, 0) [observed: `fnvtool esm decode`], so its visible clouds stand
+  still by the data.
 - **Receivers' on and off looks** follow the runtime's switch (`fnv_game` `radio_on`,
   off when destroyed):
   - Open/Close models: switched on plays "Open" and holds its end, switched off "Close"
@@ -284,6 +301,12 @@ script), and whether that base's model has a sequence named like the group.
     applied, the root carrying the placement [design]; particle, refraction and morph
     controllers are not played (§6);
   - `Sound: <SOUN>` keys the group passes play where the object is (anim_sounds.rs).
+  - **A group the model lacks** (issue #2420): when the engine finds the model has no
+    sequence of the group asked, that group is not what the object shows when drawn
+    again; the group it replaced is the last asked again (`ObjectAnims::not_in_model`)
+    [design]. A tripwire's script plays `Forward` and then activates itself, which asks
+    "Open" (§5's activator rule); `tripwire01.nif` has no "Open", and the sprung wire was
+    drawn armed after each cell build (Ranger Station Charlie).
   - **Drawn again and saved** (issue #1396): the rules keep the last group asked of each
     reference (`ObjectAnims::asked`, until `Reset3DState`) and save it with the game
     (`object_groups` in the snapshot). An object drawn again with no request waiting
@@ -523,6 +546,9 @@ controller type, with the models, bases and references whose sequences have one:
   the healing and the rads of drinking it, radiation.md §3) to the player, after its
   script if it has one [hypothesis]. The log says `activate 0x… <name>: the player
   drinks from it`.
-- Not built: a drinking sound (no record names one), NPCs drinking (IsWaterObject is
-  a stub).
+- The drinking idle (#2349): the player's activation asks the idle tree's
+  `ActivateIdles` root, whose `ActWaterSource` branch (IsWaterObject) plays
+  `1stPersonActWater` in first person and `3rdPersonActWater` in third, holding nothing;
+  the effect still applies at the activation [design, #2349] (idles.md §16).
+- Not built: a drinking sound (no record names one), NPCs drinking.
 

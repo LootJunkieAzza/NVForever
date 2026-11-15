@@ -435,6 +435,19 @@ class ParallelRunTests(unittest.TestCase):
         self.assertEqual(started, ["a"])
         self.assertEqual([v.status for v in vs], ["FAIL", "SKIP", "SKIP"])
 
+    def test_a_home_reader_brings_the_scenarios_that_write_it(self):
+        def s(name, home=None):
+            return Scenario(name, env={"NVFOREVER_HOME": home} if home else {})
+        scen = [s("write", "h"), s("read", "h"), s("menus", "h"), s("other"), s("later", "h"),
+                s("fix-a", "{repo}/f"), s("fix-b", "{repo}/f")]
+        said = []
+        chosen = cli.with_home_writers([scen[2], scen[3]], scen, said.append)
+        self.assertEqual([x.name for x in chosen], ["write", "read", "menus", "other"])
+        self.assertTrue(any("write, read" in x for x in said))
+        # The first of a home, a fixture home and no home: nothing added.
+        for one in (scen[0], scen[6], scen[3]):
+            self.assertEqual(cli.with_home_writers([one], scen, quiet), [one])
+
     def test_failed_selects_the_last_runs_fails(self):
         import json
         with tempfile.TemporaryDirectory() as d:

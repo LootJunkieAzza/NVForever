@@ -107,6 +107,11 @@ fn no_script() -> Subrecord {
 
 /// A topic with one line of one response (or none), said by anyone.
 fn topic(id: u32, edid: &str, line: Option<(u32, u16, &str)>) -> Vec<u8> {
+    topic_of_type(id, edid, line, 0)
+}
+
+/// As [`topic`], its line of INFO type `kind` (0 Topic, 1 Conversation).
+fn topic_of_type(id: u32, edid: &str, line: Option<(u32, u16, &str)>, kind: u8) -> Vec<u8> {
     let dial = record(b"DIAL", id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]);
     let lines = line.map_or(Vec::new(), |(info, info_flags, text)| {
         let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
@@ -114,7 +119,7 @@ fn topic(id: u32, edid: &str, line: Option<(u32, u16, &str)>) -> Vec<u8> {
             b"INFO",
             info,
             &[
-                sub(b"DATA", vec![0, 0, info_flags as u8, (info_flags >> 8) as u8]),
+                sub(b"DATA", vec![kind, 0, info_flags as u8, (info_flags >> 8) as u8]),
                 sub(b"QSTI", u32b(QUEST)),
                 sub(b"TRDT", trdt),
                 sub(b"NAM1", z(text)),
@@ -140,6 +145,8 @@ const T_CHATTER: u32 = 0x814;
 const I_CHATTER: u32 = 0x81A;
 const T_HELLO: u32 = 0x815;
 const I_HI: u32 = 0x81B;
+const T_TALK: u32 = 0x816;
+const I_TALK: u32 = 0x81C;
 const STAT: u32 = 0x820;
 const ACTI: u32 = 0x821;
 const STOOL: u32 = 0x822;
@@ -216,7 +223,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         // A wait location with a radius and a trigger location with one.
         talk_pack(P_WAIT, "WaitThenTalk", 0, Some((0, MARK_WAIT, 100)), Some((0, MARK_TRIGGER, 200)), (0, PLAYER, 200), 0, false),
         talk_pack(P_SAY, "SayALine", 0, None, None, (0, PLAYER, 200), T_SAY, true),
-        talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), 0, false),
+        talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), T_TALK, false),
         talk_pack(P_MUTE, "NothingToSay", flags::MUST_COMPLETE, None, None, (0, PLAYER, 200), T_EMPTY, false),
         // Benny's shape in the Tops' suite: wait at a stool (radius 128), no trigger
         // location, the player within 256.
@@ -243,7 +250,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
-    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today.")))].concat();
+    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today."))), topic_of_type(T_TALK, "TalkToYou", Some((I_TALK, 0, "Got a minute?")), 1)].concat();
     let dial = if hello { [dial, topic(T_HELLO, "HELLO", Some((I_HI, 0, "Morning.")))].concat() } else { dial };
     let bases = [
         record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]),
@@ -587,7 +594,8 @@ fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
     let f = fixture();
     // Within the activate distance (212 units) but outside the box (it ends at y 950).
     let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
-    s.run(3.0);
+    // (Within LEAD_STUCK_SECONDS: this test walks the player only once.)
+    s.run(1.0);
     assert_eq!(s.talks(), 0, "{:?}", s.events());
     assert!(s.game.dialogue.is_none());
     assert_eq!(s.agent(R_HOLD).talk, Some(Talking::Waiting));
@@ -599,6 +607,29 @@ fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
     // There (the engine's walk): the greeting comes and the lead is over.
     s.player_to(lead.to);
     s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
+    assert!(s.game.player_lead.is_none());
+}
+
+/// The walk into the trigger location gets no nearer (something solid in the way, here a
+/// player the engine never moves): after `LEAD_STUCK_SECONDS` the lead ends and the
+/// actor greets where the player stands, so the keys are not set aside for good (review
+/// of #2465). A walk that does get nearer keeps the lead.
+#[test]
+fn a_lead_that_gets_no_nearer_ends_and_the_actor_greets_where_the_player_stands() {
+    let f = fixture();
+    let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
+    // Getting nearer, 15 units every half second: still led after 2.5 s.
+    for i in 1..=5 {
+        s.run(0.5);
+        s.player_to([750.0, 1050.0 - 15.0 * i as f32, 0.0]);
+    }
+    assert!(s.game.player_lead.is_some_and(|l| l.by == FormId(R_HOLD)), "{:?}", s.events());
+    assert_eq!(s.talks(), 0, "{:?}", s.events());
+    // Stuck at y 975, 73 units short of the point (y 902).
+    s.run(fnv_ai::carry::LEAD_STUCK_SECONDS + 1.0);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::LeadStuck { left, .. } if (left - 73.0).abs() < 0.5)), "{:?}", s.events());
     assert_eq!(s.talks(), 1, "{:?}", s.events());
     assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
     assert!(s.game.player_lead.is_none());
@@ -749,14 +780,19 @@ fn a_say_to_line_to_the_player_waits_for_a_clear_line() {
     assert!(s.game.is_talking(FormId(R_SAY)));
 }
 
+/// A conversation with another actor is carried out: the actor goes up to it and the
+/// two talk in the world (`Game::start_actor_conversation`; Veronica's package at
+/// Hidden Valley's intercom, issue #2451). No dialogue menu opens for the player.
 #[test]
-fn a_conversation_between_two_actors_is_not_carried_out() {
+fn a_conversation_between_two_actors_is_carried_out() {
     let f = fixture();
     let mut s = sim(&f, R_TO_NPC, [300.0, 100.0, 0.0]);
-    s.run(2.0);
-    assert!(matches!(s.events()[1], AiEvent::NotCarriedOut { .. }), "{:?}", s.events());
-    assert_eq!(s.agent(R_TO_NPC).activity, Activity::Staying);
-    assert_eq!(s.agent(R_TO_NPC).walker.feet, CORNER);
+    s.run(20.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::Approach { target, .. } if target.0 == R_GREET), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Talk { target, line, say_to: false, .. } if target.0 == R_GREET && line.0 == I_TALK)), "{ev:?}");
+    assert!(flat(s.agent(R_TO_NPC).walker.feet, GREETER) <= 200.0 + 1.0);
+    assert!(s.game.dialogue.is_none());
 }
 
 /// An actor with no line to say does not try for ever: its package is done.

@@ -13,7 +13,7 @@ game, so nothing here is `[observed]`. Changes last for the session.
 | Function | NVForever |
 |---|---|
 | ArrayToString `array` | PrintVar's text of the array (`[1, 2]`, a map's `key: value`) [documented: "Returns the specified array variable as a string"; decision: the form, the page shows none]; "" for no array [hypothesis] |
-| GetCameraFOV `1stPerson` | the last SetCameraFOV's value, else the INI's fDefaultWorldFOV / fDefault1stPersonFOV ([Display]), else 75 / 55 [documented: "Returns the FOV value for the camera"; hypothesis: the defaults] |
+| GetCameraFOV `1stPerson` | the last SetCameraFOV's value, else the one the player set on the settings page (Field of view, Viewmodel field of view; `--fov`, `--viewmodel-fov`), which the engine tells the game state at start and after each change [decision: it stands for the original's INI values, which its FOV setting writes], else the INI's fDefaultWorldFOV / fDefault1stPersonFOV ([Display]), else 75 / 55 [documented: "Returns the FOV value for the camera"; hypothesis: the defaults] |
 | UpdateTubeMesh (QuitMeshinWithMeAndUpdateAlready) | 0 [decision: NVForever builds no tube mesh] |
 | NX_GetQVEVFL | 0 [decision: the page gives no arguments and leaves its use to an outside tutorial] |
 

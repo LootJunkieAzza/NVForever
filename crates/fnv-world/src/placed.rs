@@ -121,6 +121,24 @@ pub struct BaseObject {
     /// Alternate textures of the model [`Self::world_model_path`] names: MODS for MODL,
     /// MO2S for ARMO MOD2, MO4S for WEAP MOD4 (`crate::alt_textures`).
     pub world_alt_textures: Vec<crate::alt_textures::AltTexture>,
+    /// Armour that is only ever worn: an ARMO with no world model (MOD2) and the BMDT
+    /// general flag Non-Playable ([`worn_only`]). It has no look of its own lying in the
+    /// world: [`Self::world_model_path`] gives none.
+    pub worn_only: bool,
+}
+
+/// Whether an ARMO is only ever worn: no world model (MOD2) and flagged Non-Playable
+/// (BMDT general flags bit 6 [documented: xEdit `wbDefinitionsFNV.pas` ARMO BMDT]). Its
+/// MODL is the biped model, skinned to the wearer's bones and authored at body height,
+/// so drawn on its own at a placed reference it hangs in the air: the Fort's two
+/// NVSlaveBackpack references (0x0013732C, 0x0013732D) sit 565 and 913 units above the
+/// ground, with nothing under them, and showed as two packs floating in the sky (#2439).
+/// The player can never hold a Non-Playable item, so it never needs a look on the ground
+/// [design, #2439; whether the original draws such a reference at all is observer check
+/// 142]. Playable armour without MOD2 still lies in the world as its MODL.
+pub fn worn_only(sig: &[u8; 4], has_world_model: bool, general_flags: Option<u64>) -> bool {
+    const NON_PLAYABLE: u64 = 1 << 6;
+    sig == b"ARMO" && !has_world_model && general_flags.is_some_and(|f| f & NON_PLAYABLE != 0)
 }
 
 /// The subrecord naming the model an item shows lying in the world, for the record types
@@ -168,8 +186,12 @@ impl BaseObject {
 
     /// Archive path of the model the object shows (and collides with) in the world,
     /// placed or dropped: an item's world model when its record names one
-    /// ([`world_model_sub`]), else MODL.
+    /// ([`world_model_sub`]), else MODL; none for armour that is only ever worn
+    /// ([`worn_only`]).
     pub fn world_model_path(&self) -> Option<String> {
+        if self.worn_only {
+            return None;
+        }
         self.world_model.as_deref().and_then(archive_path).or_else(|| self.model_path())
     }
 
@@ -184,7 +206,9 @@ pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObje
     let world_sub = world_model_sub(&r.header.sig).filter(|s| f.string(s).as_deref().and_then(archive_path).is_some());
     let world_model = world_sub.and_then(|s| f.string(s));
     let world_alt_textures = crate::alt_textures::alt_textures(lo, schema, &f, world_sub.unwrap_or(b"MODL"));
-    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model, world_alt_textures })
+    let general_flags = f.get(b"BMDT").and_then(|b| b.get("general_flags").and_then(|g| crate::fields::num(g, "value"))).map(|v| v as u64);
+    let worn_only = worn_only(&r.header.sig, world_model.is_some(), general_flags);
+    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model, world_alt_textures, worn_only })
 }
 
 /// A TREE's billboard: its size (TREE BNAM width, height) and texture,
@@ -282,7 +306,7 @@ mod tests {
 
     #[test]
     fn model_paths() {
-        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None, world_alt_textures: Vec::new() };
+        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None, world_alt_textures: Vec::new(), worn_only: false };
         assert_eq!(b("Clutter\\Junk\\Can.NIF").model_path().unwrap(), "meshes\\clutter\\junk\\can.nif");
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
@@ -322,6 +346,7 @@ mod tests {
             model: model.map(Into::into),
             world_model: world.map(Into::into),
             world_alt_textures: Vec::new(),
+            worn_only: false,
         };
         // Armour: the ground object, not the worn suit; MODL stays what `model_path` gives.
         let leather = b(b"ARMO", Some("Armor\\LeatherArmor\\M\\OutfitM.NIF"), Some("Armor\\LeatherArmor\\M\\GO.NIF"));
