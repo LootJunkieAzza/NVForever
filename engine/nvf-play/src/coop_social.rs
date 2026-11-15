@@ -253,6 +253,39 @@ impl Social {
     }
 }
 
+/// Test aid `NVF_PLAY_TEST_SWEEP_SHOTS=<folder>[:<seconds>,...]`: screenshots of the duel's
+/// signal to draw, each so many real seconds after it (default: 0.05, 0.15, 0.25, 0.35,
+/// 0.6, 0.9, 1.5), saved as `sweep-<seconds>.png` in the folder, so a run catches the
+/// flash whenever the random countdown ends.
+fn sweep_shots(social: Res<Social>, real: Res<Time<Real>>, mut commands: Commands, mut seen: Local<Option<f32>>, mut due: Local<Vec<(f32, std::path::PathBuf)>>) {
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+    let Some(spec) = std::env::var_os("NVF_PLAY_TEST_SWEEP_SHOTS") else { return };
+    let spec = spec.to_string_lossy().into_owned();
+    let now = real.elapsed_secs();
+    if social.sweep_at.is_some() && social.sweep_at != *seen {
+        *seen = social.sweep_at;
+        // A drive letter's colon is part of the folder: the times follow the last colon.
+        let (dir, times) = match spec.rsplit_once(':').filter(|(_, t)| t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ',')) {
+            Some((d, t)) if !t.is_empty() => (d.to_string(), t.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>()),
+            _ => (spec.clone(), vec![0.05, 0.15, 0.25, 0.35, 0.6, 0.9, 1.5]),
+        };
+        let at = social.sweep_at.unwrap_or(now);
+        for t in times {
+            due.push((at + t, std::path::Path::new(&dir).join(format!("sweep-{t:.2}.png"))));
+        }
+        info!("test aid: sweep shots: the signal to draw at {at:.2}, {} shots to {dir}", due.len());
+    }
+    let (fire, keep): (Vec<_>, Vec<_>) = due.drain(..).partition(|(t, _)| *t <= now);
+    *due = keep;
+    for (_, path) in fire {
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        info!("test aid: sweep shot {} (look {:?})", path.display(), social.sweep_look(now));
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+    }
+}
+
 /// The sweep `since` real seconds after the signal: the swipe across, then the amber
 /// grade fading (VATS mode's look: edge, band, wash, grade).
 pub fn sweep_look(since: Option<f32>) -> [f32; 4] {
@@ -317,6 +350,7 @@ impl Plugin for CoopSocialPlugin {
             .init_resource::<AidShoot>()
             .add_systems(Update, revive_kit.in_set(PlaySet::Activation).before(target))
             .add_systems(Update, social_aid.in_set(PlaySet::Input).before(input))
+            .add_systems(Update, sweep_shots)
             .add_systems(Update, social_aid_trigger.in_set(PlaySet::Input).after(crate::control::read_controls))
             .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).before(crate::control::read_controls))
             .add_systems(Update, hold.after(crate::control::enforce_locks).after(PlaySet::Input).before(PlaySet::Physics))
