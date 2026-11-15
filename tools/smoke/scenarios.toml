@@ -12687,7 +12687,7 @@ manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitch
 
 [[scenario]]
 name = "screen-splatter-under-pipboy"
-source = "Queue item 212 (docs/spec-notes/screen-splatter.md §4, a hypothesis: observer check 123): the screen blood and its red flares are a picture over the world, so they lay over the Pip-Boy in the hands as red glow dots. While the full Pip-Boy is up they are not drawn, and they come back when it is down"
+source = "Queue item 212 (docs/spec-notes/screen-splatter.md §4, a hypothesis: observer check 129): the screen blood and its red flares are a picture over the world, so they lay over the Pip-Boy in the hands as red glow dots. While the full Pip-Boy is up they are not drawn, and they come back when it is down"
 areas = ["imagespace", "pipboy"]
 paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/hud.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:triggerscreensplatter 10 20 2 2;10.2:close", NVF_PLAY_TEST_PIPBOY = "12:open,16:close", NVF_PLAY_TEST_SHOTS = "11.5:splatter_before.png,14.5:splatter_pipboy_up.png,17.5:splatter_after.png" }

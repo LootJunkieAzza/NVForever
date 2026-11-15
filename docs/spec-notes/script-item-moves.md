@@ -42,5 +42,5 @@ These were read from the engine's own log and frames, not from the mod's scripts
 - Taking from an owned container through the loot menu records no theft in NVForever (the
   menu labels the key "Steal"; the crime summary counted 0). What the original does there is
   not observed.
-- Observer check 163 (docs/handoff/observer-checks.md): in the original, does `crate.GetItemCount <note>` read 1 for a note
+- Observer check 125 (docs/handoff/observer-checks.md): in the original, does `crate.GetItemCount <note>` read 1 for a note
   lying in a container? The rule above is the hypothesis this check would confirm or flip.

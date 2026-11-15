@@ -163,7 +163,7 @@ within a pixel in every one of these (§7).
   (an add-on's pack, Dead Money's bunker putting the whole inventory away) make one
   line, "<n> items added/removed (<total> in all)", not one each (item 214: the bunker's
   lines, 2 seconds a stack, ran on over the slides that follow; observer-checks.md
-  item 123). So do the refusals of the
+  item 131). So do the refusals of the
   lockpicking menu, of a terminal and of the Wait and Sleep menu ("You cannot sleep when
   enemies are nearby.", "You need a Lockpick skill of 50 to pick this lock.") [owner,
   list 5 items 44, 45]. The engine's own placeholder lines that were drawn white under

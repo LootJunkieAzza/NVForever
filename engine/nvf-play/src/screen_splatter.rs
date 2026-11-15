@@ -461,7 +461,7 @@ fn age(time: Res<Time>, paused: Res<crate::pause::Paused>, loading: Res<crate::l
 /// so they would lie over it, their flares red glows on its screen [observed: queue
 /// item 212, the dlc-solo lr2long run 2026-11-14: nine splats from a hurt at 17:12:01, the
 /// Pip-Boy up at 17:12:02, red dots on it until the splats faded at 17:12:21;
-/// hypothesis: the original keeps the blood off the Pip-Boy, observer check 123]. They
+/// hypothesis: the original keeps the blood off the Pip-Boy, observer check 129]. They
 /// keep their age under it.
 #[allow(clippy::too_many_arguments)]
 fn draw(

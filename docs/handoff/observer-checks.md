@@ -2090,7 +2090,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
      "none"); the fix is in `IdlePicker::next` and the collection loop in
      `engine/nvforever/src/idles.rs`.
-123. **Does the third-person camera pull in for geometry beside it, or only for geometry
+124. **Does the third-person camera pull in for geometry beside it, or only for geometry
      between it and the player?** The original's camera has a collision box
      [documented: GECK wiki, ToggleCameraCollision, "the collision box of the player's
      camera"]; its size is in no page or setting we have. NVForever casts a ray from the
@@ -2108,7 +2108,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
 
 ## Added 2026-11-15 (a note lying in a container, Just Assorted Mods' loot menu and VMS18)
 
-163. **Does `GetItemCount` read 1 for a note lying in a container (not the player)?**
+125. **Does `GetItemCount` read 1 for a note lying in a container (not the player)?**
      NVForever now counts it there and reads 0 only on the player, whose notes leave the
      inventory (docs/spec-notes/script-item-moves.md §2) [hypothesis]. Without that, JAM's
      loot menu listed the Matchbook in a crate and never took it (desktop probe jlm8,
@@ -2120,7 +2120,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      (expected 0 and 1).
 ## Added 2026-11-14 (load indexes, General Oliver's cap, the Tops lounge chairs)
 
-120. **Does the original load a master-flagged `.esp` with the masters, and an unflagged
+126. **Does the original load a master-flagged `.esp` with the masters, and an unflagged
      one listed among them after all of them?** (P2; fnv-install `plugins.rs` module
      docs.) NVForever now loads every plugin whose TES4 header has the master flag before
      every plugin without it, each group in the list's order [documented: LOOT,
@@ -2131,7 +2131,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      console and read its FormID's first two digits (expected 1D); then make a copy of one
      small `.esp` with the flag cleared, list it among the masters, and read the index of
      the master after it (expected one lower than with the flag set).
-121. **Where does General Oliver's cap sit, and the white figures on the Tops' lounge
+127. **Where does General Oliver's cap sit, and the white figures on the Tops' lounge
      chairs?** (P3; actors.md §1.2, nif.md §helper geometry.) NVForever places his cap
      (`genolivercap.nif`, modelled in the head bone's axes) as a plain child of the bone,
      on his head, and draws nothing of `loungechair_tops.nif`'s property-less marker
@@ -2139,7 +2139,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      from the front and side, and of a Tops pool lounge chair (FURN 0x00119821) close up.
 ## Added 2026-11-14 (the Pip-Boy's long EFFECTS line)
 
-122. **How does the original scroll a Pip-Boy card value too long for its card?** (P3;
+128. **How does the original scroll a Pip-Boy card value too long for its card?** (P3;
      pipboy.md cards.) `card_info.xml` holds the value between the title's width + 15 and
      the card's width − 10, but it has no scroll of its own. The owner reports that the
      original clips a long EFFECTS line and scrolls it sideways. NVForever holds it 1.5 s
@@ -2151,7 +2151,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
 
 ## Added 2026-11-14 (screen blood under the Pip-Boy)
 
-123. **Does the original show its screen blood (the splats and their red flares) over the
+129. **Does the original show its screen blood (the splats and their red flares) over the
      open Pip-Boy?** (P3; screen-splatter.md §4.) NVForever hides the splats while the
      full Pip-Boy is up, as it hides the HUD, and they keep ageing under it
      (`nvf_play::screen_splatter`) [hypothesis]. Without this, the flares showed as red
@@ -2162,7 +2162,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      faded further, after closing.
 ## Added 2026-11-14 (co-op items 205 and 214: the Quests list, RemoveAllItems' lines)
 
-122. **Where does the original's Quests list open when the active quest is not the first
+130. **Where does the original's Quests list open when the active quest is not the first
      row?** (P3; pipboy.md "Open: the quest list's order and the active quest's default".)
      NVForever selects the active quest and scrolls only as far as needed to show it, so
      a short list opens unscrolled with the active quest highlighted lower down
@@ -2172,7 +2172,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      Pip-Boy on DATA > Quests and take a screenshot. Note which row is selected, which row
      is at the top, and whether the list keeps its scroll from the last time it was open.
 
-123. **What does the original show for `player.RemoveAllItems <container>` without its
+131. **What does the original show for `player.RemoveAllItems <container>` without its
      hide flag: a line per item, one line in all, or nothing?** (P3; corner-messages.md §5.)
      The GECK wiki documents a third flag that suppresses the item messages, so some message
      shows without it [documented: schemas/script/functions.json, RemoveAllItems notes].
@@ -2186,7 +2186,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      (the Sierra Madre bunker's own call, from a save just before it).
 ## Added 2026-11-15 (the Strip's street lights coming on, the owner's "lighting flickers")
 
-125. **How do the Strip's street lights come on at 20:00 in the original?** (P2; the owner's
+132. **How do the Strip's street lights come on at 20:00 in the original?** (P2; the owner's
      "lighting flickers" on the Strip, strip-rendering item 5.) The quest VStreetLighting (0x00127E9D, DATA delay 2.0 s, flags Start Game Enabled and
      Default Script Processing Delay) runs VStreetLightingScript (0x00127E9E) [observed:
      fnvtool esm decode]. On the Strip (TheStripWorldNew) after 20:00 it switches three
@@ -2215,7 +2215,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
 
 ## Added 2026-11-14 (Dead Money's slideshow screen at 16:9, parity item 214 follow-up)
 
-123. **Does Dead Money's slideshow screen fill a 16:9 view from NVDLC01SlideshowMarker?**
+133. **Does Dead Money's slideshow screen fill a 16:9 view from NVDLC01SlideshowMarker?**
      In NVForever at 16:9 (960 x 540, the FOV setting 75: 91.3 degrees horizontal,
      camera.md section 3) the slides' screen (NVDLC01SlideIntroRef 0x010138B2 at (2804,
      370, 10233), the same spot as NVDLC01SlideEndRef) covers the middle 92% of the width:

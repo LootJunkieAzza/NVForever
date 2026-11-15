@@ -116,7 +116,7 @@ the world, and the Pip-Boy in the hands is drawn in the world, so they lay over 
 their flares showed as red glow dots on its screen [observed: the dlc-solo lr2long run,
 nine splats from a hurt one second before the Pip-Boy came up]. While the full Pip-Boy is
 up (from the moment it starts to come up until it is fully down, as for the HUD), the
-splats are not drawn; they keep ageing [hypothesis: observer check 123]. Log:
+splats are not drawn; they keep ageing [hypothesis: observer check 129]. Log:
 `screen splatter: hidden under the Pip-Boy (<n> splats)`, `screen splatter: back from
 under the Pip-Boy (<n> splats)`.
 

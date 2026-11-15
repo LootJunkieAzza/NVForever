@@ -465,7 +465,7 @@ pub fn value_span(title_end: f32, width: f32, value_w: f32) -> ValueSpan {
 /// A card value too long for its room, scrolling sideways: held at its start, moved left
 /// until its end shows, held there, then back to the start, over and over, in real time
 /// (the Pip-Boy pauses the world) [hypothesis: the original's speed and holds are not in
-/// the menu files; observer-checks.md 122].
+/// the menu files; observer-checks.md 128].
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Marquee {
     /// How far it moves: the text's width less the room.
