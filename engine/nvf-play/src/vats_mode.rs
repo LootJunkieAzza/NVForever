@@ -1795,13 +1795,19 @@ fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut Script
     let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0).collect();
     let mut out = Vec::new();
     let mut missed = classic::Missed { reach, ..Default::default() };
+    // A melee or unarmed weapon reaches from body to body, as its swing does
+    // (`fnv_combat::damage::melee_reach`): the target's radius comes off the distance, the
+    // player's is in the reach (`VatsWeapon::classic_reach`, #2656).
+    let to_body = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
     for actor in actors {
         let Some(p) = phys.world.actor_aim_point(actor) else { continue };
         let to = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
-        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
-        if len < 1.0 {
+        let centre = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+        if centre < 1.0 {
             continue;
         }
+        let body = if to_body { phys.world.actor_volume(actor).map_or(0.0, |b| b.radius) } else { 0.0 };
+        let len = (centre - body).max(0.0);
         if len > reach {
             missed.nearest_far = if missed.far == 0 { len } else { missed.nearest_far.min(len) };
             missed.far += 1;
