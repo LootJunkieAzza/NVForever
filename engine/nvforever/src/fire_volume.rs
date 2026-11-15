@@ -145,7 +145,7 @@ impl Plugin for FireVolumePlugin {
         app.add_plugins(MaterialPlugin::<FireVolumeMaterial>::default())
             .init_resource::<FlamesMade>()
             .add_systems(Update, spawn_flames)
-            .add_systems(PostUpdate, follow_emitters.after(TransformSystems::Propagate));
+            .add_systems(PostUpdate, follow_emitters.after(TransformSystems::Propagate).after(nvf_play::photo_mode::HeldViewSet));
     }
 }
 

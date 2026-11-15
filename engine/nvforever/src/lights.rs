@@ -227,7 +227,7 @@ impl Plugin for LightsPlugin {
             app.insert_resource(NeonShader { handle: nif, tune, patched: false }).add_systems(PreUpdate, patch_neon);
         }
         app
-            .add_systems(Update, (patch_attenuation, patch_display_sum, dropped_lights, animate_lights, bind_model_lights, animate_model_lights).chain());
+            .add_systems(Update, (patch_attenuation, patch_display_sum, dropped_lights, animate_lights.run_if(nvf_play::photo_mode::view_live), bind_model_lights, animate_model_lights.run_if(nvf_play::photo_mode::view_live)).chain());
     }
 }
 

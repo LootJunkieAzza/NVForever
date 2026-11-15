@@ -310,15 +310,24 @@ fn tap_spacing(reach: f32) -> f32 {
     return reach * 1.8 / sqrt(f32(BOKEH_TAPS));
 }
 
+// bokeh.rs spread_px: the spacing of the taps that find a disc of radius `c` (the main
+// spiral's, handed over to the wide spiral's as wide_share does), so the prefilter and
+// the fill spread a small bright point as wide as those taps lie apart.
+fn spread_px(c: f32, reach: f32) -> f32 {
+    let wide = reach * NEAR_SCALE * 1.8 / sqrt(f32(NEAR_TAPS));
+    return mix(tap_spacing(reach), wide, wide_share(c, reach));
+}
+
 @fragment
 fn bokeh_prefilter(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let centre = textureSampleLevel(screen, screen_sampler, uv, 0.0);
     let reach = bokeh_reach();
-    let r = tap_spacing(reach);
-    if grade.bokeh.x <= 0.0 || r < 1.0 || coc_px(view_distance(uv)) < r {
+    let c0 = coc_px(view_distance(uv));
+    if grade.bokeh.x <= 0.0 || tap_spacing(reach) < 1.0 || c0 < tap_spacing(reach) {
         return centre;
     }
+    let r = spread_px(c0, reach);
     let dims = vec2<f32>(textureDimensions(screen));
     let h0 = highlight(centre.rgb);
     var acc = centre.rgb * h0;
@@ -423,7 +432,7 @@ fn bokeh_fill(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         return centre;
     }
     let c0 = coc_px(view_distance(uv));
-    let r = min(c0 * 0.15, tap_spacing(bokeh_reach()));
+    let r = min(c0 * 0.15, spread_px(c0, bokeh_reach()));
     if r < 1.0 {
         return centre;
     }

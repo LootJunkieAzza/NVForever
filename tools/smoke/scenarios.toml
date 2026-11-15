@@ -7278,6 +7278,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "photo-mode-coop-hold"
+source = "owner request 2026-11-14: photo mode is a frozen snapshot you fly around in; in co-op the local view holds (poses, particles, faces, water, wind, clouds, sky) while the world goes on, and goes live on close (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvforever/src/view_hold.rs", "engine/nvforever/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PHOTO = "10:open-coop,11:orbit=60,12:shot,15:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(co-op: the view holds, the world goes on\), zoom \d+°', label = "the test aid opens photo mode as in co-op" },
+  { re = 'photo mode: the view holds \(\d+ things drawn as they are now; the world goes on\)', label = "the drawn places and poses are held" },
+  { re = 'view hold: the shaders. clock stands at \d+\.\d\d s', label = "the shaders' clock (water, wind, fire) stands still" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: closed, the view is back on the player",
+  "photo mode: the view goes live again",
+  "view hold: the shaders' clock runs again",
+]
+forbid = [{ text = "menu pause: the picture stands still (photo mode)", label = "the world paused under co-op photo mode" }]
+
+[[scenario]]
 name = "photo-mode-options"
 source = "owner request 2026-11-10: photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
 areas = ["ui"]
