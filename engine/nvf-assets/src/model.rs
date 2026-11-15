@@ -15,10 +15,9 @@ use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
 use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
-use crate::texture::{worker_texture, TextureCache, TextureSnapshot, WorkerTextures};
+use crate::texture::{worker_texture, TextureCache, TextureSnapshot, TextureUsage, WorkerTextures};
 use bevy::asset::AssetHandleProvider;
 use bevy::image::CompressedImageFormats;
-use bevy::render::render_resource::TextureFormat;
 use bevy::tasks::{futures::check_ready, Task};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -968,6 +967,9 @@ impl TextureSource for Stores<'_> {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
         self.textures.texture(raw_path, srgb)
     }
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        self.textures.normal(raw_path)
+    }
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
         self.textures.lacks_alpha(h)
     }
@@ -1004,7 +1006,7 @@ struct Deferred {
     cached: Arc<TextureSnapshot>,
     workers: Arc<WorkerTextures>,
     bc_supported: bool,
-    formats: HashMap<AssetId<Image>, TextureFormat>,
+    unmasked: HashMap<AssetId<Image>, bool>,
     out: DeferredAssets,
 }
 
@@ -1028,12 +1030,18 @@ struct DeferredAssets {
 
 impl TextureSource for Deferred {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
-        let (h, format) = worker_texture(raw_path, srgb, &self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported)?;
-        self.formats.insert(h.id(), format);
+        let usage = if srgb { TextureUsage::Color } else { TextureUsage::Linear };
+        let (h, _, unmasked) = worker_texture(raw_path, usage, &self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported)?;
+        self.unmasked.insert(h.id(), unmasked);
         Some(h)
     }
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        let (h, _, unmasked) = worker_texture(raw_path, TextureUsage::Normal, &self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported)?;
+        self.unmasked.insert(h.id(), unmasked);
+        Some((h, unmasked))
+    }
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
-        self.formats.get(&h.id()).is_some_and(|&f| crate::nif_spawn::format_lacks_alpha(f))
+        self.unmasked.get(&h.id()).copied().unwrap_or(false)
     }
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
         self.workers.alpha_is_mask(raw_path, &self.data)
@@ -1260,7 +1268,7 @@ impl ModelCtx<'_> {
             cached,
             workers: self.textures.workers.clone(),
             bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
-            formats: HashMap::new(),
+            unmasked: HashMap::new(),
             out: DeferredAssets::default(),
         };
         let task = crate::read_pool::read_pool().spawn(async move {
@@ -1886,5 +1894,58 @@ mod tests {
         assert_eq!(node_path(&nodes, &["##catch"]), Some(vec![1, 2]));
         assert_eq!(node_path(&nodes, &["Clip", "##Clip"]), Some(vec![0]));
         assert_eq!(node_path(&nodes, &["ProjectileNode"]), None);
+    }
+}
+
+
+#[cfg(test)]
+mod bc5_model_tests {
+    use super::*;
+    use crate::texture::bc5_tests::{OwnedData, triangle};
+    use bevy::render::render_resource::TextureFormat;
+
+    #[test]
+    fn deferred_and_store_model_sinks_select_the_same_normal_role() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let mut bindposes = Assets::<SkinnedMeshInverseBindposes>::default();
+        let mut morphs = crate::morph::MorphMeshes::default();
+        let mut deferred = Deferred {
+            data: owned.data.clone(),
+            providers: Providers {
+                meshes: meshes.get_handle_provider(), materials: materials.get_handle_provider(),
+                bindposes: bindposes.get_handle_provider(), images: images.get_handle_provider(),
+            },
+            cached: Arc::new(TextureSnapshot::new()), workers: cache.workers.clone(), bc_supported: true,
+            unmasked: HashMap::new(), out: DeferredAssets::default(),
+        };
+        let mut props = crate::nif_spawn::Props::default();
+        props.textures = vec!["old.dds".into(), "signed.dds".into()];
+        let worker_material = shape_material_with(&props, &mut triangle(), &mut deferred).0;
+        let worker_normal = worker_material.base.normal_map_texture.as_ref().unwrap().clone();
+        assert!(deferred.lacks_alpha(&worker_normal));
+        let worker_linear = deferred.texture("signed.dds", false).unwrap();
+        assert_ne!(worker_normal, worker_linear);
+        assert_eq!(cache.take_workers(&mut images, 1.0), 3);
+        assert_eq!(images.get(&worker_normal).unwrap().texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(images.get(&worker_linear).unwrap().texture_descriptor.format, TextureFormat::Bc5RgSnorm);
+        let main_material = {
+            let mut stores = Stores {
+                textures: StoreTextures { textures: &mut cache, data: &owned.data, images: &mut images, formats: None },
+                meshes: &mut meshes, materials: &mut materials, bindposes: &mut bindposes, morphs: &mut morphs,
+            };
+            shape_material_with(&props, &mut triangle(), &mut stores).0
+        };
+        assert_eq!(main_material.base.normal_map_texture.as_ref(), Some(&worker_normal));
+        assert_eq!(main_material.base.base_color_texture, worker_material.base.base_color_texture);
+        let snapshot = cache.snapshot(&images);
+        assert!(snapshot[&("textures\\signed.dds".into(), TextureUsage::Normal)].2);
+        deferred.cached = Arc::new(snapshot);
+        deferred.workers = Arc::new(WorkerTextures::default());
+        assert_eq!(deferred.normal("signed.dds"), Some((worker_normal, true)));
+        assert_eq!(cache.take_workers(&mut images, 2.0), 0);
     }
 }

@@ -589,7 +589,7 @@ impl Plugin for GrassFirePlugin {
                 key: "grass-fire",
                 group: crate::pause::GROUP_MENUS,
                 label: "Grass fires",
-                note: "On: flamers, incendiary rounds and fire blasts set grass alight; the fire spreads a short way, burns anyone standing in it and goes out, and the grass grows back once you leave the area. Off: fire stays where it hits, as in the original.",
+                note: "On: flamers, incendiary rounds and fire blasts set grass alight; the fire spreads and burns whoever stands in it. Off: fire stays where it hits.",
                 switches: "",
                 get: |_| grass_fire_on(),
                 set: |_, on| set_grass_fire(on),

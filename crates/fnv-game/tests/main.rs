@@ -90,6 +90,7 @@ mod showoff3;
 mod set_class;
 mod showoff4;
 mod showoff5;
+mod softlock;
 mod step_budget;
 mod sup1;
 mod sup4;

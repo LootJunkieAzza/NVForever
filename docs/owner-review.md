@@ -224,6 +224,13 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **An intercom nobody has set up speaks for the actor its script names (#2454).**
+  [hypothesis, #2454] When a talking activator starts a conversation before any script
+  told it who speaks, ours lets the one actor its scripts name speak (Ramos for the
+  Hidden Valley intercom), instead of saying nothing. Without it, sneaking into the
+  bunker and being sent out for your gear by McNamara left your controls off for good.
+  Check in game that Ramos speaks on the intercom there on a sneak-in save.
+  ([talking-activators §2](spec-notes/talking-activators.md))
 - **Grass fires: size, speed and regrowth (#2567).** [design] Burning weapons and blasts
   light generated grass; a fire spreads in 64-unit patches (0.5-1.5 s a step, faster
   downwind), each patch burns 6 s, and a fire stops at 1,024 units from its start or 500

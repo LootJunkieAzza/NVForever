@@ -330,10 +330,10 @@ fn place(
             }
             continue;
         };
-        let normal = set.normal.as_deref().and_then(|n| a.textures.get(&texture_path(n), false, &a.data, &mut a.images, a.formats.as_deref()));
+        let normal = set.normal.as_deref().and_then(|n| a.textures.normal(&texture_path(n), &a.data, &mut a.images, a.formats.as_deref()));
+        let (normal, unmasked) = normal.map_or((None, false), |(h, no_alpha)| (Some(h), no_alpha));
         // Specular as a NIF shape's: masked by the normal map's alpha unless it has none
         // (nvf_assets::nif_spawn::specular); none with "No Specular Map".
-        let unmasked = normal.as_ref().and_then(|h| a.images.get(h)).is_some_and(nvf_assets::nif_spawn::lacks_alpha);
         let (reflectance, masked) = match (&normal, set.no_specular) {
             (Some(_), false) if unmasked => (nvf_assets::nif_spawn::UNMASKED_SPECULAR, false),
             (Some(_), false) => (2.0, true),
@@ -551,6 +551,10 @@ fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
 }
 
 #[cfg(test)]
+#[path = "bc5_normal_fixture.rs"]
+pub(crate) mod bc5_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -580,4 +584,96 @@ mod tests {
         assert_eq!(corners, vec![Vec2::new(0.0, 0.0), Vec2::new(0.5, 0.0), Vec2::new(0.0, 0.5), Vec2::new(0.5, 0.5)]);
         assert_eq!(quarter(3).transform_point2(Vec2::ONE), Vec2::ONE);
     }
+    fn owned_sfx() -> Sfx {
+        // Real public plugin startup; no audio output plugin or game update runs.
+        let data = crate::outfits::tests::empty_world_data();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default(), nvf_play::sfx::SfxPlugin));
+        app.insert_resource(nvf_play::PlayWorld(nvf_play::PlayData {
+            lo: data.lo, schema: data.schema, index: data.index, world: 0, interior: None,
+            eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0,
+            start_at_cell_spot: false, packages: false,
+        }));
+        app.finish();
+        app.cleanup();
+        app.world_mut().run_schedule(Startup);
+        app.world_mut().remove_resource::<Sfx>().unwrap()
+    }
+
+    fn emit_decal(world: &mut World, normal: Option<&str>, no_specular: bool) -> StandardMaterial {
+        use bevy::ecs::system::RunSystemOnce;
+        use fnv_combat::fx::{DecalData, Impact, TextureSet};
+        let set = FormId(0x101);
+        let impact = FormId(0x102);
+        let data = DecalData { color: [12, 34, 56], min_width: 4.0, max_width: 4.0, shininess: 20.0, depth: 9.0, ..default() };
+        let mut sfx = world.resource_mut::<Sfx>();
+        sfx.forms.texture_sets.insert(set, TextureSet { diffuse: Some("old.dds".into()), normal: normal.map(str::to_string), no_specular, decal: Some(data), ..default() });
+        sfx.forms.impacts.insert(impact, Impact { texture_set: Some(set), ..default() });
+        let before = world.resource::<Decals>().placed;
+        let mut hits = world.resource_mut::<Messages<ImpactFx>>();
+        hits.clear();
+        hits.write(ImpactFx { impact, shooter: FormId(0), point: [5.0, 6.0, 7.0], normal: [0.0, 0.0, 1.0], dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
+        world.run_system_once(place).unwrap();
+        assert_eq!(world.resource::<Decals>().placed, before + 1, "actual impact producer must create the recipient");
+        let entity = world.resource::<Decals>().live.back().unwrap().entity;
+        assert!(world.get::<ForwardDecal>(entity).is_some());
+        assert_eq!(world.get::<Transform>(entity).unwrap().translation, Vec3::new(5.0, 6.0, 7.0));
+        let handle = &world.get::<MeshMaterial3d<ForwardDecalMaterial<StandardMaterial>>>(entity).unwrap().0;
+        let material = world.resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>().get(handle).unwrap();
+        assert_eq!(material.extension.depth_fade_factor, 9.0);
+        material.base.clone()
+    }
+
+    #[test]
+    fn bc5_actual_impact_producer_uses_normal_role_and_original_alpha() {
+        use bevy::ecs::system::SystemState;
+        use bevy::render::render_resource::TextureFormat;
+        let (_inputs, mut world) = bc5_fixture::inputs();
+        world.insert_resource(owned_sfx());
+        world.init_resource::<Decals>();
+        world.init_resource::<Messages<ImpactFx>>();
+        world.init_resource::<Assets<ForwardDecalMaterial<StandardMaterial>>>();
+        let root = world.spawn((WorldRoot, GlobalTransform::IDENTITY)).id();
+        for (name, size) in [("signed.dds", UVec2::splat(4)), ("partial.dds", UVec2::new(3, 5)), ("unsigned.dds", UVec2::splat(4))] {
+            let (linear, old_linear) = {
+                let mut state = SystemState::<ModelCtx>::new(&mut world);
+                let mut a = state.get_mut(&mut world).unwrap();
+                let h = a.textures.get(name, false, &a.data, &mut a.images, None).unwrap();
+                let image = a.images.get(&h).unwrap().clone();
+                (h, image)
+            };
+            let material = emit_decal(&mut world, Some(name), false);
+            let h = material.normal_map_texture.as_ref().unwrap();
+            bc5_fixture::normal(world.resource::<Assets<Image>>(), h, size);
+            assert_ne!(h, &linear);
+            assert_eq!(material.reflectance, nvf_assets::nif_spawn::UNMASKED_SPECULAR);
+            assert!(material.specular_texture.is_none(), "synthesized alpha is not a decal mask");
+            assert!(material.flip_normal_map_y);
+            assert!(material.base_color_texture.is_some());
+            let again = emit_decal(&mut world, Some(name), true);
+            assert_eq!(again.normal_map_texture.as_ref(), Some(h));
+            assert_eq!(again.reflectance, 0.0);
+            assert!(again.specular_texture.is_none());
+            assert_eq!(again.base_color_texture, material.base_color_texture);
+            let image = world.resource::<Assets<Image>>().get(&linear).unwrap();
+            assert_eq!(image.data, old_linear.data);
+            let expected_linear = match name { "partial.dds" => TextureFormat::Rg8Snorm, "unsigned.dds" => TextureFormat::Bc5RgUnorm, _ => TextureFormat::Bc5RgSnorm };
+            assert_eq!(image.texture_descriptor.format, expected_linear);
+            assert_eq!(world.get::<ChildOf>(world.resource::<Decals>().live.back().unwrap().entity).unwrap().parent(), root);
+        }
+        let old = emit_decal(&mut world, Some("old.dds"), false);
+        assert_eq!(old.reflectance, 2.0);
+        assert_eq!(old.specular_texture, old.normal_map_texture);
+        let image = world.resource::<Assets<Image>>().get(old.normal_map_texture.as_ref().unwrap()).unwrap();
+        assert_eq!(image.texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(image.data.as_deref(), Some([255u8; 16].as_slice()));
+        for path in [None, Some("missing.dds")] {
+            let missing = emit_decal(&mut world, path, false);
+            assert!(missing.normal_map_texture.is_none());
+            assert!(missing.specular_texture.is_none());
+            assert_eq!(missing.reflectance, 0.0);
+            assert!(missing.base_color_texture.is_some());
+        }
+    }
+
 }

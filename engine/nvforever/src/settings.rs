@@ -968,7 +968,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 11] = [
+    let switches: [Switch; 12] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1037,6 +1037,14 @@ fn register_graphics(app: &mut App) {
             },
         ),
         (
+            "terrain-height-blend",
+            "Terrain height blending",
+            "On: where ground textures meet, the new one shows through its brighter stones and clumps first instead of an even fade. Fully painted ground is unchanged.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().terrain_height_blend,
+            |w, on| w.resource_mut::<Graphics>().terrain_height_blend = on,
+        ),
+        (
             "light-shafts",
             "Sun shafts",
             "On: sunlight streams past what stands in front of the sun, stronger the hazier the weather's fog. Not in the original.",
@@ -1071,6 +1079,7 @@ fn register_pipeline_waits(app: &mut App) {
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
+        "terrain-height-blend",
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1246,7 +1255,7 @@ fn upscaler_chosen(world: &World) -> String {
 /// missing (`dlss_download`: picking it opens its dialog; #2250).
 fn upscaler_names(world: &World) -> Vec<String> {
     let mut names: Vec<String> = UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect();
-    if crate::dlss_download::offered(dlss_files_missing(world)) {
+    if dlss_download_offered(world) {
         names.push(crate::dlss_download::CHOICE.to_string());
     }
     names
@@ -1256,7 +1265,7 @@ fn upscaler_names(world: &World) -> Vec<String> {
 /// (`Graphics::upscaler`) as it is.
 fn pick_upscaler(world: &mut World, name: &str) -> bool {
     if crate::dlss_download::is_choice(name) {
-        if !crate::dlss_download::offered(dlss_files_missing(world)) {
+        if !dlss_download_offered(world) {
             return false;
         }
         crate::dlss_download::ask(world);
@@ -1361,9 +1370,10 @@ fn dlss_reason(world: &World) -> Option<crate::upscaler::Unavailable> {
     }
 }
 
-/// DLSS is out of reach only because its files are missing: what Download DLSS… mends.
-fn dlss_files_missing(world: &World) -> bool {
-    dlss_reason(world) == Some(crate::upscaler::Unavailable::FilesMissing)
+/// [design] Offer the download for missing upscaling or frame generation files, without
+/// changing the upscaler's availability (`dlss::FILES` remains its four-file requirement).
+pub(crate) fn dlss_download_offered(world: &World) -> bool {
+    crate::dlss_download::offered(dlss_reason(world))
 }
 
 fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
@@ -1530,8 +1540,12 @@ fn set_overlay(world: &mut World, on: bool) {
 mod fsr_settings_tests {
     use super::*;
 
+    // [design] Menu tests install a scoped probe: choice validation and INI snapshots can
+    // reach offered indirectly, and neither the real folder nor the global cache is a fixture.
+
     #[test]
     fn renderer_registration_covers_aa_ao_fsr_and_defaults_without_latching_no_ops() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use nvf_play::{graphics_resume::GraphicsResume, pause::Paused, settings, PlayState};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
@@ -1566,6 +1580,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn native_aa_row_is_off_and_locked_for_every_supported_fsr_mode_then_restores_the_saved_choice() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
             .insert_resource(graphics::MsaaSetting(Msaa::Sample8))
@@ -1595,6 +1610,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn the_fsr_library_row_switches_between_the_built_in_upscaler_and_the_folders() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
@@ -1620,6 +1636,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn native_aa_row_is_locked_while_dlss_draws_and_follows_the_effective_upscaler() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerStatus};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
@@ -1682,6 +1699,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn the_upscaler_and_its_quality_are_two_named_dropdowns_that_round_trip_every_choice() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
@@ -1721,6 +1739,7 @@ mod fsr_settings_tests {
     /// aids use stay the plain ones.
     #[test]
     fn the_mode_row_shows_the_share_each_upscaler_draws_at() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let q = row(&app, QUALITY_KEY);
@@ -1754,6 +1773,7 @@ mod fsr_settings_tests {
     /// that wait on a switch do; the quality is kept meanwhile, so the next upscaler takes it up.
     #[test]
     fn the_quality_row_is_dimmed_while_the_upscaler_is_off_and_keeps_its_quality() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
@@ -1778,6 +1798,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn choices_are_shown_in_short_words_and_dlss_says_restart_only_while_it_waits() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         let label = |app: &App, i: usize, name: &str| app.world().resource::<Settings>().choice_label(app.world(), i, name);
@@ -1805,6 +1826,7 @@ mod fsr_settings_tests {
     /// the request as it is.
     #[test]
     fn download_dlss_is_a_choice_only_while_the_files_are_missing() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(true));
         use crate::dlss_download::{Asked, CHOICE};
         let missing = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::FilesMissing), fsr: None };
         let mut app = rows_app();
@@ -1825,10 +1847,8 @@ mod fsr_settings_tests {
         assert!(app.world().contains_resource::<Asked>(), "the dialog asked for");
         assert_eq!(requested(&app), UpscalerChoice::Off, "the request unchanged");
         assert_eq!(upscaler_chosen(app.world()), "Off");
-        // Any other reason, or DLSS in reach: no download offered.
+        // Other refusals: no download offered. Ready/restart can still lack frame generation.
         for session in [
-            READY,
-            STOCK,
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: None },
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::UpdaterInFolder), fsr: None },
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::GpuNotSupported), fsr: None },
@@ -1842,7 +1862,58 @@ mod fsr_settings_tests {
     }
 
     #[test]
+    fn missing_frame_generation_does_not_disable_upscaling() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(true));
+        for session in [READY, STOCK] {
+            let mut app = rows_app();
+            app.insert_resource(UpscalerStatus::new(session));
+            assert_eq!(dlss_unavailable(app.world()), None, "the four-file upscaler remains available");
+            assert_eq!(dlss_download_offered(app.world()), cfg!(windows), "missing frame generation files can still be downloaded");
+            let u = row(&app, UPSCALER_KEY);
+            assert!(nvf_play::settings::pick(app.world_mut(), u, "DLSS"));
+            let request = requested(&app);
+            assert!(request.is_dlss());
+            let mut status = app.world_mut().resource_mut::<UpscalerStatus>();
+            status.update(request);
+            if session.streamline_loaded {
+                assert_eq!(status.effective(), request, "upscaling still draws with only its four files");
+            } else {
+                assert!(status.restart_pending());
+            }
+        }
+    }
+
+    #[test]
+    fn download_choice_and_frame_generation_hint_follow_the_probe() {
+        use crate::dlss_download::{Asked, CHOICE, TestOfferProbe};
+        let missing = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::FilesMissing), fsr: None };
+        for probe in [Some(true), Some(false), None] {
+            let _offer_probe = TestOfferProbe::new(probe);
+            for session in [READY, STOCK, missing, READY] {
+                let mut app = rows_app();
+                app.insert_resource(UpscalerStatus::new(session));
+                let want = cfg!(windows) && probe.unwrap_or(session.dlss == missing.dlss);
+                let u = row(&app, UPSCALER_KEY);
+                let names = (app.world().resource::<Settings>().choices(u).unwrap().names)(app.world());
+                assert_eq!(names.iter().any(|name| name == CHOICE), want, "{probe:?}, {session:?}");
+                let hint = if !cfg!(windows) {
+                    "Not on this GPU"
+                } else if want {
+                    "Files missing: Download DLSS… on the Upscaler row"
+                } else {
+                    "The DLSS Frame Generation files are missing"
+                };
+                assert_eq!(frame_generation_unavailable(app.world(), "DLSS").as_deref(), Some(hint), "{probe:?}, {session:?}");
+                assert_eq!(nvf_play::settings::pick(app.world_mut(), u, CHOICE), want);
+                assert_eq!(app.world().contains_resource::<Asked>(), want);
+                assert_eq!(requested(&app), UpscalerChoice::Off);
+            }
+        }
+    }
+
+    #[test]
     fn dlss_is_out_of_reach_with_the_reason_but_a_stored_one_loads() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         for why in [Unavailable::FilesMissing, Unavailable::NotWindows, Unavailable::NotVulkan, Unavailable::GpuNotSupported, Unavailable::UpdaterInFolder, Unavailable::EvaluateFailed] {
             let mut app = rows_app();
             app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: false, dlss: DlssState::Unavailable(why), fsr: None }));
@@ -1877,6 +1948,7 @@ mod fsr_settings_tests {
     /// DLSS request stays the request and the camera draws natively; FSR and off follow.
     #[test]
     fn dlss_that_stopped_working_says_why_and_fsr_still_follows() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let u = row(&app, UPSCALER_KEY);
         let want = UpscalerChoice::Dlss(Quality);
@@ -1896,6 +1968,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn with_streamline_every_switch_is_live_and_without_it_dlss_waits_for_a_restart() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         // What follow_request does each frame, without the process-wide loader state.
@@ -1927,6 +2000,7 @@ mod fsr_settings_tests {
     /// there, those win.
     #[test]
     fn an_older_ini_loads_into_both_rows() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-older-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1958,6 +2032,7 @@ mod fsr_settings_tests {
     /// FSR with the command line's Quality, and the next start loads FSR Performance.
     #[test]
     fn a_test_run_keeps_the_older_inis_quality_through_a_save() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-kept-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1986,6 +2061,7 @@ mod fsr_settings_tests {
     /// rows, logged under the older key.
     #[test]
     fn the_older_key_is_still_taken_by_the_test_aid() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let alias = app.world().resource::<Settings>().alias(LEGACY_KEY).map(|(_, a)| a.rows);
@@ -2005,6 +2081,7 @@ mod fsr_settings_tests {
     /// INI's text, an unknown stored value loads as Default, and it names its switch.
     #[test]
     fn the_dlss_model_row_round_trips_and_an_unknown_value_loads_as_default() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(Quality);
@@ -2052,6 +2129,7 @@ mod fsr_settings_tests {
     /// the INI still loads into it.
     #[test]
     fn the_dlss_model_row_is_dimmed_while_dlss_does_not_draw() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let m = row(&app, MODEL_KEY);
         let dimmed = |app: &App| app.world().resource::<Settings>().disabled_status(app.world(), m);
@@ -2089,6 +2167,7 @@ mod fsr_settings_tests {
     /// run a given `--dlss-model` keeps the command line's model.
     #[test]
     fn the_dlss_model_follows_the_settings_precedence() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-dlss-model-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2124,6 +2203,7 @@ dlss-model=Preset K
 
     #[test]
     fn both_upscaler_rows_name_the_same_switches() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let app = rows_app();
         let settings = app.world().resource::<Settings>();
         let switches = |key| {
@@ -2141,6 +2221,7 @@ dlss-model=Preset K
     /// line, so it is left to the start's own check, `nvf_play::settings::check_notes`.)
     #[test]
     fn the_renderer_notes_are_within_the_budget() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         register_counter_rows(&mut app);
         let settings = app.world().resource::<Settings>();
@@ -2159,6 +2240,7 @@ dlss-model=Preset K
     /// note names one any more.
     #[test]
     fn the_graphics_rows_name_the_switches_their_notes_named() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let app = rows_app();
         let settings = app.world().resource::<Settings>();
         let want: &[(&str, &[&str])] = &[
@@ -2179,6 +2261,7 @@ dlss-model=Preset K
             ("neon-glow", &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
+            ("terrain-height-blend", &["--graphics", "--graphics-only"]),
             ("light-shafts", &["--graphics"]),
             ("water-reflections", &["--graphics"]),
             ("water-mirror", &["--graphics-only"]),
@@ -2218,6 +2301,7 @@ dlss-model=Preset K
 
     #[test]
     fn saved_frame_generation_is_changed_and_defaults_restore_the_command_line() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::frame_gen::{FrameGenKind as K, FrameGeneration};
         use nvf_play::settings::{changed_rows, restore, StartChoices, StartStates};
         let dir = std::env::temp_dir().join(format!("nvf-frame-generation-defaults-{}", std::process::id()));
@@ -2254,6 +2338,7 @@ dlss-model=Preset K
     /// frames row's choices (#2317).
     #[test]
     fn frame_generation_choices_read_names_texts_and_the_old_switch() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::frame_gen::FrameGenKind as K;
         for (text, kind) in [("Off", K::Off), ("FSR 3.1", K::Fsr), ("DLSS", K::Dlss), ("dlss", K::Dlss), ("fsr", K::Fsr), ("true", K::Fsr), ("false", K::Off), ("on", K::Fsr), ("off", K::Off)] {
             assert_eq!(K::parse(text), Some(kind), "{text}");
@@ -2273,6 +2358,7 @@ dlss-model=Preset K
     /// agree for every precedence case, for the rows' keys and the older one.
     #[test]
     fn the_start_and_the_settings_read_the_upscaler_alike() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-start-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

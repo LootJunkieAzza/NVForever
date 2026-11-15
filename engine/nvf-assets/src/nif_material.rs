@@ -918,6 +918,7 @@ impl Plugin for NifMaterialPlugin {
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, (apply_blended_cutouts, see_through_casts_no_shadow));
+        crate::bc5_field::install(app);
     }
 }
 

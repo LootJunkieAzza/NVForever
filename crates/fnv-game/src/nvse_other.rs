@@ -310,6 +310,17 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
+        // The receiver is the target; player perception and self-pairs do not count.
+        // Read the existing measured cache, without another sensing pass or expiry rule
+        // (actor-behaviour.md §2.4). Missing/nonactor zero is a selected portable
+        // convention matching neighboring queries; native invalid behavior is unknown.
+        "isactordetected" => {
+            let target = subject.filter(|&r| matches!(g.data.sig(base(g, r)), Some(sig) if sig == *b"NPC_" || sig == *b"CREA"));
+            yes(target.is_some_and(|target| target != FormId::PLAYER_REF
+                && g.detection.pairs.iter().any(|(&(detector, seen), (d, _))|
+                    seen == target && detector != target && detector != FormId::PLAYER_REF
+                        && d.band == crate::detection::Band::Detected)))
+        }
         // Four-character record signature, separate from GetObjectType's numeric
         // result (docs/spec-notes/form-type-source-call.md).
         "getisformtype" => {
