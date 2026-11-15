@@ -519,6 +519,9 @@ fn rig_generated(
     Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, last_root: None, label, blowups: 0 })
 }
 
+/// The bones' and the actors' transforms; not the cameras, which `simulate` reads too.
+type Placed<'w, 's> = Query<'w, 's, (&'static mut Transform, &'static mut GlobalTransform), (Without<SmpRig>, Without<Camera3d>)>;
+
 /// Step every system on its actor's pose and write its bones back.
 fn simulate(
     time: Res<Time>,
@@ -526,7 +529,7 @@ fn simulate(
     sky: Option<Res<crate::sky::SkyState>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut rigs: Query<&mut SmpRig>,
-    mut transforms: Query<(&mut Transform, &mut GlobalTransform), Without<SmpRig>>,
+    mut transforms: Placed<'_, '_>,
     mut reported: Local<bool>,
 ) {
     let dt = time.delta_secs();
@@ -612,5 +615,26 @@ fn simulate(
     if steps > 0 && !*reported {
         *reported = true;
         info!("smp: simulating {steps} system(s), {} actor(s) colliding", colliding.len());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bevy checks the systems' queries for conflicting access only when they first run:
+    /// run them once on an empty world (a camera and an empty rig included).
+    #[test]
+    fn the_systems_run_without_conflicting_queries() {
+        let mut world = World::new();
+        world.init_resource::<Time>();
+        world.init_resource::<SmpCache>();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<SkinnedMeshInverseBindposes>>();
+        world.spawn((Camera3d::default(), Camera::default(), Transform::IDENTITY, GlobalTransform::IDENTITY));
+        let mut schedule = Schedule::default();
+        schedule.add_systems((rig_candidates, simulate).chain());
+        schedule.run(&mut world);
+        schedule.run(&mut world);
     }
 }
