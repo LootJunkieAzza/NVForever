@@ -186,6 +186,14 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Grass fires: size, speed and regrowth (#2567).** [design] Burning weapons and blasts
+  light generated grass; a fire spreads in 64-unit patches (0.5-1.5 s a step, faster
+  downwind), each patch burns 6 s, and a fire stops at 1,024 units from its start or 500
+  patches, at most 8 fires at once. Anyone standing in it catches the source's burn,
+  credited to whoever started it. Burnt grass grows back whenever its cell reloads (not
+  kept in saves). Bigger reach, a slower front, fires that leave the ground scorched for a
+  game day, or trees and shrubs that burn too are each a figure or a follow-up away.
+  [grass-fire](design/grass-fire.md)
 19. **Walking away from a conversation.** The world freezes while you talk, as in the
     original, and walking off does not end it. Should walking off end it where the line
     allows leaving? ([dialogue](design/dialogue.md))

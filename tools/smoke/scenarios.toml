@@ -26903,6 +26903,7 @@ paths = ["engine/nvforever/src/pipboy_check.rs", "engine/nvforever/src/player_bo
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000EE692", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_PIPBOY = "6:open,7.8:close,16:open,19.5:close", NVF_PLAY_TEST_KEYS = "24:g,24.4:g,29:g,31:g", NVF_PLAY_TEST_SHOTS = "5:check_before.png,7:check_quick_up.png,8.6:check_quick_after_0.8s.png,10:check_quick_after_2.2s.png,13:check_quick_after_5.2s.png,17.5:check_tab_up.png,20.5:check_tab_after_1s.png,22:check_tab_after_2.5s.png,24.2:check_glance_quick_up.png,25.5:check_glance_quick_after_1.1s.png,27:check_glance_quick_after_2.6s.png,30.5:check_glance_up.png,32:check_glance_after_1s.png,33.5:check_glance_after_2.5s.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 35
+
 expect = [
   { re = 'Third rig: Pip-Boy check Full put away', min = 2, label = "the full Pip-Boy check is put away twice" },
   { re = 'Third rig: Pip-Boy check Glance put away', min = 2, label = "the glance check is put away twice" },
@@ -26910,3 +26911,30 @@ expect = [
   { re = 'Third rig: Pip-Boy check \w+ gone', min = 4, label = "all four checks end" },
 ]
 manual = "check_before.png: third-person body, arms down; check_quick_after_*.png, check_tab_after_*.png, check_glance_*after_*.png: arms down, no left arm raised to the wrist; check_*_up.png: the Pip-Boy (or glance) up"
+
+[[scenario]]
+name = "grass-fire"
+source = "owner request 2026-11-14 (#2567, docs/design/grass-fire.md): fire from a burning weapon spreads across grass, sets the actors in it alight and goes out within a hard limit; the grass blackens and sinks away and grows back when its cell reloads"
+note = "the player (god mode) fires the Flamer (0000432D, fuel 00029371) north at the grass by the Prospector Saloon (nearest tufts about 230 units north) for a second from 26 s (message boxes off: one open stops the trigger), then looks at the fire; Easy Pete is held in place and put 250 units in front, in the fire's path, at 27 s; the fire runs to its end. Frames for the eye: the front spreading, the black grass sinking, the scorched ground left behind"
+areas = ["combat", "grass"]
+paths = ["engine/nvf-play/src/grass_fire.rs", "engine/nvforever/src/grass_fire_fx.rs", "engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:200", NVF_PLAY_TEST_LOOK = "9:5:-24,27.5:5:-14", NVF_PLAY_TEST_SCRIPT = "26.5:call:EasyPeteRef:SetRestrained:1,27:moveto:EasyPeteRef:player:0:250:0", NVF_PLAY_TEST_CONTROL = "9:weapon,26:fire,27:fire", NVF_PLAY_TEST_SHOTS = "29:grassfire_0.png,33:grassfire_1.png,39:grassfire_2.png,47:grassfire_3.png,60:grassfire_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12", "--graphics-only", "no-fuller-fire"]
+run_seconds = 80
+expect = [
+  { re = 'graphics: .*(?<!no )fuller fire', count = 0, label = "the fuller fire is off (owner 2026-11-14: default fire before testing grass fires); the graphics line never names it on (\"no fuller fire\" here, no mention once it is off by default)" },
+  { re = 'of the fuller fire \[', count = 0, label = "no fire gets the fuller fire's added systems" },
+  { re = 'grass fire fx: \d+ drawn \(cap 200\), (?P<n>\d+) near \(cap 24', range = [0, 24], all = true, label = "the GPU-safe caps hold: never more than 24 flame and smoke models near the camera" },
+  { re = 'grass fire 1: started at .* by the player with .*\(00044B30\)', label = "the Flamer's burn lights the grass where its flame lands" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiresmall01.nif: ', label = "the small flame model is loaded" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiremed01.nif: ', label = "the larger flame model is loaded" },
+  { re = 'particles: born in meshes.mps.mpsfiremed01.nif: \S+ [1-9]', label = "the larger flames emit" },
+  { re = 'grass fire fx summary: .* (?P<n>\d+) smoke, (?P<m>\d+) lights', range = [1, 1000], label = "burnt-out patches smoulder" },
+  { re = 'particles: born in meshes.mps.mpsfiresmall01.nif: \S+ [1-9]', label = "the flames emit their particles" },
+  { re = 'grass fire: EasyPeteRef \(00104C80\) caught fire from fire 1', label = "Easy Pete, put in the fire's path, catches fire" },
+  { re = 'grass fire: the player caught fire', count = 0, label = "the player in god mode takes no burn" },
+  { re = 'grass fire 1: out after .*: (?P<n>\d+) patches burnt', range = [2, 500], label = "the fire spread and went out within its patch limit" },
+  { re = 'grass fire 1: out after .* reached (?P<n>\d+) units of 1024', range = [0, 1024], label = "it never reached past its limit" },
+  { re = 'grass fire fx summary: [1-9]\d* flames drawn', label = "flames were drawn" },
+  { re = 'failed to process shader', count = 0, label = "the grass and terrain shaders compile (a broken grass.wesl drew no grass at all)" },
+]
