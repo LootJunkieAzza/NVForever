@@ -543,7 +543,7 @@ impl Plugin for PipBoyPlugin {
                     (hotkey_panel::draw_over_tiles, data::trace_over_tiles, data::popup_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
-                    (frame::hover_boxes, sounds::play),
+                    (frame::hover_boxes, sounds::play, frame::marquees),
                 )
                     .chain()
                     .in_set(PlaySet::Ui),

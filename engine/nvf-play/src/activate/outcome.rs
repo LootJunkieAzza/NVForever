@@ -97,8 +97,11 @@ impl Action {
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
             Action::Talk => "Talk".into(),
-            // [hypothesis: the original's word for picking a pocket]
-            Action::Steal => "Steal".into(),
+            // Picking a pocket reads "Pickpocket", as the data spells its topic (FalloutNV.esm
+            // DIAL `Pickpocket`, FULL "Pickpocket"); an owned item's "Steal" is
+            // `crate::reticle::Prompt::of` [owner 2026-11-14, queue: "F) Steal" on Nolan
+            // Crow "should read Pickpocket"; no game setting holds the label].
+            Action::Steal => "Pickpocket".into(),
             Action::Search => "Search".into(),
             Action::Activate => "Activate".into(),
             // [hypothesis, hacking.md §8: the original's word for a terminal]

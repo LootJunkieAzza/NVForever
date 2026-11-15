@@ -2106,3 +2106,26 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      on his head, and draws nothing of `loungechair_tops.nif`'s property-less marker
      shapes [hypothesis]. To check: screenshots of Oliver (Hoover Dam visitor center)
      from the front and side, and of a Tops pool lounge chair (FURN 0x00119821) close up.
+## Added 2026-11-14 (the Pip-Boy's long EFFECTS line)
+
+122. **How does the original scroll a Pip-Boy card value too long for its card?** (P3;
+     pipboy.md cards.) `card_info.xml` holds the value between the title's width + 15 and
+     the card's width − 10, but it has no scroll of its own. The owner reports that the
+     original clips a long EFFECTS line and scrolls it sideways. NVForever holds it 1.5 s
+     at its start, moves it at 45 units a second until its end shows, holds it 1.5 s, then
+     jumps back to the start [hypothesis]. To check: with an Atomic Cocktail in Items >
+     Aid, record the EFFECTS card for 15 s. Note the hold at each end, the speed, whether
+     it jumps back or scrolls back, and whether it starts over when another item is
+     selected.
+
+## Added 2026-11-14 (screen blood under the Pip-Boy)
+
+123. **Does the original show its screen blood (the splats and their red flares) over the
+     open Pip-Boy?** (P3; screen-splatter.md §4.) NVForever hides the splats while the
+     full Pip-Boy is up, as it hides the HUD, and they keep ageing under it
+     (`nvf_play::screen_splatter`) [hypothesis]. Without this, the flares showed as red
+     glow dots on the Pip-Boy in the hands (queue item 212). To check, in the original:
+     get hurt by a shot until blood is on the screen, open the Pip-Boy within 2 s, and
+     take screenshots at 0.5 and 3 s after Tab and 0.2 s after closing. Note whether any
+     blood or red dot draws over the Pip-Boy, and whether the blood is still there, or has
+     faded further, after closing.

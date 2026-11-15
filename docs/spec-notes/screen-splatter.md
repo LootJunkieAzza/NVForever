@@ -111,6 +111,15 @@ splats showed bright red-white glints at their cores only with the opacity facto
   that is about the dot added) [engineering choice: the UI draws by alpha]. The white in
   the original's glints is not reproduced.
 
+**Under the Pip-Boy** (built 2026-11-14, queue item 212): the splats are a picture over
+the world, and the Pip-Boy in the hands is drawn in the world, so they lay over it and
+their flares showed as red glow dots on its screen [observed: the dlc-solo lr2long run,
+nine splats from a hurt one second before the Pip-Boy came up]. While the full Pip-Boy is
+up (from the moment it starts to come up until it is fully down, as for the HUD), the
+splats are not drawn; they keep ageing [hypothesis: observer check 123]. Log:
+`screen splatter: hidden under the Pip-Boy (<n> splats)`, `screen splatter: back from
+under the Pip-Boy (<n> splats)`.
+
 Log: `screen splatter: <n> splats on the screen (hurt: <lost> of <max> health)`. Smoke
 `screen-splatter-hurt`: the hit aid hurts the player for 30 and 8 of the starting 105
 (or whatever the save has) Health.

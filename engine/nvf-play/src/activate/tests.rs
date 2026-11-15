@@ -258,6 +258,9 @@ fn inaccessible_doors_and_activation_prompts() {
     let ix = index();
     assert_eq!(describe(&sim, ix, 0x7777), Some(("Door".into(), Action::Inaccessible)));
     assert_eq!(Action::Inaccessible.label(), "Inaccessible");
+    // A sneaking player's action on a living actor, and on an owned item.
+    assert_eq!(Action::Steal.label(), "Pickpocket");
+    assert_eq!(super::outcome::prompt("Nolan Crow", &Action::Steal), ("Pickpocket".to_string(), "Nolan Crow".to_string()));
     assert_eq!(crate::reticle::activation_prompt(&sim, 0x7778).as_deref(), Some("Search Footlocker"));
     assert_eq!(crate::reticle::activation_prompt(&sim, CHEST_REF), None);
 }
