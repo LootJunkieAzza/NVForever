@@ -54,9 +54,9 @@ fn placed_creatures_carry_their_poison() {
     let all = g.apply_hit_effect(FormId::PLAYER_REF, item, Some(FormId(0x00168CC2)));
     let name = |a: &fnv_game::aid::Applied| format!("{} {:?} {}", data.name(a.effect), a.change.map(|c| c.amount), a.duration);
     let (applied, inactive): (Vec<_>, Vec<_>) = all.iter().partition(|a| !a.inactive);
-    let names: Vec<String> = applied.iter().map(|a| name(a)).collect();
+    let names: Vec<String> = applied.iter().copied().map(name).collect();
     assert_eq!(applied.len(), 3, "{names:?}");
-    let off: Vec<String> = inactive.iter().map(|a| name(a)).collect();
+    let off: Vec<String> = inactive.iter().copied().map(name).collect();
     assert!(off.len() == 1 && off[0].starts_with("Poison") && off[0].ends_with(" 8"), "{off:?}");
     assert!(names[0].starts_with("Poison") && names[0].contains("30"), "{names:?}");
 
