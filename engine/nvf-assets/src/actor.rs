@@ -1746,6 +1746,8 @@ mod tests {
                 ancestors: Vec::new(),
                 own: Affine3A::IDENTITY,
                 geometry_index: 0,
+                inverse_binds: None,
+                smp: None,
             }
         };
         let cap = PreparedPart { shapes: vec![quad([8.9, -7.7, -8.6], [17.7, 11.0, 8.6])], ..Default::default() };
