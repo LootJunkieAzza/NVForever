@@ -1342,8 +1342,14 @@ impl Residents {
             .filter_map(|r| {
                 let a = self.core.ai.agents.get(&r.actor)?;
                 let w = &a.walker;
-                (!drawn(world, streamer, w.space, w.feet) && streamer.coop_areas.iter().any(|c| c.holds(w.space, w.feet)))
-                    .then(|| (r.actor.0, r.base, w.space, w.feet, w.heading, a.activity == Activity::Travelling && w.moving))
+                (!drawn(world, streamer, w.space, w.feet) && streamer.coop_areas.iter().any(|c| c.holds(w.space, w.feet))).then(|| {
+                    // Not under the land (`actor_feet::on_the_land`).
+                    let land = match w.space {
+                        Space::World(ws) => crate::actor_feet::land_height_in(world, ws, w.feet[0], w.feet[1]),
+                        Space::Interior(_) => None,
+                    };
+                    (r.actor.0, r.base, w.space, crate::actor_feet::on_the_land(w.feet, land), w.heading, a.activity == Activity::Travelling && w.moving)
+                })
             })
             .collect()
     }
