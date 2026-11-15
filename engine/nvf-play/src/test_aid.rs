@@ -26,7 +26,8 @@
 //!   (default: the current folder).
 //! - `NVF_PLAY_TEST_SHOTS_WALL=<unix seconds>`: the `NVF_PLAY_TEST_SHOTS` items written
 //!   `w<seconds>` count from that wall-clock instant instead, so two windows started apart
-//!   (co-op) film the same moment under the same name.
+//!   (co-op) film the same moment under the same name; without it they count from the
+//!   game's start. `w` items alone are enough: no play-time item is needed.
 //! - `NVF_PLAY_TEST_FACE=<seconds:reference FormID hex,...>`: at each time, put the player
 //!   [`FACE_DISTANCE`] units in front of the reference, by the arrival rule, facing it
 //!   level. In front: towards the door's own arrival point (where its partner door's XTEL
@@ -540,6 +541,21 @@ struct Aids {
     fire_held: bool,
 }
 
+impl Aids {
+    /// Whether nothing is scheduled, so the systems that act on the aids need not run. The
+    /// wall-clock shots count: a run with only `w<seconds>` shots still takes them.
+    fn nothing_due(&self) -> bool {
+        self.uses.is_empty()
+            && self.shots.is_empty()
+            && self.wall_shots.is_empty()
+            && self.face.is_empty()
+            && self.looks.is_empty()
+            && self.gotos.is_empty()
+            && self.moves.is_empty()
+            && self.presses.is_empty()
+    }
+}
+
 pub(crate) fn setup(app: &mut App) {
     app.insert_resource(Unattended::from_env());
     // The test aid and the debug switch of the same name do the same; only the test aid
@@ -606,7 +622,8 @@ pub(crate) fn setup(app: &mut App) {
         let (wall, play): (Vec<&str>, Vec<&str>) = v.split(',').map(str::trim).partition(|i| i.starts_with('w'));
         aids.shots = shots(&play.join(","), &dir);
         aids.wall_shots = shots(&wall.iter().map(|i| &i[1..]).collect::<Vec<_>>().join(","), &dir);
-        aids.shots_wall = var("NVF_PLAY_TEST_SHOTS_WALL").and_then(|v| v.trim().parse().ok());
+        // Without the instant, the `w` shots count from this game's start.
+        aids.shots_wall = var("NVF_PLAY_TEST_SHOTS_WALL").and_then(|v| v.trim().parse().ok()).or_else(|| (!aids.wall_shots.is_empty()).then(unix_now));
     }
     if let Some(v) = var("NVF_PLAY_TEST_FACE") {
         aids.face = faces(&v);
@@ -638,7 +655,7 @@ pub(crate) fn setup(app: &mut App) {
     if let Some(v) = var("NVF_PLAY_TEST_USE") {
         aids.uses = faces(&v);
     }
-    if aids.uses.is_empty() && aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() && aids.moves.is_empty() && aids.presses.is_empty() {
+    if aids.nothing_due() {
         return;
     }
     app.insert_resource(aids).add_systems(
@@ -810,10 +827,15 @@ fn use_items(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut sim: ResMu
     }
 }
 
+/// The wall clock, unix seconds.
+fn unix_now() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+}
+
 fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
     let mut due = Vec::new();
     if let Some(epoch) = aids.shots_wall {
-        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| (d.as_secs_f64() - epoch) as f32);
+        let wall = (unix_now() - epoch) as f32;
         due.extend(take_due(&mut aids.wall_shots, wall));
     }
     if let Some(now) = time.world_secs() {
@@ -957,6 +979,15 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn wall_clock_shots_alone_are_something_to_do() {
+        assert!(Aids::default().nothing_due());
+        let wall_only = Aids { wall_shots: vec![(1.5, PathBuf::from("play-1.5s.png"))], shots_wall: Some(0.0), ..Aids::default() };
+        assert!(!wall_only.nothing_due(), "a run with only w<seconds> shots must still take them");
+        let play_only = Aids { shots: vec![(5.0, PathBuf::from("play-5s.png"))], ..Aids::default() };
+        assert!(!play_only.nothing_due());
+    }
 
     #[test]
     fn the_key_aid_names_arrows_and_wheel_notches() {
