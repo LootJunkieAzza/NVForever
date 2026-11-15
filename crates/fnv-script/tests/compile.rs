@@ -1039,6 +1039,42 @@ end",
     assert_eq!(h.0[&3], Value::Num(110.0));
 }
 
+/// Nova Arizona's start-up checks (NVSE\Plugins\Scripts\ln_NovaArizona.txt) pass: hNVSE
+/// and AnhNVSE at the versions their DLLs register (120, 131), and JIP LN, JohnnyGuitar
+/// and ShowOff as before (laptop smoke run 2026-11-15: "Missing AnhNVSE plugin version
+/// >=1.31. Installed version: -1").
+#[test]
+fn nova_arizonas_plugin_checks_find_hnvse_and_anhnvse() {
+    let h = run(
+        "float h
+float a
+float missing
+begin GameMode
+let h := GetPluginVersion \"hNVSE\"
+let a := GetPluginVersion \"AnhNVSE\"
+if GetPluginVersion \"hNVSE\" < 1.20
+set missing to missing + 1
+endif
+if GetPluginVersion \"AnhNVSE\" < 1.31
+set missing to missing + 1
+endif
+if GetPluginVersion \"JIP LN NVSE\" < 57.30
+set missing to missing + 1
+endif
+if GetPluginVersion \"JohnnyGuitarNVSE\" < 5.19
+set missing to missing + 1
+endif
+if GetPluginVersion \"ShowOffNVSE Plugin\" < 1.81
+set missing to missing + 1
+endif
+end",
+    );
+    assert_eq!(h.0[&1], Value::Num(120.0));
+    assert_eq!(h.0[&2], Value::Num(131.0));
+    // `missing` is never set: every check passes.
+    assert!(h.0.get(&3).is_none_or(|v| *v == Value::Num(0.0)), "{:?}", h.0.get(&3));
+}
+
 #[test]
 fn fatan_follows_the_games_approximation() {
     // [observed: jip-probes rules1 and rules2 (#1025), eight and ten decimals].
@@ -1501,3 +1537,82 @@ fn macro_colon_assign_and_aware_arguments_stop_at_a_comparison() {
     assert_eq!(h.0[&2], Value::Num(1.0));
 }
 
+
+fn if_cond(p: &Program) -> &Expr {
+    let Stmt::If { arms, .. } = &body(p)[0] else { panic!("an if first: {:?}", body(p)) };
+    &arms[0].cond
+}
+
+/// A condition broken over lines inside its parentheses, the next line starting with an
+/// operator, is one condition: More Mojave's MoreMojaveExplodingBoatFlySCRIPT (laptop
+/// smoke run 2026-11-15: "line 19: syntax missing )"; its compiled bytes hold the whole
+/// condition).
+#[test]
+fn a_condition_goes_on_in_the_next_line_inside_its_parentheses() {
+    let (c, p) = build(
+        "short a\nbegin GameMode\n\tif (  ( GetStage TestQuest == 34 ) || ( GetStage TestQuest == 35 )  \n\t\t|| ( GetStage TestQuest == 33 )  )\n\t\tset a to 1\n\tendif\nend",
+    );
+    assert!(c.diags.is_empty(), "{:?}", c.diags);
+    assert_eq!(ops(if_cond(&p)).iter().filter(|o| o.starts_with("call")).count(), 3, "{:?}", ops(if_cond(&p)));
+    // A line that does not start with an operator is a statement of its own, under an
+    // unclosed condition as before.
+    let (_, p) = build("short a\nbegin GameMode\nif ( GetStage TestQuest == 1\nset a to 1\nendif\nend");
+    let Stmt::If { arms, .. } = &body(&p)[0] else { panic!("{:?}", body(&p)) };
+    assert_eq!(arms[0].body.len(), 1, "{:?}", arms[0].body);
+    assert_eq!(ops(&arms[0].cond).iter().filter(|o| o.starts_with("call")).count(), 1, "{:?}", ops(&arms[0].cond));
+}
+
+/// A vanilla `if` that gives a function a parenthesised expression for an argument is read
+/// with the extender's grammar, the expression the argument: Nova Arizona's
+/// `if getobjectivecompleted AZWhiteHillsMineDialogue ( 7 && 35 ) == 1` (its bytes pass the
+/// expression as GetObjectiveCompleted's objective; laptop smoke run 2026-11-15: "2 values
+/// left on the stack").
+#[test]
+fn a_parenthesised_argument_makes_the_condition_an_extended_one() {
+    let (c, p) = build("short a\nbegin GameMode\nif GetObjectiveCompleted TestQuest ( 7 && 35 ) == 1\nset a to 1\nendif\nend");
+    assert!(c.diags.is_empty(), "{:?}", c.diags);
+    assert_eq!(ops(if_cond(&p)), ["x"]);
+    // Without the parentheses it stays a vanilla condition.
+    let (_, p) = build("short a\nbegin GameMode\nif GetObjectiveCompleted TestQuest 7 == 1\nset a to 1\nendif\nend");
+    assert_eq!(ops(if_cond(&p)), ["call11A4", "1", "=="]);
+}
+
+/// Values a vanilla condition leaves beside a whole expression (read with the extender's
+/// grammar for its extender call) compile, with a warning, to a condition that stops the
+/// script, as the original's leftover values do: Dry Wells' `if getquestfailed Q 0 &&
+/// getobjectivedisplayed Q 10 1` (laptop smoke run 2026-11-15: "syntax unexpected 0 &&
+/// ..." failed the whole unit; observer-checks.md check 32).
+#[test]
+fn surplus_values_in_a_vanilla_condition_stop_the_script_and_compile() {
+    let (c, p) = build("short a\nbegin GameMode\nset a to 1\nif GetQuestFailed TestQuest 0 && GetObjectiveDisplayed TestQuest 10 1\nset a to 2\nendif\nend");
+    assert_eq!(c.diags.iter().map(|d| d.kind).collect::<Vec<_>>(), ["surplus_operands"]);
+    let Stmt::If { arms, .. } = &body(&p)[1] else { panic!("the if second") };
+    assert_eq!(ops(&arms[0].cond), ["0", "0"]);
+    // `if eval` keeps refusing them.
+    let t = table();
+    let c = compile("short a\nbegin GameMode\nif eval GetQuestFailed TestQuest 0 && 1\nendif\nend", &t, &World, None);
+    assert!(c.errors().next().is_some());
+}
+
+/// A form a mod renamed after compiling: the source's old name stands for the seed's form
+/// that no word of the source names (NovaArizona.esm SCPT 0600CE4A, QUST 06008E4A stage
+/// 10, INFO 06021079). With no such form, or more of them than unknown names, the name
+/// stays unresolved.
+#[test]
+fn an_old_name_stands_for_the_reference_list_form_the_source_never_names() {
+    let t = table();
+    let src = "begin GameMode\nset TestQuest.bDone to 1\nplayer.AddItem OldCapsName 1\nend";
+    let refs = [RefSlot::Form(QUEST), RefSlot::Form(CAPS)];
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &refs, unknown_calls: true, unknown_operands: true }));
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert!(c.diags.iter().any(|d| d.kind == "renamed_form" && d.detail == "oldcapsname as 0000000F"), "{:?}", c.diags);
+    assert_eq!(c.refs[..2], [RefSlot::Form(QUEST), RefSlot::Form(CAPS)]);
+    let p = decode(&c.bytes, &t).program;
+    let Stmt::Call { call } = &body(&p)[1] else { panic!("{:?}", body(&p)) };
+    assert_eq!(call.args[0], Arg::Ref(fnv_script::RefIndex(2)));
+
+    for refs in [&[RefSlot::Form(QUEST)][..], &[RefSlot::Form(QUEST), RefSlot::Form(CAPS), RefSlot::Form(GLOBAL)]] {
+        let c = compile(src, &t, &World, Some(Seed { variables: &[], refs, unknown_calls: true, unknown_operands: true }));
+        assert!(c.errors().any(|d| d.kind == "unresolved_name" && d.detail == "OldCapsName"), "{refs:?}: {:?}", c.diags);
+    }
+}

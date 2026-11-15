@@ -93,7 +93,19 @@ impl Compiled {
 /// Compile one unit's source. With a `seed`, names resolve against the unit's own
 /// reference list first and keep its indices; new ones are added after them.
 pub fn compile(src: &str, table: &FunctionTable, env: &dyn Env, seed: Option<Seed<'_>>) -> Compiled {
-    gen::Gen::new(table, env, seed).unit(src)
+    let c = gen::Gen::new(table, env, seed).unit(src);
+    let Some(s) = seed.filter(|_| c.errors().any(|d| d.kind == "unresolved_name")) else { return c };
+    let renamed = gen::renamed_forms(src, &c.diags, &s, env);
+    if renamed.is_empty() {
+        return c;
+    }
+    let mut g = gen::Gen::new(table, env, seed);
+    let mut notes: Vec<Diag> = renamed.iter().map(|(n, f)| Diag { line: 0, kind: "renamed_form", error: false, detail: format!("{n} as {f:08X}") }).collect();
+    notes.sort_by(|a, b| a.detail.cmp(&b.detail));
+    g.renamed = renamed;
+    let mut c = g.unit(src);
+    c.diags.extend(notes);
+    c
 }
 
 /// Compile source as the extender's runtime compiler does: the console, the Script

@@ -99,6 +99,9 @@ pub(super) struct Gen<'a> {
     ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
     seed_edids: HashMap<String, u32>,
+    /// Names the source spells that no form has, by lower-case name, and the seed form
+    /// each stands for ([`renamed_forms`]).
+    pub(super) renamed: HashMap<String, u32>,
     blocks: HashMap<String, u16>,
     enums: HashMap<String, HashMap<String, u16>>,
     diags: Vec<Diag>,
@@ -209,6 +212,7 @@ impl<'a> Gen<'a> {
             runtime: false,
             ref_vars: Default::default(),
             seed_edids,
+            renamed: HashMap::new(),
             blocks,
             enums,
             diags: Vec::new(),
@@ -462,6 +466,9 @@ impl<'a> Gen<'a> {
         }
         if let Some(i) = self.env.form(name) {
             return Some(i);
+        }
+        if let Some(&f) = self.renamed.get(&low) {
+            return Some(self.env.info(f).unwrap_or(FormInfo { form: f, sig: [0; 4] }));
         }
         if name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
             return self.hex_form(name);
@@ -984,7 +991,18 @@ impl<'a> Gen<'a> {
         // and so does a vanilla `if` or `set` that calls an extender function
         // (`if rItem.GetBaseObject == rGun`) [observed: the peer's nvse-inv probes compile in
         // the original with xNVSE].
-        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && self.calls_extender()) {
+        // So does a vanilla `if` that gives a function a parenthesised expression for an
+        // argument it still takes: Nova Arizona's AZWhiteHillsMineDialogueScript (SCPT
+        // 0x06008E6A) has `if getobjectivecompleted AZWhiteHillsMineDialogue ( 7 && 35 ) == 1`,
+        // and its compiled bytes give GetObjectiveCompleted the expression as its second
+        // argument (0xFFFF, length, the extender's expression bytes), compared with 1
+        // [observed: NovaArizona.esm SCDA; laptop smoke run 2026-11-15: "2 values left on
+        // the stack" from the vanilla reading, which leaves `(7 && 35)` beside the call].
+        let paren_arg = match kw {
+            Kw::If(c) | Kw::ElseIf(c) => self.paren_argument(c),
+            _ => false,
+        };
+        if self.co || (matches!(kw, Kw::If(_) | Kw::ElseIf(_) | Kw::Set { .. }) && (paren_arg || self.calls_extender())) {
             let x = lex::xtokens(&self.text);
             let mapped = match kw {
                 Kw::If(_) => Some(Kw::IfEval(x[1..].to_vec())),
@@ -1005,6 +1023,53 @@ impl<'a> Gen<'a> {
             }
         }
         self.statement_inner(kw)
+    }
+
+    /// Whether a vanilla condition gives a function a parenthesised expression for an
+    /// argument it still takes (`GetObjectiveCompleted Q (7 && 35) == 1`).
+    fn paren_argument(&mut self, toks: &[Tok]) -> bool {
+        let mut i = 0;
+        while i < toks.len() {
+            if let Some((_, f)) = self.function(&toks[i]) {
+                let mut n = 0;
+                while toks.get(i + 1).is_some_and(|t| !matches!(t.kind, Kind::Op | Kind::Open | Kind::Close)) {
+                    i += 1;
+                    n += 1;
+                }
+                if toks.get(i + 1).is_some_and(|t| t.kind == Kind::Open) && f.params.is_some_and(|p| n < p) {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
+    }
+
+    /// An `if eval`/`elseif eval` condition, or a vanilla one read with the extender's
+    /// grammar. In the vanilla one, values after a whole expression that no function takes
+    /// stay as the vanilla compiler leaves them, beside it: the condition then stops the
+    /// script, running neither arm, as the original stops at leftover values ([`crate::vm`]
+    /// `eval`, observer-checks.md check 32). Dry Wells' INFO 0x05004955 end script has `if
+    /// getquestfailed Q 0 && getobjectivedisplayed Q 10 1`, compiled by the GECK with the
+    /// extender as GetQuestFailed(Q), 0, GetObjectiveDisplayed(Q, 10), 1, && [observed:
+    /// DryWellsReloaded.esm SCDA; laptop smoke run 2026-11-15: "syntax unexpected 0 && ..."
+    /// failed the whole unit]. Two values stand for them; the warning names the rest.
+    fn xcondition(&mut self, toks: &[lex::XTok]) -> Vec<u8> {
+        if self.vanilla_x {
+            let mut p = x::P::new(toks);
+            let before = self.diags.len();
+            if let Some(e) = self.xexpr(&mut p, 0) {
+                if p.done() {
+                    return self.xbytes(&e);
+                }
+                let rest = p.rest();
+                self.diags.truncate(before);
+                self.diag("surplus_operands", false, format!("the condition stops the script at run time: {rest}"));
+                return b" 0 0".to_vec();
+            }
+            self.diags.truncate(before);
+        }
+        self.xwhole(toks).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec())
     }
 
     /// Whether the line names an extender function (one the vanilla table does not know),
@@ -1094,7 +1159,7 @@ impl<'a> Gen<'a> {
                 let opcode = if matches!(kw, Kw::IfEval(_)) { op::IF } else { op::ELSEIF };
                 // A condition that does not compile still opens its chain, so the
                 // markers after it pair up.
-                let e = self.xwhole(c).map(|e| self.xbytes(&e)).unwrap_or_else(|| b" 0".to_vec());
+                let e = self.xcondition(c);
                 self.marker_bytes(opcode, Some(e));
             }
             Kw::While(toks) => {
@@ -1260,4 +1325,45 @@ fn is_neg_number(s: &str) -> bool {
 
 fn static_op(s: &str) -> &'static str {
     ["==", "!=", "<=", ">=", "&&", "||", "<", ">", "+", "-", "*", "/", "%"].into_iter().find(|o| *o == s).unwrap_or("+")
+}
+
+/// A mod that renames a form after compiling its scripts leaves the old name in their
+/// source, while the bytes and the reference list name the form by its FormID, which is
+/// all the original runs [observed: NovaArizona.esm, SCPT 0600CE4A's `PlaySound
+/// AZWPNTommyTroutCritical` with SCRO 0600CE4D AZWPNTommyTroutUniqueCritical, QUST
+/// 06008E4A stage 10's `setally AZLegionWhiteHillsMineFaction` with SCRO 06008E72
+/// AZWhiteHillsMineLegionFaction, INFO 06021079's `AZFreeformChloride01.` with SCRO
+/// 0600D7EA AZFreeformChloride]. The names a first compile could not resolve, in the
+/// order it met them, stand for the seed's forms that no word of the source names, in list
+/// order, when there are as many of each; otherwise nothing is matched.
+pub(super) fn renamed_forms(src: &str, diags: &[Diag], seed: &Seed<'_>, env: &dyn Env) -> HashMap<String, u32> {
+    let mut names: Vec<String> = Vec::new();
+    for d in diags.iter().filter(|d| d.kind == "unresolved_name") {
+        let n = d.detail.to_ascii_lowercase();
+        if !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    if names.is_empty() {
+        return HashMap::new();
+    }
+    let words: std::collections::HashSet<String> =
+        src.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).filter(|w| !w.is_empty()).map(str::to_ascii_lowercase).collect();
+    let named = |f: u32| {
+        f == PLAYER
+            || env.editor_id(f).is_none_or(|e| words.contains(&e.to_ascii_lowercase()))
+            || words.iter().any(|w| w.len() <= 8 && w.bytes().all(|b| b.is_ascii_hexdigit()) && u32::from_str_radix(w, 16).ok().and_then(|l| env.local_form(l)) == Some(f))
+    };
+    let mut orphans: Vec<u32> = Vec::new();
+    for r in seed.refs {
+        if let RefSlot::Form(f) = *r {
+            if !named(f) && !orphans.contains(&f) {
+                orphans.push(f);
+            }
+        }
+    }
+    if orphans.len() != names.len() {
+        return HashMap::new();
+    }
+    names.into_iter().zip(orphans).collect()
 }

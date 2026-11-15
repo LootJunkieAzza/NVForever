@@ -47,11 +47,17 @@ fn placed_creatures_carry_their_poison() {
     }
 
     // A cazador's sting on the player: its player lines (5 health a second for 30 s, 25
-    // Action Points), not the 18 a second of its other line (hit-effects.md §2).
+    // Action Points), not the 18 a second of its other line (hit-effects.md §2). That line
+    // (GetIsReference Player != 1 and IsHardcore != 1) is listed inactive, as a lasting
+    // effect whose conditions fail is (83dc76edd), and changes nothing.
     let item = data.by_edid("CazadorPoison").expect("CazadorPoison");
-    let applied = g.apply_hit_effect(FormId::PLAYER_REF, item, Some(FormId(0x00168CC2)));
-    let names: Vec<String> = applied.iter().map(|a| format!("{} {:?} {}", data.name(a.effect), a.change.map(|c| c.amount), a.duration)).collect();
+    let all = g.apply_hit_effect(FormId::PLAYER_REF, item, Some(FormId(0x00168CC2)));
+    let name = |a: &fnv_game::aid::Applied| format!("{} {:?} {}", data.name(a.effect), a.change.map(|c| c.amount), a.duration);
+    let (applied, inactive): (Vec<_>, Vec<_>) = all.iter().partition(|a| !a.inactive);
+    let names: Vec<String> = applied.iter().copied().map(name).collect();
     assert_eq!(applied.len(), 3, "{names:?}");
+    let off: Vec<String> = inactive.iter().copied().map(name).collect();
+    assert!(off.len() == 1 && off[0].starts_with("Poison") && off[0].ends_with(" 8"), "{off:?}");
     assert!(names[0].starts_with("Poison") && names[0].contains("30"), "{names:?}");
 
     // A cazador a script placed (PlaceAtMe) carries the same poison.
