@@ -252,3 +252,65 @@ without collision. [design: `tools/smoke/scenarios.toml`] The unchanged
 `helipad-ladder-top-direct`, `helipad-ladder-bottom-crosshair` and
 `helipad-ladder-bottom-direct` scenarios retain their separate E/direct paths;
 their console XATO diagnostic is an override, not necessarily the drawn prompt.
+
+## 6. Load doors without their own lock (#2538)
+
+[observed: FalloutNV.esm, fnvtool esm decode / world refs, 2026-11-15;
+main session's #2538 investigation] The reported rocket room is the REPCONN **test
+site**, cell `RocketLabBasement` 0x0007EA61 (REPCONN Basement). Two references of
+`UtlDoorBg01` 0x0003D205 (DOOR, no script) stand 85 units apart:
+
+- 0x000CE1AD, (9812, -2504, 7180), at the tunnel end: XTEL to 0x0008F97C, no XLOC.
+- 0x0008F97C, (9760, -2572, 7176), in the rocket room: XTEL to 0x000CE1AD;
+  XLOC level 255, key 0 (none), flags 0.
+
+[observed: FalloutNV.esm, fnvtool esm decode / world refs, 2026-11-15]
+The tunnel's hatch pair uses `REPCONHatch2` 0x001694DD (DOOR, no name or script):
+`REPCONRocketHatch` 0x000CD777 at (7756, -3644, 7316) links to 0x001694E6 at
+(8222, -3377, 6615), reciprocally, neither with XLOC. No FalloutNV.esm script names
+any of the four references. This change does not alter the hatches or collision [design, #2538].
+
+[observed: capture run15b_a, 2026-11-15; xNVSE 6.4.9, JIP LN 57.30]
+After a fresh `coc RocketLabBasement` from a Goodsprings save that never visited the
+cell, `GetLocked` / `GetLockLevel` read **1 / 255 on both doors**, including the
+lockless 0x000CE1AD; both hatches read **0 / 0**. With the player 130 units in front
+of 0x000CE1AD, at (9902, -2414, 7180), `000CE1AD.Activate player` left the player
+there without teleporting. The same attempt from inside the room at 0x0008F97C
+was refused too. All four lock reads stayed unchanged after each attempt. This
+agrees with the 2026-10-17 function probes cited in
+`crates/fnv-game/src/functions/objects.rs` [observed: function probes 2026-10-17].
+
+[documented: GECK wiki GetLocked, GetLockLevel, Unlock; offline snapshot 2026-10-28]
+Access state and lock difficulty are separate: unlocking gives access regardless of
+level. The wiki does not specify the partner rule; the capture above supplies the
+read/refusal evidence [design: evidence boundary, #2538].
+
+[design, #2538: `World::lock_source`, `World::lock_of` in `crates/fnv-sim/src/world.rs`]
+A DOOR reference with XTEL and no own lock uses the direct partner's lock, including
+its runtime state, level and key. All readers use that lookup: activation (hand or
+script), HUD prompt, script queries, picking, package doors, quest routes and NPC
+navigation. Read-only lookup does not materialise either reference. No extra lock
+is saved: the partner remains the source. Existing snapshots keep their format.
+
+[hypothesis, #2538: not tested in capture run15b_a] A key, pick or script `Unlock`
+through either side unlocks that one source lock. `Lock` on the lockless side creates
+its own lock, as on any door. An own lock always wins, even when unlocked or keyless;
+two locks on a pair remain independent. Broken-lock and Infiltrator second-try state
+also use the source reference. Only one XTEL hop is followed; an empty pair or a
+missing partner gives no lock [design, #2538: bounded lookup].
+
+[documented: GECK wiki SetOpenKey, offline snapshot 2026-10-28, revision 27705]
+`SetOpenKey` sets the key used to unlock the calling reference. [hypothesis, #2538:
+not tested in capture run15b_a] On a lockless load door it changes the applicable
+source lock's key, preserving that lock's level and locked/unlocked state. Only
+when there is no applicable lock does it create an open level-zero local lock
+[hypothesis: existing fallback]. [design, #2538: `World::set_open_key` in
+`crates/fnv-sim/src/world.rs`] Each successful key write advances `lock_serial`
+so NPC navigation refreshes its door keys; no partner lock is copied locally.
+
+[design: synthetic tests, #2538] `load_door_lock` tests in fnv-sim, fnv-game,
+fnv-ai and nvf-play cover refusal without movement, key/pick/script unlock, source
+identity, script key replacement without changing access or level, own-lock
+precedence, save restoration, prompts and navigation. Smoke
+`repconn-load-door-lock` exercises the reported tunnel door; it was written without
+running the game.

@@ -2600,3 +2600,73 @@ fn ref_state_json_contract() {
         assert!(error.contains(&format!("missing field `{missing}`")), "{error}");
     }
 }
+
+
+/// [design, #2538] Synthetic reciprocal doors: only the destination has XLOC.
+#[test]
+fn load_door_lock_reads_refuses_unlocks_and_restores_one_source() {
+    let mut f = fixture();
+    let (a, b, p) = (id(DOOR_A), id(DOOR_B), FormId::PLAYER_REF);
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_source(a), b);
+    assert_eq!(w.lock_of(a), w.lock_of(b));
+    assert_eq!(w.lock_of(a).unwrap().level, 255);
+    assert_eq!(w.lock_status(a).unwrap(), 1);
+    assert!(w.peek(a).is_none() && w.peek(b).is_none());
+    let before = w.get(p).unwrap().clone();
+    let npc = w.place(id(GUARD), before.cell, before.pos, [0.0; 3], 1).unwrap();
+    for door in [a, b] {
+        assert_eq!(w.activate(p, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!(w.activate_scripted(p, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!(w.activate(npc, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!((w.peek(p).unwrap().cell, w.peek(p).unwrap().pos), (before.cell, before.pos));
+    }
+    assert!(w.peek(a).unwrap().lock.is_none());
+    let serial = w.lock_serial();
+    w.unlock(a).unwrap();
+    assert!(w.lock_serial() > serial);
+    assert_eq!(w.lock_status(a).unwrap(), 0);
+    assert_eq!(w.lock_status(b).unwrap(), 0);
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut restored = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(restored.lock_status(a).unwrap(), 0);
+    assert!(restored.peek(a).unwrap().lock.is_none());
+    assert!(matches!(restored.activate(p, a).unwrap().outcome, Outcome::Teleported { .. }));
+    restored.lock(a, Some(25)).unwrap();
+    assert_eq!(restored.lock_source(a), a);
+    assert_eq!(restored.lock_of(a).unwrap().level, 25);
+    assert_eq!(restored.lock_status(b).unwrap(), 0);
+    restored.lock(b, Some(100)).unwrap();
+    restored.unlock(a).unwrap();
+    assert_eq!(restored.lock_status(b).unwrap(), 1);
+    assert_eq!(restored.lock_of(a).unwrap().level, 25);
+}
+
+#[test]
+fn load_door_lock_key_empty_pairs_and_non_doors() {
+    let mut f = fixture();
+    let (a, b, p) = (id(DOOR_A), id(DOOR_B), FormId::PLAYER_REF);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None);
+    assert_eq!(w.lock_source(a), a);
+    drop(w);
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(fnv_sim::refs::Lock { level: 50, key: Some(id(KEY)), leveled: false });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a).unwrap().key, Some(id(KEY)));
+    w.add_item(p, id(KEY), 1).unwrap();
+    let result = w.activate(p, a).unwrap();
+    assert_eq!(result.unlocked_with, Some(id(KEY)));
+    assert!(matches!(result.outcome, Outcome::Teleported { .. }));
+    assert_eq!(w.lock_status(b).unwrap(), 0);
+    assert_eq!(w.item_count(p, id(KEY)).unwrap(), 1);
+    drop(w);
+    f.refs.refs.get_mut(&a).unwrap().base = id(SAFE);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None, "XTEL on a non-door does not inherit a lock");
+    drop(w);
+    f.refs.refs.get_mut(&a).unwrap().base = id(DOOR);
+    f.refs.refs.remove(&b);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None, "missing partners are not locks");
+}

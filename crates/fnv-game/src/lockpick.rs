@@ -506,9 +506,8 @@ pub fn pins(g: &mut Game) -> i32 {
 /// is not looked for: activation opens a lock whose key the player carries before this
 /// is asked (`fnv_sim::World::activate`, simulation.md §5).
 pub fn opening(g: &mut Game, reference: FormId, skill: f32) -> Opening {
-    // `get`, not `peek`: a reference nothing has touched yet has no state, and its lock
-    // comes from its XLOC when the state is made.
-    let Some(lock) = g.world.get(reference).ok().and_then(|s| s.lock).filter(|l| l.locked) else { return Opening::NotLocked };
+    let Some(lock) = g.world.lock_of(reference).filter(|l| l.locked) else { return Opening::NotLocked };
+    let reference = g.world.lock_source(reference);
     let level = Level::of(lock.level);
     let n = pins(g);
     // Infiltrator's Ignore Broken Lock: one more try at a broken lock [documented: GECK
@@ -564,6 +563,8 @@ pub fn opened(g: &mut Game, reference: FormId, level: Level, picked: bool) -> Op
 /// Forcing failed: the lock is broken for good; GetLocked reads 2 and GetIsLockBroken 1
 /// [documented: GECK wiki GetLocked, GetIsLockBroken]. The pin goes too.
 pub fn broke(g: &mut Game, reference: FormId) {
+    // Broken/second-try state belongs to the applicable lock [hypothesis, #2538].
+    let reference = g.world.lock_source(reference);
     // Broken again on Infiltrator's try: that try is spent.
     if !g.locks.broken.insert(reference) {
         g.locks.retried.insert(reference);

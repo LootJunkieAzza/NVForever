@@ -968,7 +968,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 12] = [
+    let switches: [Switch; 13] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1045,6 +1045,14 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().terrain_height_blend = on,
         ),
         (
+            "terrain-anti-tiling",
+            "Terrain anti-tiling",
+            "On: ground textures no longer repeat as a visible grid across slopes and open ground. Off: each texture repeats every 256 units, as in the original. Costs some GPU time.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().terrain_anti_tiling,
+            |w, on| w.resource_mut::<Graphics>().terrain_anti_tiling = on,
+        ),
+        (
             "light-shafts",
             "Sun shafts",
             "On: sunlight streams past what stands in front of the sun, stronger the hazier the weather's fog. Not in the original.",
@@ -1079,7 +1087,7 @@ fn register_pipeline_waits(app: &mut App) {
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
-        "terrain-height-blend",
+        "terrain-height-blend", "terrain-anti-tiling",
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -2262,6 +2270,7 @@ dlss-model=Preset K
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
             ("terrain-height-blend", &["--graphics", "--graphics-only"]),
+            ("terrain-anti-tiling", &["--graphics", "--graphics-only"]),
             ("light-shafts", &["--graphics"]),
             ("water-reflections", &["--graphics"]),
             ("water-mirror", &["--graphics-only"]),

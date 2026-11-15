@@ -1470,6 +1470,11 @@ impl EffectCtx for PlayCtx<'_> {
         self.sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |s| s.rot[2].to_degrees().rem_euclid(360.0))
     }
 
+    fn player_pitch_deg(&self) -> Option<f32> {
+        // The simulation's X angle is positive looking down (`player::sim_pitch`).
+        self.sim.world.peek(FormId::PLAYER_REF).map(|s| -s.rot[0].to_degrees())
+    }
+
     fn destination(&self, cell: Option<FormId>) -> Destination {
         outcome::destination(self.index, cell)
     }
@@ -2421,7 +2426,9 @@ pub(crate) fn run_scripts(
                 if here {
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
-                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1}", t.interior, t.world, t.feet, t.heading_deg);
+                    // `+ 0.0` prints a level -0.0 as 0.0.
+                    let pitch = t.pitch_deg.map_or_else(|| "kept".to_string(), |p| format!("{:.1}", p + 0.0));
+                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1} pitch {pitch}", t.interior, t.world, t.feet, t.heading_deg);
                     if loading_menu {
                         // EnableLoadingMenu before the move: its screen is one for
                         // anywhere, not the destination's [documented: GECK wiki

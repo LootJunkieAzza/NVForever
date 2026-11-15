@@ -154,6 +154,11 @@ pub trait EffectCtx {
     }
     /// The player's compass heading in degrees (kept across a scripted MoveTo).
     fn player_heading_deg(&self) -> f32;
+    /// The view's pitch in degrees a scripted MoveTo leaves the player with (negative
+    /// looks down; the marker's, `fnv_game` `move_ref`); `None` keeps the view's.
+    fn player_pitch_deg(&self) -> Option<f32> {
+        None
+    }
     fn destination(&self, cell: Option<FormId>) -> Destination;
     /// The effects of an activation's outcome (`activate::outcome::effects`).
     fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect>;
@@ -315,7 +320,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                         continue;
                     }
                 };
-                out.push(ScriptEffect::Travel(Travel { world, interior, feet: *pos, heading_deg: ctx.player_heading_deg() }));
+                out.push(ScriptEffect::Travel(Travel { world, interior, feet: *pos, heading_deg: ctx.player_heading_deg(), pitch_deg: ctx.player_pitch_deg() }));
             }
             EventKind::Activated { reference, by, outcome: Some(o) } => {
                 let Some(a) = activation_from_json(o) else { continue };
@@ -335,7 +340,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                         // Only the player travels and opens menus; another actor's door or
                         // container use moves only that actor (its state is the world's).
                         Effect::Travel { world, interior, feet, heading_deg } if *by == player => {
-                            out.push(ScriptEffect::DoorTravel(Travel { world, interior, feet, heading_deg }))
+                            out.push(ScriptEffect::DoorTravel(Travel { world, interior, feet, heading_deg, pitch_deg: None }))
                         }
                         Effect::OpenContainer(c) if *by == player => out.push(ScriptEffect::OpenContainer(c)),
                         // A pickup's "added" line comes from its ItemAdded event
@@ -851,6 +856,9 @@ mod tests {
         fn player_heading_deg(&self) -> f32 {
             90.0
         }
+        fn player_pitch_deg(&self) -> Option<f32> {
+            Some(0.0)
+        }
         fn destination(&self, cell: Option<FormId>) -> Destination {
             match cell.map(|c| c.0) {
                 Some(INTERIOR) => Destination::Interior(INTERIOR),
@@ -910,9 +918,9 @@ mod tests {
     #[test]
     fn moving_the_player_travels_and_others_only_move() {
         let e = run(vec![EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(FormId(INTERIOR)), pos: [1.0, 2.0, 3.0] }]);
-        assert_eq!(e, vec![ScriptEffect::Travel(Travel { world: None, interior: Some(INTERIOR), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 })]);
+        assert_eq!(e, vec![ScriptEffect::Travel(Travel { world: None, interior: Some(INTERIOR), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: Some(0.0) })]);
         let e = run(vec![EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(FormId(EXTERIOR)), pos: [4.0, 5.0, 6.0] }]);
-        assert_eq!(e, vec![ScriptEffect::Travel(Travel { world: Some(WORLD), interior: None, feet: [4.0, 5.0, 6.0], heading_deg: 90.0 })]);
+        assert_eq!(e, vec![ScriptEffect::Travel(Travel { world: Some(WORLD), interior: None, feet: [4.0, 5.0, 6.0], heading_deg: 90.0, pitch_deg: Some(0.0) })]);
         assert!(run(vec![EventKind::Moved { reference: FormId(0x77), cell: Some(FormId(EXTERIOR)), pos: [0.0; 3] }]).is_empty());
         assert!(matches!(
             run(vec![EventKind::Moved { reference: FormId::PLAYER_REF, cell: None, pos: [0.0; 3] }]).as_slice(),
@@ -937,7 +945,7 @@ mod tests {
         let a = Activation { outcome: tp, unlocked_with: None, script: None };
         let o = Some(serde_json::to_value(&a).unwrap());
         let e = run(vec![EventKind::Activated { reference: DOOR, by: FormId::PLAYER_REF, outcome: o.clone() }]);
-        assert_eq!(e, vec![ScriptEffect::DoorTravel(Travel { world: Some(WORLD), interior: None, feet: [1004.3, 8722.3, 1024.0], heading_deg: 0.0 })]);
+        assert_eq!(e, vec![ScriptEffect::DoorTravel(Travel { world: Some(WORLD), interior: None, feet: [1004.3, 8722.3, 1024.0], heading_deg: 0.0, pitch_deg: None })]);
         // Another actor going through the same door does not move the player.
         assert!(run(vec![EventKind::Activated { reference: DOOR, by: FormId(0x99), outcome: o }]).is_empty());
         // A locked door says so.

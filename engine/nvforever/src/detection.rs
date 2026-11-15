@@ -721,6 +721,13 @@ fn player_moving(speed: f32, intent: Option<&MoveIntent>) -> bool {
     speed > MOVING_SPEED && intent.is_none_or(|i| i.forward != 0.0 || i.right != 0.0)
 }
 
+/// fSneakCombatMod distracts a fighter only from actors outside its target list
+/// [observed: captures run15b_t1 and run15b_t2, 2026-11-15;
+/// docs/spec-notes/actor-behaviour.md §2.1a]. Lost keeps 1.2 [design: detection.md §9].
+fn in_combat_with_someone_else(aware: Option<&fnv_game::awareness::Awareness>, target: FormId) -> bool {
+    aware.is_some_and(|a| a.state == State::Combat && !a.targets.contains_key(&target))
+}
+
 /// Measure every pair (the module notes).
 #[allow(clippy::too_many_arguments)]
 fn measure(
@@ -1112,8 +1119,7 @@ fn measure(
             let by_player = i == 0;
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
-            // IsCombatTarget, in Combat only: a Lost fighter searches at 1.2 (§9 of the design).
-            let combat_target = aware.is_some_and(|a| a.state == State::Combat && a.targets.contains_key(&FormId(t.id)));
+            let in_combat_with_someone_else = in_combat_with_someone_else(aware, FormId(t.id));
             let dist = distance(d.feet, t.feet);
             let target = t.chest();
             let sit = Situation {
@@ -1128,7 +1134,7 @@ fn measure(
                 action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
-                combat_target,
+                in_combat_with_someone_else,
                 camera_sight: d.camera.map(|_| camera_sight[k]),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
@@ -1432,6 +1438,28 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combat_distraction_excludes_own_targets_and_lost_detectors() {
+        use fnv_game::awareness::{Awareness, Target};
+
+        let foe = FormId(1);
+        let bystander = FormId(2);
+        let mut aware = Awareness::default();
+        aware.targets.insert(foe, Target { band: Band::Detected, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: None });
+        assert!(!in_combat_with_someone_else(None, bystander));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            aware.state = state;
+            assert!(!in_combat_with_someone_else(Some(&aware), foe), "{state:?}: own foe");
+            assert_eq!(in_combat_with_someone_else(Some(&aware), bystander), state == State::Combat, "{state:?}: bystander");
+        }
+        // An unseen foe still on the list is not a bystander [design: detection.md §9].
+        aware.state = State::Combat;
+        aware.targets.get_mut(&foe).unwrap().band = Band::Hidden;
+        assert!(!in_combat_with_someone_else(Some(&aware), foe));
+        aware.targets.remove(&foe);
+        assert!(in_combat_with_someone_else(Some(&aware), foe));
+    }
 
     /// A player drifting while its capsule settles makes no footsteps; one walking does,
     /// and so does one stuck to a wall only when it gets anywhere (#2286).

@@ -882,9 +882,11 @@ impl Ai {
             return None;
         }
         self.applied_locks = Some(serial);
-        let states = game.world.changed().filter_map(|(id, s)| {
-            let lock = s.lock?;
-            Some((id.0, lock.locked.then_some(fnv_nav::graph::DoorLock { level: lock.level, key: lock.key.map(|k| k.0) })))
+        // [design, #2538] Include cold load doors: their applicable lock can live on
+        // the other side, even when this side has never been materialised.
+        let states = nav.door_refs().into_iter().map(|id| {
+            let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
+            (id, lock.map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
         });
         let changes = nav.sync_door_locks(states.collect::<Vec<_>>());
         self.locked_doors = nav.door_locks.keys().copied().collect();

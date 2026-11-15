@@ -27,6 +27,10 @@ use fnv_sim::FormId;
 
 pub struct KnockoutsPlugin;
 
+/// [design, #2531] The test-hit producer; death rendering follows it in the same frame.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TestHitSet;
+
 impl Plugin for KnockoutsPlugin {
     fn build(&self, app: &mut App) {
         let hits = match std::env::var("NVF_PLAY_TEST_HIT") {
@@ -38,7 +42,7 @@ impl Plugin for KnockoutsPlugin {
         };
         app.init_resource::<KnockoutStats>()
             .insert_resource(TestHits(hits))
-            .add_systems(Update, (test_hits.run_if(in_state(PlayState::Playing)), report_news).chain().after(crate::PlaySet::Activation))
+            .add_systems(Update, (test_hits.in_set(TestHitSet).run_if(in_state(PlayState::Playing)), report_news).chain().after(crate::PlaySet::Activation))
             .add_systems(Last, report);
     }
 }

@@ -29,7 +29,11 @@
 //! The sun's shadow pipelines ([`sun_shadow`]) say so in their `asked` line. A pipeline
 //! whose fragment stage has terrain height blending on (`TERRAIN_HEIGHT_BLEND`, terrain.rs
 //! "Height blending") also logs `terrain height blending pipeline <n> ready` (or `failed`)
-//! when it is done, for the smoke check that the variant compiled [design, #2550].
+//! when it is done, for the smoke check that the variant compiled [design, #2550]. One
+//! with terrain anti-tiling (`TERRAIN_ANTI_TILING`, terrain.rs "Anti-tiling") logs
+//! `terrain anti-tiling pipeline <n> ready|failed: path=folded|separate height=on|off
+//! blend=on|off`, read from its own fragment definitions and colour
+//! targets (blend on: an alpha-blended layer draw) [design, #2551].
 //!
 //! **A travel's screen and the sun's shadows** (#1732). Twelve trips through new places took
 //! 15.4 s of screens with this wait against about 10 s without [observed: one launch], and
@@ -256,7 +260,7 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
                         let name: &str = match s {
                             bevy::shader::ShaderDefVal::Bool(s, _) | bevy::shader::ShaderDefVal::Int(s, _) | bevy::shader::ShaderDefVal::UInt(s, _) => s,
                         };
-                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE" | "TERRAIN_HEIGHT_BLEND") || name.starts_with("BLEND_")
+                        matches!(name, "PIPBOY_SCREEN" | "ADD_LINEAR" | "FIRST_PERSON_DEPTH" | "HAS_PREVIOUS_SKIN" | "PREPASS_PIPELINE" | "TERRAIN_HEIGHT_BLEND" | "TERRAIN_ANTI_TILING" | "TERRAIN_SEPARATE") || name.starts_with("BLEND_")
                     };
                     let fragment: Vec<_> = d.fragment.iter().flat_map(|f| f.shader_defs.iter()).filter(interesting).collect();
                     info!("pipeline {i} shader-defs: {fragment:?}: {}", label(&p.descriptor));
@@ -270,6 +274,9 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
             if height_blend_variant(&p.descriptor) {
                 info!("terrain height blending pipeline {i} {how}: {}", label(&p.descriptor));
             }
+            if let Some(variant) = anti_tiling_variant(&p.descriptor) {
+                info!("terrain anti-tiling pipeline {i} {how}: {variant}: {}", label(&p.descriptor));
+            }
         }
     }
 }
@@ -279,6 +286,25 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
 fn height_blend_variant(descriptor: &PipelineDescriptor) -> bool {
     let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return false };
     d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == "TERRAIN_HEIGHT_BLEND"))
+}
+
+/// For a terrain anti-tiling pipeline (its fragment stage has `TERRAIN_ANTI_TILING`,
+/// nvf_assets `terrain_sampling::anti_tiling_defs`), which one it is, from the same
+/// definitions: `path=folded|separate height=on|off`, and from its colour
+/// targets `blend=on|off` (on: a blended draw, a landscape layer over what lies under it).
+fn anti_tiling_variant(descriptor: &PipelineDescriptor) -> Option<String> {
+    let PipelineDescriptor::RenderPipelineDescriptor(d) = descriptor else { return None };
+    let has = |want: &str| d.fragment.iter().flat_map(|f| f.shader_defs.iter()).any(|s| matches!(s, ShaderDefVal::Bool(name, true) if name == want));
+    if !has("TERRAIN_ANTI_TILING") {
+        return None;
+    }
+    let blend = d.fragment.iter().flat_map(|f| f.targets.iter().flatten()).any(|t| t.blend.is_some());
+    Some(format!(
+        "path={} height={} blend={}",
+        if has("TERRAIN_SEPARATE") { "separate" } else { "folded" },
+        if has("TERRAIN_HEIGHT_BLEND") { "on" } else { "off" },
+        if blend { "on" } else { "off" }
+    ))
 }
 
 #[cfg(test)]
@@ -377,6 +403,41 @@ mod tests {
         assert!(!height_blend_variant(&main(&["VERTEX_UVS_A"])));
         // In the vertex stage only (not where terrain.rs puts it): not one.
         assert!(!height_blend_variant(&prepass("pbr_opaque_mesh_pipeline", &["TERRAIN_HEIGHT_BLEND"])));
+    }
+
+    #[test]
+    fn an_anti_tiling_variant_says_its_path_and_height_from_its_definitions() {
+        let main = |defs: &[&'static str]| {
+            PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+                label: Some("pbr_opaque_mesh_pipeline".into()),
+                fragment: Some(bevy::render::render_resource::FragmentState { shader_defs: defs.iter().map(|d| ShaderDefVal::from(*d)).collect(), ..default() }),
+                ..default()
+            }))
+        };
+        assert_eq!(anti_tiling_variant(&main(&["VERTEX_UVS_A"])), None);
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_HEIGHT_BLEND"])), None);
+        assert_eq!(anti_tiling_variant(&main(&["VERTEX_UVS_A", "TERRAIN_ANTI_TILING"])).as_deref(), Some("path=folded height=off blend=off"));
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_HEIGHT_BLEND", "TERRAIN_ANTI_TILING"])).as_deref(), Some("path=folded height=on blend=off"));
+        assert_eq!(anti_tiling_variant(&main(&["TERRAIN_ANTI_TILING", "TERRAIN_SEPARATE"])).as_deref(), Some("path=separate height=off blend=off"));
+        // A blended layer draw says so (its colour target blends).
+        let blended = PipelineDescriptor::RenderPipelineDescriptor(Box::new(bevy::render::render_resource::RenderPipelineDescriptor {
+            label: Some("alpha_blend_mesh_pipeline".into()),
+            fragment: Some(bevy::render::render_resource::FragmentState {
+                shader_defs: ["TERRAIN_ANTI_TILING", "TERRAIN_SEPARATE"].iter().map(|d| ShaderDefVal::from(*d)).collect(),
+                targets: vec![Some(bevy::render::render_resource::ColorTargetState {
+                    format: bevy::render::render_resource::TextureFormat::Rgba16Float,
+                    blend: Some(bevy::render::render_resource::BlendState::ALPHA_BLENDING),
+                    write_mask: bevy::render::render_resource::ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        }));
+        assert_eq!(anti_tiling_variant(&blended).as_deref(), Some("path=separate height=off blend=on"));
+        // Both on in one folded pipeline is also a height blending variant.
+        assert!(height_blend_variant(&main(&["TERRAIN_HEIGHT_BLEND", "TERRAIN_ANTI_TILING"])));
+        // In the vertex stage only: not one.
+        assert_eq!(anti_tiling_variant(&prepass("pbr_opaque_mesh_pipeline", &["TERRAIN_ANTI_TILING"])), None);
     }
 
     #[test]

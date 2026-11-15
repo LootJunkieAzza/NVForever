@@ -105,13 +105,9 @@ pub fn outdoor_marker_door(world: &World, graph: &DoorGraph, direct: &[FormId], 
     marker_door(world, direct, ignores_locks).or_else(|| graph.outdoor_door(world, Place::of_cell(world.placed, cell), ignores_locks))
 }
 
-/// The door is locked now: its run-time state once the world holds one, else its placed
-/// lock.
+/// [design, #2538] The applicable lock, including the load door's partner (`World::lock_of`).
 fn door_locked(world: &World, door: FormId) -> bool {
-    match world.peek(door) {
-        Some(s) => s.lock.is_some_and(|l| l.locked),
-        None => world.placed.get(door).is_some_and(|p| p.lock.is_some()),
-    }
+    world.lock_of(door).is_some_and(|l| l.locked)
 }
 
 /// Where a reference is, for the doors between places: an interior cell, or a worldspace

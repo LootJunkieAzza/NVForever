@@ -83,3 +83,55 @@ typechecked before Ready.
 Nothing here completes B42 startup, Quickthrow OS input/animation, temporary World
 reference placement/model lookup, TTL deletion, save ownership, native or rendered
 acceptance.
+
+## Explicit removal of an associated projectile
+
+Implementation context: on pinned public main
+`6692d2da4612fa4aae9f0a9eea177452ba511c4e`, `functions/refs.rs::mark_for_delete`
+sets the reference's deleted state. The engine's `combat::fly` owns separate
+`Flying` and `Pending` entries; `ShotVisuals` also carries the remaining `Ghost`
+visuals to `shot_fx::draw_flying`. The next flight step and due-hit delivery do not
+consume that deleted state. `projectile_gone` retires the script session and fuse
+state on natural completion. These are repository implementation facts, not a
+native-game observation.
+
+[documented: the structured `Disable` and `MarkForDelete` entries in
+`schemas/script/functions.json`, sourced there to the GECK wiki] Disable and
+deletion are distinct. Disable can be reversed; MarkForDelete queues removal.
+The catalogue does not establish native projectile-specific cancellation timing.
+
+[hypothesis: engineering cancellation policy] Before the next flight consumer
+processes detonation requests, advances a projectile or delivers a pending hit,
+retire an associated shot whose World reference is deleted. Retire only that
+reference's flight, pending hit, remaining visual and session/fuse bookkeeping.
+A missing session row must not allow the old delayed hit to fall back to the
+weapon's default damage. A normal reference without the engine's `shot` flag is
+not an owned projectile and is not retired by this bridge.
+
+[hypothesis: visual lifetime policy] Natural completion can mark a reference
+deleted while its beam visual continues fading. Preserve that fade: a Ghost with
+no active flight or pending hit is cancelled only by an explicit MarkForDelete
+request. Keep its original shot reference solely for this identity check, never
+select recipients by model name, base form or position. The bridge scans the
+existing flight/pending/visual collections and allocates a set only for removed
+references; it adds no persistent cancellation history.
+
+[hypothesis: compatibility boundaries] Disable alone, a fade followed by Enable,
+missing script runtime and failed reference creation do not become permanent
+physical cancellation. Keep an already queued FireWeapon request from a removed
+reference: it uses the caller's stored pose and can create a distinct replacement.
+Deletion before the next combat consumer wins over a queued remote-detonation
+request for that removed flight. Already delivered effects and independently
+queued blasts are not rolled back. Natural expiry, impact delivery, door travel,
+settled charges and unrelated shots keep their existing ownership paths. No save
+format, temporary-base persistence or restored-session policy changes here.
+
+Authored consumer coverage uses portable records, compiled public script calls and
+the actual player clock, actor-shot and flight systems. It includes live cleanup
+with a moving neighbor, replacement ordering, reversible Disable/fade, actual
+terrain-hit Pending/Ghost creation, the missing-session-row fallback, remote
+detonation, natural beam fade, expiry and Travel. These bodies specify meaningful
+baseline/candidate boundaries; they are not a statement that any revision has
+compiled or passed. Exact execution and native/rendered/mod-profile qualification
+must be reported separately. Disable-only visual suppression is not established
+by this deletion-only change.

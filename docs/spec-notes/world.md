@@ -286,14 +286,61 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   VStoryEventHooverDamBattleStarted) and VMapTheFortRegion, all priority 100, and clear on
   GSWeatherRegion (NVWastelandGS, made beside the test climate NVDefaultClimateGSTest),
   NVBorderRegion (priority 90) and NVColoradoRiverRegion. The rules NVForever follows:
-  - The list followed is the climate's, or, while the camera (the player's eye in play)
-    stands inside an area of a region of the worldspace whose weather block has the
-    Override flag, that region's; among several, the highest priority, then the lowest
-    FormID [hypothesis: the flag is named by JohnnyGuitar's GetRegionWeatherOverride and
-    priority by GetRegionWeatherPriority (GECK wiki); bit 0 is read from the data above
-    (the place weathers have it, the test region over Goodsprings does not, and the lab's
-    Goodsprings frames of the original name NVWastelandClear); the tie rule is ours].
-    Indoors the list stays as it was.
+  - The list followed is the climate's or an overriding region's, sampled by its
+    outline at the camera's x/y. The outline is looked up at the start and when that
+    point enters another exterior cell (4096-unit grid); between those events the
+    sampled region stays, even across an outline inside one cell [observed: captures
+    run15b_w and run15b_w2, 2026-11-15, #2531]. A script MoveTo samples again and changes
+    weather at once [observed: same captures]. Load doors, other teleports, fast travel,
+    loaded games, worldspace changes and coming outdoors also refresh placement
+    [hypothesis: inferred from the script move; design: sky.rs::place_outdoors,
+    SkyState::set_interior, world.rs::travel and worldspace.rs retain placement paths].
+    Walking into a cell fades a changed weather; a new placement snaps [observed for
+    walking and script MoveTo: same captures; hypothesis for the other travel cases].
+    A same-world climate rebuild retains that sampled cell and region (rebound by
+    FormID), so ForceClimate/SetCurrentClimate do not trigger a fresh outline lookup;
+    current simulation gate values seed the rebuilt sky before its first selection,
+    so a stored-zero/live-nonzero gate does not briefly select ungated weather or
+    consume extra rolls. Travel invalidation and worldspace rebuilds still refresh placement [design,
+    #2531: sky.rs::carry_region_placement, worldspace.rs::carry_climate_sky and switch;
+    implementation of the settled lookup rule, not an additional capture claim].
+    Travel stays before weather lookup and streaming. The test-hit producer precedes
+    death handling so a test kill can start its ragdoll in that frame's PostUpdate;
+    the next frame's Physics volume sync (including its optional comparison pipe)
+    then precedes Activation dismemberment through the existing PlaySet chain [design,
+    #2531: engine/nvforever/src/main.rs, deaths.rs::DeathsPlugin, ragdoll.rs::RagdollPlugin;
+    engine/nvf-play/src/knockouts.rs::TestHitSet, lib.rs::PlayPlugin;
+    regression scenario `hitvol-marked-corpse-parts`].
+    Indoors the list stays as it was [hypothesis]. Among overlapping overriding regions,
+    highest priority then lowest FormID wins [hypothesis: the flag is named by
+    JohnnyGuitar's GetRegionWeatherOverride and priority by GetRegionWeatherPriority
+    (GECK wiki); bit 0 is read from the data above; design: existing tie rule in
+    fnv_world::sky::region_at]. The cell's XCLR list is not the membership test
+    [observed: same captures].
+    - At the Legate's stairs, NVLegateRegion (0x0015E248) belongs to WastelandNV
+      (0x000DA726). Its one area has RPLI fall-off 1024 and RPLD points
+      (101288.5, 23835.9), (109583.6, 23835.9), (109495.4, 17570.5),
+      (100670.8, 18100.0). Its RDAT type 3, flags 1, priority 100 lists
+      NVlegateCampWeather (0x001735E9), chance 100. The east outline is x 109513 at
+      y 18842; CampLog03 stairs near y 18885 span x 109330..109815. LegateCampArena
+      cell 26,4 spans x 106496..110592, y 16384..20480 and lists the region in XCLR,
+      as do cells 24..26 x 4..5; cell 27,4 does not. Climate weather there by day is
+      NVWastelandClear (0x000FFC88) [observed: FalloutNV.esm, fnvtool esm decode,
+      2026-11-15, supplied records work for #2531].
+    - With first-person view, GameHour 12, xNVSE 6.4.9 and JIP LN 57.30,
+      GetCurrentWeather/GetCurrentWeatherPercent after script moves read clear at
+      (110686, 19125) in cell 27,4 and (109775, 18882) in cell 26,4, 260 units outside
+      the outline (clear for 40 s); the camp weather at (109330, 18852), inside; clear
+      again on moving back outside. Every new weather was complete (percent 1.0) at
+      the first sample, 4 s after the move [observed: captures run15b_w and run15b_w2,
+      2026-11-15].
+    - Walking east along y 18849 crossed both the outline (x 109513) and fall-off
+      distance (x 110537) without changing weather. Last camp sample: x 110567.9;
+      first clear sample: x 110596.0, percent 0.000, across cell border x 110592.
+      Percent rose 0.033/s, complete after about 30 s. Walking west reentered cell
+      26,4 outside the outline; clear persisted to (109067, 18849), 450 units inside,
+      and for 49 s standing there [observed: captures run15b_w and run15b_w2,
+      2026-11-15].
   - Eligible entries [hypothesis]: an entry with a global counts only while the global is
     non-zero, and such entries win over the ungated ones; with none open, the ungated
     entries. A plain draw over all open entries would give the day weather on half the

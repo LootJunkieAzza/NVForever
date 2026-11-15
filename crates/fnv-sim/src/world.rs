@@ -692,10 +692,30 @@ impl<'a> World<'a> {
         self.refs.iter().map(|(&k, v)| (k, v))
     }
 
-    /// The lock `id` has: its state's once it has one, else the lock it would start with
-    /// (its placed XLOC, a leveled lock at the level `initial` sets it from,
-    /// [`World::lock_read_level`]).
+    /// [design, #2538] The applicable lock (`World::lock_source`), from runtime state
+    /// or its placed XLOC at `World::lock_read_level`, without materialising it.
     pub fn lock_of(&self, id: FormId) -> Option<LockState> {
+        self.own_lock_of(self.lock_source(id))
+    }
+
+    /// The reference holding the applicable lock. A load door without its own lock
+    /// reads its XTEL partner's [observed: capture run15b_a, 2026-11-15; #2538,
+    /// docs/spec-notes/cells-refs.md section 6]. Own locks win; only one link is followed
+    /// [hypothesis: independent locks and malformed links were not captured].
+    /// [design] No state is materialised or duplicated (`own_lock_of`).
+    pub fn lock_source(&self, id: FormId) -> FormId {
+        if self.own_lock_of(id).is_some() {
+            return id;
+        }
+        let placed = self.placed.get(id);
+        let base = self.peek(id).map(|s| s.base).or_else(|| placed.map(|p| p.base));
+        if base.and_then(|b| self.forms.sig(b)).as_ref() != Some(b"DOOR") {
+            return id;
+        }
+        placed.and_then(|p| p.teleport).map(|t| t.door).filter(|&d| self.own_lock_of(d).is_some()).unwrap_or(id)
+    }
+
+    fn own_lock_of(&self, id: FormId) -> Option<LockState> {
         match self.peek(id) {
             Some(s) => s.lock,
             None => self.placed.get(id).and_then(|p| p.lock).map(|l| LockState { level: l.level_at(self.lock_read_level(id)), key: l.key, locked: true }),
@@ -1936,6 +1956,9 @@ impl<'a> World<'a> {
     }
 
     pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
+        // Unlocking through either side changes the one source lock [hypothesis,
+        // #2538: capture run15b_a checked refusal and reads, not unlocking].
+        let id = self.lock_source(id);
         if let Some(l) = &mut self.get(id)?.lock {
             l.locked = false;
             self.lock_serial += 1;
@@ -1943,7 +1966,19 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// Goes up with every lock change ([`World::lock`], [`World::unlock`]): a reader that
+    /// [hypothesis, #2538] Change the applicable source lock's key without changing
+    /// its level or access state, as `unlock` shares the source. A reference with no
+    /// applicable lock gets an open level-zero lock [hypothesis: existing fallback].
+    pub fn set_open_key(&mut self, id: FormId, key: FormId) -> Result<(), SimError> {
+        let id = self.lock_source(id);
+        let s = self.get(id)?;
+        s.lock.get_or_insert(LockState { level: 0, key: None, locked: false }).key = Some(key);
+        self.lock_serial += 1;
+        Ok(())
+    }
+
+    /// [design] Goes up with every lock change ([`World::lock`], [`World::unlock`],
+    /// [`World::set_open_key`]): a reader that
     /// saw the same number has nothing new to learn about locks.
     pub fn lock_serial(&self) -> u64 {
         self.lock_serial
@@ -2260,7 +2295,7 @@ impl<'a> World<'a> {
         // lockpicking is Layer 6]
         let mut unlocked_with = None;
         if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
-            if let Some(l) = t.lock.filter(|l| l.locked) {
+            if let Some(l) = self.lock_of(target).filter(|l| l.locked) {
                 let skip_key = actor == FormId::PLAYER_REF && self.player_ignores_keys;
                 match l.key.filter(|&k| !skip_key && self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
                     Some(k) => {
