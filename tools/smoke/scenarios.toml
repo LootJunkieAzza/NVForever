@@ -26929,3 +26929,17 @@ expect = [
   { re = 'Third rig: Pip-Boy check \w+ gone', min = 4, label = "all four checks end" },
 ]
 manual = "check_before.png: third-person body, arms down; check_quick_after_*.png, check_tab_after_*.png, check_glance_*after_*.png: arms down, no left arm raised to the wrist; check_*_up.png: the Pip-Boy (or glance) up"
+
+[[scenario]]
+name = "vms18-chauncey-comes-to-the-steam-room"
+source = "Beyond the Beef (VMS18), owner's playtest 2026-11-14: waiting in the Ultra-Luxe steam room past 4 p.m. with the Matchbook, Chauncey never came. His own GameMode (SCPT 0x0011689F) moves him to VMS18ChaunceyBathhouseWarpMarkerREF by MoveToMarkerWithFade when GameHour is past 15 and before 18, the player has the Matchbook note and he is neither in the player's cell nor in ULBath; it ran only for loaded cells. An actor out of the loaded area now runs its GameMode with each AI update (crates/fnv-game/src/game.rs `note_far_update`, crates/fnv-ai/src/process.rs; docs/spec-notes/scripts.md §7.2)"
+note = "starts in the casino (so Chauncey is one of the residents), at 16:00; the Matchbook given at 3 s, the bathhouse at 5 s; his update out of the loaded area comes within the low-process interval"
+areas = ["scripts", "ai"]
+paths = ["crates/fnv-ai/src/process.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "3:player.additem 00112015 1;5:coc ULBath" }
+args = ["--cell", "ULCasino", "--play", "--hour", "16", "--no-voice", "--no-messages"]
+run_seconds = 60
+expect = [
+  { re = 'script: VMS18ChaunceyREF moved to', label = "Chauncey's own GameMode, out of the loaded area, moved him to the bathhouse" },
+]
+order = [["console: > coc ULBath", "script: VMS18ChaunceyREF moved to"]]

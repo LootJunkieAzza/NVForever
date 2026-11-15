@@ -2074,3 +2074,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      the line to the player, and from how far away (in units, `player.GetPos` and the
      trunk's position). If it moves in early, the camera needs a volume cast of that size
      instead of the ray (`fnv_phys` `World::sweep`).
+
+## Added 2026-11-15 (a note lying in a container, Just Assorted Mods' loot menu and VMS18)
+
+163. **Does `GetItemCount` read 1 for a note lying in a container (not the player)?**
+     NVForever now counts it there and reads 0 only on the player, whose notes leave the
+     inventory (docs/spec-notes/script-item-moves.md §2) [hypothesis]. Without that, JAM's
+     loot menu listed the Matchbook in a crate and never took it (desktop probe jlm8,
+     2026-11-15). To check, in the original: `coc GoodspringsGeneralStore` (or any cell with
+     a container), select a container in the console, `additem 00112015 1` (the Matchbook),
+     then `getitemcount 00112015` on that container. 1 confirms; 0 flips the rule in
+     `fnv_game::functions::items::get_item_count`. Then open the container, take the
+     Matchbook and run `player.getitemcount 00112015` and `player.gethasnote 00112015`
+     (expected 0 and 1).

@@ -375,6 +375,8 @@ impl Ai {
     /// One low-process update of `actor` for `seconds` (module notes).
     fn low_update(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, seconds: f32) {
         self.process_stats.low_updates += 1;
+        // Its object script's GameMode runs with the update (`Game::note_far_update`).
+        game.note_far_update(actor);
         let mut left = seconds;
         let package = self.agents.get(&actor).and_then(|a| a.package);
         let far = self.far.contains(&actor);

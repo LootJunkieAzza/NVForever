@@ -563,3 +563,33 @@ fn a_new_crossing_is_heard_again_whatever_the_kept_answer() {
     assert_eq!(heard(&g), 2.0, "a second crossing");
     assert_eq!(used(&g, REF_LETS), Value::Num(1.0), "the kept answer stands");
 }
+
+/// A scripted reference out of the loaded area runs its GameMode only with an AI update
+/// (`Game::note_far_update`), once each, and none in a menu until GameMode comes back;
+/// loaded, it runs every frame as before (scripts.md §7.2; Beyond the Beef's Chauncey).
+#[test]
+fn gamemode_out_of_the_loaded_area_runs_with_an_ai_update() {
+    let f = fixture();
+    let mut g = game(&f);
+    let r = FormId(REF_NO_ACTIVATE);
+    g.set_loaded(Default::default());
+    g.tick();
+    g.tick();
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(0.0), "not loaded: no GameMode by itself");
+    g.note_far_update(r);
+    g.tick();
+    g.tick();
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(1.0), "one AI update, one run");
+    g.menu = Some(1001);
+    g.note_far_update(r);
+    g.tick();
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(1.0), "a menu holds it");
+    g.menu = None;
+    g.tick();
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(2.0), "run at the next GameMode");
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    g.note_far_update(r);
+    let before = match used(&g, REF_NO_ACTIVATE) { Value::Num(n) => n, v => panic!("{v:?}") };
+    g.tick();
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(before + 1.0), "loaded: once a frame, the AI update adds no second run");
+}
