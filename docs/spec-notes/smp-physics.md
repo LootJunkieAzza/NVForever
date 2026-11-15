@@ -101,7 +101,9 @@ Read from the load order's `nvse\plugins\NVSMPPhysics.ini`, else the shipped val
   body; neither NV SMP's README nor FSMP's wiki says]. At the shipped 0.08 a weather's
   wind barely moves cloth (NVWastelandClearWindy is wind speed 50 of 255; a 0.25-mass
   duster bone gets about 1/150 of gravity there); a stronger wind is the INI's (or the
-  plugin's F7 menu's) to set.
+  plugin's F7 menu's) to set. With no `fWindStrength` in the load order NVForever uses
+  1, the owner's choice (2026-11-15) over the plugin's documented 0.08 [design]; an INI
+  that sets it still wins.
   `bWindInInteriors` is not built (indoors is calm).
 - Resets: an actor whose root moves more than 150 units in a frame (a teleport) or
   turns faster than `fResetAngle` degrees a second starts over in its rest pose
