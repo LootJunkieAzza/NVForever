@@ -3020,7 +3020,7 @@ fn tick_helper(v: &mut VatsMode, dt: f32, script: Option<&mut ScriptState>, sim:
         let to = [point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]];
         let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt().max(1e-3);
         let aim = [to[0] / len, to[1] / len, to[2] / len];
-        sounds.fire.write(ActorFire { shooter: h.reference, weapon: h.weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false });
+        sounds.fire.write(ActorFire { shooter: h.reference, weapon: h.weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false, sure: None });
         info!("vats mode: {} fires at {} from {len:.0} units", h.who.label(), h.target);
     }
     if h.age >= HELPER_STAY {

@@ -259,6 +259,12 @@ pub struct ActorFire {
     /// The shot does no damage (a weapon use's Do No Damage, nvforever `use_weapon`):
     /// it flies, strikes and is seen and heard as any other.
     pub harmless: bool,
+    /// The actor an Always Hit weapon use fires at (nvforever `use_weapon`): the shot
+    /// passes every other actor's body and strikes this one, or the world [design: issue
+    /// #2738, Heck Gunderson's bodyguard stood in the Securitron's line and took
+    /// the six Do No Damage shots whose OnHit is to kill Heck; hypothesis: the original's
+    /// "always hit" strikes the target named whoever stands between, not captured].
+    pub sure: Option<FormId>,
 }
 
 /// An actor other than the player strikes `target` within its reach (combat AI): with
@@ -296,6 +302,8 @@ pub struct By {
     pub ammo: Option<FormId>,
     /// It does no damage ([`ActorFire::harmless`]).
     pub harmless: bool,
+    /// The only actor it can strike ([`ActorFire::sure`]).
+    pub sure: Option<FormId>,
     /// A marked shot of VATS mode (`crate::vats_mode`): its hit counts as a VATS attack
     /// (the critical chance bonus, docs/design/vats-mode.md §9.2).
     pub vats: bool,
@@ -2245,7 +2253,7 @@ fn death_drops(
         if live && is_grenade(&c.forms, item) && sim.world.remove_item(actor, item, 1).is_ok() {
             let at = sim.world.peek(actor).map_or([0.0; 3], |s| s.pos);
             let origin = [at[0], at[1], at[2] + LIVE_DROP_HEIGHT];
-            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false });
+            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false, sure: None });
             c.dropped_live.push(actor);
             stats.death_drops += 1;
             info!("combat: {actor} died holding its {} ({item}): it falls live (tweak)", item_name(&sim, item));
@@ -2664,6 +2672,9 @@ struct PhysView<'a> {
     /// The layers [`CombatWorld::ray`] passes: a shot's (`layers::shot_ignores`), or a
     /// melee swing's (`layers::melee_ignores`, [`PhysView::for_melee`]).
     passes: layers::LayerSet,
+    /// While set, the only actor a ray can strike ([`ActorFire::sure`]): every other
+    /// actor's hit volume is passed. Set round the step of such a shot.
+    only: std::cell::Cell<Option<ActorId>>,
 }
 
 impl PhysView<'_> {
@@ -2707,6 +2718,13 @@ impl CombatWorld for PhysView<'_> {
             }
         }
         f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
+        // A sure shot passes every actor but the one it is for.
+        if let Some(only) = self.only.get() {
+            f.exclude.extend(self.actors.iter().filter(|a| a.0 != only).map(|a| Key::Actor(a.0 as u32)));
+            if only != PLAYER {
+                f.exclude.extend(self.player);
+            }
+        }
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
         Some(WorldHit {
@@ -2833,7 +2851,7 @@ fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&
     let mut aims: HashMap<ActorId, Vec<V3>> = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     aims.extend(corpses.iter().map(|&(id, ..)| (id, phys.world.ragdoll_body_centers(id as u32))).filter(|(_, v)| !v.is_empty()));
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores() }
+    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores(), only: std::cell::Cell::new(None) }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -3564,7 +3582,7 @@ pub(crate) fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, sure: None, vats: vats_shot.is_some(), sneaking: control.sneak };
                     let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
                     c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
                 }
@@ -4747,7 +4765,7 @@ fn actor_attacks(
             }
         }
         let (tracer_chance, force) = projectile.map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, sure: s.sure, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let mut ps = projectile.map_or_else(Vec::new, |p| shot::fire_projectile(p, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand));
@@ -4954,7 +4972,7 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId, muzzle: Option<[f32
     let [x, _, z] = rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
     let origin = muzzle.unwrap_or([pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }]);
-    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
+    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false, sure: None })
 }
 
 /// A door travel leaves the shots of the space left behind: what is in flight, the hits
@@ -5197,7 +5215,9 @@ fn fly(
             let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
+            world.only.set(f.by.sure.map(|t| if t == FormId::PLAYER_REF { PLAYER } else { t.0 as ActorId }));
             let events = f.p.step(&world, dt);
+            world.only.set(None);
             // VATS mode's explosive ([`VatsBlast`]): gone off, coming, or flying off.
             if let Some(aim) = f.vats_aim {
                 if events.iter().any(|e| matches!(e, ProjEvent::Explode { .. })) {
@@ -5659,7 +5679,11 @@ fn fly(
                 stats.harmless_scripts += u32::from(ran);
                 if ran {
                     info!("combat: a harmless shot by {shooter} hits {target}: its hit blocks ran, no damage");
+                } else {
+                    info!("combat: a harmless shot by {shooter} hits {target} (part {:?}): no hit block of it ran", p.part);
                 }
+            } else {
+                info!("combat: a harmless shot by {shooter} hits no reference at ({:.0}, {:.0}, {:.0})", p.point[0], p.point[1], p.point[2]);
             }
             continue;
         }
@@ -6242,7 +6266,7 @@ mod tests {
 
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
-        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false, sneaking: false };
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, sure: None, vats: false, sneaking: false };
         let info = blast_hit_info(Some(Cause::of(&by)));
         assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
         let none = blast_hit_info(None);

@@ -292,7 +292,7 @@ fn natural_expiry_travel_and_no_runtime_keep_their_existing_boundaries() {
 fn actor_shot_without_script_runtime_still_creates_unregistered_flight() {
     let mut a = lifecycle_app(0, 1, 5000.0);
     a.world_mut().remove_resource::<ScriptState>().unwrap();
-    a.world_mut().resource_mut::<Messages<ActorFire>>().write(ActorFire { shooter: FormId::PLAYER_REF, weapon: GUN, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false });
+    a.world_mut().resource_mut::<Messages<ActorFire>>().write(ActorFire { shooter: FormId::PLAYER_REF, weapon: GUN, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false, sure: None });
     step(&mut a, 1.0 / 60.0);
     let c = a.world().resource::<Combat>();
     assert_eq!(c.flying.len(), 1);

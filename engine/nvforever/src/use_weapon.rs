@@ -391,7 +391,7 @@ pub(crate) fn shoot(
                             let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, ..Stance::default() };
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
-                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage });
+                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, sure: w.always_hit.then_some(w.target) });
                         anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);
