@@ -2059,3 +2059,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
      "none"); the fix is in `IdlePicker::next` and the collection loop in
      `engine/nvforever/src/idles.rs`.
+
+## Added 2026-11-15 (a note lying in a container, Just Assorted Mods' loot menu and VMS18)
+
+163. **Does `GetItemCount` read 1 for a note lying in a container (not the player)?**
+     NVForever now counts it there and reads 0 only on the player, whose notes leave the
+     inventory (docs/spec-notes/script-item-moves.md §2) [hypothesis]. Without that, JAM's
+     loot menu listed the Matchbook in a crate and never took it (desktop probe jlm8,
+     2026-11-15). To check, in the original: `coc GoodspringsGeneralStore` (or any cell with
+     a container), select a container in the console, `additem 00112015 1` (the Matchbook),
+     then `getitemcount 00112015` on that container. 1 confirms; 0 flips the rule in
+     `fnv_game::functions::items::get_item_count`. Then open the container, take the
+     Matchbook and run `player.getitemcount 00112015` and `player.gethasnote 00112015`
+     (expected 0 and 1).

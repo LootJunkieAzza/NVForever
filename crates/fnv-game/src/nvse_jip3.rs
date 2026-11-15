@@ -177,13 +177,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // none is the whole stack].
         "removemeiralt" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(zero)) };
-            let have = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(0);
-            let want = num(args, 0, 0.0) as i32;
-            let n = if want <= 0 { have } else { want.min(have) };
-            let gone = g.world.remove_item(c, item, n).unwrap_or(0);
-            if let (Some(to), true) = (form(args, 2), gone > 0) {
-                let _ = g.world.add_item(to, item, gone);
-            }
+            crate::functions::items::script_move_items(g, "RemoveMeIRAlt", c, item, num(args, 0, 0.0) as i32, form(args, 2));
             zero
         }
         // `[count] [clearOwner]`: the inventory reference's items dropped beside their

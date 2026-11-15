@@ -197,14 +197,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "removemeir" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };
-            let n = g.world.inventory_mut(c).map(|inv| inv.count(item)).unwrap_or(0);
             // The whole stack; with a target it moves there and the call gives 1, without
             // one 0 [observed: nvse-fourth].
-            let gone = g.world.remove_item(c, item, n).unwrap_or(0);
-            match (form(args, 0), gone > 0) {
-                (Some(to), true) => XVal::Num(f64::from(u8::from(g.world.add_item(to, item, gone).is_ok()))),
-                _ => XVal::Num(0.0),
-            }
+            let to = form(args, 0);
+            let gone = crate::functions::items::script_move_items(g, "RemoveMeIR", c, item, 0, to);
+            XVal::Num(f64::from(u8::from(to.is_some() && gone > 0)))
         }
         "equipme" | "unequipme" => {
             let Some((c, item)) = subject.and_then(|r| g.temp_item(r)) else { return Some(Ok(XVal::Num(0.0))) };

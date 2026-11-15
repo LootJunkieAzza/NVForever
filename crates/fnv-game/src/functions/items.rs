@@ -107,12 +107,17 @@ fn remove_item_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// `Container.GetItemCount item`: how many are carried; for a form list, the sum over its
 /// members [documented: GECK wiki GetItemCount notes]. Notes do not count ("does not
 /// work with Notes" [documented: same notes]; observed 0 for a holotape just added,
-/// capture `fa_batch3_actions`).
+/// capture `fa_batch3_actions`). That holds for the player, whose notes leave the
+/// inventory for the Pip-Boy's list ([`Game::file_carried_notes`]); a note lying in
+/// another container is one of its items and counts [hypothesis: the observation was on
+/// the player; Just Assorted Mods' loot menu lists the Matchbook in a crate and then never
+/// asks RemoveItemTarget to take it, as if its count read 0, desktop probe jlm8
+/// 2026-11-15].
 pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let of = ctx.subject()?;
     let mut n = 0;
     for item in items(g, a.form(0)?) {
-        if g.data.sig(item).as_ref() == Some(b"NOTE") {
+        if of == FormId::PLAYER_REF && g.data.sig(item).as_ref() == Some(b"NOTE") {
             continue;
         }
         n += g.world.item_count(of, item).map_err(|e| e.to_string())?;
@@ -604,4 +609,40 @@ fn story_items(g: &mut Game, ctx: &Ctx, f: impl FnOnce(&mut Game) -> Result<Valu
         tracing::info!("co-op story: {} changed the player's items: {} kinds now recorded", ctx.unit, g.coop_story.items.len());
     }
     r
+}
+
+/// An extender function's move of `n` units of `item` (`n <= 0`: the whole stack) out of
+/// `from`, into `to` when given (RemoveMeIR, RemoveMeIRAlt, RemoveItemTarget): the items
+/// leave and arrive as the game's own moves do, with the removed and added events and
+/// the item's OnAdd in its new holder, as AddItem runs it, so a loot menu built on these
+/// functions (Just Assorted Mods' JLM) takes an item the way the container menu does and
+/// the scripts watching for it (a quest's OnAdd, a note filed for GetHasNote) hear of it
+/// [hypothesis: the functions' pages say the items move, not what runs; the owner's
+/// playtest 2026-11-14, VMS18's Matchbook and quest items taken with JLM]. Every move is
+/// logged with the function's name. Gives the units moved.
+pub(crate) fn script_move_items(g: &mut Game, via: &str, from: FormId, item: FormId, n: i32, to: Option<FormId>) -> i32 {
+    let have = g.world.inventory_mut(from).map(|inv| inv.count(item)).unwrap_or(0);
+    let n = if n <= 0 { have } else { n.min(have) };
+    if n <= 0 {
+        tracing::info!("script items: {via}: no {} {item} in {from} to move", g.data.name(item));
+        return 0;
+    }
+    let gone = g.world.remove_item(from, item, n).unwrap_or(0);
+    if gone <= 0 {
+        tracing::info!("script items: {via}: {} {item} would not leave {from}", g.data.name(item));
+        return 0;
+    }
+    g.emit(EventKind::ItemRemoved { from, item, count: gone, silent: true });
+    let Some(to) = to else {
+        tracing::info!("script items: {via}: {gone} x {} {item} removed from {from}", g.data.name(item));
+        return gone;
+    };
+    if let Err(e) = g.world.add_item(to, item, gone) {
+        tracing::warn!("script items: {via}: {gone} x {} {item} left {from} but could not reach {to}: {e}", g.data.name(item));
+        return gone;
+    }
+    g.emit(EventKind::ItemAdded { to, item, count: gone, silent: true });
+    g.item_event(to, item, event::ON_ADD, Some(Value::Ref(to.0)));
+    tracing::info!("script items: {via}: {gone} x {} {item} moved from {from} to {to}", g.data.name(item));
+    gone
 }
