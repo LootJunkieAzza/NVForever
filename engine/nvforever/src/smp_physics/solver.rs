@@ -145,6 +145,10 @@ pub struct Env<'a> {
     /// World-space acceleration of the wind on a bone of wind factor 1.
     pub wind: Vec3,
     pub capsules: &'a [Capsule],
+    /// Per bone and capsule (`bone * capsules.len() + capsule`), the capsule's radius for
+    /// that bone in rig units, when it is less than the capsule's own: a bone resting
+    /// close to the body is held no closer than it rests. Empty: every bone gets `r`.
+    pub bone_r: &'a [f32],
     /// The ground's height (world y), if the bones rest on it.
     pub ground: Option<f32>,
     /// World units per rig unit (the actor's scale).
@@ -423,11 +427,16 @@ impl State {
             }
             let r = b.radius * env.scale;
             if b.collide_body {
-                for c in env.capsules {
+                let n = env.capsules.len();
+                for (ci, c) in env.capsules.iter().enumerate() {
+                    let cr = env.bone_r.get(i * n + ci).map_or(c.r, |&br| c.r.min(br * env.scale));
+                    if cr <= 0.0 {
+                        continue;
+                    }
                     let at = c.closest(self.pos[i]);
                     let d = self.pos[i] - at;
                     let len = d.length();
-                    let min = c.r + r;
+                    let min = cr + r;
                     if len < min {
                         let out = if len > 1e-6 { d / len } else { Vec3::Y };
                         self.pos[i] = at + out * min;
@@ -462,7 +471,7 @@ mod tests {
     }
 
     fn env(capsules: &[Capsule]) -> Env<'_> {
-        Env { gravity: Vec3::new(0.0, -686.7, 0.0), wind: Vec3::ZERO, capsules, ground: None, scale: 1.0, iterations: 10, min_fps: 100.0, max_substeps: 4 }
+        Env { gravity: Vec3::new(0.0, -686.7, 0.0), wind: Vec3::ZERO, capsules, bone_r: &[], ground: None, scale: 1.0, iterations: 10, min_fps: 100.0, max_substeps: 4 }
     }
 
     #[test]
@@ -534,6 +543,28 @@ mod tests {
             assert!(s.pos[i].y >= -12.0 + 0.5 - 1e-3);
             assert!((s.pos[i] - caps[0].closest(s.pos[i])).length() >= 3.5 - 0.05, "bone {i} in the capsule: {:?}", s.pos[i]);
         }
+    }
+
+    /// A bone resting close to a capsule is held at its rest distance; the others get the
+    /// whole capsule (the thigh through a coat's front panel, 2026-11-15, came from one
+    /// close bone shrinking the capsule for all).
+    #[test]
+    fn a_close_resting_bone_shrinks_the_capsule_for_itself_only() {
+        let (rig, _) = chain(4, 5.0, 0.0);
+        let driven = vec![Affine3A::IDENTITY; 5];
+        // A thigh across the chain's hanging line, 3 below the root; bone 1 rests 1 from it.
+        let caps = [Capsule { a: Vec3::new(0.0, -8.0, -20.0), b: Vec3::new(0.0, -8.0, 20.0), r: 6.0 }];
+        let bone_r = [6.0, 0.5, 6.0, 6.0, 6.0];
+        let mut e = env(&caps);
+        e.bone_r = &bone_r;
+        let mut s = State::default();
+        for _ in 0..600 {
+            s.step(&rig, &driven, &e, 1.0 / 60.0);
+        }
+        for i in 2..5 {
+            assert!((s.pos[i] - caps[0].closest(s.pos[i])).length() >= 6.5 - 0.05, "bone {i} in the capsule: {:?}", s.pos[i]);
+        }
+        assert!((s.pos[1] - caps[0].closest(s.pos[1])).length() >= 1.0 - 0.05);
     }
 
     #[test]

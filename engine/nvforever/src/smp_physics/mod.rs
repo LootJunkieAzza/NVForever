@@ -148,6 +148,8 @@ pub struct SmpRig {
     /// The skeleton nodes the body capsules sit on.
     nodes: Arc<Vec<Entity>>,
     capsules: Vec<BodyCapsule>,
+    /// Per bone and capsule, its radius for that bone ([`fit_capsules`]).
+    bone_r: Vec<f32>,
     last_root: Option<(Vec3, Vec3)>,
     pub label: String,
     /// How often the system blew up and was started over.
@@ -184,17 +186,20 @@ fn mesh_weights(mesh: &Mesh) -> Option<Vec<Vec<(u16, f32)>>> {
     Some(j.iter().zip(w).map(|(j, w)| (0..4).filter(|&k| w[k] > 0.0).map(|k| (j[k], w[k])).collect()).collect())
 }
 
-/// The body capsules of a skeleton in its rig space, shrunk so that `rest` (the
-/// simulated bones' rest places with their radii, rig space) start clear of them, never
-/// below 35% of their size; `legs` scales the leg capsules.
-fn fit_capsules(skel: &PreparedSkeleton, rest: &[(Vec3, f32)], legs: f32) -> Vec<BodyCapsule> {
+/// The body capsules of a skeleton in its rig space at their full size (`legs` scales
+/// the leg capsules), and per rig bone and capsule (`bone * capsules + capsule`) the
+/// radius that keeps that bone's rest place clear: a bone resting closer to the body than
+/// a capsule's size is held no closer than it rests, the others get the whole capsule.
+/// `rest` is per rig bone its rest place with its radius (rig space), none for a bone
+/// that is not simulated. (Shrinking a capsule for every bone because one rests close let
+/// a coat's front panel through the thigh, owner's frame 2026-11-15.)
+fn fit_capsules(skel: &PreparedSkeleton, rest: &[Option<(Vec3, f32)>], legs: f32) -> (Vec<BodyCapsule>, Vec<f32>) {
     let by = lower_index(skel);
     let mut out = Vec::new();
+    let mut caps = Vec::new();
     let place = |i: usize, root: Vec3| skel.bind_world[i].inverse().transform_point3(root);
     let mut add = |a: usize, pa: Vec3, b: usize, pb: Vec3, r: f32| {
-        let c = Capsule { a: pa, b: pb, r };
-        let clear = rest.iter().map(|&(p, pr)| (p - c.closest(p)).length() - pr).fold(f32::MAX, f32::min);
-        let r = r.min(clear * 0.98).max(r * 0.35);
+        caps.push(Capsule { a: pa, b: pb, r });
         out.push(BodyCapsule { a, a_off: place(a, pa), b, b_off: place(b, pb), r });
     };
     for (k, (a, b, r)) in BODY.iter().enumerate() {
@@ -206,7 +211,37 @@ fn fit_capsules(skel: &PreparedSkeleton, rest: &[(Vec3, f32)], legs: f32) -> Vec
         let c = Vec3::from(skel.bind_world[h].translation) + Vec3::Z * SKULL_UP;
         add(h, c, h, c, SKULL_R);
     }
-    out
+    let mut bone_r = Vec::with_capacity(rest.len() * caps.len());
+    for r in rest {
+        for c in &caps {
+            bone_r.push(match r {
+                Some((p, pr)) => c.r.min(((*p - c.closest(*p)).length() - pr) * 0.98).max(0.0),
+                None => c.r,
+            });
+        }
+    }
+    (out, bone_r)
+}
+
+/// The most a bone's collision radius grows to its neighbours, rig units [design].
+const MAX_WIDEN: f32 = 3.0;
+
+/// Widens each simulated bone's collision radius to half its rest distance to the
+/// bones it is tied to across (the weft springs between neighbouring chains), at most
+/// [`MAX_WIDEN`], so a leg cannot pass between two hanging chains with neither bone
+/// touching it [design: the owner's frame 2026-11-15, the combat ranger coat's panel
+/// through the knee mid-stride].
+fn widen_to_neighbours(bones: &mut [Bone], links: &[Link], rests: &[Affine3A]) {
+    for l in links {
+        let LinkKind::Spring { .. } = l.kind else { continue };
+        if !(bones[l.a].dynamic && bones[l.b].dynamic) {
+            continue;
+        }
+        let half = (Vec3::from(rests[l.a].translation - rests[l.b].translation).length() / 2.0).min(MAX_WIDEN);
+        for i in [l.a, l.b] {
+            bones[i].radius = bones[i].radius.max(half);
+        }
+    }
 }
 
 /// Look at new candidates: rig those with something to simulate, mark the others.
@@ -394,16 +429,21 @@ fn rig_from_xml(commands: &mut Commands, e: Entity, cand: &SmpCandidate, shape: 
         };
         links.push(Link { a, b, kind });
     }
+    widen_to_neighbours(&mut bones, &links, &rests);
     let rig = Rig::new(bones, links, &rests);
     if rig.dynamic_count() == 0 {
         return None;
     }
-    let rest_pts: Vec<(Vec3, f32)> = rig.bones.iter().zip(&rests).filter(|(b, _)| b.dynamic).map(|(b, r)| (Vec3::from(r.translation), b.radius)).collect();
-    let capsules = fit_capsules(&cand.skel, &rest_pts, sys.virtual_legs.unwrap_or(1.0));
+    let rest_pts: Vec<Option<(Vec3, f32)>> = rig.bones.iter().zip(&rests).map(|(b, r)| b.dynamic.then(|| (Vec3::from(r.translation), b.radius))).collect();
+    let (capsules, bone_r) = fit_capsules(&cand.skel, &rest_pts, sys.virtual_legs.unwrap_or(1.0));
+    if !capsules.is_empty() {
+        let held = bone_r.chunks(capsules.len()).zip(&rest_pts).filter(|(r, p)| p.is_some() && r.iter().zip(&capsules).any(|(r, c)| *r < c.r)).count();
+        info!("smp: {label}: {held} of {} simulated bones rest closer to the body than its capsules and are held at their rest distance", rig.dynamic_count());
+    }
     // The skin now binds to every slot.
     let joints: Vec<Entity> = (0..names.len()).map(|s| entities[index[s]]).collect();
     commands.entity(e).insert((Transform::IDENTITY, SkinnedMesh { inverse_bindposes: bind_handle.clone(), joints }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, last_root: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, label, blowups: 0 })
 }
 
 /// The rig the generator makes for a shape with no SMP data (hair models, Qwib's
@@ -530,11 +570,11 @@ fn rig_generated(
         .collect();
     links.extend(generated.ties.iter().map(|&(a, b)| Link { a: own_joints + a, b: own_joints + b, kind: LinkKind::Spring { rest: 0.0, slack: params.tie_slack, k: params.tie_stiffness / params.mass.max(MIN_MASS) } }));
     let rig = Rig::new(bones, links, &rests);
-    let rest_pts: Vec<(Vec3, f32)> = rig.bones.iter().zip(&rests).filter(|(b, _)| b.dynamic).map(|(b, r)| (Vec3::from(r.translation), b.radius)).collect();
-    let capsules = fit_capsules(&cand.skel, &rest_pts, 1.0);
+    let rest_pts: Vec<Option<(Vec3, f32)>> = rig.bones.iter().zip(&rests).map(|(b, r)| b.dynamic.then(|| (Vec3::from(r.translation), b.radius))).collect();
+    let (capsules, bone_r) = fit_capsules(&cand.skel, &rest_pts, 1.0);
     commands.entity(cand.nodes[0]).add_child(e);
     commands.entity(e).insert((Mesh3d(new_mesh), Transform::IDENTITY, SkinnedMesh { inverse_bindposes: new_binds, joints: entities.clone() }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, last_root: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, label, blowups: 0 })
 }
 
 /// The bones' and the actors' transforms; not the cameras, which `simulate` reads too.
@@ -602,16 +642,16 @@ fn simulate(
             let capsules: Vec<Capsule> = if collide {
                 rig.capsules
                     .iter()
-                    .filter_map(|c| {
-                        let a = transforms.get(rig.nodes[c.a]).ok()?.1.transform_point(c.a_off);
-                        let b = transforms.get(rig.nodes[c.b]).ok()?.1.transform_point(c.b_off);
-                        Some(Capsule { a, b, r: c.r * scale })
+                    .map(|c| {
+                        // A capsule whose node is gone keeps its place in the list, off.
+                        let ends = transforms.get(rig.nodes[c.a]).ok().zip(transforms.get(rig.nodes[c.b]).ok());
+                        ends.map_or(Capsule { a: Vec3::ZERO, b: Vec3::ZERO, r: 0.0 }, |(a, b)| Capsule { a: a.1.transform_point(c.a_off), b: b.1.transform_point(c.b_off), r: c.r * scale })
                     })
                     .collect()
             } else {
                 Vec::new()
             };
-            let env = Env { gravity, wind, capsules: &capsules, ground: (collide && settings.ground).then_some(root.translation.y), scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
+            let env = Env { gravity, wind, capsules: &capsules, bone_r: &rig.bone_r, ground: (collide && settings.ground).then_some(root.translation.y), scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
             if rig.state.step(&rig.rig, &driven, &env, dt) {
                 rig.blowups += 1;
                 // The first and then every hundredth: a mesh that keeps blowing up is a bug.
@@ -656,6 +696,46 @@ mod tests {
         assert!(mesh_weights(&drawn).is_none());
         assert_eq!(mesh_positions(&cpu).map(|p| p.len()), Some(3));
         assert_eq!(mesh_weights(&cpu).map(|w| w[0].len()), Some(2));
+    }
+
+    /// One coat bone resting close to the thigh gets the thigh capsule at its own rest
+    /// distance; the others keep the whole capsule (owner's frame 2026-11-15: a coat's
+    /// front panel through the thigh when one close bone shrank it for all).
+    #[test]
+    fn a_close_bone_shrinks_the_thigh_only_for_itself() {
+        let skel = PreparedSkeleton {
+            names: vec![Some("Bip01 L Thigh".into()), Some("Bip01 L Calf".into())],
+            parents: vec![None, Some(0)],
+            locals: vec![Transform::IDENTITY; 2],
+            bind_world: vec![Affine3A::IDENTITY, Affine3A::from_translation(Vec3::new(0.0, 0.0, -20.0))],
+            by_name: HashMap::new(),
+        };
+        let rest = [None, Some((Vec3::new(3.0, 0.0, -10.0), 1.0)), Some((Vec3::new(10.0, 0.0, -10.0), 1.0))];
+        let (caps, bone_r) = fit_capsules(&skel, &rest, 1.0);
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].r, 5.6);
+        assert_eq!(bone_r.len(), 3);
+        assert_eq!(bone_r[0], 5.6);
+        assert!((bone_r[1] - 1.96).abs() < 1e-4, "{}", bone_r[1]);
+        assert_eq!(bone_r[2], 5.6);
+    }
+
+    /// Bones tied across chains grow to half their gap (at most 3), so a leg cannot
+    /// slip between two chains; chain links and driven bones do not widen them.
+    #[test]
+    fn bones_widen_to_half_the_gap_to_the_next_chain() {
+        let dynamic = |r: f32| Bone { parent: Some(0), rest_local: Affine3A::IDENTITY, driven: false, dynamic: true, inv_mass: 1.0, damping: 0.0, wind: 0.0, radius: r, collide_body: true, collide_ground: true };
+        let mut bones = vec![Bone::driven(), dynamic(1.0), dynamic(1.0), dynamic(1.0)];
+        let at = |x: f32, z: f32| Affine3A::from_translation(Vec3::new(x, 0.0, z));
+        let rests = [at(0.0, 0.0), at(0.0, -10.0), at(4.0, -10.0), at(0.0, -20.0)];
+        let spring = LinkKind::Spring { rest: 0.0, slack: 0.0, k: 1.0 };
+        let joint = LinkKind::Joint { off: Vec3::ZERO, swing: 1.0, k: 1.0 };
+        let links = [Link { a: 1, b: 0, kind: spring }, Link { a: 1, b: 2, kind: spring }, Link { a: 3, b: 1, kind: joint }];
+        widen_to_neighbours(&mut bones, &links, &rests);
+        assert_eq!([bones[1].radius, bones[2].radius, bones[3].radius], [2.0, 2.0, 1.0]);
+        let rests = [at(0.0, 0.0), at(0.0, -10.0), at(20.0, -10.0), at(0.0, -20.0)];
+        widen_to_neighbours(&mut bones, &links, &rests);
+        assert_eq!(bones[1].radius, MAX_WIDEN);
     }
 
     /// Bevy checks the systems' queries for conflicting access only when they first run:
