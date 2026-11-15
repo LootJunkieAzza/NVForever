@@ -216,6 +216,29 @@ impl State {
         self.live = true;
     }
 
+    /// Carry the bones rigidly by `delta` (where the actor went while the simulation stood
+    /// still) and take `driven` as the last pose, so the next step starts from the held
+    /// cloth with no jump and no reset.
+    pub fn carry(&mut self, delta: Affine3A, driven: &[Affine3A]) {
+        if !self.live {
+            return;
+        }
+        let turn = Quat::from_mat3a(&delta.matrix3).normalize();
+        for p in &mut self.pos {
+            *p = delta.transform_point3(*p);
+        }
+        for v in &mut self.vel {
+            *v = turn * *v;
+        }
+        for r in &mut self.rot {
+            *r = (turn * *r).normalize();
+        }
+        for w in &mut self.world {
+            *w = delta * *w;
+        }
+        self.prev_driven = driven.to_vec();
+    }
+
     /// Where a link's `b` frame says its `a` belongs: `b`'s own turn when it is not
     /// simulated, else the turn it would have unswung (its parent's turn and its rest).
     fn reference(&self, rig: &Rig, b: usize) -> Quat {
@@ -565,6 +588,30 @@ mod tests {
             assert!((s.pos[i] - caps[0].closest(s.pos[i])).length() >= 6.5 - 0.05, "bone {i} in the capsule: {:?}", s.pos[i]);
         }
         assert!((s.pos[1] - caps[0].closest(s.pos[1])).length() >= 1.0 - 0.05);
+    }
+
+    /// Held still, then carried where the root went: the chain keeps its shape and the
+    /// next step goes on from there (no reset, no jump).
+    #[test]
+    fn a_carried_chain_goes_on_where_it_was_held() {
+        let (rig, _) = chain(4, 5.0, 2.0);
+        let mut s = State::default();
+        let still = vec![Affine3A::IDENTITY; 5];
+        for _ in 0..30 {
+            s.step(&rig, &still, &env(&[]), 1.0 / 60.0);
+        }
+        let held: Vec<Vec3> = s.pos.clone();
+        let delta = Affine3A::from_translation(Vec3::new(300.0, 0.0, 0.0));
+        let moved = vec![delta; 5];
+        s.carry(delta, &moved);
+        assert!(s.live);
+        for (p, h) in s.pos.iter().zip(&held) {
+            assert!((*p - (*h + Vec3::X * 300.0)).length() < 1e-3);
+        }
+        s.step(&rig, &moved, &env(&[]), 1.0 / 60.0);
+        for (p, h) in s.pos.iter().zip(&held).skip(1) {
+            assert!((*p - (*h + Vec3::X * 300.0)).length() < 2.0, "jumped: {p} from {h}");
+        }
     }
 
     #[test]

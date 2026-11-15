@@ -151,6 +151,8 @@ pub struct SmpRig {
     /// Per bone and capsule, its radius for that bone ([`fit_capsules`]).
     bone_r: Vec<f32>,
     last_root: Option<(Vec3, Vec3)>,
+    /// The actor's root when the cloth was last held still ([`cloth_held`]), until it runs.
+    held_at: Option<Affine3A>,
     pub label: String,
     /// How often the system blew up and was started over.
     pub blowups: u32,
@@ -443,7 +445,7 @@ fn rig_from_xml(commands: &mut Commands, e: Entity, cand: &SmpCandidate, shape: 
     // The skin now binds to every slot.
     let joints: Vec<Entity> = (0..names.len()).map(|s| entities[index[s]]).collect();
     commands.entity(e).insert((Transform::IDENTITY, SkinnedMesh { inverse_bindposes: bind_handle.clone(), joints }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, label, blowups: 0 })
 }
 
 /// The rig the generator makes for a shape with no SMP data (hair models, Qwib's
@@ -574,15 +576,28 @@ fn rig_generated(
     let (capsules, bone_r) = fit_capsules(&cand.skel, &rest_pts, 1.0);
     commands.entity(cand.nodes[0]).add_child(e);
     commands.entity(e).insert((Mesh3d(new_mesh), Transform::IDENTITY, SkinnedMesh { inverse_bindposes: new_binds, joints: entities.clone() }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, label, blowups: 0 })
 }
 
 /// The bones' and the actors' transforms; not the cameras, which `simulate` reads too.
 type Placed<'w, 's> = Query<'w, 's, (&'static mut Transform, &'static mut GlobalTransform), (Without<SmpRig>, Without<Camera3d>)>;
 
+/// Whether the cloth stands still this frame: in photo mode (alone or in co-op, owner
+/// 2026-11-15: "physics should pause in photomode"), the pause menu, a menu or a loading
+/// screen, as the original's physics stands still while the game is paused [design].
+/// Dialogue keeps it running (the speaker goes on moving).
+fn cloth_held(photo: bool, paused: bool, state: Option<nvf_play::PlayState>) -> bool {
+    photo || paused || matches!(state, Some(nvf_play::PlayState::Menu | nvf_play::PlayState::Loading))
+}
+
+/// What holds the cloth still ([`cloth_held`]): photo mode, the pause menu, the play state.
+type HoldState<'w> = (Option<Res<'w, nvf_play::photo_mode::PhotoMode>>, Option<Res<'w, nvf_play::pause::Paused>>, Option<Res<'w, bevy::prelude::State<nvf_play::PlayState>>>);
+
 /// Step every system on its actor's pose and write its bones back.
+#[allow(clippy::too_many_arguments)]
 fn simulate(
     time: Res<Time>,
+    (photo, paused, play): HoldState<'_>,
     mut cache: ResMut<SmpCache>,
     sky: Option<Res<crate::sky::SkyState>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
@@ -590,7 +605,8 @@ fn simulate(
     mut transforms: Placed<'_, '_>,
     mut reported: Local<bool>,
 ) {
-    let dt = time.delta_secs();
+    let held = cloth_held(photo.is_some_and(|p| p.on), paused.is_some_and(|p| p.0), play.map(|s| *s.get()));
+    let dt = if held { 0.0 } else { time.delta_secs() };
     cache.time += dt;
     let settings = cache.settings();
     let eye = cameras.iter().filter(|(c, _)| c.is_active).map(|(_, g)| g.translation()).next().unwrap_or(Vec3::ZERO);
@@ -623,8 +639,19 @@ fn simulate(
         let root = root_g.affine();
         let scale = root.matrix3.x_axis.length();
         let driven: Vec<Affine3A> = rig.entities.iter().zip(&rig.rig.bones).map(|(e, b)| if b.driven { transforms.get(*e).map(|(_, g)| g.affine()).unwrap_or(root) } else { Affine3A::IDENTITY }).collect();
+        if held {
+            // Nothing moves and nothing is written: the bones keep their places under
+            // the actor (whose pose photo mode holds in co-op).
+            rig.held_at.get_or_insert(root);
+            continue;
+        }
         // Teleports and fast turns start over.
         let pos = Vec3::from(root.translation);
+        if let Some(at) = rig.held_at.take() {
+            // Running again: the held cloth goes on from where the actor is now.
+            rig.state.carry(root * at.inverse(), &driven);
+            rig.last_root = None;
+        }
         // The root's side axis, flattened: it turns with the actor whichever way its
         // forward axis points (the side axis is x in both the game and Bevy frames).
         let fwd = Vec3::from(root.matrix3.x_axis).with_y(0.0).normalize_or_zero();
@@ -736,6 +763,20 @@ mod tests {
         let rests = [at(0.0, 0.0), at(0.0, -10.0), at(20.0, -10.0), at(0.0, -20.0)];
         widen_to_neighbours(&mut bones, &links, &rests);
         assert_eq!(bones[1].radius, MAX_WIDEN);
+    }
+
+    /// Photo mode, the pause menu, menus and loading screens hold the cloth; play and
+    /// dialogue run it.
+    #[test]
+    fn the_cloth_stands_still_in_photo_mode_and_menus() {
+        use nvf_play::PlayState::*;
+        assert!(cloth_held(true, false, Some(Playing)));
+        assert!(cloth_held(false, true, Some(Playing)));
+        assert!(cloth_held(false, false, Some(Menu)));
+        assert!(cloth_held(false, false, Some(Loading)));
+        assert!(!cloth_held(false, false, Some(Playing)));
+        assert!(!cloth_held(false, false, Some(Dialogue)));
+        assert!(!cloth_held(false, false, None));
     }
 
     /// Bevy checks the systems' queries for conflicting access only when they first run:
