@@ -6906,12 +6906,12 @@ order = [[
 [[scenario]]
 name = "cook-cook-flamer-hands"
 source = "owner spot check 2026-11-01 (#1309): Cook-Cook held his flamer below his hands while firing, again after PR #322 (animation.md §9.7)"
-note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 24 s (SetForceSneak) to fire crouched. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 32 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
+note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 40 s (SetForceSneak) to fire crouched: since NPC automatic weapons fire in bursts (2bf39e51c, 2026-11-05) his 60 rounds last from about 6 s to 28-34 s (3-round bursts about a second apart, cut by his cover and step-back moves), so the crouch at 24 s came before his reload. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 44 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
 areas = ["combat", "animation"]
 paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,24:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,31.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,31.6:release,31.65:zoom=250,31.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,32:cook_flamer_hands_03.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,40:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,43.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,43.6:release,43.65:zoom=250,43.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,44:cook_flamer_hands_03.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
-run_seconds = 34
+run_seconds = 46
 expect = [
   { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
   { re = 'weapon grip: 000F5704 .*: right hand (?P<n>[\d.]+) units from the Weapon node', range = [0, 10], all = true, label = "his right hand stays on the flamer's rear grip while he fires" },
@@ -7658,10 +7658,10 @@ expect = [
 [[scenario]]
 name = "creature-no-talk"
 source = "playtest list 4 item 19 (engine/nvf-play/src/activate.rs): a creature with nothing to say shows only its name, no Talk"
-note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line)"
+note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line). The face aid stands the player 100 units from it looking level, which passes over a young bighorner's back; the look aid at 7 s, once the start-up message boxes are gone, tips the view 25 degrees down onto it (issue #2354: the level look only met its bounds in the frame of the move, and not at all once the message boxes came in that frame)"
 areas = ["actors", "activation"]
 paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/reticle.rs", "crates/fnv-game/src/dialogue.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:0015EF63", NVF_PLAY_TEST_LOOK = "7:270:-25" }
 args = ["--play", "--pos=-69700,-714,8300", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [{ re = 'target 0x0015EF63 Young Bighorner \(\) ', label = "the bighorner: name only" }]
@@ -9970,10 +9970,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-npc"
 source = "owner's playtest 2026-10-16: the player's flamer sets an NPC on fire; the burn has No Death Dispel, so a corpse burns on for the rest of its time (docs/spec-notes/hit-effects.md §4)"
-note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 11 s. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
+note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his head from 11 s, aimed again each second while he steps back: at his torso the flame met the flamer he holds before his chest (a hit on the held weapon wears it and leaves the actor unhurt, combat.rs strike_weapon), and no burn was put on him in some runs. Moving him there loads the scripts that open about a dozen message boxes in a row (the pre-order packs, the add-ons' load messages: seen since 2026-10-26 at the latest); the trigger does nothing while one is up, so they close after 0.3 s and the weapon, aim and trigger wait until 9.5 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc,11:fire,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "9.5:weapon,10.5:aimnpc=0.92,11:fire,12:aimnpc=0.92,13:aimnpc=0.92,14:fire", NVF_PLAY_TEST_SHOTS = "13:npc_burning.png,16:npc_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -12805,10 +12805,10 @@ forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
 [[scenario]]
 name = "bean-bag-fatigue"
 source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
-note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes 2,150 units away, issue #2513, as sneak-attack-critical's does); the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
@@ -16368,6 +16368,22 @@ expect = [
 ]
 forbid = [
   { re = 'actor 00104C0F stuck at', label = "Doc Mitchell moved on by the stuck rule" },
+]
+
+[[scenario]]
+name = "nellis-loyal-stays-reachable"
+source = "issue #2566: with Volare! failed (a Boomer elder killed), Loyal was put in NellisHangar1b, behind the B-29 hangar doors 001093DB/001093DC that stay disabled until the B-29 is up, and the quest marker looped between the hangar door and its inside"
+note = "SetStage VMS15 (000FF5DF) 116 at 8 s fails Volare!, which GetQuestCompleted reads as 1: Loyal's first package, NellisLoyalB29SandboxAIPackage (In cell NellisHangar1b), is valid and every other one of his is not. No path goes through a disabled load door (fnv_nav::NavGraph::disabled_doors, fnv_ai::Ai::apply_door_presence), so he sets it aside and stays in NellisHangar2, where the player starts; before the fix his walk went out through 00105488 and in through the disabled 001093DB"
+areas = ["ai", "nav", "quests"]
+paths = ["crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/path.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/quest_targets.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:setstage 000FF5DF 116;8.3:close" }
+args = ["--cell", "NellisHangar2", "--play", "--no-voice", "--no-messages", "--hour", "12", "--npc-packages", "all,NellisLoyalREF"]
+run_seconds = 30
+expect = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: cannot reach the place of NellisLoyalB29SandboxAIPackage', label = "Loyal sets the B-29 hangar package aside: its doors are disabled" },
+]
+forbid = [
+  { re = 'ai \[[^]]*\] NellisLoyalREF: .*in NellisHangar1b', label = "Loyal walked or put into the B-29 hangar" },
 ]
 
 [[scenario]]
@@ -28357,6 +28373,30 @@ expect = [
 ]
 
 [[scenario]]
+name = "grass-fire"
+source = "owner request 2026-11-14 (#2567, docs/design/grass-fire.md): fire from a burning weapon spreads across grass, sets the actors in it alight and goes out within a hard limit; the grass blackens and sinks away and grows back when its cell reloads"
+note = "the player (god mode) fires the Flamer (0000432D, fuel 00029371) north at the grass by the Prospector Saloon (nearest tufts about 230 units north) for a second from 26 s (message boxes off: one open stops the trigger), then looks at the fire; Easy Pete is held in place and put 250 units in front, in the fire's path, at 27 s; the fire runs to its end. Frames for the eye: the front spreading, the black grass sinking, the scorched ground left behind"
+areas = ["combat", "grass"]
+paths = ["engine/nvf-play/src/grass_fire.rs", "engine/nvforever/src/grass_fire_fx.rs", "engine/nvforever/src/grass.rs", "engine/nvforever/src/grass.wesl", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/terrain.wesl"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:200", NVF_PLAY_TEST_LOOK = "9:5:-24,27.5:5:-14", NVF_PLAY_TEST_SCRIPT = "26.5:call:EasyPeteRef:SetRestrained:1,27:moveto:EasyPeteRef:player:0:250:0", NVF_PLAY_TEST_CONTROL = "9:weapon,26:fire,27:fire", NVF_PLAY_TEST_SHOTS = "29:grassfire_0.png,33:grassfire_1.png,39:grassfire_2.png,47:grassfire_3.png,60:grassfire_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 80
+expect = [
+  { re = 'grass fire 1: started at .* by the player with .*\(00044B30\)', label = "the Flamer's burn lights the grass where its flame lands" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiresmall01.nif: ', label = "the small flame model is loaded" },
+  { re = 'grass fire fx: model meshes.mps.mpsfiremed01.nif: ', label = "the larger flame model is loaded" },
+  { re = 'particles: born in meshes.mps.mpsfiremed01.nif: \S+ [1-9]', label = "the larger flames emit" },
+  { re = 'grass fire fx summary: .* (?P<n>\d+) smoke, (?P<m>\d+) lights', range = [1, 1000], label = "burnt-out patches smoulder" },
+  { re = 'particles: born in meshes.mps.mpsfiresmall01.nif: \S+ [1-9]', label = "the flames emit their particles" },
+  { re = 'grass fire: EasyPeteRef \(00104C80\) caught fire from fire 1', label = "Easy Pete, put in the fire's path, catches fire" },
+  { re = 'grass fire: the player caught fire', count = 0, label = "the player in god mode takes no burn" },
+  { re = 'grass fire 1: out after .*: (?P<n>\d+) patches burnt', range = [2, 500], label = "the fire spread and went out within its patch limit" },
+  { re = 'grass fire 1: out after .* reached (?P<n>\d+) units of 1024', range = [0, 1024], label = "it never reached past its limit" },
+  { re = 'grass fire fx summary: [1-9]\d* flames drawn', label = "flames were drawn" },
+  { re = 'failed to process shader', count = 0, label = "the grass and terrain shaders compile (a broken grass.wesl drew no grass at all)" },
+]
+
+[[scenario]]
 name = "stalkers-new-game-morning"
 source = "issue #2279 (21 of 32 player installs, v0.7.0): a new game's opening sets GameHour to 23 (VCG00 stage 0) and later to 8 (VCG01 stage 200); the south night stalkers spawned at 23:00 by VERStalkersSouth01 tried their 23:00 raid route VSpecialWBStalkerHuntersRaidMWF3 at 08:00 from the rest cell the quest had put them in, and could not reach it"
 note = "a new game; SetStage VCG01 200 at 12 s puts the clock at 08:00. The quest's night branch has spawned the stalkers by then (StalkersOn 1); its day branch, 18 s later, moves them to VStalkerSouthRestMarker and sets StalkersOn 0"
@@ -28408,3 +28448,14 @@ expect = [
   { re = 'turret aim: FF000000: turned (?P<n>\d+)° from where it was placed: its base [01]°, its Bip01 Yaw \d+°', range = [45, 180], label = "turned to the player, its base has not moved" },
   { re = 'turret aim: FF000000: turned \d+° from where it was placed: its base \d+°, its Bip01 Yaw (?P<n>\d+)°', range = [45, 180], label = "the yaw bone carries the turn" },
 ]
+
+[[scenario]]
+name = "quiet-missing-starfield"
+source = "#2408 (engine/nvforever/src/sky.rs cloud_layers, official_plugin): FalloutNV.esm's NVWastelandClearNight names sky/NVWastelandStarfieldSky.dds for its first cloud layer and no base archive has it; the player reports' missing_asset for it came from 25 of 43 installs. A texture the base game's own weather names and nobody has is no failure and logs no warning"
+note = "Goodsprings at 23:00: the climate rolls NVWastelandClearNight at the start"
+areas = ["sky", "reports"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs", "engine/nvf-assets/src/texture.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [{ text = "weather: NVWastelandClearNight at 23:00", label = "the night weather is the one shown" }]
+forbid = [{ re = 'texture not loaded: .*nvwastelandstarfieldsky', label = "a warning for the starfield texture the game does not have" }]

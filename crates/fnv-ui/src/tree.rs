@@ -1527,6 +1527,8 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
         OpKind::Round => num(x.round()),
         OpKind::Trunc => num(x.trunc()),
         OpKind::Abs => num(x.abs()),
+        // [documented: ui-neg-operator.md] Unlike abs/floor, neg uses the argument.
+        OpKind::Neg => num(-y),
         // A whole number from 0 below the argument, the same for this tile and operator
         // every time [design: when the original draws is not known].
         OpKind::Rand => {

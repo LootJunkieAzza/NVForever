@@ -1633,8 +1633,16 @@ pub fn update_clouds(
         if !unchanged {
             let Some(mut mat) = materials.get_mut(&m.0) else { continue };
             if new_texture {
-                mat.base.base_color_texture =
-                    w.cloud_textures[cl.layer].as_deref().and_then(|p| textures.get(p, true, &data, &mut images, None));
+                mat.base.base_color_texture = w.cloud_textures[cl.layer].as_deref().and_then(|p| {
+                    // A texture the base game's own weather names and no archive has is
+                    // no fault to report (#2408): the layer stays without a texture.
+                    let absent = official_plugin(w.plugin.as_deref()) && !data.vfs.exists(&nvf_assets::texture::resolved_path(p, |q| data.vfs.exists(q)));
+                    if absent {
+                        debug!("clouds: layer {} of {}: {p} is in no archive (named by {}): no texture", cl.layer, w.edid.as_deref().unwrap_or("?"), w.plugin.as_deref().unwrap_or("?"));
+                        return None;
+                    }
+                    textures.get(p, true, &data, &mut images, None)
+                });
                 cl.shows = Some(w.form_id);
             }
             mat.base.base_color = Color::LinearRgba(color);
@@ -2025,9 +2033,31 @@ pub fn interior_light_from(xy: i32, z: i32) -> Vec3 {
     -Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin())
 }
 
+/// Whether a record's plugin is the base game or one of its add-ons
+/// (`crate::reports::OFFICIAL_PLUGINS`, by file name whatever its case). Their data is
+/// the game's as shipped: FalloutNV.esm's NVWastelandClearNight names
+/// `sky\NVWastelandStarfieldSky.dds` for its first cloud layer and no base archive has
+/// it [observed: world.md, "Stars and moon"; `missing_asset` from 25 of 43 installs,
+/// issue #2408], so a file such a record names and nobody has is not reported as missing.
+fn official_plugin(name: Option<&str>) -> bool {
+    name.is_some_and(|n| crate::reports::OFFICIAL_PLUGINS.iter().any(|o| o.eq_ignore_ascii_case(n)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #2408: the base game's and its add-ons' weathers may name a cloud texture
+    /// no archive has without a warning; a mod's weather, or one of no known file, may not.
+    #[test]
+    fn only_the_games_own_plugins_are_excused_a_missing_cloud_texture() {
+        for name in ["FalloutNV.esm", "falloutnv.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "CaravanPack.esm"] {
+            assert!(official_plugin(Some(name)), "{name}");
+        }
+        for name in [Some("MyWeatherMod.esp"), Some("FalloutNV.esm.bak"), Some("TaleOfTwoWastelands.esm"), None] {
+            assert!(!official_plugin(name), "{name:?}");
+        }
+    }
 
     /// The common template pitch (z = 270) puts the light straight overhead, and the Gas
     /// Station's (xy 180, z 250, #1645) puts it high above, not below the floor.

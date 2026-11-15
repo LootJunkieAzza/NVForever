@@ -1252,3 +1252,69 @@ fn trait_write_serial_removal_slot_reuse_and_tree_identity() {
     assert_eq!(other.trait_write_serial(root, "_n"), None);
     assert_eq!(ui.trait_write_serial(other_root, "_n"), None);
 }
+
+
+// [documented: ui-neg-operator.md] Public XML loading/update, no installed assets.
+fn neg_fixture(xml: &str) -> Ui {
+    let source = MemSource::default().with("owned-neg.xml", xml);
+    let mut ui = Ui::new();
+    ui.load_menu(&source, "owned-neg.xml").unwrap();
+    ui.update();
+    ui
+}
+
+#[test]
+fn neg_uses_its_literal_argument_instead_of_the_incoming_accumulator() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_positive><copy>123</copy><neg>7</neg></_positive>
+      <_negative><copy>99</copy><NeG>-2.5</NeG></_negative>
+      <_zero><copy>31</copy><neg>0</neg></_zero>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_positive"), Some(-7.0));
+    assert_eq!(ui.get_float("OwnedNeg/_negative"), Some(2.5));
+    assert_eq!(ui.get_float("OwnedNeg/_zero"), Some(0.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_evaluates_a_nested_argument_before_subsequent_arithmetic() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_answer><copy>103</copy><neg><copy>3</copy><mul>2</mul></neg><add>1</add></_answer>
+      <_neighbor><copy>103</copy><sub>3</sub><mul>2</mul><add>1</add></_neighbor>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_answer"), Some(-5.0));
+    assert_eq!(ui.get_float("OwnedNeg/_neighbor"), Some(201.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_live_argument_dependencies_recompute_after_source_mutation() {
+    let mut ui = neg_fixture(r#"<menu name="OwnedNeg"><_source>3</_source>
+      <rect name="Child">
+        <x><copy>111</copy><neg src="parent()" trait="_source"/></x>
+        <width><copy>999</copy><neg src="parent()" trait="_source"/><mul>2</mul></width>
+      </rect>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(-3.0));
+    assert_eq!(ui.get_float("OwnedNeg/Child/width"), Some(-6.0));
+    assert!(ui.set_float("OwnedNeg/_source", -4.0));
+    ui.update();
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(4.0));
+    assert_eq!(ui.get_float("OwnedNeg/Child/width"), Some(8.0));
+    ui.update();
+    assert_eq!(ui.get_float("OwnedNeg/Child/x"), Some(4.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}
+
+#[test]
+fn neg_minus_one_then_sub_one_composes_without_changing_boolean_not() {
+    let ui = neg_fixture(r#"<menu name="OwnedNeg">
+      <_difference><copy>731</copy><neg>-1</neg><sub>1</sub></_difference>
+      <_predicate><copy>731</copy><neg>-1</neg><sub>1</sub><eq>0</eq></_predicate>
+      <_boolean><copy>731</copy><not>-1</not></_boolean>
+    </menu>"#);
+    assert_eq!(ui.get_float("OwnedNeg/_difference"), Some(0.0));
+    assert_eq!(ui.get_float("OwnedNeg/_predicate"), Some(1.0));
+    assert_eq!(ui.get_float("OwnedNeg/_boolean"), Some(0.0));
+    assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
+}

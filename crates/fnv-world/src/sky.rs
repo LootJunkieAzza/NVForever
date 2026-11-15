@@ -100,6 +100,10 @@ pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 pub struct Weather {
     pub form_id: u32,
     pub edid: Option<String>,
+    /// The file name of the plugin whose record this is: the last in the load order to
+    /// define it. Lets a reader tell the base game's own data from a mod's (a base-game
+    /// weather names a cloud texture no archive has, issue #2408).
+    pub plugin: Option<String>,
     /// `colors[type][time]` as RGB bytes; 4 or 6 times per type.
     pub colors: Vec<Vec<[u8; 3]>>,
     /// Fog distances: day near, day far, night near, night far, day power, night power.
@@ -258,7 +262,7 @@ pub fn climate(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Climate> {
 pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    let mut w = Weather { form_id: fid, edid: f.string(b"EDID"), ..Default::default() };
+    let mut w = Weather { form_id: fid, edid: f.string(b"EDID"), plugin: lo.plugins.get(pi).map(|p| p.name.clone()), ..Default::default() };
     let flat: Vec<[u8; 3]> =
         f.get(b"NAM0").and_then(|v| v.as_array().map(|a| a.iter().filter_map(byte_color).collect())).unwrap_or_default();
     // Ten colour types; 4 or 6 times each [observed: 160 or 240 bytes].

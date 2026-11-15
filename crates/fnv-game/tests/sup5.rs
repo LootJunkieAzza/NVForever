@@ -59,6 +59,9 @@ fn folders() -> (PathBuf, PathBuf) {
         use fnv_game::mod_files::{set_roots, Roots};
         let base = std::env::temp_dir().join(format!("nvf-sup5-{}", std::process::id()));
         let (game, layer) = (base.join("game"), base.join("layer"));
+        // Windows reuses process ids: an earlier run's folder of the same id would hand
+        // this run its workbooks (a renamed sheet, an erased one) and fail the Excel test.
+        let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(game.join("Data")).unwrap();
         std::fs::create_dir_all(&layer).unwrap();
         std::fs::write(game.join("nvac.log"), b"0123456789").unwrap();

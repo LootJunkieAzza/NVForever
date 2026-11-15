@@ -420,7 +420,10 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     requirement) over VAL; the second row CND (a bar 62 in, 15 down, 20 high, 72 short
     of the card) and beside it, two cards and 10 wide, the ammunition ("20ga (2/30)":
     the AMMO short name, then what a clip holds of what is carried over what is
-    carried, hypothesis) or armour's class ("Light", "Medium", "Heavy"); EFFECTS across
+    carried, hypothesis) or armour's class ("Light", "Medium", "Heavy"); EFFECTS (a value too long for the room
+    beside the title, as an aid item's four Hardcore effects, goes on in right-aligned
+    lines under it, broken between effects: `frame::card_value_lines` [design, #2537; the
+    file's `CI_ValueText` has a `wrapwidth`, documented, its look is not captured]) across
     the three cards on the first free row: an aid item's own effects, apparel's or a
     weapon's enchantment's (EITM), written as the STATS EFF list writes them ("HP +40",
     "AGL -1") [observed: the owner's ITEMS screenshots, all five tabs]. WG and VAL are

@@ -389,10 +389,13 @@ impl NavGraph {
         }
     }
 
-    /// Whether a path may go through door `d`: its arrival is usable and the door is not
-    /// locked, or the traveller holds its key or owns it, or may open locks.
+    /// Whether a path may go through door `d`: the door is in the world
+    /// ([`NavGraph::disabled_doors`]: a disabled door is not there to use [hypothesis: the
+    /// original's actors do not walk through a disabled load door; issue #2566]), its
+    /// arrival is usable and the door is not locked, or the traveller holds its key or
+    /// owns it, or may open locks.
     pub fn door_open(&self, d: &DoorEdge, p: &PathParams) -> bool {
-        if !self.usable(d.to) || !p.opens_doors || p.refused_doors.contains(&d.door) {
+        if self.disabled_doors.contains(&d.door) || !self.usable(d.to) || !p.opens_doors || p.refused_doors.contains(&d.door) {
             return false;
         }
         match self.door_locks.get(&d.door) {

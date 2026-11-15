@@ -710,6 +710,9 @@ pub struct Ai {
     /// The world's presence serial and the graph's obstacle stamp after the obstacles
     /// were last brought into the graph ([`Ai::obstacles_in_line`]).
     applied_obstacles: Option<(u64, u64)>,
+    /// The world's presence serial last brought into the graph's load doors
+    /// ([`Ai::apply_door_presence`]).
+    applied_presence: Option<u64>,
     /// The graph's locked doors as last brought in ([`Ai::apply_door_locks`]): the ones an
     /// actor owns are open to its paths ([`Ai::path_params`]).
     locked_doors: Vec<u32>,
@@ -795,7 +798,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -883,6 +886,56 @@ impl Ai {
         }
         if !changes.locked.is_empty() {
             again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.locked))).map(|(id, _)| *id));
+        }
+        again.sort();
+        again.dedup();
+        for actor in &again {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some(again)
+    }
+
+    /// Bring the graph's load doors in line with whether the game has them in the world
+    /// now ([`Game::present`]: a script's Enable or Disable, an enable parent's), when the
+    /// world's presence serial moved since the last call (`fnv_sim::World::presence_serial`,
+    /// which every such change moves; a new world starts from a number of its own). A door
+    /// that is not there takes no part in paths (`fnv_nav::NavGraph::disabled_doors`), as
+    /// a locked one an actor cannot open: Nellis's hangar has a door into each of its two
+    /// versions on the same spot, one disabled until the B-29 is up, and Loyal, whose
+    /// package after a failed Volare! is in the B-29's hangar, was walked through the
+    /// disabled one into a hangar the player cannot enter (issue #2566).
+    ///
+    /// A door gone: the actors whose way goes through it plan again. A door back: the
+    /// packages set aside as out of reach may be chosen again (`Game::unblock_packages`)
+    /// [design: as for a door locked and unlocked, [`Ai::apply_door_locks`]]. Returns the
+    /// actors sent to plan again, `None` when no door changed.
+    pub fn apply_door_presence(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
+        let serial = game.world.presence_serial();
+        if self.applied_presence == Some(serial) {
+            return None;
+        }
+        self.applied_presence = Some(serial);
+        // A door the world does not know (no placed reference) is left as the graph has it.
+        let states: Vec<(u32, bool)> = nav.door_refs_through().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        let changes = nav.sync_door_presence(states);
+        if changes.is_empty() {
+            return None;
+        }
+        let mut again: Vec<FormId> = Vec::new();
+        if !changes.back.is_empty() {
+            again.extend(game.unblock_packages());
+        }
+        if !changes.gone.is_empty() {
+            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.gone))).map(|(id, _)| *id));
         }
         again.sort();
         again.dedup();

@@ -89,6 +89,8 @@ pub enum OpKind {
     Round,
     Trunc,
     Abs,
+    /// UIO argument negation: replace the accumulator with `-argument`.
+    Neg,
     Rand,
     Eq,
     Neq,
@@ -123,6 +125,7 @@ impl OpKind {
             "round" => OpKind::Round,
             "trunc" => OpKind::Trunc,
             "abs" => OpKind::Abs,
+            "neg" => OpKind::Neg,
             "rand" => OpKind::Rand,
             "eq" => OpKind::Eq,
             "neq" => OpKind::Neq,

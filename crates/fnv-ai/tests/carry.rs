@@ -1009,6 +1009,34 @@ fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A load door the game disables (a script's Disable, an enable parent's) is no way: the
+/// actor sets its package aside rather than going through it. Enabled again, the graph
+/// learns it, the package is chosen again at once and the actor gets through
+/// (`Ai::apply_door_presence`; issue #2566, Loyal put behind a disabled Nellis hangar door).
+#[test]
+fn a_door_disabled_and_enabled_in_the_game_reaches_the_paths() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // The first poll learns the doors as they are, all there: nothing changed.
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None);
+    s.game.world.set_enabled(FormId(DOOR_A), false).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![]));
+    assert!(s.nav.disabled_doors.contains(&DOOR_A));
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), None, "applied once");
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Enabled: the package is chosen again and the way is open.
+    s.game.world.set_enabled(FormId(DOOR_A), true).unwrap();
+    assert_eq!(s.ai.apply_door_presence(&mut s.game, &mut s.nav), Some(vec![actor]));
+    assert!(!s.nav.disabled_doors.contains(&DOOR_A));
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?}", s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
 /// A scripted door that does not let the actor through (its OnActivate block called no
 /// `Activate` for it, `fnv_game::npc_doors`) shuts the way as a lock does: asked as the
 /// actor comes near, it plans again without the door and, with no other way, sets the

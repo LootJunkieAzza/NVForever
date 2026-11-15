@@ -2196,3 +2196,31 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      anything explode on a second pass (the bottle-cap mine 0x0008424C, the frag mines
      0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
      once.
+
+## Added 2026-11-14 (unseen actors whose package place cannot be walked to, #2405)
+
+145. **Where does the original put an actor nobody sees whose package place has no way
+     to it?** (P2; #2405, packages.md §9, actor-behaviour.md "processing levels".)
+     `GomezREF` (0x0015A02E) is placed in a side room of SafehouseNCRINT at (7691, 742,
+     6127), on a navmesh island of two triangles; from a new game the quest script holds
+     `vSafehouse.GomezGoToSleep` at 1 on every day but his visiting day, so his Leave
+     package (Travel to `GomezDoor` 0x0015A02B at (2811, 951, 6438), on another island
+     of the cell, no door between) is the one that is valid [observed: the records,
+     `fnvtool nav path`]. Ours: he cannot walk there and stays, reporting it every hour.
+     To check, on a new game, far from the safehouse, after three game hours and again
+     after a day: `GomezREF.GetPos x`, `GetPos y`, `GetUnconscious`, `GetCurrentAIPackage`,
+     `GetActorProcessingLevel`. At (2811, 951) or at `GomezSleep` and unconscious: the
+     original places unseen actors at their package's place (and the door trigger
+     0x0015A031 then fires). Still at (7691, 742): it leaves them. The same for
+     `AtticusREF` (0x0015A04E, SafehouseLegionINT). And `SSHQMalcolmHolmesREF`
+     (0x0010651A): after he has met the player outdoors and walked out of sight, is he
+     back in RandomEncounterNPCs at (1825, 2079, 6976)?
+
+160. **Where is Loyal once Volare! has failed, and can the player reach him?** (P2; #2566,
+     navmesh.md §4 "Disabled load doors".) Kill Argyll (NellisArgyllREF) at Nellis
+     before the B-29 is raised: VMS15 stage 116 fails Volare!, which GetQuestCompleted
+     reads as 1, so Loyal's first package, NellisLoyalB29SandboxAIPackage, wants him in
+     NellisHangar1b, whose only doors (0x001093DB/0x001093DC) stay disabled until the
+     B-29 is up. Where is Loyal then (NellisHangar2, NellisHangar1, NellisHangar1b), and
+     where does Render Unto Caesar's Boomer-leadership marker point? [hypothesis: the
+     original does not move him through a disabled door; ours keeps him where he is.]
