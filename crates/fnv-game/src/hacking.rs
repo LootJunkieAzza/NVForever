@@ -292,6 +292,23 @@ pub struct Puzzle {
     /// The log at the right, oldest first, each line with its `>`.
     pub log: Vec<String>,
     pub state: State,
+    /// The player's hacking tweaks, set by whoever opens the game.
+    pub rules: HackRules,
+    /// Words already tried and denied (for [`HackRules`]).
+    pub guessed: Vec<usize>,
+}
+
+/// The player's hacking tweaks (Stewie's Tweaks bImprovedHacking's options) [design: docs/design/tweaks.md].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HackRules {
+    /// A lone symbol does nothing and prints nothing.
+    pub no_single_chars: bool,
+    /// A word already tried does nothing and costs nothing.
+    pub no_repeat_words: bool,
+    /// A bracket pair with the attempts full removes a dud instead.
+    pub dud_when_full: bool,
+    /// Removing a dud spares the words already tried, unless only they are left.
+    pub spare_guessed: bool,
 }
 
 fn below(rng: &mut impl RngCore, n: usize) -> usize {
@@ -359,7 +376,7 @@ impl Puzzle {
         let password = words.iter().position(|w| w.text == password)?;
         // [design] A four-digit address that the whole dump stays within.
         let address = 0x1000 + below(rng, 0xF000 - DUMP_CHARS) as u16;
-        Some(Puzzle { chars, address, words, password, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing })
+        Some(Puzzle { chars, address, words, password, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing, rules: HackRules::default(), guessed: Vec::new() })
     }
 
     /// The address shown before a row.
@@ -446,6 +463,12 @@ impl Puzzle {
             return Outcome::Ignored;
         }
         let t = self.target(index);
+        // The player's tweaks: a lone symbol, or a word tried before, does nothing.
+        match t {
+            Target::Char(_) if self.rules.no_single_chars => return Outcome::Ignored,
+            Target::Word(w) if self.rules.no_repeat_words && self.guessed.contains(&w) => return Outcome::Ignored,
+            _ => {}
+        }
         let entered = self.text(t);
         self.say(&entered);
         match t {
@@ -457,6 +480,9 @@ impl Puzzle {
             }
             Target::Word(w) => {
                 let n = likeness(&self.words[w].text, self.password());
+                if !self.guessed.contains(&w) {
+                    self.guessed.push(w);
+                }
                 self.attempts -= 1;
                 self.say_own(words::DENIED);
                 self.say(&words::likeness(n, self.words[self.password].len));
@@ -469,10 +495,16 @@ impl Puzzle {
             }
             Target::Brackets { start, .. } => {
                 self.used.push(start);
-                let duds: Vec<usize> = (0..self.words.len()).filter(|&w| w != self.password && !self.words[w].removed).collect();
+                let mut duds: Vec<usize> = (0..self.words.len()).filter(|&w| w != self.password && !self.words[w].removed).collect();
+                // The player's tweak spares the words tried, unless only they are left.
+                if self.rules.spare_guessed && duds.iter().any(|w| !self.guessed.contains(w)) {
+                    duds.retain(|w| !self.guessed.contains(w));
+                }
                 // [hypothesis, hacking.md §5] One pair in five gives the attempts back;
                 // the others remove a dud, or give the attempts back once no dud is left.
-                if duds.is_empty() || below(rng, 5) == 0 {
+                // The player's tweak removes a dud instead when the attempts are full.
+                let replenish = duds.is_empty() || below(rng, 5) == 0;
+                if replenish && !(self.rules.dud_when_full && self.attempts == ATTEMPTS && !duds.is_empty()) {
                     self.attempts = ATTEMPTS;
                     self.say_own(words::REPLENISHED);
                     Outcome::Replenished
@@ -623,6 +655,30 @@ mod tests {
     }
 
     #[test]
+    fn the_players_hacking_rules() {
+        // A lone symbol and a repeated word do nothing.
+        let mut p = by_hand();
+        p.rules = HackRules { no_single_chars: true, no_repeat_words: true, ..HackRules::default() };
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        assert_eq!(p.choose(0, &mut rng), Outcome::Ignored);
+        assert!(p.log.is_empty());
+        assert!(matches!(p.choose(14, &mut rng), Outcome::Denied { .. }));
+        assert_eq!(p.choose(14, &mut rng), Outcome::Ignored);
+        assert_eq!(p.attempts, ATTEMPTS - 1);
+        // With the attempts full, a pair removes a dud whatever the roll; the dud spares
+        // LOOTING, tried already, while GETTING is left.
+        for seed in 0..20 {
+            let mut p = by_hand();
+            p.rules = HackRules { dud_when_full: true, spare_guessed: true, ..HackRules::default() };
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            p.choose(14, &mut rng);
+            p.attempts = ATTEMPTS;
+            assert_eq!(p.choose(7, &mut rng), Outcome::DudRemoved);
+            assert!(!p.words[0].removed && p.words[2].removed);
+        }
+    }
+
+    #[test]
     fn log_lines_wrap_as_the_screenshot() {
         assert_eq!(log_lines(words::WAIT), vec![">Opening the", ">terminal..."]);
         assert_eq!(log_lines(&words::likeness(4, 7)), vec![">4 of 7 right"]);
@@ -689,7 +745,7 @@ mod tests {
             Word { text: "MEETING".into(), len: 7, start: 26, removed: false },
             Word { text: "GETTING".into(), len: 7, start: 38, removed: false },
         ];
-        Puzzle { chars, address: 0xF6EC, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing }
+        Puzzle { chars, address: 0xF6EC, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: State::Guessing, rules: HackRules::default(), guessed: Vec::new() }
     }
 
     #[test]

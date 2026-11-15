@@ -230,6 +230,14 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
 - A script package (`AddScriptPackage`) takes precedence over all other packages until
   it is done; an actor has one at a time; without Must Complete / Must Reach Location it
   is removed at the next evaluation; it is saved with the game.
+- The same package added again while it is still the actor's current one and its goal
+  was met (no choice has dropped it yet) begins afresh: the goal is forgotten and the AI
+  takes it up anew, as after ResetAI; added while it still runs, nothing changes
+  [hypothesis: the GECK wiki's "until it is done" read per call; observer check 183].
+  The Lucky 38 elevator Victor needs it: his OnActivate adds his Dialogue package on
+  every talk and waits for the conversation before showing the floor box, and a second
+  talk soon after Stay Here otherwise opened none, for good [observed:
+  Lucky38VictorElevatorScript, SCPT 0x0015725D in FalloutNV.esm; issue #2424].
 - `EvaluatePackage` drops even a Must Complete / Must Reach Location package and chooses
   again.
 - Flags that shape choosing: **Must Complete** (does not end until its conditions are met:
@@ -1268,3 +1276,65 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   (`Game::end_timed_packages`), which a GameHour write does not move, and a held package
   (Must Complete, Must Reach Location until its goal) stays through the new choice. So the
   Goodsprings night stalkers of #2279 are not obviously fixed by this.
+
+## 10. A Find package for the player: Cachino in Gomorrah (issue #2473)
+
+- **The data** [observed: `fnvtool ai show --actor VMS21CachinoREF`, `script decompile`,
+  `dialogue lines`, `world refs --cell Gomorrah01`, FalloutNV.esm]:
+  - Cachino (`VMS21CachinoREF` 0x0011118D, base `VMS21Cachino` 0x0010C6F5) is placed
+    initially disabled in Gomorrah01 ("Gomorrah Main Level") at (7159, 1281, 6400).
+  - The lines where the player asks Gomorrah's people about him enable him: the end
+    scripts of INFO 0x001750C7 / 0x001750A9 (topics `vDialogueGomorrahGenericTopic003` /
+    `005`, the player's two prompts asking where Cachino is), 0x001750CD (`Topic007`), 0x001750B4, 0x0016318A, 0x0016318B, 0x0011663F
+    (`Topic006`) and the receptionist's 0x001537FF all run `0x0011118D.enable` (and
+    `setobjectivedisplayed 0x00136166 27 0`; 0x001750C7 also sets VMS21's
+    `icachinoquestions` to 1, 0x001537FF sets VMS21's objectives 1 done, 10 shown). Two of
+    those lines tell the player that Cachino will come to them: 0x001750CD (he will be sent
+    to the player, who should wait at Brimstone, the bar of the main level) and 0x001750B4
+    (he will find the player).
+    No quest stage is set and no script calls StartConversation, EvaluatePackage or
+    AddScriptPackage on him at that point.
+  - His package list, in order: `VMS21CachinoNeroSit`, `VMS21CachinoSalSit`,
+    `VMS21CachinoDialoguePackage2` (a Dialogue package of the boss-room scene, VMS21
+    variables 5 >= 2 and 28 == 0), `VMS21CachinoBossRoomTravelWait`, then
+    **`vGomorrahCachinoDialoguePackage`** (PACK 0x00119485), then
+    `DefaultSandboxLinkedMarker256NoSleepNoWander`. The first four read quest variables
+    of the later scenes; the fifth is the one for this moment.
+  - `vGomorrahCachinoDialoguePackage` is a **Find** package (type 0, not Dialogue), no
+    flags, schedule any time, location "near editor location" radius 0, target the
+    specific reference PlayerRef with count / distance 0, no begin / end / change topic
+    or script. Conditions: `GetTalkedToPC == 0` (subject) AND (target `GetInCell
+    Gomorrah00 == 1` OR `Gomorrah01` OR `Gomorrah02` OR `Gomorrah03`): valid while he has
+    not talked to the player and the player is in any of the four Gomorrah cells.
+  - His GREETING lines (quest `vDialogueGomorrah`) start, for VMS21 before stage 10 and
+    objective 31 not shown, with the Say Once INFO 0x001133A0 (about the player asking
+    questions about him), then 0x001164B1 (for meeting the player again).
+- **What follows from it** [hypothesis]: nothing but the package can bring him to the
+  player, and nothing but a conversation ends it (GetTalkedToPC turns 1 only once he has
+  talked to the player). So the original's Find, for a living actor named as its target,
+  goes to that actor where it is, and on reaching the player it talks: the documented
+  "Find: Idles play when 'activating' the target of the find" (Category:Packages) reads
+  as the actor activating its target, and an actor activated is talked to. The owner saw
+  it in the original: he walks up soon after the player asks and asks why they are
+  asking about the family [owner statement 2026-11-14, issue #2473]. The masters'
+  `DefaultFindPlayerPackage` (0x00140D3E) has the same shape (near editor location,
+  radius 0, PlayerRef), named for finding the player wherever they are.
+- **Before #2473** [observed in ours, smoke `cachino-find-greet` on main]: a radius 0
+  search area was 512 units around the location (§3.1, our choice), for a named
+  reference too; the player asking at the bar or the floor, farther than 512 from his
+  spot, was not in the area, so he found nothing and stood still ("finds nothing more"),
+  looking again every 10 s. Reaching the player only stood him there.
+- **What is built** [design, #2473]: a Find whose target is one reference and whose
+  location has no radius (0) has no search area: it goes after that reference wherever it
+  is (another cell too, over the navmeshes and through doors). A location with a radius
+  keeps its area (`VMS18HeadWaiterGetFood` 128 around the pie, `NellisFindJanet` 128).
+  A Find that reaches **the player**, without Allow Killing and not in combat, starts a
+  conversation as a force greet (`Game::force_greet`, its GREETING; a clear line to the
+  player as for Dialogue packages, `Game::greet_sight`, and held while a menu or a
+  loading screen is up). With nothing to say the package is over as before. Of the 14
+  Find packages of FalloutNV.esm with a specific reference target, five name the player:
+  this one, `DefaultFindPlayerPackage`, `BMTabithaPissedFindPackage` (Weapon Drawn; no
+  actor lists it and no script adds it) and Fallout 3's `FFEU02/05GreetPlayer`, named
+  for the greeting.
+- **Open**: how near the original's actor comes before it talks, how long it takes to set
+  off, and whether a Weapon Drawn Find to the player talks too (observer check 176).

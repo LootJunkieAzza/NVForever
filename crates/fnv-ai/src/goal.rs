@@ -143,6 +143,16 @@ pub struct Area {
     pub radius: f32,
 }
 
+impl Area {
+    /// No area at all: what it looks for counts wherever it is, in any cell (a Find for
+    /// one reference whose location gives no radius, packages.md §10).
+    pub const ANYWHERE: Area = Area { centre: None, radius: f32::INFINITY };
+
+    pub fn is_anywhere(&self) -> bool {
+        self.centre.is_none() && self.radius == f32::INFINITY
+    }
+}
+
 /// A search area of radius 0 is this wide [our choice: 16 of the masters' Find and Use
 /// Item At packages have radius 0 and name an object to find around the location].
 pub const STANDARD_SEARCH_RADIUS: f32 = 512.0;
@@ -690,6 +700,16 @@ fn find(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         Ok(Wanted::Reference(r)) if r == actor => return Goal::Missing("the actor would find itself"),
         Ok(w) => w,
         Err(g) => return g,
+    };
+    // One reference to find, with no radius to its location (0, or no location): it is
+    // gone after wherever it is, from where the actor stands [hypothesis, issue #2473:
+    // Cachino's vGomorrahCachinoDialoguePackage finds the player anywhere in Gomorrah's
+    // four cells from "near editor location" radius 0; packages.md §10]. Before, the
+    // 512 of a radius 0 search held for it too, and he stood still.
+    let (search, area) = if matches!(wanted, Wanted::Reference(_)) && def.location.as_ref().is_none_or(|l| l.radius <= 0) {
+        (Goal::Here, Area::ANYWHERE)
+    } else {
+        (search, area)
     };
     let n = def.target.map_or(0, |t| t.count_distance.max(0));
     let (count, distance) = match wanted {

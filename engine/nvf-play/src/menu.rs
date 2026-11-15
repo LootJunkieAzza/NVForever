@@ -324,6 +324,9 @@ fn barter_skill(script: Option<&mut crate::script::ScriptState>, sim: &mut SimSt
     crate::script::with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::BARTER)) as f32
 }
 
+/// What the No Pip-Boy In Combat tweak reads: the fight, the tweak, the corner line.
+type CombatGate<'w> = (Option<Res<'w, crate::after_combat::AfterCombat>>, Option<Res<'w, crate::tweaks::TweakSettings>>, Option<ResMut<'w, crate::corner_messages::CornerMessages>>);
+
 /// Open a menu on request while playing. The inventory stays shut while a script has
 /// turned the Pip-Boy off [documented: GECK wiki DisablePlayerControls, PipboyFlag]; a
 /// container still opens (a script's own `Activate` asks for it). The barter menu also
@@ -343,6 +346,7 @@ pub(crate) fn open_menus(
     wait: Option<Res<crate::wait::WaitMenu>>,
     mut fresh: ResMut<FreshMenu>,
     animated: (Option<ResMut<crate::doors::Doors>>, Option<ResMut<crate::container_anim::ContainerOpening>>),
+    (after, tweaks, mut corner): CombatGate,
 ) {
     let mut script = script.map(|s| s.into_inner());
     let steal = steals.read().last().copied();
@@ -353,6 +357,14 @@ pub(crate) fn open_menus(
         info!("menu: the inventory stays shut, a script has disabled the player's controls (Pip-Boy)");
         if let Some(mut s) = stats {
             s.held[crate::control::group::PIPBOY] += 1;
+        }
+        inv = false;
+    }
+    // The player's tweak: no Pip-Boy while something fights the player [design: docs/design/tweaks.md].
+    if inv && tweaks.as_ref().is_some_and(|t| t.no_pipboy_in_combat) && after.is_some_and(|a| a.fighting) {
+        info!("menu: the Pip-Boy stays shut in combat (tweak)");
+        if let Some(c) = corner.as_deref_mut() {
+            c.push(crate::tweaks::NO_PIPBOY_LINE.into());
         }
         inv = false;
     }
@@ -395,12 +407,17 @@ pub(crate) fn open_menus(
         }
         (None, Some(c)) if steal.is_some() => {
             let victim = FormId(c.container);
-            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim), rt.game.pickpocket_worn(victim))));
-            let (rules, (thief, target), worn) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false));
+            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim), rt.game.pickpocket_worn(victim), rt.game.pickpocket_overhaul(victim))));
+            let (rules, (thief, target), worn, overhaul) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false, None));
             info!("pickpocket: open on {victim}: Sneak {thief:.0} against {target:.0}");
             MenuModel::open_container(&mut sim.world, victim).and_then(|mut m| {
                 let mut steal = model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED);
                 steal.worn = worn;
+                // The player's Pickpocket Overhaul tweak [design: docs/design/tweaks.md].
+                if let Some(o) = &overhaul {
+                    info!("pickpocket: the overhaul's figures: Agility {:.0}, Luck {:.0}, Sneak {:.0}, Perception {:.0}, detection {:.0} (tweak)", o.agility, o.luck, o.sneak, o.perception, o.detection);
+                }
+                steal.overhaul = overhaul;
                 m.steal = Some(steal);
                 m.refresh(&mut sim.world)?;
                 Ok(m)
@@ -425,9 +442,14 @@ pub(crate) fn open_menus(
             info!("menu: open {:?} \"{}\"{}", m.mode, m.title, if hidden > 0 { format!(" ({hidden} non-playable stacks hidden)") } else { String::new() });
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
+            // The player's tweak: the world (and the player) runs on while the Pip-Boy comes
+            // up; `keep_menu_state` stops it once the arm is up [design: docs/design/tweaks.md].
+            let walk_on = matches!(m.mode, Mode::Inventory) && tweaks.as_ref().is_some_and(|t| t.move_during_pipboy_raise);
             active.0 = Some(m);
             fresh.0 = true;
-            if !talking {
+            if walk_on {
+                info!("menu: the player moves on while the Pip-Boy comes up (tweak)");
+            } else if !talking {
                 next.set(PlayState::Menu);
             }
         }
@@ -442,11 +464,38 @@ pub(crate) fn open_menus(
 
 /// A barter menu opened over a conversation stays a menu when the conversation ends
 /// under it.
-fn keep_menu_state(active: Res<ActiveMenu>, state: Res<State<PlayState>>, mut next: ResMut<NextState<PlayState>>) {
-    if active.0.is_some() && *state.get() == PlayState::Playing {
-        next.set(PlayState::Menu);
+/// Under the player's Move During the Pip-Boy's Opening tweak, the inventory's Pip-Boy
+/// is let come up first: the state stays Playing while its arm is raising, and for at
+/// most [`RAISE_START_FRAMES`] frames before it starts (the arm follows the menu later in
+/// the frame) [design: docs/design/tweaks.md].
+fn keep_menu_state(
+    active: Res<ActiveMenu>,
+    state: Res<State<PlayState>>,
+    mut next: ResMut<NextState<PlayState>>,
+    (pip, tweaks): (Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::tweaks::TweakSettings>>),
+    mut waited: Local<u8>,
+) {
+    if active.0.is_none() || *state.get() != PlayState::Playing {
+        *waited = 0;
+        return;
     }
+    let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    if inventory && tweaks.is_some_and(|t| t.move_during_pipboy_raise) {
+        match pip.map(|p| p.phase) {
+            Some(crate::pipboy::Phase::Raising) => return,
+            Some(crate::pipboy::Phase::Down) if *waited < RAISE_START_FRAMES => {
+                *waited += 1;
+                return;
+            }
+            _ => {}
+        }
+    }
+    *waited = 0;
+    next.set(PlayState::Menu);
 }
+
+/// Frames the Move During the Pip-Boy's Opening tweak waits for the arm to start up.
+const RAISE_START_FRAMES: u8 = 3;
 
 fn release_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
     if let Ok(mut c) = cursor.single_mut() {
@@ -511,7 +560,8 @@ fn menu_keys(keys: crate::pad::ActionButtons<KeyCode>, active: Res<ActiveMenu>, 
     }
     match m.mode {
         Mode::Barter(_) if keys.just_pressed(KeyA) => send(Command::Accept),
-        Mode::Container(_) if keys.just_pressed(KeyR) => send(Command::TakeAll),
+        // The player's tweak: Shift with Take All stores everything instead [design: docs/design/tweaks.md].
+        Mode::Container(_) if keys.just_pressed(KeyR) => send(if shift && m.store_all { Command::StoreAll } else { Command::TakeAll }),
         _ => {}
     }
 }
@@ -570,8 +620,13 @@ fn menu_mouse(
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (tile_menu, barter_tiles, tile_title): MouseTiles,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mouse: Res<ButtonInput<MouseButton>>,
 ) {
     let keys = keys.snapshot();
+    let right_steps_back = tweaks.as_ref().is_some_and(|t| t.right_click_previous_category);
+    // The player's tweak turns the wheel over a category title the other way [design: docs/design/tweaks.md].
+    let invert_titles = tweaks.as_ref().is_some_and(|t| t.invert_title_wheel);
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else {
         wheel.clear();
         return;
@@ -615,10 +670,18 @@ fn menu_mouse(
             MouseScrollUnit::Pixel => w.y / 20.0,
         };
     }
+    // The player's tweak: a right click on a list's heading steps back a category [design: docs/design/tweaks.md].
+    if right_steps_back && mouse.just_pressed(MouseButton::Right) {
+        let title = if tiled { tile_title.as_ref().and_then(|t| t.0) } else { titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0) };
+        if let Some(side) = title {
+            out.write(MenuInput(Command::Category(side, -1)));
+        }
+    }
     let whole = lines.trunc();
     if whole != 0.0 {
         let title = if tiled { tile_title.and_then(|t| t.0) } else { titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0) };
-        out.write(MenuInput(Command::wheel(title, whole as i32)));
+        let steps = if invert_titles && title.is_some() { -(whole as i32) } else { whole as i32 };
+        out.write(MenuInput(Command::wheel(title, steps)));
         *lines -= whole;
     }
 }
@@ -813,9 +876,11 @@ fn apply_input(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
     combat: Option<Res<crate::combat::Combat>>,
 ) {
     let mut script = script.map(|s| s.into_inner());
+    let fighting = after.is_some_and(|a| a.fighting);
     // The commands left of a guard that failed ([`Command::Expect`]).
     let mut dropping = 0;
     for &MenuInput(cmd) in input.read() {
@@ -830,6 +895,40 @@ fn apply_input(
         if dropping > 0 {
             dropping -= 1;
             continue;
+        }
+        // The player's tweak: the quantity to store with a companion stops at what it can
+        // carry [design: docs/design/tweaks.md].
+        if let (Command::One, Mode::Container(c)) = (cmd, m.mode) {
+            let cap = script.as_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.quantity_companion_cap && rt.game.is_teammate(c)).map(|rt| {
+                crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, c, fnv_game::actor_values::CARRY_WEIGHT).unwrap_or(0.0)) as f32
+            });
+            m.companion_carry = cap;
+        }
+        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+        if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
+            let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
+            if let (Some(item), Some(rt)) = (item, script.as_mut().and_then(|s| s.rt.as_mut())) {
+                // The player's tweak: no skill book for a skill at 100 [design: docs/design/tweaks.md].
+                if crate::script::with_world(rt, &mut sim, |rt| rt.game.book_refused(item)) {
+                    info!("menu: {cmd:?}: refused, the book's skill is at 100 (tweak)");
+                    m.status = Some(crate::tweaks::BOOK_AT_MAX_LINE.into());
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
+                // The player's tweak: a weapon's requirements must be met [design: docs/design/tweaks.md].
+                if let Some(why) = crate::script::with_world(rt, &mut sim, |rt| rt.game.weapon_requirement_unmet(item)) {
+                    info!("menu: {cmd:?}: refused, {why} (tweak)");
+                    m.status = Some(why);
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
+                if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                    info!("menu: {cmd:?}: refused, healing in combat (tweak)");
+                    m.status = Some(crate::tweaks::NO_HEALING_LINE.into());
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
+            }
         }
         let before = crate::ui_sounds::MenuBefore::of(m);
         let asking = m.quantity.is_some();
@@ -852,7 +951,7 @@ fn apply_input(
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
             sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
         }
-        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
+        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                 info!("menu: {cmd:?}: {s}");
@@ -882,7 +981,10 @@ fn apply_input(
             if !a.given.is_empty() {
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                     let c = combat.as_deref();
-                    placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
+                    // The player's tweak: under the weapon's skill requirement an explosive
+                    // goes in as a plain item [design: docs/design/tweaks.md].
+                    let short: Vec<FormId> = a.given.iter().map(|g| g.0).filter(|&item| c.is_some_and(|c| crate::pickpocket::under_skill(rt, &mut sim, c, item))).collect();
+                    placed = crate::pickpocket::arm_given(rt, &mut sim, Some(&mut *m), |item| c.filter(|_| !short.contains(&item)).and_then(|c| crate::pickpocket::explosive_of(c, item)), victim, &a.given);
                 }
             }
             if !a.taken.is_empty() || !a.given.is_empty() || a.caught.is_some() {
@@ -1035,8 +1137,17 @@ fn draw(
     match (crate::tiles::menus::modal(m.quantity.is_some(), tiled), &m.quantity) {
         (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
             let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
+            // The player's tweaks: the price in a barter, the weight in a container [design: docs/design/tweaks.md].
+            let t = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.quantity_shows_price, rt.game.tweaks.quantity_shows_weight));
+            let row = m.list(q.side).rows.get(q.row);
+            let (price, weight) = match (m.mode, t) {
+                (Mode::Barter(_), Some((true, _))) => (row.and_then(|r| r.price), None),
+                (Mode::Container(_), Some((_, true))) => (None, row.and_then(|r| r.weight)),
+                _ => (None, None),
+            };
+            let extra = look::quantity_line(price, weight, q.amount);
             commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs);
+                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs, extra.as_deref());
             });
         }
         (crate::tiles::menus::Modal::Sheet, _) => {

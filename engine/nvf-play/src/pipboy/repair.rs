@@ -46,7 +46,7 @@ use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use bevy::prelude::*;
-use fnv_game::repair::{gain_percent, hint, merged_condition, repairs_with, Gear, MergeSettings, SHOWN_FULL};
+use fnv_game::repair::{gain_percent, hint, kit_condition, merged_condition, repairs_with, Gear, MergeSettings, SHOWN_FULL};
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
 use fnv_sim::inventory::{Extra, Pick};
 use fnv_sim::FormId;
@@ -163,6 +163,21 @@ pub struct Session {
     pub first: usize,
     /// 0: the item itself; else the part at this place, less one.
     pub selected: usize,
+    /// Opened with Alt held under the player's Repair Items Preview tweak: it shows what
+    /// could repair the item, at full condition too, and repairs nothing.
+    pub preview: bool,
+}
+
+impl Session {
+    /// The item's condition after `part` goes into it: the parts' merge, or a repair kit's
+    /// own rule (`fnv_game::repair::kit_condition`).
+    pub fn after(&self, part: &Part) -> f32 {
+        if part.kit {
+            kit_condition(self.offer.condition, self.skill)
+        } else {
+            merged_condition(&self.settings, self.offer.condition, part.condition, self.skill)
+        }
+    }
 }
 
 /// A part: a unit group of the player's inventory that can go into the item.
@@ -172,6 +187,9 @@ pub struct Part {
     pub extra: Extra,
     pub name: String,
     pub condition: f32,
+    /// A weapon repair kit, under the player's Repair Kits in the Repair List tweak: used
+    /// up, it raises the weapon by its own rule ([`Session::after`]).
+    pub kit: bool,
 }
 
 /// What the ITEMS page's selected row offers.
@@ -220,7 +238,7 @@ pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[
             continue;
         }
         let name = crate::menu::model::modded_name(crate::menu::model::display_name(forms, i), extra.mods);
-        parts.push(Part { item: i, extra, name: if spare > 1 { format!("{name} ({spare})") } else { name }, condition: extra.condition_or_whole() });
+        parts.push(Part { item: i, extra, name: if spare > 1 { format!("{name} ({spare})") } else { name }, condition: extra.condition_or_whole(), kit: false });
     }
     parts.sort_by(|a, b| a.name.cmp(&b.name).then(b.condition.total_cmp(&a.condition)));
     Some(Offer { item, extra: target, name: crate::menu::model::display_name(forms, item), gear, condition, icon, parts })
@@ -234,7 +252,55 @@ pub fn after_repair(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_l
     if to >= SHOWN_FULL {
         return None;
     }
-    offer(groups, forms, repair_list, o.item, Pick::row(Some(to), o.extra.mods), o.extra.equipped).filter(Offer::usable)
+    after_repair_with(groups, forms, repair_list, o, to, &|_| false)
+}
+
+/// [`after_repair`] with the weapon repair kits `kit` names among the parts ([`with_kits`]).
+pub fn after_repair_with(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[FormId], o: &Offer, to: f32, kit: &dyn Fn(FormId) -> bool) -> Option<Offer> {
+    if to >= SHOWN_FULL {
+        return None;
+    }
+    let n = offer(groups, forms, repair_list, o.item, Pick::row(Some(to), o.extra.mods), o.extra.equipped);
+    n.map(|n| with_kits(n, groups, forms, kit)).filter(Offer::usable)
+}
+
+/// The player's Repair Kits in the Repair List tweak [design: docs/design/tweaks.md]: a
+/// weapon's offer gets a part for each kind of weapon repair kit carried (`kit` says which
+/// items are), after the others.
+pub fn with_kits(mut o: Offer, groups: &[(FormId, Extra, i32)], forms: &FormStore, kit: &dyn Fn(FormId) -> bool) -> Offer {
+    if o.gear != Gear::Weapon {
+        return o;
+    }
+    let mut kits: Vec<(FormId, i32)> = Vec::new();
+    for &(i, _, count) in groups.iter().filter(|g| g.2 > 0 && kit(g.0)) {
+        match kits.iter_mut().find(|k| k.0 == i) {
+            Some(k) => k.1 += count,
+            None => kits.push((i, count)),
+        }
+    }
+    for (i, count) in kits {
+        let name = crate::menu::model::display_name(forms, i);
+        o.parts.push(Part { item: i, extra: Extra::default(), name: if count > 1 { format!("{name} ({count})") } else { name }, condition: 1.0, kit: true });
+    }
+    o
+}
+
+/// The player's repair list tweaks [design: docs/design/tweaks.md]: parts that are the item itself first
+/// (Sort Repair List), and lower condition before higher (Low Condition First).
+pub fn tweak_order(o: Option<Offer>, script: Option<&ScriptState>) -> Option<Offer> {
+    let Some(t) = script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks) else { return o };
+    let (same_first, low_first) = (t.repair_same_first, t.repair_low_first);
+    o.map(|mut o| {
+        if same_first || low_first {
+            let item = o.item;
+            o.parts.sort_by(|a, b| {
+                let same = (same_first && a.item != item).cmp(&(same_first && b.item != item));
+                let by = if low_first { a.condition.total_cmp(&b.condition).then(a.name.cmp(&b.name)) } else { a.name.cmp(&b.name).then(b.condition.total_cmp(&a.condition)) };
+                same.then(by)
+            });
+        }
+        o
+    })
 }
 
 /// The ITEMS page's selected row's offer, now.
@@ -246,7 +312,21 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     // The item's repair list, and with Jury Rigging the like items carried
     // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
     let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-    offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
+    let kits = script.and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.repair_kits_in_list);
+    let o = offer(&groups, forms, &list, r.item, r.pick(), r.equipped).map(|o| match kits {
+        Some(rt) => with_kits(o, &groups, forms, &|i| rt.game.is_weapon_repair_kit(i)),
+        None => o,
+    });
+    let o = tweak_order(o, script);
+    // The player's tweak keeps things on a hotkey out of the parts [design: docs/design/tweaks.md].
+    if !m.hide_hotkeyed_repair {
+        return o;
+    }
+    o.map(|mut o| {
+        o.parts.retain(|p| !m.hotkeyed.contains(&p.item));
+        o
+    })
+    .filter(|o| !o.parts.is_empty())
 }
 
 /// The keys of the repair list and R on the ITEMS page.
@@ -262,6 +342,7 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
+    combat: Option<Res<crate::combat::Combat>>,
     mut taken: ResMut<super::KeysTaken>,
 ) {
     let keys = keys.snapshot();
@@ -287,6 +368,7 @@ pub fn keys(
         }
     }
     let mut script = script.map(|s| s.into_inner());
+    let alt = keys.any_pressed([AltLeft, AltRight]);
     for (step, physical) in steps {
         if physical && (repair.is_open() || step == RepairInput::Open) {
             taken.take();
@@ -297,13 +379,42 @@ pub fn keys(
         let step = resolve(repair.0.as_ref().map(|s| s.selected), step);
         match (repair.0.as_mut(), step) {
             (None, RepairInput::Open) => {
+                // The player's tweak: repairing only at a workbench [design: docs/design/tweaks.md].
+                if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_at_workbench && !rt.game.at_workbench()) {
+                    info!("pipboy repair: refused, not at a workbench (tweak)");
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                    continue;
+                }
                 let Some(o) = current(&active, &mut sim, script.as_deref()) else { continue };
+                // The player's tweak: with Alt held the list opens as a preview, also for an
+                // item at full condition [design: docs/design/tweaks.md].
+                let preview = alt && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_preview);
+                if preview {
+                    if o.parts.is_empty() {
+                        info!("pipboy repair: preview of {}: nothing carried repairs it", o.name);
+                        sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                        continue;
+                    }
+                    info!("pipboy repair: preview of {} (tweak): {}", o.name, o.parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "));
+                    let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+                    let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
+                    repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0, preview: true });
+                    continue;
+                }
                 if !o.usable() {
                     info!("pipboy repair: {} at {}%: nothing to repair it with{}", o.name, fnv_combat::condition::percent(o.condition), if o.condition >= SHOWN_FULL { " (full condition)" } else { "" });
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
                     continue;
                 }
                 let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+                // The player's tweak: a weapon's skill requirement asks as much Repair [design: docs/design/tweaks.md].
+                let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_needs_weapon_skill);
+                let need = combat.as_ref().filter(|_| wanted).and_then(|c| c.forms.weapons.get(&o.item)).map_or(0, |w| w.skill_req);
+                if need as f32 > skill {
+                    info!("pipboy repair: {} needs Repair {need} (tweak), the player has {skill:.0}", o.name);
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                    continue;
+                }
                 info!(
                     "pipboy repair: open {} at {}% (Repair {:.0}): {}",
                     o.name,
@@ -312,7 +423,7 @@ pub fn keys(
                     o.parts.iter().map(|p| format!("{} {}%", p.name, fnv_combat::condition::percent(p.condition))).collect::<Vec<_>>().join(", ")
                 );
                 let settings = MergeSettings::from_settings(|n| sim.forms.setting_f32(n));
-                repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0 });
+                repair.0 = Some(Session { offer: o, skill, settings, first: 0, selected: 0, preview: false });
             }
             (None, _) => {}
             (Some(s), RepairInput::Up) => {
@@ -331,24 +442,36 @@ pub fn keys(
                 repair.0 = None;
             }
             (Some(_), RepairInput::Open) => {}
+            (Some(s), RepairInput::Use) if s.preview => {
+                info!("pipboy repair: a preview repairs nothing (tweak)");
+                sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+            }
             (Some(s), RepairInput::Use) => {
                 let Some(part) = s.selected.checked_sub(1).and_then(|i| s.offer.parts.get(i)).cloned() else { continue };
+                let to = s.after(&part);
                 let o = &s.offer;
-                let to = merged_condition(&s.settings, o.condition, part.condition, s.skill);
                 let done = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| {
-                    let taken: i32 = inv.take_at(part.item, 1, Pick::row(Some(part.condition), part.extra.mods)).iter().map(|g| g.1).sum();
+                    let pick = if part.kit { Pick::ANY } else { Pick::row(Some(part.condition), part.extra.mods) };
+                    let taken: i32 = inv.take_at(part.item, 1, pick).iter().map(|g| g.1).sum();
                     taken == 1 && inv.set_condition_one(o.item, o.extra, to)
                 });
                 let mut next = None;
                 if done {
                     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                         rt.game.count_stat(fnv_game::misc_stats::ITEMS_REPAIRED, 1.0);
+                        // The player's tweak: a repair gives experience [design: docs/design/tweaks.md].
+                        let xp = rt.game.tweaks.repair_xp;
+                        if xp > 0.0 {
+                            fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Repair, xp);
+                        }
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
                     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
                     let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(o.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-                    let after = after_repair(&groups, sim.forms, &list, o, to);
+                    let kits = script.as_deref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.repair_kits_in_list);
+                    let kit = |i: FormId| kits.is_some_and(|rt| rt.game.is_weapon_repair_kit(i));
+                    let after = tweak_order(after_repair_with(&groups, sim.forms, &list, o, to, &kit), script.as_deref());
                     match &after {
                         Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
                         None if to >= SHOWN_FULL => info!("pipboy repair: closed: {} is at full condition", o.name),
@@ -464,7 +587,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     cards(p, c, cr.min.y, o.condition);
     let part = s.selected.checked_sub(1).and_then(|i| o.parts.get(i));
     if let Some(q) = part {
-        let to = merged_condition(&s.settings, o.condition, q.condition, s.skill);
+        let to = s.after(q);
         let ay = cr.min.y + (cr.height() - ARROW) / 2.0 - 5.0;
         c.image(p, "interface\\shared\\arrow\\repair_arrow_down.dds", at(cr.min.x + (cr.width() - ARROW) / 2.0, ay, ARROW, ARROW), bright);
         c.text(p, 4, &format!("+{}%", gain_percent(o.condition, to)), cr.min.x + cr.width() / 4.0, ay + 30.0, Align::Centre, bright);
@@ -527,7 +650,7 @@ mod tests {
             .insert_resource(PipBoy { phase: super::super::Phase::Up, page: Page::Items, ..default() })
             .insert_resource(ActiveMenu(Some(model)))
             .insert_resource(SimState { forms, refs, world })
-            .insert_resource(PipRepair(Some(Session { offer, skill: 0.0, settings: MergeSettings::default(), first: 0, selected: 1 })))
+            .insert_resource(PipRepair(Some(Session { offer, skill: 0.0, settings: MergeSettings::default(), first: 0, selected: 1, preview: false })))
             .add_message::<RepairInput>()
             .add_message::<super::super::item_mod::ModInput>()
             .add_message::<crate::menu::MenuInput>()
@@ -675,6 +798,26 @@ mod tests {
         assert!(!offer(&full, &forms, &[], b, Pick::at(Some(1.0)), false).unwrap().usable());
         // Not a weapon or armour.
         assert_eq!(offer(&groups, &forms, &[], misc, Pick::ANY, false), None);
+    }
+
+    #[test]
+    fn repair_kits_are_parts_of_a_weapon_only() {
+        let (gun, coat, kit) = (FormId(1), FormId(2), FormId(3));
+        let forms = store(&[(1, ItemKind::Weapon), (2, ItemKind::Armor), (3, ItemKind::Misc)]);
+        let groups = vec![(gun, at(0.4), 1), (coat, at(0.4), 1), (kit, Extra::default(), 2)];
+        let is_kit = |i: FormId| i == kit;
+        let o = with_kits(offer(&groups, &forms, &[], gun, Pick::at(Some(0.4)), false).unwrap(), &groups, &forms, &is_kit);
+        assert_eq!(o.parts.iter().map(|p| (p.item, p.kit, p.name.as_str())).collect::<Vec<_>>(), vec![(kit, true, "Item 3 (2)")]);
+        assert!(o.usable());
+        let s = Session { offer: o.clone(), skill: 50.0, settings: MergeSettings::default(), first: 0, selected: 1, preview: false };
+        assert!((s.after(&o.parts[0]) - 0.6).abs() < 1e-6);
+        // Armour gets none.
+        let a = with_kits(offer(&groups, &forms, &[], coat, Pick::at(Some(0.4)), false).unwrap(), &groups, &forms, &is_kit);
+        assert!(a.parts.is_empty());
+        // After a kit: the one left stays a part.
+        let after = vec![(gun, at(0.6), 1), (kit, Extra::default(), 1)];
+        let n = after_repair_with(&after, &forms, &[], &o, 0.6, &is_kit).unwrap();
+        assert_eq!(n.parts.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["Item 3"]);
     }
 
     #[test]

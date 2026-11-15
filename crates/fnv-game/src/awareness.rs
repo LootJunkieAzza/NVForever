@@ -304,6 +304,13 @@ pub struct Awareness {
     /// (`fnv_ai::alert::COMBAT_REACTION_SECONDS`, docs/spec-notes/actors.md §8.9).
     #[serde(default)]
     pub combat_began: Option<f64>,
+    /// The player's Hostiles Prioritize Player tweak: it fights the player, while it
+    /// detects it, over the companion it would have chosen ([`Game::prefer_player`]), and
+    /// the companion that roll was made for (one roll each) [design: docs/design/tweaks.md].
+    #[serde(default)]
+    pub prefer_player: bool,
+    #[serde(default)]
+    pub rolled_for: Option<FormId>,
 }
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
@@ -403,6 +410,16 @@ impl Awareness {
     /// of the highest or within [`TARGET_COMMIT`] of turning to it, the highest not much
     /// nearer ([`TARGET_COMMIT_NEARER`]).
     pub fn combat_target(&self) -> Option<(FormId, &Target)> {
+        if self.prefer_player {
+            if let Some(t) = self.targets.get(&FormId::PLAYER_REF).filter(|t| t.band == Band::Detected) {
+                return Some((FormId::PLAYER_REF, t));
+            }
+        }
+        self.own_target()
+    }
+
+    /// [`Awareness::combat_target`] by its own choice, without the player's tweak.
+    pub fn own_target(&self) -> Option<(FormId, &Target)> {
         let best = self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))?;
         let away = |t: &Target| self.at.map_or(f32::INFINITY, |m| (t.at[0] - m[0]).hypot(t.at[1] - m[1]));
         let held = |t: &Target| self.committed && away(best.1) >= away(t) * TARGET_COMMIT_NEARER;
@@ -579,7 +596,7 @@ impl Awarenesses {
 
     /// A number in [0, 1) from the module's own sequence (the bark timer), so that the
     /// game's random numbers stay as they were.
-    fn unit(&mut self) -> f64 {
+    pub(crate) fn unit(&mut self) -> f64 {
         self.rng = self.rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (self.rng >> 11) as f64 / (1u64 << 53) as f64
     }
@@ -689,10 +706,49 @@ impl Game<'_> {
         self.hostility(actor, other, &aggression).unwrap_or(false)
     }
 
+    /// Whether `r` is a fixture that never fights: a creature flagged Immobile whose AI
+    /// data (Aggression Unaggressive, Assistance Helps Nobody) never starts or joins a
+    /// fight and that carries no weapon. It cannot move, turn to a foe or hurt one, so
+    /// it never takes a combat target, never answers an alarm or a call for help and is
+    /// never hostile ([`Game::hostility`], [`Game::start_combat`],
+    /// [`Game::settle_awareness`]), whatever the player did to it or to its factions,
+    /// and the engine never turns it (`nvforever` residents.rs). [documented: GECK wiki
+    /// Stats Tab for Creatures, Immobile; AI Data, Aggression "Unaggressive: will not
+    /// initiate combat", Assistance "Helps Nobody"; observed: in FalloutNV.esm these are
+    /// the placed MrHouse and MrHouseOFFLINE (his screens), NVCRMrHouse (his life-support
+    /// chamber) and NVCRFestus (a ghosted robot), YesManMainframe too though it is placed
+    /// nowhere; the turrets, also Immobile and Unaggressive, carry their guns (CNTO), and
+    /// no other placed actor of the masters is one (tests/fixtures_data.rs); hypothesis: that the original lets such an actor take no part in a
+    /// fight, as the owner ruled for the screens and the chamber, issue #2431.] The
+    /// screens are Invulnerable by their records ([`Game::is_immune`]); the chamber is a
+    /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
+    /// terminal unseals it (owner ruling 2026-11-13).
+    pub fn is_fixture(&self, r: FormId) -> bool {
+        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+            return false;
+        }
+        let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
+        // Armed: a weapon in its inventory, or, before it has one (not loaded yet), a
+        // weapon or leveled item list among its base's items (CNTO, from the definition
+        // supplying its inventory): the turrets carry their guns so.
+        let armed = || match self.world.peek(r).and_then(|s| s.inventory.as_ref()) {
+            Some(inv) => inv.iter().any(|(item, n)| n > 0 && self.data.sig(item).as_ref() == Some(b"WEAP")),
+            None => crate::functions::base_of(self, r)
+                .and_then(|b| self.template_source(b, r, |d| d.template_inventory))
+                .and_then(|(id, _)| self.world.forms.entries(id))
+                .is_some_and(|items| items.iter().any(|e| matches!(self.data.sig(e.item).as_ref(), Some(b"WEAP") | Some(b"LVLI")))),
+        };
+        calm && !armed()
+    }
+
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about.
     fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
+            return Some(false);
+        }
+        // A fixture never fights (issue #2431): before StartCombat, grudges and crimes.
+        if self.is_fixture(actor) {
             return Some(false);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
@@ -912,6 +968,17 @@ impl Game<'_> {
                 self.awareness.tactics.calm(id);
                 continue;
             }
+            // A fixture keeps no targets or alarms, from whatever gave them (an ally's
+            // call, a hit, a crime): it stays Normal (`Game::is_fixture`, issue #2431).
+            if self.is_fixture(id) {
+                if let Some(a) = self.awareness.actors.remove(&id).filter(|a| a.state != State::Normal) {
+                    self.awareness.changes.push(Change { actor: id, from: a.state, to: State::Normal, time: now, about: None, cause: None, at: None, value: None });
+                }
+                self.awareness.forced.retain(|(a, _)| *a != id);
+                self.provocations.calm(id);
+                self.awareness.tactics.calm(id);
+                continue;
+            }
             // Targets and alarm owners that died or went are forgotten, and so are those
             // knocked out: no longer a threat until they are up and seen again
             // (docs/spec-notes/unconscious.md §3) [design, owner request 2026-10-17]. A
@@ -931,6 +998,10 @@ impl Game<'_> {
                 a.forget(o);
             }
             let change = a.settle(id, now, &t, may_alert);
+            if self.tweaks.hostiles_prefer_player {
+                self.prefer_player(id, change.is_some_and(|c| c.to == State::Combat));
+            }
+            let a = self.awareness.actors.get_mut(&id).expect("listed");
             let idle_due = a.state.idle_topic().is_some() && a.next_idle_bark.is_some_and(|due| now >= due);
             let schedule = a.state.idle_topic().is_some() && (a.next_idle_bark.is_none() || idle_due);
             if schedule {
@@ -1146,7 +1217,8 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) {
+        // A fixture takes no combat target (`Game::is_fixture`, issue #2431).
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) {
             return;
         }
         self.awareness.forced.insert((actor, target));
@@ -1265,6 +1337,36 @@ pub fn get_combat_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
 }
 
 impl Game<'_> {
+    /// The player's Hostiles Prioritize Player tweak, after `id`'s targets settled: when
+    /// the target it would choose is one of the player's companions and the player is
+    /// detected at the threshold or above, one roll (the start chance when it has just
+    /// gone into Combat, else the mid-fight one) sets it on the player instead while it
+    /// detects the player. Out of Combat the choice is cleared [design: docs/design/tweaks.md].
+    pub fn prefer_player(&mut self, id: FormId, started: bool) {
+        let Some(a) = self.awareness.actors.get(&id) else { return };
+        if a.state != State::Combat {
+            if a.prefer_player || a.rolled_for.is_some() {
+                let a = self.awareness.actors.get_mut(&id).expect("listed");
+                (a.prefer_player, a.rolled_for) = (false, None);
+            }
+            return;
+        }
+        let own = a.own_target().map(|(t, _)| t);
+        let player = a.targets.get(&FormId::PLAYER_REF).filter(|t| t.band == Band::Detected).map(|t| t.value);
+        let Some(companion) = own.filter(|&t| t != FormId::PLAYER_REF && self.is_teammate(t)) else { return };
+        if a.rolled_for == Some(companion) {
+            return;
+        }
+        let tw = &self.tweaks;
+        let (chance, threshold) = (if started { tw.prefer_player_start } else { tw.prefer_player_mid }, tw.prefer_player_detection);
+        let Some(_) = player.filter(|&v| v >= f64::from(threshold)) else { return };
+        let roll = self.awareness.unit();
+        let a = self.awareness.actors.get_mut(&id).expect("listed");
+        a.rolled_for = Some(companion);
+        a.prefer_player = roll < f64::from(chance);
+        tracing::info!("awareness: {id} would fight companion {companion}: {} (Hostiles Prioritize Player, roll {roll:.2} against {chance:.2})", if a.prefer_player { "fights the player" } else { "keeps it" });
+    }
+
     /// The actor `r` fights, as scripts read it ([`get_combat_target`]); also what a
     /// condition run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5) and
     /// what the extender queries that ask for it read.
@@ -1411,6 +1513,22 @@ mod tests {
         assert_eq!((bark_kind("AlertIdle"), bark_kind("LostIdle"), bark_kind("NormalToAlert")), ("idle", "idle", "NormalToAlert"));
         // The cooldown is the longer idle-bark wait.
         assert_eq!(Timers::default().bark_cooldown, Timers::default().idle_bark.1);
+    }
+
+    /// Hostiles Prioritize Player: with the choice set, the player while detected, else
+    /// its own choice.
+    #[test]
+    fn a_fighter_set_on_the_player_fights_it_while_detected() {
+        let t = Timers::default();
+        let mut a = Awareness::default();
+        a.observe(FOE, &det(50.0), [100.0, 0.0, 0.0], 0.0, &t);
+        a.observe(FormId::PLAYER_REF, &det(10.0), [900.0, 0.0, 0.0], 0.0, &t);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FOE));
+        a.prefer_player = true;
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId::PLAYER_REF));
+        assert_eq!(a.own_target().map(|x| x.0), Some(FOE));
+        a.forget(FormId::PLAYER_REF);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FOE));
     }
 
     #[test]

@@ -753,7 +753,7 @@ fn write_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
         let number = row.value.clone().filter(|_| !matches!(row.key, RowKey::Perk(_)));
         ui.write_changed(made.tile, "user1", number.map_or(Value::Num(-1.0), Value::Str));
         ui.write_changed(made.tile, "user0", flag(row.mark.is_some()));
-        ui.write_changed(made.tile, "user2", Value::Str(row.mark.unwrap_or_default().to_string()));
+        ui.write_changed(made.tile, "user2", Value::Str(row.mark.clone().unwrap_or_default()));
     }
 }
 
@@ -2140,7 +2140,7 @@ mod tests {
     }
 
     fn rows() -> Vec<Row> {
-        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None }).collect()
+        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None, bold: false }).collect()
     }
 
     fn skills() -> Vec<Row> {
@@ -2259,7 +2259,7 @@ mod tests {
         let mut s = snap();
         s.special[0].value = Some("--".into());
         s.special[1].value = None;
-        s.special[2].mark = Some("(+)");
+        s.special[2].mark = Some("(+)".into());
         run(&mut ui, &s, &mut v, true, &mut t).unwrap();
         let made = t.written.rows.clone();
         assert_eq!(text(&ui, made[0].tile, "user1"), "--", "a numeric write would lose it");

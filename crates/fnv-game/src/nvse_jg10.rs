@@ -101,7 +101,10 @@ impl Game<'_> {
     /// The poison on an actor's equipped weapon (GetEquippedWeaponPoison).
     pub fn weapon_poison(&mut self, actor: FormId) -> Option<FormId> {
         let w = crate::functions::items::equipped_weapon(self, actor)?;
-        self.other.jg10.poisons.get(&(actor, w)).copied()
+        // The player's own poison on the weapon in hand (`crate::weapon_poison`) when no
+        // script put one there.
+        let own = (actor == FormId::PLAYER_REF).then(|| self.poison_on(w).map(|(p, _)| p)).flatten();
+        self.other.jg10.poisons.get(&(actor, w)).copied().or(own)
     }
 
     /// The navmesh obstacles scripts added (AddNavmeshObstacle), for the engine.

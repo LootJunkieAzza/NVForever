@@ -789,7 +789,7 @@ pub fn essential(g: &Game, r: FormId) -> bool {
         // "Essential flagged teammates are not essential in Hardcore (New Vegas)"
         // [documented: GECK wiki SetPlayerTeammate notes]: a companion killed in
         // Hardcore dies, flag or not.
-        if g.hardcore() {
+        if teammates_unprotected(g) {
             return false;
         }
         // No hired companion carries the Essential flag and no script sets it, yet
@@ -804,13 +804,20 @@ pub fn essential(g: &Game, r: FormId) -> bool {
     essential_flagged(g, r)
 }
 
+/// Whether the Hardcore rule that teammates are not essential holds: in Hardcore, or,
+/// with the player's Hardcore Tweaks on, as their Essential Companions switch says
+/// [design: docs/design/tweaks.md].
+fn teammates_unprotected(g: &Game) -> bool {
+    if g.tweaks.hardcore_tweaks { !g.tweaks.hardcore_essential_companions } else { g.hardcore() }
+}
+
 /// Essential by flag, what IsEssential reads ("Returns 1 if the calling actor is flagged
 /// as essential" [documented: GECK wiki IsEssential]): the reference's own flag
 /// (SetActorRefEssential) or its base's (ACBS, changed by SetEssential). The reference
 /// flag cannot clear the base's [documented: catalogue notes of SetActorRefEssential].
 /// A teammate in Hardcore reads 0 (the SetPlayerTeammate note, [`essential`]).
 pub fn essential_flagged(g: &Game, r: FormId) -> bool {
-    if g.hardcore() && g.is_teammate(r) {
+    if teammates_unprotected(g) && g.is_teammate(r) {
         return false;
     }
     let base = base_of(g, r);
@@ -1198,7 +1205,21 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     // An actor holds one script package: a second call replaces the first
     // [documented: GECK wiki AddScriptPackage notes, actor-behaviour.md §1.4; observed:
     // od_08_script_packages, owner-decision-captures.md item 8].
-    g.extra.entry(r).or_default().script_package = Some(p);
+    let e = g.extra.entry(r).or_default();
+    // The package added again while it is still the current one and its goal was met
+    // begins afresh: its goal is forgotten and the AI takes it up anew
+    // (`RefExtra::ai_reset`), as for a package it did not have [hypothesis: the GECK
+    // wiki's "takes precedence over all other packages until it is done" read for each
+    // call; the Lucky 38 elevator's OnActivate adds its Dialogue package
+    // Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation
+    // (delaycounter 1 until MenuMode 1009), so a second talk after Stay Here never
+    // opened one and the floor box never came back, issue #2424]. A call while it
+    // still runs changes nothing, so a script adding it every frame does not restart it.
+    if e.current_package == Some(p) && e.package_goal_met {
+        e.package_goal_met = false;
+        e.ai_reset = true;
+    }
+    e.script_package = Some(p);
     if g.runs_packages() {
         g.set_package(r, Some(p));
     } else {

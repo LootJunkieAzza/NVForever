@@ -449,7 +449,7 @@ pub enum Talking {
 
 /// Whether `actor` is saying its greeting at the player outside a conversation
 /// (`Speech::greeting`).
-fn greets(game: &Game, actor: FormId) -> bool {
+pub(crate) fn greets(game: &Game, actor: FormId) -> bool {
     game.speech.iter().any(|s| s.greeting && s.speaker == actor)
 }
 
@@ -719,7 +719,7 @@ pub struct Ai {
     /// Actors near enough to force-greet the one their Dialogue package names but with a
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
-    unseen_greets: std::collections::BTreeSet<FormId>,
+    pub(crate) unseen_greets: std::collections::BTreeSet<FormId>,
     /// Progress a loaded save kept, by actor, until the actor takes up that package again
     /// ([`crate::progress`]).
     pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,

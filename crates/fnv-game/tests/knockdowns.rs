@@ -280,3 +280,30 @@ fn set_unconscious_holds_a_pushed_actor_down_until_it_is_cleared() {
     assert!(g.knockout(HERO_REF).is_none() && g.is_out_cold(HERO_REF));
     assert_eq!(knocked_state(&mut g, HERO_REF), 1.0);
 }
+
+/// The Revive Unconscious Companions tweak: only a companion knocked out at zero health,
+/// with the tweak on, and a Stimpak needed; its own time down.
+#[test]
+fn a_knocked_out_companion_can_be_revived_under_the_tweak() {
+    use fnv_game::unconscious::ReviveRefusal;
+    let f = fixture();
+    let mut g = game(&f);
+    ask(&mut g, Some(HERO_REF), KILL_ACTOR, &[]);
+    assert_eq!(g.knockout(HERO_REF).map(|k| k.cause), Some(Cause::Essential));
+    // Not a companion, or the tweak off: not revived.
+    g.tweaks.revive_companions = true;
+    assert!(!g.can_revive(HERO_REF));
+    g.extra.entry(HERO_REF).or_default().teammate = true;
+    g.tweaks.revive_companions = false;
+    assert_eq!(g.revive(HERO_REF), Err(ReviveRefusal::NotDown));
+    g.tweaks.revive_companions = true;
+    assert!(g.can_revive(HERO_REF));
+    // No Stimpak carried.
+    assert_eq!(g.revive(HERO_REF), Err(ReviveRefusal::NoStimpak));
+    // Its time down: 30 s under the tweak's setting, past the usual 10.
+    g.tweaks.revive_down_seconds = 30.0;
+    wait(&mut g, 15.0);
+    assert!(g.knockout(HERO_REF).is_some_and(|k| k.lying()), "still down at 15 s");
+    wait(&mut g, 20.0);
+    assert!(g.knockout(HERO_REF).is_none_or(|k| !k.lying()), "up after 30 s");
+}

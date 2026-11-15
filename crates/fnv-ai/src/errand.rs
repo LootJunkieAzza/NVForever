@@ -71,6 +71,8 @@ pub enum Act {
     Buys,
     /// Goes up to it and stands: an actor, a container, anything else.
     Reaches,
+    /// Goes up to the player and starts a conversation (a force greet, packages.md §10).
+    Greets,
 }
 
 /// An escort that stopped for the one it leads goes on once it is this much nearer
@@ -359,8 +361,8 @@ impl Ai {
             if r == actor || !game.present(r) {
                 return;
             }
-            let Some(p) = goal::place_of_ref(game, r).filter(|p| p.space == centre.space) else { return };
-            if hdist(p.pos, centre.pos) > area.radius || (p.pos[2] - centre.pos[2]).abs() > AREA_HEIGHT {
+            let Some(p) = goal::place_of_ref(game, r).filter(|p| area.is_anywhere() || p.space == centre.space) else { return };
+            if !area.is_anywhere() && (hdist(p.pos, centre.pos) > area.radius || (p.pos[2] - centre.pos[2]).abs() > AREA_HEIGHT) {
                 return;
             }
             let base = fnv_game::functions::base_of(game, r).unwrap_or(FormId(0));
@@ -548,6 +550,30 @@ impl Ai {
                 self.log(game, actor, AiEvent::Bought { package, vendor: object, item, price });
             }
             Act::Buys
+        } else if object == FormId::PLAYER_REF && !dead && !f.kill && game.combat_target_of(actor).is_none() {
+            // It reaches the player: it talks to them, as a Dialogue package's force greet
+            // does [hypothesis, issue #2473: Cachino's Find for the player ends only on
+            // GetTalkedToPC; packages.md §10]. Held, and tried again every update, while
+            // something solid is between them or a menu or loading screen is up.
+            let away = goal::place_of_ref(game, object).map_or(0.0, |t| hdist(t.pos, self.feet(actor).pos));
+            if !game.greet_sight(actor, object) {
+                if self.unseen_greets.insert(actor) {
+                    self.log(game, actor, AiEvent::TalkUnseen { package, target: object, away });
+                }
+                return;
+            }
+            if game.in_menu() || game.loading {
+                return;
+            }
+            self.unseen_greets.remove(&actor);
+            match game.force_greet(actor, None) {
+                Ok(line) => {
+                    let greeting = crate::carry::greets(game, actor);
+                    self.log(game, actor, AiEvent::Talk { package, target: object, line, away, say_to: false, greeting });
+                }
+                Err(why) => self.log(game, actor, AiEvent::NoTalk { package, why }),
+            }
+            Act::Greets
         } else if is_actor && !dead && f.kill {
             game.start_combat(actor, object);
             Act::Attacks

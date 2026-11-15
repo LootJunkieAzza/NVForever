@@ -246,6 +246,17 @@ pub struct Cycle {
     /// No round regenerates while set (ShowOff's FreezeAmmoRegen, the game's
     /// `ShowOffState::ammo_regen_frozen`) [documented: FreezeAmmoRegen].
     pub regen_frozen: bool,
+    /// NVForever's tweaks, set by the engine each tick (docs/design/tweaks.md): a reload
+    /// may start while the last shot's recovery still runs; a semi-automatic pull this
+    /// close (seconds) before the recovery ends is kept and fired when it does.
+    pub reload_in_recovery: bool,
+    pub semi_auto_queue: f32,
+    /// NVForever's Per-Bullet Looping Reloads tweak, set by the engine each tick: a
+    /// round-by-round reload loads (rounds a press, the most queued, 0 for no most) and
+    /// stops there; each further press of Reload while it runs queues as many more.
+    pub reload_presses: Option<(u32, u32)>,
+    /// The rounds the presses queued for the round-by-round reload under way.
+    wanted: u32,
     /// Every fourth shot uses no ammunition (a "Regenerate Ammo (shots)" mod,
     /// docs/spec-notes/weapon-data-fields.md §5); shots fired so far.
     free_fourth: bool,
@@ -275,6 +286,10 @@ impl Cycle {
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),
             regen_acc: 0.0,
             regen_frozen: false,
+            reload_in_recovery: false,
+            reload_presses: None,
+            wanted: 0,
+            semi_auto_queue: 0.0,
             free_fourth: w.free_fourth_shot,
             shots: 0,
             held: false,
@@ -315,9 +330,19 @@ impl Cycle {
     /// The whole magazine, or round by round when the weapon's clips say so.
     fn start_reload(&mut self) -> Phase {
         self.spun = false;
+        self.wanted = self.reload_presses.map_or(0, |(per, _)| per.max(1));
         match self.timing.rounds {
             Some(r) => Phase::ReloadOpen { left: r.open, stop: false },
             None => Phase::Reloading { left: self.timing.reload },
+        }
+    }
+
+    /// Under the Per-Bullet Looping Reloads tweak, a Reload press while a round-by-round
+    /// reload runs queues its rounds, up to the most.
+    fn queue_press(&mut self, pressed: bool) {
+        if let (true, Some((per, most))) = (pressed, self.reload_presses) {
+            let more = self.wanted.saturating_add(per.max(1));
+            self.wanted = if most > 0 { more.min(most) } else { more };
         }
     }
 
@@ -372,6 +397,9 @@ impl Cycle {
         }
         // Rounds loaded this tick, not yet out of `i.carried`.
         let mut loaded = 0;
+        // This tick's Reload press, for the Per-Bullet Looping Reloads tweak's queue: taken
+        // once, by the reload it starts or by the one under way.
+        let mut reload_press = i.reload;
         // Up to a few phase changes per tick, so short intervals at long ticks still fire.
         for _ in 0..8 {
             match self.phase {
@@ -379,6 +407,7 @@ impl Cycle {
                     let swapped = std::mem::take(&mut self.swap_reload);
                     if (i.reload || swapped) && self.can_reload(i.carried) {
                         self.phase = self.start_reload();
+                        reload_press = false;
                         stop_pull = false;
                         out.push(Event::ReloadStarted);
                     } else if pulled {
@@ -441,12 +470,30 @@ impl Cycle {
                     self.phase = Phase::Cooldown { left: (self.timing.interval - self.timing.fire_delay).max(0.0) };
                 }
                 Phase::Cooldown { left } => {
+                    // The tweaks [design: docs/design/tweaks.md]: a reload cuts the recovery short, and a
+                    // semi-automatic pull close to its end is kept for it.
+                    if self.reload_in_recovery && i.reload && self.can_reload(i.carried) {
+                        self.phase = self.start_reload();
+                        // The press and a pull this tick are the reload's, as from Ready:
+                        // the press is not queued a second time, the pull does not stop it.
+                        reload_press = false;
+                        stop_pull = false;
+                        out.push(Event::ReloadStarted);
+                        continue;
+                    }
+                    if fresh && !self.automatic && self.semi_auto_queue > 0.0 && left <= self.semi_auto_queue {
+                        self.queued = Some(0.0);
+                    }
                     if left > dt {
                         self.phase = Phase::Cooldown { left: left - dt };
                         break;
                     }
                     dt -= left;
                     self.phase = Phase::Ready;
+                    if !self.automatic && self.semi_auto_queue > 0.0 && self.queued.take().is_some() {
+                        pulled = true;
+                        continue;
+                    }
                     // An automatic weapon keeps firing while held; a semi-automatic one
                     // waits for the next pull.
                     if !(i.trigger && self.automatic) {
@@ -465,6 +512,7 @@ impl Cycle {
                     break;
                 }
                 Phase::ReloadOpen { left, stop } => {
+                    self.queue_press(std::mem::take(&mut reload_press));
                     let stop = stop || std::mem::take(&mut stop_pull);
                     if left > dt {
                         self.phase = Phase::ReloadOpen { left: left - dt, stop };
@@ -477,6 +525,7 @@ impl Cycle {
                     out.push(Event::ReloadRound);
                 }
                 Phase::ReloadRound { left, stop, taken } => {
+                    self.queue_press(std::mem::take(&mut reload_press));
                     let stop = stop || std::mem::take(&mut stop_pull);
                     if left > dt {
                         self.phase = Phase::ReloadRound { left: left - dt, stop, taken };
@@ -493,7 +542,9 @@ impl Cycle {
                     } else {
                         taken
                     };
-                    if stop || self.magazine >= self.clip_size || i.carried <= loaded {
+                    // Under the tweak the rounds the presses queued are all it loads.
+                    let queued_in = self.reload_presses.is_some() && taken >= self.wanted;
+                    if stop || queued_in || self.magazine >= self.clip_size || i.carried <= loaded {
                         self.phase = Phase::ReloadClose { left: r.close, taken };
                         out.push(Event::ReloadClosing { stopped: stop });
                     } else {

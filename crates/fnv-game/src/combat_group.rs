@@ -401,7 +401,22 @@ impl Game<'_> {
         let survival = self.combat_style(actor).is_some_and(|s| s.flee_personal_survival);
         let by_group = group_ratio.is_some_and(|r| flees(r, threshold, modifier));
         let by_self = !by_group && survival && personal_ratio.is_some_and(|r| flees(r, threshold, modifier));
-        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: !frenzied && (by_group || by_self), personal: by_self }
+        // A child always flees, frenzied or not (`Game::never_fights`).
+        let child = self.never_fights(actor);
+        FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: child || (!frenzied && (by_group || by_self)), personal: by_self }
+    }
+
+    /// Whether `actor` never fights: a child, an actor whose race has the Child flag
+    /// [documented: xEdit RACE DATA flags; the flag also makes it take no damage,
+    /// `Game::is_immune`]. Whatever its confidence, aggression or combat style, a child
+    /// in a fight only flees: its flee check always fails ([`Game::flee_check`]), it
+    /// starts fleeing at once, unhurt (nvforever `npc_combat`), never attacks and keeps
+    /// its weapon away ([`Game::wants_weapon_out`]). It still turns hostile, so crime,
+    /// faction and reputation rules are unchanged [owner decision 2026-11-13, #2438:
+    /// "Children never fight. They always run away"; whether the original does the same
+    /// is observer-checks.md check 178].
+    pub fn never_fights(&self, actor: FormId) -> bool {
+        actor != FormId::PLAYER_REF && self.actor_race(actor).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// `actor` starts fleeing from `from`, at `at` (again, from its flee spot, when it

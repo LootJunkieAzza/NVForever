@@ -155,7 +155,7 @@ impl ActionPads<'_, '_> {
 
     /// Physical history uses the same normalization as actions [design, #2200; super::stick].
     pub(crate) fn physical_stick(&self, left: bool) -> Vec2 {
-        super::stick_vector(self.raw.iter().map(|(_, g)| if left { g.left_stick() } else { g.right_stick() }))
+        super::stick_vector(self.raw.iter().map(|(_, g)| if left { g.left_stick() } else { g.right_stick() }), left)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = ActionPad<'_>> {
