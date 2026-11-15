@@ -601,7 +601,7 @@ impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
         configure_draw_set(app);
         app.init_resource::<Particles>()
-            .add_systems(Update, (script_drawn, script_drawn_rig, dropped_addons, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, take_basis).chain().after(crate::shot_fx::ShotFxSet))
+            .add_systems(Update, (script_drawn, script_drawn_rig, dropped_addons, staged_addons, emit.after(crate::effect_shaders::sync_player_effects).run_if(nvf_play::photo_mode::view_live), simulate.run_if(nvf_play::photo_mode::view_live), take_basis).chain().after(crate::shot_fx::ShotFxSet))
             .add_systems(PostUpdate, draw.in_set(ParticleDrawSet))
             .add_systems(Last, report);
     }

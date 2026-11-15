@@ -1217,7 +1217,8 @@ impl Plugin for LipsPlugin {
             .add_systems(PreUpdate, untouch)
             .add_systems(
                 Update,
-                (drive, turn_heads)
+                // Faces stand still while photo mode holds the view (co-op).
+                (drive.run_if(nvf_play::photo_mode::view_live), turn_heads)
                     .chain()
                     .after(nvf_play::PlaySet::Ui)
                     .after(crate::locomotion::drive)

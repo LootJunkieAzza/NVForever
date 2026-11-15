@@ -27,6 +27,7 @@ mod activators;
 mod reports;
 mod native_crash;
 mod nif_mirror;
+mod view_hold;
 mod anim_overrides;
 mod anim_paths;
 mod actor_feet;
@@ -1554,11 +1555,11 @@ fn main() -> AppExit {
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
-    .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream))
+    .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream).run_if(nvf_play::photo_mode::view_live))
     .init_resource::<activators::ActivatorStats>()
     .add_systems(
         Update,
-        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials)
+        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials.run_if(nvf_play::photo_mode::view_live))
             .chain()
             .after(advance_animations)
             .after(nvf_play::PlaySet::Scripts),
@@ -1566,6 +1567,7 @@ fn main() -> AppExit {
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_plugins(destroyed::DestroyedPlugin)
+    .add_plugins(view_hold::ViewHoldPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
@@ -1574,7 +1576,7 @@ fn main() -> AppExit {
     .add_systems(Last, world::report)
     .add_systems(Update, (locomotion::walk_test, locomotion::script_turns, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
-    .add_systems(Update, actor_materials::pose.after(locomotion::drive))
+    .add_systems(Update, actor_materials::pose.after(locomotion::drive).run_if(nvf_play::photo_mode::view_live))
     .init_resource::<actor_materials::PlayerRigMaterials>()
     .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))

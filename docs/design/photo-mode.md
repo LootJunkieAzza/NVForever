@@ -74,8 +74,17 @@ description. This page is the summary.
   player's view holds still: each frame, after transforms are propagated, everything that
   moved is drawn where it was when photo mode opened, and the live transform is put back
   at the start of the next frame. So the simulation, the network and the physics only ever
-  see the live world. Cameras, the interface and anything spawned later are drawn live.
-  Shader time (water, sky), particles and face morphs are not held [known limit].
+  see the live world. Anything spawned later is held where it is first drawn; the cameras
+  and the interface are drawn live. The rest of the picture holds too (owner, 2026-11-14:
+  "a true frozen snapshot you fly around in"; `engine/nvforever/src/view_hold.rs`): the
+  shaders' clock stands at the moment photo mode opened (water, grass and tree wind,
+  fire), the sky, clouds, stars and moon stay as they were while following the camera
+  (the hour and the weather go on underneath), and what only moves the picture waits:
+  particles, rain and snow, faces and lip sync, vertex morphs, light flicker, material
+  clips and ripples (`nvf_play::photo_mode::view_live`). On close the view goes live at
+  once. Known limits: the colour grade's own weather and hour changes, and the screen's
+  per-frame noise, keep running. The test aid's `open-coop` opens it this way in one
+  window (smoke `photo-mode-coop-hold`).
   A hit on the player shows a warning at the top of the panel for 4 s, and a fight keeps
   a warning there while it lasts. Photo mode stays open.
 

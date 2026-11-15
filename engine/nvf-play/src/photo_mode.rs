@@ -579,6 +579,12 @@ impl PhotoMode {
         self.on && !self.coop
     }
 
+    /// In co-op, photo mode holds only this player's view: what is drawn stands still (poses,
+    /// particles, faces, water, wind, clouds, the sky) while the world goes on under it.
+    pub fn holds_view(&self) -> bool {
+        self.on && self.coop
+    }
+
     /// Brightness, saturation and contrast factors for the grade while open.
     pub fn look(&self) -> Option<(f32, f32, f32)> {
         let s = &self.settings;
@@ -673,13 +679,28 @@ struct NoticeRoot;
 /// the live one. After the transforms are propagated each frame, every entity that moved
 /// is drawn where it was then (its `GlobalTransform` swapped for the one kept at the
 /// start); at the next frame's start the live one goes back, so the simulation, the
-/// network and the physics never see the held one [design]. The cameras, the interface
-/// and what is spawned later are left alone.
+/// network and the physics never see the held one [design]. What is spawned later is held
+/// where it is first drawn (owner, 2026-11-14: "a true snapshot"). The cameras and the
+/// interface are left alone.
 #[derive(Resource, Default)]
 struct HeldView {
     on: bool,
     frozen: HashMap<Entity, GlobalTransform>,
+    /// The cameras and what hangs from them: never held.
+    skip: std::collections::HashSet<Entity>,
     live: Vec<(Entity, GlobalTransform)>,
+}
+
+/// The held view's systems (after the transforms are propagated): what reads drawn places
+/// after them (a fire volume following its emitter) runs after this set.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HeldViewSet;
+
+/// Run condition: photo mode is closed, so what only moves the picture runs. While it is
+/// open those systems wait and catch up on close: in co-op the world's clock goes on under
+/// the held view, and alone the paused clock leaves a few on the real clock (lip sync).
+pub fn view_live(photo: Option<Res<PhotoMode>>) -> bool {
+    !photo.is_some_and(|p| p.on)
 }
 
 /// `NVF_PLAY_TEST_PHOTO`.
@@ -729,7 +750,7 @@ impl Plugin for PhotoModePlugin {
             .add_systems(First, restore_live)
             .add_systems(
                 PostUpdate,
-                (hide_interface.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate), (keep_start, hold_view).chain().after(bevy::transform::TransformSystems::Propagate).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)),
+                (hide_interface.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate), (keep_start, hold_view).chain().in_set(HeldViewSet).after(bevy::transform::TransformSystems::Propagate).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)),
             )
             .add_systems(Startup, make_soft);
     }
@@ -772,9 +793,9 @@ fn toggle(
     cams: Query<(&Transform, &Projection), With<PlayerCamera>>,
     mut aid_actions: Local<Vec<String>>,
 ) {
-    // `open` and `close` are this system's; the rest go on to `adjust`.
+    // `open`, `open-coop` and `close` are this system's; the rest go on to `adjust`.
     for a in due(&mut aid, time.elapsed_secs()) {
-        if a == "open" || a == "close" {
+        if a == "open" || a == "open-coop" || a == "close" {
             aid_actions.push(a);
         } else {
             aid.0.push((f32::NEG_INFINITY, a));
@@ -811,7 +832,10 @@ fn toggle(
     if resuming {
         return;
     }
-    let asked = std::mem::take(&mut request.0) || by_aid(&mut aid_actions, "open") || pressed;
+    // `open-coop` (test aid): opened as in a co-op game, the world going on under the held
+    // view, so the hold can be checked in one window.
+    let as_coop = by_aid(&mut aid_actions, "open-coop");
+    let asked = std::mem::take(&mut request.0) || by_aid(&mut aid_actions, "open") || as_coop || pressed;
     if !asked {
         return;
     }
@@ -825,7 +849,7 @@ fn toggle(
         Projection::Perspective(p) => p.fov,
         _ => crate::free_cam::vertical_fov(75.0),
     };
-    let coop = in_coop(lobby.as_deref());
+    let coop = in_coop(lobby.as_deref()) || as_coop;
     let pivot = body.pivot.unwrap_or(p.eye());
     let cam = space::to_game(t.translation);
     let v = [pivot[0] - cam[0], pivot[1] - cam[1], pivot[2] - cam[2]];
@@ -1337,6 +1361,7 @@ fn keep_start(photo: Res<PhotoMode>, mut held: ResMut<HeldView>, all: Query<(Ent
     }
     let skip: std::collections::HashSet<Entity> = cams.iter().flat_map(|c| std::iter::once(c).chain(children.iter_descendants(c))).collect();
     held.frozen = all.iter().filter(|(e, _)| !skip.contains(e)).map(|(e, g)| (e, *g)).collect();
+    held.skip = skip;
     info!("photo mode: the view holds ({} things drawn as they are now; the world goes on)", held.frozen.len());
 }
 
@@ -1348,11 +1373,14 @@ fn hold_view(mut held: ResMut<HeldView>, mut moved: Query<(Entity, &mut GlobalTr
     }
     let h = &mut *held;
     for (e, mut g) in &mut moved {
-        if let Some(kept) = h.frozen.get(&e) {
-            if *g != *kept {
-                h.live.push((e, *g));
-                *g = *kept;
-            }
+        if h.skip.contains(&e) {
+            continue;
+        }
+        // Spawned since photo mode opened: held where it is first drawn.
+        let kept = *h.frozen.entry(e).or_insert(*g);
+        if *g != kept {
+            h.live.push((e, *g));
+            *g = kept;
         }
     }
 }
@@ -1365,6 +1393,7 @@ fn restore_live(mut held: ResMut<HeldView>, mut q: Query<&mut GlobalTransform>) 
     }
     if !held.on && !held.frozen.is_empty() {
         held.frozen = HashMap::new();
+        held.skip.clear();
     }
 }
 
