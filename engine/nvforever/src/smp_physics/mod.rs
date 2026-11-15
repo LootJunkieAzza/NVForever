@@ -164,15 +164,21 @@ fn lower_index(skel: &PreparedSkeleton) -> HashMap<String, usize> {
     m
 }
 
+/// A mesh's vertex attribute, or none when it has none or its data has gone to the
+/// render world (where `Mesh::attribute` panics).
+fn attribute(mesh: &Mesh, id: impl Into<bevy::mesh::MeshVertexAttributeId>) -> Option<&VertexAttributeValues> {
+    mesh.try_attribute_option(id).ok().flatten()
+}
+
 fn mesh_positions(mesh: &Mesh) -> Option<Vec<Vec3>> {
-    match mesh.attribute(Mesh::ATTRIBUTE_POSITION)? {
+    match attribute(mesh, Mesh::ATTRIBUTE_POSITION)? {
         VertexAttributeValues::Float32x3(v) => Some(v.iter().map(|p| Vec3::from_array(*p)).collect()),
         _ => None,
     }
 }
 
 fn mesh_weights(mesh: &Mesh) -> Option<Vec<Vec<(u16, f32)>>> {
-    let (VertexAttributeValues::Uint16x4(j), VertexAttributeValues::Float32x4(w)) = (mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)?, mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)?) else {
+    let (VertexAttributeValues::Uint16x4(j), VertexAttributeValues::Float32x4(w)) = (attribute(mesh, Mesh::ATTRIBUTE_JOINT_INDEX)?, attribute(mesh, Mesh::ATTRIBUTE_JOINT_WEIGHT)?) else {
         return None;
     };
     Some(j.iter().zip(w).map(|(j, w)| (0..4).filter(|&k| w[k] > 0.0).map(|k| (j[k], w[k])).collect()).collect())
@@ -243,8 +249,10 @@ fn rig_candidates(
             });
             sys.and_then(|sys| rig_from_xml(&mut commands, e, cand, shape, &sys, skinned, label.clone()))
         } else {
-            let source = meshes.get(&mesh3d.0).cloned();
-            source.and_then(|m| rig_generated(&mut commands, &mut cache, &mut meshes, &mut binds, e, cand, shape, &mesh3d.0, &m, label.clone()))
+            // The prepared part's CPU copy, never the drawn asset: actor meshes are
+            // render-world only, and reading an extracted one's attributes panics (a
+            // later actor sharing the mesh, crash 2026-11-15 17:59 at Primm).
+            rig_generated(&mut commands, &mut cache, &mut meshes, &mut binds, e, cand, shape, &mesh3d.0, &shape.cpu, label.clone())
         };
         match made {
             Some(rig) => {
@@ -631,6 +639,24 @@ fn simulate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mesh whose data went to the render world reads as having no vertices, not a
+    /// panic (crash 2026-11-15 17:59: the generator read an extracted actor mesh); the
+    /// generator reads the part's CPU copy, which keeps them.
+    #[test]
+    fn an_extracted_mesh_reads_as_empty_and_the_cpu_copy_keeps_its_vertices() {
+        let mut m = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 1, 0, 0]; 3]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[0.5f32, 0.5, 0.0, 0.0]; 3]);
+        let cpu = m.clone();
+        let mut drawn = m;
+        let _gpu = drawn.take_gpu_data().expect("extract");
+        assert!(mesh_positions(&drawn).is_none());
+        assert!(mesh_weights(&drawn).is_none());
+        assert_eq!(mesh_positions(&cpu).map(|p| p.len()), Some(3));
+        assert_eq!(mesh_weights(&cpu).map(|w| w[0].len()), Some(2));
+    }
 
     /// Bevy checks the systems' queries for conflicting access only when they first run:
     /// run them once on an empty world (a camera and an empty rig included).
