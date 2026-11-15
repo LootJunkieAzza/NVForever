@@ -157,8 +157,11 @@ pub fn leaving_press(phase: Phase, marks: usize, pressed: impl Fn(Control) -> bo
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
 pub const REACH: f32 = 8192.0;
-/// How far from the eye a melee weapon's marks may be, units (§16.2) [design: owner
-/// 2026-10-20, "within 5 meters or so"; 5 m at 70 units a metre].
+/// How far from the eye a melee weapon's marks may be in the Dead Eye style, units
+/// (§16.2) [design: owner 2026-10-20, "within 5 meters or so"; 5 m at 70 units a metre].
+/// The Classic style has the original's reach instead (`Combat::vats_weapon`'s
+/// `classic_reach`, issue #2656); Dead Eye keeps this one, the maintainer's own choice
+/// for that style.
 pub const MELEE_MARK_REACH: f32 = 350.0;
 /// A melee mark is close enough to swing at within the weapon's reach plus this across
 /// the ground, units: the two bodies' radii (§16.2) [design].
@@ -296,6 +299,14 @@ struct Spot {
     landed: Option<bool>,
     /// Queued as the weapon's special attack (the classic style, vats-classic.md §9).
     special: bool,
+    /// A projectile in flight (the player's Target Projectiles in V.A.T.S. tweak): its
+    /// number in `crate::combat`; the mark's target is then `FormId(0)`.
+    projectile: Option<u64>,
+    /// That projectile no longer flies: the mark is dropped as a dead actor's.
+    lost: bool,
+    /// How much of the part is in sight (0 to 1), under the player's V.A.T.S. Throwables
+    /// Use Visibility tweak for a thrown weapon that is no grenade: the chance is times it.
+    seen: Option<f32>,
 }
 
 /// The weapon VATS mode was entered with.
@@ -386,6 +397,9 @@ pub struct VatsMode {
     keys: Keys,
     /// The point the shot `crate::combat` fires this frame aims at.
     shot: Option<[f32; 3]>,
+    /// Projectiles a marked shot this frame landed on, with the weapon
+    /// (`crate::combat::Combat::shoot_down`).
+    downed: Vec<(u64, FormId)>,
     /// A throw handed to `crate::combat` that has not left the hand yet (its clip winds
     /// up to the `Hit` key): since when (`now`). The firing waits for it.
     throw_held: Option<f64>,
@@ -416,6 +430,16 @@ pub struct VatsMode {
     /// or the next), and whether that rule has the sights up (`None`: not decided yet).
     aim_mark: usize,
     sights_up: Option<bool>,
+    /// Whether the player aimed down the sights just before the mode began (kept while
+    /// it is off), for the V.A.T.S. Hip Fire tweak.
+    aimed_before: bool,
+    /// The mode drew the weapon itself, and, once it ended with nothing fired, the weapon
+    /// is to go away again (the Entering V.A.T.S. Doesn't Unholster tweak).
+    drew_weapon: bool,
+    put_away: bool,
+    /// The view before the First Person V.A.T.S. tweak took the firing into first
+    /// person, given back when the mode ends.
+    pov_before: Option<crate::control::Pov>,
     /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
     rng: Option<SplitMix>,
     hits: u32,
@@ -812,6 +836,11 @@ impl VatsMode {
         self.shot.take()
     }
 
+    /// `crate::combat`: the projectiles this frame's marked shots landed on, to end.
+    pub fn take_shot_down(&mut self) -> Vec<(u64, FormId)> {
+        std::mem::take(&mut self.downed)
+    }
+
     /// `crate::combat`: the throw it was handed has left the hand, or cannot.
     pub fn throw_left(&mut self) {
         self.throw_held = None;
@@ -1005,8 +1034,31 @@ fn chance_of(spot: &Spot, w: &InHand, eye: [f32; 3], cone: Option<f32>) -> f32 {
     let distance = crate::combat::distance(eye, spot.point);
     let cone = if w.style == AttackStyle::Melee { None } else { Some(cone.unwrap_or(0.0)) };
     let raw = raw_chance(&HitInputs { base: spot.base, size: spot.size, skill: w.skill, distance, cone_deg: cone }, &w.hit);
-    final_chance(raw, |c| spot.perks.apply(c as f64) as f32, spot.perks.concentrated_fire.then_some(spot.earlier), &w.hit)
+    final_chance(raw, |c| spot.perks.apply(c as f64) as f32, spot.perks.concentrated_fire.then_some(spot.earlier), &w.hit) * spot.seen.unwrap_or(1.0)
 }
+
+/// Whether the player's V.A.T.S. Throwables Use Visibility tweak scales this mode's
+/// chances: on, with a thrown weapon that lands as itself (a knife, a spear: no grenade)
+/// [design: docs/design/tweaks.md].
+fn throw_sees(v: &VatsMode, combat: &Combat, script: Option<&ScriptState>) -> bool {
+    let on = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_throw_visibility);
+    on && v.weapon.as_ref().is_some_and(|w| {
+        w.style == AttackStyle::Thrown && combat.forms.chain(w.id, None).and_then(|c| c.projectile).and_then(|p| combat.forms.projectiles.get(&p)).is_some_and(|p| p.lands_as_weapon())
+    })
+}
+
+/// How much of a part at `point` the eye sees: the share of seven points about it (the
+/// middle and [`SEEN_SPREAD`] units off it each way) a line reaches [design].
+fn part_seen(phys: &mut PhysState, eye: [f32; 3], point: [f32; 3]) -> f32 {
+    let filter = shot_filter(phys);
+    let s = SEEN_SPREAD;
+    let offsets = [[0.0, 0.0, 0.0], [s, 0.0, 0.0], [-s, 0.0, 0.0], [0.0, s, 0.0], [0.0, -s, 0.0], [0.0, 0.0, s], [0.0, 0.0, -s]];
+    let seen = offsets.iter().filter(|o| in_sight(phys, eye, [point[0] + o[0], point[1] + o[1], point[2] + o[2]], &filter)).count();
+    seen as f32 / offsets.len() as f32
+}
+
+/// How far from the middle [`part_seen`] tries [design].
+const SEEN_SPREAD: f32 = 8.0;
 
 /// Every mark's chance again (the marks and the player move).
 fn rechance(v: &mut VatsMode, combat: &Combat, eye: [f32; 3]) {
@@ -1095,6 +1147,10 @@ impl Sounds<'_> {
     }
 }
 
+/// Shift is held (for the Shift Ignores Friendly V.A.T.S. tweak, read by [`barred`])
+/// [design: docs/design/tweaks.md].
+static SHIFT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The keys the mode takes (after the frame's input, test aids and script locks), and
 /// what it holds back from the rest of the game (§11.5): the trigger, reloading and Ammo
 /// Swap while it is on. Aiming down the sights is the player's while marking (a tap of
@@ -1111,10 +1167,34 @@ fn read_keys(
     mut control: ResMut<PlayerControl>,
     (player, mut intent): (Res<Player>, ResMut<MoveIntent>),
     mut sounds: Sounds,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     tiles: Option<Res<crate::tiles::vats_menu::VatsTiles>>,
     menu_key: Option<ResMut<crate::flashlight::MenuKeyHold>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
+    SHIFT_HELD.store(input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), std::sync::atomic::Ordering::Relaxed);
+    if vats.phase == Phase::Off {
+        vats.aimed_before = control.aiming;
+    }
+    // The player's tweak: a weapon the mode drew goes away again when nothing was fired
+    // [design: docs/design/tweaks.md].
+    if std::mem::take(&mut vats.put_away) && tweaks.as_ref().is_some_and(|t| t.vats_keeps_holstered) && vats.phase == Phase::Off {
+        control.weapon_out = false;
+        info!("vats mode: the weapon it drew is put away again, nothing was fired (tweak)");
+    }
+    // The player's tweak: the firing in first person, the view given back after [design: docs/design/tweaks.md].
+    let first_person = tweaks.as_ref().is_some_and(|t| t.first_person_vats);
+    if first_person && vats.phase == Phase::Firing && vats.pov_before.is_none() {
+        vats.pov_before = Some(control.pov);
+        control.pov = crate::control::Pov::First;
+    }
+    if vats.phase == Phase::Off {
+        if let Some(p) = vats.pov_before.take() {
+            control.pov = p;
+        }
+    }
+    // The player's tweak: entered not aiming, every shot from the hip [design: docs/design/tweaks.md].
+    let hip_fire = tweaks.as_ref().is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0, special: false, hover_part: None, pointer_moved: false, ray: None, near_part: None };
@@ -1244,6 +1324,7 @@ fn read_keys(
     }
     if vats.phase == Phase::Off && vats.keys.toggle && !control.weapon_out && !locks.fighting {
         control.weapon_out = true;
+        vats.drew_weapon = true;
         vats.phase = Phase::Drawing;
         vats.drawing_at = Some(now);
         vats.keys.toggle = false;
@@ -1259,6 +1340,13 @@ fn read_keys(
         Phase::Firing => {
             let gun = vats.weapon.as_ref().filter(|w| matches!(w.style, AttackStyle::Single | AttackStyle::Burst { .. }));
             match gun.map(|w| w.sight_fov) {
+                Some(_) if hip_fire => {
+                    if vats.sights_up != Some(false) {
+                        vats.sights_up = Some(false);
+                        info!("vats mode: fires from the hip (entered not aiming, tweak)");
+                    }
+                    control.aiming = false;
+                }
                 // The body's clips show it: a gun's sights up for a far mark, from the hip
                 // for a near one, as the NPCs fire (`crate::combat::aims_down_sights`).
                 Some(fov) if control.third_person_view() => {
@@ -1288,6 +1376,10 @@ struct ClassicIn<'w> {
     kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
 }
 
+/// The combat state `update` reads: the projectiles and shots, the weapon's clip, the
+/// actors' parts and the mines.
+type CombatIn<'w> = (Option<Res<'w, Combat>>, Res<'w, WeaponAnim>, Res<'w, ActorParts>, Option<Res<'w, crate::mines::Mines>>);
+
 /// The mode's work for the frame; before `crate::combat::fire`, which fires the shot asked
 /// for ([`VatsMode::take_shot`]).
 #[allow(clippy::too_many_arguments)]
@@ -1295,7 +1387,7 @@ fn update(
     (real, time): (Res<Time<Real>>, Res<Time>),
     (state, settings): (Res<State<PlayState>>, ClassicIn),
     mut vats: ResMut<VatsMode>,
-    (combat, anim, parts): (Option<Res<Combat>>, Res<WeaponAnim>, Res<ActorParts>),
+    (combat, anim, parts, mines): CombatIn,
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     mut phys: ResMut<PhysState>,
@@ -1389,7 +1481,7 @@ fn update(
             }
         }
         (Phase::Marking, None) => {
-            follow(v, &phys);
+            follow(v, &phys, &combat);
             rechance(v, &combat, player.eye());
             let chosen = if v.style == VatsStyle::Classic {
                 classic_frame(v, &keys, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, real.delta_secs(), &mut sounds)
@@ -1442,19 +1534,19 @@ fn update(
                 // weapon's attack or its special attack (§9).
                 let on = v.classic.selected.zip(v.preview.parts.get(v.classic.part).map(|p| (p.part, p.spot.point)));
                 match on {
-                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &phys, &player, &mut hud, &mut sounds, actor, part, point, keys.special),
+                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut hud, &mut sounds, actor, part, point, keys.special),
                     None => info!("vats mode: nothing selected to queue an attack on"),
                 }
             } else if keys.mark {
-                mark(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
+                mark(v, &combat, &parts, mines.as_deref(), script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
             }
         }
         (Phase::Firing, None) => {
-            follow(v, &phys);
+            follow(v, &phys, &combat);
             rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
             // An attack whose target has died is not played ([`AFTER_KILL`]).
-            drop_dead_marks(v, script.as_deref());
+            drop_dead_marks(v, script.as_deref(), &parts);
             // A throw is in the hand until its clip's `Hit` key: the next waits for it.
             let held = v.throw_holds();
             // An explosive the marks sent holds the mode's end, not the next mark.
@@ -1471,6 +1563,15 @@ fn update(
             } else {
                 match v.run.as_mut() {
                     Some(Run::Volley(vo)) => match (!wait).then_some(vo).and_then(|vo| vo.step(pace)) {
+                        // The player's tweak: the rest of a burst is held once its target is
+                        // dead [design: docs/design/tweaks.md].
+                        Some(VolleyEvent::Shot { mark, round })
+                            if round > 0
+                                && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_burst_stops_on_kill)
+                                && v.queue.marks().get(mark).is_some_and(|m| crate::combat::is_dead(script.as_deref(), m.target.0)) =>
+                        {
+                            debug!("vats mode: round {} of mark {} held, the target is dead (tweak)", round + 1, mark + 1);
+                        }
                         Some(VolleyEvent::Shot { mark, round }) => {
                             shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds);
                         }
@@ -1503,7 +1604,9 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
         if damage <= 0.0 {
             return None;
         }
-        let mult = g.ap_regen_mult();
+        // The player's tweak slows the return while over-encumbered [design: docs/design/tweaks.md].
+        let over = g.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over);
+        let mult = g.ap_regen_mult() * if over { g.tweaks.encumbered_ap_regen } else { 1.0 };
         let max = base + modifier + fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, ACTION_POINTS);
         let left = restored_damage(damage as f32, max as f32, rate * mult as f32, dt) as f64;
         fnv_game::functions::restore_actor_value_damage(g, FormId::PLAYER_REF, ACTION_POINTS, damage - left);
@@ -1528,6 +1631,12 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         Ok(w) => w,
         Err(why) => return refused(v, why, hud, sounds),
     };
+    // The Classic style lists melee and unarmed targets within the original's reach
+    // (`VatsWeapon::classic_reach`, #2656); Dead Eye keeps `MELEE_MARK_REACH`.
+    if let (VatsStyle::Classic, Some(reach)) = (v.style, w.classic_reach) {
+        info!("vats mode: classic melee reach {reach:.0} units from the eye (swing {:.0}, in place of {:.0})", w.melee_reach, w.reach);
+        w.reach = reach;
+    }
     let base_cost = w.cost;
     // The Action Point Cost perks (docs/spec-notes/perk-entry-points.md §2).
     let (cost, by) = crate::combat::player_weapon_perk(script.as_deref_mut(), sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);
@@ -1540,6 +1649,17 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
     // Not even one mark: no AP for it, or (a burst) not a whole burst loaded.
     if let Err(r) = v.queue.check(ap_now) {
         return refused(v, r.message(), hud, sounds);
+    }
+    // The player's tweak: entering costs Action Points, and is refused without them [design: docs/design/tweaks.md].
+    let entry = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.tweaks.vats_entry_ap);
+    if entry > 0.0 && !crate::combat::god_mode() {
+        if ap_now < entry as f32 {
+            return refused(v, "Not enough Action Points to enter V.A.T.S.", hud, sounds);
+        }
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            crate::script::with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, entry));
+            info!("vats mode: entering cost {entry:.0} AP (tweak)");
+        }
     }
     v.phase = Phase::Marking;
     v.spots.clear();
@@ -1584,6 +1704,7 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
 fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     let was = v.phase;
     v.phase = Phase::Off;
+    v.put_away = std::mem::take(&mut v.drew_weapon) && v.fired == 0;
     if was == Phase::Firing {
         v.reward_due = v.kills_at_fire.take();
     }
@@ -1715,12 +1836,18 @@ fn classic_hit_camera(v: &mut VatsMode, i: usize, player: &Player) {
 /// The attacks still to play whose target has died are dropped (their AP was only
 /// reserved), and a burst under way on it is cut short; with none left to play the mode
 /// ends [`AFTER_KILL`] later (`kill_end`) [design: the fork owner 2026-11-10; until then
-/// the queue played on at the body]. Attacks queued on other targets play on.
-fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>) {
+/// the queue played on at the body]. Attacks queued on other targets play on. Under
+/// the player's V.A.T.S. Drops Shots at a Lost Weapon tweak, so are the attacks marked on
+/// an actor's weapon once it holds none (disarmed, its weapon shot from its hand)
+/// [design: docs/design/tweaks.md].
+fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>, parts: &ActorParts) {
     if v.kill_end.is_some() {
         return;
     }
-    let gone: Vec<bool> = v.queue.marks().iter().map(|m| crate::combat::is_dead(script, m.target.0)).collect();
+    let lost_weapon = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_drops_disarmed_shots);
+    let disarmed = |m: &fnv_combat::vats::Mark| lost_weapon && m.part == Some(WEAPON_PART) && parts.by_ref.get(&m.target.0).is_some_and(|p| p.weapon.is_none());
+    let lost = |k: usize| v.spots.get(k).is_some_and(|s| s.lost);
+    let gone: Vec<bool> = v.queue.marks().iter().enumerate().map(|(k, m)| lost(k) || (m.target.0 != 0 && crate::combat::is_dead(script, m.target.0)) || disarmed(m)).collect();
     if !gone.contains(&true) {
         return;
     }
@@ -1755,8 +1882,13 @@ fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>) {
         (v.cam_led, v.cam_wait, v.cam_ask, v.cam_released) = (None, None, None, false);
     }
     let who = dropped.first().and_then(|k| v.spots.get(*k).zip(v.queue.marks().get(*k))).map_or_else(|| "its target".to_string(), |(s, m)| format!("{} {}", s.name, m.target));
+    let why = match dropped.first().and_then(|k| v.queue.marks().get(*k).zip(v.spots.get(*k))) {
+        Some((_, s)) if s.lost => "flies no more",
+        Some((m, _)) if !crate::combat::is_dead(script, m.target.0) => "holds no weapon",
+        _ => "is dead",
+    };
     info!(
-        "vats mode: {who} is dead: {} queued attacks dropped{}{}",
+        "vats mode: {who} {why}: {} queued attacks dropped{}{}",
         dropped.len(),
         if cut { ", the burst cut short" } else { "" },
         if none_left { format!("; none left to play, the mode ends in {AFTER_KILL:.0} s") } else { String::new() }
@@ -1786,13 +1918,19 @@ fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut Script
     let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0).collect();
     let mut out = Vec::new();
     let mut missed = classic::Missed { reach, ..Default::default() };
+    // A melee or unarmed weapon reaches from body to body, as its swing does
+    // (`fnv_combat::damage::melee_reach`): the target's radius comes off the distance, the
+    // player's is in the reach (`VatsWeapon::classic_reach`, #2656).
+    let to_body = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
     for actor in actors {
         let Some(p) = phys.world.actor_aim_point(actor) else { continue };
         let to = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
-        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
-        if len < 1.0 {
+        let centre = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+        if centre < 1.0 {
             continue;
         }
+        let body = if to_body { phys.world.actor_volume(actor).map_or(0.0, |b| b.radius) } else { 0.0 };
+        let len = (centre - body).max(0.0);
         if len > reach {
             missed.nearest_far = if missed.far == 0 { len } else { missed.nearest_far.min(len) };
             missed.far += 1;
@@ -1874,6 +2012,7 @@ fn classic_frame(
     sounds: &mut Sounds,
 ) -> Option<(u32, usize)> {
     let eye = player.eye();
+    let auto_head = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_auto_head);
     if v.now - v.classic.scanned_at >= CLASSIC_SCAN {
         v.classic.scanned_at = v.now;
         let (targets, first, missed) = classic_targets(v, combat, script, sim, phys, eye);
@@ -1919,7 +2058,12 @@ fn classic_frame(
     if parts > 0 {
         if v.classic.part_set != Some(actor) {
             v.classic.part_set = Some(actor);
-            v.classic.part = (0..parts).max_by(|&a, &b| v.preview.parts[a].spot.chance.total_cmp(&v.preview.parts[b].spot.chance)).unwrap_or(0);
+            let best = (0..parts).max_by(|&a, &b| v.preview.parts[a].spot.chance.total_cmp(&v.preview.parts[b].spot.chance)).unwrap_or(0);
+            // The player's V.A.T.S. Starts on the Head tweak: the head (the part whose
+            // condition is Perception Condition) when the target has one, for each target
+            // when it is first selected [design: docs/design/tweaks.md].
+            let head = auto_head.then(|| head_part(&v.preview.parts)).flatten();
+            v.classic.part = head.unwrap_or(best);
         }
         if keys.part_step != 0 && parts > 1 {
             v.classic.part = classic::cycle(v.classic.part, parts, keys.part_step);
@@ -1966,10 +2110,17 @@ fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> 
     }
 }
 
-/// The marks follow their actors.
-fn follow(v: &mut VatsMode, phys: &PhysState) {
+/// The marks follow their actors, and their projectiles while they fly.
+fn follow(v: &mut VatsMode, phys: &PhysState, combat: &Combat) {
     let marks: Vec<_> = v.queue.marks().to_vec();
     for (m, s) in marks.iter().zip(v.spots.iter_mut()) {
+        if let Some(id) = s.projectile {
+            match combat.projectile_at(id) {
+                Some(p) => s.point = p,
+                None => s.lost = true,
+            }
+            continue;
+        }
         if let Some(p) = point_of(phys, m.target.0, m.part) {
             s.point = p;
         }
@@ -1984,6 +2135,8 @@ enum Bar {
     Cloaked,
     /// No VATS Melee, with a melee weapon in hand.
     NoVatsMelee,
+    /// A companion, under the player's Ignore Companions tweak.
+    Companion,
     /// Never a VATS target (`fnv_game::Game::vats_untargetable`), with the reason.
     NoTarget(&'static str),
 }
@@ -1993,6 +2146,18 @@ enum Bar {
 fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState, actor: u32) -> Result<bool, Bar> {
     if crate::combat::is_dead(script.as_deref(), actor) {
         return Err(Bar::Dead);
+    }
+    // The player's tweak: companions are not targets [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_ignores_companions && rt.game.is_teammate(FormId(actor))) {
+        return Err(Bar::Companion);
+    }
+    // The player's tweak: with Shift held, no one who would not fight the player [design: docs/design/tweaks.md].
+    if SHIFT_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.vats_shift_ignores_friends) {
+            if !crate::script::with_world(rt, sim, |rt| rt.game.would_attack(FormId(actor), FormId::PLAYER_REF)) {
+                return Err(Bar::Companion);
+            }
+        }
     }
     // SetVATSTargetable 0 (`fnv_game::nvse_jip14`): no target of the classic style either.
     if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.actor_vats_targetable(FormId(actor))) {
@@ -2070,7 +2235,7 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         }),
         _ => (HitPerks::default(), Vec::new()),
     };
-    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0 };
+    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false, seen: None };
     if let Some(w) = v.weapon.as_ref() {
         spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
     }
@@ -2096,6 +2261,12 @@ struct PreviewPart {
     /// What one attack on it would take off the target's Health if it lands (a burst's
     /// rounds together), read as often as the parts are.
     damage: f32,
+}
+
+/// The head among a target's parts: the one whose condition actor value is Perception
+/// Condition (`fnv_game::combat::HEAD`).
+fn head_part(parts: &[PreviewPart]) -> Option<usize> {
+    parts.iter().position(|p| p.spot.condition == Some(fnv_game::combat::HEAD))
 }
 
 /// The actor whose parts' chances are shown before marking (§17.5).
@@ -2220,9 +2391,14 @@ fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Op
         if let Some(actor) = actor.filter(|&a| barred(v, script.as_deref_mut(), sim, a).is_ok()) {
             let mut list = std::mem::take(&mut v.preview_list);
             parts_of(phys, parts, actor, &mut list);
+            let sees = throw_sees(v, combat, script.as_deref());
             for &part in list.iter().take(MAX_PREVIEW) {
                 let Some(point) = point_of(phys, actor, part) else { continue };
-                let (spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
+                let (mut spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
+                if let (true, Some(w)) = (sees, v.weapon.as_ref()) {
+                    spot.seen = Some(part_seen(phys, player.eye(), point));
+                    spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
+                }
                 pv.parts.push(PreviewPart { part, spot, shown: false, under: false, queued: 0, condition: None, damage: 0.0 });
             }
             v.preview_list = list;
@@ -2289,6 +2465,7 @@ fn mark(
     v: &mut VatsMode,
     combat: &Combat,
     parts: &ActorParts,
+    mines: Option<&crate::mines::Mines>,
     mut script: Option<&mut ScriptState>,
     sim: &mut SimState,
     phys: &mut PhysState,
@@ -2304,6 +2481,16 @@ fn mark(
     let mut filter = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
     filter.exclude.extend(phys.npcs.values().map(|b| b.ch.key()));
     let hit = phys.ray(from, dir, reach, filter);
+    // A projectile in flight, under the player's tweaks, nearer than what the ray met
+    // [design: docs/design/tweaks.md].
+    let rules = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| ProjectileRules::of(&rt.game.tweaks)).unwrap_or_default();
+    if rules.on {
+        let until = hit.as_ref().map_or(reach, |h| crate::combat::distance(from, h.point) + PROJECTILE_PICK);
+        if let Some(p) = projectile_under(&combat.vats_projectiles(), &rules, from, dir, until) {
+            mark_projectile(v, p, script, sim, player, hud, sounds);
+            return;
+        }
+    }
     // A placed object VATS may target (§20): a destructible flagged VATS Targetable, or
     // one a script's SetVatsTarget turned on.
     if let Some((object, point)) = hit.as_ref().and_then(|h| match h.owner {
@@ -2311,6 +2498,8 @@ fn mark(
         _ => None,
     }) {
         let targetable = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.vats_targetable(FormId(object))));
+        // The player's tweak: a live mine lying in the world [design: docs/design/tweaks.md].
+        let targetable = targetable || (rules.mines && mines.is_some_and(|m| m.is_live(FormId(object))));
         if targetable {
             mark_object(v, object, point, script, sim, player, hud, sounds);
         } else {
@@ -2339,7 +2528,7 @@ fn mark_actor(
     parts: &ActorParts,
     mut script: Option<&mut ScriptState>,
     sim: &mut SimState,
-    phys: &PhysState,
+    phys: &mut PhysState,
     player: &Player,
     hud: &mut HudMessage,
     sounds: &mut Sounds,
@@ -2373,6 +2562,11 @@ fn mark_actor(
             info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");
             return;
         }
+        Err(Bar::Companion) => {
+            v.stats.refused += 1;
+            info!("vats mode: {actor:08X} is a companion: not marked (tweak)");
+            return;
+        }
         Ok(true) => info!("vats mode: {actor:08X} is cloaked: marked through Enhanced Sensors"),
         Ok(false) => {}
     }
@@ -2385,7 +2579,14 @@ fn mark_actor(
         Ok(k) => {
             let point = point_of(phys, actor, part).unwrap_or(fallback);
             v.stats.marks += 1;
+            let sees = throw_sees(v, combat, script.as_deref());
             let (mut spot, names) = spot_on(v, combat, parts, script, sim, player, actor, part, point, earlier);
+            // The player's tweak: a thrown weapon's chance by how much of the part shows.
+            if let (true, Some(w)) = (sees, v.weapon.as_ref()) {
+                spot.seen = Some(part_seen(phys, player.eye(), point));
+                spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
+                info!("vats mode: the part is {:.0}% in sight (tweak)", spot.seen.unwrap_or(1.0) * 100.0);
+            }
             spot.special = special.is_some();
             // What it would do: the figure its part shows now, times a special attack's.
             spot.damage = v.preview.parts.iter().find(|p| v.preview.actor == Some(actor) && p.part == part).map_or(0.0, |p| p.damage) * special.map_or(1.0, |(s, _)| s.dam_mult);
@@ -2444,12 +2645,89 @@ fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Optio
                 (Some(shot), Some(rt)) => with_world(rt, sim, |rt| rt.game.vats_hit_perks(shot)),
                 _ => HitPerks::default(),
             };
-            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0 };
+            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false, damage: 0.0, projectile: None, lost: false, seen: None };
             if let Some(w) = v.weapon.as_ref() {
                 spot.chance = chance_of(&spot, w, player.eye(), None);
             }
             v.stats.marks += 1;
             info!("vats mode: marked object {} {object:08X}, mark {k}; {:.0} AP reserved; {:.0}% to hit; {:.0} units", spot.name, v.queue.reserved(), spot.chance, crate::combat::distance(player.eye(), point));
+            v.spots.push(spot);
+            sounds.play(v, "UIVATSSelectTarget");
+        }
+        Err(r) => {
+            v.stats.refused += 1;
+            info!("vats mode: mark refused: {} ({} marks, {:.0} AP reserved)", r.message(), v.queue.len(), v.queue.reserved());
+            hud.show(r.message().to_string());
+            sounds.play(v, "UIVATSInsufficientAP");
+        }
+    }
+}
+
+/// How near the crosshair's line a projectile must pass to be marked: this many units,
+/// or [`PROJECTILE_CONE`] radians off it far away [design].
+const PROJECTILE_PICK: f32 = 24.0;
+const PROJECTILE_CONE: f32 = 0.03;
+
+/// Which projectiles may be marked: the player's tweaks [design: docs/design/tweaks.md].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ProjectileRules {
+    /// Target Projectiles in V.A.T.S.
+    pub on: bool,
+    /// Its Mines option: thrown mines in the air, and live mines lying in the world.
+    pub mines: bool,
+    /// V.A.T.S. Targets Your Own Projectiles.
+    pub own: bool,
+    /// V.A.T.S. Ignores Non-Explosive Projectiles.
+    pub explosive_only: bool,
+}
+
+impl ProjectileRules {
+    pub fn of(t: &fnv_game::tweaks::Tweaks) -> ProjectileRules {
+        ProjectileRules { on: t.vats_target_projectiles, mines: t.vats_target_projectiles && t.vats_target_mines, own: t.vats_target_own_projectiles, explosive_only: t.vats_ignore_non_explosive }
+    }
+
+    fn allows(&self, p: &crate::combat::VatsProjectile) -> bool {
+        (self.own || !p.by_player) && (self.mines || !p.mine) && (p.explosive || !self.explosive_only)
+    }
+}
+
+/// The projectile the crosshair's line (`from`, `dir`, as far as `until`) passes nearest,
+/// within [`PROJECTILE_PICK`] units or [`PROJECTILE_CONE`] of it, that `rules` allow.
+pub fn projectile_under(all: &[crate::combat::VatsProjectile], rules: &ProjectileRules, from: [f32; 3], dir: [f32; 3], until: f32) -> Option<crate::combat::VatsProjectile> {
+    let mut best: Option<(f32, crate::combat::VatsProjectile)> = None;
+    for p in all.iter().filter(|p| rules.allows(p)) {
+        let d = [p.at[0] - from[0], p.at[1] - from[1], p.at[2] - from[2]];
+        let t = d[0] * dir[0] + d[1] * dir[1] + d[2] * dir[2];
+        if t <= 0.0 || t > until {
+            continue;
+        }
+        let off = ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) - t * t).max(0.0).sqrt();
+        if off > PROJECTILE_PICK.max(t * PROJECTILE_CONE) {
+            continue;
+        }
+        let angle = off / t;
+        if best.is_none_or(|(a, _)| angle < a) {
+            best = Some((angle, *p));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Mark the projectile `p` in flight (the player's tweak): the whole of it, its chance by
+/// the distance and the player's skill only, as small as a held weapon [design:
+/// docs/design/tweaks.md; the readme's rule, "only the distance + player skill"].
+fn mark_projectile(v: &mut VatsMode, p: crate::combat::VatsProjectile, script: Option<&mut ScriptState>, sim: &mut SimState, player: &Player, hud: &mut HudMessage, sounds: &mut Sounds) {
+    let ap_now = player_ap(script, sim).map_or(f32::INFINITY, |a| a.0);
+    let earlier = v.spots.iter().filter(|s| s.projectile == Some(p.id)).count() as u32;
+    match v.queue.push(FormId(0), None, ap_now) {
+        Ok(k) => {
+            let name = if p.mine { "mine" } else if p.explosive { "explosive" } else { "projectile" }.to_string();
+            let mut spot = Spot { point: p.at, name, part: "projectile".into(), base: WHOLE_TO_HIT, size: SIZE_HELD_WEAPON, earlier, projectile: Some(p.id), ..Default::default() };
+            if let Some(w) = v.weapon.as_ref() {
+                spot.chance = chance_of(&spot, w, player.eye(), None);
+            }
+            v.stats.marks += 1;
+            info!("vats mode: marked projectile {} ({}), mark {k}; {:.0} AP reserved; {:.0}% to hit; {:.0} units", p.id, spot.name, v.queue.reserved(), spot.chance, crate::combat::distance(player.eye(), p.at));
             v.spots.push(spot);
             sounds.play(v, "UIVATSSelectTarget");
         }
@@ -2502,6 +2780,11 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, mut script: Option<&mut ScriptS
     };
     if let Some(s) = v.spots.get_mut(i) {
         s.landed = Some(hit);
+    }
+    // A projectile marked (the player's tweak) ends where it is when the shot lands
+    // [design: docs/design/tweaks.md].
+    if let (true, Some(id), Some(w)) = (hit, v.spots.get(i).and_then(|s| s.projectile), v.weapon.as_ref().map(|w| w.id)) {
+        v.downed.push((id, w));
     }
     let outcome = format!("{chance:.0}% to hit: {} (rolled {rolled:.0})", if hit { "hit" } else { "missed" });
     v.shot = Some(aim);
@@ -3167,7 +3450,31 @@ impl Plugin for VatsModePlugin {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_projectile_near_the_crosshair_line_is_marked_by_the_tweaks() {
+        use crate::combat::VatsProjectile;
+        let p = |id, at, by_player, explosive, mine| VatsProjectile { id, at, by_player, explosive, mine };
+        let all = [p(1, [500.0, 10.0, 0.0], false, true, false), p(2, [400.0, 60.0, 0.0], false, true, false), p(3, [300.0, 2.0, 0.0], true, true, false), p(4, [200.0, 1.0, 0.0], false, false, false), p(5, [100.0, 0.0, 0.0], false, true, true)];
+        let on = ProjectileRules { on: true, ..Default::default() };
+        let pick = |r: &ProjectileRules, until| projectile_under(&all, r, [0.0; 3], [1.0, 0.0, 0.0], until).map(|p| p.id);
+        // Nearest the line by angle; not the player's own, not a mine.
+        assert_eq!(pick(&on, 1000.0), Some(4));
+        assert_eq!(pick(&ProjectileRules { explosive_only: true, ..on }, 1000.0), Some(1));
+        assert_eq!(pick(&ProjectileRules { own: true, explosive_only: true, ..on }, 1000.0), Some(3));
+        assert_eq!(pick(&ProjectileRules { mines: true, ..on }, 1000.0), Some(5));
+        // Not beyond what the ray met; 60 off at 400 is too far off.
+        assert_eq!(pick(&ProjectileRules { explosive_only: true, ..on }, 450.0), None);
+    }
+
     use super::*;
+
+    #[test]
+    fn the_head_is_the_part_with_perception_condition() {
+        let part = |c: Option<u16>| PreviewPart { spot: Spot { condition: c, ..Default::default() }, ..Default::default() };
+        let parts = [part(Some(26)), part(None), part(Some(fnv_game::combat::HEAD)), part(Some(27))];
+        assert_eq!(head_part(&parts), Some(2));
+        assert_eq!(head_part(&parts[..2]), None);
+    }
 
     #[test]
     fn switching_with_the_right_stick_does_not_delay_a_vats_target_step() {

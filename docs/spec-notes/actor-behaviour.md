@@ -176,15 +176,16 @@ visual term, and the detector's skill minus the target's skill times a factor
   Chameleon is at least 1, else 1.
 - **Detector skill** comes from Perception, not Sneak: `P = 10 + 80 · PER / 10`
   (fSneakPerceptionSkillMin 10, Max 90), then `Kd = a · P · (1 + 0.2·inCombat −
-  0.2·asleep − 0.4·combatTarget)` (fSneakAlertMod, fSneakSleepBonus, fSneakCombatMod).
-  The page's formula writes the last term `IsCombatTarget * fSneakCombatMod`, and
-  IsCombatTarget is 1 when the target is a combat target of the detector [documented:
-  GECK wiki IsCombatTarget]; the Fallout Wiki's Sneak (New Vegas) page gives the same:
-  0.8 "in Combat and trying to Detect a Current Combat Target", 1.2 for Alert, Lost, or
-  in Combat detecting anyone else [documented: owner's saved copy, 2026-10-24]. The
-  page's description of fSneakCombatMod says the opposite ("currently in active combat
-  against someone else"); NVForever follows the formula, which two sources agree on
-  (docs/design/detection.md §9).
+  0.2·asleep − 0.4·inCombatWithSomeoneElse)` (fSneakAlertMod, fSneakSleepBonus,
+  fSneakCombatMod) [documented: Category:Detection, setting descriptions; observed:
+  captures run15b_t1 and run15b_t2, 2026-11-15, §2.1a]. The page's formula instead
+  writes the last term `IsCombatTarget * fSneakCombatMod`, and IsCombatTarget is 1
+  for the detector's own combat targets [documented: GECK wiki IsCombatTarget].
+  The Fallout Wiki's Sneak (New Vegas) page also gives 0.8 against its own targets,
+  1.2 otherwise [documented: owner's saved copy, 2026-10-24]. The captures settle
+  this disagreement in favour of the GECK setting description: 1.2 against its own
+  targets, 0.8 against anyone else while in Combat [observed: §2.1a]. Lost remains
+  1.2 [design: docs/design/detection.md §9; not State::Combat].
 - **Target skill** (New Vegas): `Kt = sneaking · (Sneak + 5·(Lt − Ld) + max(50 − 10·Lt,
   0) − armour)`, with `Lt`, `Ld` the levels of target and detector (iSneakLevelBonus 5,
   iSneakStartBonus 50, iSneakStartBonusLevelPenatly 10), `armour` 10 for medium and 20
@@ -193,6 +194,58 @@ visual term, and the detector's skill minus the target's skill times a factor
 - Observed: a wandering settler detected the player at 499–652 units at some moments and
   not at others, not as a function of distance alone [observed: ai-observer.md §7]; the
   visual term (`seen`, light) would explain it [hypothesis].
+
+### 2.1a Combat distraction (#2573, answered observer check 200)
+
+[observed: captures run15b_t1 and run15b_t2, 2026-11-15] xNVSE 6.4.9 and JIP LN
+57.30 `GetDetectionValue`, Searchlight Airport's runway, GameHour 12; the player
+sneaking, standing still, in god mode. Detectors GoodspringsSettler01Ref 0x00104F03
+and GoodspringsSettler03Ref 0x00104F0A both had Perception 5 and line of sight.
+"Fighter" used `StartCombat player` (IsInCombat 1, IsCombatTarget player 1);
+"watcher" used `StartCombat` on a restrained gecko after RemoveFromAllFactions and
+Assistance 0 (IsInCombat 1, IsCombatTarget player 0). Run 2 swapped the NPCs' roles.
+
+[observed: captures run15b_t1 and run15b_t2, 2026-11-15] Distances and readings:
+
+| State of the detector | Distance to the player | GetDetectionValue player |
+|---|---|---|
+| Not in combat, facing the player (both NPCs, both runs) | 695 | 79 |
+| Not in combat, walking (both NPCs) | 669-674 / 650 / 633-640 / 621-627 / 601 / 567 | 80 / 82 / 83 / 84 / 85 / 86-87 |
+| In Combat, the player its combat target (run 1) | 687-693 / 672-685 / 650 / 627 | 83 / 83-84 / 85 / 87 |
+| In Combat, the player its combat target (run 2, the other NPC) | 695 / 675-681 / 650 / 618-627 | 83 / 84-86 / 86 / 87-88 |
+| In Combat with the gecko, the player not its target (run 1) | 609-636 | 81 |
+| In Combat with the gecko, the player not its target (run 2) | 547-591 | 83-84 |
+
+[observed: captures run15b_t1 and run15b_t2, 2026-11-15] At comparable distances,
+a fighter read its own target 3-4 higher than the same NPC out of combat, in both
+role assignments. Fighting someone else read the player 2-4 lower; those samples
+were fewer because line of sight came and went. This settles the direction in
+favour of the setting's description: fSneakCombatMod applies to a detector in
+Combat against actors outside its combat target list, giving 0.8 at defaults;
+its own targets retain 1 + fSneakAlertMod = 1.2. The wiki formula's IsCombatTarget
+reading and the Fallout Wiki's 0.8 / 1.2 table are reversed (§2.1).
+
+[observed: captures run15b_t1 and run15b_t2, 2026-11-15] `SetRestrained 1` on a
+combatant ended combat (IsInCombat 0 from the next sample), as `tcai` did.
+GetDetectionValue read -100 for a detector in combat without line of sight.
+These captures did not time detection loss or the search after breaking sight.
+
+[design, #2573; tools/smoke/scenarios.toml] `detection-combat-target-sneak` uses the
+cleared Searchlight Airport runway at hour 12 with god mode. The player sneaks from
+2 s and stands still. Fighter GoodspringsSettler01Ref (00104F03) and watcher
+GoodspringsSettler03Ref (00104F0A) have Perception 5 and Assistance 0; the watcher
+is removed from all factions. A gecko is created at the watcher with Aggression 0
+and Perception 0, then positioned 150 units toward the player. Both settlers reset
+to mirrored 690-unit offsets at 5.8 s and the gecko resets at 5.9 s. At 6 s the
+fighter starts combat with the player and the watcher with the gecko. Five paired
+GetDetectionValue/GetDistance reads run every 0.5 s from 6.6 to 8.6 s. Every fighter
+value must exceed its paired watcher value; distances are logged without absolute
+ranges.
+
+[observed: smoke runs on the combined build, 2026-11-15] With the fix, both
+detectors at 690 units read fighter 64 / watcher 56; the fighter closing to 610 read
+69 (PASS). With both detection.rs files reverted to upstream main, fighter 84-88 /
+watcher 91 in all five pairs (FAIL).
 
 ### 2.2 Detection events
 
@@ -244,6 +297,47 @@ visual term, and the detector's skill minus the target's skill times a factor
 - Observed: after the Goodsprings gunfight every surviving actor left combat in the same
   sample, about 1 game minute after the last enemy died [observed: ai-observer.md §7].
 
+### 2.4 IsActorDetected source calls
+
+[documented: [GECK IsActorDetected](https://geckwiki.com/index.php?title=IsActorDetected)]
+With no explicit arguments, this query asks whether the actor receiver is detected
+by any other actor. It returns an integer boolean. A player receiver always reads
+zero, and detection by the player does not count. This direction is distinct from
+[GetDetected](https://geckwiki.com/index.php?title=GetDetected), whose receiver is
+the detector. The documented contract is available in the primary page's indexed
+text; direct retrieval returned403 during preparation.
+
+Implementation context, not original-game evidence: the existing catalogue row has
+no opcode or console category. Source compilation uses the unnumbered named VM
+path. The handler reads incoming typed Detected-band pairs, excluding the player
+and the receiver itself. Other actors count regardless of teammate membership;
+the sneak HUD's extra follower exclusion is not this query. The allocation-free
+scan stops at its first matching pair and costs O(cached pairs) in the worst case.
+No native opcode, sensing pass, cache or save field is added.
+
+[hypothesis: selected portable query convention] Missing or nonactor receivers
+return numeric zero, matching neighboring implemented queries. This is a selected
+portable policy, not preservation of an old IsActorDetected zero: actual compiled
+public99 source calls refused the unsupported function. That authored CPU result
+is process evidence, not native invalid-input evidence. Native invalid-input
+behavior remains unknown. Unmeasured/cold state reads zero. The query neither refreshes nor
+expires detections and does not add an immediate dead/disabled check. The existing
+engine measurement round owns pruning: it runs every quarter-second and forgets
+pairs older than one game-time second. In a headless Game, merely advancing time
+does not prune pairs; snapshot restoration starts with an empty detection cache.
+These are repository lifecycle choices, not measured native timing.
+
+Process qualification: six authored shared VM controls cover explicit receiver
+precedence, incoming/outgoing pairs, player/self exclusion, teammates, mixed typed
+bands and numeric values, overwrite/forget/expiry, cold restore and existing
+GetDetected/GetDetectionLevel/GetLineOfSight neighbors. They use the real compiler,
+decoder and VM; diagnostic-free zeros are required so a missing handler cannot
+masquerade as a negative result. Coverage does not imply execution; results must
+name their exact source and host. Historical skipped calls in CASM with MCM are
+reported in [#2271](https://github.com/LootJunkieAzza/NVForever/issues/2271), not a
+current CASM save-scheduling or full-mod compatibility result. Installed versions,
+caller branches and native/physical execution remain separately unqualified.
+
 ## 3. Factions
 
 - Factions decide how actors react to each other and whether members help one another:
@@ -276,8 +370,10 @@ visual term, and the detector's skill minus the target's skill times a factor
   actor's factions towards the other's (factions.md §2–§5, which also has the counts of
   who is an enemy of the player); faction ranks with −1 for a non-member [hypothesis];
   crime-enemy flags kept for GetActorFactionPlayerEnemy; GetDisposition is a stub.
-  How several factions of one actor combine in GetFactionRelation (enemy, then friend,
-  then ally) is a runtime [hypothesis] the documentation does not settle.
+  How several factions of one actor combine in GetFactionRelation: a friend or an ally
+  pair wins over an enemy pair, as allies "cannot attack each other under any
+  circumstances" [documented: GECK wiki GetFactionCombatReaction]; friend before ally is
+  a [hypothesis] (factions.md §4, #2560).
 - Observed: in the gunfight, Goodsprings animals fought on the settlers' side
   [observed: ai-observer.md §7]; which faction relation or Assistance setting caused it is
   not known.

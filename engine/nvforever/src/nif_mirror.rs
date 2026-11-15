@@ -687,14 +687,17 @@ fn mirror_game(
         true
     });
     // The trees of the references scripts asked about.
-    // Once scripts use the NIF functions, the player's tree is told too, watched or not:
-    // the original has the player's 3D at once, so a script's first read finds it
-    // [observed: player.GetChildBlocks in the nif-blocks set, #2132].
+    // Once scripts use the NIF functions (a reference was asked about; the set never
+    // shrinks), the player's tree and those of references scripts created (actors placed
+    // with PlaceAtMe, dropped items) are told every frame, watched or not: the original
+    // has their 3D at once, so a script's first read finds it [observed: the nif-blocks
+    // set's first reads of the player, of Doc's copy and of the pistol, #2132]. Any other
+    // reference is told from the frame after a script first asks about it. A game whose
+    // scripts never use them walks no tree here.
     let mut watched: Vec<FormId> = game.scene.watched().collect();
-    // So are created items drawn flat, whose 3D the original has a frame after
-    // PlaceAtMe (the nif-blocks set's first read of the pistol finds it).
     if !watched.is_empty() {
-        for r in std::iter::once(FormId::PLAYER_REF).chain(dropped.0.iter().map(|(d, _, _)| FormId(d.0))) {
+        let created = rigs.0.iter().map(|(_, a)| a.reference).filter(|r| r >> 24 == 0xFF).chain(dropped.0.iter().map(|(d, _, _)| d.0));
+        for r in std::iter::once(FormId::PLAYER_REF.0).chain(created).map(FormId) {
             if !watched.contains(&r) {
                 watched.push(r);
             }

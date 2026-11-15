@@ -865,6 +865,9 @@ struct Resident {
     /// Handed to the AI (once the game state is there).
     joined: bool,
     spawned: bool,
+    /// Created by a script and not drawn yet: drawn in the first frame it is in view,
+    /// past the read-ahead and the frame's spawn budget (`nav::Who::at_once`).
+    at_once: bool,
     root: Option<Entity>,
     failed: bool,
     /// In the world and enabled, as the game has it.
@@ -1114,6 +1117,10 @@ struct Core {
     /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
     /// they stand as a staggering actor does while it shows.
     posed: HashSet<u32>,
+    /// Creatures playing their unarmed stance's draw clip (`creature_stance.rs`: the
+    /// ghoul's roar, the gecko's hiss) this frame: they stand until it ends, as a
+    /// staggering actor does (#2686: an alerted ghoul slid across the floor roaring).
+    drawing: HashSet<u32>,
     /// Of those, the ones whose idle carries the body away from the reference
     /// (`idles::IdleHolds::carried_off`): they are drawn facing as they did when it began.
     carried_off: HashSet<u32>,
@@ -1386,6 +1393,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             posed: HashSet::new(),
+            drawing: HashSet::new(),
             carried_off: HashSet::new(),
             breaking: HashSet::new(),
             travel: HashMap::new(),
@@ -1559,6 +1567,7 @@ impl Core {
             self.add_resident(id, base.0, creature, 1.0, pos, label, true);
             if let Some(r) = self.list.last_mut().filter(|r| r.actor == id) {
                 r.first_steps = Some(FirstSteps::new("its creation by a script"));
+                r.at_once = true;
             }
         }
     }
@@ -1605,6 +1614,7 @@ impl Core {
             named,
             joined: false,
             spawned: false,
+            at_once: false,
             root: None,
             failed: false,
             present: false,
@@ -1858,6 +1868,11 @@ impl Core {
                 if never_turns(r.immobile, game.creature_turning_speed(FormId(r.base), r.actor)) {
                     self.ai.fix_heading(r.actor);
                     info!("ai: {} never turns (flagged Immobile, Turning Speed 0): it keeps its heading", r.label);
+                } else if game.is_fixture(r.actor) {
+                    // A fixture that never fights (`fnv_game::Game::is_fixture`): Mr.
+                    // House's chamber, Turning Speed 30, never turns either (#2431).
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (a fixture: Immobile, Unaggressive, Helps Nobody, unarmed): it keeps its heading", r.label);
                 }
             }
         }
@@ -2258,6 +2273,7 @@ impl Core {
                 matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))
                     || held_by_talk(game, &self.ai, r.actor)
                     || self.staggering.contains(&r.actor.0)
+                    || self.drawing.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)
             .collect();
@@ -2443,6 +2459,13 @@ impl Core {
                     info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
                 }
             }
+            // Nor a creature while it draws its stance (the ghoul's roar, #2686).
+            for &id in self.drawing.iter().filter(|id| !self.carried.contains_key(id)) {
+                let was = stop_body(Some(&mut *p), id);
+                if was > 0.0 {
+                    info!("ai [{}] {} {id:08X}: its character stops while it draws its stance (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
+                }
+            }
             // Nor while an idle holds it in place (idles.md §15).
             for &id in self.posed.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
@@ -2613,6 +2636,8 @@ impl Core {
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
                 | AiEvent::TalkUnseen { .. }
+                | AiEvent::LeadsPlayer { .. }
+                | AiEvent::LeadStuck { .. }
                 | AiEvent::WalkUp { .. }
                 | AiEvent::WalkedUp { .. }
                 | AiEvent::PushedBack { .. }
@@ -2847,6 +2872,8 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::CaughtUp { target, away, stop_at, .. } => format!("has caught up with {}: {away:.0} units away, stops within {stop_at:.0}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
+        AiEvent::LeadsPlayer { package, to, away } => format!("walks the player into its trigger location ({}): {away:.0} units away, to ({:.0}, {:.0}, {:.0})", n(package), to[0], to[1], to[2]),
+        AiEvent::LeadStuck { package, left } => format!("stops walking the player into its trigger location ({}): no nearer for {} s, {left:.0} units short; talks where the player stands", n(package), fnv_ai::carry::LEAD_STUCK_SECONDS),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::IdleChatter { line, away } => format!("chatters ({away:.0} units from the player), line {line}"),
@@ -3060,6 +3087,7 @@ type Held<'w, 's> = (
     Option<Res<'w, crate::npc_combat::Fighters>>,
     Option<ResMut<'w, crate::idles::IdleHolds>>,
     Query<'w, 's, &'static mut SitRefused>,
+    Query<'w, 's, (&'static RefVisual, &'static crate::creature_stance::CreatureStance), Without<crate::locomotion::Dying>>,
 );
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
@@ -3079,7 +3107,7 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, mut sim, mut phys, mut blocks): PlayState,
-    (seated, hours, flinches, fighters, idle_holds, mut refusals): Held,
+    (seated, hours, flinches, fighters, idle_holds, mut refusals, stances): Held,
     (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, screen): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
@@ -3114,6 +3142,15 @@ pub fn drive(
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.on_furniture = seated.iter().map(|v| v.0).collect();
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    // So does a creature drawing its stance (#2686), from the frame before.
+    let drawing: HashSet<u32> = stances.iter().filter(|(_, s)| s.holds_in_place()).map(|(v, _)| v.0).collect();
+    for id in drawing.difference(&res.core.drawing) {
+        info!("actor {id:08X} holds still while it draws its stance");
+    }
+    for id in res.core.drawing.difference(&drawing) {
+        info!("actor {id:08X} drew its stance: free to move");
+    }
+    res.core.drawing = drawing;
     // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
     if let Some(t) = travel.as_deref_mut() {
         res.core.travel = t.take();
@@ -3311,7 +3348,7 @@ pub fn drive(
         let Some(agent) = core.ai.agents.get(&r.actor) else { continue };
         let w = &agent.walker;
         let visible = r.present && drawn(&world, &streamer, w.space, w.feet);
-        if visible && !r.spawned {
+        if visible && !r.spawned && !r.at_once {
             if budget == 0 {
                 continue;
             }
@@ -3444,11 +3481,14 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some(), jumped: moved, at_once: r.at_once }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
             r.failed = true;
+        }
+        if r.spawned {
+            r.at_once = false;
         }
         // Its first second drawn after a script made, enabled or moved it: the clips it
         // walks or runs with (`FirstSteps`).

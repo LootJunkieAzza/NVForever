@@ -761,6 +761,46 @@ mod tests {
         assert!(!load_enhanced(w, "maybe"));
     }
 
+    /// Terrain height blending (#2550) is off in both looks, so it is no enhanced effect:
+    /// the Enhanced effects row neither reads it nor sets it.
+    #[test]
+    fn the_enhanced_row_leaves_terrain_height_blending_alone() {
+        assert!(!enhanced_keys().contains(&"terrain-height-blend"));
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(Look::Vanilla));
+        register_effects(&mut app);
+        let w = app.world_mut();
+        let blend = w.resource::<Settings>().index("terrain-height-blend").unwrap();
+        settings::flip(w, blend);
+        assert!(w.resource::<Graphics>().terrain_height_blend);
+        assert_eq!(enhanced_reading(w), OFF, "not an effect of the enhanced look");
+        let row = w.resource::<Settings>().index(ENHANCED_KEY).unwrap();
+        assert!(settings::pick(w, row, ON));
+        assert_eq!(enhanced_reading(w), ON);
+        assert!(w.resource::<Graphics>().terrain_height_blend, "On leaves it as it was");
+        assert!(settings::pick(w, row, OFF));
+        assert!(w.resource::<Graphics>().terrain_height_blend, "and so does Off");
+    }
+
+    /// Terrain anti-tiling (#2551) likewise: off in both looks, no enhanced effect.
+    #[test]
+    fn the_enhanced_row_leaves_terrain_anti_tiling_alone() {
+        assert!(!enhanced_keys().contains(&"terrain-anti-tiling"));
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(Look::Vanilla));
+        register_effects(&mut app);
+        let w = app.world_mut();
+        let tiling = w.resource::<Settings>().index("terrain-anti-tiling").unwrap();
+        settings::flip(w, tiling);
+        assert!(w.resource::<Graphics>().terrain_anti_tiling);
+        assert_eq!(enhanced_reading(w), OFF, "not an effect of the enhanced look");
+        let row = w.resource::<Settings>().index(ENHANCED_KEY).unwrap();
+        assert!(settings::pick(w, row, ON));
+        assert!(w.resource::<Graphics>().terrain_anti_tiling, "On leaves it as it was");
+        assert!(settings::pick(w, row, OFF));
+        assert!(w.resource::<Graphics>().terrain_anti_tiling, "and so does Off");
+    }
+
     /// #1966 review: a stored `enhanced=On` must not set the effects before their own rows
     /// are read, or an effect whose switches name one a test run was given
     /// (`fine-shadows` names `--shadow-distance`) loses the command line's state (#1382).
@@ -811,6 +851,8 @@ mod tests {
         row!("light-shafts", light_shafts);
         row!("water-reflections", water_reflections);
         row!("water-mirror", water_mirror);
+        row!("terrain-height-blend", terrain_height_blend, "--graphics, --graphics-only");
+        row!("terrain-anti-tiling", terrain_anti_tiling, "--graphics, --graphics-only");
         add_choice_list(
             app,
             Setting { key: ENHANCED_KEY, group: "Graphics", label: "e", note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None },

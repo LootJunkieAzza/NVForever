@@ -55,7 +55,7 @@ use crate::player_body::PlayerBody;
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::anim_sounds::{
-    armour_foley, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, passed, worn_foley, FoleySound, KeySound,
+    Side, armour_foley, armour_step, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, passed, worn_foley, ArmourStep, FoleySound, KeySound,
 };
 use fnv_combat::rng::SplitMix;
 use fnv_phys::{layers, Filter, Key, Owner};
@@ -118,6 +118,8 @@ struct Counts {
     footsteps_player: u32,
     footsteps_actors: u32,
     rustles: u32,
+    /// Armour's footfalls beside the ground's step ([`ArmourStep`]).
+    armour_steps: u32,
     reload_keys: u32,
     other_keys: u32,
     door_sounds: u32,
@@ -148,8 +150,11 @@ pub struct AnimSounds {
     /// Clip time last frame, by clip playing.
     last: HashMap<Playing, f32>,
     /// Armour sounds by the worn list (player) or the reference (actors).
-    worn: HashMap<Vec<FormId>, Arc<Vec<FoleySound>>>,
-    actor_worn: HashMap<u32, Arc<Vec<FoleySound>>>,
+    worn: HashMap<Vec<FormId>, Worn>,
+    actor_worn: HashMap<u32, Worn>,
+    /// The footsteps played this frame and whose they are, for IsSoundPlaying
+    /// ([`tell_game`]).
+    told: Vec<(FormId, FormId)>,
     /// Landscape: per exterior cell, its texture coverage; per LTEX its material.
     land: HashMap<(u32, i32, i32), Option<Arc<Coverage>>>,
     ltex: HashMap<u32, Option<u32>>,
@@ -177,6 +182,7 @@ impl Default for AnimSounds {
             last: HashMap::new(),
             worn: HashMap::new(),
             actor_worn: HashMap::new(),
+            told: Vec::new(),
             land: HashMap::new(),
             ltex: HashMap::new(),
             unknown: HashSet::new(),
@@ -297,10 +303,22 @@ fn terrain_material(s: &mut AnimSounds, d: &PlayWorld, world: u32, x: i32, y: i3
     *s.ltex.entry(best).or_insert_with(|| land_texture_material(d.lo, d.schema, best))
 }
 
+/// What a worn list sounds like: its armour's rustles, and the footfall its armour adds
+/// beside the ground's step ([`ArmourStep`]).
+type Worn = Arc<(Vec<FoleySound>, Option<ArmourStep>)>;
+
 /// The armour sounds of a worn list.
-fn foley_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, worn: &[FormId]) -> Vec<FoleySound> {
-    worn_foley(worn.iter().map(|a| armour_foley(lo, schema, a.0)).collect())
+fn foley_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, worn: &[FormId]) -> Worn {
+    let foley = worn_foley(worn.iter().map(|a| armour_foley(lo, schema, a.0)).collect());
+    let step = ArmourStep::of_worn(worn.iter().map(|a| armour_step(lo, schema, a.0)));
+    Arc::new((foley, step))
 }
+
+/// How long a footstep the game played counts as playing for IsSoundPlaying: the sound's
+/// own length is not known here [engineering choice: half a second, inside the 0.5–1 s a
+/// step's sound read 1 in the probe of #2541; scripts that watch for a footfall (Titans of
+/// the New West's TNWFootstepUDF) look every frame for it starting].
+const TOLD_SECONDS: f64 = 0.5;
 
 #[allow(clippy::too_many_arguments)]
 fn sound_heard(
@@ -313,9 +331,11 @@ fn sound_heard(
     at: Option<[f32; 3]>,
     feet: [f32; 3],
     exclude: Vec<Key>,
-    foley: &[FoleySound],
+    worn: &(Vec<FoleySound>, Option<ArmourStep>),
     swimming: bool,
+    source: FormId,
 ) {
+    let (foley, armour) = (&worn.0, worn.1);
     match h.key {
         KeySound::Sound(edid) => {
             if h.clip.name.to_ascii_lowercase().starts_with("reload") {
@@ -348,6 +368,15 @@ fn sound_heard(
             *s.counts.grounds.entry(family).or_default() += 1;
             debug!("anim sounds: {:?} footstep {family}{} {:?} {side:?}", h.who, if stairs { " stairs" } else { "" }, gait);
             out.write(PlaySound { sound, at });
+            s.told.push((sound, source));
+            // Armour's footfall, beside the ground's step (#2541).
+            if let Some(step) = armour.filter(|_| !swimming) {
+                if let Some(sound) = s.sound(step.record(side)) {
+                    s.counts.armour_steps += 1;
+                    out.write(PlaySound { sound, at });
+                    s.told.push((sound, source));
+                }
+            }
         }
         KeySound::Foley { armor, gait } => {
             let Some(f) = foley_for(foley, armor, gait) else { return };
@@ -359,6 +388,10 @@ fn sound_heard(
             }
             s.counts.rustles += 1;
             debug!("anim sounds: {:?} rustle {} {gait:?}", h.who, if armor { "armour" } else { "cloth" });
+            // The player's tweak: in third person the player's own rustle is heard from the
+            // body, not at the ear (docs/design/tweaks.md).
+            let body = h.who == Who::Player(false) && nvf_play::tweaks::ARMOR_3D.load(std::sync::atomic::Ordering::Relaxed);
+            let at = if body { at.or(Some(feet)) } else { at };
             out.write(PlaySound { sound: FormId(f.sound), at });
         }
     }
@@ -387,7 +420,10 @@ fn player_keys(
     let foley = match s.worn.get(worn) {
         Some(f) => f.clone(),
         None => {
-            let f = Arc::new(foley_of(d.lo, d.schema, worn));
+            let f = foley_of(d.lo, d.schema, worn);
+            if let Some(step) = f.1 {
+                info!("anim sounds: the player's armour steps as {:?} ({})", step, step.record(Side::Left));
+            }
             s.worn.insert(worn.to_vec(), f.clone());
             f
         }
@@ -413,7 +449,23 @@ fn player_keys(
                 continue;
             }
         }
-        sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming);
+        sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming, FormId::PLAYER_REF);
+    }
+}
+
+/// The footsteps played this frame go to the game's list of playing sounds, on the actor
+/// whose step it was, so IsSoundPlaying reads them (#2541).
+fn tell_game(mut s: ResMut<AnimSounds>, script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    if s.told.is_empty() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else {
+        s.told.clear();
+        return;
+    };
+    let frame = rt.game.frame;
+    for (sound, source) in s.told.drain(..).filter(|(_, src)| src.0 != 0) {
+        rt.game.gaps.sounds.engine_played(sound, source, frame, TOLD_SECONDS);
     }
 }
 
@@ -504,22 +556,28 @@ fn actor_keys(
                 .entry(r)
                 .or_insert_with(|| {
                     let worn = rig.and_then(|g| w.resolve(g.base, r).ok()).map(|a| a.worn).unwrap_or_default();
-                    Arc::new(foley_of(d.lo, d.schema, &worn))
+                    foley_of(d.lo, d.schema, &worn)
                 })
                 .clone(),
-            _ => Arc::new(Vec::new()),
+            _ => Arc::new((Vec::new(), None)),
         };
         let exclude: Vec<Key> = reference.map(|r| vec![Key::Actor(r), Key::Character(r)]).unwrap_or_default();
         let swimming = reference.and_then(|r| phys.as_deref().and_then(|p| p.npcs.get(&r))).is_some_and(|n| n.ch.swimming);
+        let quiet_team = reference.is_some_and(|r| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quiet_teammate_steps && rt.game.is_teammate(fnv_sim::FormId(r))));
         let mut stepped = HashSet::new();
         for (clip, key) in heard {
             if let KeySound::Foot(side) = key {
+                // The player's tweak keeps teammates' feet quiet [design: docs/design/tweaks.md].
+                if quiet_team {
+                    continue;
+                }
                 if !stepped.insert(side) {
                     continue;
                 }
             }
             let at = feet.to_array();
-            sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, Some(at), at, exclude.clone(), &foley, swimming);
+            let source = FormId(reference.unwrap_or(0));
+            sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, Some(at), at, exclude.clone(), &foley, swimming, source);
         }
     }
     s.last.retain(|(w, _, _), _| matches!(w, Who::Player(_)));
@@ -764,7 +822,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times; {} armour footfalls",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -785,7 +843,8 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.jumps,
         c.landings,
         c.actor_jumps,
-        c.actor_landings
+        c.actor_landings,
+        c.armour_steps
     );
 }
 
@@ -797,7 +856,7 @@ impl Plugin for AnimSoundsPlugin {
         app.init_resource::<AnimSounds>()
             .add_systems(
                 Update,
-                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain().before(nvf_play::sfx::SfxSet),
+                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits, tell_game).chain().before(nvf_play::sfx::SfxSet),
             )
             .add_systems(
                 Update,
@@ -810,7 +869,6 @@ impl Plugin for AnimSoundsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnv_actor::anim_sounds::Side;
 
     fn clip(keys: &[(f32, &str)]) -> Clip {
         Clip {

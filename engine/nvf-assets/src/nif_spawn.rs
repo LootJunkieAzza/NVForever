@@ -642,7 +642,7 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
 /// their mean alpha 21 / 35 / 58; the choice of the median is a hypothesis].
 pub const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
 
-/// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
+/// Whether an unexpanded loaded format has no alpha channel to hold a specular mask.
 pub fn lacks_alpha(image: &Image) -> bool {
     format_lacks_alpha(image.texture_descriptor.format)
 }
@@ -650,7 +650,7 @@ pub fn lacks_alpha(image: &Image) -> bool {
 /// [`lacks_alpha`] by the texture's format.
 pub fn format_lacks_alpha(format: bevy::render::render_resource::TextureFormat) -> bool {
     use bevy::render::render_resource::TextureFormat;
-    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
+    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb | TextureFormat::Bc5RgUnorm | TextureFormat::Bc5RgSnorm | TextureFormat::Rg8Unorm | TextureFormat::Rg8Snorm)
 }
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
@@ -760,6 +760,13 @@ fn mesh_extent(mesh: &Mesh) -> f32 {
 pub(crate) trait TextureSource {
     /// The texture at a NIF texture path, loaded once.
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
+    /// A normal map and its source alpha classification (BC5 expansion must not
+    /// turn its synthetic storage alpha into a specular mask).
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        let h = self.texture(raw_path, false)?;
+        let unmasked = self.lacks_alpha(&h);
+        Some((h, unmasked))
+    }
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
     /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
@@ -780,6 +787,10 @@ pub(crate) struct StoreTextures<'a> {
 impl TextureSource for StoreTextures<'_> {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
         self.textures.get(raw_path, srgb, self.data, self.images, self.formats)
+    }
+
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        self.textures.normal(raw_path, self.data, self.images, self.formats)
     }
 
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
@@ -863,10 +874,11 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         unlit_vertex_colors(mesh);
     }
     let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, true));
-    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
+    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.normal(t));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && ((keep_tangents && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some()) || mesh.generate_tangents().is_ok()));
+    let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
     let cutout = blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t)));
@@ -878,7 +890,6 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.texture(t, true));
-    let unmasked = normal.as_ref().is_some_and(|h| textures.lacks_alpha(h));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
@@ -1862,5 +1873,50 @@ mod tests {
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
         assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
+    }
+}
+
+
+#[cfg(test)]
+mod bc5_material_tests {
+    use super::*;
+    use crate::texture::bc5_tests::{OwnedData, triangle};
+    use bevy::render::render_resource::TextureFormat;
+
+    #[test]
+    fn actual_nif_normal_slot_keeps_bc5_orientation_and_original_alpha_semantics() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        // Preload the same path as generic linear data. It cannot answer Normal.
+        let linear = cache.get("signed.dds", false, &owned.data, &mut images, None).unwrap();
+        let props = Props { textures: vec!["old.dds".into(), "signed.dds".into()], specular: true, ..Default::default() };
+        let (material, missing) = shape_material(&props, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let normal = material.base.normal_map_texture.as_ref().expect("real normal slot");
+        assert_ne!(normal, &linear);
+        assert_eq!(images.get(normal).unwrap().texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(images.get(normal).unwrap().data.as_deref(), Some([0, 255, 128, 255].repeat(16).as_slice()));
+        assert!(material.base.flip_normal_map_y, "the existing DirectX green flip still applies exactly once");
+        assert!(material.base.specular_texture.is_none(), "generated alpha 255 must not become a full mask");
+        assert_eq!(material.base.reflectance, UNMASKED_SPECULAR);
+        let base = material.base.base_color_texture.as_ref().unwrap();
+        assert_eq!(images.get(base).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnormSrgb);
+        // The same ordinary DXT5 retains its mask, native bytes and normal convention.
+        let old = Props { textures: vec!["old.dds".into(), "old.dds".into()], specular: true, ..Default::default() };
+        let (old_material, missing) = shape_material(&old, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let old_normal = old_material.base.normal_map_texture.as_ref().unwrap();
+        assert_eq!(old_material.base.specular_texture.as_ref(), Some(old_normal));
+        assert_eq!(old_material.base.reflectance, 2.0);
+        assert_eq!(images.get(old_normal).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(images.get(old_normal).unwrap().data.as_deref(), Some([255; 16].as_slice()));
+        // Tangent/UV admission remains in force even though decoding succeeded.
+        let mut no_uv = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD);
+        no_uv.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        let refused = shape_material(&props, &mut no_uv, &mut cache, &owned.data, &mut images, None).0;
+        assert!(refused.base.normal_map_texture.is_none());
+        assert!(refused.base.specular_texture.is_none());
+        assert_eq!(refused.base.reflectance, 0.3);
     }
 }

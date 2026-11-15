@@ -92,8 +92,9 @@ reputation.md.
   a faction enemy flag of one of an actor's factions does not count while another of
   its factions is the player's ally or friend (`player_enemy_of_factions`); a flag on the
   friendly faction itself does (a crime among the player's friends stays a crime), and
-  so do an actor's own crime grudges (it was the victim or saw the crime) and faction
-  reactions of Enemy, which still come first (factions.md §4).
+  so do an actor's own crime grudges (it was the victim or saw the crime). A faction
+  reaction of Enemy yields to a shared ally or friend faction too (factions.md §4,
+  #2560).
 - **Blowing the cover** [observed: §2]: a sniffer near the player that detects the
   player and starts fighting sends the assault alarm for all NCR; that, not any
   sight of the disguise from afar, is how the whole dam turns on the player.

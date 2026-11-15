@@ -29,6 +29,13 @@
 //!   the weather's fog makes the air hazy (`shafts.rs`).
 //! - **Screen-space water reflections** where the mirrored reflection camera does not
 //!   reach: water at another height than the one it shows, and interiors (`water.wesl`).
+//! - **Terrain height blending** (`terrain-height-blend`, off in both presets: whether
+//!   `enhanced` turns it on is the owner's call): where landscape texture layers meet, the
+//!   incoming texture's brighter texels come through first (terrain.rs "Height blending",
+//!   #2550).
+//! - **Terrain anti-tiling** (`terrain-anti-tiling`, off in both presets, likewise): the
+//!   landscape textures are read at a few offset places hashed from the world and blended,
+//!   so their repeat no longer shows as a grid (terrain.rs "Anti-tiling", #2551).
 //!
 //! The game's own image space (the grade and the modifiers' blur, imagespace.rs) is left
 //! as it is: none of these replaces or repeats it. Every value here is an engineering
@@ -160,11 +167,17 @@ pub struct Graphics {
     pub water_mirror: bool,
     /// How the sun's shadow maps are filtered (Bevy's default, Gaussian, in vanilla).
     pub shadow_filter: ShadowFilteringMethod,
+    /// Height-based blending of the landscape's folded texture layers (terrain.rs
+    /// "Height blending"; off in both presets) [design, #2550].
+    pub terrain_height_blend: bool,
+    /// Anti-tiling of the landscape textures (terrain.rs "Anti-tiling"; off in both
+    /// presets) [design, #2551].
+    pub terrain_anti_tiling: bool,
 }
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 12] = [
+pub const KEYS: [&str; 14] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -177,6 +190,8 @@ pub const KEYS: [&str; 12] = [
     "water-reflections",
     "shadow-filter-hardware",
     "shadow-filter-temporal",
+    "terrain-height-blend",
+    "terrain-anti-tiling",
 ];
 
 impl Graphics {
@@ -215,6 +230,11 @@ impl Graphics {
             water_reflections: on,
             water_mirror: true,
             shadow_filter: ShadowFilteringMethod::Gaussian,
+            // Off in both looks: an addition of our own, not part of `enhanced` until the
+            // owner chooses so [design, #2550].
+            terrain_height_blend: false,
+            // The same for anti-tiling [design, #2551].
+            terrain_anti_tiling: false,
         }
     }
 
@@ -232,6 +252,8 @@ impl Graphics {
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
             "water-reflections" => &mut self.water_reflections,
+            "terrain-height-blend" => &mut self.terrain_height_blend,
+            "terrain-anti-tiling" => &mut self.terrain_anti_tiling,
             _ => return None,
         })
     }
@@ -279,6 +301,8 @@ impl Graphics {
             (!self.water_mirror, "no mirrored water"),
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
+            (self.terrain_height_blend, "terrain height blending"),
+            (self.terrain_anti_tiling, "terrain anti-tiling"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1207,6 +1231,31 @@ mod tests {
         let mut g = Graphics::preset(Preset::Vanilla);
         *g.switch("water-mirror").expect("settings key") = false;
         assert_eq!(g, off);
+    }
+
+    #[test]
+    fn terrain_height_blending_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).terrain_height_blend && !Graphics::preset(Preset::Enhanced).terrain_height_blend);
+        let on = Graphics::only(&["terrain-height-blend".into()]).expect("terrain-height-blend");
+        assert!(on.terrain_height_blend);
+        assert_eq!(on.describe(), "light glow, terrain height blending");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("terrain-height-blend").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("terrain"));
+    }
+
+    #[test]
+    fn terrain_anti_tiling_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).terrain_anti_tiling && !Graphics::preset(Preset::Enhanced).terrain_anti_tiling);
+        let on = Graphics::only(&["terrain-anti-tiling".into()]).expect("terrain-anti-tiling");
+        assert!(on.terrain_anti_tiling && !on.terrain_height_blend);
+        assert_eq!(on.describe(), "light glow, terrain anti-tiling");
+        let both = Graphics::only(&["terrain-height-blend".into(), "terrain-anti-tiling".into()]).expect("both");
+        assert_eq!(both.describe(), "light glow, terrain height blending, terrain anti-tiling");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("terrain-anti-tiling").expect("settings key") = true;
+        assert_eq!(g, on);
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers

@@ -1403,6 +1403,10 @@ impl EffectCtx for PlayCtx<'_> {
         self.display(form)
     }
 
+    fn tweaks(&self) -> Option<&fnv_game::tweaks::Tweaks> {
+        Some(&self.game.tweaks)
+    }
+
     fn is_actor_base(&self, base: FormId) -> bool {
         fnv_game::ai::is_actor_base(self.sim.world.forms, base)
     }
@@ -1464,6 +1468,11 @@ impl EffectCtx for PlayCtx<'_> {
 
     fn player_heading_deg(&self) -> f32 {
         self.sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |s| s.rot[2].to_degrees().rem_euclid(360.0))
+    }
+
+    fn player_pitch_deg(&self) -> Option<f32> {
+        // The simulation's X angle is positive looking down (`player::sim_pitch`).
+        self.sim.world.peek(FormId::PLAYER_REF).map(|s| -s.rot[0].to_degrees())
     }
 
     fn destination(&self, cell: Option<FormId>) -> Destination {
@@ -2219,6 +2228,12 @@ pub(crate) fn run_scripts(
             if crate::aid::read_book(rt, item) {
                 continue;
             }
+            // A poison goes on the weapon in hand (`fnv_game::weapon_poison`).
+            if rt.game.is_poison(item) {
+                crate::aid::use_poison(rt, item);
+                continue;
+            }
+            rt.game.forget_poison_question();
             let r = crate::aid::use_item(rt, item, limb);
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
@@ -2274,11 +2289,14 @@ pub(crate) fn run_scripts(
         // since the last frame before it, again every frame, so a countdown kept in an
         // OnTrigger block ran down while the game stood still (Hidden Valley's virus
         // purge, issue #2455) [hypothesis: OnTrigger is a game-mode block, as GameMode's
-        // are held under menus, scripts.md §7.7].
+        // are held under menus, scripts.md §7.7]. This frame's loading state is set first:
+        // on the first frame after a loading screen the triggers are looked at before the
+        // GameMode blocks run (a trigger waiting for its model holds its script,
+        // `script_trigger::update`, #2571).
+        rt.game.loading = loading;
         if !rt.game.paused() {
             crate::script_trigger::update(rt, &play, &phys, player_capsule);
         }
-        rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         // Scripts' GetFallTimeElapsed (`fnv_game::nvse_gaps`).
         rt.game.gaps.air_times = phys
@@ -2408,7 +2426,9 @@ pub(crate) fn run_scripts(
                 if here {
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
-                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1}", t.interior, t.world, t.feet, t.heading_deg);
+                    // `+ 0.0` prints a level -0.0 as 0.0.
+                    let pitch = t.pitch_deg.map_or_else(|| "kept".to_string(), |p| format!("{:.1}", p + 0.0));
+                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1} pitch {pitch}", t.interior, t.world, t.feet, t.heading_deg);
                     if loading_menu {
                         // EnableLoadingMenu before the move: its screen is one for
                         // anywhere, not the destination's [documented: GECK wiki

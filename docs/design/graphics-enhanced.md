@@ -408,6 +408,234 @@ enhanced "Bloom" (§3.3), when on, stands in for it.
 Engineering choices made by eye against the original's frames; not used to explain
 differences in the parity frames.
 
+### 3.12 Terrain height blending (`terrain-height-blend`; off in both presets)
+
+[design, #2550] An addition of NVForever's own, not a fact about the original game. The
+landscape's layer opacities live on the 33 × 33 vertex grid, 128 units apart, so where a
+layer is painted at full strength on one vertex and not at all on the next the change is
+a straight 128-unit ramp that follows the triangle grid. With this switch the folded
+terrain shader (terrain.wesl, `TERRAIN_HEIGHT_BLEND`) shapes that ramp by the textures:
+the incoming texture's brighter texels (stones, clumps, cracked tops) come through first
+and the gaps between them fill last. Prior art for this engine family: the New Vegas
+Reloaded terrain shader's `HeightBlend` and Skyrim's Community Shaders; cited only as
+prior art, nothing of either was used.
+
+- **Height source.** Height is `clamp(gain * (luma(raw_texel) - luma(reference)),
+  -0.25, 0.25)`, Rec. 709 luma on linear, sRGB-decoded colour before material or vertex
+  tint. Diffuse alpha keeps its existing role of multiplying painted opacity. `global`
+  (default) reads the existing coarsest mip at UV (0.5, 0.5), a near texture mean for a
+  full mip chain. A bright texture does not win just for being bright; broad shading in
+  the texture still contributes. A short mip chain gives an imperfect reference.
+  `local` reads a coarser mip at the texel's own UV: `LOD = min(last_mip,
+  max(4, estimated_current_lod + 2))`. Current LOD is estimated from UV derivatives scaled
+  by each texture's dimensions, including the view's mip bias. Derivatives are captured
+  before divergent control flow or discard; reference samples use explicit levels in
+  both binding forms. This local reference removes some broader spatial shading too.
+  A base without a diffuse texture has height zero. The base diffuse is read again for
+  raw colour, at the standard material's coordinate and bias.
+- **Weights.** For painted opacity * diffuse alpha `a[k]`, ordered shares are
+  `w[k+1] = a[k] * product(1 - a[j], j > k)` and `w[0] = product(1 - a[j])`.
+  They sum to one. Compute `score[i] = w[i] + clamp(height[i], -w[i], w[i])`,
+  `highest = max(score)`, and `q[i] = w[i] * max(0, depth - (highest - score[i]))`;
+  final weights are `q[i] / sum(q)`. Scores outside the depth window drop out.
+  The share cap preserves continuity when a layer appears or disappears. A zero share
+  stays zero and a sole contributor stays one. Equal heights now sharpen unequal shares;
+  there is no equal-height gate or exponential boost. Equal shares and equal heights
+  remain equal. Increasing depth converges towards the ordered blend. With shares
+  (0.5, 0.5), heights (-0.05, +0.05), depth 0.10 gives weights (0, 1).
+  Colour and normals use the same weights; the resulting normal is made unit length once.
+  terrain_weights.wesl is plain WGSL, with naga validation and a CPU mirror in terrain.rs.
+- **Default parameters** [design, #2550]: depth 0.10, gain 8, global reference, the user's choice from in-game comparisons at a painted gravel/cracked-mud transition (2026-11-15, the matrix below); height
+  limit remains 0.25. Test aid `NVF_PLAY_TEST_HEIGHT_BLEND=depth:gain[:source]` is read
+  once per process and logged at start. Source is `global` (also when omitted) or `local`.
+  Depth must be finite and at least 0.001 (also the shader's floor); gain finite and non-negative.
+  Invalid input warns and falls back to the complete default `0.10:8:global`.
+  This configures the effect; enable it with the graphics switch. Only the on variant
+  reads the appended uniform `(depth, gain, source_id, reserved)`, source IDs 0/1.
+  The material pipeline key remains its on/off bit.
+- **Picture comparison matrix** [design, #2550], compared at a road-side transition near Goodsprings, 1920x1080, 13:30. Keep camera,
+  lighting, textures and graphics settings fixed; compare roads/clumps, flat textures,
+  oblique distant ground, quadrant/cell edges and the fold limit. Restart between values.
+
+  | Comparison | Switch | `NVF_PLAY_TEST_HEIGHT_BLEND` |
+  |---|---|---|
+  | Ordered baseline | off | `0.10:4:global` |
+  | First candidate | on | `0.10:4:global` |
+  | Wider transition | on | `0.20:4:global` |
+  | Narrower transition | on | `0.05:4:global` |
+  | More height contrast (chosen default) | on | `0.10:8:global` (or unset) |
+  | Spatial reference | on | `0.10:4:local` |
+
+  Off, the gravel fades into the cracked mud as a broad gradient; on, the mud breaks into
+  islands along its cracks with gravel between. Depth 0.05 starts to show straight edges
+  along the triangles; gain 0 (no height, sharpening only) gives a hard band without shape;
+  the local source looked like the global one there, so global (no extra read) is kept.
+  Retextures with higher-resolution or higher-contrast diffuses may want another gain;
+  neither source is claimed to suit every terrain texture.
+- **What it reaches.** Only the folded draw (terrain.rs "One draw for the base and its
+  first layers"): up to six layers where the repeat divides the cell, four otherwise. A
+  quadrant's later layers that keep their blended draws, and every layer on a GPU without
+  bindless textures, blend as before: their coverage over the folded result is unchanged,
+  but height does not compete across that draw boundary, so moving a layer across the
+  fold limit can change the outline there.
+- **Quadrant and cell edges.** The two sides of an edge give the same result only where
+  they have the same contributing textures, the same effective (ordered) shares and the
+  same fold partition. Stitching (#2096, terrain.rs `stitch_layers`) makes the painted
+  opacities agree along an edge, but each quadrant keeps its own base and layer order, so
+  equal opacities can still give different ordered shares, and a layer folded on one side
+  can be a separate draw on the other. Whether that shows is checked by pictures (the
+  edge-stitch location of `terrain-edge-stitch`, quadrants at the fold limit), not
+  claimed here.
+- **Switching.** The settings row Terrain height blending (Graphics > Picture), or
+  `--graphics-only terrain-height-blend`. It is a pipeline key of the folded material
+  (`TerrainLayersKey`); switching flips every folded material in place
+  (`terrain::sync_height_blend`, logged as `terrain: height blending on|off (<n> folded
+  quadrant materials, <m> changed; …)`), and the first switch compiles the new pipeline
+  (the pause menu waits for it). With the switch off the shader's path is the one there
+  always was, operation for operation.
+- **Cost.** Global uses one coarsest-mip reference sample per contributing texture,
+  generally a small cached working set. Local uses one explicit-level spatial sample per
+  contributor at the same UV; it has a larger working set and derivative/LOD arithmetic.
+  Both also reread the base's raw diffuse, usually cached. Cost needs GPU measurements at
+  layer-heavy Goodsprings roads and the Primm junction, off/global/local. Zero-share
+  layers still have the ordinary diffuse/normal reads; with Terrain anti-tiling on as
+  well (§3.13), zero-share reads are skipped and heights use its raw samples with a
+  global reference.
+- Whether `enhanced` turns it on is the owner's call; until then it is off in both presets
+  and is not an effect of the Enhanced effects row. Smoke: `terrain-height-blend` (switched
+  on, off and on while running), `terrain-height-blend-start` (global from the start),
+  and `terrain-height-blend-local-start` (local from the start); all
+  want the variant's `terrain height blending pipeline <n> ready` line
+  (`NVF_PLAY_TEST_PIPELINE_LOG`, pipeline_gate.rs). The look itself is checked by pictures.
+
+### 3.13 Terrain anti-tiling (`terrain-anti-tiling`; off in both presets)
+
+[design, #2551] An addition of NVForever's own, not a fact about the original game, which
+repeats every landscape texture plainly every 256 world units, 16 times across a cell
+(docs/spec-notes/world.md §3 "Texture repeat" [observed]). From a hill or over the
+Mojave flats the same marks recur on that grid. With this switch the terrain shaders read
+each landscape texture at a few offset places and blend them, so the repeat no longer
+lines up into a grid. NVForever keeps Hex3 [design, #2551], its own small version of
+Morten S. Mikkelsen's published technique, ["Practical Real-Time Hex-Tiling"](https://jcgt.org/published/0011/03/05/)
+(JCGT 11(3), 2022) [documented: cited publication]. It uses no histogram transform.
+Heitz & Neyret's histogram-preserving by-example noise (HPG 2018), Quilez's "Texture
+repetition", Skyrim Community Shaders' "Terrain Variation" and New Vegas Reloaded's
+LOD noise are prior art only; no code was taken from any of them.
+
+- **Lattice and hash.** The texture coordinate (u = game x / repeat, v = game y / repeat,
+  as the meshes carry it) is laid on a lattice of equilateral triangles four repeats on a
+  side (1,024 units at the game's repeat). Each lattice vertex is named by two signed whole
+  numbers (floor, never truncation) and hashed (a 32-bit integer mixer, no `sin`) into an
+  offset of the texture and one of six 60° rotations. The coordinate hangs on
+  the world, so neighbouring quadrants and cells read the same place the same way: no seam
+  at quadrant or cell edges from the reads. Each read's coordinate is taken relative to its
+  corner, so it stays small far from the origin; the tests compare it with an f64
+  reference near ±200,000 units (f32 positions there are 1/64 unit apart, about 0.03 texel
+  of a 512-texel texture over 256 units). No promise is made past that range.
+- **Hex3.** All three corners as hex cells, offsets and rotations, the barycentric
+  weights to the fourth power made to sum to 1. Continuous (a corner's weight is 0 on
+  the edge across from it). The curve narrows the blend; it is not a histogram transform
+  and does not promise kept contrast. Hex3 is the sole method; the Triangle2 generator
+  and temporary comparison selector have been removed [design, #2551].
+- **Picture decision.** At noon on the flats of cell (-24,-9), 1280x720, anti-tiling off
+  shows the 256-unit repeat as regular stripes receding into the distance. Hex3 removes
+  them; Triangle2 leaves faint stripes [observed: main-session picture comparison,
+  2026-11-15]. This is why NVForever keeps Hex3 [design, #2551].
+- **Mip selection.** Every read takes explicit gradients: the plain coordinate's change
+  across a pixel (taken before any branch or discard), turned with the read's rotation and
+  scaled by 2^mip bias, since a gradient read takes no bias of its own (the upscalers set
+  it). Offsets and lattice choices are not differentiated, so a hash border causes no mip
+  jump.
+- **Normal maps** take the same reads: each texel is decoded (two-component maps rebuild
+  z), its green flipped as the material says, then turned back by the read's rotation; the
+  blend is made unit length and put through the surface's frame. The decoded result does
+  not go through Bevy's `apply_normal_mapping` again. Folded layers take the base
+  material's decoding flags, as the ordinary path does (an image's format is not known
+  when the material is made: textures decode on worker threads).
+- **Faint reads.** After Hex3's weights, each weight less 1/256 (held at 0) is
+  made to sum to 1 again, so a read fades to nothing before it is skipped (no jump at the
+  cut); at least one read always stays.
+- **Skipping.** The folded layers are walked last to first with the ordered blend's own
+  products (`terrain_ordered_shares`): a layer of opacity 0 is not read, and a fully
+  covering later layer leaves everything under it, the base too, unread. A diffuse read can
+  still be needed to find an alpha of 0. Normal maps are read only for textures whose
+  final weight is above 0; height references only for textures whose ordered share is
+  above 0. Exact zeros, no epsilon: faint painted layers count.
+- **Height blending together.** With §3.12 on as well, the heights come from the very
+  anti-tiled raw decoded diffuse reads before tint (no second read of the base), via
+  `terrain_height(raw, reference, gain)`. The reference is always the coarsest mip at
+  (0.5, 0.5), independent of tile offsets, including when `source=local`: a local reference
+  would need the same offset taps. `terrain_height_weights(w, h, depth)` applies §3.12's
+  depth competition (score = share + clamp(height, -share, share), retain within depth of
+  the highest, multiply by share and normalise), using depth and gain from `height_params()`.
+  Shared diffuse/normal taps and exact zero-share skips are kept [design, #2551].
+- **The surface set-up.** Instead of Bevy's `pbr_input_from_standard_material` (which
+  would read the base texture and normal map once more at the plain place, and take the
+  SSAO multibounce from that plain colour), nvf_assets terrain_pbr.wesl starts from
+  `pbr_input_from_vertex_output`, copies the landscape material's values and multiplies
+  vertex colour and material colour in once; after the colour is final it applies Bevy's
+  SSAO multibounce and specular occlusion formulas to it. Its contract is the landscape
+  material's (colour, diffuse texture, normal map, scalar values; terrain.rs
+  `surface_material`, checked by a test); a wider material needs this changed too. With
+  the switch off, both earlier paths (height blending off and on) are compiled as before:
+  their `@if` conditions only gain `!TERRAIN_ANTI_TILING`.
+- **What it reaches.** The folded draw (base and folded layers), and the landscape's own
+  NIF materials: a quadrant's base without folded layers, the layers past the fold limit
+  drawn blended over the folded result, and every layer where the GPU has no bindless
+  textures (nif_material.wesl with `TERRAIN_ANTI_TILING` and `TERRAIN_SEPARATE`; the
+  material carries its repeat in `NifSurface::terrain_repeat`). Their blending, draw order
+  and depth bias are unchanged; a blended layer whose coverage is exactly 0 reads nothing.
+  The same world lattice lines a separate layer up with the folded draw under it, but
+  height blending still does not compete across that boundary (§3.12), and a separately
+  lit layer is still lit on its own. Not anti-tiled: the depth prepass and shadows (the
+  same depth either way), the normal prepass's normals (screen-space passes that read them
+  keep the plain reads), and the distant LOD terrain's baked textures.
+- **Read budget.** Per read texture, up to three diffuse reads instead of one, the
+  same for each contributing normal map, plus a little arithmetic; skipping brings the
+  common case (a base and one or two layers) near the ordinary count. With D diffuse-read
+  textures, N contributing normal maps and M contributing height references: at most `3*D + 3*N + M`
+  reads before faint reads drop [design, #2551].
+- **Measured GPU frame cost.** At 2560x1440, unpaced (`--log-frame-times 8`,
+  `--graphics-cycle`), two passes each, one game on the machine, RTX 4070. These
+  measurements predate the final depth-based height blend; its combined cost needs
+  remeasurement [design, #2551]:
+
+  | View | Off | Hex3 added | Triangle2 added | Height blending (#2550) added | Hex3 with height blending added |
+  |---|---|---|---|---|---|
+  | Goodsprings hillside, several layers (-63488, 6144) | 4.37-4.40 ms | 0.12-0.13 ms | 1.2 ms | 0.28-0.31 ms | 0.23 ms |
+  | Flats | 2.01-2.03 ms | 0.11 ms | - | 0.00 ms | - |
+
+  Deltas are against off [observed: main-session GPU frame measurements, 2026-11-15].
+  In that earlier revision, the combined hillside cost was below height blending alone. The anti-tiled path skips
+  zero-share layers and does not read the base twice [design, #2551;
+  terrain.wesl anti-tiled branch, terrain_pbr.wesl surface set-up]. These measurements
+  support keeping Hex3 and removing Triangle2 [design, #2551]; they describe these views
+  and this GPU, not a general performance guarantee.
+- **Switching.** The settings row Terrain anti-tiling (Graphics > Picture), or
+  `--graphics-only terrain-anti-tiling`. A pipeline key of the folded material
+  (`TerrainLayersKey`); switching flips every folded material in place
+  (`terrain::sync_anti_tiling`, logged as `terrain: anti-tiling on|off (<n> folded quadrant
+  materials, <m> changed) and <s> separate landscape materials (<c> changed)`), new
+  materials take the setting, and the first switch compiles
+  the new pipeline (the pause menu waits for it). A texture repeat that is not above 0
+  keeps the ordinary reads (a warning when it is switched on).
+- **Chosen values** (NVForever's own [design, #2551]): lattice side 4
+  repeats, faint-read cut 1/256, Hex3's fourth-power curve, salts `0x25510001..3`.
+- Whether `enhanced` turns it on is the owner's call; until then it is off in both presets
+  and is not an effect of the Enhanced effects row. Smoke: `terrain-anti-tiling` (switched
+  on, off and on while running), `terrain-anti-tiling-start` (on from the start) and
+  `terrain-anti-tiling-height-blend` (one folded pipeline with both switches),
+  `terrain-anti-tiling-separate` (every layer drawn on its own,
+  `NVF_PLAY_TEST_TERRAIN_LAYERS=blended`, switched on and off) and
+  `terrain-anti-tiling-overflow` (`--terrain-tile 300`: four folded layers and the rest
+  drawn on their own; it wants `terrain: <n> layers drawn blended over folded quadrants`,
+  logged by the first cell that has such layers, and the separate pipeline with
+  `blend=on`); they want
+  `terrain anti-tiling pipeline <n> ready: path=folded|separate height=on|off
+  blend=on|off`
+  (`NVF_PLAY_TEST_PIPELINE_LOG`, pipeline_gate.rs). Picture and frame-cost evidence is
+  recorded above; future visual checks should cover both landscape draw paths.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on

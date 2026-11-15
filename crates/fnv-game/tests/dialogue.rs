@@ -3260,6 +3260,24 @@ mod edits {
     }
 }
 
+#[test]
+fn the_no_auto_continue_tweak_holds_each_response_for_a_click() {
+    // bNoAutoContinueDialog (docs/design/tweaks.md): time alone never moves the line on.
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.no_auto_continue_dialogue = true;
+    g.start_dialogue(actor(), None).unwrap();
+    g.frames(600);
+    let line = g.dialogue.as_ref().and_then(|c| c.line.clone()).unwrap();
+    assert_eq!(line.response, 0, "still the first response after ten seconds");
+    // A click goes on to the second response, which waits in its turn.
+    assert!(g.skip_response());
+    g.frames(600);
+    assert_eq!(g.dialogue.as_ref().and_then(|c| c.line.as_ref()).map(|l| l.response), Some(1));
+    assert!(g.skip_response());
+    assert_eq!(offered(&g), vec![T_ASK, T_BYE]);
+}
+
 /// The editor's dialogue debugger (docs/design/editor.md §14): its winner is the line
 /// `select_line` takes, on every topic of the fixture, for each gate value.
 #[test]

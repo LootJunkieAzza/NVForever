@@ -67,6 +67,9 @@ pub struct Triggers {
     shapes: HashMap<FormId, (Pose, Vec<TriggerShape>)>,
     /// Candidates whose model had not been read yet.
     waiting: HashMap<FormId, Lookup>,
+    /// When each candidate first waited for its model (game time): its script's
+    /// GameMode waits too, for at most [`HOLD_SECS`] (`Game::scripts_held`).
+    waiting_since: HashMap<FormId, f64>,
     /// Scripts with a trigger block, by SCPT.
     has_blocks: HashMap<FormId, bool>,
     /// Actor references (ACHR, ACRE) placed in each cell, once listed.
@@ -82,6 +85,11 @@ impl Triggers {
         self.shapes.values().flat_map(|(_, v)| v.iter())
     }
 }
+
+/// How long a trigger's script waits for its model's volumes before its GameMode runs
+/// without them (a model the cell loader never reads would otherwise hold it for good)
+/// [engineering choice; the loader reads a cell's models within a few frames].
+const HOLD_SECS: f64 = 2.0;
 
 const TRIGGER_BLOCKS: [u16; 3] = [event::ON_TRIGGER_ENTER, event::ON_TRIGGER, event::ON_TRIGGER_LEAVE];
 
@@ -184,9 +192,9 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
 }
 
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
-/// is the player's capsule; `None` when the player has no position yet.
+/// is the player's capsule; `None` when the player has no position yet: the volumes are
+/// looked up (and their scripts held while they wait) but nobody enters or leaves.
 pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
-    let Some(player) = player else { return };
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
     for c in &rt.game.loaded_cells {
@@ -232,13 +240,25 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
                     // The model is not read yet: ask again on the next frame.
                     None => {
                         rt.triggers.waiting.insert(r, Lookup::Model(path, pos, rot, scale, at));
+                        let now = rt.game.time;
+                        rt.triggers.waiting_since.entry(r).or_insert_with(|| {
+                            bevy::log::info!("script: trigger {} waits for its model: its script waits too", rt.game.data.name(r));
+                            now
+                        });
                         continue;
                     }
                 },
             }
+            rt.triggers.waiting_since.remove(&r);
         }
         shapes.extend(rt.triggers.shapes[&r].1.iter().map(|s| (r, *s)));
     }
+    // The triggers still waiting for their volumes hold their scripts' GameMode, so an
+    // actor standing in one at the start enters it first (`Game::scripts_held`, #2571).
+    let time = rt.game.time;
+    rt.triggers.waiting_since.retain(|r, _| rt.triggers.waiting.contains_key(r));
+    rt.game.scripts_held = held(&rt.triggers.waiting_since, time);
+    let Some(player) = player else { return };
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
         for (a, cap) in actors(rt, phys, player) {
@@ -281,6 +301,12 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     rt.triggers.inside = now;
 }
 
+/// The triggers whose scripts wait for their volumes at game time `now`: those that
+/// began waiting less than [`HOLD_SECS`] ago.
+fn held(since: &HashMap<FormId, f64>, now: f64) -> BTreeSet<FormId> {
+    since.iter().filter(|(_, &t)| now - t < HOLD_SECS).map(|(r, _)| *r).collect()
+}
+
 /// Whether `actor` leaving trigger `t` runs its OnTriggerLeave (module notes): not when
 /// the trigger was disabled or deleted (`present` false); when the trigger's cell is no
 /// longer loaded, only for the player, who is the one that went away (#2449).
@@ -296,6 +322,17 @@ mod tests {
     /// unloads) leaves the trigger with an OnTriggerLeave, so the script counts the
     /// player out; an NPC left behind in an unloaded cell is still inside; a disabled
     /// trigger reports no leave.
+    /// #2571: a trigger whose model is not read holds its script's GameMode, for at
+    /// most HOLD_SECS of game time.
+    #[test]
+    fn a_trigger_waiting_for_its_model_holds_its_script_for_a_while() {
+        let (a, b) = (FormId(0x000B_AF39), FormId(0x0010_0000));
+        let since = HashMap::from([(a, 10.0), (b, 11.5)]);
+        assert_eq!(held(&since, 10.0), BTreeSet::from([a, b]));
+        assert_eq!(held(&since, 12.5), BTreeSet::from([b]), "a waited 2.5 s: its script runs");
+        assert!(held(&since, 14.0).is_empty());
+    }
+
     #[test]
     fn the_player_leaves_a_trigger_whose_cell_unloads() {
         let npc = FormId(0x0010_0000);

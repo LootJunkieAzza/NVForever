@@ -36,6 +36,7 @@ struct Stats {
     aggro_warnings: usize,
     aggro_attacks: usize,
     stayed_out: usize,
+    unprovoked: usize,
     area_alerted: usize,
 }
 
@@ -115,6 +116,10 @@ fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) 
                 stats.area_alerted += 1;
                 info!("provocation: {} is alerted: the player attacked {} of its faction", name(actor), name(victim));
             }
+            Note::Unprovoked { victim, foe } => {
+                stats.unprovoked += 1;
+                info!("provocation: {}'s allies stay out of its fight against {}: a script started it and {} did not provoke it", name(victim), name(foe), name(foe));
+            }
             Note::AreaAlert { victim, faction, alerted } => {
                 info!("provocation: the player attacked {} of {} (Evil): {alerted} of its members in the area turn on the player", name(victim), name(faction));
             }
@@ -128,7 +133,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<Stats>) {
     }
     let s = &*stats;
     info!(
-        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight, {} cowards stayed out, {} alerted by an attack on their Evil faction; {} yields: {} accepted, {} ignored; aggro radius: {} warnings, {} attacks",
-        s.assaulted, s.tolerated, s.ignored, s.assisted, s.stayed_out, s.area_alerted, s.yields, s.forgiven, s.refused, s.aggro_warnings, s.aggro_attacks
+        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight, {} cowards stayed out, {} scripted fights left to their actor, {} alerted by an attack on their Evil faction; {} yields: {} accepted, {} ignored; aggro radius: {} warnings, {} attacks",
+        s.assaulted, s.tolerated, s.ignored, s.assisted, s.stayed_out, s.unprovoked, s.area_alerted, s.yields, s.forgiven, s.refused, s.aggro_warnings, s.aggro_attacks
     );
 }

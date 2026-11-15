@@ -1953,6 +1953,9 @@ fn travel(
     player.feet = feet;
     player.placed = Some(feet);
     player.heading = t.heading_deg.to_radians();
+    if let Some(p) = t.pitch_deg {
+        player.pitch = p.to_radians().clamp(-crate::player::MAX_PITCH, crate::player::MAX_PITCH);
+    }
     info!(
         "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}, terrain {}",
         to.interior.map_or_else(|| format!("worldspace {:08X} ({})", to.world, world_name(&d, to.world)), |c| format!("interior {c:08X}")),

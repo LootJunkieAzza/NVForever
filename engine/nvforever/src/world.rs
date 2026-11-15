@@ -265,6 +265,10 @@ pub struct StreamStats {
     pub refs_group_rigs: usize,
     /// References drawn in the pose their `XRGD` stores (clutter skeletons, `nvf_play::clutter_pose`).
     pub refs_posed: usize,
+    /// `NiBillboardNode`s of placed models drawn turning to the camera (`face_camera`,
+    /// #2549), on both paths, and the references they belong to.
+    pub billboards: usize,
+    pub refs_billboards: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
     pub water_planes: usize,
@@ -763,6 +767,9 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
+    if s.billboards > 0 {
+        info!("world: {} placed billboard nodes turn to the camera ({} references)", s.billboards, s.refs_billboards);
+    }
 }
 
 /// Behind a loading screen (`nvf_play::loading`) cells are loaded one after another for
@@ -822,6 +829,54 @@ pub fn face_billboards(
         let d = eye - bevy_to_game(g.translation());
         if d.x * d.x + d.y * d.y > 1e-6 {
             t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+        }
+    }
+}
+
+/// Turn every `NiBillboardNode` drawn as an entity ([`Billboard`]: placed models' glow
+/// cards, whether their node hierarchy is spawned or their shapes baked, and the effect
+/// models of `shot_fx`) to the camera, each frame before transforms propagate
+/// (docs/spec-notes/billboard-nodes.md): about the node's own y axis for the "rotate
+/// about up" modes (1, 9: about the node's y; 5, BSROTATE_ABOUT_UP: about its z, +y
+/// shown), its +z straight at the camera for the others [documented: nif.xml
+/// BillboardMode names; hypothesis: the axes, docs/spec-notes/billboard-nodes.md §1].
+pub fn face_camera(
+    camera: Query<Entity, crate::fly::WorldCamera>,
+    boards: Query<(Entity, &nvf_assets::model::Billboard, &ChildOf)>,
+    parents: Query<&ChildOf>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let Ok(cam) = camera.single() else { return };
+    // An entity's place in the world from this frame's transforms: the propagated ones
+    // are a frame old (the camera has moved since) and missing for what was spawned
+    // this frame.
+    let world = |transforms: &Query<&mut Transform>, e: Entity| {
+        let mut m = Affine3A::IDENTITY;
+        let mut at = Some(e);
+        while let Some(p) = at {
+            if let Ok(t) = transforms.get(p) {
+                m = t.compute_affine() * m;
+            }
+            at = parents.get(p).ok().map(ChildOf::parent);
+        }
+        m
+    };
+    let eye = Vec3::from(world(&transforms, cam).translation);
+    for (e, b, parent) in &boards {
+        let m = world(&transforms, parent.parent());
+        let Ok(mut t) = transforms.get_mut(e) else { continue };
+        // The way to the camera in the node's own frame as the file has it.
+        let d = b.bind.inverse() * (m.inverse().transform_point3(eye) - t.translation);
+        let turn = match b.mode {
+            1 | 9 => Quat::from_rotation_y(d.x.atan2(d.z)),
+            // About the node's z, its +y towards the camera (#2549: the torch's flame
+            // stands along +z under a mode-5 node).
+            5 => Quat::from_rotation_z((-d.x).atan2(d.y)),
+            _ => Quat::from_rotation_arc(Vec3::Z, d.normalize_or(Vec3::Z)),
+        };
+        let rotation = b.bind * turn;
+        if t.rotation != rotation {
+            t.rotation = rotation;
         }
     }
 }
@@ -889,6 +944,7 @@ pub fn note_other_cameras(
 /// worldspace and an interior; streaming reloads around the camera, which the player
 /// systems have moved to the destination. With `--play` this happens behind a loading
 /// screen, which stays until `Streamer::settled` ([`loading_gate`]).
+#[allow(clippy::too_many_arguments)]
 pub fn travel(
     mut commands: Commands,
     mut msgs: MessageReader<nvf_play::Travel>,
@@ -897,6 +953,7 @@ pub fn travel(
     mut sky: ResMut<crate::sky::SkyState>,
     mut lod: ResMut<crate::lod::LodState>,
     args: Res<crate::Args>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
     for (_, e) in streamer.loaded.drain() {
@@ -911,9 +968,38 @@ pub fn travel(
     streamer.settled = false;
     streamer.interior = t.interior;
     streamer.arrival = t.interior.is_none().then(|| cell_of(t.feet[0], t.feet[1]));
-    sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    sky.set_interior(t.interior.and_then(|id| effective_cell_lighting(&world, game, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
+}
+
+/// The actual cell-lighting reader shared by startup/travel and authored
+/// headless camera controls. No ScriptState testing constructor is needed.
+pub(crate) fn effective_cell_lighting(world: &WorldData, game: Option<&fnv_game::Game<'_>>, cell: u32) -> Option<fnv_world::lighting::CellLighting> {
+    match game {
+        Some(game) => game.session_cell_lighting(world.lo, world.schema, fnv_sim::FormId(cell)),
+        None => fnv_world::lighting::cell_lighting(world.lo, world.schema, cell),
+    }
+}
+
+/// Reapply lighting when the cell is applied by travel, or when its runtime
+/// becomes available/unavailable. Live setter-driven refresh is deliberately a
+/// separate timing policy; unchanged frames neither resolve fields nor allocate.
+pub fn cell_lighting(
+    mut travels: MessageReader<nvf_play::Travel>,
+    streamer: Res<Streamer>, world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut seen: Local<Option<(Option<u32>, bool)>>,
+) {
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let key = (streamer.interior, game.is_some());
+    let travelled = travels.read().count() > 0;
+    if *seen == Some(key) && !travelled { return; }
+    *seen = Some(key);
+    let light = streamer.interior.and_then(|cell| effective_cell_lighting(&world, game, cell));
+    if sky.interior != light { sky.set_interior(light); }
 }
 
 /// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
@@ -1311,6 +1397,9 @@ pub fn spawn_model(
         // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
         // took it above, as before).
         commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
+        let boards = rig.nodes.iter().skip(1).filter(|n| n.billboard.is_some()).count();
+        stats.billboards += boards;
+        stats.refs_billboards += usize::from(boards > 0);
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
@@ -1326,9 +1415,16 @@ pub fn spawn_model(
         info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
     }
     stats.refs_posed += usize::from(posed.is_some());
+    // Shapes below a billboard node go under an entity for it that turns to the camera
+    // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
+    // holder carries the reference's RefVisual, so moving and redrawing it take them along.
+    let mut boards = nvf_assets::model::BakedBillboards::default();
     for s in &model.shapes {
         let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
-        let m = Mat4::from(rt * shape);
+        let (parent, m) = match posed.is_none().then(|| boards.place(commands, parent, &model, rt, s, RefVisual(r))).flatten() {
+            Some((board, below)) => (board, Mat4::from(below)),
+            None => (parent, Mat4::from(rt * shape)),
+        };
         // External emittance: the reference's XEMI source drives the colour.
         let material = p
             .emittance
@@ -1351,6 +1447,8 @@ pub fn spawn_model(
         }
         stats.shapes += 1;
     }
+    stats.billboards += boards.len();
+    stats.refs_billboards += usize::from(!boards.is_empty());
     spawn_emitters(commands, parent, r, &model, &path, rt);
     stats.refs_drawn += 1;
 }
@@ -1741,5 +1839,103 @@ mod tests {
             let p = placement(&lo, &schema, id).unwrap();
             assert_eq!(enabled(&lo, &schema, &p, 0), want, "0x{id:X}");
         }
+    }
+
+    /// Issue #2549: a placed torch's glow card (`oasistorch01.nif`'s `GlowMesh`, a
+    /// mode-4 `NiBillboardNode` whose one quad lies in its XY plane, +z its face) faces a
+    /// camera at its side after one update, whether its shapes are baked (the static
+    /// path, `BakedBillboards`) or its node hierarchy spawned (`Rig::spawn_playing`, the
+    /// animated path); drawn unturned it is a flat sheet seen edge-on.
+    #[test]
+    fn placed_billboard_nodes_face_a_camera_at_their_side() {
+        use nvf_assets::model::{BakedBillboards, Billboard, ModelNode, PreparedModel, PreparedShape, Rig, RigNode};
+        let glow_at = Vec3::new(0.0, 0.0, 106.3);
+        let node = |name: &str, parent, local, billboard| ModelNode { name: Some(name.into()), parent, local, billboard, addon: None, damage_stages: None };
+        let nodes = vec![node("Torch", None, Affine3A::IDENTITY, None), node("GlowMesh", Some(0), Affine3A::from_translation(glow_at), Some(4))];
+        let own = Affine3A::from_translation(Vec3::new(0.0, 0.0, 9.2));
+        let shape = |node: Option<usize>, transform| PreparedShape {
+            mesh: Handle::default(),
+            material: Handle::default(),
+            transform,
+            name: None,
+            ancestors: Vec::new(),
+            node,
+            own,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+        };
+        let glow = shape(Some(1), Affine3A::from_translation(glow_at) * own);
+        let stick = shape(Some(0), Affine3A::IDENTITY);
+        let model = PreparedModel { nodes, shapes: vec![glow, stick], ..Default::default() };
+        let rt = Affine3A::from_translation(Vec3::new(500.0, -300.0, 20.0));
+        let world_of = |w: &World, e: Entity| {
+            let mut m = Affine3A::IDENTITY;
+            let mut at = Some(e);
+            while let Some(p) = at {
+                m = w.get::<Transform>(p).unwrap().compute_affine() * m;
+                at = w.get::<ChildOf>(p).map(ChildOf::parent);
+            }
+            m
+        };
+        // A camera level with the glow, off to the reference's side and a little behind.
+        let eye = Vec3::from(rt.translation) + Vec3::new(800.0, -200.0, 115.5);
+        let faces = |w: &World, e: Entity| {
+            let m = world_of(w, e);
+            let to_eye = (eye - Vec3::from(m.translation)).normalize();
+            m.transform_vector3(Vec3::Z).normalize().dot(to_eye)
+        };
+
+        for animated in [false, true] {
+            let mut app = App::new();
+            app.add_systems(Update, face_camera);
+            app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+            let cell = app.world_mut().spawn(Transform::IDENTITY).id();
+            let card = if animated {
+                let rig_node = |name: &str, parent, local: Vec3, billboard| RigNode { name: Some(name.into()), parent, local: Transform::from_translation(local), hidden: false, billboard };
+                let rig = Rig { nodes: vec![rig_node("Torch", None, Vec3::ZERO, None), rig_node("GlowMesh", Some(0), glow_at, Some(4))], shapes: Vec::new(), idle: None, door: None, groups: Vec::new(), effect: None };
+                let (_, _, by_name) = rig.spawn_nodes(&mut app.world_mut().commands(), cell, Transform::from_matrix(Mat4::from(rt)), "test", 0.0);
+                app.world_mut().flush();
+                by_name["GlowMesh"]
+            } else {
+                let mut boards = BakedBillboards::default();
+                let mut commands = app.world_mut().commands();
+                let (board, below) = boards.place(&mut commands, cell, &model, rt, &model.shapes[0], RefVisual(7)).expect("the glow is under a billboard node");
+                assert!(boards.place(&mut commands, cell, &model, rt, &model.shapes[1], ()).is_none(), "the torch's stick stays baked");
+                let card = commands.spawn((Transform::from_matrix(Mat4::from(below)), ChildOf(board))).id();
+                app.world_mut().flush();
+                // Where the file puts it, before any turn.
+                let at = Vec3::from(world_of(app.world(), card).translation);
+                // The holder, a child of the cell, is the reference's: moved.rs and
+                // destroyed.rs move and redraw it with the rest of the reference.
+                let holder = app.world().get::<ChildOf>(board).unwrap().parent();
+                assert_eq!((app.world().get::<RefVisual>(holder).map(|v| v.0), app.world().get::<ChildOf>(holder).map(|c| c.parent())), (Some(7), Some(cell)));
+                assert!((at - Vec3::from((rt * model.shapes[0].transform).translation)).length() < 1e-3, "{at}");
+                card
+            };
+            let node = if animated { card } else { app.world().get::<ChildOf>(card).unwrap().parent() };
+            assert_eq!(app.world().get::<Billboard>(node).map(|b| b.mode), Some(4), "animated {animated}");
+            assert!(faces(app.world(), card) < 0.2, "unturned, the card lies flat (seen edge-on): {}", faces(app.world(), card));
+            app.update();
+            assert!(faces(app.world(), card) > 0.999, "animated {animated}: the card faces the camera: {}", faces(app.world(), card));
+        }
+    }
+
+    /// Issue #2549: the torch's flame stands along +z under a mode-5 node; turned, it
+    /// stays upright (about its z) with its +y towards the camera.
+    #[test]
+    fn a_mode_5_billboard_turns_about_its_z() {
+        let mut app = App::new();
+        app.add_systems(Update, face_camera);
+        let eye = Vec3::new(300.0, -300.0, 500.0);
+        app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+        let holder = app.world_mut().spawn(Transform::IDENTITY).id();
+        let flame = app.world_mut().spawn((Transform::from_xyz(0.0, 0.0, 100.0), nvf_assets::model::Billboard { mode: 5, bind: Quat::IDENTITY }, ChildOf(holder))).id();
+        app.update();
+        let r = app.world().get::<Transform>(flame).unwrap().rotation;
+        assert!((r * Vec3::Z).abs_diff_eq(Vec3::Z, 1e-5), "upright: {}", r * Vec3::Z);
+        let level = Vec3::new(eye.x, eye.y, 0.0).normalize();
+        assert!((r * Vec3::Y).dot(level) > 0.9999, "+y to the camera: {}", r * Vec3::Y);
     }
 }

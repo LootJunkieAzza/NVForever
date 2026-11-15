@@ -135,7 +135,7 @@ fn file_sha256(path: &Path) -> io::Result<[u8; 32]> {
 
 /// The staged files checked once more before they are moved: each one's SHA-256 read back
 /// from the disk, then `checks` (on Windows the signature checks, [`signature_checks`]).
-pub(super) fn verify_staged(staging: &Staging, files: &[DownloadFile], checks: &dyn Fn(&Path) -> Result<(), Failure>) -> Result<(), Failure> {
+pub(super) fn verify_staged(staging: &Staging, files: &[DownloadFile], checks: &super::StagedChecks<'_>) -> Result<(), Failure> {
     for file in files {
         let path = staging.dir.join(file.name);
         let digest = file_sha256(&path).map_err(|e| write_error(&path, &e))?;
@@ -143,13 +143,44 @@ pub(super) fn verify_staged(staging: &Staging, files: &[DownloadFile], checks: &
             return Err(Failure::Mismatch { name: file.name, sha256: fnv_util::sha256::to_hex(&digest) });
         }
     }
-    checks(&staging.dir)
+    checks(&staging.dir, files)
 }
 
 /// Whether two names are one on Windows: compared in full Unicode upper case, as the loader
 /// compares them (`preflight.rs`).
 fn same_name(a: &str, b: &str) -> bool {
     a.to_uppercase() == b.to_uppercase()
+}
+
+/// [design: the maintainer's review of #2565] The listed files `target` does not hold yet,
+/// in the list's order: only these are fetched.
+/// A listed file already there is kept and not compared with its pin, so a player who brought
+/// another DLSS version (the loader pins no `nvngx_*.dll`, `preflight.rs`) gets the files they
+/// lack instead of a download that ends in [`Failure::FolderHolds`]. Every file when `target`
+/// is absent. A folder holding the updater is refused here, as [`place`] refuses it, and so is
+/// a listed name that is there but not a file (a folder of that name). Each file is looked up
+/// by its own name, as the offer looks (`dlss_download::files_missing`), so a file counts as
+/// installed here exactly when the offer counts it present.
+pub(super) fn still_missing(target: &Path, files: &[DownloadFile]) -> Result<Vec<DownloadFile>, Failure> {
+    let names: Vec<String> = match fs::read_dir(target) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(files.to_vec()),
+        Err(e) => return Err(write_error(target, &e)),
+        Ok(entries) => entries.map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned())).collect::<io::Result<_>>().map_err(|e| write_error(target, &e))?,
+    };
+    if let Some(updater) = names.iter().find(|n| same_name(n, UPDATER_NAME)) {
+        return Err(Failure::FolderHolds(updater.clone()));
+    }
+    let mut wanted = Vec::new();
+    for file in files {
+        let path = target.join(file.name);
+        match fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => return Err(Failure::FolderHolds(file.name.to_string())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => wanted.push(*file),
+            Err(e) => return Err(write_error(&path, &e)),
+        }
+    }
+    Ok(wanted)
 }
 
 /// The staged files moved into `target` (the module notes), `mv` doing each rename. Nothing
@@ -368,7 +399,7 @@ pub(super) mod tests {
         let staging_path = staging.path().to_path_buf();
         assert!(staging_path.file_name().unwrap().to_string_lossy().starts_with(STAGING_PREFIX));
         assert_eq!(staging_path.parent(), Some(root.as_path()), "beside the target");
-        verify_staged(&staging, &files, &|_| Ok(())).unwrap();
+        verify_staged(&staging, &files, &|_, _| Ok(())).unwrap();
         place(&mut staging, &files, &target, &mut move_new).unwrap();
         drop(staging);
         assert_eq!(listing(&target), ["a.dll", "b.dll", "c.dll"]);
@@ -396,6 +427,58 @@ pub(super) mod tests {
         assert_eq!(moves, ["b.dll", "c.dll"]);
         assert_eq!(listing(&target), ["A.DLL", "b.dll", "c.dll", "readme.txt"]);
         assert_eq!(listing(&root), ["dlss"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_folder_with_the_first_four_gets_only_the_frame_generation_files() {
+        let root = scratch("add-frame-generation");
+        let target = root.join("dlss");
+        fs::create_dir(&target).unwrap();
+        // [design] Use the real names/order and small, independently pinned fixture bytes.
+        let data: Vec<&[u8]> = super::super::DOWNLOAD_FILES.iter().map(|file| file.name.as_bytes()).collect();
+        let names_and_data: Vec<_> = super::super::DOWNLOAD_FILES.iter().zip(&data).map(|(file, bytes)| (file.name, *bytes)).collect();
+        let files = listed(&names_and_data);
+        for (file, bytes) in files[..4].iter().zip(&data) {
+            fs::write(target.join(file.name), bytes).unwrap();
+        }
+        let mut staging = staged(&target, &files, &data);
+        verify_staged(&staging, &files, &|_, _| Ok(())).unwrap();
+        let mut moves = Vec::new();
+        place(&mut staging, &files, &target, &mut |from, to| {
+            moves.push(to.file_name().unwrap().to_string_lossy().into_owned());
+            move_new(from, to)
+        })
+        .unwrap();
+        drop(staging);
+        assert_eq!(moves, files[4..].iter().map(|file| file.name).collect::<Vec<_>>());
+        assert_eq!(listing(&target).len(), 8);
+        for (file, bytes) in files.iter().zip(&data) {
+            assert_eq!(fs::read(target.join(file.name)).unwrap(), *bytes);
+        }
+        assert_eq!(listing(&root), ["dlss"], "no staging folder left");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_the_files_the_folder_lacks_are_wanted_and_its_own_are_kept() {
+        let files = listed(&[("a.dll", A), ("b.dll", B)]);
+        let root = scratch("still-missing");
+        let target = root.join("dlss");
+        assert_eq!(still_missing(&target, &files), Ok(files.clone()), "an absent folder wants every file");
+        fs::create_dir(&target).unwrap();
+        assert_eq!(still_missing(&target, &files), Ok(files.clone()));
+        // [design] The player's own a.dll (other bytes) is kept, not compared.
+        fs::write(target.join("a.dll"), b"the player's own build").unwrap();
+        assert_eq!(still_missing(&target, &files), Ok(vec![files[1]]));
+        // A folder named like a listed file is neither installed nor replaced.
+        fs::create_dir(target.join("b.dll")).unwrap();
+        assert_eq!(still_missing(&target, &files), Err(Failure::FolderHolds("b.dll".into())));
+        fs::remove_dir(target.join("b.dll")).unwrap();
+        fs::write(target.join("b.dll"), B).unwrap();
+        assert_eq!(still_missing(&target, &files), Ok(Vec::new()));
+        fs::write(target.join("NVNGX_UPDATE.EXE"), b"x").unwrap();
+        assert_eq!(still_missing(&target, &files), Err(Failure::FolderHolds("NVNGX_UPDATE.EXE".into())));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -444,11 +527,12 @@ pub(super) mod tests {
         let target = root.join("dlss");
         let files = listed(&[("a.dll", A), ("b.dll", B)]);
         let staging = staged(&target, &files, &[A, b"changed on the disk"]);
-        assert_eq!(verify_staged(&staging, &files, &|_| Ok(())), Err(Failure::Mismatch { name: "b.dll", sha256: fnv_util::sha256::hex(b"changed on the disk") }));
+        assert_eq!(verify_staged(&staging, &files, &|_, _| Ok(())), Err(Failure::Mismatch { name: "b.dll", sha256: fnv_util::sha256::hex(b"changed on the disk") }));
         drop(staging);
         let staging = staged(&target, &files, &[A, B]);
-        let refused = verify_staged(&staging, &files, &|dir| {
+        let refused = verify_staged(&staging, &files, &|dir, checked| {
             assert!(dir.join("a.dll").is_file());
+            assert_eq!(checked, files.as_slice(), "the checks get the staged files' list");
             Err(Failure::Signature { name: "a.dll", why: "test".into() })
         });
         assert_eq!(refused, Err(Failure::Signature { name: "a.dll", why: "test".into() }));

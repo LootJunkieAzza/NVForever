@@ -64,6 +64,15 @@ impl Game<'_> {
         let s = self.world.get(actor).map_err(|e| e.to_string())?;
         let (cell, pos, rot) = (s.cell, s.pos, [0.0, 0.0, s.rot[2]]);
         let pile = self.create_at(base, cell, pos, rot)?;
+        // The player's tweak sizes the pile to the actor [design: docs/design/tweaks.md].
+        if self.tweaks.scale_ash_piles {
+            let scale = crate::functions::objects::scale_of(self, actor).clamp(0.5, 2.0) as f32;
+            if (scale - 1.0).abs() > 1e-3 {
+                if let Ok(s) = self.world.get(pile) {
+                    s.scale = Some(scale);
+                }
+            }
+        }
         self.extra.entry(actor).or_default().ash_pile = Some(pile);
         self.extra.entry(pile).or_default().ash_pile_source = Some(actor);
         let by_player = self.extra.get(&actor).is_some_and(|e| e.killer == Some(FormId::PLAYER_REF));

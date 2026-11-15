@@ -144,7 +144,7 @@ pub struct Vfs {
     data_dir: PathBuf,
     archives: Vec<(String, Mutex<Archive>)>,
     index: HashMap<String, Location>,
-    /// Lower-cased loose path → real relative path (for case-sensitive file systems).
+    /// Lower-cased loose path → winning physical path (preserving filesystem casing).
     loose: HashMap<String, PathBuf>,
     /// The highest archive copy of each loose path that also sits in an archive, which
     /// the loose file hides from [`Vfs::read`] ([`Vfs::read_archived`], #975).
@@ -259,20 +259,24 @@ impl Vfs {
             }
             vfs.archives.push((name.clone(), Mutex::new(a)));
         }
+        vfs.index_loose(data_dir);
+        Ok(vfs)
+    }
+
+    fn index_loose(&mut self, root: &Path) {
         let mut files = Vec::new();
-        walk(data_dir, data_dir, &mut files, &mut vfs.skipped);
+        walk(root, root, &mut files, &mut self.skipped);
         for rel in files {
             let key = normalize(&rel.to_string_lossy());
             // Plugins and archives at the top level are not part of the asset namespace.
             if !key.contains('\\') {
                 continue;
             }
-            if let Some(under @ Location::Archive { .. }) = vfs.index.insert(key.clone(), Location::Loose) {
-                vfs.under_loose.insert(key.clone(), under);
+            if let Some(under @ Location::Archive { .. }) = self.index.insert(key.clone(), Location::Loose) {
+                self.under_loose.insert(key.clone(), under);
             }
-            vfs.loose.insert(key, rel);
+            self.loose.insert(key, root.join(rel));
         }
-        Ok(vfs)
     }
 
     /// Default setup: the INI archive list, `Update.bsa`, and the base + DLC plugins.
@@ -294,9 +298,16 @@ impl Vfs {
     }
 
     /// [`Vfs::open_for_plugins`] with the archives beside the plugins in NVForever's mods
-    /// folder `mods` too ([`Vfs::archive_order_in`]).
+    /// folder `mods` too ([`Vfs::archive_order_in`]), and its loose files above Data's.
     pub fn open_for_plugins_in<S: AsRef<str>>(data_dir: &Path, mods: Option<&Path>, plugins: &[S]) -> Result<Vfs, VfsError> {
-        Vfs::open(data_dir, &Vfs::order_for_plugins_in(data_dir, mods, plugins).0)
+        let mut vfs = Vfs::open(data_dir, &Vfs::order_for_plugins_in(data_dir, mods, plugins).0)?;
+        if let Some(root) = mods {
+            // An absent optional layer is ordinary; other errors retain walk's diagnostics.
+            if !matches!(root.try_exists(), Ok(false)) {
+                vfs.index_loose(root);
+            }
+        }
+        Ok(vfs)
     }
 
     /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and
@@ -357,7 +368,7 @@ impl Vfs {
     pub fn loose_path(&self, path: &str) -> Option<PathBuf> {
         let key = normalize(path);
         match self.index.get(&key)? {
-            Location::Loose => Some(self.data_dir.join(&self.loose[&key])),
+            Location::Loose => Some(self.loose[&key].clone()),
             Location::Archive { .. } => None,
         }
     }
@@ -382,7 +393,7 @@ impl Vfs {
 
     fn read_at(&self, key: &str, at: Location) -> std::io::Result<Vec<u8>> {
         match at {
-            Location::Loose => std::fs::read(self.data_dir.join(&self.loose[key])),
+            Location::Loose => std::fs::read(&self.loose[key]),
             Location::Archive { archive, folder, file } => {
                 // The lock covers only the seek and read of the stored bytes; inflating
                 // happens after it is let go, so workers reading the same archive do not
@@ -676,3 +687,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+#[cfg(test)]
+mod own_loose_tests;

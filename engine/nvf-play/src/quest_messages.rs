@@ -133,6 +133,28 @@ pub struct QuestMessages {
     pub hold_objectives: bool,
     /// The game's KillQuestUpdates count last acted on (`fnv_game::functions::fo3`).
     updates_killed: u64,
+    /// The kinds of line the player's tweaks leave out (`crate::tweaks`).
+    pub hidden: Hidden,
+}
+
+/// The kinds of line the player's tweaks leave out [design: docs/design/tweaks.md].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hidden {
+    pub failed: bool,
+    pub discovered: bool,
+    pub objectives: bool,
+}
+
+impl Hidden {
+    /// Whether `n` is left out.
+    pub fn hides(&self, n: &QuestNotice) -> bool {
+        match n {
+            QuestNotice::Failed(_) => self.failed,
+            QuestNotice::Discovered(_) => self.discovered,
+            QuestNotice::Objectives(_) => self.objectives,
+            QuestNotice::Added(_) | QuestNotice::Completed(_) => false,
+        }
+    }
 }
 
 impl QuestMessages {
@@ -140,6 +162,9 @@ impl QuestMessages {
     /// waits last; a line
     /// that says what the last one says is left out, and so is any when too many wait.
     pub fn push(&mut self, n: QuestNotice) {
+        if self.hidden.hides(&n) {
+            return;
+        }
         let quest = |l: &[Objective]| l.first().map(|o| o.quest);
         if let (QuestNotice::Objectives(more), Some(QuestNotice::Objectives(list))) = (&n, self.waiting.back_mut()) {
             if quest(more) != quest(list) {
@@ -295,11 +320,22 @@ struct Part(f32);
 #[derive(Component)]
 struct Fill(f32);
 
+/// The area's place among the drawn layers, and over the Pip-Boy's screen and the
+/// terminal's (106) under the Quest Text in Menus tweak [design].
+const AREA_Z: i32 = 50;
+const OVER_MENUS_Z: i32 = 120;
+
+/// The Quest Text in Menus tweak: the area stays up over the Pip-Boy and a terminal (a menu
+/// state that would hide it otherwise) [design: docs/design/tweaks.md].
+pub fn over_menus(on: bool, state: Option<crate::PlayState>, pipboy_up: bool, terminal_open: bool) -> bool {
+    on && state == Some(crate::PlayState::Menu) && (pipboy_up || terminal_open)
+}
+
 fn spawn_area(commands: &mut Commands, n: &QuestNotice, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let clear = amber(255.0).with_alpha(0.0);
     let pieces = layout(n, &kit.label.font, &kit.title.font);
     let root = Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), ..default() };
-    commands.spawn((AreaRoot, root, GlobalZIndex(50))).with_children(|a| {
+    commands.spawn((AreaRoot, root, GlobalZIndex(AREA_Z))).with_children(|a| {
         for piece in &pieces {
             match piece {
                 Piece::Text { set, title, from } => {
@@ -336,12 +372,22 @@ fn draw(
     mut sounds: MessageWriter<PlaySound>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
-    mut roots: Query<(Entity, &mut Visibility), With<AreaRoot>>,
+    mut roots: Query<(Entity, &mut Visibility, &mut GlobalZIndex), With<AreaRoot>>,
     mut pictures: Query<(&mut ImageNode, &Part)>,
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven, kill_cam, vats): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (state, script, driven, kill_cam, vats, real, tweaks, pipboy, terminal): (
+        Option<Res<State<crate::PlayState>>>,
+        Option<Res<crate::script::ScriptState>>,
+        Option<Res<crate::player::ViewDriven>>,
+        Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::vats_mode::VatsMode>>,
+        Res<Time<Real>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+        Option<Res<crate::pipboy::PipBoy>>,
+        Option<Res<crate::terminal::TerminalScreen>>,
+    ),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
@@ -359,15 +405,25 @@ fn draw(
         info!("quest messages: {n} waiting line(s) dropped (KillQuestUpdates)");
     }
     // Hidden with the clock stopped as the corner messages are (`crate::corner_messages::held`).
-    let held = crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()) || vats.is_some_and(|v| v.playing_back()));
-    for (_, mut v) in &mut roots {
+    // Under the Quest Text in Menus tweak it stays over the Pip-Boy and a terminal, above
+    // them, its clock on real time there (the game's stands still).
+    let over = over_menus(
+        tweaks.as_ref().is_some_and(|t| t.quest_text_in_menus),
+        state.as_ref().map(|s| *s.get()),
+        pipboy.as_ref().is_some_and(|p| p.phase != crate::pipboy::Phase::Down),
+        terminal.as_ref().is_some_and(|t| t.0.is_some()),
+    );
+    let held = !over && crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()) || vats.is_some_and(|v| v.playing_back()));
+    for (_, mut v, mut z) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
+        z.set_if_neq(GlobalZIndex(if over { OVER_MENUS_Z } else { AREA_Z }));
     }
     if held {
         return;
     }
-    if quests.bypass_change_detection().step(time.delta_secs()) {
-        for (e, _) in &roots {
+    let dt = if over { real.delta_secs() } else { time.delta_secs() };
+    if quests.bypass_change_detection().step(dt) {
+        for (e, _, _) in &roots {
             commands.entity(e).despawn();
         }
         if let Some(n) = quests.showing() {
@@ -375,10 +431,15 @@ fn draw(
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
             info!("quest message on screen: {} ({} waiting)", describe(n), quests.waiting());
             spawn_area(&mut commands, n, kit, data.as_deref(), &mut images, bc);
-            let found = sound(n).and_then(|name| {
-                let sfx = sfx.as_deref()?;
-                *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
-            });
+            // The player's tweak: a discovered place plays the sound it names [design: docs/design/tweaks.md].
+            let own = tweaks.as_ref().map(|t| t.discovered_sound.as_str()).filter(|s| !s.is_empty() && matches!(n, QuestNotice::Discovered(_)));
+            let found = match (own, sfx.as_deref()) {
+                (Some(name), Some(sfx)) => sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f),
+                _ => sound(n).and_then(|name| {
+                    let sfx = sfx.as_deref()?;
+                    *sound_forms.entry(name).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(name))).map(|(f, _)| *f))
+                }),
+            };
             if let Some(sound) = found {
                 sounds.write(PlaySound { sound, at: None });
             }
@@ -403,6 +464,26 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quest_text_stays_over_the_pipboy_and_terminals_only_under_the_tweak() {
+        use crate::PlayState::*;
+        assert!(over_menus(true, Some(Menu), true, false) && over_menus(true, Some(Menu), false, true));
+        assert!(!over_menus(false, Some(Menu), true, true), "off");
+        assert!(!over_menus(true, Some(Menu), false, false), "another menu");
+        assert!(!over_menus(true, Some(Dialogue), true, false) && !over_menus(true, Some(Playing), true, false));
+    }
+
+    #[test]
+    fn the_tweaks_leave_out_their_lines() {
+        let mut q = QuestMessages { hidden: Hidden { failed: true, discovered: true, objectives: true }, ..Default::default() };
+        q.push(QuestNotice::Failed("A".into()));
+        q.push(QuestNotice::Discovered("B".into()));
+        q.push(objectives(&[("C", false)]));
+        assert_eq!(q.waiting(), 0);
+        q.push(QuestNotice::Added("D".into()));
+        assert_eq!(q.waiting(), 1, "added quests still show");
+    }
 
     fn objectives(list: &[(&str, bool)]) -> QuestNotice {
         QuestNotice::Objectives(list.iter().map(|(t, c)| Objective { quest: 1, text: t.to_string(), completed: *c }).collect())

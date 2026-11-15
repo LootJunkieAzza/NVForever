@@ -127,7 +127,7 @@ use fnv_sim::FormId;
 use std::collections::{HashMap, HashSet};
 
 use crate::activate::HudMessage;
-use crate::sfx::{LoopSound, PlaySound, Sfx};
+use crate::sfx::{LoopSound, PlaySound, ScaledSound, Sfx};
 use crate::hitvol::{ActorParts, WEAPON_PART};
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
@@ -187,6 +187,10 @@ pub struct WeaponAnim {
     /// start it again (the owner's playtest list 7 item 22: the clip used to start at the
     /// shot, so dynamite waited, left, and only then was lit and thrown).
     pub wind_ups: u32,
+    /// Set by combat: the player holds a thrown weapon at its release under the Hold and
+    /// Release Throwables tweak; the body holds the attack clip at its `Hit` key
+    /// [design: docs/design/tweaks.md].
+    pub throw_held: bool,
     /// Set by combat: the weapon's jam animation (`JamA` for reload animation
     /// `ReloadA`: the game's `1hpjama.kf` beside `1hpreloada.kf` [observed: file lists]),
     /// and counted up when a shot jams the weapon; the body plays the jam clip.
@@ -352,7 +356,16 @@ fn note_armour(script: Option<&mut ScriptState>, target: FormId, d: &damage::Dam
 /// 0.67 (`fnv_game::Game::condition_damage_penalty`).
 fn sync_condition_penalty(c: &mut Combat, script: Option<&ScriptState>) {
     if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
-        c.rules.condition_damage_penalty = rt.game.condition_damage_penalty();
+        let t = &rt.game.tweaks;
+        // The player's tweaks on the damage rules [design: docs/design/tweaks.md].
+        c.rules.condition_damage_penalty = if t.no_condition_damage_penalty { 0.0 } else { rt.game.condition_damage_penalty() };
+        c.rules.condition_damage_threshold = if t.no_condition_damage_buffer { 1.0 } else { fnv_combat::damage::CONDITION_DAMAGE_THRESHOLD };
+        c.rules.crit_ignores_fire_rate = t.crit_ignores_fire_rate;
+        c.rules.crit_damage_scale = t.crit_damage_scale as f32;
+        // The Explosion Radius Buff: the inner 30% at full damage, 20% at the edge (the
+        // tweak's own numbers as its description gives them).
+        c.tuning.explosion_inner = if t.explosion_radius_buff { 0.3 } else { 0.0 };
+        c.tuning.explosion_inner_edge = 0.2;
     }
 }
 
@@ -743,6 +756,25 @@ fn blast_limb_hits(c: &Combat, parts: &ActorParts, target: FormId, dealt: f32, w
     fnv_game::combat::blast_limb_shares(&conditions, damage)
 }
 
+/// The Splash Damage Torso Gibbing tweak's chance on a Bloody Mess blast kill, and the
+/// torso's body part location (ours, the part type's index) [design: docs/design/tweaks.md].
+const SPLASH_TORSO_CHANCE: f32 = 0.25;
+const TORSO_LOCATION: i32 = 0;
+
+/// The player's Fatal Crits Always Gib tweak: a killing critical that is no sneak attack
+/// takes the struck part off for sure, exploded where it can be, else severed [design: docs/design/tweaks.md].
+fn crit_gib(c: &Combat, parts: &ActorParts, script: Option<&ScriptState>, critical: bool, check: &mut crate::dismember::Check) {
+    if !critical || check.corpse || !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.fatal_crits_gib) {
+        return;
+    }
+    let Some(data) = parts.data_of(check.target.0).and_then(|d| c.forms.body_parts.get(&d)) else { return };
+    let Some(location) = data.parts.get(check.part).map(|p| p.location()) else { return };
+    if let Some((part, fate)) = fnv_combat::dismember::scripted(data, location) {
+        check.part = part;
+        check.scripted = Some(fate);
+    }
+}
+
 /// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
 /// its corpse, on a body part. The player is not dismembered.
 pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats, r: &HitResult, by: Option<FormId>, point: V3, dir: V3) -> Option<crate::dismember::Check> {
@@ -909,13 +941,28 @@ pub struct CombatStats {
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
 /// draws a tracer.
+/// A projectile in flight VATS mode may mark ([`Combat::vats_projectiles`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VatsProjectile {
+    /// Its number among the drawn projectiles, the same for its whole flight.
+    pub id: u64,
+    pub at: V3,
+    /// The player's own.
+    pub by_player: bool,
+    /// It has an explosion.
+    pub explosive: bool,
+    /// A thrown mine still in the air.
+    pub mine: bool,
+}
+
 /// A grenade live now ([`Combat::live_grenades`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LiveGrenade {
     /// Its number among the drawn projectiles, the same for its whole flight.
     pub id: u64,
     pub at: V3,
-    /// Its explosion's radius, units.
+    /// Its explosion and that explosion's radius, units.
+    pub explosion: FormId,
     pub radius: f32,
     pub thrower: FormId,
     /// Seconds since it left.
@@ -1001,6 +1048,8 @@ struct Pending {
 struct Ghost {
     id: u64,
     proj: FormId,
+    /// Its original script reference, for explicit deletion while the visual remains.
+    rref: Option<FormId>,
     /// Who fired it.
     owner: FormId,
     from: V3,
@@ -1113,11 +1162,17 @@ pub struct Combat {
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
     /// who set each off and an optional impact normal for blast visibility.
     boom: Vec<(FormId, V3, Option<Cause>, Option<V3>)>,
+    /// The explosions Meltdown gives off, for the No Self Meltdown Damage tweak [design: docs/design/tweaks.md].
+    meltdowns: HashSet<FormId>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
     pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
+    /// Actors whose next shot is a live grenade dropped as they died (the player's NPCs
+    /// Drop Live Grenades tweak, `death_drops`): it leaves at [`LIVE_DROP_SPEED`] of its
+    /// speed.
+    dropped_live: Vec<FormId>,
     /// Thrown mines that came to rest this frame, for `crate::mines` to place.
     settled: Vec<SettledMine>,
     /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
@@ -1234,10 +1289,41 @@ impl Combat {
             .iter()
             .filter(|f| f.p.alive && !f.p.mine && f.p.motion == Motion::Lobber)
             .filter_map(|f| {
-                let radius = self.forms.explosions.get(&f.p.explosion?)?.radius;
-                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, radius, thrower: f.by.actor, age: f.p.age })
+                let explosion = f.p.explosion?;
+                let radius = self.forms.explosions.get(&explosion)?.radius;
+                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, explosion, radius, thrower: f.by.actor, age: f.p.age })
             })
             .collect()
+    }
+
+    /// The projectiles in flight VATS mode may mark under the player's Target Projectiles
+    /// in V.A.T.S. tweak (`crate::vats_mode`): missiles and lobbed ones, not hitscan
+    /// shots, beams or flames [design: docs/design/tweaks.md].
+    pub fn vats_projectiles(&self) -> Vec<VatsProjectile> {
+        self.flying
+            .iter()
+            .filter(|f| f.p.alive && !f.p.hitscan && matches!(f.p.motion, Motion::Missile | Motion::Lobber))
+            .map(|f| VatsProjectile { id: f.id, at: f.p.pos, by_player: f.by.actor == FormId::PLAYER_REF, explosive: f.p.explosion.is_some(), mine: f.p.mine })
+            .collect()
+    }
+
+    /// Where the projectile `id` is now, while it flies.
+    pub fn projectile_at(&self, id: u64) -> Option<V3> {
+        self.flying.iter().find(|f| f.id == id && f.p.alive).map(|f| f.p.pos)
+    }
+
+    /// A marked VATS shot by `by` (actor, weapon) landed on the projectile `id`: it ends
+    /// where it is, its explosion going off there, the blast `by`'s hits [design:
+    /// docs/design/tweaks.md, Target Projectiles in V.A.T.S.]. Whether it had an
+    /// explosion; `None` when it no longer flies.
+    pub fn shoot_down(&mut self, id: u64, by: (FormId, FormId)) -> Option<bool> {
+        let f = self.flying.iter_mut().find(|f| f.id == id && f.p.alive)?;
+        f.p.alive = false;
+        let (explosion, at) = (f.p.explosion, f.p.pos);
+        if let Some(x) = explosion {
+            self.boom.push((x, at, Some(Cause { actor: by.0, weapon: by.1 }), None));
+        }
+        Some(explosion.is_some())
     }
 
     /// The thrown mines that came to rest since the last call (`crate::mines`).
@@ -1412,6 +1498,7 @@ impl Combat {
                 // From the eye, as the player's swing reaches (`melee`): the reach is
                 // from the body, the capsule's radius further.
                 melee_reach: damage::melee_reach(&self.rules, w, 1.0) + fnv_phys::CharacterParams::default().radius,
+                classic_reach: Some(damage::vats_melee_reach(&self.rules, w, 1.0) + fnv_phys::CharacterParams::default().radius),
             });
         }
         // A gun needs to be equipped: the Fists are melee.
@@ -1427,7 +1514,7 @@ impl Combat {
             let p = self.forms.projectiles.get(&proj);
             let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
             let lob = p.map_or(f32::INFINITY, |p| throw_reach(p.speed, p.gravity * gravity));
-            return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0 });
+            return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0, classic_reach: None });
         }
         if AttackKind::of(w) != AttackKind::Gun {
             return Err(NO_GUN);
@@ -1459,6 +1546,7 @@ impl Combat {
             rounds,
             reach: if range > 0.0 { range } else { crate::vats_mode::REACH },
             melee_reach: 0.0,
+            classic_reach: None,
         })
     }
 
@@ -1581,6 +1669,10 @@ pub struct VatsWeapon {
     /// A melee weapon's own reach from the eye (`damage::melee_reach` plus the player's
     /// capsule radius), units; 0 otherwise.
     pub melee_reach: f32,
+    /// A melee or unarmed weapon's target reach from the eye in the Classic style: the
+    /// original's V.A.T.S. melee reach (`damage::vats_melee_reach`) plus the player's
+    /// capsule radius, as `melee_reach` counts it (issue #2656). `None` for the others.
+    pub classic_reach: Option<f32>,
 }
 
 pub struct CombatPlugin;
@@ -1637,9 +1729,11 @@ impl Plugin for CombatPlugin {
 /// The player runs slower with a two-handed weapon drawn, by `fMove2HBigPenalty`
 /// (`crate::player::RunPace`; the owner's playtest list 5 item 61) [design: every
 /// two-handed weapon; hypothesis: the setting's role, from its name].
-fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<crate::player::RunPace>>) {
+fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<crate::player::RunPace>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let Some(mut pace) = pace else { return };
-    let two = control.weapon_out && c.weapon.and_then(|w| c.forms.weapons.get(&w)).is_some_and(WeaponStats::two_handed);
+    // The player's tweak: no slower run with a weapon drawn [design: docs/design/tweaks.md].
+    let free = tweaks.is_some_and(|t| t.no_weapon_move_penalty);
+    let two = !free && control.weapon_out && c.weapon.and_then(|w| c.forms.weapons.get(&w)).is_some_and(WeaponStats::two_handed);
     let want = if two { (1.0 - c.rules.move_2h_penalty).clamp(0.1, 1.0) } else { 1.0 };
     if pace.0 != want {
         pace.0 = want;
@@ -1660,6 +1754,72 @@ static RELOAD_SLOWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Whether a reload slows the one reloading.
 pub fn reload_slows() -> bool {
     RELOAD_SLOWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The player's Equip Broken Items and Keep Broken Items Equipped tweaks: (either on, the
+/// latter on), set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
+static BROKEN_KEPT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Set the broken-weapon tweaks: `equip` (Equip Broken Items), `keep` (Keep Broken Items
+/// Equipped).
+pub fn set_broken_kept(equip: bool, keep: bool) {
+    BROKEN_KEPT.store(u8::from(equip || keep) | (u8::from(keep) << 1), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A broken weapon may stay in the player's hand (either tweak).
+fn broken_kept() -> bool {
+    BROKEN_KEPT.load(std::sync::atomic::Ordering::Relaxed) & 1 != 0
+}
+
+/// A player's weapon that breaks stays in the hand, without the message (Keep Broken Items
+/// Equipped).
+fn keep_on_break() -> bool {
+    BROKEN_KEPT.load(std::sync::atomic::Ordering::Relaxed) & 2 != 0
+}
+
+/// The player's weapon in hand is broken (kept there by a tweak): it neither fires nor
+/// swings until repaired [design: docs/design/tweaks.md].
+fn broken_in_hand(sim: &SimState, id: FormId) -> bool {
+    broken_kept() && item_condition(sim, FormId::PLAYER_REF, id) <= 0.0
+}
+
+/// The player's Unequip Broken Armor tweak, set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
+static UNEQUIP_BROKEN_ARMOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The player's Weapon Volume Scaling tweak, set by `crate::tweaks` each frame: the
+/// loudness of the player's shot sounds and of others' (as f32 bits; 1 = as recorded)
+/// [design: docs/design/tweaks.md].
+static WEAPON_VOLUME: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0x3f80_0000), std::sync::atomic::AtomicU32::new(0x3f80_0000)];
+
+/// Set the Weapon Volume Scaling tweak's loudness of the player's shots and of others'.
+pub fn set_weapon_volume(player: f32, others: f32) {
+    WEAPON_VOLUME[0].store(player.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    WEAPON_VOLUME[1].store(others.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A shot's sound, the player's (`player`) or another's: as recorded, or under the
+/// Weapon Volume Scaling tweak scaled.
+fn shot_sound(sounds: &mut MessageWriter<PlaySound>, scaled: &mut MessageWriter<ScaledSound>, sound: FormId, at: Option<[f32; 3]>, player: bool) {
+    match shot_gain(player) {
+        None => {
+            sounds.write(PlaySound { sound, at });
+        }
+        Some(gain) => {
+            scaled.write(ScaledSound { sound, at, gain });
+        }
+    }
+}
+
+/// The Weapon Volume Scaling tweak's gain on a shot's sound, the player's or another's;
+/// `None` at 1 (played as recorded).
+fn shot_gain(player: bool) -> Option<f32> {
+    let gain = f32::from_bits(WEAPON_VOLUME[usize::from(!player)].load(std::sync::atomic::Ordering::Relaxed));
+    ((gain - 1.0).abs() >= 1e-4).then_some(gain)
+}
+
+/// Switch the Unequip Broken Armor tweak on or off.
+pub fn set_unequip_broken_armor(on: bool) {
+    UNEQUIP_BROKEN_ARMOR.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Switch the reload's slowing on or off.
@@ -1789,7 +1949,9 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
         let energy = rt.game.data.weapon_skills.get(&weapon).copied() == Some(fnv_game::actor_values::ENERGY_WEAPONS as i64);
         let (has, explosion) = with_world(rt, &mut sim, |rt| {
             let g = &mut rt.game;
-            (energy && g.entry_point(by, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
+            // The player's tweak: a teammate's energy kill uses the player's Meltdown [design: docs/design/tweaks.md].
+            let who = if g.tweaks.teammates_meltdown && g.is_teammate(by) { FormId::PLAYER_REF } else { by };
+            (energy && g.entry_point(who, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
         });
         if !has {
             continue;
@@ -1801,6 +1963,7 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
         let Some(at) = phys.world.actor_aim_point(victim).or_else(|| sim.world.peek(FormId(victim)).map(|r| [r.pos[0], r.pos[1], r.pos[2] + 60.0])) else { continue };
         done.insert(victim);
         info!("combat: Meltdown: {} gives off {} ({by}'s kill with {})", FormId(victim), c.forms.explosions.get(&explosion).and_then(|x| x.edid.as_deref()).unwrap_or("?"), c.forms.weapons.get(&weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"));
+        c.meltdowns.insert(explosion);
         c.mine_explodes(explosion, at, Some((by, weapon)));
     }
 }
@@ -1847,6 +2010,33 @@ fn stat_speed(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>
     let (mult, armor) = with_world(rt, &mut sim, |rt| (rt.game.move_speed_mult(FormId::PLAYER_REF) as f32, rt.game.armor_speed_mult(FormId::PLAYER_REF)));
     let scale = sim.script_scale(FormId::PLAYER_REF.0).unwrap_or(1.0).max(crate::sim::MIN_DRAWN_SCALE);
     let want = mult * scale;
+    // The player's tweak: Agility scales the jump, 1 + mult x (Agility - 1) [design: docs/design/tweaks.md].
+    let k = rt.game.tweaks.agility_jump_mult;
+    let jump = if k > 0.0 {
+        let agility = with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::AGILITY)) as f32;
+        (1.0 + k * (agility - 1.0)).max(0.1)
+    } else {
+        1.0
+    };
+    // The player's tweak: the body armour's class sinks the swimmer, units a second
+    // (ours) [design: docs/design/tweaks.md].
+    let sink = if rt.game.tweaks.armor_sinks {
+        match with_world(rt, &mut sim, |rt| fnv_game::combat::worn_armor_class(&rt.game.world, FormId::PLAYER_REF)) {
+            fnv_sim::forms::ArmorClass::Heavy => 60.0,
+            fnv_sim::forms::ArmorClass::Medium => 25.0,
+            fnv_sim::forms::ArmorClass::Light => 0.0,
+        }
+    } else {
+        0.0
+    };
+    if speed.2 != sink {
+        speed.2 = sink;
+        info!("movement: the player's armour sinks them at {sink:.0} units/s in water (tweak)");
+    }
+    if (speed.1 - jump).abs() > 1e-4 {
+        speed.1 = jump;
+        info!("movement: the player jumps {:.0}% as high (Agility tweak)", jump * 100.0);
+    }
     if (speed.0 - want).abs() > 1e-4 {
         speed.0 = want;
         let size = if scale == 1.0 { String::new() } else { format!(", scale {scale:.2}") };
@@ -1883,12 +2073,14 @@ fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptS
 /// "throws off aim and interrupts attacks"; design: how]. The view is thrown off by up to
 /// `flinch_kick_deg`, a swing under way is broken off, and for `flinch_time` no attack
 /// starts (the trigger counts as released).
-fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut player: ResMut<Player>, mut control: ResMut<PlayerControl>, mut anim: ResMut<WeaponAnim>) {
+fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut player: ResMut<Player>, mut control: ResMut<PlayerControl>, mut anim: ResMut<WeaponAnim>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    // The player's tweak: the player never staggers [design: docs/design/tweaks.md].
+    let no_stagger = tweaks.is_some_and(|t| t.no_player_stagger);
     let c = &mut *c;
     let now = c.time;
     for h in std::mem::take(&mut feedback.player_hits) {
         let since = c.flinch_end.map(|end| now - end);
-        if now < c.flinch_until || !damage::staggers(&c.tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
+        if no_stagger || now < c.flinch_until || !damage::staggers(&c.tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
             continue;
         }
         let (yaw, pitch) = ((c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg, (c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg * 0.5);
@@ -1921,9 +2113,31 @@ fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut p
 /// of it, out of its inventory. A weapon with the "Can't Drop" flag stays in the hand
 /// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
 /// actors"].
-fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stats: ResMut<CombatStats>, parts: Res<ActorParts>, mut broken: MessageWriter<WeaponBroken>) {
+///
+/// The player is disarmed too under the player's NPCs Can Disarm the Player tweak: the
+/// weapon in hand falls in front of them as an actor's does [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments)]
+fn disarm(
+    mut feedback: ResMut<HitFeedback>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    parts: Res<ActorParts>,
+    (c, script): (Res<Combat>, Option<Res<ScriptState>>),
+    mut hud: Option<ResMut<HudMessage>>,
+    mut broken: MessageWriter<WeaponBroken>,
+) {
+    let player_too = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_disarm_player);
     for actor in std::mem::take(&mut feedback.disarms) {
-        let Some(item) = parts.by_ref.get(&actor.0).and_then(|p| p.weapon) else { continue };
+        let item = if actor == FormId::PLAYER_REF {
+            if !player_too {
+                continue;
+            }
+            // Not the Fists, nor a body weapon.
+            c.weapon.filter(|w| sim.world.inventory_mut(actor).is_ok_and(|i| i.count(*w) > 0))
+        } else {
+            parts.by_ref.get(&actor.0).and_then(|p| p.weapon)
+        };
+        let Some(item) = item else { continue };
         if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
             info!("combat: {actor}'s arm crippled: its {} ({item}) can't be dropped and stays in its hand", item_name(&sim, item));
             continue;
@@ -1939,12 +2153,30 @@ fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stat
             Ok(refs) => {
                 stats.disarmed += 1;
                 let dropped = refs.first().copied();
+                if actor == FormId::PLAYER_REF {
+                    if let Some(h) = hud.as_deref_mut() {
+                        h.show(format!("{} knocked from your hand", item_name(&sim, item)));
+                    }
+                }
                 info!("combat: {actor}'s arm crippled: it drops its {} ({item}){}", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
                 broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
             }
             Err(e) => warn!("combat: {actor}'s arm crippled: its {} could not be dropped: {e}", item_name(&sim, item)),
         }
     }
+}
+
+/// The share of a throw's speed a grenade dropped live by its dying holder leaves at, and
+/// the height over the feet it leaves from, units [design].
+const LIVE_DROP_SPEED: f32 = 0.05;
+const LIVE_DROP_HEIGHT: f32 = 60.0;
+
+/// Whether `weapon` is a grenade: of the animation type "Grenade Throw (1 Hand)"
+/// [documented: GECK wiki Weapons, Animation Type] and its projectile explodes (as
+/// nvforever's `npc_grenades::carried`).
+fn is_grenade(forms: &fnv_combat::data::CombatForms, weapon: FormId) -> bool {
+    forms.weapons.get(&weapon).is_some_and(|w| w.anim_type.as_deref() == Some("Grenade Throw (1 Hand)"))
+        && forms.chain(weapon, None).and_then(|ch| ch.projectile).and_then(|p| forms.projectiles.get(&p)).and_then(|p| p.explodes()).and_then(|e| forms.explosions.get(&e)).is_some_and(|e| e.radius > 0.0)
 }
 
 /// The default of `iDeathDropWeaponChance`, percent [observed: FalloutNV.esm, 100].
@@ -1969,12 +2201,19 @@ struct DeathDrops {
 /// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
 /// own (`Game::starts_dead`).
+///
+/// Under the player's NPCs Drop Live Grenades tweak, one that dies holding a grenade (a
+/// thrown weapon that explodes, as `npc_grenades` throws) lets it fall live at its feet
+/// instead: one taken from its inventory leaves its hand at [`LIVE_DROP_SPEED`] of a
+/// throw's speed, downwards, and goes off as a thrown one [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments)]
 fn death_drops(
     mut st: Local<DeathDrops>,
     mut sim: ResMut<SimState>,
     mut stats: ResMut<CombatStats>,
     parts: Res<ActorParts>,
     script: Option<Res<ScriptState>>,
+    (mut c, mut fire): (ResMut<Combat>, MessageWriter<ActorFire>),
     mut broken: MessageWriter<WeaponBroken>,
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
@@ -1982,7 +2221,13 @@ fn death_drops(
         if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
             continue;
         }
-        match p.weapon {
+        // The player's tweak: a weapon put away is dropped too [design: docs/design/tweaks.md].
+        let holstered = || {
+            rt.game.tweaks.npcs_drop_holstered
+                .then(|| sim.world.equipment(FormId(id)).unwrap_or_default().into_iter().find(|&i| sim.forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)))
+                .flatten()
+        };
+        match p.weapon.or_else(holstered) {
             Some(item) => st.armed.insert(id, item),
             None => st.armed.remove(&id),
         };
@@ -1995,7 +2240,17 @@ fn death_drops(
         return;
     }
     let chance = sim.forms.setting_f32("iDeathDropWeaponChance").unwrap_or(DEATH_DROP_CHANCE);
+    let live = rt.game.tweaks.npcs_drop_live_grenades;
     for (actor, item) in died {
+        if live && is_grenade(&c.forms, item) && sim.world.remove_item(actor, item, 1).is_ok() {
+            let at = sim.world.peek(actor).map_or([0.0; 3], |s| s.pos);
+            let origin = [at[0], at[1], at[2] + LIVE_DROP_HEIGHT];
+            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false });
+            c.dropped_live.push(actor);
+            stats.death_drops += 1;
+            info!("combat: {actor} died holding its {} ({item}): it falls live (tweak)", item_name(&sim, item));
+            continue;
+        }
         let roll = st.rng.get_or_insert(SplitMix(5)).next_f32() * 100.0;
         if roll >= chance {
             info!("combat: {actor} died holding its {} ({item}): kept (roll {roll:.0} against iDeathDropWeaponChance {chance:.0})", item_name(&sim, item));
@@ -2102,10 +2357,12 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         swings: Melee::default(),
         blows: 0,
         boom: Vec::new(),
+        meltdowns: HashSet::new(),
         debris: Vec::new(),
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
+        dropped_live: Vec::new(),
         settled: Vec::new(),
         landed: Vec::new(),
         fire_landed: Vec::new(),
@@ -2246,8 +2503,9 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
     let mut equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));
     // A weapon at zero condition does not stay in the hand, however it got there (a
-    // script's SetWeaponHealthPerc) (§17).
-    if let Some(id) = equipped.filter(|&id| item_condition(&sim, FormId::PLAYER_REF, id) <= 0.0) {
+    // script's SetWeaponHealthPerc) (§17); under the player's Equip Broken Items or Keep
+    // Broken Items Equipped tweak it does, and does not fire (`broken_in_hand`).
+    if let Some(id) = equipped.filter(|&id| !broken_kept() && item_condition(&sim, FormId::PLAYER_REF, id) <= 0.0) {
         let _ = sim.world.unequip(FormId::PLAYER_REF, id);
         info!("combat: the player's {} ({id}) is broken: unequipped", item_name(&sim, id));
         equipped = None;
@@ -2354,7 +2612,8 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
     if let (Some(a), Some(rt)) = (fx.actor, script.and_then(|s| s.rt.as_ref())) {
         if let Some(b) = sim.base_of(a) {
             let (seed, at) = sim.pick(&rt.game, FormId(a));
-            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, seed, at);
+            let (spray, decal) = rt.game.data.no_blood(b, seed, at);
+            (fx.no_spray, fx.no_decal) = (fx.no_spray || spray, fx.no_decal || decal);
         }
     }
     impacts.write(fx);
@@ -2363,6 +2622,13 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
             sounds.write(PlaySound { sound, at: Some(fx.point) });
         }
     }
+}
+
+/// Whether a projectile of `damage` (the weapon's per projectile, before armour) does not
+/// get through a DT of `dt`: the player's Armor Prevents Blood Decals tweak leaves no blood
+/// decal then [design: docs/design/tweaks.md].
+pub fn blood_stopped(damage: f32, dt: f32) -> bool {
+    dt > 0.0 && damage <= dt
 }
 
 /// The jam animation beside a reload animation: `ReloadA` → `JamA`, `ReloadX` → `JamX`
@@ -2625,8 +2891,18 @@ fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: 
 /// as does every target without a script runtime.
 fn sneak_attack(script: Option<&ScriptState>, attacker: FormId, sneaking: bool, target: FormId) -> bool {
     use fnv_game::detection::Band;
+    // The player's tweak: an NPC the player has not detected sneak-attacks the player
+    // [design: docs/design/tweaks.md].
+    if attacker != FormId::PLAYER_REF {
+        return target == FormId::PLAYER_REF
+            && script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_sneak_crit_player && rt.game.detection.get(FormId::PLAYER_REF, attacker).is_some_and(|d| d.band != Band::Detected));
+    }
+    // The player's tweak takes the sneak critical away [design: docs/design/tweaks.md].
+    // The player's tweak: unseen is enough, standing or not [design: docs/design/tweaks.md].
+    let standing = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.standing_sneak_attacks);
     attacker == FormId::PLAYER_REF
-        && sneaking
+        && (sneaking || standing)
+        && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_sneak_criticals)
         && script.and_then(|s| s.rt.as_ref()).is_none_or(|rt| rt.game.detection.get(target, FormId::PLAYER_REF).is_none_or(|d| d.band != Band::Detected))
 }
 
@@ -2746,6 +3022,10 @@ pub(crate) fn owner_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimS
 fn spent_ammo_item(rng: &mut SplitMix, stats: &mut CombatStats, script: Option<&mut ScriptState>, sim: &mut SimState, forms: &CombatForms, weapon: FormId, ammo: FormId) {
     let Some(a) = forms.ammo.get(&ammo) else { return };
     let Some((item, pct)) = a.consumed.filter(|(i, p)| i.0 != 0 && *p > 0.0) else { return };
+    // The player's tweak: no spent items at all [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_ammo_casings) {
+        return;
+    }
     let (pct, by) = player_weapon_perk(script, sim, fnv_game::perks::MODIFY_CHANCE_FOR_AMMO_ITEM, weapon, pct);
     stats.spent_rolls += 1;
     let roll = rng.next_f32() * 100.0;
@@ -2851,7 +3131,7 @@ pub(crate) fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
-    (mut hud, mut vats, lens_sway): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>),
+    (mut hud, mut vats, lens_sway, mut scaled): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>, MessageWriter<ScaledSound>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -2865,6 +3145,13 @@ pub(crate) fn fire(
     c.ejects_seen = anim.ejects;
     // VATS mode's marked shot due now: the point it goes straight at (vats-mode.md §9.1).
     let mut vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
+    // The projectiles VATS mode's marked shots landed on end now (the player's tweak).
+    for (id, weapon) in vats.as_deref_mut().map(|v| v.take_shot_down()).unwrap_or_default() {
+        match c.shoot_down(id, (FormId::PLAYER_REF, weapon)) {
+            Some(blast) => info!("combat: VATS shot downs projectile {id}{}", if blast { ", its explosion goes off" } else { "" }),
+            None => info!("combat: VATS shot at projectile {id}: it flies no more"),
+        }
+    }
     // A throw still winding up for the mode when the mode has ended (a jump, a menu) is
     // the mode's no longer: it leaves as any throw does, where the player looks, and not
     // at the point kept for it as a VATS shot [the owner's review of #2102].
@@ -2889,6 +3176,11 @@ pub(crate) fn fire(
     c.kick_just_settled |= !was_settled && c.kick.settled();
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
+    // The player's tweak: reloading a full magazine swaps the ammo [design:
+    // docs/design/tweaks.md].
+    let full_swap = reload && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.full_reload_swaps_ammo);
+    // And reloading with none of the ammo in use left swaps to another carried type [design: docs/design/tweaks.md].
+    let empty_swap = reload && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.empty_reload_swaps_ammo);
     c.crosshair_cone = None;
     c.player_spread = None;
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
@@ -2911,6 +3203,21 @@ pub(crate) fn fire(
             info!("combat: the VATS mode shot could not leave (the weapon is not out)");
             if let Some(v) = vats.as_deref_mut() {
                 v.throw_left();
+            }
+        }
+        // The player's tweak: Ammo Swap works with the weapon put away; it reloads once
+        // drawn [design: docs/design/tweaks.md].
+        let holstered_swap = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.swap_ammo_holstered);
+        if swap && holstered_swap {
+            if let Some(cur) = c.ammo {
+                let next = c.forms.next_ammo(id, cur, |a| player_count(&sim, Some(a)) > 0);
+                if next.is_some_and(|n| n != cur) {
+                    c.ammo = next;
+                    if !god {
+                        cycle.swap_ammo();
+                    }
+                    info!("combat: ammo swapped to {} with the weapon away (tweak)", next.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.edid.clone()).unwrap_or_default());
+                }
             }
         }
         return;
@@ -2939,6 +3246,10 @@ pub(crate) fn fire(
     }
     anim.attack_rate = clip_rate;
     cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
+    // The player's tweak: automatic weapons fire without spinning up [design: docs/design/tweaks.md].
+    if cycle.automatic && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_spin_up) {
+        cycle.timing.spin_up = 0.0;
+    }
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
     // A throw is the exception: its clip starts now and it leaves the hand at the clip's
@@ -2963,6 +3274,7 @@ pub(crate) fn fire(
         }
     }
     // Ammo Swap: the next carried type down the list, then a reload [design].
+    let swap = swap || (full_swap && cycle.magazine >= cycle.clip_size && cycle.clip_size > 0) || (empty_swap && c.ammo.is_some() && player_count(&sim, c.ammo) == 0);
     if swap {
         if let Some(cur) = c.ammo {
             let next = c.forms.next_ammo(id, cur, |a| player_count(&sim, Some(a)) > 0);
@@ -2986,6 +3298,15 @@ pub(crate) fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let was_winding = matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. });
     cycle.regen_frozen = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.showoff.ammo_regen_frozen);
+    // The player's tweaks on the firing cycle [design: docs/design/tweaks.md].
+    if let Some(t) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks) {
+        cycle.reload_in_recovery = t.reload_while_firing;
+        cycle.semi_auto_queue = t.semi_auto_queue;
+        cycle.reload_presses = t.per_bullet_reload.then_some((t.reload_rounds_per_press.max(1), t.reload_press_queue));
+    }
+    // The player's tweak: no reload until the magazine is empty [design: docs/design/tweaks.md].
+    let empty_only = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.reload_only_when_empty);
+    let reload = reload && !(empty_only && cycle.magazine > 0);
     if c.self_ammo && control.trigger {
         if !c.grenade_held {
             (c.grenade_hold, c.grenade_held) = (0.0, true);
@@ -2997,7 +3318,20 @@ pub(crate) fn fire(
     // The weapon's cycle goes at the player's own pace while a VATS camera shot plays (its
     // Player time multiplier), as the body's clips do: a throw leaves at its clip's key.
     let own_dt = dt * vats.as_deref().map_or(1.0, |v| v.player_rate());
-    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt: own_dt, carried });
+    // The player's Hold and Release Throwables tweak: a throw wound up to its release waits
+    // there while the trigger is held, and leaves when it is let go [design:
+    // docs/design/tweaks.md]. Not VATS mode's throws.
+    let hold_throw = c.self_ammo && control.trigger && c.vats_throw.is_none() && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hold_release_throws);
+    let held_left = match cycle.phase {
+        fnv_combat::attack::Phase::WindUp { left } if hold_throw && left <= own_dt => Some(left),
+        _ => None,
+    };
+    if held_left.is_some() != anim.throw_held {
+        info!("combat: {} {} (tweak)", w.edid.as_deref().unwrap_or("?"), if held_left.is_some() { "held at its release" } else { "let go" });
+    }
+    anim.throw_held = held_left.is_some();
+    let own_dt = held_left.map_or(own_dt, |left| (left - 1e-4).max(0.0));
+    let events = cycle.step(&c.tuning, Input { trigger: control.trigger && !broken_in_hand(&sim, id), reload: reload && !god, dt: own_dt, carried });
     // VATS mode's throw that wound up leaves now, at its point; one that no longer winds
     // up (the weapon went) is forgotten. Either way the mode goes on.
     let fired_now = events.iter().any(|e| matches!(e, Event::Fired { .. }));
@@ -3122,7 +3456,7 @@ pub(crate) fn fire(
                         info!("combat: {} shoots its silenced sound {}", w.edid.as_deref().unwrap_or("?"), sound_edid(sfx.as_deref(), sound));
                     }
                     c.silenced_logged = shoot.silenced.then_some((id, sound));
-                    sounds.write(PlaySound { sound, at: None });
+                    shot_sound(&mut sounds, &mut scaled, sound, None, true);
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
@@ -3279,7 +3613,9 @@ pub(crate) fn fire(
                     // does not jam [documented: the flag's name; hypothesis: the first shot;
                     // docs/spec-notes/item-fields.md §1].
                     let fresh = std::mem::take(&mut c.fresh_reload) && w.has_flag("No Jam After Reload");
-                    let jams = !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
+                    // The player's tweak: no jams in god mode [design: docs/design/tweaks.md].
+                    let no_jam = god && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.god_mode_no_jams);
+                    let jams = !no_jam && !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
                     if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
                         break;
@@ -3287,6 +3623,8 @@ pub(crate) fn fire(
                     if jams {
                         // The jam clip's length, else the weapon's Jam Time, else the default.
                         let secs = anim.timing.jam_len.or(Some(w.jam_time).filter(|&t| t > 0.0)).unwrap_or(c.tuning.jam_fallback);
+                        // The player's tweak: the jam clears at the reload's pace [design: docs/design/tweaks.md].
+                        let secs = if script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.jam_at_reload_pace) && anim.reload_rate > 0.0 { secs / anim.reload_rate } else { secs };
                         cycle.jam(secs);
                         anim.jams += 1;
                         stats.jams += 1;
@@ -3337,7 +3675,18 @@ pub(crate) fn fire(
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
 pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
-    let (dt, dr) = c.forms.armor_values_worn(&worn_armor(&c.forms, sim, target));
+    // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
+    let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);
+    let worn = worn_armor(&c.forms, sim, target);
+    let (dt, dr) = c.forms.armor_values_worn_with(&worn, penalty);
+    // The player's tweaks: an NPC's armour keeps its whole DR or DT however worn [design: docs/design/tweaks.md].
+    let (whole_dr, whole_dt) = script.as_deref().and_then(|s| s.rt.as_ref()).map_or((false, false), |rt| (rt.game.tweaks.npc_dr_ignores_condition, rt.game.tweaks.npc_dt_ignores_condition));
+    let (dt, dr) = if target != FormId::PLAYER_REF && (whole_dr || whole_dt) {
+        let (dt_whole, dr_whole) = c.forms.armor_values_worn_with(&worn, 0.0);
+        (if whole_dt { dt_whole } else { dt }, if whole_dr { dr_whole } else { dr })
+    } else {
+        (dt, dr)
+    };
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
@@ -3437,6 +3786,13 @@ fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: F
         if w.broke {
             stats.armor_broken += 1;
             info!("combat: {target}'s {} ({item}) is worn to nothing", item_name(sim, item));
+            // The player's tweak: a broken piece comes off [design: docs/design/tweaks.md].
+            if UNEQUIP_BROKEN_ARMOR.load(std::sync::atomic::Ordering::Relaxed) {
+                match sim.world.unequip(target, item) {
+                    Ok(_) => info!("combat: {target}'s broken {} is taken off (tweak)", item_name(sim, item)),
+                    Err(e) => info!("combat: {target}'s broken {} stays on: {e}", item_name(sim, item)),
+                }
+            }
         }
     }
 }
@@ -3462,6 +3818,10 @@ pub fn wear_weapon(
     points: f32,
     at: Option<V3>,
 ) -> Option<Wear> {
+    // The player's tweak: the companions' weapons do not wear [design: docs/design/tweaks.md].
+    if actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_companion_item_damage && rt.game.is_teammate(actor)) {
+        return None;
+    }
     // The player's Modify Item Damage perks (Regular Maintenance × 0.5, Built to
     // Destroy × 1.15) (docs/spec-notes/perk-entry-points.md §2).
     let points = if actor == FormId::PLAYER_REF {
@@ -3495,6 +3855,10 @@ pub fn wear_weapon(
         if let Some(b) = broken {
             b.write(WeaponBroken { form_id: actor.0, weapon: item, dropped: None });
         }
+        return Some(w);
+    }
+    if actor == FormId::PLAYER_REF && keep_on_break() {
+        info!("combat: the player's {name} ({item}) broke: kept in the hand (Keep Broken Items Equipped)");
         return Some(w);
     }
     if actor == FormId::PLAYER_REF {
@@ -3585,6 +3949,10 @@ fn strike_weapon(
     at: V3,
 ) {
     let Some(item) = parts.by_ref.get(&target.0).and_then(|p| p.weapon) else { return };
+    // The player's tweak: shots do not wear the weapon in hand [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.weapons_unhurt_by_hits) {
+        return;
+    }
     if sim.world.inventory_mut(target).is_ok_and(|i| i.count(item) == 0) {
         let _ = sim.world.add_item(target, item, 1);
     }
@@ -3604,7 +3972,15 @@ fn strike_weapon(
 fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>, anim: Option<&str>) -> Vec<FormId> {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Vec::new() };
     let unarmed = weapon.is_none() || weapon == c.fists;
-    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects))
+    with_world(rt, sim, |rt| {
+        let mut items = hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects);
+        // The poison on the player's weapon (`fnv_game::weapon_poison`).
+        if let Some(p) = weapon.filter(|_| attacker == FormId::PLAYER_REF).and_then(|w| rt.game.take_poison_hit(w)) {
+            info!("combat: the player's hit carries {}", rt.game.data.name(p));
+            items.push(p);
+        }
+        items
+    })
 }
 
 /// A weapon's critical effect (WEAP CRDT: the actor effect and its On Death flag), for
@@ -3701,6 +4077,22 @@ fn hit_actor(
             info!("combat: critical effect {spell_name} ({spell}) on {name} {target}{}: {} effect(s)", if on_death { " (on death)" } else { "" }, ids.len());
         }
     }
+    // A critical by the player says so in the corner with the masters' critical icon
+    // [observed: FalloutNV.esm `sCriticalStrikeIcon`, the Critical Chance picture; design:
+    // the words are ours, the original's are not in the data]; the player's Critical Hit
+    // Messages Name the Limb tweak adds the part struck [design: docs/design/tweaks.md].
+    if mine && info.critical && !r.immune {
+        let limb = r.limb.map(|(code, _)| limb_name(code)).filter(|_| rt.game.tweaks.crit_message_limb);
+        let text = match limb {
+            Some(l) => format!("Critical hit on {name}'s {l}"),
+            None => format!("Critical hit on {name}"),
+        };
+        let icon = match sim.world.setting_value("sCriticalStrikeIcon") {
+            Some(fnv_sim::settings::Setting::Str(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+        rt.game.emit(fnv_game::trace::EventKind::NoteShown { text, icon, seconds: CRIT_NOTE_SECONDS });
+    }
     if mine {
         stats.damage += r.dealt as f32;
     } else if info.attacker.is_some() && !r.immune {
@@ -3709,6 +4101,10 @@ fn hit_actor(
     }
     if r.died {
         if mine {
+            // For a kill camera outside VATS mode (`crate::kill_cam`, the player's tweak).
+            if let Ok(mut k) = PLAYER_KILLS.lock() {
+                k.push((target, info.weapon.unwrap_or(FormId(0)), r.limb.map(|l| l.0)));
+            }
             stats.kills += 1;
             stats.xp += r.xp;
             if let Some(h) = hud.as_deref_mut() {
@@ -3729,7 +4125,12 @@ fn hit_actor(
         }
         None => blasted,
     };
-    if !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
+    // The player's tweak keeps teammates armed [design: docs/design/tweaks.md].
+    let spared = (rt.game.tweaks.no_disarm_companions && rt.game.is_teammate(target)) || rt.game.tweaks.crippling_never_disarms;
+    // The player's own blast does not disarm the player (the NPCs Can Disarm the Player
+    // tweak, `disarm`) [design].
+    let own = target == FormId::PLAYER_REF && mine;
+    if !spared && !own && !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
         feedback.disarms.push(target);
     }
     for &code in &crippled {
@@ -3751,6 +4152,13 @@ fn hit_actor(
 }
 
 /// A limb's name by its condition code (25–31).
+/// The player's kills this frame: the actor, the weapon and the condition of the part
+/// struck (`crate::kill_cam` takes them for its camera outside VATS mode).
+pub(crate) static PLAYER_KILLS: std::sync::Mutex<Vec<(FormId, FormId, Option<u16>)>> = std::sync::Mutex::new(Vec::new());
+
+/// How long the critical-hit corner message shows, seconds [design].
+const CRIT_NOTE_SECONDS: f32 = 2.0;
+
 fn limb_name(code: u16) -> &'static str {
     code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb")
 }
@@ -3845,6 +4253,7 @@ fn melee(
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
     (mut vats, mut dm, mut knocks): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
@@ -3883,7 +4292,8 @@ fn melee(
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
     // The weapon's power attack override plays for the standing power attack.
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
+    let input = MeleeInput { trigger: (control.trigger || vats_tap) && !broken_in_hand(&sim, id), dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), instant_power: control.aiming && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking) };
+    // (`instant_power`: the player's tweak, a power attack at once while blocking [design: docs/design/tweaks.md].)
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
@@ -3926,6 +4336,13 @@ fn melee(
                 }
                 if power.is_some() {
                     stats.power_attacks += 1;
+                    // The player's tweak: a power attack costs Action Points [design: docs/design/tweaks.md].
+                    let cost = tweaks.as_ref().map_or(0.0, |t| t.power_attack_ap);
+                    if cost > 0.0 && !god_mode() {
+                        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                            crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, f64::from(cost)));
+                        }
+                    }
                     // Without a clip to time it, a power attack takes longer [design].
                     if let Some(s) = c.swings.swing.as_mut() {
                         s.timing = SwingTiming::of(None, None, None, speed, fallback * c.tuning.power_time);
@@ -3950,7 +4367,9 @@ fn melee(
         let special = c.special_swing.take();
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         // The reach is from the body; the rays start at the eye, the capsule's middle.
-        let reach = damage::melee_reach(&c.rules, &w, 1.0) + phys.player.as_ref().map_or(0.0, |p| p.params.radius);
+        // The player's tweak scales the reach [design: docs/design/tweaks.md].
+        let reach_mult = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.melee_reach_mult);
+        let reach = damage::melee_reach(&c.rules, &w, 1.0) * reach_mult + phys.player.as_ref().map_or(0.0, |p| p.params.radius);
         let eye = player.eye();
         // A blow that meets no one but strikes the world within reach (a wall, the
         // ground ahead) shows its impact there.
@@ -4031,7 +4450,9 @@ fn melee(
                 }
             }
         }
-        if !hits.is_empty() {
+        // The player's tweak: blows that land only on the dead do not wear the weapon [design: docs/design/tweaks.md].
+        let only_dead = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_wear_on_dead && hits.iter().all(|h| rt.game.is_dead(FormId(h.0 as u32))));
+        if !hits.is_empty() && !only_dead {
             wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
         }
         for (actor, hit) in hits {
@@ -4042,6 +4463,10 @@ fn melee(
             a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
+            // The player's tweak: sneak criticals on the head only [design: docs/design/tweaks.md].
+            if !part.head && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_head_only) {
+                a.sneaking = false;
+            }
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
             let roll = c.rng.next_f32();
             let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, Some(target));
@@ -4112,7 +4537,8 @@ fn melee(
                     perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
                 }
             }
-            if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
+            if let Some(mut check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
+                crit_gib(c, &parts, script.as_deref(), d.critical && !a.sneaking, &mut check);
                 dm.checks.push(check);
             }
             if r.as_ref().is_none_or(|r| !r.immune) {
@@ -4236,6 +4662,8 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
 
 /// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
 /// each impact picked (for `crate::world_sounds`).
+/// What [`actor_attacks`] sends: shots, their sounds (scaled ones apart), hits and pushes.
+type ActorAttackOut<'w> = (MessageWriter<'w, ShotFired>, MessageWriter<'w, PlaySound>, MessageWriter<'w, ActorHit>, MessageWriter<'w, ActorPush>, MessageWriter<'w, ScaledSound>);
 type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>, MessageWriter<'w, crate::RefChanged>);
 
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
@@ -4255,7 +4683,7 @@ fn actor_attacks(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
-    (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
+    (mut fired, mut sounds, mut messages, mut pushes, mut scaled): ActorAttackOut,
     sfx: Option<Res<Sfx>>,
     (mut impacts, mut broken, mut knocks): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>, MessageWriter<Knockback>),
     (control, anim, player): Guard,
@@ -4296,6 +4724,14 @@ fn actor_attacks(
         // they are at the shot: its sound and its loudness for detection.
         let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
         fired.write(ShotFired { projectile: proj, weapon: s.weapon, mods, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
+        // The player's tweak: an NPC's spent round leaves it its case, as the player's does
+        // (no perks) [design: docs/design/tweaks.md].
+        let npc_casings = s.shooter != FormId::PLAYER_REF && !scripted && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_earn_casings);
+        if let Some(spent) = ammo.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.consumed).filter(|(i, p)| npc_casings && i.0 != 0 && *p > 0.0) {
+            if c.spent_rng.next_f32() * 100.0 < spent.1 && sim.world.add_item(s.shooter, spent.0, 1).is_ok() {
+                debug!("combat: {} keeps the spent item {} (tweak)", s.shooter, spent.0);
+            }
+        }
         // Heard where it is fired: the weapon's 3D shoot sound, its distant one beyond
         // the 3D sound's reach, the mod set's with a Silence or Suppressor mod on the
         // unit in use (weapon-mods.md §7).
@@ -4307,7 +4743,7 @@ fn actor_attacks(
             let (sound, far) = shoot.heard_at(distance, near_max);
             if let Some(sound) = sound {
                 debug!("combat: npc {} shot sound {} ({}, {})", s.shooter, sound_edid(sfx.as_deref(), sound), if shoot.silenced { "silenced" } else { "plain" }, if far { "distant" } else { "3D" });
-                sounds.write(PlaySound { sound, at: Some(seen_from) });
+                shot_sound(&mut sounds, &mut scaled, sound, Some(seen_from), false);
             }
         }
         let (tracer_chance, force) = projectile.map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
@@ -4319,6 +4755,11 @@ fn actor_attacks(
         let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
         if let Some(m) = c.forms.weapons.get(&s.weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
             ps.iter_mut().for_each(|p| p.speed_up(m));
+        }
+        // A grenade dropped live by its dying holder falls rather than flies (`death_drops`).
+        if let Some(i) = c.dropped_live.iter().position(|a| *a == s.shooter) {
+            c.dropped_live.swap_remove(i);
+            ps.iter_mut().for_each(|p| p.speed_up(LIVE_DROP_SPEED));
         }
         let probe_created = ps.len();
         let (tracer_over, draw_hitscan) = shot_switches(script.as_deref());
@@ -4363,11 +4804,19 @@ fn actor_attacks(
             w.base_damage = d.round() as i32;
         }
         stats.actor_strikes += 1;
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
+        let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
+        a.sneaking = sneak_attack(script.as_deref(), b.attacker, false, b.target);
         // A person's power attack: × its direction's fDamagePowerAttack…Bonus, as the
         // player's (combat-rules.md §10.1); a creature's deals its usual damage.
         let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));
-        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power };
+        // The player's tweak: NPCs' weapons hit as if whole [design: docs/design/tweaks.md].
+        let whole = b.attacker != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
+        // The part of the player struck; the player's tweak gives its damage multiplier
+        // to the blow, as the player's own blows have it [design: docs/design/tweaks.md].
+        let bp = (b.target == FormId::PLAYER_REF).then(|| player_body_part(c, &phys, player.as_deref(), b.point)).flatten();
+        let located = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_melee_part_damage);
+        let part = bp.as_ref().filter(|_| located).map_or_else(HitPart::default, BodyPart::hit_part);
+        let h = HitInput { weapon: &w, projectiles: 1, condition: if whole { 1.0 } else { item_condition(&sim, b.attacker, id) }, ammo_effects: &[], part, power };
         if power != 1.0 {
             info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
         }
@@ -4408,7 +4857,6 @@ fn actor_attacks(
         // [hypothesis] Melee's part multipliers are unmeasured (combat-rules.md §12):
         // keep Health on HitPart::default(), but give player blows a location and limb.
         // A creature uses this path's Fists Limb Dmg Mult in the absence of its own weapon.
-        let bp = (b.target == FormId::PLAYER_REF).then(|| player_body_part(c, &phys, player.as_deref(), b.point)).flatten();
         let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: bp.as_ref().map_or(0, BodyPart::location), critical: d.critical, limb: limb_hit(bp.as_ref(), &d, &w) };
         if b.target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: b.target.0, point: b.point, dv: vec::scale(b.dir, MELEE_PUSH) });
@@ -4554,6 +5002,30 @@ fn placed_charges(forms: &CombatForms, sim: &SimState, phys: &PhysState, actor: 
         .collect()
 }
 
+/// An explicitly removed shot cannot later hit or detonate. Disable alone remains
+/// reversible. A naturally completed shot may still have a fading Ghost, so only
+/// MarkForDelete cancels a Ghost without a live flight or pending hit.
+/// Cancellation at the next consumer is an engineering policy, not native timing.
+fn retire_deleted_shots(c: &mut Combat, game: &mut fnv_game::game::Game<'_>) {
+    let mut gone: std::collections::HashSet<FormId> = c.flying.iter().filter_map(|f| f.rref)
+        .chain(c.pending.iter().filter_map(|p| p.rref))
+        .filter(|&r| game.world.peek(r).is_some_and(|s| s.shot && s.deleted()))
+        .collect();
+    gone.extend(c.ghosts.iter().filter_map(|g| g.rref).filter(|r| {
+        game.extra.get(r).is_some_and(|e| e.marked_for_delete)
+            && game.world.peek(*r).is_some_and(|s| s.shot && s.deleted())
+    }));
+    if gone.is_empty() {
+        return;
+    }
+    c.flying.retain(|f| f.rref.is_none_or(|r| !gone.contains(&r)));
+    c.pending.retain(|p| p.rref.is_none_or(|r| !gone.contains(&r)));
+    c.ghosts.retain(|g| g.rref.is_none_or(|r| !gone.contains(&r)));
+    for r in gone {
+        game.retire_deleted_projectile(r);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -4576,6 +5048,9 @@ fn fly(
     sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
     let c = &mut *c;
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        with_world(rt, &mut sim, |rt| retire_deleted_shots(c, &mut rt.game));
+    }
     // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
     // stage changes) and what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
@@ -4709,14 +5184,17 @@ fn fly(
             // Only the player's own: the muzzle followed is the player's weapon's, so an
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
-            let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
+            // The player's tweak leaves beams where they were fired [design: docs/design/tweaks.md].
+            let detached = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.detached_beams);
+            let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF && !detached;
             // A thrown weapon lands where its flight ends (`crate::thrown`): the weapon
             // thrown, else the PROJ's Default Weapon Source.
             let lands = c.forms.projectiles.get(&f.proj).filter(|p| p.lands_as_weapon()).and_then(|p| {
                 let thrown = c.forms.weapons.get(&f.by.weapon).is_some_and(|w| w.projectile == Some(f.proj));
                 if thrown { Some(f.by.weapon) } else { p.default_weapon }
             });
-            let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let rref = f.rref;
+            let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
             let events = f.p.step(&world, dt);
@@ -4947,8 +5425,17 @@ fn fly(
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
+        let own_blast_spares = cause.is_some_and(|c| c.actor == FormId::PLAYER_REF) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_self_explosion_damage);
         for b in hits {
             let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
+            // The player's tweak: the player's own blast spares the player [design: docs/design/tweaks.md].
+            if own_blast_spares && target == FormId::PLAYER_REF {
+                continue;
+            }
+            // The player's tweak: a Meltdown blast spares the player and the companions [design: docs/design/tweaks.md].
+            if c.meltdowns.contains(&id) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_self_meltdown && (target == FormId::PLAYER_REF || rt.game.is_teammate(target))) {
+                continue;
+            }
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             // ShowOff:OnExplosionHit's handlers may change the blast's damage first.
             let raw = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(b.damage, |rt| rt.game.explosion_hit(target, f64::from(b.damage)) as f32);
@@ -4991,9 +5478,24 @@ fn fly(
                     dm.checks.push(check);
                 }
             }
+            // The player's tweak: a blast kill by someone with Bloody Mess may blow the torso
+            // apart [design: docs/design/tweaks.md].
+            let splash_gib = r.as_ref().is_some_and(|r| r.died) && target != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.splash_torso_gib);
+            if let Some(by) = info.attacker.filter(|_| splash_gib) {
+                let bloody = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.has_bloody_mess(by)));
+                if bloody && c.rng.next_f32() < SPLASH_TORSO_CHANCE {
+                    if let Some(check) = crate::dismember::scripted_check(c, &parts, &sim, target, TORSO_LOCATION, Some(by), Some(true)) {
+                        info!("combat: blast kill on {target}: the torso blows apart (Bloody Mess, tweak)");
+                        dm.checks.push(check);
+                    }
+                }
+            }
             if let Some(r) = r {
                 // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
-                let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
+                // The player's tweak avoids it by Strength instead of Agility [design:
+                // docs/design/tweaks.md].
+                let avoid_by = if script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.knockdown_by_strength) { fnv_game::actor_values::STRENGTH } else { fnv_game::actor_values::AGILITY };
+                let agility = actor_av(script.as_deref_mut(), &mut sim, target, avoid_by).unwrap_or(5.0);
                 let chance = if r.died || r.immune {
                     0.0
                 } else if always {
@@ -5040,7 +5542,14 @@ fn fly(
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }
-        let pushed = phys.world.push_dynamic(at, x.radius, x.force);
+        // The player's tweak: things that can be taken stay where they lie [design: docs/design/tweaks.md].
+        let keep_items = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.blasts_spare_items);
+        let pushed = if keep_items {
+            let takeable = |form: u32| sim.base_of(form).is_some_and(|b| sim.forms.item(b).is_some());
+            phys.world.push_dynamic_but(at, x.radius, x.force, &takeable)
+        } else {
+            phys.world.push_dynamic(at, x.radius, x.force)
+        };
         c.marks.push(Mark::at(at, 0.6, MarkKind::Impact));
         info!(
             "combat: explosion {} at ({:.0}, {:.0}, {:.0}), {pushed} loose object(s) pushed{}",
@@ -5117,10 +5626,22 @@ fn fly(
         // The impact the weapon's data set names for what was hit: an actor's is its
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
+        // The player's tweak: a shot whose damage does not get through the actor's DT
+        // leaves no blood on it [design: docs/design/tweaks.md].
+        let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.armor_blocks_blood);
+        let stopped = wanted && p.actor.is_some_and(|a| blood_stopped(w.base_damage as f32, target_armor(c, script.as_deref_mut(), &mut sim, FormId(a as u32)).0));
+        // The player's tweak: a shot on the weapon in an actor's hand strikes metal, sparks
+        // and no blood [design: docs/design/tweaks.md].
+        let on_weapon = p.part == Some(crate::hitvol::WEAPON_PART) && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.weapon_impacts);
         if let Some(s) = sfx.as_deref() {
-            let (impact, material) = impact_for(s, script.as_deref(), &sim, id, p.actor, p.material);
+            let (impact, material) = if on_weapon {
+                let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
+                (set.and_then(|set| s.forms.impact_id(set, "metal")), "metal")
+            } else {
+                impact_for(s, script.as_deref(), &sim, id, p.actor, p.material)
+            };
             if let Some(impact) = impact {
-                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: false, no_decal: false }, &mut effects.0, &mut effects.1);
+                show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32), no_spray: on_weapon, no_decal: stopped || on_weapon }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
@@ -5144,12 +5665,19 @@ fn fly(
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
-        a.sneaking = p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
+        // The player's tweak: sneak criticals with melee only [design: docs/design/tweaks.md].
+        let melee_only = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_melee_only);
+        a.sneaking = !melee_only && p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part)).or_else(|| {
             (p.actor == Some(PLAYER)).then(|| player_body_part(c, &phys, player.as_deref(), p.point)).flatten()
         });
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
-        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
+        // The player's tweak: sneak criticals on the head only [design: docs/design/tweaks.md].
+        if !part.head && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_head_only) {
+            a.sneaking = false;
+        }
+        let whole = shooter != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
+        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: if whole { 1.0 } else { item_condition(&sim, shooter, id) }, ammo_effects: &ammo_effects, part, power: 1.0 };
         let roll = c.rng.next_f32();
         let Some(actor) = p.actor else {
             stats.world_hits += 1;
@@ -5229,7 +5757,8 @@ fn fly(
         if r.as_ref().is_some_and(|r| !r.died && !r.immune) && target != FormId::PLAYER_REF {
             perk_knockdown(c, script.as_deref_mut(), &mut sim, shooter, id, target, p.dir);
         }
-        if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
+        if let Some(mut check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
+            crit_gib(c, &parts, script.as_deref(), d.critical && !a.sneaking, &mut check);
             dm.checks.push(check);
         }
         if r.as_ref().is_none_or(|r| !r.immune) {
@@ -5298,6 +5827,13 @@ pub struct HudWeapon {
 }
 
 impl Combat {
+    /// The condition of the player's armour on the body, 0 to 1 (the lowest of the pieces a
+    /// body hit wears), for the Armor Condition tweak's row; `None` with none worn there.
+    pub fn hud_armor(&self, sim: &mut SimState) -> Option<f32> {
+        let worn: Vec<FormId> = worn_armor(&self.forms, sim, FormId::PLAYER_REF).into_iter().map(|w| w.0).collect();
+        self.forms.armor_struck(&worn, fnv_combat::condition::Zone::Body).into_iter().map(|id| item_condition(sim, FormId::PLAYER_REF, id)).min_by(f32::total_cmp)
+    }
+
     /// The equipped weapon as the HUD shows it (docs/spec-notes/hud.md §5).
     pub fn hud_weapon(&self, sim: &SimState) -> HudWeapon {
         let condition = self.equipped.flatten().map(|id| item_condition(sim, FormId::PLAYER_REF, id));
@@ -5454,8 +5990,24 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn armour_that_stops_a_shot_stops_its_blood() {
+        assert!(super::blood_stopped(10.0, 12.0));
+        assert!(super::blood_stopped(12.0, 12.0));
+        assert!(!super::blood_stopped(13.0, 12.0));
+        assert!(!super::blood_stopped(0.0, 0.0));
+    }
+
     use super::*;
     use crate::phys::NpcBody;
+
+    #[test]
+    fn shot_sounds_are_scaled_only_off_one() {
+        set_weapon_volume(1.0, 0.5);
+        assert_eq!((shot_gain(true), shot_gain(false)), (None, Some(0.5)));
+        set_weapon_volume(1.0, 1.0);
+        assert_eq!(shot_gain(false), None);
+    }
 
     #[test]
     fn melee_hold_refuses_switch_without_starting_a_swing() {

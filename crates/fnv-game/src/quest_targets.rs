@@ -97,13 +97,17 @@ pub fn door_there(world: &World, door: FormId) -> bool {
     world.peek(door).is_none_or(|s| !s.deleted()) && world.is_enabled(door).unwrap_or(true)
 }
 
-/// The door is locked now: its run-time state once the world holds one, else its placed
-/// lock.
+/// The door outdoors where the world map marks a target in the interior `cell`: one of
+/// `direct`, the doors outdoors straight into it ([`marker_door`]), else the door outdoors
+/// that starts the shortest way to it through other interiors ([`DoorGraph::outdoor_door`],
+/// #2458).
+pub fn outdoor_marker_door(world: &World, graph: &DoorGraph, direct: &[FormId], cell: FormId, ignores_locks: bool) -> Option<FormId> {
+    marker_door(world, direct, ignores_locks).or_else(|| graph.outdoor_door(world, Place::of_cell(world.placed, cell), ignores_locks))
+}
+
+/// [design, #2538] The applicable lock, including the load door's partner (`World::lock_of`).
 fn door_locked(world: &World, door: FormId) -> bool {
-    match world.peek(door) {
-        Some(s) => s.lock.is_some_and(|l| l.locked),
-        None => world.placed.get(door).is_some_and(|p| p.lock.is_some()),
-    }
+    world.lock_of(door).is_some_and(|l| l.locked)
 }
 
 /// Where a reference is, for the doors between places: an interior cell, or a worldspace
@@ -145,9 +149,16 @@ impl DoorGraph {
     }
 
     fn search_path(&self, from: Place, to: Place, open: impl Fn(FormId) -> bool) -> Option<Vec<FormId>> {
-        if from == to { return Some(Vec::new()); }
-        let mut seen = std::collections::BTreeSet::from([from]);
-        let mut frontier = std::collections::VecDeque::from([(from, Vec::new())]);
+        self.search_from(&[from], to, open)
+    }
+
+    /// Breadth-first from every place of `starts` at once: the doors of the shortest way
+    /// to `to` (at most [`MARKER_DOORS_MAX`]) through doors `open` allows, the first door
+    /// standing in one of `starts`; empty when `to` is one of them.
+    fn search_from(&self, starts: &[Place], to: Place, open: impl Fn(FormId) -> bool) -> Option<Vec<FormId>> {
+        if starts.contains(&to) { return Some(Vec::new()); }
+        let mut seen: std::collections::BTreeSet<Place> = starts.iter().copied().collect();
+        let mut frontier: std::collections::VecDeque<(Place, Vec<FormId>)> = starts.iter().map(|&p| (p, Vec::new())).collect();
         while let Some((place, path)) = frontier.pop_front() {
             if path.len() >= MARKER_DOORS_MAX { continue; }
             for &(door, next) in self.edges.get(&place).into_iter().flatten() {
@@ -159,6 +170,27 @@ impl DoorGraph {
             }
         }
         None
+    }
+
+    /// The door outdoors (standing in a worldspace) where the world map marks a target
+    /// indoors at `to`: the first door of the shortest way into `to` from any worldspace
+    /// (at most [`MARKER_DOORS_MAX`] doors, only doors in the world: [`door_there`]), a way without locked doors when there is one
+    /// unless `ignores_locks`; `None` for a target outdoors or one no way leads to. A target
+    /// several doors deep (Colonel Moore in Hoover Dam's power plant, #2458) is so marked
+    /// at the door outdoors its building starts from [hypothesis: the original's world map
+    /// marker for such a target, observer-checks.md question 179].
+    pub fn outdoor_door(&self, world: &World, to: Place, ignores_locks: bool) -> Option<FormId> {
+        if matches!(to, Place::World(_)) {
+            return None;
+        }
+        let worlds: Vec<Place> = self.edges.keys().copied().filter(|p| matches!(p, Place::World(_))).collect();
+        let first = |open: &dyn Fn(FormId) -> bool| self.search_from(&worlds, to, open).and_then(|p| p.first().copied());
+        if !ignores_locks {
+            if let Some(d) = first(&|d| door_there(world, d) && !door_locked(world, d)) {
+                return Some(d);
+            }
+        }
+        first(&|d| door_there(world, d))
     }
 
     pub fn build(refs: &fnv_sim::RefTable) -> DoorGraph {
@@ -262,5 +294,16 @@ mod tests {
         assert_eq!(g.search_path(cave, cave, |_| true), Some(vec![]));
         assert_eq!(g.search_path(cave, upstairs, |d| d != FormId(0x111)), None);
         assert_eq!(g.search_path(cave, Place::Interior(FormId(999)), |_| true), None);
+    }
+
+    #[test]
+    fn a_target_several_doors_deep_is_marked_outdoors_at_its_buildings_door() {
+        let g = graph();
+        let upstairs = Place::Interior(FormId(11));
+        // Upstairs is two doors from outside: the building's door outdoors (#2458).
+        assert_eq!(g.search_from(&[Place::World(FormId(1))], upstairs, |_| true).and_then(|p| p.first().copied()), Some(FormId(0x100)));
+        let worlds = [Place::World(FormId(1)), Place::World(FormId(2))];
+        assert_eq!(g.search_from(&worlds, upstairs, |_| true), Some(vec![FormId(0x100), FormId(0x111)]));
+        assert_eq!(g.search_from(&worlds, Place::World(FormId(2)), |_| true), Some(vec![]));
     }
 }

@@ -132,6 +132,15 @@
 //! alpha-tested shapes in every shadow cascade above all. The shaders reach the values,
 //! the holes and the FaceGen offset through `nif_surface`, `holes_alpha` and
 //! `facegen_texel` (nif_material.wesl, nif_prepass.wesl), which read either binding.
+//!
+//! Landscape anti-tiling (nvforever `terrain.rs` "Anti-tiling", [design, #2551]): the
+//! landscape's own NIF materials (a quadrant's base where its layers are not folded in, and
+//! the layers drawn blended over it) carry their texture repeat
+//! ([`NifSurface::terrain_repeat`]) and the switch ([`NifSurface::anti_tiling`]). With both,
+//! the main pass gets `TERRAIN_ANTI_TILING` and `TERRAIN_SEPARATE`
+//! (`terrain_sampling::anti_tiling_defs`), and nif_material.wesl sets the surface up with
+//! terrain_pbr.wesl's anti-tiled reads instead of Bevy's `pbr_input_from_standard_material`.
+//! Every other shape (repeat 0) keeps the call there always was.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -489,6 +498,11 @@ pub struct NifSurface {
     /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
     #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
+    /// World units per texture repeat of a landscape material (module notes, "Landscape
+    /// anti-tiling"; set by nvforever `terrain.rs` only); 0 on every other shape.
+    pub terrain_repeat: f32,
+    /// Landscape anti-tiling on (a landscape material only, with a repeat above 0).
+    pub anti_tiling: bool,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -508,6 +522,9 @@ pub struct NifSurfaceUniform {
     /// [`NifSurface::pipboy_a`], [`NifSurface::pipboy_b`].
     pub pipboy_a: Vec4,
     pub pipboy_b: Vec4,
+    /// x [`NifSurface::terrain_repeat`] (0 when it cannot place anti-tiled reads); y, z, w
+    /// unused.
+    pub terrain: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -519,7 +536,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, 0.0, 0.0, 0.0) }
     }
 }
 
@@ -588,6 +605,8 @@ impl Default for NifSurface {
             soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
+            terrain_repeat: 0.0,
+            anti_tiling: false,
         }
     }
 }
@@ -605,6 +624,8 @@ pub struct NifSurfaceKey {
     pub first_person: bool,
     pub add_linear: bool,
     pub pipboy_screen: bool,
+    /// A landscape material with anti-tiling on and a repeat to place it with.
+    pub anti_tiling: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -619,6 +640,7 @@ impl From<&NifSurface> for NifSurfaceKey {
             first_person: surface.first_person,
             add_linear: surface.add_linear,
             pipboy_screen: surface.pipboy_screen,
+            anti_tiling: surface.anti_tiling && crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
         }
     }
 }
@@ -668,6 +690,9 @@ impl MaterialExtension for NifSurface {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.push("PIPBOY_SCREEN".into());
             }
+        }
+        if key.bind_group_data.anti_tiling {
+            crate::terrain_sampling::anti_tiling_defs(descriptor, true);
         }
         if key.bind_group_data.refract {
             refraction_pipeline(descriptor);
@@ -910,6 +935,10 @@ impl Plugin for NifMaterialPlugin {
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_prepass.wesl"));
         load_internal_asset!(app, COVERAGE_SHADER, "coverage.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/coverage.wesl"));
         load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/first_person_depth.wesl"));
+        // Landscape anti-tiling (terrain_sampling.rs), imported by nvforever's terrain.wesl
+        // and by this crate's nif_material.wesl only with TERRAIN_ANTI_TILING.
+        load_internal_asset!(app, crate::terrain_sampling::SAMPLING_SHADER, "terrain_sampling.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/terrain_sampling.wesl"));
+        load_internal_asset!(app, crate::terrain_sampling::PBR_SHADER, "terrain_pbr.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/terrain_pbr.wesl"));
         // Every 3D camera gets the view transmission texture, as each one had before Bevy
         // 0.20 made `ScreenSpaceTransmission` opt-in: the refraction here and the water
         // (nvforever water.rs) read it, and their shaders bind it unconditionally.
@@ -918,6 +947,7 @@ impl Plugin for NifMaterialPlugin {
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, (apply_blended_cutouts, see_through_casts_no_shadow));
+        crate::bc5_field::install(app);
     }
 }
 
@@ -1371,7 +1401,7 @@ mod tests {
         // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         assert_eq!(surface.alpha_cut, 0.0);
         assert_eq!(surface.emissive_rule, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
@@ -1381,19 +1411,19 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false });
     }
 
     /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
@@ -1415,6 +1445,15 @@ mod tests {
         assert!(!NifSurfaceKey::from(&NifSurface::default()).add_linear);
         assert!(include_str!("nif_material.wesl").contains("@if(ADD_LINEAR)"));
         assert!(NifSurfaceKey::from(&NifSurface { pipboy_screen: true, ..default() }).pipboy_screen);
+        // Landscape anti-tiling (#2551): only a landscape material (a repeat above 0) with the
+        // switch on; the repeat reaches the shader, 0 for every other shape.
+        assert!(!NifSurfaceKey::from(&NifSurface::default()).anti_tiling);
+        assert!(!NifSurfaceKey::from(&NifSurface { anti_tiling: true, ..default() }).anti_tiling, "not a landscape material");
+        assert!(!NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, ..default() }).anti_tiling, "switch off");
+        assert!(NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, anti_tiling: true, ..default() }).anti_tiling);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, ..default() }).terrain, Vec4::new(300.0, 0.0, 0.0, 0.0));
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).terrain, Vec4::ZERO);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: -1.0, anti_tiling: true, ..default() }).terrain, Vec4::ZERO);
         assert!(!NifSurfaceKey::from(&NifSurface::default()).pipboy_screen);
         assert!(include_str!("nif_material.wesl").contains("@if(PIPBOY_SCREEN)"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);

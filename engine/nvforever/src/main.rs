@@ -514,7 +514,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
+    /// water-reflections, terrain-height-blend, terrain-anti-tiling) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
@@ -1229,7 +1229,7 @@ fn main() -> AppExit {
         }
     }
     if let Some(id) = interior {
-        sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
+        sky_state.interior = world::effective_cell_lighting(&world, None, id);
         sky_state.interior_grade = sky::SkyState::cell_grade(world.lo, world.schema, id);
     }
     if let Some(f) = args.fog.as_deref() {
@@ -1589,7 +1589,7 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region.after(nvf_play::PlaySet::Physics), sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, world::note_other_cameras.after(world::stream))
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
@@ -1627,6 +1627,8 @@ fn main() -> AppExit {
     .add_systems(Update, timelapse.after(sky::update_sky))
     // The sun's cascades reach behind the player's body (sky::SUN_REACH_BACK).
     // Only the sun's casters that can shade the view's slice of each cascade (#1378).
+    // Placed models' and effect models' billboard nodes face the camera (#2549).
+    .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
     .add_systems(PostUpdate, sky::reach_toward_sun.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(bevy::light::SimulationLightSystems::UpdateLightFrusta))
     .add_systems(Startup, (crash::report_start, report_archives))
@@ -1681,7 +1683,7 @@ fn main() -> AppExit {
         // The loading screen sends the travel in the Input set and reads in `Last` whether
         // the renderer is done: both this frame.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space, world::cell_lighting).chain().after(nvf_play::PlaySet::Input).before(world::stream).before(sky::weather_region))
             .add_plugins(pipeline_gate::PipelineGatePlugin)
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
@@ -2209,26 +2211,54 @@ fn keys(
     input: nvf_play::pad::ActionButtons<KeyCode>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
+    mut held: Local<Option<(u8, bool, std::path::PathBuf)>>,
 ) {
     let input = input.snapshot();
+    // A screenshot under the Shift Hides Menus tweak: the HUD goes for a few frames, the
+    // picture is taken in the third, and the HUD comes back as it was (docs/design/tweaks.md).
+    if let Some((frame, was, path)) = held.as_mut() {
+        *frame += 1;
+        if *frame == 3 {
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+        }
+        if *frame >= 6 {
+            if let Some(h) = hidden.as_mut() {
+                h.0 = *was;
+            }
+            *held = None;
+        }
+        return;
+    }
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    // F12: a shot in the home's screenshots folder at the first free number, through the
-    // write guard. It went to the working folder unguarded, and the count restarted at 1
-    // each run, over the last run's shots [#1987].
-    if input.just_pressed(KeyCode::F12) {
+    // The screenshot key (F12, or the player's Screenshot Key tweak, docs/design/tweaks.md):
+    // a shot in the home's screenshots folder at the first free number, through the write
+    // guard. It went to the working folder unguarded, and the count restarted at 1 each
+    // run, over the last run's shots [#1987].
+    if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
         let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
         let path = fnv_install::first_unused(&dir, "nvforever-", "png");
         let ready = fnv_install::guard_write(&path, None)
             .map_err(|e| e.to_string())
             .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        let shift = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
         match ready {
             Ok(()) => {
                 info!("screenshot: {}", path.display());
-                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
+                    Some(h) => {
+                        *held = Some((0, h.0, path));
+                        h.0 = true;
+                    }
+                    None => {
+                        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+                    }
+                }
             }
             Err(e) => warn!("screenshot not taken: {e}"),
         }
@@ -2274,7 +2304,12 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     }
 }
 
-fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
+fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>, hold: Option<ResMut<nvf_play::pipboy::data::travel::WeatherHold>>) {
+    // A short fast travel under the player's Improved Weather tweak keeps the weather.
+    if let Some(mut h) = hold.filter(|h| h.0) {
+        h.0 = false;
+        sky.keep_weather_once();
+    }
     // The weather lists' gating globals as the scripts set them (VStoryEventHooverDamBattleStarted).
     for id in sky.gate_globals() {
         if let Ok(v) = sim.world.global(fnv_sim::FormId(id)) {

@@ -909,6 +909,23 @@ fn capped_destruction_fixture() -> Fixture {
     f
 }
 
+/// The Exploding Destructible Indicator tweak's list: an object burning toward a stage
+/// that explodes, until it gets there.
+#[test]
+fn a_burning_object_is_listed_until_it_explodes() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert!(g.burning_explosives().is_empty());
+    // 0.5 of 20: stage 0 (98 %), which burns, its later stage 2 explodes.
+    g.damage_object(acti, 0.5).unwrap();
+    assert_eq!(g.burning_explosives(), [(acti, FormId(0x893))]);
+    for _ in 0..8 {
+        g.damage_object(acti, 20.0);
+    }
+    assert!(g.burning_explosives().is_empty());
+}
+
 fn destruction_roundtrip<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
     let saved = serde_json::to_string(&g.snapshot()).unwrap();
     let back = serde_json::from_str::<fnv_game::game::GameSnapshot>(&saved).unwrap();
@@ -2450,4 +2467,136 @@ fn luck_skill_setting_fallback_preserves_loaded_overrides() {
     g.call_function(&ctx, &[ArgValue::Str("fOwnedUnknownSetting".into())]);
     assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("fOwnedUnknownSetting"))));
 
+}
+
+// IsActorDetected is catalogue-unnumbered: these controls go through the actual
+// compiler/decode/VM named call, not an opcode or a mirrored query helper.
+fn assert_actor_detected_query(g: &mut Game, target: u32, expected: f64) {
+    use fnv_game::game::RunCtx;
+    use fnv_script::vm::XVal;
+    let caller = if target == ADULT_REF { CHILD_REF } else { ADULT_REF };
+    let ctx = RunCtx { self_ref: Some(FormId(caller)), action_ref: Some(FormId(target)), ..Default::default() };
+    assert!(g.data.table.unnumbered.contains_key("isactordetected"));
+    assert_eq!(g.data.table.by_name("IsActorDetected"), None, "no invented native opcode");
+    assert_eq!(g.run_query("Begin Function {}\nSetFunctionValue GetActionRef\nEnd\n", ctx), Ok(XVal::Ref(target)), "real receiver admission");
+    let before = g.events.len();
+    let result = g.run_query("ref receiver\nBegin Function {}\nlet receiver := GetActionRef\nSetFunctionValue (receiver.IsActorDetected)\nEnd\n", ctx);
+    eprintln!("IsActorDetected target={target:08X} caller={caller:08X} result={result:?} events={:?}", &g.events[before..]);
+    assert_eq!(result, Ok(XVal::Num(expected)), "actual compiled explicit-receiver result");
+    assert!(!g.events[before..].iter().any(|e| matches!(e.kind,
+        EventKind::Stub { .. } | EventKind::Unhandled { .. } | EventKind::CallFailed { .. }
+        | EventKind::ScriptError { .. } | EventKind::Skipped { .. } | EventKind::ArgUnread { .. })),
+        "a stub's zero is not a successful negative: {:?}", &g.events[before..]);
+}
+
+fn actor_detected_seen(g: &mut Game, detector: u32, target: u32) {
+    use fnv_game::detection::{Band, Settings, Situation};
+    let seen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: true, light: 80.0, ..Default::default() };
+    let (d, _) = g.detect(&Settings::default(), FormId(detector), FormId(target), &seen);
+    assert_eq!(d.band, Band::Detected, "real detection producer precondition: {d:?}");
+}
+
+#[test]
+fn is_actor_detected_uses_incoming_pairs_and_explicit_receiver() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    assert_actor_detected_query(&mut g, CHILD_REF, 0.0);
+    let mut cold = game(&f);
+    assert!(cold.detection.pairs.is_empty());
+    assert_actor_detected_query(&mut cold, ADULT_REF, 0.0);
+    actor_detected_seen(&mut cold, ADULT_REF, CHILD_REF);
+    assert_actor_detected_query(&mut cold, ADULT_REF, 0.0);
+    assert_actor_detected_query(&mut cold, CHILD_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_excludes_player_and_self_but_keeps_teammates() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, PLAYER, ADULT_REF);
+    assert_eq!(call(&mut g, 0x102D, Some(PLAYER), &[r(ADULT_REF)]), 1.0, "GetDetected still accepts player perception");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, ADULT_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, PLAYER);
+    assert_actor_detected_query(&mut g, PLAYER, 0.0);
+    call(&mut g, 0x11C5, Some(CHILD_REF), &[n(1.0)]);
+    assert!(g.with_player(FormId(CHILD_REF)), "actual teammate setup");
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_checks_any_typed_band_without_value_ordering() {
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut g = game(&f);
+    // The public typed cache accepts these authored rows. Query semantics must not
+    // assume that the largest numeric value has the only relevant band.
+    g.detection.record(FormId(CHILD_REF), FormId(ADULT_REF), Detection { value: 1.0, band: Band::Detected, ..Default::default() }, g.time);
+    g.detection.record(FormId(CREA_REF), FormId(ADULT_REF), Detection { value: 100.0, band: Band::Noticed, ..Default::default() }, g.time);
+    assert_eq!(g.detection.highest(FormId(ADULT_REF)).unwrap().1.band, Band::Noticed, "guard the max-value shortcut");
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    g.detection.forget(FormId(CHILD_REF));
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    g.detection.record(FormId(CREA_REF), FormId(ADULT_REF), Detection { value: -100.0, band: Band::Hidden, ..Default::default() }, g.time);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+}
+
+#[test]
+fn is_actor_detected_reuses_overwrite_forget_and_owner_expiry() {
+    use fnv_game::detection::{Band, Settings, Situation};
+    let f = fixture();
+    let mut g = game(&f);
+    g.time = 10.0;
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    let unseen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: false, light: 80.0, ..Default::default() };
+    let (d, _) = g.detect(&Settings::default(), FormId(CHILD_REF), FormId(ADULT_REF), &unseen);
+    assert_ne!(d.band, Band::Detected, "real remeasurement, not a cache erase");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    actor_detected_seen(&mut g, CREA_REF, PLAYER);
+    g.detection.forget(FormId(ADULT_REF));
+    assert!(g.detection.get(FormId(CREA_REF), FormId(PLAYER)).is_some(), "unrelated pair survives target-forget");
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    g.time = 10.75;
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0, "no private query TTL");
+    g.detection.forget_older_than(10.0);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    g.detection.forget_older_than(10.001);
+    assert_actor_detected_query(&mut g, ADULT_REF, 0.0);
+    assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);
+}
+
+#[test]
+fn is_actor_detected_restore_is_cold_until_actual_remeasurement() {
+    let f = fixture();
+    let mut g = game(&f);
+    actor_detected_seen(&mut g, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut g, ADULT_REF, 1.0);
+    let snapshot = g.checked_snapshot().unwrap();
+    let world = World::restore(&f.forms, &f.refs, &snapshot.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, GameConfig { strict: true, ..GameConfig::default() }, &snapshot).unwrap();
+    assert!(restored.detection.pairs.is_empty());
+    assert_actor_detected_query(&mut restored, ADULT_REF, 0.0);
+    actor_detected_seen(&mut restored, CHILD_REF, ADULT_REF);
+    assert_actor_detected_query(&mut restored, ADULT_REF, 1.0);
+}
+
+#[test]
+fn is_actor_detected_keeps_get_detected_level_and_los_neighbors() {
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut g = game(&f);
+    for (band, value, expected, level) in [(Band::Hidden, -100.0, 0.0, 1.0), (Band::Noticed, -10.0, 0.0, 2.0), (Band::Detected, 10.0, 1.0, 3.0)] {
+        g.detection.record(FormId(CHILD_REF), FormId(ADULT_REF), Detection { value, band, seen: true, ..Default::default() }, g.time);
+        assert_actor_detected_query(&mut g, ADULT_REF, expected);
+        assert_eq!(call(&mut g, 0x102D, Some(CHILD_REF), &[r(ADULT_REF)]), expected);
+        assert_eq!(call(&mut g, 0x10B4, Some(CHILD_REF), &[r(ADULT_REF)]), level);
+        assert_eq!(call(&mut g, 0x101B, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0, "line of sight is not the detection band");
+    }
 }

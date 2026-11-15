@@ -35,7 +35,9 @@ pub struct DeathsPlugin;
 
 impl Plugin for DeathsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, show_hits_and_deaths.after(nvf_play::PlaySet::Activation));
+        // [design, #2531] Consume test kills this frame so PostUpdate can start their
+        // ragdolls before the next Physics volume sync and Activation dismemberment.
+        app.add_systems(Update, show_hits_and_deaths.after(nvf_play::PlaySet::Activation).after(nvf_play::knockouts::TestHitSet));
     }
 }
 
@@ -196,6 +198,41 @@ fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &World
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_kills_reach_death_handling_before_the_next_volume_sync_and_dismemberment() {
+        use bevy::ecs::schedule::{NodeId, Schedules};
+        use nvf_play::knockouts::{KnockoutsPlugin, TestHitSet};
+        use nvf_play::PlaySet;
+
+        let mut app = App::new();
+        app.add_plugins((DeathsPlugin, KnockoutsPlugin, nvf_play::hitvol::HitVolumePlugin, crate::ragdoll::RagdollPlugin));
+        let mut update = app.world_mut().resource_mut::<Schedules>().remove(Update).unwrap();
+        // [design: nvf-play/src/lib.rs::PlayPlugin and combat.rs::CombatPlugin]
+        update.configure_sets((PlaySet::Physics, PlaySet::Activation).chain());
+        update.add_systems(nvf_play::dismember::resolve.in_set(PlaySet::Activation));
+        update.initialize(app.world_mut()).unwrap();
+        let systems: Vec<_> = update.systems().unwrap().map(|(key, s)| (key, s.name().to_string())).collect();
+        let at = |suffix: &str| systems.iter().position(|(_, n)| n.ends_with(suffix)).unwrap();
+        let producer = at("knockouts::test_hits");
+        let death = at("deaths::show_hits_and_deaths");
+        let sync = systems.iter().position(|(_, n)| n.contains("hitvol::sync_volumes")).unwrap();
+        let resolve = at("dismember::resolve");
+        assert!(sync < resolve && resolve < producer && producer < death, "{systems:?}");
+
+        // [design, #2531] Require a real dependency, so a coincidental topological
+        // order cannot hide the race; also verify the actual producer belongs to it.
+        let graph = update.graph();
+        let hits = graph.system_sets.get_key(TestHitSet.intern()).unwrap();
+        assert!(graph.systems_in_set(TestHitSet.intern()).unwrap().contains(&systems[producer].0));
+        assert!(graph.dependency().graph().contains_edge(NodeId::Set(hits), NodeId::System(systems[death].0)));
+
+        // [design: ragdoll.rs::RagdollPlugin] Ragdoll creation runs after this
+        // Update's death handling, before the next Update's sync then resolve.
+        let mut post = app.world_mut().resource_mut::<Schedules>().remove(PostUpdate).unwrap();
+        post.initialize(app.world_mut()).unwrap();
+        assert!(post.systems().unwrap().any(|(_, s)| s.name().ends_with("ragdoll::start")));
+    }
 
     fn hit(form_id: u32, died: bool) -> ActorHit {
         ActorHit { form_id, died, knocked_out: false, location: 0, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 0.5, guard_broken: false, weapon: None }

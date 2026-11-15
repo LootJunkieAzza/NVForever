@@ -26,6 +26,9 @@ pub enum Action {
     Unlock,
     /// Locked, no key.
     Locked { level: u8 },
+    /// A locked terminal the player's password note opens (the Show Use Password tweak,
+    /// docs/design/tweaks.md).
+    UsePassword,
     Talk,
     /// A living actor the sneaking player may pickpocket (`crate::pickpocket`).
     Steal,
@@ -49,6 +52,9 @@ pub enum Action {
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
+    /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
+    /// Companions tweak, docs/design/tweaks.md).
+    Revive,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -88,6 +94,8 @@ impl Action {
             Action::Travel { to: None } => "Open".into(),
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
+            // Our words for the tweak's prompt.
+            Action::UsePassword => "Locked (Use Password)".into(),
             Action::Talk => "Talk".into(),
             // [hypothesis: the original's word for picking a pocket]
             Action::Steal => "Steal".into(),
@@ -101,6 +109,8 @@ impl Action {
             Action::Name | Action::Hostile => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
+            // Our word for the tweak's prompt.
+            Action::Revive => "Revive".into(),
         }
     }
 }

@@ -66,7 +66,7 @@ fn app() -> App {
         .init_resource::<ShotVisuals>().init_resource::<crate::dismember::Dismemberment>()
         .init_resource::<held_grenade_probe::Probe>()
         .add_message::<ActorFire>().add_message::<ActorStrike>().add_message::<ShotFired>()
-        .add_message::<PlaySound>().add_message::<ActorHit>().add_message::<ActorPush>()
+        .add_message::<PlaySound>().add_message::<crate::sfx::ScaledSound>().add_message::<ActorHit>().add_message::<ActorPush>()
         .add_message::<ImpactFx>().add_message::<WeaponBroken>().add_message::<Knockback>()
         .add_message::<ExplosionFx>().add_message::<crate::world_sounds::ImpactPicked>()
         .add_message::<crate::RefChanged>()
@@ -241,7 +241,7 @@ fn consumer_app() -> App {
         .init_resource::<ShotVisuals>().init_resource::<crate::dismember::Dismemberment>()
         .init_resource::<held_grenade_probe::Probe>()
         .add_message::<ActorFire>().add_message::<ActorStrike>().add_message::<ShotFired>()
-        .add_message::<PlaySound>().add_message::<ActorHit>().add_message::<ActorPush>()
+        .add_message::<PlaySound>().add_message::<crate::sfx::ScaledSound>().add_message::<ActorHit>().add_message::<ActorPush>()
         .add_message::<ImpactFx>().add_message::<WeaponBroken>().add_message::<Knockback>()
         .add_message::<ExplosionFx>().add_message::<crate::world_sounds::ImpactPicked>()
         .add_message::<crate::RefChanged>()
@@ -402,3 +402,6 @@ fn fixed_random_multi_projectile_launch_preserves_order_and_full_spawn_state() {
     }
     typed_unchanged(&a);
 }
+
+#[path = "projectile_lifecycle_tests.rs"]
+mod lifecycle_tests;
