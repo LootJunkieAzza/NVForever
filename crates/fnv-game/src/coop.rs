@@ -574,24 +574,32 @@ impl Game<'_> {
         self.guest_opening(actor, greeting).iter().any(|c| Some(c.topic) != goodbye)
     }
 
-    /// What a guest's conversation with `actor` opens on: the choices `topic` (the
-    /// greeting) offers by itself, and before them those of the line of it the actor would
-    /// say, the first it can say (no random draw), whose words the guest does not hear.
-    /// Many vendors offer their trade only there: Genaro's "Need some grub?" greeting (INFO
-    /// 0012936A) lists the topic whose line opens his barter menu (0012936A's choices,
-    /// VFreeformFreesideVFSGenaroTopic000) [observed: FalloutNV.esm], and no top-level topic
-    /// does, so a guest was offered nothing (queue 2026-11-07 items 31, 39, 47).
+    /// What a guest's conversation with `actor` opens on: the choices of the line of
+    /// `topic` (the greeting) the actor would say, the first it can say (no random draw),
+    /// whose words the guest does not hear; with no such line, or one without choices, the
+    /// choices `topic` offers by itself (the top-level topics). That is what a player
+    /// alone gets ([`Game::build_choices`]: a line's own choices replace the top-level
+    /// list). Many vendors offer their trade only in the line's choices: Genaro's "Need
+    /// some grub?" greeting (INFO 0012936A) lists the topic whose line opens his barter
+    /// menu (0012936A's choices, VFreeformFreesideVFSGenaroTopic000) [observed:
+    /// FalloutNV.esm], and no top-level topic does, so a guest was offered nothing (queue
+    /// 2026-11-07 items 31, 39, 47).
+    ///
+    /// Never both. Long 15's Black Chip cashier is in the game's
+    /// VCasinoCashierDialogueFaction, the one condition of the vanilla cashiers'
+    /// top-level exchange topics, and its greeting (INFO 06004662) lists its own exchange.
+    /// A guest got both: "exchange caps for chips" twice, and Legion money, which the
+    /// Black Chip does not take [observed: Long15Reloaded.esm NPC_ 060045E7 SNAM 001584D7;
+    /// FalloutNV.esm vDialogueCasinoCashiervCashierTheTopsTopic009, 022 and 030, each
+    /// GetInFaction 001584D7; laptop co-op run 2026-11-15 14:00, six choices where the
+    /// same cashier alone offers three].
     pub(crate) fn guest_opening(&mut self, actor: FormId, topic: FormId) -> Vec<crate::dialogue::Choice> {
         let data = self.data;
-        let own = self.build_choices(actor, topic, &InfoDef::default());
         let said = data.lines_tried(topic).iter().copied().find(|&i| self.can_say(actor, Some(FormId::PLAYER_REF), i));
-        let Some(def) = said.and_then(|i| data.infos.get(&i)).filter(|d| !d.choices.is_empty()) else { return own };
+        let Some(def) = said.and_then(|i| data.infos.get(&i)).filter(|d| !d.choices.is_empty()) else {
+            return self.build_choices(actor, topic, &InfoDef::default());
+        };
         let mut out = self.build_choices(actor, topic, def);
-        for c in own {
-            if !out.iter().any(|o| o.info == c.info || o.topic == c.topic) {
-                out.push(c);
-            }
-        }
         // Goodbye last.
         let goodbye = data.goodbye;
         out.sort_by_key(|c| Some(c.topic) == goodbye);

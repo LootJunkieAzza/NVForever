@@ -101,6 +101,9 @@ fn a_guest_buys_black_chip_chips_and_says_goodbye() {
     listen(&mut g);
     let first = offered(&g);
     eprintln!("guest's first choices: {first:X?}");
+    // Its greeting's own choices only: not the vanilla cashiers' top-level exchange topics
+    // its cashier faction would also pass (laptop co-op run 2026-11-15, six choices).
+    assert_eq!(first, vec![menu, 0x4052, bye], "the greeting's caps, NCR and Goodbye choices only");
     assert!(lines.contains(&own(greeting)) || first.contains(&menu), "{first:X?}");
     assert!(first.contains(&bye), "the cashier's own Goodbye line is offered: {first:X?}");
     pick(&mut g, menu);

@@ -119,6 +119,14 @@ fn plugin_bytes_quest(vendor: bool, quest: &str) -> Vec<u8> {
 const QS: u32 = 0x901;
 
 fn plugin_bytes_starting(vendor: bool, quest: &str, starts: Option<&str>) -> Vec<u8> {
+    plugin_bytes_full(vendor, false, quest, starts)
+}
+
+/// `both`, with `vendor`: the greeting offers the exchange as its choice, and the cash-in
+/// and menu topics are top-level too, as a mod casino's cashier in the game's cashier
+/// faction gets the vanilla cashiers' top-level exchange topics [observed: Long15Reloaded.esm
+/// NPC_ 060045E7 in VCasinoCashierDialogueFaction 001584D7].
+fn plugin_bytes_full(vendor: bool, both: bool, quest: &str, starts: Option<&str>) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
     let suit = record(b"ARMO", 0, SUIT, &[sub(b"EDID", z("TestSuit")), sub(b"BMDT", [u32s(&[1 << 2]), vec![0; 4]].concat()), sub(b"DATA", [u32s(&[1, 100]), 1f32.to_le_bytes().to_vec()].concat())]);
@@ -131,7 +139,7 @@ fn plugin_bytes_starting(vendor: bool, quest: &str, starts: Option<&str>) -> Vec
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
     let top_level = 2u8;
-    let exchange_level = if vendor { 0 } else { top_level };
+    let exchange_level = if vendor && !both { 0 } else { top_level };
     let hello_choices: &[u32] = if vendor { &[T_BUY] } else { &[] };
     let dial = [
         // A greeting without choices: the conversation lists the top-level topics, as at
@@ -303,6 +311,27 @@ fn a_guest_gets_the_trade_its_greeting_offers() {
     assert!(got.contains(&I_BUY), "{got:X?}");
     assert!(!got.contains(&I_STORY) && !got.contains(&I_HELLO), "{got:X?}");
     assert_eq!(got.last(), Some(&I_BYE), "{got:X?}");
+}
+
+/// A greeting with choices of its own replaces the top-level topics, for a guest as for a
+/// player alone: a guest is offered the greeting's exchange and Goodbye, not the top-level
+/// exchange topics as well (laptop co-op run 2026-11-15: the Black Chip cashier offered a
+/// guest the vanilla cashiers' "exchange caps for chips" beside its own).
+#[test]
+fn a_guest_gets_only_its_greetings_choices_where_the_greeting_has_them() {
+    let f = fixture_of(plugin_bytes_full(true, true, "QCashier", None));
+    let cashier = FormId(CASHIER_REF);
+    let mut solo = game(&f, false);
+    solo.start_dialogue(cashier, None).unwrap();
+    listen(&mut solo);
+    let alone = offered(&solo);
+    assert!(alone.contains(&I_BUY) && !alone.contains(&I_CASH_IN) && !alone.contains(&I_MENU), "{alone:X?}");
+
+    let mut g = game(&f, true);
+    g.start_dialogue(cashier, None).unwrap();
+    listen(&mut g);
+    let got = offered(&g);
+    assert_eq!(got, vec![I_BUY, I_BYE], "{got:X?}");
 }
 
 #[test]
