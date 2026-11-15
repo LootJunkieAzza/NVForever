@@ -23,6 +23,10 @@ struct FireParams {
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> fire: FireParams;
 
+// The march's bounds (fire_volume.rs MIN_STEPS / MAX_STEPS).
+const MIN_STEPS: i32 = 4;
+const MAX_STEPS: i32 = 40;
+
 fn frag_coord_to_ndc(fc: vec4<f32>) -> vec3<f32> {
     let uv = (fc.xy - view.main_pass_viewport.xy) / view.main_pass_viewport.zw;
     return vec3(uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), fc.z);
@@ -60,17 +64,34 @@ fn fbm(p: vec3<f32>) -> f32 {
 
 // Flame density and heat at `q` (x and z across, in heights; y up, 0 at the base and
 // 1 at the top), at time `t`.
+// Two octaves, for the swirl that bends the flame (four were three times its cost and
+// not seen apart, fire_volume.rs "Cost").
+fn fbm2(p: vec3<f32>) -> f32 {
+    return 0.5 * noise3(p) + 0.25 * noise3(p * 2.03 + vec3(1.7, 9.2, 4.1));
+}
+
 fn flame(q: vec3<f32>, t: f32) -> vec2<f32> {
     let seed = fire.shape.z;
     let freq = fire.look.x;
     let radius = fire.shape.x / fire.base.w;
+    // Past the teardrop's reach whatever the noise does (the swirl pushes at most
+    // 0.71 x swirl x (0.2 + height) aside, the noise adds at most 0.44 x (1 + 1.4 x height)):
+    // empty, and no noise is drawn for it. Most of the box's corners are.
+    if q.y <= 0.0 || q.y >= 1.0 {
+        return vec2(0.0);
+    }
+    let w = radius * (1.0 - q.y) * (0.7 + 0.3 * smoothstep(0.0, 0.2, q.y));
+    let reach = 0.71 * abs(fire.look.w) * (0.2 + q.y);
+    let most = (1.0 - max(length(q.xz) - reach, 0.0) / max(w, 1e-3)) * fire.look.z + 0.44 * (1.0 + 1.4 * q.y) - q.y * 0.45;
+    if fire.look.z >= 0.0 && most <= 0.0 {
+        return vec2(0.0);
+    }
     // Rising, swirling noise: faster and wilder higher up, as hot gas speeds up.
     let rise = vec3(0.0, t * 1.2, 0.0);
-    let warp = vec3(fbm(q * 2.0 - rise + seed), 0.0, fbm(q * 2.0 - rise + seed + 7.3)) - vec3(0.5, 0.0, 0.5);
+    let warp = (vec3(fbm2(q * 2.0 - rise + seed), 0.0, fbm2(q * 2.0 - rise + seed + 7.3)) - vec3(0.375, 0.0, 0.375)) * 1.33;
     let p = q + warp * fire.look.w * (0.2 + q.y);
     let n = fbm(vec3(p.x * freq, p.y * freq * 0.55 - t * 2.4, p.z * freq) + seed);
-    // A teardrop: widest a little above the base, closing to the tip.
-    let w = radius * (1.0 - q.y) * (0.7 + 0.3 * smoothstep(0.0, 0.2, q.y));
+    // A teardrop: widest a little above the base, closing to the tip (`w` above).
     let body = 1.0 - length(p.xz) / max(w, 1e-3);
     let d = body * fire.look.z + (n - 0.5) * (1.0 + 1.4 * q.y) - q.y * 0.45;
     // Sharp-edged: the noise cuts the body into tongues.
@@ -112,10 +133,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             leave = min(leave, distance(scene, eye));
         }
     }
-    if leave <= enter {
+    if !(leave > enter) || leave - enter > 4.0 * (h + 2.0 * r) {
         discard;
     }
-    let steps = i32(fire.shape.w);
+    // The steps fire_volume.rs chose for this flame's share of the screen, never more
+    // than MAX_STEPS whatever the uniform holds (a NaN or a huge value would march for
+    // ever: fire_volume.rs "Cost").
+    let wanted = fire.shape.w;
+    let steps = clamp(select(MIN_STEPS, i32(wanted), wanted == wanted && wanted >= 1.0), MIN_STEPS, MAX_STEPS);
     let step = (leave - enter) / f32(steps);
     // A per-pixel start offset hides the steps' banding.
     let jitter = fract(52.9829189 * fract(dot(in.position.xy, vec2(0.06711056, 0.00583715))) + globals.time * 7.0);
