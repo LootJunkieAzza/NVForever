@@ -802,6 +802,48 @@ fn god_mode_keeps_damaging_effects_off_the_player() {
     assert!(near(av(&mut g, RAD_LEVEL), 10.0));
 }
 
+/// In god mode the player's Action Points are never spent, by the engine (a VATS attack,
+/// a tweak's cost: `add_actor_value_damage`) or by a script's DamageActorValue (owner
+/// decision 2026-11-15, #2743). Without it both take them.
+#[test]
+fn god_mode_keeps_the_players_action_points() {
+    const ACTION_POINTS: u16 = 12;
+    let f = fixture();
+    let mut g = game(&f);
+    let full = av(&mut g, ACTION_POINTS);
+    g.toggles.god_mode = true;
+    add_actor_value_damage(&mut g, P, ACTION_POINTS, 26.0);
+    call(&mut g, 0x1181, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(10.0))]);
+    assert_eq!(av(&mut g, ACTION_POINTS), full);
+    g.toggles.god_mode = false;
+    add_actor_value_damage(&mut g, P, ACTION_POINTS, 26.0);
+    call(&mut g, 0x1181, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(10.0))]);
+    assert!(near(av(&mut g, ACTION_POINTS), full - 36.0));
+    // What was spent before god mode came on can still come back in it.
+    g.toggles.god_mode = true;
+    call(&mut g, 0x1182, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(36.0))]);
+    assert_eq!(av(&mut g, ACTION_POINTS), full);
+}
+
+/// In god mode the player's rads do not rise from a script's DamageActorValue or
+/// ModActorValue (#2743); they still fall. Without it both raise them.
+#[test]
+fn god_mode_keeps_rads_off_the_player() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_actor_value_current(&mut g, P, RAD_LEVEL, 100.0).unwrap();
+    g.toggles.god_mode = true;
+    call(&mut g, 0x1181, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    call(&mut g, 0x1010, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    assert_eq!(av(&mut g, RAD_LEVEL), 100.0);
+    call(&mut g, 0x1182, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(40.0))]);
+    assert!(near(av(&mut g, RAD_LEVEL), 60.0));
+    g.toggles.god_mode = false;
+    call(&mut g, 0x1181, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    call(&mut g, 0x1010, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    assert!(near(av(&mut g, RAD_LEVEL), 160.0));
+}
+
 /// Buffout's +2 Strength raises the carry capacity the menus show by 20 while it lasts
 /// (aid-items.md §12).
 #[test]

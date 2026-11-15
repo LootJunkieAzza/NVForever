@@ -13066,6 +13066,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "god-mode-vats-ap-condition"
+source = "issue #2743 (owner decision 2026-11-15): in god mode the player has unlimited Action Points and the weapon loses no condition. vats-mode-two-marks's run"
+note = "vats-mode-two-marks's setup (god mode, the .357, two dogs marked and shot): each attack's 26 AP is counted as its cost and none is taken from the player; the two shots wear the revolver by nothing"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: god mode: Action Points are unlimited, an attack takes none \((?P<n>\d+) now\)', range = [1, 1000], label = "entering VATS in god mode: the AP are unlimited" },
+  { re = 'vats mode: marked .* mark 2; 52 AP reserved, unlimited AP left', label = "two marks, not held to the AP" },
+  { re = "vats mode: god mode: attack 1 takes none of the player's Action Points: \\d+ left", label = "the first attack takes none" },
+  { re = "vats mode: god mode: attack 2 takes none of the player's Action Points: \\d+ left", label = "nor the second" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "both shots fired (52 AP their cost)" },
+]]
+expect = [
+  { re = "condition summary: the player's weapons lost 0\\.0 health, .*, armour lost 0\\.0 health", label = "the revolver and the armour lost no condition" },
+]
+
+[[scenario]]
 name = "vats-classic-queue"
 source = "fork owner 2026-11-09: the original's VATS flow as the default style, the world stopped while targets are chosen (docs/design/vats-classic.md §2 to §7)"
 note = "vats-mode-two-marks's setup in the classic style at its default, a full stop: the player turns to a dog at 9.8 s, V at 10 s finds the targets and stops the clock (speed 0; the aids' clock then counts real time, so the later keys still come); S moves to another part, the left button queues two attacks on it, E plays them at half speed while the player takes fVATSPlayerDamageMult of a hit. 2 x 26 = 52 AP"
@@ -15381,10 +15401,10 @@ expect = [
 [[scenario]]
 name = "explosion-radiation"
 source = "docs/spec-notes/radiation.md §2.1: a Fat Man fired at the ground by the Prospector Saloon (as fatman-explosion-particles, aimed steeper) leaves FatManNukeExplosion's radiation zone (EXPL: 10 rads a second within 616 units, dissipation 12 s): the player in it takes rads, its level fades, waiting is refused while it irradiates, and it fades away"
-note = "NVF_PLAY_TEST_GOD keeps the player alive at the blast (it lands about 100 units ahead, about 6 s in); the wait opens at 9 s, inside the zone's 12 s"
+note = "the player's Health is set to 50000 by the console at 1 s to live through the blast (god mode did that until #2743, where it came to keep the rads off too: god-mode-no-rads); the blast (it lands about 100 units ahead, about 6 s in); the wait opens at 9 s, inside the zone's 12 s"
 areas = ["radiation", "combat", "wait"]
 paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/wait.rs", "crates/fnv-game/src/needs.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_WAIT = "9:open" }
+env = { NVF_PLAY_TEST_CONSOLE = "1:player.setav health 50000;1.5:close", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_WAIT = "9:open" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 26
 order = [[
@@ -15398,6 +15418,26 @@ order = [[
 expect = [
   { re = 'wait menu: refused \(wait\): the player is taking radiation damage', label = "no waiting while it irradiates" },
   { re = 'radiation summary: .*\(\+(?P<n>[\d.]+)\).*, 1 explosion zone\(s\)', range = [20, 70], label = "rads taken in the zone (at most 60 before Rad Resistance)" },
+]
+
+[[scenario]]
+name = "god-mode-no-rads"
+source = "issue #2743 (owner decision 2026-11-15): in god mode the player gains no radiation. explosion-radiation's Fat Man blast, as it ran before, with god mode on"
+note = "NVF_PLAY_TEST_GOD keeps the player alive at the blast and, since #2743, its rads where they were; no wait is asked for"
+areas = ["radiation", "combat", "wait"]
+paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/wait.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 26
+order = [[
+  { re = 'combat: explosion FatManNukeExplosion at', label = "the Fat Man's blast, in god mode" },
+  { re = 'radiation: explosion FatManNukeExplosion leaves a radiation zone \(#1\): 10\.0 rads/s within 616 units, fading over 12 s', label = "it leaves its radiation zone" },
+  { re = 'radiation: level (10|9)\.\d rads/s \(zone of FatManNukeExplosion (10|9)\.\d\), taking 0\.00/s', label = "the player stands in the zone and takes none of it" },
+  { re = 'radiation: the zone of FatManNukeExplosion \(#1\) has faded', label = "the zone ends" },
+]]
+expect = [
+  { re = 'radiation summary: .*\(\+0\.0\).*, 1 explosion zone\(s\)', label = "no rads gained in the zone" },
+  { re = 'radiation: level .* taking (0\.0[1-9]|0\.[1-9]\d|[1-9]\d*\.\d\d)/s', count = 0, label = "never taking any" },
 ]
 
 [[scenario]]
