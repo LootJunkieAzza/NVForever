@@ -192,6 +192,8 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         since_attack: f32::INFINITY,
         attack_loop: None,
         wound_up: None,
+        wound_hit: None,
+        sighting2: None,
         attack_eject: None,
         ejected: false,
         carry: None,
@@ -235,6 +237,7 @@ fn neutral_frame(dt: f32) -> Frame {
         equip_rate: 1.0,
         spin_now: false,
         wind_now: false,
+        throw_held: false,
     }
 }
 

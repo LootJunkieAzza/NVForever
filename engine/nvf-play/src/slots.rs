@@ -398,9 +398,14 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
+    // The player's tweak: W held spins again each time the reels stop [design: docs/design/tweaks.md].
+    if tweaks.is_some_and(|t| t.slots_hold_to_spin) && keys.pressed(KeyCode::KeyW) && !keys.just_pressed(KeyCode::KeyW) && s.betting() {
+        out.write(SlotsInput::Spin);
+        return;
+    }
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
             out.write(SlotsInput::CloseHelp);

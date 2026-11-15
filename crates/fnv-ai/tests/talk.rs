@@ -4,6 +4,7 @@
 //! (Dialogue Package, "Behavior"). The greeting opens a conversation, also with the
 //! Goodbye flag (`fixture_with`): the package's force greet holds the player.
 
+use fnv_ai::errand::Act;
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Talking};
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -160,7 +161,8 @@ const P_MUTE: u32 = 0x835;
 const P_WANDER: u32 = 0x836;
 const P_SEATED: u32 = 0x837;
 const P_STAND: u32 = 0x838;
-const P_HOLD: u32 = 0x839;
+const P_FIND_PLAYER: u32 = 0x839;
+const P_HOLD: u32 = 0x83A;
 // Bases.
 const N_GREET: u32 = 0x840;
 const N_COME: u32 = 0x841;
@@ -171,7 +173,8 @@ const N_MUTE: u32 = 0x845;
 const N_IDLE: u32 = 0x846;
 const N_SEATED: u32 = 0x847;
 const N_STAND: u32 = 0x848;
-const N_HOLD: u32 = 0x849;
+const N_FINDER: u32 = 0x849;
+const N_HOLD: u32 = 0x84A;
 // The cell and its references.
 const CELL: u32 = 0x860;
 const TRIGGER: u32 = 0x870;
@@ -187,7 +190,8 @@ const R_MUTE: u32 = 0x885;
 const R_IDLE: u32 = 0x886;
 const R_SEATED: u32 = 0x887;
 const R_STAND: u32 = 0x888;
-const R_HOLD: u32 = 0x889;
+const R_FINDER: u32 = 0x889;
+const R_HOLD: u32 = 0x88A;
 
 const PLAYER: u32 = 0x14;
 const GOODBYE: u16 = 0x0001;
@@ -231,6 +235,9 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         // A Wander package about its editor location, no Fallout behaviour flags set (so all
         // of them allowed).
         record(b"PACK", P_WANDER, &[sub(b"EDID", z("WanderHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[5, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
+        // A Find for the player near its editor location, radius 0: Cachino's
+        // vGomorrahCachinoDialoguePackage (issue #2473, packages.md section 10).
+        record(b"PACK", P_FIND_PLAYER, &[sub(b"EDID", z("FindThePlayer")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[0, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()), sub(b"PTDT", triple(player))]),
         // A Travel package to its editor location: the actor stands where it was placed.
         record(b"PACK", P_STAND, &[sub(b"EDID", z("StandHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[6, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
     ]
@@ -246,6 +253,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         npc(N_IDLE, "Idler", &[P_WANDER]),
         npc(N_SEATED, "Sitter", &[P_SEATED]),
         npc(N_STAND, "Stander", &[P_STAND]),
+        npc(N_FINDER, "Finder", &[P_FIND_PLAYER]),
         npc(N_HOLD, "Holder", &[P_HOLD]),
     ]
     .concat();
@@ -272,6 +280,7 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         placed(b"REFR", R_STOOL, "StoolRef", STOOL, STOOL_AT, None),
         placed(b"ACHR", R_SEATED, "SitterRef", N_SEATED, CORNER, None),
         placed(b"ACHR", R_STAND, "StanderRef", N_STAND, CORNER, None),
+        placed(b"ACHR", R_FINDER, "FinderRef", N_FINDER, CORNER, None),
         placed(b"ACHR", R_HOLD, "HolderRef", N_HOLD, GREETER, None),
     ]
     .concat();
@@ -1371,4 +1380,25 @@ fn a_restrained_actor_with_a_dialogue_package_talks_without_moving() {
     s.run(10.0);
     assert_eq!(s.talks(), 1, "{:?}", s.events());
     assert_eq!(s.agent(R_COME).talk, Some(Talking::Done));
+}
+
+/// Cachino's case (issue #2473): a Find package for the player near the editor location
+/// with radius 0 goes after the player well beyond the 512 of a radius 0 search area, and
+/// on reaching them starts a conversation (a force greet, packages.md section 10). Before,
+/// the player 1,400 units off was not in the area: "finds nothing more", and it stood.
+#[test]
+fn a_find_package_for_the_player_goes_to_them_anywhere_and_greets() {
+    let f = fixture();
+    let far = [1100.0, 1100.0, 0.0];
+    let mut s = sim(&f, R_FINDER, far);
+    s.run(30.0);
+    let ev = s.events();
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::NothingFound { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::FindGoes { object, .. } if *object == FormId::PLAYER_REF)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Found { object, act: Act::Greets, .. } if *object == FormId::PLAYER_REF)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Talk { target, say_to: false, .. } if *target == FormId::PLAYER_REF)), "{ev:?}");
+    // The conversation opened (its one line is over by now): GetTalkedToPC reads 1,
+    // which ends Cachino's package.
+    assert!(s.game.extra.get(&FormId(R_FINDER)).is_some_and(|e| e.talked_to_pc), "it talked to the player");
+    assert!(flat(s.agent(R_FINDER).walker.feet, far) < 120.0, "it went up to the player");
 }

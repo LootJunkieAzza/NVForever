@@ -147,6 +147,12 @@ pub struct Settings {
     /// Lock [15%]" at Lockpick 30 on an Easy lock (25), on the owner's screenshots].
     pub force_per_point: f32,
     pub force_max: f32,
+    /// NVForever's tweak (docs/design/tweaks.md): percent added to the force chance with
+    /// the pin on the sweet spot's middle, less the further it is, none 90° away.
+    pub force_near_bonus: f32,
+    /// NVForever's tweak (docs/design/tweaks.md): a failed Force Lock breaks the pin, not
+    /// the lock.
+    pub force_spares_lock: bool,
 }
 
 impl Default for Settings {
@@ -163,6 +169,8 @@ impl Default for Settings {
             new_pin_seconds: 1.45,
             force_per_point: 3.0,
             force_max: 95.0,
+            force_near_bonus: 0.0,
+            force_spares_lock: false,
         }
     }
 }
@@ -402,7 +410,13 @@ impl Picking {
 
     /// The chance to force this lock, 0 to 100.
     pub fn force_chance(&self) -> f32 {
-        force_chance(self.level, self.skill, &self.settings)
+        let base = force_chance(self.level, self.skill, &self.settings);
+        // The tweak's bonus near the sweet spot [design: docs/design/tweaks.md].
+        let near = (1.0 - (self.pin - self.sweet).abs() / 90.0).clamp(0.0, 1.0);
+        if self.settings.force_near_bonus <= 0.0 || self.level == Level::RequiresKey {
+            return base;
+        }
+        (base + self.settings.force_near_bonus * near).clamp(0.0, self.settings.force_max)
     }
 
     /// Force the lock with a roll in [0, 100): it opens when the roll is under the
@@ -416,6 +430,13 @@ impl Picking {
             self.turn = FULL_TURN;
             self.phase = Phase::Open;
             Some(true)
+        } else if self.settings.force_spares_lock {
+            // The tweak: only the pin breaks; the next goes in as after a snap [design: docs/design/tweaks.md].
+            self.pins = (self.pins - 1).max(0);
+            self.health = 0.0;
+            self.turn = 0.0;
+            self.phase = if self.pins > 0 { Phase::PinBroken { since: 0.0 } } else { Phase::OutOfPins };
+            Some(false)
         } else {
             self.pins = (self.pins - 1).max(0);
             self.health = 0.0;
@@ -451,7 +472,8 @@ impl Locks {
 /// The help message to show as the menu opens: its title and text the first time (and it
 /// counts as shown from then on), else `None`. `None` too without the message record.
 pub fn first_help(g: &mut Game) -> Option<(String, String)> {
-    if g.locks.help_shown {
+    // The player's tweak: no first-time help [design: docs/design/tweaks.md].
+    if g.locks.help_shown || g.tweaks.no_tutorials {
         return None;
     }
     let m = g.data.messages.get(&HELP_MESSAGE)?;
@@ -497,7 +519,16 @@ pub fn opening(g: &mut Game, reference: FormId, skill: f32) -> Opening {
     if again {
         tracing::info!("lockpick: {reference} is broken; Ignore Broken Lock (Infiltrator) gives one more try");
     }
-    match may_pick(level, skill, n, broken && !again) {
+    // The player's tweak: a lock well under the skill opens at once [design: docs/design/tweaks.md]; the door or
+    // container is then used with the next press.
+    if g.tweaks.skip_easy_locks && !broken && level.required_skill().is_some_and(|n| skill >= n + g.tweaks.skip_lock_margin) {
+        tracing::info!("lockpick: {reference} opened without the game (Lockpick {skill}, tweak)");
+        opened(g, reference, level, true);
+        return Opening::NotLocked;
+    }
+    // The player's tweak: the skill is not asked for (the lock itself plays as before) [design: docs/design/tweaks.md].
+    let asked = if g.tweaks.pick_locks_without_skill { skill.max(100.0) } else { skill };
+    match may_pick(level, asked, n, broken && !again) {
         Ok(()) => Opening::Pick { level, skill, pins: n },
         Err(r) => Opening::Refused(r),
     }
@@ -596,6 +627,31 @@ mod tests {
         assert_eq!(max_turn(100.0, 10.0, &st), st.play);
         // Halfway across the ring: half a turn.
         assert!((max_turn(10.0 + 22.5, 10.0, &st) - 45.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_tweak_adds_to_force_lock_near_the_sweet_spot() {
+        // Lockpick 30 on an Easy lock: 15% plain; with a 40% bonus, 55% on the middle,
+        // 35% 45 degrees off, 15% at 90 and beyond.
+        let settings = Settings { force_near_bonus: 40.0, ..s() };
+        let mut p = Picking::new(Level::Easy, 30.0, 3, 0.5, settings);
+        let middle = p.sweet;
+        for (off, want) in [(0.0, 55.0), (45.0, 35.0), (90.0, 15.0)] {
+            p.pin = middle + off;
+            assert!((p.force_chance() - want).abs() < 1e-3, "{off}: {}", p.force_chance());
+        }
+        assert_eq!(Picking::new(Level::Easy, 30.0, 3, 0.5, s()).force_chance(), 15.0);
+    }
+
+    #[test]
+    fn the_tweak_keeps_the_lock_when_forcing_fails() {
+        let mut p = Picking::new(Level::Easy, 30.0, 2, 0.5, Settings { force_spares_lock: true, ..s() });
+        assert_eq!(p.force(99.0), Some(false));
+        assert!(matches!(p.phase, Phase::PinBroken { .. }), "{:?}", p.phase);
+        assert_eq!(p.pins, 1);
+        let mut q = Picking::new(Level::Easy, 30.0, 2, 0.5, s());
+        assert_eq!(q.force(99.0), Some(false));
+        assert_eq!(q.phase, Phase::LockBroken);
     }
 
     #[test]

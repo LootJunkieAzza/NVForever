@@ -227,10 +227,14 @@ fn quest_targets(g: &mut Game, ctx: &ConsoleCtx) -> Vec<QuestTarget> {
     out
 }
 
-/// The door outdoors into an interior cell a marker stands at, if one leads there: (its
-/// cell, position) (`quest_targets::marker_door`).
-fn door_into(g: &Game, cell: FormId, ignores_locks: bool) -> Option<(FormId, [f32; 3])> {
-    let door = crate::quest_targets::marker_door(&g.world, &g.doors_into(cell), ignores_locks)?;
+/// The door outdoors a marker for a target in an interior cell stands at, if a way leads
+/// there: (its cell, position) (`quest_targets::outdoor_marker_door`: a door straight in,
+/// else the first door outdoors of the way through other interiors, #2458).
+fn door_into(g: &mut Game, cell: FormId, ignores_locks: bool) -> Option<(FormId, [f32; 3])> {
+    let direct = g.doors_into(cell);
+    let refs = g.world.placed;
+    let graph = g.other.objective_doors.get_or_insert_with(|| crate::quest_targets::DoorGraph::build(refs));
+    let door = crate::quest_targets::outdoor_marker_door(&g.world, graph, &direct, cell, ignores_locks)?;
     let d = g.world.placed.get(door)?;
     Some((d.cell?, d.pos))
 }

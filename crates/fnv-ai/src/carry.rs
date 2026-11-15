@@ -457,7 +457,7 @@ pub enum Talking {
 
 /// Whether `actor` is saying its greeting at the player outside a conversation
 /// (`Speech::greeting`).
-fn greets(game: &Game, actor: FormId) -> bool {
+pub(crate) fn greets(game: &Game, actor: FormId) -> bool {
     game.speech.iter().any(|s| s.greeting && s.speaker == actor)
 }
 
@@ -727,7 +727,7 @@ pub struct Ai {
     /// Actors near enough to force-greet the one their Dialogue package names but with a
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
-    unseen_greets: std::collections::BTreeSet<FormId>,
+    pub(crate) unseen_greets: std::collections::BTreeSet<FormId>,
     /// Actors leading the player into their trigger location ([`Ai::lead_player`]): the
     /// player's nearest approach to the lead's point so far and when it last grew
     /// nearer, so that a walk that gets no nearer (something solid in the way) ends.

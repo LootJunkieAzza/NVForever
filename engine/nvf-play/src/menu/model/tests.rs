@@ -1227,6 +1227,63 @@ fn a_modded_weapon_is_worth_its_mods_on_top() {
     assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
 }
 
+#[test]
+fn barter_kind_mults_pick_the_side_and_kind() {
+    let k = BarterKindMults { sell: [0.5, 0.6, 0.7, 0.8, 0.9, 1.1], buy: [2.0, 2.1, 2.2, 2.3, 2.4, 2.5], water_unscaled: true };
+    assert_eq!(k.of(false, Some(ItemKind::Weapon), false), 0.6);
+    assert_eq!(k.of(true, Some(ItemKind::ItemMod), false), 2.5);
+    assert_eq!(k.of(true, Some(ItemKind::Book), false), 2.4);
+    assert_eq!(k.of(true, Some(ItemKind::Aid), true), 1.0);
+    assert_eq!(BarterKindMults { water_unscaled: false, ..k }.of(true, Some(ItemKind::Aid), true), 2.2);
+}
+
+/// Take All Confirmation: the first Take All asks, the next takes.
+#[test]
+fn take_all_asks_first_under_the_tweak() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.take_all_confirm = Some(1);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(!a.changed && m.confirming_take_all(), "{:?}", m.status);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(a.changed);
+    assert!(m.list(Side::Container).rows.is_empty());
+}
+
+/// The Clicking the Tab Sorts tweak's orders: value, then weight, the most first, name
+/// order kept between equals; name brings the usual order back.
+#[test]
+fn the_player_list_sorts_by_value_or_weight() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let m = MenuModel::open_inventory(&mut w).unwrap();
+    let row = m.list(Side::Player).rows[0].clone();
+    let mk = |name: &str, value, weight| Row { name: name.into(), value: Some(value), weight: Some(weight), ..row.clone() };
+    let base = vec![mk("a", 5, 1.0), mk("b", 20, 0.5), mk("c", 5, 9.0)];
+    let names = |rows: &[Row]| rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+    let mut rows = base.clone();
+    SortBy::Value.apply(&mut rows);
+    assert_eq!(names(&rows), ["b", "a", "c"]);
+    let mut rows = base.clone();
+    SortBy::Weight.apply(&mut rows);
+    assert_eq!(names(&rows), ["c", "a", "b"]);
+    let mut rows = base.clone();
+    SortBy::Name.apply(&mut rows);
+    assert_eq!(names(&rows), ["a", "b", "c"]);
+    assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
+}
+
+/// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
+#[test]
+fn a_companion_takes_no_more_than_it_can_carry() {
+    assert_eq!(carry_cap(10, 2.0, 7.0), 3);
+    assert_eq!(carry_cap(10, 2.0, 100.0), 10);
+    assert_eq!(carry_cap(10, 2.0, 1.0), 1);
+    assert_eq!(carry_cap(10, 2.0, -5.0), 1);
+    assert_eq!(carry_cap(10, 0.0, 0.0), 10);
+}
+
 
 #[test]
 fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {

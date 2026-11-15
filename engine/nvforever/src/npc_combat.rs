@@ -134,6 +134,8 @@
 //!   fCombatFleeBoostConfidenceTargetRadius, its confidence goes up a level and it checks
 //!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
 //!   without a boost [hypothesis: what the wait time is for].
+//!   A child (its race's Child flag, `Game::never_fights`) flees at once, unhurt, and
+//!   never turns to fight again [owner decision 2026-11-13, #2438].
 //! - **Hiding at the flee spot** (docs/design/combat-ai.md §12.2.1): a person that has
 //!   reached its flee spot is crouched there by the rules (`Game::sneaks`,
 //!   `Game::at_flee_spot`: the crouched set, and the original's cower idle over it,
@@ -1803,9 +1805,10 @@ pub(crate) fn fight(
                         }
                     }
                 }
-                None if fighter.flee_check_in <= 0.0 => {
+                // A child flees at once, unhurt (`Game::never_fights`, #2438).
+                None if fighter.flee_check_in <= 0.0 || g.never_fights(me) => {
                     fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
-                    if health < full {
+                    if health < full || g.never_fights(me) {
                         f.stats.flee_checks += 1;
                         let check = g.flee_check(me, fighter.confidence_mod);
                         if check.flees {

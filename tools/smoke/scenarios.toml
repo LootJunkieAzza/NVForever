@@ -8425,6 +8425,23 @@ run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
+name = "quest-marker-dam-from-strip"
+source = "#2458 (docs/spec-notes/quests-dialogue.md §2, targets several doors deep): For the Republic, Part 2 (VMQ05) objective 10 marks Colonel Moore, who stands in HooverDamIntPowerPlant01b, an interior no door outdoors leads into straight; from the Strip the World Map marks her at a door of the dam outdoors in the Mojave (before: no marker at all), the compass and Local Map at the Strip's gate to Freeside (0x0013BB0D), and sqt names the dam's door outdoors"
+areas = ["quests", "pipboy", "hud", "console"]
+paths = ["crates/fnv-game/src/quest_targets.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/compass.rs", "crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "7:startquest VMQ05;7.5:setobjectivedisplayed VMQ05 10 1;8:forceactivequest VMQ05;8.5:sqt;9:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=1,17:close" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=1004,8722,1030", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 22
+expect = [
+  { re = 'quest targets: VMQ05 objective 10 target 0x001206FE VHDColonelMooreREF marked', label = "Moore is marked from the Strip (her conditions: not in the Mojave, not on the observation deck)" },
+  { re = 'console: VMQ05 objective 10: target 0x001206FE .* in 0x00175D68 ', label = "sqt finds her in the power plant" },
+  { re = 'console:\s+load door outdoors in 0x[0-9A-F]{8} .*\(exterior\)', label = "sqt names a door outdoors in the Mojave" },
+  { re = 'compass: quest target 0x001206FE placed at \(\S+ \S+ \S+\) at door 0x0013BB0D', label = "the compass marks the Strip's gate to Freeside" },
+  { re = 'quest targets: 0x001206FE in cell 0x00175D68 marked on the world map at door 0x[0-9A-F]{8} in worldspace 0x000DA726 ', label = "the World Map marks her at the dam's door in the Mojave" },
+  { re = 'pipboy data: world map draws [1-9]\d* quest marker\(s\)', label = "the World Map draws a quest marker (before: none for her)" },
+]
+
+[[scenario]]
 name = "end-credits"
 source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
 areas = ["menus"]
@@ -10761,6 +10778,25 @@ order = [[
   { re = 'creature stance: LvlFeralGhoul 000CE9E7 puts away \(calm\)' },
   { re = 'creature stance: LvlFeralGhoul 000CE9E7 Unequipping' },
   { re = 'creature stance: LvlFeralGhoul 000CE9E7 Holstered' },
+]]
+
+[[scenario]]
+name = "creature-draw-holds-ghoul"
+source = "issue #2686 (docs/spec-notes/actors.md §8.10, engine/nvforever/src/creature_stance.rs): a ghoul set on the player stands while it roars (its h2hequip.kf draw) and runs at the player after; before the fix it slid across the floor roaring"
+note = "the feral ghoul 0x000CE9E7 at its corpse idle marker about 1,000 units north of the player (as in creature-sounds-ghoul) is set on the player at 3 s; god mode"
+areas = ["alert", "creatures", "combat"]
+paths = ["engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:0x000CE9E7:StartCombat:player" }
+args = ["--pos=9244,-33900,7500", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'npc combat: \S+ (0x)?000CE9E7 fights the player', label = "the ghoul fights the player" },
+]
+order = [[
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Equipping' },
+  { re = 'actor 000CE9E7 holds still while it draws its stance', label = "it stands while it roars" },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Drawn' },
+  { re = 'actor 000CE9E7 drew its stance: free to move', label = "and moves again once the roar ends" },
 ]]
 
 [[scenario]]
@@ -24429,6 +24465,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "child-flees-never-fights"
+source = "issue #2438 (owner decision 2026-11-13): children never fight, they always run away. A Legion child (FortChildCM 0x0011E506, a race with the Child flag) placed by the console at the player in Goodsprings and set on the player with StartCombat: it turns hostile, flees at once though unhurt and never swings, shoots, rushes or throws (fnv_game Game::never_fights; engine/nvforever/src/npc_combat.rs)"
+note = "god mode; the child is the first reference the console places (0xFF000000); 25 s of the fight"
+areas = ["combat", "ai"]
+paths = ["engine/nvforever/src/npc_combat.rs", "crates/fnv-game/src/combat_group.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "8:player.placeatme 0011E506 1;9:ff000000.startcombat player;9.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 36
+expect = [
+  { re = 'console: PlaceAtMe on player >> 0xFF000000', label = "the child is placed" },
+  { re = 'npc combat: (FortChildCM )?0xFF000000 flees from the player', label = "the child flees at once, unhurt" },
+  { re = 'npc combat: (FortChildCM )?0xFF000000 (swings at|opens fire|fires a burst|power attack|rushes|throws|charges|goes on its combo|turns to fight|attacks)', max = 0, label = "the child never attacks or turns to fight" },
+]
+
+[[scenario]]
 name = "fort-slave-packs-not-floating"
 source = "issue #2439 (owner): at the Fort two slave backpacks hung in the sky with no NPC near. They are placed references of NVSlaveBackpack (0x0013732C, 0x0013732D; ARMO 0x00127C6A, Non-Playable, no world model MOD2) 565 and 913 units above the ground; their biped model was drawn at the reference. Armour only ever worn has no world look now (fnv_world::placed::worn_only; engine/nvforever/src/world.rs spawn_model)"
 note = "the owner's spot on the rise west of the camp, looking south-east at 17:00 as in the report's screenshot; frames in target/smoke (fort_packs.png). The two backpack slaves (LvlFortSlaveBackpack 0x00154414, 0x00154415) still wear theirs"
@@ -29081,6 +29132,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "lucky38-elevator-stay-here"
+source = "issue #2424 (crates/fnv-game/src/functions/actor.rs add_script_package): the Lucky 38 elevator Victor's OnActivate (Lucky38VictorElevatorScript, SCPT 0x0015725D) adds his Dialogue package Lucky38VictorElevatorTalkToPlayer on every talk and waits for the conversation (MenuMode 1009) before its GameMode shows the floor box; Stay Here (button 0) does nothing more. A second talk before a package choice dropped the first, still current with its goal met, opened no conversation, and the script waited for one for ever: no floor box again (the owner's soft lock)"
+note = "the player starts on the casino floor by Victor at the elevator (as securitron-face-bright); he is activated at 6 s and again at 13 s, soon after Stay Here, before the 10 s package choice drops the finished package; the menu aid closes the conversation after 1 s and answers the floor box with its first button, Stay Here"
+areas = ["ai", "scripting"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/ai.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:activate:Lucky38VictorElevatorREF,13:activate:Lucky38VictorElevatorREF" }
+args = ["--cell", "Lucky38CasinoFloor01", "--play", "--pos=1087,-2290,7690", "--heading", "50", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 35
+order = [[
+  { text = "dialogue: conversation with Lucky38VictorElevatorREF started", label = "the first talk: Victor's package opens a conversation" },
+  { re = 'script: message Lucky38ElevatorMessageVictor .*buttons', label = "the floor box shows after it" },
+  { text = "script: menu 1001 (message Lucky38ElevatorMessageVictor) answered (OK)", label = "Stay Here (the first button) is picked" },
+  { text = "script: OnActivate of FalloutNV.esm|SCPT 0x0015725D ran on Some(0x0015725F)", label = "the second talk runs the elevator's OnActivate" },
+  { text = "dialogue: conversation with Lucky38VictorElevatorREF started", label = "and opens a conversation again (none without the fix)" },
+  { re = 'script: message Lucky38ElevatorMessageVictor .*buttons', label = "and the floor box comes back" },
+]]
+
+[[scenario]]
+name = "house-pod-sealed"
+source = "issue #2425 (engine/nvforever/src/locomotion.rs, nvf-assets anim_play.rs over_movement): Mr. House's life-support chamber is his own creature NVCRMrHouse (NVCRMrHouse01REF 0x0014B095, Lucky38ControlRoom). NVCRMrHouseSCRIPT (SCPT 0x00144627) seals it on load (housestate 1, PlayIdle MRHouseSleepingLoop, DynamicIdle_Sleeping.kf: Bip01 Shell turned about 126 degrees over him, Bip01 Yaw 0) and the terminal's unsealing item (Lucky38ControlTerminalWarning, TERM 0x0015C1A5) sets housestate 0 and plays MrHouseOpen (WakeUp.kf, 19.4 s, to the shell at about 25 degrees and Yaw 90, his mtidle.kf). Both idles' tracks are under mtidle.kf's priority, so before the fix the base idle's open pod showed throughout"
+note = "the player starts on the catwalk 1,300 units from the chamber looking at it (a 15 degree view); the node angles are read with GetNifBlockRotation (the first read only asks for the node tree); at 13 s the terminal item's two lines are stood in by the test aids (housestate 0, PlayIdle MrHouseOpen). Shots house_pod_sealed.png (12 s: the chamber closed, House not seen) and house_pod_opened.png (34 s: open, House seen)"
+areas = ["idles", "actors", "animation"]
+paths = ["engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SHOTS = "12:house_pod_sealed.png,34:house_pod_opened.png", NVF_PLAY_TEST_SCRIPT = "13:var:NVCRMrHouse01REF:housestate:0,13:play_idle:NVCRMrHouse01REF:MrHouseOpen", NVF_PLAY_TEST_CONSOLE = "9.5:PrintC \"nvf pod warmup shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");10:PrintC \"nvf pod sealed shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");10.3:close;36:PrintC \"nvf pod opened shell %.0f yaw %.0f\", (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Shell\" \"X\"), (NVCRMrHouse01REF.GetNifBlockRotation \"Bip01 Yaw\" \"Z\");36.3:close" }
+args = ["--cell", "Lucky38ControlRoom", "--play", "--pos=1024,-2400,8010", "--heading", "180", "--pitch", "1.5", "--fov", "15", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 38
+order = [[
+  { re = 'idle: NVCRMrHouse01REF plays MRHouseSleepingLoop', label = "the chamber plays its sealed loop from the start" },
+  { re = 'console: nvf pod sealed shell (?P<n>-?\d+) ', range = [110, 140], label = "the shell is closed over him (about 126 degrees; 25, open, before the fix)" },
+  { re = 'idle: NVCRMrHouse01REF plays MrHouseOpen', label = "the unsealing plays the opening" },
+  { re = 'console: nvf pod opened shell (?P<n>-?\d+) ', range = [15, 35], label = "and leaves the shell open (about 25 degrees)" },
+]]
+manual = "house_pod_sealed.png: the chamber closed, House not to be seen; house_pod_opened.png: open, House in it"
+
+[[scenario]]
 name = "orris-escort-thugs"
 source = "issue #2433 (crates/fnv-game/src/combat.rs Game::harmless_hit; engine/nvf-play/src/combat.rs): G.I. Blues' staged ambush. Orris's Use Weapon packages VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, and each thug falls only in its OnHit block for Orris (SCPT 0x00118A77), which sets his shootingthugsstate on to the next package. A harmless shot ran no OnHit, so he fired once at the first thug, his Once Per Day package was over, and he stood for good (the owner's soft lock)"
 note = "the player in FreesideWorld by Orris's detour; G.I. Blues at stage 10, Orris put beside the player at 3 s and hired by his line 0x00115C2C at 4 s (200 caps given: the thugs go to their first markers), his detourstage set to 1 at 5 s (the warning conversation skipped); the player is put beside him every 3 s from 9 s. His detour trigger sends the thugs to the alley, the ambush trigger knocks the fourth thug down and he says Leave them to me"
@@ -29122,6 +29208,20 @@ expect = [
   { re = 'far script summary: (?P<n>\d+) GameMode runs of residents out of the loaded cells', range = [1, 100000], label = "scripts of residents out of the loaded cells ran" },
 ]
 
+[[scenario]]
+name = "house-screen-never-hostile"
+source = "issue #2431 (crates/fnv-game/src/awareness.rs Game::is_fixture): Mr. House's screens and his chamber never fight. Here the after-death state the scripts leave (SetEnemy Lucky38Faction PlayerFaction, from the elevator Victor's OnHit/OnDeath and the penthouse Victor's death) and a StartCombat on the screen against the player, the player shooting at it meanwhile"
+note = "Lucky38MrHouseREF 0x001264C5 in the penthouse, the player 450 units in front of his screen (as dialogue-zoom-house) at 5 s, facing it at 7 s; SetEnemy at 8 s, StartCombat at 9 s; the screen never enters combat (detection's state lines), the elevator Victor beside it is not a fixture"
+areas = ["combat", "detection", "creatures"]
+paths = ["crates/fnv-game/src/awareness.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "5:-1357:5653:19100", NVF_PLAY_TEST_LOOK = "7:135:15", NVF_PLAY_TEST_SCRIPT = "8:call:-:SetEnemy:Lucky38Faction:PlayerFaction,9:combat:Lucky38MrHouseREF:player" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'test aid: script .*Combat', label = "the StartCombat aid runs" },
+  { re = 'MrHouse 001264C5 \S+ → Combat', count = 0, label = "the screen never enters combat (it did when made an enemy before the fix)" },
+  { re = 'ai: \S*Lucky38MrHouseREF never turns', label = "and never turns" },
+]
 
 [[scenario]]
 name = "pipboy-ammo-effects"
@@ -29441,6 +29541,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "cachino-find-greet"
+source = "issue #2473: Cachino's vGomorrahCachinoDialoguePackage (PACK 00119485) is a Find package for PlayerRef near his editor location with radius 0, valid while GetTalkedToPC is 0 and the player is in Gomorrah00-03; the lines asking about him only enable him (0011118D.enable). A radius 0 Find for one reference has no search area, and reaching the player starts a force greet (docs/spec-notes/packages.md section 10)"
+note = "Gomorrah01 (main level): the player stands about 900 units west of Cachino's spot (7159, 1281), by the gamblers; the console enables him at 1 s, as the lines asking about him do. Before the fix he found nothing within 512 units of his spot and stood still"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:0011118D.enable;1.2:close" }
+args = ["--cell", "Gomorrah01", "--play", "--pos=6300,1450,6410", "--heading", "90", "--npc-packages", "VMS21CachinoREF", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { re = 'VMS21CachinoREF: finds .*goes to it', label = "Cachino sets off for the player" },
+  { re = 'dialogue: conversation with VMS21CachinoREF started \(topic GREETING\)', label = "and starts his conversation on reaching them" },
+]]
+
+[[scenario]]
 name = "enable-disabled-actor-talks"
 source = "#2616: an actor disabled when its cell loads and enabled by a script while a menu holds the game (the hatch terminal's result script) is drawn at once, body, head and face rig, and fades in; the conversation the same script starts shows it speaking, its mouth moving with the line (docs/spec-notes/enable-disabled-actor.md)"
 note = "Hoover Dam intake tower (HooverDamIntIntakeTower01 0x00133FB1): VHDIntakeTowerCenturionREF 0x0013CA6B (NPC_ VHDIntakeTowerCenturion, on the leveled template EncVHDCLCenturion) is placed persistent and initially disabled [observed: fnvtool world refs]. The player is put next to the hatch terminal VHDIntakeTowerHatchUnlockTerminalREF 0x0013CA6D at 5 s, opens it at 8 s and takes Unlock Maintenance Hatch at 10 s: its result script enables the Centurion and his Dialogue package starts the conversation in the same frame, about 70 units away. On main before the fix he was never drawn: the residents read who is enabled only after the AI's update, which a held game (terminal, conversation) skips"
@@ -29458,6 +29572,45 @@ expect = [
   { re = 'lip: skipped \S*0013ca2a_1\.lip: speaker VHDIntakeTowerCenturionREF has no face rig', count = 0, label = "his first line is not left without lip sync" },
 ]
 order = [["dialogue: conversation with VHDIntakeTowerCenturionREF started", "dialogue look: VHDIntakeTowerCenturionREF faces the player"]]
+
+[[scenario]]
+name = "anders-free-after-diane"
+kind = "tool"
+source = "issue #2472: Anders on the cross at Cottonwood Cove offered no choice to free him. In the data the freeing choice AndersFree is reached only through the topic AndersJackandDiane, which is not top-level and is added only by Diane's lines 0x00146698 (VMS46) and 0x00144651 (VMS45): before her errand he has none (docs/spec-notes/anders-cross.md)"
+note = "two headless new games: the first talks to Anders at once (no AndersJackandDiane, so no AndersFree); the second takes Diane's errand, saves and loads, then frees him. AndersFree's end script sets VMS46.AndersFreed to 1 and starts his thanks 0x00142AA6, whose begin script sets it to 2"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+commands = [
+  ["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/anders-cross-new-game.actions.json", "{data}", "FalloutNV.esm"],
+  ["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/anders-free-after-diane.actions.json", "{data}", "FalloutNV.esm"],
+]
+expect = [
+  { json = "events.?kind=line_started.info", equals = "0x00142AA5", count = 2, label = "both games: Anders greets from the cross" },
+  { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "AndersCross", min = 2, label = "both offer Who did this to you?" },
+  { json = "events.?kind=topic_added.topic_edid", equals = "AndersJackandDiane", count = 1, label = "only Diane's errand line teaches AndersJackandDiane" },
+  { json = "events.?kind=choice_made.topic_edid", equals = "AndersJackandDiane", count = 1, label = "after it (and a save and load) he offers it" },
+  { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "AndersFree", count = 1, label = "the freeing choice, in the second game only" },
+  { json = "events.?kind=result_script.unit", equals = "FalloutNV.esm|INFO 0x00142A9C end", count = 1, label = "AndersFree's end script runs (SetRestrained 0)" },
+  { json = "events.?kind=line_started.info", equals = "0x00142AA6", count = 1, label = "his thanks follow by StartConversation" },
+  { json = "final.quests.0x00140C3B.vars.AndersFreed", equals = 2, count = 1, label = "VMS46.AndersFreed ends at 2 (freed and thanked)" },
+]
+
+[[scenario]]
+name = "anders-leaves-cross"
+source = "issue #2472: Anders on the cross at Cottonwood Cove could not be freed. Once AndersJackandDiane is known (Diane's errand line 0x00146698 adds it) the freeing choice AndersFree is offered; its end script (INFO 0x00142A9C) sets VMS46.AndersFreed to 1 and SetRestrained 0, and his thanks (0x00142AA6) set it to 2, and after the conversation his package VRRCAndersRRC (AndersFreed == 2) takes him off the cross and home (docs/spec-notes/anders-cross.md)"
+note = "the player starts about 150 units west of Anders; the topic Diane's line teaches is added by the console at 8 s (Red Rock Canyon is not loaded here); the player talks to him at 10 s and picks AndersJackandDiane, then AndersFree; his thanks (StartConversation) are left by the unattended rule"
+areas = ["dialogue", "ai"]
+paths = ["crates/fnv-game/src/dialogue.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addtopic 00142A89;8.3:close", NVF_PLAY_TEST_TALK = "10:VRRCAndersREF=AndersJackandDiane|AndersFree" }
+args = ["--play", "--world", "WastelandNV", "--pos=55570,-96120,-480", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "001413C3"]
+run_seconds = 50
+order = [[
+  { re = 'offers \d+ choices: .*\[AndersJackandDiane\]', label = "with the topic known he offers Are you Anders?" },
+  { re = 'offers \d+ choices: .*\[AndersFree\]', label = "and then the freeing choice" },
+  { re = 'dialogue: VRRCAndersREF says \[GREETING\] 0x00142AA6', label = "his thanks follow (StartConversation; its begin script sets AndersFreed to 2)" },
+  { re = 'ai \[[\d:]+\] 001413C3: package VRRCAndersRRC', label = "after the talk his package is the one for AndersFreed 2: home to Red Rock Canyon" },
+  { re = 'furniture: 001413C3 (gets|got) off 0013A4BA', label = "and leaves the cross" },
+]]
 
 [[scenario]]
 name = "rigid-headgear-oliver"
@@ -29480,6 +29633,24 @@ expect = [
   { re = 'rigid head check summary: .*max_error=(?P<n>[\d.]+)', range = [0, 0.02], label = "every sampled centre follows the full head transform" },
   { re = 'rigid head check summary: .*max_frame_error=(?P<n>[\d.]+)', range = [0, 0.001], label = "every sampled cap frame follows head rotation and scale" },
   { re = 'rigid head check summary: .*turn_deg=(?P<n>[\d.]+)', range = [0.5, 180], label = "the head actually turned during the check" },
+]
+
+[[scenario]]
+name = "anders-cross-head-limit"
+source = "issue #2471: Anders on the cross at Cottonwood Cove showed his head upside down in conversation and stepped sideways on a limping clip before climbing onto the cross. The cross clips hang his head chin on chest, past straight down; read from its forward alone that head faced the root's front upside down, and the turn to the player kept it upside down (in 20-30 frames at a time, measured before the fix). The head's yaw and pitch are now read with its up axis (dialogue_look::head_yaw_pitch, also head_look.rs), and an actor standing within a shuffle of its cross is put on it at once (furniture::found_on_cross); docs/spec-notes/anders-cross-head.md"
+note = "the player stands about 150 units north of Anders, about 90° off the way his chest faces on the cross (west), and talks to him twice, at 10 s and 40 s. The yaw from the chest is the limit (60°, his body part data) plus at most 20° of the talk clip's own head movement"
+areas = ["dialogue", "actors", "animation", "furniture"]
+paths = ["engine/nvforever/src/dialogue_look.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_TALK = "10:VRRCAndersREF=AndersCross|AndersDrugs|leave;40:VRRCAndersREF=AndersCross|leave", NVF_PLAY_TEST_SHOTS = "13:anders_cross_side.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=55716,-95980,-480", "--heading", "159", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "001413C3"]
+run_seconds = 60
+manual = "anders_cross_side.png: his face turned towards the player, right side up"
+expect = [
+  { text = "furniture: 001413C3 is put on (a cross it stands at: no steps, no getting-on clip) 0013A4BA", label = "found on his cross, not stepping onto it" },
+  { re = 'limping: VRRCAndersREF 0x001413C3 moves \S+ on its limping clip', count = 0, label = "no limping clip plays on him" },
+  { text = "furniture: 001413C3 is on 0013A4BA", label = "he is on the cross" },
+  { re = 'dialogue look: VRRCAndersREF stops facing the player: .*the head was upside down in (?P<n>\d+) frames', count = 2, range = [0, 0], all = true, label = "his head is never upside down in either conversation" },
+  { re = 'dialogue look: VRRCAndersREF stops facing the player: the head \(yaw [+-]\d+°, pitch [+-]\d+°; (?P<n>[+-]\d+)° from its chest\)', count = 2, range = [-80, 80], all = true, label = "the head within its limit from the chest (60° and the clip's own 20°)" },
 ]
 
 [[scenario]]
@@ -29610,6 +29781,22 @@ forbid = [
   { re = 'alert: .* → Combat: detects the player', label = "an NCR soldier starts fighting the disguised player" },
   { re = 'combat group: .* about the player', label = "an alarm about the player goes round" },
 ]
+
+[[scenario]]
+name = "torch-glow-billboard"
+source = "issue #2549: the Cottonwood Cove torches (OasisTorch01, meshes/clutter/oasis/oasistorch01.nif) hold their glow card GlowMesh:0, a 122 x 144 quad in the xy plane of a mode-4 NiBillboardNode, which placed models drew in the file's pose: a flat sheet of light above the flame; placed models' billboard nodes now turn to the camera (engine/nvforever/src/world.rs face_camera, docs/spec-notes/billboard-nodes.md)"
+note = "the player 300 units east of torch 00163B5A-or-B (58240,-91332,-1456) at 22:00, looking west at it, level. Before the fix the glow was a thin bright horizontal line at the flame; after it a soft round glow facing the view"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-assets/src/model.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvf-play/src/script_draw.rs", "docs/spec-notes/billboard-nodes.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "3:270:0", NVF_PLAY_TEST_SHOTS = "9:torch_glow_billboard.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=58540,-91332,-1440", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "torch_glow_billboard.png: the torch's flame with a soft round orange glow around it, facing the view; no thin horizontal line of light across or above the flame"
+expect = [
+  { re = 'world: [1-9]\d* placed billboard nodes turn to the camera \([1-9]\d* references\)', label = "the placed models' billboard nodes are drawn turning" },
+  { re = 'test aid: screenshot .*torch_glow_billboard\.png', label = "the frame is saved" },
+]
+
 [[scenario]]
 name = "softlock-controls-held"
 source = "issue #2365 (fnv_game softlock.rs, nvf-play softlock.rs): scripts holding the movement controls outside any conversation or menu with no story event are a soft lock, logged once per hold (the hold #2309 leaves the player in); the test aid shortens the 30 s limit to 5 s"
@@ -29640,4 +29827,22 @@ expect = [
   { re = 'player controls: movement, Pip-Boy, fighting, POV disabled by scripts', label = "the controls go off as the line's script turns them" },
   { re = 'dialogue: conversation with EdgarHardinREF started', label = "Hardin, restrained, starts the training conversation", known_failing = "#2309: a restrained actor's Dialogue package never starts its conversation" },
   { re = 'WARN nvf_play::softlock: softlock: ', count = 0, label = "the player is not left held", known_failing = "#2309: nothing releases the player; the watchdog reports controls_held after 30 s" },
+]
+
+[[scenario]]
+name = "vats-classic-melee-reach"
+source = "#2656 (GECK wiki VATS Settings: fVATSMeleeReachMult 2, fVATSMeleeMaxDistance 300; crates/fnv-combat/src/damage.rs vats_melee_reach): in the classic style a melee or unarmed weapon's targets are within the swing's reach doubled, at most 300, not Dead Eye's flat 350"
+note = "the Fists, no fight. Easy Pete is put 320 units in front of the player at 4 s and held: inside the old 350, outside the Fists' 214 plus the capsule (236 from the eye to his body), so V at 8 s is refused. He is put 150 units in front at 10 s: V at 13 s starts on him; V at 15 s leaves"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs", "crates/fnv-combat/src/tuning.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:moveto:EasyPeteRef:player:0:320:0,4.2:call:EasyPeteRef:SetRestrained:1,10:moveto:EasyPeteRef:player:0:150:0", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_KEYS = "8:v,13:v,15:v", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: classic melee reach (?P<n>\d+) units from the eye \(swing \d+, in place of 350\)', range = [230, 242], label = "the Fists reach 214 from the body, 236 from the eye" },
+  { re = 'vats mode: refused: no target in sight \(classic\): \d+ beyond the reach of \d+ \(the nearest (?P<n>\d+) away\)', range = [270, 349], label = "Easy Pete at 320 units (to his body, his radius less), inside the old 350: refused" },
+  { text = "vats mode: classic: 1 targets, 00104C80 selected", label = "at 150 units V starts on him" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
 ]

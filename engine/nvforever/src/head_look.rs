@@ -297,9 +297,12 @@ impl ChainPose {
     }
 
     /// Yaw and pitch, in the frame, of the animated head's forward (`head_bind`: the
-    /// head's bind rotation, in which it faces the actor's +y).
+    /// head's bind rotation, in which it faces the actor's +y). Read with the head's up
+    /// axis (`dialogue_look::head_yaw_pitch`), so a head hanging past straight down keeps
+    /// its face's yaw and is not turned over (#2471).
     pub fn head_angles(&self, head_bind: Quat) -> (f32, f32) {
-        yaw_pitch((self.frame.inverse() * (self.head * head_bind.inverse() * Vec3::Y)).to_array())
+        let axes = self.frame.inverse() * self.head * head_bind.inverse();
+        crate::dialogue_look::head_yaw_pitch(axes * Vec3::Y, axes * Vec3::Z)
     }
 
     /// Yaw and pitch, in the frame, of a direction given in the actor's space.

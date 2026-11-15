@@ -1272,7 +1272,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-11-04 (the tutorial menu from its file, issue #978)
 
-82. **What does `clipwindow` do?** (P3; menu-xml.md §3.1.1.) Answered in part (private
+196. **What does `clipwindow` do?** (P3; menu-xml.md §3.1.1.) Answered in part (private
     capture hud_tutorial_more, 1280 x 720) [observed]: in the drawing it is a rectangular
     crop of the descendants, a scrolled line stopping part way at the column's top and bottom
     edges. Still open: whether a click below the column's edge reaches a tile inside it (a
@@ -2468,6 +2468,102 @@ already talking takes over at once, same topic or another; nothing is queued or 
      says the flag beats the disguise (then the disguise works only through the
      reputation reset, reputation.md §4).
 
+## Added 2026-11-15 (Anders's head on the cross, #2471)
+
+174. **Does a crucified actor turn his head to the player, and is he ever seen climbing
+     onto the cross?** (P3; #2471, anders-cross-head.md.) At Cottonwood Cove, talk to
+     Anders (VRRCAndersREF 0x001413C3, cross 0x0013A4BA) from the front and from 90° to
+     his side. Note whether his head turns to the player in each, how far to the side it
+     goes, and whether it stays tilted down. Then leave the cell and come back (and, on
+     a new game, arrive by fast travel) and note whether he is ever seen getting onto the
+     cross (`GetSitting` reading 2) or always found on it (3). Ours since #2471: the head
+     turns up to 60° from his chest and up to 30° from the level; he is put on the cross
+     at once when he stands at it [design].
+
+## Added 2026-11-15 (Anders freed before Diane, #2472)
+
+175. **Can Anders be freed before Diane sends the player after him?** (P3; #2472,
+     anders-cross.md.) In the data the freeing choice (AndersFree 0x00142A8A) is a
+     choice of AndersJackandDiane 0x00142A89 alone, a topic that is not top-level and is
+     learnt only from Diane's lines 0x00146698 and 0x00144651. From a save that has not
+     met Diane (`GetObjectiveDisplayed VMS46 10` reads 0), go to
+     Cottonwood Cove and talk to VRRCAndersREF: list the topics offered, then pick each.
+     Only Who did this to you? / the drugs topic / Goodbye agrees with ours; a choice
+     that cuts him down says the original offers the topic some other way (then note
+     which and whether `GetQuestVariable VMS46 AndersFreed` goes to 1).
+
+## Added 2026-11-15 (Cachino finds the player in Gomorrah, #2473)
+
+176. **How does Cachino's Find package bring him to the player?** (P2; #2473,
+     packages.md §10.) From a game where VMS21 has not started, stand at the Brimstone
+     bar on Gomorrah's main level (Gomorrah01), more than 1,000 units from Cachino's
+     spot (7159, 1281), and ask a Gomorrah courtesan or guest where Cachino is
+     (topic `vDialogueGomorrahGenericTopic005`; his ref 0x0011118D is enabled by that line's end script). Note the time
+     from the end of that conversation to Cachino setting off, to his first line (his
+     Say Once greeting INFO 0x001133A0, about the player's questions), and how far from the
+     player he stands when he speaks (`GetDistance player` on him). Then once more with
+     the player on the floor below (Gomorrah00): does he come through the doors to
+     another cell? Ours since #2473: he sets off at once, walks to the player wherever
+     they are in the four Gomorrah cells, and the conversation opens when he is within
+     about 3x the arrival distance and can see the player [hypothesis]. Not seen
+     coming, or coming only within some distance of his spot, says the search area is
+     wrong; walking up and standing without a word says the talk is not the Find's.
+
+## Added 2026-11-14 (children in fights, #2438)
+
+178. **Does a child ever fight back?** (P3; #2438, combat-ai.md §12.2.) Ours, by the
+     owner's decision: a child (a race with the Child flag) set on the player flees at
+     once and never attacks. To check: `player.placeatme 0011E506` (a Legion child,
+     FortChildCM), `prid` it and `startcombat player`; then attack one with fists. Record whether it
+     draws a weapon, swings or runs, and its Flee line, if any.
+
+## Added 2026-11-14 (quest markers several doors deep, #2458)
+
+179. **Where does the original mark a target several doors deep, seen from another
+     worldspace?** (P2; #2458, quests-dialogue.md §2, hud.md §11.) Ours: the World Map
+     marks it at the door outdoors that starts the fewest-doors way into its interior,
+     and the compass and Local Map at the door of the player's own place that starts the
+     way there [hypothesis]. To check: with For the Republic, Part 2 (VMQ05) objective 10
+     shown and the quest active, stand on the Strip (NCR embassy) and note where the
+     World Map's quest marker sits (which door of Hoover Dam, or elsewhere) and which
+     door the compass marker points at (the gate to Freeside, or another); then again
+     from the Mojave outside Freeside and inside the dam's visitor centre. Also: does
+     the World Map draw a second marker at the Strip's gate while the player is on the
+     Strip?
+
+## Added 2026-11-14 (Mr. House's screens after his death, #2431)
+
+181. **Is Mr. House's penthouse screen ever hostile?** (P3; #2431, actor-flags.md §11.)
+     Ours: an Immobile, Unaggressive, Helps-Nobody, unarmed creature never fights
+     [hypothesis]. To check: kill Mr. House in his chamber (after the terminal unseals
+     it), go back up to the penthouse and look at the screen (Lucky38MrHouseREF
+     0x001264C5): red crosshair, red compass tick, does `GetCombatTarget` on it read the
+     player, does it turn? Then shoot it: does it take damage? The same for Festus
+     (NVCRFestus) when shot.
+
+## Added 2026-11-14 (Mr. House's chamber, #2425)
+
+182. **Does a special idle replace the base idle on its bones, whatever the priorities?**
+     (P3; #2425, animation.md §9.4.) Ours: an idle of a standing actor shows on every bone
+     it drives, above the base idle (`mtidle.kf`), though Mr. House's sleeping idle (40)
+     and opening (30) are under his base idle (50) [hypothesis]. To check: in
+     Lucky38ControlRoom before the terminal is used, a screenshot of the chamber from the
+     catwalk (sealed, House hidden?); then a Protectron playing `mtspecialidle_lookleft`
+     (11 of its 35 tracks under its base idle's priority): does its whole upper body turn,
+     or only the bones above the base idle's priority?
+
+## Added 2026-11-14 (Lucky 38 elevator, #2424)
+
+183. **Does AddScriptPackage of a package an actor has just finished start it again?**
+     (P3; #2424, packages.md.) Ours: the same package added again after its goal was met,
+     before the actor chose another, begins afresh; added while it still runs, nothing
+     changes [hypothesis]. To check: on the Lucky 38 casino floor, talk to the elevator
+     Victor (Lucky38VictorElevatorREF 0x0015725F), pick Stay Here, and talk to him again
+     at once (within a few seconds): does he greet again and show "Choose A Floor"? And
+     in the console, `Lucky38VictorElevatorREF.AddScriptPackage
+     Lucky38VictorElevatorTalkToPlayer` twice, the second right after his greeting ends:
+     does he greet twice?
+
 ## Added 2026-11-14 (talking activators with no talking actor set, #2454)
 
 185. **Who speaks through a talking activator no script has given an actor?** (P2; #2454,
@@ -2491,3 +2587,78 @@ already talking takes over at once, same topic or another; nothing is queued or 
      RamosWaitingMarker: record the player's position every frame, whether the controls
      are taken, the pace, and when the dialogue menu opens, relative to the box
      HVRamosTargetDialogTriggerREF (y from -6132 to -5408).
+
+## Added 2026-11-12 (the player's marker on the compass)
+
+187. **How does the compass show the custom map marker?** (P3; hud.md §11.) NVForever
+    marks it only in the player's own interior or worldspace, holds it at the band's
+    end when it is off the band (as a quest target), and draws it over the quest marks
+    [hypothesis]. Place a marker on the Local Map 20 m behind the player, close the
+    Pip-Boy and screenshot the compass; then walk through a door into an interior and
+    screenshot it again. Held at an end or gone behind the player, and shown or not
+    (at the door?) from the interior, settle both.
+
+## Added 2026-11-13 (companions on the World Map)
+
+188. **From how far does the World Map name a companion?** (P3; `pipboy::data::map_companions`.)
+    NVForever writes a teammate's name where it stands on the World Map, in font 2, only
+    4096 units (a cell) or more from the player, and not while it is knocked out
+    [documented: Stewie's Tweaks' readme says there is a minimum distance, font 2 and no
+    knocked-out companions; hypothesis: the distance, and that companions indoors are not
+    shown]. Tell a companion to wait, walk away in steps of about 20 m, and open the World
+    Map at each: the step where its name first shows gives the distance. Then send it home
+    (an interior) and check whether its name shows at all, and where.
+
+## Added 2026-11-13 (weapon poisons)
+
+189. **How do weapon poisons work?** (P3; `fnv_game::weapon_poison`.) NVForever puts a poison
+    (an aid item whose effects are all Hostile and Detrimental [documented: GECK wiki
+    Ingestible]) on a Melee Weapons or Unarmed weapon in hand for 5 landed hits, the same
+    poison used twice to confirm [hypothesis: which weapons, how many hits; the question
+    is ours; the original asks, Stewie's Tweaks' readme says]. With a knife in hand, use
+    Bleak Venom: note the prompt's words and buttons. Then hit a target and count the hits
+    until the poison's effect stops coming (watch its Health or the Pip-Boy's weapon
+    card). Try it with a pistol in hand too: refused (sPoisonNoWeaponMessage) or not?
+190. **Where does the grenade indicator stand?** (P3; `nvf_play::grenade_indicator`.) The menu
+    files give its picture (`template_explosive_indicator`, an arc with a point) and an
+    empty `Explosive_positioning_rect` the game's code moves [documented]. NVForever puts
+    it on the grenade upright while the grenade is in view, else on the view's edge
+    turned to point at it, for a grenade whose blast radius + 64 reaches the player
+    [hypothesis: all of it]. Throw a frag grenade near your feet, then one behind you, and
+    take a frame of each: where is the mark, is it turned, does it show for one landing
+    far off, and does it show for your own grenade?
+191. **What does the idle vanity camera do?** (P3; `nvf_play::vanity`.) The master sets
+    `fVanityModeAutoDelay` to 120 [observed]; NVForever takes it as the seconds without
+    input before the camera circles the player, turning 0.15 rad/s, ended by any input
+    with the view left in third person [hypothesis: all of it]. Stand still in first
+    person for two minutes: does the camera circle, how fast (time a full turn), which way,
+    at what distance and height, does mouse motion alone end it, and is the view first or
+    third person afterwards?
+192. **When does the low-health heartbeat play?** (P3; `nvf_play::heartbeat`.) The master has
+    two looping heartbeats, `UIHealthHeartbeatALP` and `UIHealthHeartbeatBLP` [observed].
+    NVForever plays A while the player's health is under 25 % [hypothesis: the threshold,
+    and that B is not used]. Take damage down slowly (falls): at what health share does
+    a heartbeat start, does a second, faster one take over lower down, and does it stop
+    the moment health rises past the line?
+193. **Does the Pip-Boy mark the loaded ammo?** (P3; `nvf_play::menu::model`, `Row::loaded`.)
+    NVForever now gives the ammo the equipped weapon loads the equipped square in the
+    Pip-Boy's ammo list [hypothesis: as the original; Stewie's Tweaks' bContainersShowEquippedAmmo
+    speaks of "equipped ammos" in containers]. With a 10mm pistol in hand, open the
+    Pip-Boy's AMMO list: does 10mm Round have the filled square, and does it move to JHP
+    after switching ammo?
+194. **Which need messages show when?** (P3; `fnv_game::needs`.) FalloutNV.esm holds
+    sDehydrationIncrease / Decrease / NotSick and the same three for Sleep Deprivation
+    [observed]. NVForever shows Increase when the stage goes up (from none too), Decrease
+    when it goes down to another stage, NotSick when it leaves the last [hypothesis]; hunger
+    and radiation say nothing (no such settings). In Hardcore, let dehydration rise past a
+    stage and drink back down: which lines show, and is there one for hunger or rads?
+195. **How does a border region stop the player?** (P3; `fnv_game::borders`,
+    `nvf_play::borders`.) NVForever reads REGN header flag 0x40 (Border Region
+    [documented: GECK wiki form flags]) as the area the player is kept inside, puts a
+    player who steps out back where they last stood inside and shows
+    `sPlayerLeavingBorderRegion` as a corner message, at most every 3 s [hypothesis: all
+    of it]. No master flags a region of a played worldspace [observed], so this needs a
+    test plugin: flag a region around Goodsprings as Border Region, walk out of it. Is the
+    player stopped at the edge like a wall, or pushed back; is the line a corner message
+    or a message box, and how often does it repeat? Does Edge Fall-off (RPLI) move the
+    edge?

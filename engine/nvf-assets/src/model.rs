@@ -164,6 +164,82 @@ pub fn damage_stages_of(nodes: &[ModelNode], i: usize) -> Option<(i32, i32)> {
     out
 }
 
+/// A `NiBillboardNode` drawn as an entity of its own: its billboard mode and its rotation
+/// in the file. nvforever turns it towards the camera each frame (`world::face_camera`,
+/// docs/spec-notes/billboard-nodes.md): the glow cards of placed torches and fires, and
+/// those of the effect models.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Billboard {
+    pub mode: u16,
+    pub bind: Quat,
+}
+
+/// The nearest billboard node at or above node `n` of `nodes` (`None`: under none, or
+/// the root itself).
+pub fn billboard_above(nodes: &[ModelNode], n: Option<usize>) -> Option<usize> {
+    let mut at = n;
+    while let Some(i) = at {
+        if nodes[i].billboard.is_some() {
+            return Some(i);
+        }
+        at = nodes[i].parent;
+    }
+    None
+}
+
+/// Node `n`'s transform from the model's root (the root's own excluded, as in
+/// [`PreparedShape::transform`]); `None`: the root, the identity.
+pub fn node_from_root(nodes: &[ModelNode], n: Option<usize>) -> Affine3A {
+    let mut m = Affine3A::IDENTITY;
+    let mut at = n;
+    while let Some(i) = at {
+        m = nodes[i].local * m;
+        at = nodes[i].parent;
+    }
+    m
+}
+
+/// The billboard nodes of a model drawn with its shapes baked (a placed model with no
+/// node hierarchy of its own: render streaming's static path, a reference enabled by
+/// script): each shape below a billboard node goes under an entity for that node, which
+/// carries [`Billboard`] and so can turn, instead of being baked in the file's pose
+/// (#2549). One per reference; a node's entity is made when a shape first needs it. A
+/// billboard node below another is turned alone, the outer one staying baked.
+#[derive(Default)]
+pub struct BakedBillboards {
+    made: HashMap<usize, Entity>,
+}
+
+impl BakedBillboards {
+    /// Where shape `s` of `model`, placed by `rt` under `parent`, goes: `None` when it is
+    /// under no billboard node (baked as before, `rt ∘ s.transform`); else the billboard
+    /// node's entity (made the first time, under a holder at `rt ∘` the node's parent from
+    /// the root) and the shape's transform below it. `tag` goes on the holder when it is
+    /// made: render streaming's static path gives it the reference's `RefVisual`, so that
+    /// what moves or redraws a reference by its drawn children of the cell (nvf-play
+    /// moved.rs `follow`, destroyed.rs `swap_models`) takes the billboard's shapes along.
+    pub fn place<B: Bundle>(&mut self, commands: &mut Commands, parent: Entity, model: &PreparedModel, rt: Affine3A, s: &PreparedShape, tag: B) -> Option<(Entity, Affine3A)> {
+        let b = billboard_above(&model.nodes, s.node)?;
+        let node = &model.nodes[b];
+        let e = *self.made.entry(b).or_insert_with(|| {
+            let above = rt * node_from_root(&model.nodes, node.parent);
+            let holder = commands.spawn((Transform::from_matrix(Mat4::from(above)), Visibility::Inherited, tag, ChildOf(parent))).id();
+            let t = Transform::from_matrix(Mat4::from(node.local));
+            commands.spawn((t, Visibility::Inherited, Billboard { mode: node.billboard.unwrap_or(0), bind: t.rotation }, ChildOf(holder))).id()
+        });
+        Some((e, node_from_root(&model.nodes, Some(b)).inverse() * s.transform))
+    }
+
+    /// How many billboard nodes were made.
+    pub fn len(&self) -> usize {
+        self.made.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.made.is_empty()
+    }
+}
+
 /// Where a light model's light sits, as a transform from the model's root: its node
 /// named `AttachLight` (or `AttachLight<n>`), with the nodes above it
 /// (docs/spec-notes/model-lights.md §4). `None`: no such node.
@@ -232,6 +308,8 @@ pub struct RigNode {
     /// Local transform in NIF (game) space.
     pub local: Transform,
     pub hidden: bool,
+    /// A `NiBillboardNode`: its billboard mode; spawned with a [`Billboard`].
+    pub billboard: Option<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -351,7 +429,11 @@ impl Rig {
             .map(|(i, n)| {
                 let local = if i == 0 { transform } else { n.local };
                 let vis = if n.hidden { Visibility::Hidden } else { Visibility::Inherited };
-                commands.spawn((local, vis)).id()
+                let mut e = commands.spawn((local, vis));
+                if let Some(mode) = n.billboard.filter(|_| i > 0) {
+                    e.insert(Billboard { mode, bind: local.rotation });
+                }
+                e.id()
             })
             .collect();
         commands.entity(parent).add_child(entities[0]);
@@ -1548,6 +1630,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
                     parent: o.parent.and_then(|p| index.get(&p).copied()),
                     local: if k == 0 { Transform::IDENTITY } else { to_bevy(&o.transform) },
                     hidden: k > 0 && hidden_self(*b),
+                    billboard: node_index.get(b).and_then(|&i| out.nodes[i].billboard),
                 }
             })
             .collect();

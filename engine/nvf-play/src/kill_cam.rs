@@ -321,8 +321,21 @@ struct Show {
     /// ([`FOLLOW_SECONDS`]). The camera stays about that place when the target cannot
     /// be found, not about the attacker.
     seen: Option<Vec3>,
+    /// Up (+) or down from the actor's middle the camera looks, game units: the part a
+    /// kill struck under the player's Focus on the Hit Location tweak ([`part_rise`]).
+    focus: f32,
     /// How the target's drawn place moved while it played (the log, [`TargetMoved`]).
     moved: TargetMoved,
+}
+
+/// How far above (+) or below the actor's middle the part with condition `code` is, game
+/// units [design: a person's head, chest and legs from the aim point].
+pub fn part_rise(code: Option<u16>) -> f32 {
+    match code {
+        Some(25 | 31) => 22.0,
+        Some(29 | 30) => -38.0,
+        _ => 0.0,
+    }
 }
 
 /// A kill camera's target counts as moving at this speed of its ragdoll's heaviest body,
@@ -391,6 +404,9 @@ pub struct KillCam {
     angle_side: f32,
     angle_for: f32,
     linger: Option<Linger>,
+    /// Game seconds before a kill outside VATS mode may play a camera again (the
+    /// player's Kill Camera Outside V.A.T.S. tweak).
+    outside_wait: f32,
     /// A kill camera's target just after it ended, and its drawn place in the camera's last
     /// frame: the next frame logs how far it moved as the clock came back.
     after: Option<(FormId, Vec3)>,
@@ -601,8 +617,13 @@ fn update(
     mut control: ResMut<PlayerControl>,
     mut models: ModelCtx,
     setting: Option<Res<KillCamSetting>>,
+    mouse: Option<Res<ButtonInput<MouseButton>>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let setting = setting.map_or_else(KillCamSetting::default, |s| *s);
+    // The player's tweak: a right click ends the camera [design: docs/design/tweaks.md;
+    // the plugin also uses Tab, which opens the Pip-Boy here].
+    let skip_key = tweaks.as_ref().is_some_and(|t| t.kill_cam_exit_key) && mouse.is_some_and(|m| m.just_pressed(MouseButton::Right));
     let cam = &mut *cam;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
@@ -636,8 +657,26 @@ fn update(
             cam.watch = None;
         }
     }
+    // The player's kills outside VATS mode: one may have its own kill camera under the
+    // player's tweak, no sooner than fKillCameraCooldown after the last
+    // [observed: FalloutNV.esm fKillCameraCooldown 20; design: docs/design/tweaks.md].
+    let outside: Vec<(FormId, FormId, Option<u16>)> = crate::combat::PLAYER_KILLS.lock().map(|mut k| std::mem::take(&mut *k)).unwrap_or_default();
+    cam.outside_wait = (cam.outside_wait - virt.delta_secs()).max(0.0);
+    let outside_shot = tweaks.as_ref().filter(|t| t.kill_cam_outside_vats).and_then(|_| {
+        if vats.phase != Phase::Off || cam.watch.is_some() || !free || cam.outside_wait > 0.0 {
+            return None;
+        }
+        let &(target, weapon, condition) = outside.last()?;
+        let at = middle(&phys, &player, target)?;
+        let eye = player_middle(&player);
+        Some(VatsShot { weapon, target, distance: f64::from(eye.distance(at)), condition, success: true, height: f64::from(at.z - player.feet[2]) })
+    });
+    if outside_shot.is_some() {
+        cam.outside_wait = rt.game.world.setting_f32("fKillCameraCooldown").unwrap_or(20.0);
+        info!("kill camera: a kill outside VATS mode (tweak)");
+    }
     // A kill: whether the setting and the fight leave room for a camera.
-    let mut killed = cam.watch.as_ref().filter(|w| free && rt.game.is_dead(w.shot.target)).map(|w| w.shot);
+    let mut killed = cam.watch.as_ref().filter(|w| free && rt.game.is_dead(w.shot.target)).map(|w| w.shot).or(outside_shot);
     if let Some(shot) = killed {
         cam.watch = None;
         let others = enemies_in_combat(&rt.game, shot.target);
@@ -655,6 +694,12 @@ fn update(
             }
             _ => false,
         };
+        // The player's tweak plays the camera only by chance [design: docs/design/tweaks.md].
+        let chance = tweaks.as_ref().map_or(1.0, |t| t.kill_cam_chance);
+        let skip = skip || (chance < 1.0 && {
+            use rand_core::RngCore;
+            (rt.game.rng.next_u32() as f32 / u32::MAX as f32) >= chance
+        });
         if skip {
             killed = None;
         }
@@ -693,7 +738,9 @@ fn update(
                     rt.game.remove_image_modifier(m);
                 }
                 cam.linger = None;
-                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, moved: TargetMoved::default() });
+                // The player's Focus on the Hit Location tweak [design: docs/design/tweaks.md].
+                let focus = if tweaks.as_ref().is_some_and(|t| t.kill_cam_hit_location) { part_rise(shot.condition) } else { 0.0 };
+                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus, moved: TargetMoved::default() });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
@@ -748,7 +795,7 @@ fn update(
                         None => "no path with such a shot, NVForever's own clocks".to_string(),
                     }
                 );
-                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None, moved: TargetMoved::default() });
+                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None, focus: 0.0, moved: TargetMoved::default() });
                 cam.attacks += 1;
             }
         }
@@ -770,12 +817,19 @@ fn update(
     // corpse's place is its ragdoll's, which moves a physics step at a time while the
     // picture is drawn every frame, and a camera hung on it shook with every step
     // [observed: the fork owner's playtest 2026-11-10, "the kill camera jitters a lot"].
-    if let Some(at) = middle(&phys, &player, show.target) {
+    // The player's tweak: once the target is dead the camera stops following it, held
+    // where it last saw it alive [design: docs/design/tweaks.md].
+    let frozen = show.seen.is_some()
+        && tweaks.as_ref().is_some_and(|t| t.vats_stop_following_dead)
+        && rt.game.is_dead(show.target);
+    let focus = show.focus;
+    if let Some(at) = middle(&phys, &player, show.target).filter(|_| !frozen) {
         if show.kind == Kind::Kill {
             let id = show.target.0;
             let moving = !phys.world.ragdoll_asleep(id) && phys.world.ragdoll_center_speed(id).is_some_and(|v| v >= STILL_SPEED);
             show.moved.frame(at, moving, phys.world.steps());
         }
+        let at = at + Vec3::new(0.0, 0.0, focus);
         show.seen = Some(match show.seen {
             Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
             _ => at,
@@ -786,6 +840,8 @@ fn update(
         Some("the player died")
     } else if !playing {
         Some("a menu opened")
+    } else if skip_key {
+        Some("the player skipped it")
     } else if matches!(show.kind, Kind::Attack(_)) && vats.phase != Phase::Firing {
         Some("the attacks stopped")
     } else {
@@ -975,6 +1031,20 @@ fn place(
     }
 }
 
+/// The player's tweak: walking and running stay the player's while the camera plays
+/// [design: docs/design/tweaks.md].
+static MOVE_DURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_move_during(on: bool) {
+    MOVE_DURING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Walking and running are left to the player while the camera plays (the tweak).
+pub fn move_during() -> bool {
+    MOVE_DURING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Strike from what the frame asked of the character (the keys, held already by
 /// `bindings::ControlInput`, and the test aids that stand in for them) what a playing
 /// kill camera holds (module notes): moving, jumping, the trigger, aiming, reload and
@@ -982,7 +1052,11 @@ fn place(
 pub fn hold_input(mut cam: ResMut<KillCam>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
     let Some(show) = cam.show.as_mut() else { return };
     let (mut i, mut c) = (*intent, *control);
-    (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    if move_during() {
+        i.jump = false;
+    } else {
+        (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    }
     (c.trigger, c.aiming, c.reload, c.ammo_swap, c.ready_held) = (false, false, false, false, None);
     if (i, c) != (*intent, *control) {
         show.held += 1;
@@ -1136,7 +1210,7 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
         assert!(app.world().resource::<PlayerControl>().trigger);
-        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, moved: TargetMoved::default() });
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None, focus: 0.0, moved: TargetMoved::default() });
         ask(&mut app);
         app.update();
         let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());

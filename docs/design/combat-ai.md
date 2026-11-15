@@ -638,6 +638,13 @@ a way that stops short.
   [hypothesis: the wiki lists the setting without saying what it does]. Healing is not
   built, so the wiki's third case does not happen.
 - It does not attack while it flees.
+- **Children never fight** [owner decision 2026-11-13, #2438]: an actor whose race has
+  the Child flag (`Game::never_fights`) fails every flee check, whatever its confidence,
+  aggression or style, and makes its first one at once, unhurt (it takes no damage, so
+  the "once hurt" rule would never start it). At its flee spot it only flees on, and its
+  weapon stays away (`Game::wants_weapon_out`). It still turns hostile, so crime,
+  faction and reputation rules are unchanged. Smoke `child-flees-never-fights`; what the
+  original does is observer check 178.
 - Log: `npc combat: … flees from … : group threat ratio … below its confidence …`,
   `ai … flees from … away / to cover / through door …`, `reached its flee spot`,
   `is cornered`, `turns to fight … again (hurt at its flee spot …)`, `flees on`.

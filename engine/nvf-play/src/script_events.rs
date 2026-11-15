@@ -130,6 +130,10 @@ pub trait EffectCtx {
     fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool;
     /// `MESG` DNAM "Message Box" flag.
     fn is_message_box(&self, message: FormId) -> bool;
+    /// The player's tweaks (`fnv_game::tweaks`), when there is a game.
+    fn tweaks(&self) -> Option<&fnv_game::tweaks::Tweaks> {
+        None
+    }
     /// The icon file and the seconds of a message that is not a box, as [`Note`] has
     /// them.
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
@@ -345,6 +349,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // An essential actor knocked out, or the player trying to talk to an
             // unconscious one: "<Name> is unconscious." (docs/spec-notes/unconscious.md
             // §4); a fatigue knockout shows nothing [owner request 2026-10-17].
+            // The player's tweak keeps this line off [design: docs/design/tweaks.md].
+            EventKind::KnockedOut { cause: "essential", .. } | EventKind::TalkedToUnconscious { .. } if ctx.tweaks().is_some_and(|t| t.no_unconscious_message) => {}
             EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => out.push(ScriptEffect::Notify(unconscious_line(ctx, *actor).into())),
             EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();
@@ -375,6 +381,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
             EventKind::QuestFailed { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Failed(n)))),
+            // The player's tweak: no line for caps [design: docs/design/tweaks.md].
+            EventKind::ItemAdded { to, item: FormId(0xF), silent: false, .. } if *to == player && ctx.tweaks().is_some_and(|t| t.no_caps_added_message) => {}
             EventKind::ItemAdded { to, item, count, silent: false } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),
@@ -382,6 +390,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // A skill book read: "<Skill> increased to <value>" with the skill's icon
             // [hypothesis: wording and icon NVForever's, the original's line is not in
             // the plugins; docs/spec-notes/skill-books.md §5].
+            // The player's tweak: no line for a book that gave nothing [design: docs/design/tweaks.md].
+            EventKind::BookRead { actor, points, .. } if *actor == player && *points == 0.0 && ctx.tweaks().is_some_and(|t| t.no_book_message_without_gain) => {}
             EventKind::BookRead { actor, value, skill, .. } if *actor == player => {
                 let (name, icon) = ctx.skill_look(*skill);
                 out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon, seconds: None }));
@@ -396,13 +406,16 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
     // Items a script gave the player, one line each, or one line for many (the add-on
     // packs give dozens at once).
     const MANY: usize = 4;
+    // The player's tweak sets how long these lines stay [design: docs/design/tweaks.md].
+    let seconds = ctx.tweaks().map(|t| t.item_added_seconds).filter(|s| *s > 0.0);
+    let line = |text: String| ScriptEffect::Notify(Note { text, icon: None, seconds });
     if added.len() >= MANY {
         let total: i32 = added.iter().map(|(_, n)| n).sum();
-        out.push(ScriptEffect::Notify(format!("{} items added ({total} in all)", added.len()).into()));
+        out.push(line(format!("{} items added ({total} in all)", added.len())));
     } else {
         for (item, n) in added {
             let name = ctx.name(item);
-            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }.into()));
+            out.push(line(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }));
         }
     }
     out

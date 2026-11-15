@@ -1443,6 +1443,19 @@ fn condition_and_ownership_travel_with_items() {
     assert_eq!(back.peek(p), w.peek(p));
 }
 
+/// The Equip Broken Items tweak's flag lets the player, and only the player, equip one.
+#[test]
+fn the_player_equips_a_broken_weapon_under_the_tweak() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item_extra(p, id(PISTOL), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    w.set_player_equips_broken(true);
+    w.equip(p, id(PISTOL)).unwrap();
+    assert!(w.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(id(PISTOL)));
+}
+
 #[test]
 fn a_broken_weapon_is_not_equipped() {
     use fnv_sim::inventory::Extra;
@@ -2445,7 +2458,7 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     w.set_inventory_source(id(SAFE_REF), None);
     w.set_power_armor_training(true);
     w.set_carry_bonus(p, 25.0);
-    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None };
+    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None, ..Default::default() };
     w.set_weight_rules(p, rules);
     // Session only.
     w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
