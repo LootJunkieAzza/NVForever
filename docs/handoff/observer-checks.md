@@ -2059,3 +2059,18 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
      "none"); the fix is in `IdlePicker::next` and the collection loop in
      `engine/nvforever/src/idles.rs`.
+123. **Does the third-person camera pull in for geometry beside it, or only for geometry
+     between it and the player?** The original's camera has a collision box
+     [documented: GECK wiki, ToggleCameraCollision, "the collision box of the player's
+     camera"]; its size is in no page or setting we have. NVForever casts a ray from the
+     player's pivot to the shoulder spot and stops 8 units short of what it hits
+     (`place_camera`, `engine/nvf-play/src/control.rs`), so a trunk or post beside the
+     camera but off that line is not pulled in for [observed: co-op duel run, 2026-11-15,
+     Goodsprings in front of the General Store: a Joshua tree trunk fills the left third
+     of the guest's third-person view 1.5 s after the duel's signal; the player stays in
+     full view]. To check, in the original: third person, stand with a Joshua tree or a
+     porch post a step to the camera's left, then turn slowly until the camera passes the
+     trunk; record whether the camera moves in toward the player before the trunk is on
+     the line to the player, and from how far away (in units, `player.GetPos` and the
+     trunk's position). If it moves in early, the camera needs a volume cast of that size
+     instead of the ray (`fnv_phys` `World::sweep`).
