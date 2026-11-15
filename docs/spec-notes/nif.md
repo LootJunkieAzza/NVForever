@@ -247,6 +247,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   properties but neither a shader property nor a texture [hypothesis: the game does
   not draw them; consistent with the Goodsprings flag in game, whose bone boxes are not
   visible].
+  Shapes with **no property at all** are landscape LOD (drawn; the engine textures them)
+  except for 8 in one file, `furniture\loungechair_tops.nif` (FURN 0x00119821
+  `TopsPoolLoungeChair`): its pose figures and capsules `MarkerSource`, `MarkerTarget`,
+  `Capsule01` and `ChairBoundary`, which drawn are white mannequins and capsules on the
+  chairs [observed: the same survey over the base game and DLC archives, 66,754 visible
+  shapes, 572 without any property, 564 under `meshes\landscape\lod`; none in the owner's
+  mod archives; owner report 2026-11-14 from the Long 15 pool]. The model loader skips
+  property-less shapes outside `meshes\landscape\lod\` (`model::bare_shapes_drawn`)
+  [hypothesis: the game never draws them].
 - **Animated statics** [observed, same survey]: 164 meshes embed a controller sequence
   named `Idle` (others: `Forward` 226, `Open`/`Close` ~149, `SpecialIdle` 159, ...).
   Flags (`clutter\flags\*.nif`) are skinned cloth: e.g. `nv_nevadaflag.nif` has two

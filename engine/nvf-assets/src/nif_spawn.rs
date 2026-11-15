@@ -212,6 +212,13 @@ impl Props {
     pub(crate) fn is_helper(&self) -> bool {
         self.has_properties && !self.shader && self.textures.is_empty()
     }
+
+    /// No property at all on the shape or an ancestor: landscape LOD (drawn, the engine
+    /// textures it) or, anywhere else, helper geometry such as the pose figures of
+    /// `furniture\loungechair_tops.nif` (`model::bare_shapes_drawn`).
+    pub(crate) fn is_bare(&self) -> bool {
+        !self.has_properties
+    }
 }
 
 /// BSShaderType 14 "SHADER_SKIN" [documented: nif.xml BSShaderType]. In

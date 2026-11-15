@@ -1058,6 +1058,20 @@ pub fn is_object_lod_block(path: &str) -> bool {
     p.contains("landscape\\lod\\") && p.contains("\\blocks\\")
 }
 
+/// Whether the model at `path` draws shapes that carry no property at all
+/// ([`Props::is_bare`]): only landscape LOD meshes (`meshes\landscape\lod\…`), which the
+/// engine textures itself. Everywhere else such a shape is helper geometry the game does
+/// not draw. Over the base game and DLC archives (66,754 visible shapes) the bare shapes
+/// are 564 landscape LOD shapes and 8 others, all in `furniture\loungechair_tops.nif`:
+/// its editor pose figures and capsules (`MarkerSource`, `MarkerTarget`, `Capsule01`,
+/// `ChairBoundary`), which drawn show as white mannequins and capsules on the lounge
+/// chairs (owner report 2026-11-14, Long 15 pool near the Hawaiian King); the owner's
+/// mod archives have none [observed: `crates/fnv-nif/examples/shape_survey.rs`;
+/// hypothesis: the game never draws them, consistent with the original's chairs].
+pub fn bare_shapes_drawn(path: &str) -> bool {
+    path.to_ascii_lowercase().replace('/', "\\").contains("landscape\\lod\\")
+}
+
 /// The cache key of a model: its normalised path, marked for the copy that keeps CPU
 /// meshes, for the first-person copy and for a list of alternate textures (by the list's
 /// hash). The CPU mark keeps a copy without CPU meshes from answering
@@ -1588,7 +1602,7 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
         let shape_name = o.name.clone().unwrap_or_default();
         props.animated_emissive = emissive_shapes.contains(&shape_name);
         props.animated_alpha = alpha_shapes.contains(&shape_name);
-        if props.is_helper() {
+        if props.is_helper() || (props.is_bare() && !bare_shapes_drawn(path)) {
             continue;
         }
         if let Some(set) = swap_of.get(&o.block) {
@@ -1712,6 +1726,18 @@ mod tests {
         assert!(is_object_lod_block("Meshes/Landscape/LOD/WastelandNV/Blocks/WastelandNV.Level4.X0.Y0.NIF"));
         assert!(!is_object_lod_block("meshes\\landscape\\lod\\wastelandnv\\wastelandnv.level4.x0.y0.nif"));
         assert!(!is_object_lod_block("meshes\\scol\\electrocitylamppost01_lod.nif"));
+    }
+
+    #[test]
+    fn bare_shapes_are_drawn_only_in_landscape_lod() {
+        // Terrain and object LOD: drawn, the engine textures them.
+        assert!(bare_shapes_drawn("meshes\\landscape\\lod\\wastelandnv\\wastelandnv.level4.x0.y0.nif"));
+        assert!(bare_shapes_drawn("Meshes/Landscape/LOD/ALLong15/Blocks/ALLong15.Level4.X0.Y0.NIF"));
+        // The lounge chair's pose figures and capsules: not drawn.
+        assert!(!bare_shapes_drawn("meshes\\furniture\\loungechair_tops.nif"));
+        assert!(!bare_shapes_drawn("furniture\\LoungeChair_Tops.NIF"));
+        let bare = crate::nif_spawn::Props::default();
+        assert!(bare.is_bare() && !bare.is_helper());
     }
 
     use super::*;
