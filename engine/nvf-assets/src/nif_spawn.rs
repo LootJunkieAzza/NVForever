@@ -947,6 +947,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
+    material.extension.add_linear = adds_light(props, alpha_mode);
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
     // z: the loaded glow map alone gives the emitted light (`glow_emits_alone`).
     if material.base.emissive_texture.is_some() && glow_emits_alone(props) {
@@ -967,6 +968,19 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     material.extension.hard_edges = props.lod_building;
     shape_aids(props, &mut material);
     (material, missing)
+}
+
+/// A lit additive shape adds its lit colour as linear light, not by the display-value sum
+/// of unlit additive shapes (`nif_material::add_display`): that sum takes an emitted colour
+/// for a display colour, and Bevy's lighting of a lit shape is light. Summed in display
+/// values, the Think Tank screens' glass (`nvdlc03_brainbot_eyel_lg.nif` and the other
+/// screens, `MonitorL_ScreenGlass:0`: lit, ONE / ONE, a texture of 13/255) added about
+/// 0.018 of linear light as 41 grey levels over the eye picture and washed it white; with
+/// the glass left out the eyes are clear, as the original shows them [observed, item 207
+/// frames, 2026-11-15; hypothesis: the rule; docs/spec-notes/nif.md §6 "Lit additive
+/// shapes"].
+pub(crate) fn adds_light(props: &Props, alpha_mode: AlphaMode) -> bool {
+    !props.unlit && matches!(alpha_mode, AlphaMode::Add)
 }
 
 /// A shape's base texture path matches one of `parts` (any case, `/` or `\`).
@@ -1428,6 +1442,22 @@ mod tests {
         assert!(loads_glow(&sign, false));
         assert!(!loads_glow(&Props { external_emittance: false, ..sign.clone() }, false));
         assert!(!loads_glow(&Props { unlit: true, ..sign }, false));
+    }
+
+    #[test]
+    fn a_lit_additive_shape_adds_linear_light_and_an_unlit_one_the_display_sum() {
+        // The Think Tank screens' glass: lit, ONE / ONE (0x1001).
+        let glass = Props { alpha: Some((0x1001, 0)), specular: true, glossiness: Some(200.0), shader: true, has_properties: true, textures: vec!["NVDLC03_BrainBotScrn.dds".into()], ..Default::default() };
+        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(m.extension.add_linear);
+        // The static over it: unlit, ONE / ONE, keeps the display-value sum.
+        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(!m.extension.add_linear);
+        // A lit blended shape is not additive.
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures);
+        assert!(!m.extension.add_linear);
     }
 
     #[test]

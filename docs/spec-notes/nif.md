@@ -882,6 +882,35 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   SRC_ALPHA / INV_SRC_ALPHA shapes of lit shaders are still blended in linear light
   (they agree with the game at alpha 0 and 1 and differ between; unlit ones: "Alpha
   blend of unlit shapes"); ONE / ONE shapes are drawn as SRC_ALPHA / ONE, as before.
+- **Lit additive shapes** (an additive NiAlphaProperty on a BSShaderPPLightingProperty
+  shape). The Think Tank brains' screens (`nvdlc03\creatures\brainbot\
+  nvdlc03_brainbot_eyel_lg.nif`, `_eyer_lg`, `_m`, `_sm`, `_mouth_lg`, `_mouth_m`, ...)
+  stack, front to back [observed, `fnvtool nif decode`, textures decoded from
+  `OldWorldBlues - Main.bsa`]: `MonitorL_ScreenGlass:0` (lit, ONE / ONE 0x1001,
+  `NVDLC03_BrainBotScrn.dds` of mean 13/255, flat normal map with alpha 142-169,
+  environment cube `shinybright_e.dds` at scale 0.6, specular white, glossiness 200,
+  emissive black), `MonitorL_Static:0` (unlit, ONE / ONE, `whitenoise01.dds`: 90% black
+  texels, emissive 0.568 × 5, scaled UVs), `MonitorL_ScanLine:0` (unlit, SRC_ALPHA /
+  INV_SRC_ALPHA, emissive teal × 1.75), the opaque unlit eye or mouth picture and a black
+  backing. Mobius's screens (`_moebius`) blend their glass instead.
+
+  Drawn with the display-value sum ("Additive blend"), the glass washed all three screens
+  near white and the pictures showed only faintly under the static (queue item 207, frame
+  of 2026-11-14 at Dr. Borous). The same view with each layer left out
+  (`NVF_PLAY_TEST_HIDE_TEXTURES`, 2026-11-15, 960 × 540) [observed]: without the static
+  or the scanline the wash stays; without the glass it is gone and the eyes are clear
+  grey-blue pictures with the static over them. Between the two frames the glass added
+  (41, 59, 57) grey levels at the left screen's centre over an eye of (111, 133, 150), and
+  (11, 18, 22) at the right screen's edge: in the display-value sum about 0.018 of linear
+  light. The original shows the eyes and mouth clearly, with only a light static and
+  scanline (owner's report of item 207).
+
+  Rule since 2026-11-15 [hypothesis]: a lit shape that adds (`AlphaMode::Add`) adds its
+  lit colour as linear light (`NifSurface::add_linear`, `nif_spawn.rs` `adds_light`),
+  not by the display-value sum. That sum treats the added colour as a display colour,
+  which an unlit shape's texture × emissive colour is; a lit shape's colour is the light
+  Bevy computes, and over a picture of display 0.44 the sum turns 0.018 of it into 0.16.
+  Unlit additive shapes are unchanged.
 - **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
   BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
   system, which `nvf_assets::particles` draws with the same material). The blend is
