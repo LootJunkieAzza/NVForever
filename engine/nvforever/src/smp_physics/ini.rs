@@ -24,7 +24,9 @@ pub struct SmpSettings {
     /// over in its rest pose, as a teleport does.
     pub reset_angle: f32,
     /// `bWind`, `fWindStrength` (the windiest weather's wind against 9.8 for gravity),
-    /// `bWindInInteriors`.
+    /// `bWindInInteriors`. With no `fWindStrength` the wind is 1, the owner's choice
+    /// (2026-11-15) over the plugin's shipped 0.08, which barely moves cloth in a windy
+    /// weather [design; docs/spec-notes/smp-physics.md §5]; an INI's value still wins.
     pub wind: bool,
     pub wind_strength: f32,
     pub wind_in_interiors: bool,
@@ -45,7 +47,7 @@ impl Default for SmpSettings {
             gravity_scale: 1.0,
             reset_angle: 120.0,
             wind: true,
-            wind_strength: 0.08,
+            wind_strength: 1.0,
             wind_in_interiors: false,
             collisions: true,
             ground: true,
@@ -93,9 +95,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_shipped_ini_reads_as_the_defaults_and_values_override() {
+    fn the_shipped_ini_reads_as_the_defaults_but_the_wind_and_values_override() {
         let shipped = "[Main]\n; comment\nbEnabled=1\nfCollisionDistance=1500\niMaxActors=10\niMinFps=100\niMaxSubSteps=4\niSolverIterations=10\nfGravityScale=1\nfResetAngle=120\nbWind=1\nfWindStrength=0.08\nbWindInInteriors=0\n";
-        assert_eq!(SmpSettings::parse(shipped), SmpSettings::default());
+        assert_eq!(SmpSettings::parse(shipped), SmpSettings { wind_strength: 0.08, ..SmpSettings::default() });
+        assert_eq!(SmpSettings::parse("[Main]\nbWind=1\n").wind_strength, 1.0);
         let s = SmpSettings::parse("ISOLVERITERATIONS = 4 ; fewer\nfGravityScale=0.5\nbGround=0\niMinFps=junk\n");
         assert_eq!((s.iterations, s.gravity_scale, s.ground, s.min_fps), (4, 0.5, false, 100.0));
     }
