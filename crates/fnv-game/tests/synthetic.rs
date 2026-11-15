@@ -5033,3 +5033,6 @@ set TestGlobal to TestNpcREF.GetItemCount r * 10 + TestNpcREF.GetItemCount TestW
 
 #[path = "common/jip_callback_clock.rs"]
 mod jip_callback_clock_tests;
+
+#[path = "synthetic/crit_damage_alias.rs"]
+mod crit_damage_alias;

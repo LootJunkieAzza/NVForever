@@ -99,3 +99,25 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 
 - `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census
   counts it only because it calls every catalogue name as a function.
+
+## SetCritDam short name
+
+[documented: xNVSE public API declaration, Commands_Inventory.h at
+[dfb7928077fd86e6498cb90af690547d1dd70de6, line 118](https://github.com/xNVSE/NVSE/blob/dfb7928077fd86e6498cb90af690547d1dd70de6/nvse/nvse/Commands_Inventory.h#L118)]
+`SetCritDam` is the short name of `SetWeaponCritDamage`. Register it as an alias
+on the existing catalogue row. The command's existing opcode, parameters, return
+value and setter implementation stay shared; this does not define another setter.
+
+[documented: public repository source at
+b20a8152864a30a8f39fce56effe17efc3238564, `crates/fnv-script/src/table.rs`
+and `crates/fnv-game/src/nvse.rs`] Catalogue aliases resolve to the canonical
+function. The canonical setter writes the session `CRDT/critical_damage`
+override read by the existing weapon getter. `nvse_gaps.rs` also reads that
+override in `GetCalculatedWeaponDPS`; this is a calculated-value consumer, not
+proof that physical combat, saving or every weapon reader observes the override.
+
+Authored controls cover the canonical positive, alias metadata and case folding,
+strict and mod-runtime compiled bytes, actual compiled-function writes with
+readback and an unrelated weapon, and the calculated-DPS delta. They use only
+made-up plugin records. Execution is tracked separately; no original mod,
+native-plugin version or full combat compatibility follows from the alias.
