@@ -26,6 +26,19 @@
 //! game's own files]. Lines are never removed: a plugin no longer in `Data` is skipped
 //! with a warning, and comes back on if the file returns.
 //!
+//! **Masters load first** (load indexes): the original loads every plugin
+//! whose header carries the master flag before every plugin without it, whatever the
+//! list says; within each group the list's order holds. The type is the header's flag,
+//! not the extension [documented: LOOT, "Introduction To Load Orders": "Master plugins
+//! always load before non-master plugins" and a plugin's type is "decided by a setting
+//! inside it, and not normally by its file extension"; the flag is bit 0 of the TES4
+//! record's flags, docs/spec-notes/esm.md]. A plugin's load index (the first two hex
+//! digits of its FormIDs, in the console and in saves) is its place in that order, so
+//! an `.esp` listed among the `.esm` files loads after all of them ([`masters_first`]).
+//! The original orders by the files' dates where this list orders by its lines; saves
+//! keep working across the change because a save's FormIDs are mapped to the current
+//! order by plugin name on load (`fnv_save::PluginRemap`).
+//!
 //! **Language plugins** (#1443): a localized install can keep the English masters and put
 //! its text in one more plugin per master, `<master>_lang.esp` [observed: a Russian
 //! install, docs/spec-notes/fonts.md §2.1]. Such a plugin of one of the game's masters
@@ -68,6 +81,40 @@ pub struct PluginSync {
     pub base_forced: bool,
     /// The file was written (made, or lines added).
     pub written: bool,
+    /// Master-flagged plugins the list had after a plugin without the flag, moved ahead
+    /// of every such plugin ([`masters_first`]).
+    pub masters_moved: Vec<String>,
+}
+
+/// Whether the plugin file at `path` carries the master flag: bit 0 of the flags of its
+/// first record, `TES4` (record header: type, data size u32, flags u32, little-endian;
+/// docs/spec-notes/esm.md). `None` when the file cannot be read or does not start with
+/// a `TES4` record.
+pub fn header_master_flag(path: &std::path::Path) -> Option<bool> {
+    use std::io::Read;
+    let mut head = [0u8; 12];
+    std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    (&head[..4] == b"TES4").then(|| u32::from_le_bytes([head[8], head[9], head[10], head[11]]) & 1 != 0)
+}
+
+/// Puts the master-flagged plugins of `load` before the others, each group in its own
+/// order, as the original loads them (module docs). Returns the masters that moved: those
+/// the list had after a plugin without the flag.
+pub fn masters_first(load: &mut Vec<String>, is_master: impl Fn(&str) -> bool) -> Vec<String> {
+    let flags: Vec<bool> = load.iter().map(|n| is_master(n)).collect();
+    let first_plugin = flags.iter().position(|m| !m).unwrap_or(flags.len());
+    let moved: Vec<String> = load.iter().zip(&flags).skip(first_plugin).filter(|(_, m)| **m).map(|(n, _)| n.clone()).collect();
+    if !moved.is_empty() {
+        let (masters, plugins): (Vec<_>, Vec<_>) = load.drain(..).zip(flags).partition(|(_, m)| *m);
+        load.extend(masters.into_iter().chain(plugins).map(|(n, _)| n));
+    }
+    moved
+}
+
+/// [`masters_first`] for plugins in the game's `Data`: the header's flag, or the
+/// extension when the header cannot be read.
+pub fn masters_first_in(load: &mut Vec<String>, game: &GameInstall) -> Vec<String> {
+    masters_first(load, |n| header_master_flag(&game.data.join(n)).unwrap_or_else(|| is_esm(n)))
 }
 
 fn is_plugin(name: &str) -> bool {
@@ -238,8 +285,9 @@ pub fn sync(home: &EngineHome, game: &GameInstall) -> Result<PluginSync, Install
         std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
         crate::write_whole(&path, list.to_text().as_bytes())?;
     }
-    let (load, missing, base_forced) = list.load_order(&present);
-    Ok(PluginSync { load, added, missing, base_forced, written })
+    let (mut load, missing, base_forced) = list.load_order(&present);
+    let masters_moved = masters_first_in(&mut load, game);
+    Ok(PluginSync { load, added, missing, base_forced, written, masters_moved })
 }
 
 #[cfg(test)]
@@ -248,6 +296,44 @@ mod tests {
 
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn masters_load_before_plugins_in_list_order() {
+        // The owner's MO2 order (shortened): Qwib.esp listed among the .esm files.
+        let mut load = names(&["FalloutNV.esm", "DeadMoney.esm", "Qwib.esp", "Long15Reloaded.esm", "Other.esp", "Late.esm", "Last.esp"]);
+        let moved = masters_first(&mut load, is_esm);
+        assert_eq!(load, names(&["FalloutNV.esm", "DeadMoney.esm", "Long15Reloaded.esm", "Late.esm", "Qwib.esp", "Other.esp", "Last.esp"]));
+        assert_eq!(moved, names(&["Long15Reloaded.esm", "Late.esm"]));
+        // Already in order: nothing moves.
+        let before = load.clone();
+        assert!(masters_first(&mut load, is_esm).is_empty());
+        assert_eq!(load, before);
+        // The flag, not the extension: a master-flagged .esp loads with the masters, a
+        // flagless .esm with the plugins.
+        let mut load = names(&["FalloutNV.esm", "A.esp", "Flagged.esp", "Flagless.esm", "B.esm"]);
+        let moved = masters_first(&mut load, |n| matches!(n, "FalloutNV.esm" | "Flagged.esp" | "B.esm"));
+        assert_eq!(load, names(&["FalloutNV.esm", "Flagged.esp", "B.esm", "A.esp", "Flagless.esm"]));
+        assert_eq!(moved, names(&["Flagged.esp", "B.esm"]));
+    }
+
+    #[test]
+    fn master_flag_from_the_header() {
+        let dir = std::env::temp_dir().join(format!("nvf-plugins-flag-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rec = |flags: u32| [b"TES4".as_slice(), &0u32.to_le_bytes(), &flags.to_le_bytes(), &[0u8; 12]].concat();
+        std::fs::write(dir.join("m.esp"), rec(1)).unwrap();
+        std::fs::write(dir.join("p.esm"), rec(0x200)).unwrap();
+        std::fs::write(dir.join("bad.esp"), [b"GRUP".as_slice(), &[0, 0, 0, 0, 1, 0, 0, 0]].concat()).unwrap();
+        assert_eq!(header_master_flag(&dir.join("m.esp")), Some(true));
+        assert_eq!(header_master_flag(&dir.join("p.esm")), Some(false));
+        assert_eq!(header_master_flag(&dir.join("bad.esp")), None);
+        assert_eq!(header_master_flag(&dir.join("gone.esp")), None);
+        let game = GameInstall { root: dir.clone(), data: dir.clone() };
+        let mut load = names(&["p.esm", "m.esp", "x.esm"]);
+        assert_eq!(masters_first_in(&mut load, &game), names(&["m.esp", "x.esm"]));
+        assert_eq!(load, names(&["m.esp", "x.esm", "p.esm"]));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

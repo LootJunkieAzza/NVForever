@@ -224,6 +224,9 @@ pub fn plugin_list(game: &GameInstall) -> Result<Vec<String>, String> {
         if s.base_forced {
             eprintln!("setup: FalloutNV.esm loads first whatever Mod Organizer 2's order says");
         }
+        if !s.masters_moved.is_empty() {
+            eprintln!("setup: master files load before the other plugins, as in the original: moved ahead {}", s.masters_moved.join(", "));
+        }
         eprintln!("setup: plugins: {}", s.load.join(", "));
         return Ok(s.load);
     }
@@ -246,6 +249,9 @@ pub fn plugin_list(game: &GameInstall) -> Result<Vec<String>, String> {
     }
     if s.base_forced {
         eprintln!("setup: FalloutNV.esm loads first whatever {} says", file.display());
+    }
+    if !s.masters_moved.is_empty() {
+        eprintln!("setup: master files load before the other plugins, as in the original: moved ahead {}", s.masters_moved.join(", "));
     }
     eprintln!("setup: plugins: {}", s.load.join(", "));
     Ok(s.load)
