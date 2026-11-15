@@ -33,6 +33,7 @@ mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
 mod tumble;
+mod turret_aim;
 mod actor_jumps;
 mod actor_materials;
 mod anim_objects;
@@ -1709,6 +1710,7 @@ fn main() -> AppExit {
         };
         // Also with --no-head-tracking: the settings page can switch it on.
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
+        app.add_plugins(turret_aim::TurretAimPlugin);
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
         // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the

@@ -28393,3 +28393,18 @@ expect = [
   { text = 'script: print "nvf physical wheel edge 265"', min = 1, label = "actual physical down reaches its public script handler" },
 ]
 manual = "Keep the primary game window focused; scroll up and down after loading. This manual scenario has no selection or scroll-offset expectation and provides no GPU/native visual comparison."
+
+[[scenario]]
+name = "turret-base-stays"
+source = "#2561 (owner's screenshots 2026-11-14, engine/nvforever/src/turret_aim.rs): a floor turret turned its whole model to the player, base and feet included; the skeleton hangs Bip01 Yaw from the base by a hinge, so the base stays as placed and the yaw bone carries the turn"
+note = "a Mark VI floor turret (SVFloorTurret, sentryturret skeleton) placed at the player (GOD) at 3 s and set on the player; the player is put 300 units east of it at 6 s, a quarter turn from the heading it was placed with. The log line measures both bones on the drawn skeleton: their world rotations against those they had before the turn"
+areas = ["combat", "creatures", "actors"]
+paths = ["engine/nvforever/src/turret_aim.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:SVFloorTurret:1:300:0,4:call:0xFF000000:StartCombat:player", NVF_PLAY_TEST_GOTO = "6:-60700:4500:8500" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'turret aim: meshes\\creatures\\sentryturret\\skeleton\.nif: the base stays as placed, Bip01 Yaw turns', label = "the floor turret's skeleton has the yaw bone" },
+  { re = 'turret aim: FF000000: turned (?P<n>\d+)° from where it was placed: its base [01]°, its Bip01 Yaw \d+°', range = [45, 180], label = "turned to the player, its base has not moved" },
+  { re = 'turret aim: FF000000: turned \d+° from where it was placed: its base \d+°, its Bip01 Yaw (?P<n>\d+)°', range = [45, 180], label = "the yaw bone carries the turn" },
+]
