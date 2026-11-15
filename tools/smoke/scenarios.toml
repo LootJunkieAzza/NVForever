@@ -29826,3 +29826,18 @@ order = [[
 expect = [
   { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
 ]
+
+[[scenario]]
+name = "legion-assassins-armed"
+source = "#2683 (crates/fnv-game/src/resurrect.rs; crates/fnv-sim/src/world.rs World::restock_inventory): the Legion hit squad is four placed references the shipped script resurrects for every visit (VFactionSquadListSCRIPT); a resurrected dead actor has the items of its own list made up again, so a squad whose bodies were looted comes armed the next time"
+note = "the squad's leader (VEFR02LegionThugLeaderCMRef 0x00163414, his weapons in leveled lists of his own item list) is set on the player at 6 s: he takes up a weapon. Killed at 9 s and stripped at 10 s (RemoveAllItems, as a player who loots the body bare), resurrected at 11 s as the squad script does: his own items are made up again, a weapon among them. Set on the player again at 13 s: he takes up a weapon again. (The squad's own quest keeps him disabled here; none of this needs him drawn)"
+areas = ["ai", "combat", "scripts"]
+paths = ["crates/fnv-game/src/resurrect.rs", "crates/fnv-sim/src/world.rs", "engine/nvforever/src/resurrect.rs", "crates/fnv-game/src/style_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4.5:moveto:VEFR02LegionThugLeaderCMRef:player:0:400:0,6:call:VEFR02LegionThugLeaderCMRef:StartCombat:player,9:kill:VEFR02LegionThugLeaderCMRef,10:call:VEFR02LegionThugLeaderCMRef:RemoveAllItems,11:call:VEFR02LegionThugLeaderCMRef:Resurrect,13:call:VEFR02LegionThugLeaderCMRef:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'style weapon: VEFR02LegionThugLeaderCMRef 0x00163414 takes up \w+ 0x[0-9A-F]{8}', label = "the fresh leader takes up a weapon" },
+  { re = 'resurrect: 0x00163414 has its own items made up again: .*\d+ Weap\w+.*; it carries', label = "resurrected after being stripped, his own items are made up again, a weapon among them" },
+  { re = 'style weapon: VEFR02LegionThugLeaderCMRef 0x00163414 takes up \w+ 0x[0-9A-F]{8}', label = "the resurrected leader takes up a weapon again" },
+]]

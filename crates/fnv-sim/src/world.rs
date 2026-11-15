@@ -2110,6 +2110,49 @@ impl<'a> World<'a> {
         Ok(had)
     }
 
+    /// The carried items of `id`'s own item list made up again: the list is rolled anew
+    /// (its leveled lists with it) and of each item the roll gives, as many are added as
+    /// the reference carries fewer. What it carries otherwise stays: items given to it,
+    /// and items of its list it still has are not doubled. An outfitted actor puts on
+    /// what was added where nothing it wears is in the way (a weapon when it holds none,
+    /// armour on free body slots). The items added, with their counts.
+    ///
+    /// A resurrected actor that keeps its inventory (`fnv_game`'s resurrect, issue
+    /// #2683): its weapon lay beside the body and its pack was looted, and the squads
+    /// the shipped scripts resurrect for each new visit would come back with nothing.
+    pub fn restock_inventory(&mut self, id: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        let base = self.get(id)?.base;
+        let source = self.inventory_base(id, base);
+        let Some(rolled) = self.roll_inventory(source, self.item_level(id))? else { return Ok(Vec::new()) };
+        let outfitted = self.get(id)?.outfitted;
+        let mut inv = self.get(id)?.inventory.clone().unwrap_or_default();
+        let mut added: Vec<(FormId, i32)> = Vec::new();
+        for (item, extra, n) in rolled.groups() {
+            let short = (rolled.count(item) - inv.count(item)).min(n);
+            if short > 0 {
+                inv.add_extra(item, short, extra);
+                match added.iter_mut().find(|(i, _)| *i == item) {
+                    Some(a) => a.1 += short,
+                    None => added.push((item, short)),
+                }
+            }
+        }
+        if added.is_empty() {
+            return Ok(added);
+        }
+        if outfitted {
+            for chosen in self.default_choice(source, &inv).unwrap_or_default() {
+                let Some(it) = self.forms.item(chosen) else { continue };
+                let free = !inv.is_equipped(chosen) && !inv.equipped().into_iter().any(|other| equip_clashes(self.forms, it, other));
+                if free && added.iter().any(|(i, _)| *i == chosen) {
+                    inv.set_equipped(chosen);
+                }
+            }
+        }
+        self.get(id)?.inventory = Some(inv);
+        Ok(added)
+    }
+
     /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
     /// explosives, `Extra::live`), which stay [design, #1640]: a resurrected actor whose
     /// new pick carries nothing.
