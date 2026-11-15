@@ -1333,9 +1333,11 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   tunnel, their faces are back-lit and edge-on, and drew as black-and-white chrome; with
   the `caverockwall` shapes hidden the chrome went, with the forcefield door's hidden it
   stayed [observed: laptop runs m1-m4, `NVF_PLAY_TEST_HIDE_TEXTURES`, ship20 and
-  borous207b]. Nothing in the setup is the mod's own, so vanilla cave exits are
-  presumably affected the same way [hypothesis]. Terrain, trees and water use their own
-  materials and are unchanged.
+  borous207b]. The meshes and the light are vanilla records, but FalloutNV.esm places
+  no ExtLightBright in any interior [observed: `fnvtool world refs --interiors`], so the
+  mod's lighting is what put a bright light behind the rocks; any lit shape back-lit and
+  seen edge-on had the same rise. Terrain, trees and water use their own materials and
+  are unchanged.
 - **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
   NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
   BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha
