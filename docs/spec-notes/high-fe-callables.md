@@ -1,7 +1,9 @@
 # High-FE record functions and runtime lambdas
 
-[documented: public source at 576d39630287845c598914d17ddffd71eebbef28,
-`fnv-esm/src/loadorder.rs`, `fnv-game/src/game.rs`] The load order admits 255
+Implementation context (public repository source at
+`576d39630287845c598914d17ddffd71eebbef28`,
+`fnv-esm/src/loadorder.rs`, `fnv-game/src/game.rs`; not original-game evidence):
+the load order admits 255
 plugins, including slot FE. Runtime lambdas also use scalar reference numbers
 starting at FE800000. A numeric threshold cannot distinguish an allocated lambda
 from a real SCPT with that number. `Value` and `XVal` contain no callable-kind tag.
@@ -25,8 +27,9 @@ This unconditional writer change is unapproved, and is not backward-reader
 compatibility. It prevents old readers from ignoring explicit IDs and misreading
 sparse allocation.
 
-[documented: the same public pin, `fnv-save/src/lib.rs:498,573` and
-`nvf-play/src/save.rs:926`] The JSON remapper recognizes lowercase `Value::Ref`
+Implementation context (the same public pin, `fnv-save/src/lib.rs:498,573` and
+`nvf-play/src/save.rs:926`; not a native format observation): the JSON remapper
+recognizes lowercase `Value::Ref`
 objects, while uppercase `XVal::Ref` payloads and raw numeric IDs are not remapped.
 [hypothesis: proposed conservative policy] Refuse a nonidentity load-order remap
 of a snapshot containing lambda definitions, including missing-unit tombstones,
@@ -52,42 +55,52 @@ CompileScript transfer gap is not repaired here. CompileScript FE20, inventory
 reference FE40 and TempCloneForm allocations/exhaustion are separate work; no
 global runtime-ID safety claim or more-than-255-plugin change is made.
 
-[documented: authored controls in `fnv-game/tests/root_high_fe_callable_probe.rs`
-and `high_fe_lambda_snapshots.rs`; qualified results in the pull request] The owned
-255-plugin control uses real LoadOrder/GameData/VM/JIP routes and distinct constant
-record/lambda bodies. Its unchanged public-576 baseline fails the first high-record
-assertion; later baseline assertions do not execute. The proposed 576-based core
-prototype passes that control and four snapshot controls, each selected separately.
-The four new snapshot cases have no executed baseline comparison. This is not a
-whole-current-main result: the public7201 composition is uncompiled. Its source
-contains the corrected seven-test overlay described below, not an executed
-extension of the five-case result.
+## Authored coverage and qualified execution
 
-[documented: retained validation scope] The five-case run compiled only the core
-fnv-game integration target. Engine restore/remap payloads were present but not
-compiled. A strict raw-index guard failed after the five passes; separate authorized
-source recovery restored the original bytes and retained the changed raw index.
-The index difference was four cached-mtime pairs and its checksum, with logical
-entries/flags/extensions unchanged; the writer is not attributed. This metadata
-qualification is not a product assertion failure or an unchanged-index green run.
+Process qualification: the source contains five core integration controls in
+`root_high_fe_callable_probe.rs` and `high_fe_lambda_snapshots.rs`, four actual
+session consumers in `high_fe_session_consumers.rs`, and three engine
+restore/reader cases. They cover real LoadOrder/GameData/VM/JIP dispatch, sparse
+saved identities, legacy missing-unit slots, malformed/colliding IDs, exhaustion,
+ordinary handlers, main loops, delayed calls and PP callbacks. The engine cases
+cover Runtime restore with active SaveFiles sentinels and SaveBody/read_for_load
+identity, appended, reordered-lambda refusal and independently captured no-lambda
+remapping. Coverage describes the code; results below apply only to their pinned
+execution source. Syntax parsing is not typechecking or behavioral acceptance.
 
-[documented: authored test source] Four additional cases in
-`fnv-game/tests/high_fe_session_consumers.rs` exercise ordinary handlers, JIP
-main-loop registrations, delayed calls and PP reconstruction/item-mod consumers.
-The one global file-roots case executes its unchanged body in an exact child
-process. Three engine cases exercise actual Runtime restore with SaveFiles
-sentinels and SaveBody/read_for_load identity, appended, reordered-lambda refusal
-and independently captured no-lambda remapping. All seven are authored and UNRUN;
-syntax parsing is not typechecking or acceptance. Existing five test bodies are
-unchanged.
+Historical hosted execution: head `e39e9f03218ba3eedf95acebca44dc42283e6652`
+was tested at Actions checkout `8cd289d39ae475fdc183ce76c47021fb89ea9c93`,
+with parents public main `7201ca6d57d3bb8a435bffc3fc7a5ecedf79dea3` and that
+head. Tree `d2766d3cde6066aa0ca294f78949637bee9fc0dd` equals the whole head.
+[Canonical CI](https://github.com/LootJunkieAzza/NVForever/actions/runs/43650864508)
+and the [data guard](https://github.com/LootJunkieAzza/NVForever/actions/runs/43650864502)
+passed all seven checks. Core completed 3,012 passes, four existing ignored and
+zero failures/filtered; engine completed 2,896 passes, zero failures/ignored/filtered.
+All twelve owned controls passed once, including the file-roots consumer isolated
+in an exact child process. Both strict Clippy jobs, dependency audits and six
+Python suites passed. These are repository/CPU process results, not original-game
+observations. A subsequent documentation or integration head must state its own
+check status; these results are not execution of that new head or newer main.
 
-[hypothesis: pending acceptance] The state/2 writer, legacy-reader and remap-refusal
-policy still need maintainer review. Actual engine restore refusal must preserve
-the active session, SaveBody/read_for_load must exercise identity/appended and
-nonidentity orders, and all four session consumers must preserve their existing
-eligibility/flags/delay behavior while distinguishing high records and lambdas.
-Existing lambda capture/resource/arity, save, handler and session controls and
-whole root/engine checks remain unrun for this public port. No native, installed-mod
-cause, full-mod or backward-reader compatibility is established.
+Historical local execution: the public576-based prototype passed the five core
+cases, selected separately (one pass, zero failures/ignored and 836 filtered per
+case). Only the original 255-plugin record case has an executed unchanged-public
+baseline: its first high-record assertion failed, and later assertions did not
+run. The four snapshot baselines and the seven session/engine baselines were not
+executed. The five-case command did not compile the engine payloads. Its strict
+raw-index guard failed after the five behavioral passes; separate authorized
+recovery restored original source bytes and retained the changed raw index.
+Four cached-mtime pairs and the checksum differed, with logical entries, flags
+and extensions unchanged; the writer is not attributed. This is not an
+unchanged-index green run or whole-public-head local qualification.
+
+[hypothesis: pending acceptance] The unconditional state/2 writer, old-reader
+refusal and conservative nonidentity-lambda remap policy need maintainer decisions.
+Passing authored controls validates the proposed implementation, not those
+compatibility choices. Spawned clone-reference, saved reference-variable identity
+and tombstone lifetime across reload still need a separately authored query-only
+original-game probe; base-form cloning documentation alone does not establish
+those lifetimes. No new probe or lifetime policy is introduced here. Native,
+installed-mod cause, full-mod and backward-reader compatibility remain unqualified.
 
 AI-assisted-by: Codex.
