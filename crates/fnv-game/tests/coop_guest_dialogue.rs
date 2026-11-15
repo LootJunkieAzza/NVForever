@@ -119,6 +119,14 @@ fn plugin_bytes_quest(vendor: bool, quest: &str) -> Vec<u8> {
 const QS: u32 = 0x901;
 
 fn plugin_bytes_starting(vendor: bool, quest: &str, starts: Option<&str>) -> Vec<u8> {
+    plugin_bytes_full(vendor, false, quest, starts)
+}
+
+/// `both`, with `vendor`: the greeting offers the exchange as its choice, and the cash-in
+/// and menu topics are top-level too, as a mod casino's cashier in the game's cashier
+/// faction gets the vanilla cashiers' top-level exchange topics [observed: Long15Reloaded.esm
+/// NPC_ 060045E7 in VCasinoCashierDialogueFaction 001584D7].
+fn plugin_bytes_full(vendor: bool, both: bool, quest: &str, starts: Option<&str>) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
     let suit = record(b"ARMO", 0, SUIT, &[sub(b"EDID", z("TestSuit")), sub(b"BMDT", [u32s(&[1 << 2]), vec![0; 4]].concat()), sub(b"DATA", [u32s(&[1, 100]), 1f32.to_le_bytes().to_vec()].concat())]);
@@ -131,7 +139,7 @@ fn plugin_bytes_starting(vendor: bool, quest: &str, starts: Option<&str>) -> Vec
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
     let top_level = 2u8;
-    let exchange_level = if vendor { 0 } else { top_level };
+    let exchange_level = if vendor && !both { 0 } else { top_level };
     let hello_choices: &[u32] = if vendor { &[T_BUY] } else { &[] };
     let dial = [
         // A greeting without choices: the conversation lists the top-level topics, as at
@@ -303,6 +311,27 @@ fn a_guest_gets_the_trade_its_greeting_offers() {
     assert!(got.contains(&I_BUY), "{got:X?}");
     assert!(!got.contains(&I_STORY) && !got.contains(&I_HELLO), "{got:X?}");
     assert_eq!(got.last(), Some(&I_BYE), "{got:X?}");
+}
+
+/// A greeting with choices of its own replaces the top-level topics, for a guest as for a
+/// player alone: a guest is offered the greeting's exchange and Goodbye, not the top-level
+/// exchange topics as well (laptop co-op run 2026-11-15: the Black Chip cashier offered a
+/// guest the vanilla cashiers' "exchange caps for chips" beside its own).
+#[test]
+fn a_guest_gets_only_its_greetings_choices_where_the_greeting_has_them() {
+    let f = fixture_of(plugin_bytes_full(true, true, "QCashier", None));
+    let cashier = FormId(CASHIER_REF);
+    let mut solo = game(&f, false);
+    solo.start_dialogue(cashier, None).unwrap();
+    listen(&mut solo);
+    let alone = offered(&solo);
+    assert!(alone.contains(&I_BUY) && !alone.contains(&I_CASH_IN) && !alone.contains(&I_MENU), "{alone:X?}");
+
+    let mut g = game(&f, true);
+    g.start_dialogue(cashier, None).unwrap();
+    listen(&mut g);
+    let got = offered(&g);
+    assert_eq!(got, vec![I_BUY, I_BYE], "{got:X?}");
 }
 
 #[test]
@@ -525,4 +554,60 @@ fn no_story_wait_alone_or_for_a_guest() {
     let mut g = game(&f, true);
     g.coop_actors.insert(FormId(0xFF00_0001), "Host".into());
     assert!(!g.story_gate(FormId(CASHIER_REF)));
+}
+
+const T_OWN_BYE: u32 = 0x937;
+const T_QUEST_BYE: u32 = 0x938;
+const I_OWN_BYE: u32 = 0xA08;
+const I_QUEST_BYE: u32 = 0xA09;
+
+/// A cashier without the game's GOODBYE topic, ending its talk with a topic of its own
+/// whose line is flagged Goodbye, as Long 15's Black Chip cashier does
+/// (ALBakerCashierGoodbye) [observed: Long15Reloaded.esm INFO 06004667]; and a farewell
+/// flagged Goodbye that runs a script (a quest's), which stays the host's.
+fn plugin_bytes_own_goodbye() -> Vec<u8> {
+    let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
+    let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
+    let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z("QCashier")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
+    let dial = [
+        topic(GREETING, "GREETING", topic_type::TOPIC, 0, info(I_HELLO, 0, "Welcome", &[T_BUY, T_OWN_BYE, T_QUEST_BYE], &[])),
+        topic(T_BUY, "TestBuy", topic_type::TOPIC, 0, info(I_BUY, 0, "Here are your chips", &[T_BUY, T_OWN_BYE], &[(REMOVE_ITEM, CASH, 10), (ADD_ITEM, CHIP, 10)])),
+        topic(T_OWN_BYE, "TestOwnBye", topic_type::TOPIC, 0, info(I_OWN_BYE, info_flag::GOODBYE, "Come back soon", &[], &[])),
+        topic(T_QUEST_BYE, "TestQuestBye", topic_type::TOPIC, 0, info(I_QUEST_BYE, info_flag::GOODBYE, "Off you go, then", &[], &[(ADD_ITEM, CHIP, 1)])),
+    ]
+    .concat();
+    let placed = record(b"ACHR", 0, CASHIER_REF, &[sub(b"EDID", z("CashierREF")), sub(b"NAME", u32b(CASHIER)), sub(b"DATA", vec![0; 24])]);
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("CasinoCell"))]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &placed));
+    [
+        tes4(),
+        top(b"MISC", &misc),
+        top(b"CHIP", &chip),
+        top(b"NPC_", &npc),
+        top(b"QUST", &quest),
+        top(b"DIAL", &dial),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ]
+    .concat()
+}
+
+/// A guest at a cashier that ends its talk with its own Goodbye line gets that line (and
+/// not the one with a script), buys, and leaves by it (overnight queue 2026-11-14 19:08,
+/// the owner: "guests cant buy chips or say goodbye to this guuy").
+#[test]
+fn a_guest_leaves_by_the_cashiers_own_goodbye() {
+    let f = fixture_of(plugin_bytes_own_goodbye());
+    let mut g = game(&f, true);
+    g.world.add_item(FormId::PLAYER_REF, FormId(CASH), 25).unwrap();
+    assert!(g.guest_can_talk(FormId(CASHIER_REF)));
+    g.start_dialogue(FormId(CASHIER_REF), None).unwrap();
+    listen(&mut g);
+    let mut got = offered(&g);
+    got.sort();
+    assert_eq!(got, vec![I_BUY, I_OWN_BYE]);
+    pick(&mut g, I_BUY);
+    assert_eq!((count(&mut g, CASH), count(&mut g, CHIP)), (15, 10));
+    pick(&mut g, I_OWN_BYE);
+    assert!(g.dialogue.is_none(), "{:X?}", offered(&g));
 }

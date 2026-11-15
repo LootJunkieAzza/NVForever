@@ -185,6 +185,18 @@ fn exchanges_chips(data: &GameData, unit: &crate::data::Compiled) -> bool {
     adds && removes && chip
 }
 
+/// A line that does nothing but end the conversation: flagged Goodbye, offering no
+/// topics, and with no script that calls anything (a quest's farewell that sets a stage
+/// or gives an item stays the host's).
+fn only_takes_leave(data: &GameData, d: &InfoDef) -> bool {
+    let calls_nothing = |u: crate::data::UnitId| {
+        let mut n = BTreeMap::new();
+        crate::intro::calls(&data.unit(u).program, &mut n);
+        n.is_empty()
+    };
+    d.has(crate::data::info_flag::GOODBYE) && d.choices.is_empty() && d.begin.into_iter().chain(d.end).all(calls_nothing)
+}
+
 /// [`Game::guest_lines`]: the lines that trade, deal Caravan or exchange a casino's
 /// chips, then, until nothing more is added, the lines whose choices (TCLT) offer a topic
 /// with such a line.
@@ -583,36 +595,52 @@ impl Game<'_> {
         self.guest_opening(actor, greeting).iter().any(|c| Some(c.topic) != goodbye)
     }
 
-    /// What a guest's conversation with `actor` opens on: the choices `topic` (the
-    /// greeting) offers by itself, and before them those of the line of it the actor would
-    /// say, the first it can say (no random draw), whose words the guest does not hear.
-    /// Many vendors offer their trade only there: Genaro's "Need some grub?" greeting (INFO
-    /// 0012936A) lists the topic whose line opens his barter menu (0012936A's choices,
-    /// VFreeformFreesideVFSGenaroTopic000) [observed: FalloutNV.esm], and no top-level topic
-    /// does, so a guest was offered nothing (queue 2026-11-07 items 31, 39, 47).
+    /// What a guest's conversation with `actor` opens on: the choices of the line of
+    /// `topic` (the greeting) the actor would say, the first it can say (no random draw),
+    /// whose words the guest does not hear; with no such line, or one without choices, the
+    /// choices `topic` offers by itself (the top-level topics). That is what a player
+    /// alone gets ([`Game::build_choices`]: a line's own choices replace the top-level
+    /// list). Many vendors offer their trade only in the line's choices: Genaro's "Need
+    /// some grub?" greeting (INFO 0012936A) lists the topic whose line opens his barter
+    /// menu (0012936A's choices, VFreeformFreesideVFSGenaroTopic000) [observed:
+    /// FalloutNV.esm], and no top-level topic does, so a guest was offered nothing (queue
+    /// 2026-11-07 items 31, 39, 47).
+    ///
+    /// Never both. Long 15's Black Chip cashier is in the game's
+    /// VCasinoCashierDialogueFaction, the one condition of the vanilla cashiers'
+    /// top-level exchange topics, and its greeting (INFO 06004662) lists its own exchange.
+    /// A guest got both: "exchange caps for chips" twice, and Legion money, which the
+    /// Black Chip does not take [observed: Long15Reloaded.esm NPC_ 060045E7 SNAM 001584D7;
+    /// FalloutNV.esm vDialogueCasinoCashiervCashierTheTopsTopic009, 022 and 030, each
+    /// GetInFaction 001584D7; laptop co-op run 2026-11-15 14:00, six choices where the
+    /// same cashier alone offers three].
     pub(crate) fn guest_opening(&mut self, actor: FormId, topic: FormId) -> Vec<crate::dialogue::Choice> {
         let data = self.data;
-        let own = self.build_choices(actor, topic, &InfoDef::default());
         let said = data.lines_tried(topic).iter().copied().find(|&i| self.can_say(actor, Some(FormId::PLAYER_REF), i));
-        let Some(def) = said.and_then(|i| data.infos.get(&i)).filter(|d| !d.choices.is_empty()) else { return own };
+        let Some(def) = said.and_then(|i| data.infos.get(&i)).filter(|d| !d.choices.is_empty()) else {
+            return self.build_choices(actor, topic, &InfoDef::default());
+        };
         let mut out = self.build_choices(actor, topic, def);
-        for c in own {
-            if !out.iter().any(|o| o.info == c.info || o.topic == c.topic) {
-                out.push(c);
-            }
-        }
         // Goodbye last.
         let goodbye = data.goodbye;
         out.sort_by_key(|c| Some(c.topic) == goodbye);
         out
     }
 
-    /// A guest's choices: only [`Game::guest_lines`], and Goodbye.
+    /// A guest's choices: only [`Game::guest_lines`], and Goodbye: the game's GOODBYE
+    /// topic, or a line of the speaker's own that only takes leave ([`only_takes_leave`]),
+    /// as a mod's cashier ends its talk: the Black Chip's "I need to get going." is
+    /// ALBakerCashierGoodbye, a topic of Long 15's, its line flagged Goodbye with no script
+    /// [observed: Long15Reloaded.esm INFO 06004667; overnight queue 2026-11-14 19:08, the
+    /// owner: "guests cant buy chips or say goodbye to this guuy"]. The game's GOODBYE is
+    /// added only where the speaker offers no way out of its own.
     pub(crate) fn guest_choices(&mut self, actor: FormId, mut out: Vec<crate::dialogue::Choice>) -> Vec<crate::dialogue::Choice> {
-        let goodbye = self.data.goodbye;
+        let data = self.data;
+        let goodbye = data.goodbye;
         let lines = self.guest_lines();
-        out.retain(|c| lines.contains(&c.info) || Some(c.topic) == goodbye);
-        if let Some(bye) = goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
+        let leaves = |c: &crate::dialogue::Choice| Some(c.topic) == goodbye || data.infos.get(&c.info).is_some_and(|d| only_takes_leave(data, d));
+        out.retain(|c| lines.contains(&c.info) || leaves(c));
+        if let Some(bye) = goodbye.filter(|_| !out.iter().any(leaves)) {
             out.extend(self.offer_topic(actor, bye));
         }
         out
