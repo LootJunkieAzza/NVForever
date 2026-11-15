@@ -1322,8 +1322,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     whether it comes out of the spout. If the original's spray is the file's full size, the
     rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
     A second case, sharper (2026-11-15, mods-1114): Nova Arizona places
-    `effects
-vxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
+    `effects\nv\fxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
     AZMalpaisMarket, (91398, -23471, 4975) in WastelandNV. The file's particles have
     radius 394 and rise at 118 units/s for 20 s from a 197-unit box [observed: `fnvtool
     nif decode`]. With §7.7 (the reference's scale on speed and box, not on size) the
@@ -1331,6 +1330,28 @@ vxtiresmoke.nif` (0x26003A5C) at **scale 0.2** on a chimney in
     s1-nova-arizona, 2026-11-14); with the scale on size too it is a column about 80
     wide and 470 high. A frame of the original there, with the mod, settles which; the
     mod's author presumably placed it to look like the second [hypothesis].
+
+## Added 2026-11-15 (a cave exit's rocks drawn as chrome, mods-1114 bug 3)
+
+123. **Do the rocks around a lit cave exit glint in the original?** (P2; nif.md §6 "Cave exit
+    rocks drawn as chrome", specular-model-review.md.) In NVForever, the walls around the
+    exit of Pulse Dungeons' Goodsprings Water Source Cave draw as black-and-white chrome:
+    fine glints all over the rim, lit from behind by the exit's bright light. The walls are
+    CaveRockWall01-04, with the Specular flag, gloss 20-100 and normal-map masks of 20-45 of
+    255 in both vanilla and the texture replacer [observed: desktop runs e1/e2 and A/B,
+    2026-11-15]. Take a frame of the original from the same place:
+    - The load order is the owner's mods-1114 list with "Pulse Dungeons - More Dungeons.esm",
+      and its texture replacer's loose CaveRockWall*_n.dds in place.
+    - `coc 0PDGoodspringsWaterCave` puts the player at the cell's own marker (0x22002735 in
+      that order; about (-147, -33, 17), facing west, 270 degrees). From there the exit is
+      straight ahead. Wait 5 s, then take a frame without moving. A second frame, after
+      stepping about 200 units toward the exit, shows the rim larger.
+    - If possible, the same two frames with an ENB or ReShade off.
+
+    **What it settles**: if the original's rim is matte, or has only a few small highlights,
+    the original weights or caps a light's highlight in a way neither of our lobes does (the
+    N.L weighting, or the light's reach, specular-model-review.md "What follows"). If the
+    original glints the same way, the bug is not ours.
 
 ## Added 2026-11-05 (leveled rolls and locks, issue #1567)
 
