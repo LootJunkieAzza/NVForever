@@ -134,6 +134,10 @@ pub(super) struct Repl {
     /// The host's: the guests' burning landings ([`grass_fire_out`] hands them to the
     /// fires here).
     grass_asked: Vec<nvf_play::grass_fire::Landed>,
+    /// The host's: guests to send every patch burning or burnt out now
+    /// (`Fires::snapshot`): one whose stream started (a join), and one that asked for the
+    /// syncing screen's answer, standing in its place with its cells loaded.
+    grass_for: Vec<u8>,
     /// The host's: guests that asked for the syncing screen's answer (`Effect::Sync`),
     /// with their serial: their whole area goes again at the next sweep, then the answer.
     sync_asked: Vec<(u8, u32)>,
@@ -611,6 +615,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 if !r.anims_for.contains(&id) {
                     r.anims_for.push(id);
                 }
+                if !r.grass_for.contains(&id) {
+                    r.grass_for.push(id);
+                }
                 r.shadows.remove(&id);
                 r.sent_at.remove(&id);
                 r.poses.remove(&id);
@@ -655,6 +662,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                             r.poses.remove(&id);
                             r.sync_asked.retain(|(g, _)| *g != id);
                             r.sync_asked.push((id, serial));
+                            if !r.grass_for.contains(&id) {
+                                r.grass_for.push(id);
+                            }
                             r.last_sweep = f32::MIN;
                         }
                     }
@@ -1355,7 +1365,26 @@ pub(super) fn grass_fire_out(mut coop: ResMut<Coop>, gf: Option<ResMut<nvf_play:
     if !host {
         gf.fires.lit.clear();
         coop.repl.grass_asked.clear();
+        coop.repl.grass_for.clear();
         return;
+    }
+    // A guest that joined, or stands in its place after the syncing screen: the fires as
+    // they are now, burning patches and burnt-out ones.
+    let joined = std::mem::take(&mut coop.repl.grass_for);
+    if !joined.is_empty() {
+        let snap: Vec<Effect> = gf.fires.snapshot().into_iter().map(grass_effect).collect();
+        if let Some(link) = coop.link.as_mut() {
+            for id in joined {
+                if snap.is_empty() {
+                    continue;
+                }
+                let burning = snap.iter().filter(|e| matches!(e, Effect::GrassFire { fire, .. } if *fire != nvf_play::grass_fire::BURNT_OUT)).count();
+                info!("replication: player {} is told the grass fires here: {burning} patches burning, {} burnt out", id + 1, snap.len() - burning);
+                for item in repl::pack_effects(&snap, ITEM) {
+                    link.send_reliable(Some(id), item);
+                }
+            }
+        }
     }
     if !coop.repl.grass_asked.is_empty() {
         info!("replication: {} burning landing(s) of the guests: the grass there is lit here as for the host's own", coop.repl.grass_asked.len());
@@ -1370,11 +1399,14 @@ pub(super) fn grass_fire_out(mut coop: ResMut<Coop>, gf: Option<ResMut<nvf_play:
         info!("replication: a grass fire burns here ({} patches lit this frame): the guests burn the same patches", lit.len());
     }
     *sent += lit.len() as u64;
-    for p in lit {
-        // A player's (the host's own reference is another player on a guest): none.
-        let by = p.by.filter(|b| *b != FormId::PLAYER_REF).map_or(0, |b| b.0);
-        coop.repl.grass_lit.push(Effect::GrassFire { x: p.key.0, y: p.key.1, z: p.z, fire: p.fire, item: p.item.0, by, secs: p.secs });
-    }
+    coop.repl.grass_lit.extend(lit.into_iter().map(grass_effect));
+}
+
+/// A lit (or burnt-out) patch as the effect the guests take.
+fn grass_effect(p: nvf_play::grass_fire::LitPatch) -> Effect {
+    // A player's (the host's own reference is another player on a guest): none.
+    let by = p.by.filter(|b| *b != FormId::PLAYER_REF).map_or(0, |b| b.0);
+    Effect::GrassFire { x: p.key.0, y: p.key.1, z: p.z, fire: p.fire, item: p.item.0, by, secs: p.secs }
 }
 
 /// A guest's: the host's lit grass patches, handed to the fires here

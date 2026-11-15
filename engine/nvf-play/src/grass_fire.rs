@@ -45,6 +45,8 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 pub const PATCH: f32 = 64.0;
 /// An exterior cell's side (game units): a patch's cell for a guest's remote patches.
 const CELL: f32 = 4096.0;
+/// [`LitPatch::fire`] of a patch that already burnt out (fire ids start at 1).
+pub const BURNT_OUT: u32 = 0;
 /// Patches along each side of the burn map: 32,768 units (eight cells) before it wraps,
 /// more than the loaded cells span [design].
 pub const MAP: usize = 512;
@@ -219,6 +221,8 @@ pub struct LitPatch {
     pub key: Key,
     /// Its ground's height on the host.
     pub z: f32,
+    /// The fire it belongs to; [`BURNT_OUT`] for a patch that already burnt out (a late
+    /// joiner's [`Fires::snapshot`]: ash, scorched, no flames).
     pub fire: u32,
     pub item: FormId,
     /// Who started the fire: an NPC's reference; `None` for a player (the host's own
@@ -479,6 +483,14 @@ impl Fires {
         if self.burns.contains_key(&k) {
             return None;
         }
+        if p.fire == BURNT_OUT {
+            // Burnt out on the host before this guest came: ash, its grass gone and its
+            // ground scorched, with no fire and no flames.
+            self.remember_ground(k, p.z);
+            self.burns.insert(k, Burn::Ash);
+            self.set_texel(k, 255);
+            return Some(false);
+        }
         let i = match self.fires.iter().position(|f| f.id == p.fire) {
             Some(i) => (i, false),
             None => {
@@ -490,13 +502,7 @@ impl Fires {
             }
         };
         let (i, new) = i;
-        // The ground for `burning_at`, kept with its cell so it goes when the cell does.
-        if let std::collections::hash_map::Entry::Vacant(v) = self.fuel.entry(k) {
-            let per = (CELL / PATCH) as i32;
-            let cell = (k.0.div_euclid(per), k.1.div_euclid(per));
-            v.insert(Fuel { z: p.z, cell });
-            self.by_cell.entry(cell).or_default().push(k);
-        }
+        self.remember_ground(k, p.z);
         self.burns.insert(k, Burn::Burning { fire: p.fire, since: self.now, until: self.now + p.secs.max(0.0) });
         self.active.insert(k);
         self.burning += 1;
@@ -509,6 +515,38 @@ impl Fires {
         self.set_texel(k, 2);
         self.events.push(FireEvent::Lit { key: k, z: p.z });
         Some(new)
+    }
+
+    /// The ground of a patch the host sent, for `burning_at`, kept with its cell so it goes
+    /// when the cell does.
+    fn remember_ground(&mut self, k: Key, z: f32) {
+        if let std::collections::hash_map::Entry::Vacant(v) = self.fuel.entry(k) {
+            let per = (CELL / PATCH) as i32;
+            let cell = (k.0.div_euclid(per), k.1.div_euclid(per));
+            v.insert(Fuel { z, cell });
+            self.by_cell.entry(cell).or_default().push(k);
+        }
+    }
+
+    /// The host's, for a guest that joins (or whose stream starts again) while fires
+    /// burn: every patch burning now, with the seconds it has left, and every patch burnt
+    /// out and still remembered, as [`BURNT_OUT`] (owner 2026-11-14 via parity: a late
+    /// joiner sees the fires). Nearest the fires' patches first is not needed: the guest
+    /// takes them all at once ([`Fires::light_remote`]).
+    pub fn snapshot(&self) -> Vec<LitPatch> {
+        let mut out = Vec::new();
+        for (&k, b) in &self.burns {
+            let Some(z) = self.fuel.get(&k).map(|f| f.z) else { continue };
+            match *b {
+                Burn::Burning { fire, until, .. } => {
+                    let Some(f) = self.fires.iter().find(|f| f.id == fire) else { continue };
+                    out.push(LitPatch { key: k, z, fire, item: f.item, by: f.by, secs: (until - self.now).max(0.0) });
+                }
+                Burn::Burnt { .. } | Burn::Ash => out.push(LitPatch { key: k, z, fire: BURNT_OUT, item: FormId(0), by: None, secs: 0.0 }),
+            }
+        }
+        out.sort_by_key(|p| (p.fire, p.key));
+        out
     }
 
     /// Advance the fires by `dt` seconds.
@@ -718,10 +756,16 @@ pub(crate) fn tick(
     let landed = c.take_fire_landed();
     if gf.guest {
         // The host's fires only, whatever this game's own switch says.
+        let mut ash = 0;
         for p in std::mem::take(&mut gf.remote) {
-            if gf.fires.light_remote(p) == Some(true) {
-                info!("grass fire {}: the host's fire, first patch here at ({:.0}, {:.0}, {:.0}) with {}", p.fire, centre(p.key)[0], centre(p.key)[1], p.z, item_name(script.as_deref(), p.item));
+            match gf.fires.light_remote(p) {
+                Some(true) => info!("grass fire {}: the host's fire, first patch here at ({:.0}, {:.0}, {:.0}) with {}", p.fire, centre(p.key)[0], centre(p.key)[1], p.z, item_name(script.as_deref(), p.item)),
+                Some(false) if p.fire == BURNT_OUT => ash += 1,
+                _ => {}
             }
+        }
+        if ash > 0 {
+            info!("grass fire: {ash} patches the host's fires burnt out before this player came are burnt here too");
         }
     } else if !grass_fire_on() {
         gf.asked.clear();
@@ -908,6 +952,45 @@ mod tests {
         assert_eq!(g.burning_at([centre((1, 1))[0], centre((1, 1))[1], 150.0]).map(|f| f.id), Some(7));
         // The patch goes with its cell.
         assert_eq!(g.forget_cell((0, 0)), 2);
+    }
+
+    #[test]
+    fn a_guest_who_joins_late_gets_the_fire_as_it_is() {
+        let mut host = field(8);
+        host.ignite(point((4, 4)), ITEM, Some(FormId::PLAYER_REF)).unwrap();
+        // Long enough that the middle burnt out and the edge still burns.
+        run(&mut host, 9.0);
+        let snap = host.snapshot();
+        let burning = snap.iter().filter(|p| p.fire != BURNT_OUT).count();
+        let out = snap.iter().filter(|p| p.fire == BURNT_OUT).count();
+        assert!(burning > 0 && out > 0, "burning {burning}, burnt out {out}");
+        assert_eq!(burning + out, host.stats.patches as usize, "every patch reached is in it");
+        let mut guest = Fires::default();
+        for p in &snap {
+            assert!(guest.light_remote(*p).is_some());
+        }
+        // The guest has every patch: the burning ones burning (as fire 1, which the guest now
+        // has), the burnt ones as ash.
+        for p in &snap {
+            match guest.burn(p.key) {
+                Some(Burn::Burning { fire, .. }) => assert_eq!(fire, p.fire),
+                Some(Burn::Ash) => assert_eq!(p.fire, BURNT_OUT),
+                other => panic!("{:?}: {other:?}", p.key),
+            }
+            assert_ne!(guest.map[texel(p.key)], 0, "its grass and ground show the burn");
+        }
+        assert_eq!(guest.fires().len(), 1);
+        assert_eq!(guest.events.iter().filter(|e| matches!(e, FireEvent::Lit { .. })).count(), burning, "flames only where it burns");
+        // Both burn out alike: the same burnt-out patches at the end.
+        run(&mut host, 60.0);
+        guest.step(60.0);
+        guest.step(60.0);
+        for p in &snap {
+            assert_eq!(guest.burn(p.key), Some(Burn::Ash));
+        }
+        assert!(guest.fires().is_empty());
+        // Sent twice (a stream that starts again): nothing is lit twice.
+        assert!(snap.iter().all(|p| guest.light_remote(*p).is_none()));
     }
 
     #[test]

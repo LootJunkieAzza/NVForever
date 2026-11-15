@@ -79,13 +79,15 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
 - **Grass** (grass.wesl): each plant reads the patch it stands on. Its colour falls to
   5% as it chars, it glows orange like embers, flickering, while its patch burns, and once
   burnt it sinks into the ground the way grass beyond the grass distance does.
-- **Scorched ground** (terrain.wesl "Scorch"): the landscape under a patch that caught
+- **Scorched ground** (upstream: terrain.wesl "Scorch"; on the replication line, which
+  draws the landscape with the NIF material, base pass and blended layers:
+  nif_material.wesl "Scorch", `NifSurface::scorch_map` and `soft.y`, set on the
+  landscape's materials only by `terrain.rs`): the landscape under a patch that caught
   turns black (its colour × 0.16), reaching full by the time the patch is charred, and
   stays black until its cell unloads. It is read between the patches' middles and broken
   up with noise about 20 units across, so the mark has a ragged edge, not 64-unit
-  squares. Only the folded landscape draw reads it (every quadrant on a GPU with bindless
-  textures, the usual case); a quadrant's layers past the sixth, drawn blended over it,
-  cover the mark.
+  squares. Every layer pass is darkened alike, so the layers blended over the base keep
+  the mark.
 - **Flames** (grass_fire_fx.rs) [owner 2026-11-14: the first version looked "a bit
   sparse"; flames should start small and grow]: each patch that catches gets two small
   particle fires (`mps\mpsfiresmall01.nif`) at random spots and, on about a third of the
@@ -118,9 +120,14 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
   it had landed there, then sends the patches back as above.
 - On a guest only its own player catches fire from the flames it sees; NPCs burn on the
   host and their burning reaches the guest with their state.
-- Not done: a guest who joins while a fire burns does not get the patches already lit;
-  this line has no scorched-ground terrain (`terrain.wesl` is not on the replication
-  build).
+- A guest who joins while fires burn, or whose stream starts again, gets them as they
+  are (`Fires::snapshot`): when its stream starts and again when it asks for the
+  syncing screen's answer, standing in its place with its cells loaded, the host sends
+  every patch burning, with the seconds it has left, and every patch burnt out and still
+  remembered (fire 0, `BURNT_OUT`: ash and scorched ground, no flames). A patch it
+  already has is not lit twice. Log: host `replication: player <n> is told the grass
+  fires here: <b> patches burning, <a> burnt out`; guest `grass fire: <a> patches the
+  host's fires burnt out before this player came are burnt here too`.
 
 ## 7. Not done (yet)
 
