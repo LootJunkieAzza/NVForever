@@ -69,6 +69,11 @@ const PLAY_BUTTONS: [f32; 5] = [692.0, 740.0, 788.0, 836.0, 884.0];
 const GUIDE_W: f32 = 860.0;
 const GUIDE_BOTTOM: f32 = 686.0;
 const GUIDE_STEP: f32 = 30.0;
+/// The guide's band, under the hand and the deck and over the buttons: three lines of the
+/// menu's font; a text that needs more is set in the help box's smaller font, these apart
+/// (owner 2026-11-15: a tie note ran into the "thinking" line under it) [design].
+const GUIDE_LINES: usize = 3;
+const GUIDE_BODY_STEP: f32 = 24.0;
 const BET_BUTTONS: [f32; 4] = [705.0, 756.0, 808.0, 858.0];
 const HINT_GAP: f32 = 16.0;
 /// The betting box: rows, titles' left, values' right, its bracket.
@@ -620,12 +625,7 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
         c.text_in(p, FontKind::Menu, title, INFO_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, value, INFO_X.1, y, true, b);
     }
-    if g.phase != Phase::Over && !mine && s.help.is_none() {
-        let thinking = format!("{} is thinking…", s.opponent_name);
-        let w = c.text_width(FontKind::Menu, &thinking);
-        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, GUIDE_BOTTOM - 28.0, w, 32.0);
-        c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, GUIDE_BOTTOM - 30.0, true, amber(180.0));
-    }
+    let thinking = (g.phase != Phase::Over && !mine && s.help.is_none()).then(|| format!("{} is thinking…", s.opponent_name));
     let all = s.buttons();
     let rows: Vec<(&str, &str, f32)> = all.iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (*l, k.as_str(), t)).collect();
     buttons_backdrop(p, c, &rows);
@@ -633,21 +633,20 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
         button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
     }
     // The guide (item 163) in the message area, in place of the short messages; with the
-    // guide off, or nothing to say, the game's own line.
+    // guide off, or nothing to say, the game's own line. The opponent's "thinking" line
+    // goes under either, never on it.
     let guide = if s.forfeit_armed { String::new() } else { s.guide() };
-    if guide.is_empty() {
-        status(p, c, s, GUIDE_BOTTOM - 30.0);
-    } else {
-        guide_lines(p, c, &guide);
-    }
+    let text = if guide.is_empty() { s.status.clone().unwrap_or_default() } else { guide };
+    let set = guide_set(&|k, t| c.text_width(k, t), &text, thinking.as_deref());
+    guide_lines(p, c, &set);
 }
 
-/// A text broken into lines of at most `width` (whole words).
-fn wrap_words(c: &Ctx, text: &str, width: f32) -> Vec<String> {
+/// A text broken into lines of at most `width` (whole words) in a font.
+fn wrap_words(width_of: &dyn Fn(FontKind, &str) -> f32, kind: FontKind, text: &str, width: f32) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {
-            Some(l) if c.text_width(FontKind::Menu, &format!("{l} {word}")) <= width => {
+            Some(l) if width_of(kind, &format!("{l} {word}")) <= width => {
                 l.push(' ');
                 l.push_str(word);
             }
@@ -657,15 +656,54 @@ fn wrap_words(c: &Ctx, text: &str, width: f32) -> Vec<String> {
     lines
 }
 
-/// The guide's lines, right-aligned over the buttons, the last at [`GUIDE_BOTTOM`].
-fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, text: &str) {
-    let lines = wrap_words(c, text, GUIDE_W);
-    let n = lines.len() as f32;
-    let top = GUIDE_BOTTOM - 30.0 - GUIDE_STEP * (n - 1.0);
-    let w = lines.iter().map(|l| c.text_width(FontKind::Menu, l)).fold(0.0, f32::max);
-    crate::casino_hud::glass(p, BUTTONS_RIGHT - w, top + 2.0, w, GUIDE_STEP * (n - 1.0) + 32.0);
-    for (i, l) in lines.iter().enumerate() {
-        c.text_in(p, FontKind::Menu, l, BUTTONS_RIGHT, top + GUIDE_STEP * i as f32, true, amber(255.0));
+/// The guide's lines as they are set: the font, the lines apart, the lines (the last the
+/// opponent's "thinking" line, dimmer, when there is one).
+#[derive(Debug)]
+struct GuideSet {
+    kind: FontKind,
+    step: f32,
+    lines: Vec<String>,
+    dim_last: bool,
+}
+
+impl GuideSet {
+    /// The first line's top: the last line's at [`GUIDE_BOTTOM`] less its height.
+    fn top(&self) -> f32 {
+        GUIDE_BOTTOM - self.step - self.step * (self.lines.len().max(1) - 1) as f32
+    }
+}
+
+/// The guide's `text` wrapped at [`GUIDE_W`], `after` (the "thinking" line) under it: in
+/// the menu's font while it takes at most [`GUIDE_LINES`] lines, else in the help box's.
+fn guide_set(width_of: &dyn Fn(FontKind, &str) -> f32, text: &str, after: Option<&str>) -> GuideSet {
+    let set = |kind, step| {
+        let mut lines = wrap_words(width_of, kind, text, GUIDE_W);
+        lines.extend(after.map(str::to_string));
+        GuideSet { kind, step, lines, dim_last: after.is_some() }
+    };
+    let menu = set(FontKind::Menu, GUIDE_STEP);
+    if menu.lines.len() <= GUIDE_LINES {
+        return menu;
+    }
+    set(FontKind::Body, GUIDE_BODY_STEP)
+}
+
+/// The guide's lines, right-aligned over the buttons, the last just above them.
+fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, set: &GuideSet) {
+    if set.lines.is_empty() {
+        return;
+    }
+    let top = set.top();
+    let band = GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32;
+    if top < band - 1.0 {
+        warn!("caravan guide: {} lines reach {top:.0}, over the hand (the band starts at {band:.0})", set.lines.len());
+    }
+    let w = set.lines.iter().map(|l| c.text_width(set.kind, l)).fold(0.0, f32::max);
+    crate::casino_hud::glass(p, BUTTONS_RIGHT - w, top + 2.0, w, set.step * set.lines.len() as f32 + 2.0);
+    let last = set.lines.len() - 1;
+    for (i, l) in set.lines.iter().enumerate() {
+        let a = if set.dim_last && i == last { 180.0 } else { 255.0 };
+        c.text_in(p, set.kind, l, BUTTONS_RIGHT, top + set.step * i as f32, true, amber(a));
     }
 }
 
@@ -736,5 +774,34 @@ mod value_colour_tests {
         assert_eq!(value_colour(26, b), SOLD);
         assert_eq!(value_colour(27, b), OVER);
         assert_eq!(value_colour(0, b), b);
+    }
+
+    /// Owner 2026-11-15: the tie note ran into the opponent's "thinking" line under it.
+    /// With fixed-width stand-ins for the fonts (13 and 10.5 a letter: the owner's frame has
+    /// 63 letters on a line of the menu's font 860 wide), the note and the line
+    /// stack, the last just above the buttons; a long reason goes to the smaller font and
+    /// stays in the band over the buttons.
+    #[test]
+    fn the_guide_stacks_over_the_thinking_line_and_keeps_to_its_band() {
+        let width = |k: FontKind, t: &str| t.chars().count() as f32 * if k == FontKind::Body { 10.5 } else { 13.0 };
+        let note = "NEW RENO and REDDING are tied at 24: a tie sells neither until one is higher. The game ends when all three are sold.";
+        let set = guide_set(&width, note, Some("Benny is thinking…"));
+        assert_eq!(set.kind, FontKind::Menu);
+        assert_eq!(set.lines.len(), 3, "{:?}", set.lines);
+        assert_eq!(set.lines.last().map(String::as_str), Some("Benny is thinking…"));
+        assert!(set.dim_last);
+        assert!(set.top() >= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "within the band");
+        assert!(GUIDE_BOTTOM + 4.0 <= PLAY_BUTTONS[0], "clear of the first button");
+        for l in &set.lines {
+            assert!(width(set.kind, l) <= GUIDE_W, "{l:?}");
+        }
+        // The tie note with a refusal of two reasons: more than three lines of the menu's font.
+        let long = format!("{note} Can't play the 6. DAYGLOW: it goes down and the 6 is higher; play lower or clubs. NEW RENO: its last card is a 6.");
+        let long = long.as_str();
+        let set = guide_set(&width, long, None);
+        assert_eq!(set.kind, FontKind::Body, "{:?}", set.lines);
+        assert!(set.top() >= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "{:?} within the band", set.lines);
+        // Nothing to say: no lines, nothing drawn.
+        assert!(guide_set(&width, "", None).lines.is_empty());
     }
 }
