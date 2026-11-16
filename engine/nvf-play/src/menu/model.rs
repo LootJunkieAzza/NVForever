@@ -967,6 +967,40 @@ impl Steal {
     }
 }
 
+/// The seed of one opening of `victim`'s pocket: `aid`, the test aid's number, gives the
+/// same rolls at every opening of that victim (smoke scenarios that need a take to go
+/// one way); else `clock` (the wall clock, nanoseconds) and `opening` (how many pockets
+/// this session has opened) make every opening roll afresh, so a caught take can go
+/// otherwise after a reload. Seeded by the victim alone, a victim whose first roll was
+/// over fPickPocketMaxChance (85) could never be robbed at the first try: the Legion
+/// assassin at Kimball's speech rolled 90.79 every time (#2751) [design: that the
+/// original rolls afresh each time is taken from its being a chance at all, GECK wiki
+/// Pickpocket; not captured].
+pub fn steal_seed(victim: FormId, aid: Option<u64>, clock: u64, opening: u64) -> u64 {
+    match aid {
+        Some(a) => u64::from(victim.0) ^ a,
+        None => clock ^ (u64::from(victim.0) << 24) ^ opening.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    }
+}
+
+/// [`steal_seed`] for a pocket opened now. The test aid `NVF_PLAY_TEST_PICKPOCKET_SEED`
+/// (a number, decimal or `0x` hexadecimal) fixes the rolls per victim.
+pub fn steal_seed_now(victim: FormId) -> u64 {
+    static OPENINGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let aid = std::env::var("NVF_PLAY_TEST_PICKPOCKET_SEED").ok().and_then(|v| {
+        let v = v.trim();
+        match v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+            Some(h) => u64::from_str_radix(h, 16).ok(),
+            None => v.parse().ok(),
+        }
+    });
+    if let Some(a) = aid {
+        bevy::log::info!("pickpocket: test aid NVF_PLAY_TEST_PICKPOCKET_SEED: the rolls on {victim} are seeded with {a:#X}, the same at every opening");
+    }
+    let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    steal_seed(victim, aid, clock, OPENINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
 const PLAYER: FormId = FormId::PLAYER_REF;
 
 impl MenuModel {

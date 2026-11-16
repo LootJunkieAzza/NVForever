@@ -411,7 +411,7 @@ pub(crate) fn open_menus(
             let (rules, (thief, target), worn, overhaul) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false, None));
             info!("pickpocket: open on {victim}: Sneak {thief:.0} against {target:.0}");
             MenuModel::open_container(&mut sim.world, victim).and_then(|mut m| {
-                let mut steal = model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED);
+                let mut steal = model::Steal::new(victim, rules, thief, target, model::steal_seed_now(victim));
                 steal.worn = worn;
                 // The player's Pickpocket Overhaul tweak [design: docs/design/tweaks.md].
                 if let Some(o) = &overhaul {
