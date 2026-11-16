@@ -424,6 +424,46 @@ fn routes_chain_interiors_and_worldspaces_and_respect_locks() {
     assert!(g.can_reach(from, to, &open));
 }
 
+/// Whether two places are joined by doors at all counts locked and disabled doors; a
+/// navmesh no door leads to is joined to nothing (Gomez's side room in the NCR safehouse,
+/// issue #2405), and a place off every navmesh is not known.
+#[test]
+fn joined_by_doors_counts_locked_and_disabled_doors_and_not_islands() {
+    use crate::graph::DoorLock;
+    let (a, b, island) = (Space::Interior(0xA), Space::Interior(0xB), Space::Interior(0xC));
+    let spaces = [W, a, b, island];
+    let mut meshes: Vec<NavMeshRecord> = (0..4).map(|i| grid(10 + i as u32, [i as f32 * 10_000.0, 0.0], 4, 4, 100.0, &[], flat)).collect();
+    let corner = |m: &NavMeshRecord| {
+        let x0 = m.vertices[0][0];
+        (0..m.triangles.len()).find(|&t| m.triangles[t].v.iter().all(|&i| m.vertices[i as usize][0] >= x0 + 300.0 && m.vertices[i as usize][1] >= 300.0)).unwrap()
+    };
+    for (i, m) in meshes.iter_mut().enumerate().take(2) {
+        let t = corner(m);
+        m.door_links.push(DoorLink { door: 0xD0 + i as u32, triangle: t as u16 });
+    }
+    let input: Vec<_> = meshes.iter().zip(spaces).map(|(m, s)| (m, Some(0), Some(s))).collect();
+    let mut g = NavGraph::assemble(&input);
+    g.join_doors(&input, |door| {
+        let i = (door - 0xD0) as usize;
+        let next = (i + 1) as f32 * 10_000.0;
+        Some((0xE0 + i as u32, [next + 50.0, 50.0, 0.0], 0.0, spaces[i + 1]))
+    });
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: b, pos: [20_350.0, 350.0, 0.0] };
+    let open = PathParams::default();
+    assert_eq!(g.joined_by_doors(from, to), Some(true));
+    // Locked without a key, then disabled: no way for anyone, but joined still.
+    g.set_door_lock(0xD1, Some(DoorLock { level: 25, key: Some(0x4B) }));
+    assert!(!g.can_reach(from, to, &open));
+    assert_eq!(g.joined_by_doors(from, to), Some(true), "a locked door joins");
+    g.sync_door_presence([(0xD1, false)]);
+    assert!(!g.can_reach(from, to, &PathParams { open_locked: true, ..Default::default() }));
+    assert_eq!(g.joined_by_doors(from, to), Some(true), "a disabled door joins");
+    // The fourth navmesh has no door: joined to nothing; far off every navmesh: not known.
+    assert_eq!(g.joined_by_doors(from, Place { space: island, pos: [30_350.0, 350.0, 0.0] }), Some(false));
+    assert_eq!(g.joined_by_doors(from, Place { space: island, pos: [90_000.0, 350.0, 0.0] }), None);
+}
+
 /// A load door not in the world (disabled by a script or by its enable parent) is no way
 /// through, and the game's presence states brought in report what changed (issue #2566:
 /// Loyal put in the Nellis hangar behind a disabled door).

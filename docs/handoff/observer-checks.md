@@ -2251,6 +2251,9 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      `AtticusREF` (0x0015A04E, SafehouseLegionINT). And `SSHQMalcolmHolmesREF`
      (0x0010651A): after he has met the player outdoors and walked out of sight, is he
      back in RandomEncounterNPCs at (1825, 2079, 6976)?
+     Ours since #2405 (packages.md §11): out of the high process, an actor whose
+     package's place no door at all joins to where it stands is put there; in the loaded
+     area (the player in the safehouse) it is still set aside every hour.
 
 160. **Where is Loyal once Volare! has failed, and can the player reach him?** (P2; #2566,
      navmesh.md §4 "Disabled load doors".) Kill Argyll (NellisArgyllREF) at Nellis
@@ -2831,3 +2834,96 @@ already talking takes over at once, same topic or another; nothing is queued or 
      anywhere in the cloud. If the shot from inside does nothing, the "fired inside" rule
      is wrong for New Vegas, and the dummy hit for a gun fired inside goes; the owner
      asked in #2687 that any spark set the gas off, so that would be a ruling for them.
+
+## Answered 2026-11-15 (Karl at Red Rock and the Legion, #2728)
+
+203. **Does Karl at Red Rock turn on the player because of the Legion?** (P1; #2728, #2467,
+     PR #2498, owner-review item 65 there; crime-karma.md §3.4, §3.7.) Karl is VRRCKarlREF
+     0x00140E71 (base VRRCKarl 0x00140E60, Aggressive). His records put him in three
+     factions, not one: ArmorVCaesarsLegionFaction 0x00134B6E (Track Crime, no reputation),
+     vCaesarsLegionMilitaryDialogueFaction 0x00137BB7 and VRRCKarlFaction 0x0017B5B6 (Track
+     Crime, reputation RepNVCaesarsLegion, Ally of VCaesarsLegionFaction and of the Red Rock
+     ambush factions) [observed: FalloutNV.esm, fnvtool esm decode, 2026-11-15]. **Answered
+     [observed: nvf_capture observer campaigns `karl_murder`, `karl_murder2`,
+     `karl_legion_rep`, `karl_legion_rep2`, `karl_legion_rep3`, `karl_legion_rep_cove`,
+     `karl_flags` and `karl_flags2` (tools/capture/observe/), save nvfairport, god mode,
+     xNVSE 6.4.9, plugin version 10, 2026-11-15; outputs `obs_karl_*` in the private capture
+     folder]:**
+     - **The setup and baseline.** Every sample reads GetPCEnemyOfFaction on the three
+       factions, Karl's GetFactionRelation player, GetActorFactionPlayerEnemy and
+       GetActorCrimePlayerEnemy, IsPCAMurderer and the Legion's infamy and fame. With no
+       crime, Karl detects the player, sits (GetSitting 3), stays at relation 0 and never
+       fights, on entry and at noon on each of the next four days.
+     - **1. Seen murder.** The staging is #2498's `crime-karl-no-side`: the player at
+       (63363, -89150) at Cottonwood Cove, hour 12, NVCCAureliusREF 0x0012D6E2 about 400
+       units off. Shots by TapControl never fired in the unfocused game, and FireWeapon
+       never hit. The kill that worked is `NVCCLegionary4REF.Kill player`, with the
+       Legionary moved 120 units in front of the player first. The original counted it
+       as a murder: IsPCAMurderer 1 at once. About 40 samples later **both
+       VCaesarsLegionFaction and ArmorVCaesarsLegionFaction read GetPCEnemyOfFaction 1**
+       (VRRCKarlFaction 0). Legion infamy went from 0 to 60, Aurelius's relation to the
+       player became 1 (enemy), and the Cove's Legionaries started combat with the player.
+       So the original does flag the armour faction, which #2498 calls "no side".
+       But the flags did not last. In `karl_murder2` the player went by `cow` to the
+       Searchlight airport. The flags still read 1 there, then went to 0 at 12.45, about
+       0.18 game hours (11 minutes) after the murder, with no cell change and no script of
+       ours. Back at the Cove, Aurelius was still in combat with the player: his own grudge,
+       with the flags at 0. In Karl's longhouse (by MoveTo, 0.3 to 0.5 h after the murder,
+       and at noon one, two, three and four days later), all three flags read 0,
+       GetActorFactionPlayerEnemy 0, relation 0. **Karl detected the player, stayed seated
+       and never fought.** The murder stayed on record (IsPCAMurderer 1, infamy 60).
+     - **2. Legion infamy, no murder.** SetReputation RepNVCaesarsLegion (infamy 100,
+       fame 0) and AddReputation infamy deeds: 6 gave 72, and 15 gave 100 with
+       GetReputationThreshold axis 2 at 6, the top rank. **Karl stayed seated and calm on
+       entry and for 0.4 to 0.5 h each time**, relation 0, all flags 0. He spoke once but
+       never fought. The same reputation turned no Legionary at the Cove either: Aurelius
+       detected the player and stayed calm for a game hour. In the original, Vilified alone
+       puts no Legion member in combat at once; the scripts that read the Legion's rank
+       only start encounters, such as VEFR02LegionAssassinSCRIPT
+       [observed: FalloutNV.esm script text].
+     - **3. What does turn him.** Each case is a flag set by script, then Karl's cell
+       entered:
+       - SetPCEnemyOfFaction VRRCKarlFaction 1: the flag held through the move, Karl read
+         GetActorFactionPlayerEnemy 1 and relation 1, and he attacked on entry.
+       - SetEnemy ArmorVCaesarsLegionFaction PlayerFaction (the faction reaction, no crime
+         flag): relation 1, and he attacked on entry.
+       - SetPCEnemyOfFaction ArmorVCaesarsLegionFaction 1 **set with the player already in
+         front of him**: GetActorFactionPlayerEnemy 1, relation 1, and he went to combat
+         (OnStartCombat Karl → player) and hit the player.
+
+       Set outdoors instead, the armour flag and the VCaesarsLegionFaction flag each held
+       for 0.3 h at the airport, then read 0 as soon as MoveTo put the player in Karl's
+       cell, and Karl stayed calm. So the armour faction's flag does turn him while it is up.
+       Nothing in FalloutNV.esm's scripts clears those flags (no SetPCEnemyOfFaction … 0
+       or ClearFactionPlayerEnemyFlag on them) [observed: script text]. What clears them is
+       not known: after the murder it was a timer or something in the engine; for a flag
+       set by script it was the move [hypothesis].
+
+     **For item 65:** the original does not agree that a murder flags no faction that is
+     "no side": the Cove murder flagged ArmorVCaesarsLegionFaction too. Karl stays calm in
+     the original because that flag was gone within about 11 game minutes, long before
+     anyone could reach Red Rock, and not because it was never set. The armour flag is
+     enough to turn him while it is up. NVForever keeps a crime's flag for
+     iCoolDownTimerSetting (3) days (crime-karma.md §3.7), so it flags the armour faction
+     and keeps it, and Karl fights; that is what #2467 saw. Not checked: a murder by the
+     player's own shot (only the scripted Kill worked here), travel on foot or by fast
+     travel instead of MoveTo, and a murder seen by more witnesses or by Karl himself.
+
+## Added 2026-11-15 (the REPCONN ghouls' walk to the basement, #2405)
+
+204. **Do the REPCONN ghouls set off for the basement while its door is locked?** (P2;
+     #2405, packages.md §11.) `REPCONGhoulRocketWalkPACKAGE` (Travel to
+     `JasonBrightDialogMarker` 0x0008D47A in RocketLabBasement, valid at VMS01
+     variable 25 == 3) sends Jason Bright's ghouls from RocketLabTop through the Mid
+     floor and `REPCONMidToBasementDoor` (0x000840AC, lock level 25, key
+     `REPCONLowerKey` 0x000810E8 that no ghoul carries); `REPCONTopIntercomTrigger`
+     (0x000CD683) by the door out of Top moves every actor entering it to the basement
+     while `nightkinquest` is 3 [observed: the data]. Ours: no walk starts, since the
+     whole way is not open, so they never reach the trigger [observed in NVForever,
+     `fnvtool ai run --force Ghoul5=REPCONGhoulRocketWalkPACKAGE`]. In RocketLabTop
+     during Come Fly With Me, once the Nightkin are dealt with (`nightkinquest` 3,
+     before the player opens the basement door), watch Ghoul5 (0x00087AEF):
+     `GetCurrentAIPackage`, `GetPos x/y` every few seconds, and `0840AC.GetLocked`.
+     If he walks to the door out of Top and is moved on, the original starts a walk
+     whose way ends at a locked door (at least as far as the door); if he stands still
+     until the door is unlocked, ours is right and the trigger only serves after it.

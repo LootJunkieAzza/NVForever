@@ -1356,3 +1356,93 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   for the greeting.
 - **Open**: how near the original's actor comes before it talks, how long it takes to set
   off, and whether a Weapon Drawn Find to the player talks too (observer check 176).
+
+## 11. Package places no walk reaches: the five actors of issue #2405
+
+Players' reports of build 0.7.0 had five named actors log "cannot reach the place of …:
+the goal cannot be reached (0 triangles searched)" every game hour. That text is
+`fnv_nav::PathError::Unreachable` with nothing searched: the door search
+(`NavGraph::door_route`) found no chain of usable doors between the two walkable areas,
+so no triangle was searched; both places were on the navmesh [observed: the code,
+`crates/fnv-nav/src/path.rs`]. Per actor [observed: `fnvtool ai show`, `ai run`, `nav path`,
+`esm decode`, `script decompile`, `world refs`, FalloutNV.esm]:
+
+- **GomezREF** (0x0015A02E, SafehouseNCRINT). Placed in a hidden side room at (7691, 742,
+  6127), on a navmesh island of two triangles. `SafehouseNCRRangerLeave` (Travel, near
+  `GomezDoor` 0x0015A02B at (2811, 951, 6438), by the cave exit, another island of the
+  same cell) is valid while `vSafehouse` variable 10 is 1; that variable is
+  `GomezGoToSleep` (SCRI 0x00159A99, SLSD index 10). No door joins the islands; the data
+  moves him between them only by scripts (the side room's trigger `MoveTo GomezDoor` when
+  his Enter patrol walks into it; the door trigger `MoveTo GomezSleep` and
+  `SetUnconscious 1` while `GomezGoToSleep` is 1). So whenever Leave is chosen while he
+  stands in the side room, no walk gets him there.
+- **AtticusREF** (0x0015A04E, SafehouseLegionINT): built the same way
+  (`SafehouseLegionVeteranLeave` to `AtticusDoor`; `AtticusGoToSleep` is variable 14).
+  His base `SafehouseLegionVeteran` (0x0015A029) has "No Low Level Processing", so out of
+  the loaded area he is never updated (`fnv_ai::process`): his reports can only come
+  from the high process, with the player in the safehouse.
+- **SSHQMalcolmHolmesREF** (0x0010651A). `SSHQMalcolmHolmesWaitsPackage` travels to his
+  editor location in the holding cell `RandomEncounterNPCs` while `VFreeformSSHQ`
+  variable 34 is 0 and the player (run on reference 0x14) is not in WastelandNV
+  (GetInWorldspace != 1). The holding cell has no door. So once he has met the player in
+  the wasteland, the player going into any interior or other worldspace (the reports:
+  SLJeanSkyDivingINT, SLniptonRoadMarketINT) sends him to a place no door leads to; he
+  is then out of the loaded area.
+- **GibsonDogReyRef** (0x00084204, GibsonScrapYardInterior). `DefaultFollowLinkedClose`
+  follows his linked reference `OldLadyGibsonRef`, whose day packages
+  (OldLadyGibsonPackageSit) take her out of the shack's door (0x000841F5) to her chair in
+  WastelandNV. His base `GibsonDogRey` (0x000CD230) has "Can't Open Doors" (and "No Low
+  Level Processing"), so by §7.1 no load door is open to him: reproduced headless, an
+  Unreachable at every hour she sits outside.
+- **Ghoul5** (0x00087AEF) and the other REPCONN ghouls in RocketLabTop.
+  `REPCONGhoulRocketWalkPACKAGE` (valid at VMS01 variable 25 == 3) travels to
+  `JasonBrightDialogMarker` (0x0008D47A) in RocketLabBasement. The way is Top → Mid
+  (0x000829EB) → Basement through `REPCONMidToBasementDoor` (0x000840AC), which is locked
+  (level 25, key `REPCONLowerKey` 0x000810E8, which no script gives to the ghouls; the
+  only AddItem of it is to the player). No script unlocks that door. But the trigger
+  `REPCONTopIntercomTrigger` (0x000CD683, script 0x000CE1BB) stands at (512, 2734) in
+  RocketLabTop, just in front of the door to Mid at (512, 2940): while VMS01
+  `nightkinquest` is 3, any actor but the player and teammates entering it is moved on
+  by its script (Chris Haversam to 0x000CE1C5 and disabled; Jason Bright `MoveTo
+  JasonBrightDialogMarker`; the rest given clothes and `MoveToMarkerWithFade
+  REPCONRocketPadDestinationMarker` 0x000CE1B1, all in the basement). So the data expects
+  the ghouls to *start* their walk and be taken off it by the trigger, two doors short
+  of the lock; ours never starts a walk whose whole way is not open.
+
+**What is built** (#2405):
+
+- **Out of sight, no door at all** [hypothesis: the data moves such actors only by
+  scripts or not at all; observer check 145 asks the original]: an actor out of the
+  high process (no body drawn) whose walk to its package's own place (a Travel's, a
+  Sleep's, a Sandbox's centre; not a patrol point, not a walk of its own) has no way, and
+  between whose place and that place there is no door at all, locked and disabled ones
+  counted (`NavGraph::joined_by_doors`), is put at the place and has arrived
+  (`AiEvent::PutThere`, engine log "put at the place of … out of sight, no door joining
+  the two"). Gomez out of sight lands at GomezDoor, inside the door trigger that puts him
+  to sleep when the player comes in and the cell loads (`script_trigger`: an actor
+  touching a trigger in a loaded cell fires OnTriggerEnter); Holmes goes back to his
+  holding cell. A disabled door between the two still joins them, so Loyal behind the
+  B-29 hangar's disabled doors (#2566, check 160) is not moved. In the loaded area
+  nothing changed: the package is set aside as before.
+- **A creature that cannot open doors** whose way (to its package's place, or after
+  the one it follows or goes up to talk to) needs a load door stays, and the package is
+  set aside as for no way, but it is told apart (`AiEvent::DoorsClosedToIt`, engine log
+  "stays: the way to the place of … needs a load door, and it cannot open doors"), not
+  reported as a path failure: Rey stays in the shack while Old Lady Gibson sits outside.
+- `fnvtool ai run --out-of-sight` runs the named actors at the Low level; smoke
+  `ai-no-door-out-of-sight` (headless) and `ai-no-door-out-of-sight-game`.
+- `ai reach` is unchanged: it answers whether an actor can walk there, and its verdicts
+  ("no way there", "only through a door the creature cannot open") are as before.
+
+**Left open**:
+
+- Gomez and Atticus with the player in their safehouse (the high process): still set
+  aside and reported every hour. Putting a drawn actor somewhere needs its body moved
+  as a MoveTo does; not built, pending check 145. Atticus, with No Low Level
+  Processing, is only ever in that case.
+- The REPCONN ghouls: a way closed only by a locked door is still no way, so the walk
+  that would take them into the intercom trigger never starts. Walking as far as the
+  locked door would change what every actor behind a locked door does (54 actor-package
+  pairs in FalloutNV.esm, `ai reach` "only through a locked door the actor has no key
+  for") and the engine's settled rule (tests in `fnv-ai/tests/carry.rs`); observer check
+  204 asks the original first.

@@ -31,6 +31,8 @@ pub struct RunArgs {
     /// What the assets say about who can use which furniture; `None`: the assets could
     /// not be opened, and every actor stays eligible for everything.
     pub furniture_facts: Option<Arc<fnv_actor::furniture_facts::AssetFacts>>,
+    /// The actors run in the low process (`fnv_ai::ProcessLevel::Low`), out of sight.
+    pub out_of_sight: bool,
 }
 
 /// The facts for [`RunArgs::furniture_facts`], from the archives of the load order and
@@ -221,6 +223,9 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ar
     }
     for &a in &actors {
         sim.ai.add(&sim.game, a).map_err(anyhow::Error::msg)?;
+        if args.out_of_sight {
+            sim.ai.set_level(&sim.game, a, fnv_ai::process::ProcessLevel::Low);
+        }
     }
     let start = sim.game.world.calendar().map_err(|e| anyhow::anyhow!("{e}"))?;
     // The state at the start and after every game hour.

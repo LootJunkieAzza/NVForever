@@ -30,6 +30,11 @@ mod native_crash;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod nif_mirror;
+mod nif_attachments;
+// Authored record builders are loaded once for the engine test binary.
+#[cfg(test)]
+#[path = "../../../crates/fnv-game/tests/common/mod.rs"]
+mod authored_test_records;
 mod anim_paths;
 mod actor_feet;
 mod tumble;

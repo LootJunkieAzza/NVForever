@@ -15,7 +15,9 @@
 //! - **Sound** = falloff · fSneakSoundsMult · (movement + action), the falloff further ×
 //!   fSneakSoundLosMult without line of sight; movement is 0 standing still, else
 //!   (fSneakBootWeightBase + fSneakBootWeightMult · body armour weight) × fSneakRunningMult
-//!   when running; action = the loudest action sound × fSneakActionMult;
+//!   when running; action = the loudest action sound × fSneakActionMult; none at all when
+//!   that noise is under the loudest sound of the world heard where the target is
+//!   (`Situation::sound_cover`, [`masked`]; #2688, NVForever's, not the original's);
 //! - **Visual** = falloff · seen · light · movement multiplier · blindness · stealth boy:
 //!   light = (fDetectionSneakLightMod + light level × night eye) · fSneakLightMult, night
 //!   eye = fDetectionNightEyeBonus (the product capped at 100) when the detector has Night
@@ -245,9 +247,10 @@ impl Settings {
         let a = self.attenuation(s.distance, s.exterior);
         let moving = s.moving || s.running;
 
-        // Sound.
+        // Sound: none when the world around the target is louder than it ([`masked`]).
         let sound_falloff = if s.line_of_sight { a } else { a * self.sound_los_mult };
-        let sound = sound_falloff * self.noise(p, moving, s.running, s.action_sound);
+        let noise = self.noise(p, moving, s.running, s.action_sound);
+        let sound = if masked(noise, s.sound_cover) { 0.0 } else { sound_falloff * noise };
 
         // Visual.
         let seen = s.line_of_sight && s.in_view;
@@ -287,6 +290,14 @@ impl Settings {
         let value = self.base_value + sound + visual + self.skill_mult * (detector_skill - target_skill);
         Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen), clear: s.line_of_sight }
     }
+}
+
+/// Whether the world's sound covers a target's own: its noise ([`Settings::noise`]) under
+/// the loudest sound heard where it is, `cover`, in the same units (#2688) [design: not the
+/// original's; the owner's request 2026-11-15]. A silent target is not "masked": it makes
+/// no sound to hide.
+pub fn masked(noise: f64, cover: f64) -> bool {
+    noise > 0.0 && noise < cover
 }
 
 /// What a detection round keeps ([`Game::begin_detection_round`]).
@@ -402,6 +413,9 @@ pub struct Situation {
     pub sneaking: bool,
     /// The loudest action sound the target made this moment (a shot: 100, 50 or 10).
     pub action_sound: f64,
+    /// The loudest sound of the world heard where the target is, in the units of its noise
+    /// ([`Settings::noise`]); a noise under it is not heard ([`masked`], #2688). 0: none.
+    pub sound_cover: f64,
     /// The detector is in a combat state (Alert, Combat or Lost).
     pub detector_alert: bool,
     pub detector_asleep: bool,
@@ -846,6 +860,26 @@ mod tests {
         assert!(near(run.sound, 0.81 * 1.6 * 33.0));
         assert!(near(walk.visual, 56.7 * 1.01));
         assert!(near(run.visual, 56.7 * 1.21));
+    }
+
+    #[test]
+    fn a_louder_world_covers_the_targets_noise() {
+        let s = Settings::default();
+        let p = Pair { target_armor_weight: 20.0, ..Pair::default() };
+        // Walking noise 1.6 · 22 = 35.2; running 1.6 · 33 = 52.8.
+        let walk = Situation { moving: true, in_view: false, sneaking: true, ..outdoors(50.0) };
+        let heard = s.evaluate(&p, &walk);
+        assert!(heard.sound > 0.0 && heard.target_skill > 0.0);
+        let covered = s.evaluate(&p, &Situation { sound_cover: 40.0, ..walk });
+        assert_eq!(covered.sound, 0.0, "a walk under a 40 cover is not heard");
+        assert_eq!(covered.target_skill, 0.0, "unseen and unheard: as a silent target");
+        assert!(near(covered.value, heard.value - heard.sound - s.skill_mult * (0.0 - heard.target_skill)));
+        let run = s.evaluate(&p, &Situation { running: true, sound_cover: 40.0, ..walk });
+        assert!(near(run.sound, 0.81 * 1.6 * 33.0), "a run over the cover is heard whole");
+        // Equal is not under; a shot over the cover is heard with the footsteps.
+        assert!(!masked(35.2, 35.2) && masked(35.1, 35.2) && !masked(0.0, 10.0));
+        let shot = s.evaluate(&p, &Situation { action_sound: s.firing_sound("Normal"), sound_cover: 40.0, ..walk });
+        assert!(near(shot.sound, 0.81 * 1.6 * (22.0 + 50.0 * s.action_mult)));
     }
 
     #[test]

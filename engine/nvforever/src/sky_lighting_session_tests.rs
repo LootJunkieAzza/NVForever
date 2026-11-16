@@ -1,8 +1,7 @@
 //! Real compiled Game writes -> production lighting reader -> SkyState -> Projection.
 //! The source-only baseline adds a neutral reader seam, not a new lighting policy.
 use super::*;
-#[path = "../../../crates/fnv-game/tests/common/mod.rs"]
-mod lighting_build;
+use crate::authored_test_records as lighting_build;
 #[path = "../../../crates/fnv-game/tests/common/lighting_templates.rs"]
 mod fixtures;
 use fixtures::*;

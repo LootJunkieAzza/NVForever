@@ -28,7 +28,7 @@ use fnv_game::game::Game;
 use fnv_game::package::{fallout, flags, PackageType};
 use fnv_game::use_weapon::Source;
 use fnv_nav::follow::heading_of;
-use fnv_nav::{NavGraph, PathParams, Place, Space, WalkEvent, Walker};
+use fnv_nav::{NavGraph, PathError, PathParams, Place, Space, WalkEvent, Walker};
 use fnv_sim::FormId;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -239,6 +239,12 @@ pub enum AiEvent {
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
     /// No way to the package's location: the package is set aside.
     Unreachable { package: FormId, why: String },
+    /// Out of sight, with no door joining where it is and where its package sends it: it
+    /// is put there (docs/spec-notes/packages.md §11).
+    PutThere { package: FormId, from: Place, to: Place },
+    /// The way there needs a load door and the creature cannot open doors (Can't Open
+    /// Doors, packages.md §7.1): it stays, and the package is set aside as for no way.
+    DoorsClosedToIt { package: FormId },
     /// Its feet at `at` do not fit its goal's height and no new path helped: its walk ends
     /// as if they did (`fnv_nav::Walker::off_path`).
     HeightWaived { at: [f32; 3] },
@@ -2059,7 +2065,8 @@ impl Ai {
             }
             Err(e) => {
                 a.following = None;
-                self.unreachable(game, actor, package, e.to_string());
+                let from = Place { space: a.walker.space, pos: a.walker.feet };
+                self.no_way_after(game, nav, actor, package, from, target, e);
             }
         }
     }
@@ -2097,7 +2104,7 @@ impl Ai {
             }
             Err(e) => {
                 a.talk = None;
-                self.unreachable(game, actor, package, e.to_string());
+                self.no_way_after(game, nav, actor, package, from, target, e);
             }
         }
     }
@@ -2259,7 +2266,7 @@ impl Ai {
             return;
         }
         // Its weapon use's target first, unless the fight took the use over (#2544): the
-        // shooter fires only once it faces the target (`USE_FACING`).
+        // shooter fires only once it faces the target (`use_weapon::shot_facing`).
         let space = self.agents[&actor].walker.space;
         if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && !w.taken).map(|w| w.target) {
             if let Some(to) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
@@ -2785,6 +2792,7 @@ impl Ai {
         let own = Ai::walk_pace_of(game, actor, running, speed);
         let a = self.agents.get_mut(&actor).expect("listed");
         (a.walker.speed, a.walk_pace) = (speed, own);
+        let from = Place { space: a.walker.space, pos: a.walker.feet };
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let doors = path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect();
@@ -2806,9 +2814,70 @@ impl Ai {
             }
             Err(e) => {
                 a.talk = None;
-                self.unreachable(game, actor, package, e.to_string())
+                self.no_way(game, nav, actor, package, from, to, patrol_point, e, &params)
             }
         }
+    }
+
+    /// No way from `from` to `to` for a package's walk ([`Ai::plan`]); packages.md §11:
+    /// - the way needs a load door and the creature cannot open doors: it stays
+    ///   ([`AiEvent::DoorsClosedToIt`]);
+    /// - out of sight (out of the high process: no body is drawn for it), going to its
+    ///   package's one place (a Travel's, a Sleep's, a Sandbox's centre; not a patrol
+    ///   point, not a walk of its own), with no door at all between the two places,
+    ///   locked or disabled: it is put there and has arrived [hypothesis: the data moves
+    ///   such actors only by scripts or not at all, Gomez in the NCR safehouse's side
+    ///   room, Malcolm Holmes back to his holding cell; observer check 145];
+    /// - otherwise the package is set aside ([`Ai::unreachable`]).
+    #[allow(clippy::too_many_arguments)]
+    fn no_way(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, patrol_point: Option<FormId>, e: PathError, params: &PathParams) {
+        if !matches!(e, PathError::Unreachable { .. }) {
+            return self.unreachable(game, actor, package, e.to_string());
+        }
+        if !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params.clone() }) {
+            self.log(game, actor, AiEvent::DoorsClosedToIt { package });
+            return self.set_aside(game, actor, package);
+        }
+        // Only the walk to the package's own place: not a patrol's, a sandbox's own walk
+        // to its furniture, a wait location's.
+        let own_place = match &self.agents[&actor].goal {
+            Some(Goal::Near { place, .. }) => *place == to,
+            Some(Goal::Inside { at, .. }) => *at == to,
+            _ => false,
+        };
+        if own_place && patrol_point.is_none() && !self.is_high(actor) && nav.joined_by_doors(from, to) == Some(false) {
+            return self.put_there(game, nav, actor, package, from, to);
+        }
+        self.unreachable(game, actor, package, e.to_string())
+    }
+
+    /// [`Ai::no_way`] for a walk after someone (a Follow, the way up to whom it talks to):
+    /// only the creature that cannot open doors is told apart.
+    #[allow(clippy::too_many_arguments)]
+    fn no_way_after(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, e: PathError) {
+        let params = self.path_params(game, actor);
+        if matches!(e, PathError::Unreachable { .. }) && !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params }) {
+            self.log(game, actor, AiEvent::DoorsClosedToIt { package });
+            return self.set_aside(game, actor, package);
+        }
+        self.unreachable(game, actor, package, e.to_string())
+    }
+
+    /// Out of sight, `actor` is put at `to`, the place of its package, and arrives there
+    /// ([`Ai::no_way`]).
+    fn put_there(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place) {
+        self.log(game, actor, AiEvent::PutThere { package, from, to });
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let w = &mut a.walker;
+        (w.space, w.feet) = (to.space, to.pos);
+        w.tri = nav.nearest(to.space, to.pos, 64.0).map_or(fnv_nav::graph::NONE, |(t, _)| t);
+        (w.turning, w.moving, w.follower) = (false, false, None);
+        let heading = w.heading;
+        a.trip_started = game.time;
+        a.trip_from = a.walker.travelled;
+        let cell = goal::cell_of_place(game.world.placed, &to);
+        let _ = game.set_actor_place(actor, cell, to.pos, heading);
+        self.arrived(game, nav, actor);
     }
 
     /// A script's StartConversation with the player from afar (`Game::walk_up_greet`):
@@ -2991,6 +3060,12 @@ impl Ai {
 
     fn unreachable(&mut self, game: &mut Game, actor: FormId, package: FormId, why: String) {
         self.log(game, actor, AiEvent::Unreachable { package, why });
+        self.set_aside(game, actor, package);
+    }
+
+    /// The package cannot be carried out from here: the actor stays and chooses again,
+    /// the package blocked for a while.
+    fn set_aside(&mut self, game: &mut Game, actor: FormId, package: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.activity = Activity::Staying;
         a.walker.follower = None;

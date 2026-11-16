@@ -149,6 +149,13 @@ enforced by `cargo deny` ([deny.toml](deny.toml),
 carries `THIRD-PARTY-LICENSES.txt`: each package the programs are built from, its
 licence and where its source is, and the licence texts the packages ship.
 
+The launcher (`nvforever-launcher`) carries egui's fallback fonts (`epaint_default_fonts`:
+Hack, Ubuntu-Light, Noto Emoji and two icon fonts), unmodified, under their own licences,
+among them the SIL Open Font Licence 1.1 and the Ubuntu Font Licence 1.0. They are font data shipped beside the program,
+not part of NVForever's code, and keep their own licences; the owner allowed them on
+2026-11-15 (the exception in [deny.toml](deny.toml)). Their texts are in
+`THIRD-PARTY-LICENSES.txt`.
+
 `engine/nvforever/src/dlss_download/nvngx_dlss.license.txt` is NVIDIA's licence text for
 its DLSS files, copied unchanged from NVIDIA's Streamline 2.14.16 release archive. It is
 NVIDIA's text, not under NVForever's licence, and is included only so that a player can read

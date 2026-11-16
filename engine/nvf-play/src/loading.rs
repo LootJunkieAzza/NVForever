@@ -183,6 +183,66 @@ pub struct Loading {
     /// The start's screen is not on the window yet (since this real time): the world holds
     /// off, so that its reads and pipelines do not come first ([`Loading::world_held`]).
     picture_hold: Option<std::time::Instant>,
+    /// The screen that is up so far, timed as [`LoadPhases`].
+    phases: LoadPhases,
+    /// The last screen that came down, timed (issue #2407): nvforever's reports send it
+    /// with a slow load.
+    pub last_phases: Option<LoadPhases>,
+}
+
+/// Where a loading screen's time went (issue #2407): for each thing it waited for
+/// ([`missing`]: cells to draw, cells in physics, actors to draw, pipelines, the scripts,
+/// the Pip-Boy warm-up), the real seconds from the screen coming up to the last frame it was
+/// still missing, and the longest frame under the screen. A wait that ends last is what held
+/// the screen; a long frame is work on the main thread (a cell built, a save read) where a
+/// long wait made of short frames is work elsewhere (reads from the disk, the model and
+/// texture pools, pipeline compiles) [engineering choice].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LoadPhases {
+    /// Seconds the screen was up.
+    pub total: f64,
+    /// Each wait and when it ended, in the order first seen.
+    pub until: Vec<(&'static str, f64)>,
+    /// The longest frame under the screen (real seconds) and the frames counted.
+    pub longest_frame: f64,
+    pub frames: u32,
+    /// What the game files gave under the screen: files, bytes, time in the reads and
+    /// time queued for an archive (`fnv_vfs::read_stats`; from its first frame counted).
+    pub reads: fnv_vfs::ReadStats,
+    reads_from: Option<fnv_vfs::ReadStats>,
+}
+
+impl LoadPhases {
+    /// Count a frame `at` seconds after the screen came up, `frame` long, still waiting for `wait`.
+    fn note(&mut self, wait: &[&'static str], at: f64, frame: f64) {
+        let now = fnv_vfs::read_stats();
+        self.reads = now.since(self.reads_from.get_or_insert(now));
+        self.frames += 1;
+        self.total = self.total.max(at);
+        self.longest_frame = self.longest_frame.max(frame);
+        for &w in wait {
+            match self.until.iter_mut().find(|(n, _)| *n == w) {
+                Some((_, t)) => *t = t.max(at),
+                None => self.until.push((w, at)),
+            }
+        }
+    }
+
+    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive`.
+    pub fn text(&self) -> String {
+        let waits = if self.until.is_empty() { "nothing waited for".to_string() } else { self.until.iter().map(|(n, t)| format!("{n} {t:.2} s")).collect::<Vec<_>>().join(", ") };
+        let r = &self.reads;
+        format!(
+            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive",
+            self.total,
+            self.longest_frame,
+            self.frames,
+            r.files,
+            r.bytes as f64 / 1e6,
+            r.read_ns as f64 / 1e9,
+            r.queued_ns as f64 / 1e9
+        )
+    }
 }
 
 impl Loading {
@@ -611,6 +671,11 @@ fn finish(
     }
     let now = real.elapsed_secs_f64();
     let starting = loading.start.is_some();
+    // Timed from the screen that is up: the start's for a travel under it.
+    if let Some(origin) = loading.start.map(|s| s.started).or(loading.trip.map(|t| t.started)) {
+        let wait = if loading.trip.as_ref().is_some_and(|t| !t.sent) { vec!["the travel to go out"] } else { missing(&loading, phys.as_deref(), scripts.as_deref(), starting && loading.trip.is_none()) };
+        loading.phases.note(&wait, now - origin, real.delta_secs_f64());
+    }
     if loading.trip.as_ref().is_some_and(|t| t.sent) {
         let wait = waiting_for(&mut loading, phys.as_deref(), None, false, now);
         let trip = loading.trip.as_mut().expect("trip");
@@ -651,6 +716,9 @@ fn finish(
     } else {
         return;
     }
+    let phases = std::mem::take(&mut loading.phases);
+    info!("loading screen phases: {}", phases.text());
+    loading.last_phases = Some(phases);
     (loading.pipelines_since, loading.pipelines_capped) = (None, false);
     if loading.click_to_exit {
         loading.waiting_click = true;
@@ -675,6 +743,18 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phases_keep_each_waits_last_frame_and_the_longest_frame() {
+        let mut p = LoadPhases::default();
+        p.note(&["cells to draw", "pipelines"], 0.5, 0.1);
+        p.note(&["cells to draw"], 2.0, 1.4);
+        p.note(&["actors to draw"], 3.0, 0.2);
+        p.note(&[], 3.3, 0.05);
+        assert_eq!(p.until, vec![("cells to draw", 2.0), ("pipelines", 0.5), ("actors to draw", 3.0)]);
+        assert_eq!((p.total, p.longest_frame, p.frames), (3.3, 1.4, 4));
+        assert!(p.text().starts_with("up 3.30 s; cells to draw 2.00 s, pipelines 0.50 s, actors to draw 3.00 s; longest frame 1.40 s of 4; read "), "{}", p.text());
+    }
 
     #[test]
     fn start_waits_for_pipboy_teardown_even_when_pipelines_are_quiet() {

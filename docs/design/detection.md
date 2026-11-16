@@ -412,3 +412,40 @@ sneak word while the player sneaks (`nvf_play::sneak_gauges`):
 They show what the player gives off, not whether anyone notices (the sneak word says
 that); sneaking itself makes no less noise in the formula, only the Sneak skill counts.
 Smoke `sneak-gauges`.
+
+## 11. Sound cover (owner request 2026-11-15, #2688)
+
+The sounds of the world hide the player's own [design: not the original's; the Gameplay
+switch `sound-cover`, on by default, kept in the INI, turns it off]:
+
+- **The rule** (`fnv_game::detection::masked`): when the player's noise
+  (`Settings::noise`, §10's Noise) is under the cover, the loudest sound of the world heard
+  at the player, the sound term of every actor's detection of the player is 0
+  (`Situation::sound_cover`). With no sound left, an actor that does not see the player
+  reads it as a silent target (the target skill not counted, §2). A noise equal to the
+  cover or over it is heard whole: a shot over a generator's hum is heard with the
+  footsteps under it. Only the player is covered; NPCs detecting each other are not.
+- **The cover** (`nvf_play::sound_cover`): every sound played at a place notes its gain
+  where the listener (the player's eye) is, the record's static attenuation times its
+  attenuation curve at that distance (`sfx::distance_gain`), without the effects volume:
+  one-shots (other actors' footsteps and shots, impacts, creatures, doors, region sounds
+  about the listener) for their length, placed loops (sound markers, objects' and
+  creatures' loops) and placed radios every frame they sound, lines said at a place by
+  the voice's fall-off (`voice::voice_gain`) while they play. The loudest gain heard,
+  0–1, × 100 is the cover in the noise's units: a sound heard whole covers a run in heavy
+  armour, one at a third of its loudness a walk in light armour. Sounds at the listener
+  (the player's own footsteps and shots, interface sounds, the cells' background loops, 2D
+  region sounds) are not placed and never cover; a placed sound within 64 units of the
+  listener is taken as the player's own (an effect's loop on the player, the player's
+  weapon in third person) and does not either.
+- **On the gauge**: the noise bar's segment at the cover level wears a brighter, larger
+  square (the HUD colour half way to white, outside the segment): the noise up to it is
+  covered. It rises at once and falls back over 1.5 s as the noise does.
+
+Not built: the player's own shots' impacts and explosions are placed sounds of the world
+and can cover the player's next measurement; with sounds switched off (`--no-sound`)
+nothing plays and nothing covers. The log says `sound cover: the player's noise N is
+under the world's C: not heard` and `… is heard again` as it changes, and `sound cover
+summary: …` at the end. Checks: `fnv_game::detection` test
+`a_louder_world_covers_the_targets_noise`, `nvf_play::sound_cover` tests, smoke
+`sneak-sound-cover`.

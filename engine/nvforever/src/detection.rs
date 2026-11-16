@@ -212,6 +212,9 @@ struct Stats {
 pub struct DetectionState {
     settings: Option<Settings>,
     next: f32,
+    /// Whether the player's noise was under the sound cover at the last measurement
+    /// (#2688): told in the log when it changes.
+    covered: bool,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
     /// Each actor's compass heading at the last measurement, and when.
@@ -743,6 +746,7 @@ fn measure(
     actors: Query<Watched>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
+    mut cover: Option<ResMut<nvf_play::sound_cover::SoundCover>>,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
@@ -992,11 +996,15 @@ fn measure(
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let player_shot = shots.get(&FormId::PLAYER_REF.0).copied().unwrap_or(0.0);
     let mut player_noise = 0.0;
+    let mut player_cover = 0.0;
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         // The player's own noise, for the sneak gauges (nvf_play::sneak_gauges).
         let me = &people[0];
         player_noise = settings.noise(&g.detection_pair(FormId::PLAYER_REF, FormId::PLAYER_REF), me.moving, me.running, player_shot);
+        // The loudest sound of the world heard at the player: a noise under it is not
+        // heard (`nvf_play::sound_cover`, #2688).
+        player_cover = cover.as_deref_mut().map_or(0.0, |c| f64::from(c.cover(std::time::Instant::now(), player_noise)));
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
@@ -1132,6 +1140,7 @@ fn measure(
                 running: t.running,
                 sneaking: t.sneaking,
                 action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
+                sound_cover: if j == 0 { player_cover } else { 0.0 },
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
                 in_combat_with_someone_else,
@@ -1239,6 +1248,16 @@ fn measure(
     });
     if let Some(g) = gauges.as_deref_mut() {
         g.noise = player_noise as f32;
+        g.cover = player_cover as f32;
+    }
+    let covered = fnv_game::detection::masked(player_noise, player_cover);
+    if covered != state.covered {
+        state.covered = covered;
+        if covered {
+            info!("sound cover: the player's noise {player_noise:.0} is under the world's {player_cover:.0}: not heard");
+        } else {
+            info!("sound cover: the player's noise {player_noise:.0} is heard again (cover {player_cover:.0})");
+        }
     }
 
     // The log and the counts.

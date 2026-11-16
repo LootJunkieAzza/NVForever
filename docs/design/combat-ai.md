@@ -2143,7 +2143,8 @@ target through every phase of the attack and fired only once turned to it
   `h2hfastleft.kf` (`fnv_actor::locomotion::weapon_moves`); the player's body takes
   `h2hleft.kf` walking (animation.md §9.6).
 - **Fire arc**: a gun fires only within 3° of straight ahead (`FIRE_FACING`, was 30°), or
-  its weapon's Aim Arc when above 0. A scripted weapon use keeps 30° (`USE_FACING`).
+  its weapon's Aim Arc when above 0. A scripted weapon use's shots have the same arc
+  (`use_weapon::shot_facing`, issue #2725); its blows keep 30° (`USE_FACING`).
 - **Measured**: the `npc combat facing` line at exit (how far off its target a gunman faced
   at each shot, and a person the AI runs in each frame it was locked on); `battle-ncr-fiends`
   and `combat-violet` check it. Before: a 2-minute NCR–Fiend battle had 84 frames over 10°

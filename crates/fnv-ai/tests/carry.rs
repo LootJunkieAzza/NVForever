@@ -922,6 +922,54 @@ fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A package's place that no door leads to (issue #2405: Gomez in the NCR safehouse's
+/// side room, a navmesh island, sent to the door by his Leave package; Malcolm Holmes
+/// sent back to his holding cell). In sight the package is set aside as before; out of
+/// sight the actor is put there and has arrived (docs/spec-notes/packages.md §11). A
+/// disabled door between the two still joins them: the actor stays (Loyal, #2566).
+#[test]
+fn out_of_sight_an_actor_is_put_at_a_place_no_door_leads_to() {
+    let f = fixture();
+    let actor = FormId(R_TRAVEL);
+    // Cells A and B, and no door between them.
+    let no_door = || {
+        let a = grid(1, [0.0, 0.0], 4, 0.0);
+        let b = grid(2, [5000.0, 5000.0], 3, 50.0);
+        NavGraph::assemble(&[(&a, Some(CELL_A), Some(A)), (&b, Some(CELL_B), Some(B))])
+    };
+    let out_of_sight = fnv_ai::FAR_PROCESS_SECONDS as f64 + 5.0;
+    // In the loaded area: set aside, where it stands.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav = no_door();
+    s.run(1.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(matches!(ev[1], AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B), "{ev:?}");
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Out of sight: put at the package's place in B, arrived, its goal met.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav = no_door();
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    s.run(out_of_sight);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::PutThere { package, from, to } if package.0 == P_TRAVEL_B && from.space == A && to.space == B)), "{ev:?}");
+    assert!(matches!(ev.last().unwrap(), AiEvent::Arrived { package, .. } if package.0 == P_TRAVEL_B), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    assert_eq!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    assert!(s.game.extra[&actor].package_goal_met);
+    // The door there but disabled: no way, yet joined, so it stays and the package is set
+    // aside.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.sync_door_presence([(DOOR_A, false)]);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    s.run(out_of_sight);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::PutThere { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+}
+
 /// The obstacle poll is skipped while nothing that could change an obstacle's presence or
 /// the graph's obstacles happened since the last one (`Ai::obstacles_in_line`), and runs
 /// again after each such change: a script's Disable/Enable, a deletion, any reference

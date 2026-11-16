@@ -3,7 +3,7 @@
 
     python tools/release/third_party_licenses.py --target TRIPLE --out FILE
 
-The release programs come from two Cargo workspaces: fnvtool from the root one,
+The release programs come from two Cargo workspaces: fnvtool and nvforever-launcher from the root one,
 nvforever and nvf-viewer from engine/. This lists every third-party package those
 programs are built from (normal and build dependencies for TRIPLE, not dev
 dependencies, not our own workspace crates) with its licence and source, followed by
@@ -33,7 +33,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 # (workspace folder, the release packages built from it)
-WORKSPACES = ((REPO, ("fnvtool",)), (REPO / "engine", ("nvforever", "nvf-viewer")))
+WORKSPACES = ((REPO, ("fnvtool", "nvf-launcher")), (REPO / "engine", ("nvforever", "nvf-viewer")))
 LICENSE_FILE = re.compile(r"^(licen[sc]e|copying|unlicense|notice)", re.IGNORECASE)
 
 
@@ -111,6 +111,16 @@ def license_texts(pkg: dict) -> list[tuple[str, str]]:
         found = [((parent.relative_to(vendor) / name).as_posix(), text) for name, text in licence_files(parent)]
         if found:
             break
+    # Fonts a package bundles carry their own licences beside them (egui's
+    # epaint_default_fonts: fonts/OFL.txt, fonts/UFL.txt), which the font licences require to
+    # ship with the fonts.
+    fonts = folder / "fonts"
+    if fonts.is_dir():
+        found += [
+            (f"fonts/{f.name}", f.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip())
+            for f in sorted(fonts.iterdir())
+            if f.is_file() and f.suffix.lower() == ".txt"
+        ]
     return found
 
 
@@ -125,7 +135,7 @@ def licence_files(folder: Path) -> list[tuple[str, str]]:
 def render(pkgs: list[dict], rustc: str, notices: tuple[Notice, ...] = NOTICES) -> tuple[str, list[str]]:
     """The file's text and the packages that name no licence and ship no licence file."""
     lines = [
-        "NVForever's programs (fnvtool, nvforever, nvf-viewer) are built from the following",
+        "NVForever's programs (fnvtool, nvforever-launcher, nvforever, nvf-viewer) are built from the following",
         "third-party Rust packages. Each is used under the licence it names; where a package",
         "offers a choice, either applies. The source of each is at the address given. The",
         "licence texts found in the packages follow the list.",

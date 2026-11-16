@@ -100,5 +100,18 @@ class StreamlineNotice(unittest.TestCase):
                 self.assertIn("Permission is hereby granted", text)
 
 
+
+class BundledFontLicences(unittest.TestCase):
+    def test_a_packages_font_licences_are_listed_with_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = package(Path(tmp) / "fonts-crate", "fonts-crate", "(MIT OR Apache-2.0) AND OFL-1.1", "MIT text")
+            fonts = Path(tmp) / "fonts-crate" / "fonts"
+            fonts.mkdir()
+            (fonts / "OFL.txt").write_text("SIL OPEN FONT LICENSE", encoding="utf-8")
+            (fonts / "Font.ttf").write_bytes(b"font data")
+            names = [n for n, _ in tpl.license_texts(pkg)]
+            self.assertEqual(names, ["LICENSE-MIT", "fonts/OFL.txt"])
+
+
 if __name__ == "__main__":
     unittest.main()
