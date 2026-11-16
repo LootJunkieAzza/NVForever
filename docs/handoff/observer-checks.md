@@ -2249,7 +2249,8 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      carries what the package looks for?** (P3; owner-decision-captures.md §6.) The
      original's gecko on VCrGeckoFindFood left the other gecko alone [observed: campaign
      `gecko_find`]; no person was observed. NVForever now lets a person on such a package
-     attack only a stranger (not kin, ally or friend) carrying what it looks for [hypothesis].
+     attack only a stranger (not kin, ally or friend) carrying what it looks for, and a Find
+     for actors themselves (as this one) only a stranger [hypothesis].
      To check, in the original: place three VFSFreesideThugRandom (0x00118A8E) 300 units
      apart in an empty exterior with no one else near, the player 3,000 units away and
      hidden (tcl, tdetect). VFSFreesideThugPackage (Find, object type 28, Allow Killing)
