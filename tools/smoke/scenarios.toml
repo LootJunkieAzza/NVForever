@@ -14114,6 +14114,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "knockdown-push-then-kill"
+source = "issue #2749 (engine/nvforever/src/deaths.rs; crates/fnv-game/src/unconscious.rs DEAD_SHOVE_KEPT): Kimball's visit, the Legion route. The end script of the Legion sniper's package 0x00164F88 is PushActorAway on the Ranger and then KillActor on him. The Ranger was dead before he was ever shown knocked down, so the push's shove was never taken and his body dropped where it stood instead of going off the tower"
+note = "knockdown-push's placement (Easy Pete 300 units north of the player at 14 s); at 16 s one console line pushes him with force 10 from the player and kills him. He dies thrown as a ragdoll: the shove is taken by the death, not lost"
+areas = ["combat", "knockouts", "scripts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;EasyPeteRef.killactor;16.6:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'knockout: Easy Pete \S+ knocked down \(pushed\)', label = "the push knocks him down in the rules" },
+  { re = 'knockout: [0-9A-F]{8} thrown at \(-?\d+, (?P<n>-?\d+), \d+\) units/s as it dies$', range = [250, 350], label = "killed by the same line, his body is thrown north at the push's 300 units/s as it dies" },
+  { re = 'ragdoll: actor [0-9A-F]{8} at rest at', label = "the thrown body comes to rest as a ragdoll" },
+  { re = 'knockout: Easy Pete \S+ gets up', count = 0, label = "dead, he does not get up" },
+  { re = 'the shove is lost', count = 0, label = "the shove reaches the ragdoll" },
+]
+
+[[scenario]]
 name = "film-opening"
 source = "PlayBink (docs/spec-notes/bink-films.md): the opening's own call for the intro film (VCG00 stage 0, PlayBink \"fnvintro.bik\" 1 1 0 1) plays it full screen over the held game when no main menu showed it, then the opening goes on; test aid NVF_PLAY_TEST_FILMS=1 lets the unattended run play it"
 areas = ["film", "scripts"]

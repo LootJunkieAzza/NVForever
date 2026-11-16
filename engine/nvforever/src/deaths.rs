@@ -74,7 +74,7 @@ fn show_hits_and_deaths(
     combat: Option<Res<Combat>>,
     mut commands: Commands,
     (mut hits, mut forced): (MessageReader<ActorHit>, MessageReader<ForcedHitReaction>),
-    script: Option<Res<ScriptState>>,
+    mut script: Option<ResMut<ScriptState>>,
     data: Option<Res<GameData>>,
     phys: Option<Res<PhysState>>,
     mut ragdolls: ResMut<Ragdolls>,
@@ -98,8 +98,20 @@ fn show_hits_and_deaths(
             // round's impact and its blast, or several blasts), and those after the killing
             // hit landed on the corpse (`died` false) (#2218).
             let died_now = died_this_frame(&fresh, r.0);
+            // Pushed and killed by the same script (`PushActorAway` then `KillActor`: the
+            // Legion sniper and the Ranger on Hoover Dam's tower): it was never shown
+            // knocked down, so `knockouts.rs` did not take the push's shove. The body
+            // falls as a ragdoll thrown with it, though no hit killed it (#2749).
+            let shove = script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.game.take_shove(fnv_sim::FormId(r.0)));
             // Killed in sight on loaded ground: the ragdoll takes the pose as it is.
-            let falls = died_now && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+            let falls = (died_now || shove.is_some()) && corpse.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+            let mut corpse = corpse;
+            if let Some(v) = shove {
+                if let Some(c) = corpse.as_mut().filter(|_| falls) {
+                    c.velocity = v;
+                }
+                info!("knockout: {:08X} thrown at ({:.0}, {:.0}, {:.0}) units/s as it dies{}", r.0, v[0], v[1], v[2], if falls { "" } else { " (no ragdoll here: the shove is lost)" });
+            }
             // The death pose varies by reference [design].
             let clip = death_clip(lo.filter(|_| !falls), r.0);
             if clip.is_none() && !falls {
@@ -109,7 +121,7 @@ fn show_hits_and_deaths(
             if let (false, Some(c), Some(w)) = (died_now, corpse.as_ref(), world.as_deref()) {
                 authored(&mut ragdolls, script.as_deref(), w, c, rig, gt);
             }
-            let start = if died_now { 0.0 } else { END };
+            let start = if died_now || (falls && shove.is_some()) { 0.0 } else { END };
             let mut ec = commands.entity(e);
             ec.insert(Dying { clip, t: start });
             ec.remove::<Flinch>();
