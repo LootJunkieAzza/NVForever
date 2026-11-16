@@ -473,6 +473,16 @@ fn open(
     mut bases: Local<Option<(Option<FormId>, Option<FormId>)>>,
 ) {
     let (board, knife) = *bases.get_or_insert_with(|| (sim.world.forms.by_edid(DARTS_BOARD), sim.world.forms.by_edid(FILLET_KNIFE)));
+    // NVForever plays these boards itself: the mods' own OnActivate handlers on them stay
+    // quiet (`fnv_game::Game::native_boards`), or the mod's game would open beside ours.
+    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        for b in [board, knife].into_iter().flatten() {
+            if !rt.game.native_boards.contains(&b) {
+                rt.game.native_boards.insert(b);
+                info!("minigames: 0x{:08X} is played by NVForever; its mod's OnActivate handlers on it stay quiet", b.0);
+            }
+        }
+    }
     let now = time.elapsed_secs();
     for a in activated.read() {
         let base = sim.base_of(a.reference);
