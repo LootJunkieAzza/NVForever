@@ -29539,6 +29539,11 @@ order = [[
   { text = "VFSOrrisREF: package VFSOrrisDetour03Package", label = "its end script sends him on to the south gate" },
   { text = "script: VFSOrrisREF says 0x00118A71", label = "where he ends the escort (his line's end script)" },
 ]]
+expect = [
+  { re = 'use weapon: .* 0x00115C60 fires its WeapNVHuntingRevolver (?P<n>[0-9.]+) s after its last shot', range = [0.66, 30], all = true, label = "#2763: no two of his shots, in one package or from one to the next, are closer than the hunting revolver's 0.67 s (1.5 shots a second)" },
+  { re = 'use weapon: .* 0x00115C60 goes on with its WeapNVHuntingRevolver from its last use', min = 2, label = "#2763: his second and third packages go on with the same revolver's cycle" },
+  { re = 'use weapon summary: (?P<n>\d+) uses went on with the gun.s cycle from the actor.s last use; the shortest time between two shots of a semi-automatic gun: [0-9.]+ s \(WeapNVHuntingRevolver', range = [2, 9], label = "#2763: the summary names it" },
+]
 
 [[scenario]]
 name = "chauncey-steam-room"
