@@ -1932,7 +1932,7 @@ impl Ai {
         // (`Game::story_gate`), for a Say To as for a force greet: Jed's greeting at Zion
         // is a Say To package (HonestHearts.esm PACK NVDLC02JedForceGreet) [observed:
         // laptop run story-far-2, 2026-11-09, where it was said with the guest away].
-        if game.story_gate(actor) {
+        if game.story_gate_npc(actor) {
             return;
         }
         // A force greet needs a clear line to the target: not through a wall or a closed

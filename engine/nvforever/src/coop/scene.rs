@@ -201,7 +201,7 @@ const WAIT_FRESH: f64 = 3.0;
 /// The host's story wait to send ([`SceneView::waiting`], `fnv_game::Game::story_gate`):
 /// the NPC and the ids of the players (by their actors here) not near it.
 fn story_waiting(g: &fnv_game::Game, players: impl Iterator<Item = (u8, FormId)>) -> Option<(u32, Vec<u8>)> {
-    let w = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH)?;
+    let w = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH && w.shown(g.time))?;
     let far: Vec<u8> = players.filter(|(_, a)| w.far.contains(a)).map(|(id, _)| id).collect();
     (!far.is_empty()).then_some((w.actor.0, far))
 }
@@ -260,7 +260,7 @@ pub(super) fn story_prompts(
     let playing = play.as_ref().is_none_or(|p| *p.get() == nvf_play::PlayState::Playing) && !g.in_menu() && !loading.as_ref().is_some_and(|l| l.active());
     let mut prompt = None;
     if coop.is_host() {
-        let fresh = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH);
+        let fresh = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH && w.shown(g.time));
         let names: Vec<String> = match fresh {
             Some(w) => w.far.iter().filter_map(|a| g.coop_actors.get(a).cloned()).collect(),
             // Left behind by a script's move of the host: waited for all the same.

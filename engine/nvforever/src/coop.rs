@@ -368,6 +368,7 @@ impl Plugin for CoopPlugin {
             host_quest: None,
             quest_untold: None,
             host_place: None,
+            join_trip: false,
             downed_at: None,
             told_respawn: false,
             alone_down: false,
@@ -562,6 +563,9 @@ pub(crate) struct Coop {
     quest_untold: Option<Option<HostQuest>>,
     /// A guest's: the host's place, and since when it has been there (seconds of `Time`).
     host_place: Option<(Place, f32)>,
+    /// A guest's: welcomed by this host and not yet taken beside it (`rejoin`); the
+    /// syncing screen holds its ask meanwhile (`syncing`).
+    join_trip: bool,
     /// This player is down: since when (seconds of `Time`), and whether it was told it
     /// can respawn.
     downed_at: Option<f32>,
