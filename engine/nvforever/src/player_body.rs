@@ -1599,10 +1599,20 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
-    // The first-person arms keep the bare hand: a held weapon's own addons (the power
-    // fist's metal hand, `equipped`) are for the third-person body only [hypothesis: the
-    // first-person weapon models are drawn over the arms' hands as before].
-    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty())).collect();
+    // The first-person arms wear a held weapon's own addons (WEAP BIPL, `equipped`) as the
+    // body does, unless the weapon has a first-person model of its own (WNAM), drawn over
+    // the arms' hands in their place. The Deathclaw, Bladed and Mantis Gauntlets have no
+    // model but their hand model (ARMA `Weapons\Hand2Hand\DeathClawGauntlet.NIF`, skinned
+    // to the right hand's bones; FalloutNV.esm WEAP 0x0000432B, 0x001519E0, 0x001524B3:
+    // BIPL, no MODL, no WNAM), and the power fist and ballistic fist draw their rigid
+    // model with no first-person form [observed: the records]; only the Displacer Glove
+    // has a WNAM [observed]. Without its addons the arms showed bare fists for the
+    // Deathclaw Gauntlet [observed: owner 2026-11-15, deathclaw-gauntlet-1p-missing].
+    let first_worn: Vec<FormId> = worn.iter().copied().filter(|w| world.actors.weapons.get(w).is_none_or(|x| x.addons.is_empty() || x.first_person_model.is_none())).collect();
+    for w in worn.iter().filter_map(|w| world.actors.weapons.get(w).map(|x| (w, x))).filter(|(_, x)| !x.addons.is_empty()) {
+        let kept = w.1.first_person_model.is_none();
+        info!("player body: the first-person arms {} the held weapon {}'s hand model(s) {:?}", if kept { "wear" } else { "leave out (it has a first-person model)" }, w.0, w.1.addons.iter().filter_map(|a| world.actors.armors.get(a)).filter_map(|a| a.edid.clone()).collect::<Vec<_>>());
+    }
     let first_a = if first_worn.len() == worn.len() { None } else { Some(world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(&first_worn), look)?) };
     let (fa, shows) = first_person::appearance(&world.actors, first_a.as_ref().unwrap_or(&a), |p| vfs.exists(p));
     let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
