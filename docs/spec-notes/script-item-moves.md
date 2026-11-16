@@ -33,14 +33,17 @@ These were read from the engine's own log and frames, not from the mod's scripts
 - **GetItemCount of a note.** On the player it reads 0: a note leaves the player's inventory
   for the Pip-Boy's list [documented: GECK wiki GetItemCount, "does not work with Notes";
   observed: capture `fa_batch3_actions`, 0 for a holotape just added to the player]. In any
-  other container a note is one of its items and counts [hypothesis: the observation was on
-  the player only; with the rule the loot menu takes the Matchbook (jlm9), without it it
-  never asks to (jlm8)].
+  other container a note is one of its items and counts [observed: observer check 125 on
+  the original, 2026-11-15: a filing cabinet in GSGeneralStore read 1 for the Matchbook;
+  taken with the container menu, the game showed its "note added" message, and then
+  `player.getitemcount` and the cabinet both read 0. With the rule the loot menu takes the
+  Matchbook (jlm9), without it it never asks to (jlm8)].
 
 ## 3. Open
 
 - Taking from an owned container through the loot menu records no theft in NVForever (the
   menu labels the key "Steal"; the crime summary counted 0). What the original does there is
   not observed.
-- Observer check 125 (docs/handoff/observer-checks.md): in the original, does `crate.GetItemCount <note>` read 1 for a note
-  lying in a container? The rule above is the hypothesis this check would confirm or flip.
+- Observer check 125 (docs/handoff/observer-checks.md) is answered: the rule above is
+  confirmed. The original's console echoes nothing for GetHasNote without NVSE, so that
+  part was read from the "note added" message only.

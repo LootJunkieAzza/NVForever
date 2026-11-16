@@ -751,6 +751,16 @@ impl<'a> Game<'a> {
             if end {
                 self.dialogue_transition();
             }
+            // In co-op the world goes on behind the conversation: the quests this script
+            // names wait for it to end, as they would behind the dialogue menu
+            // (`Game::talk_held_quests`).
+            if self.no_pause && self.dialogue.is_some() {
+                let named: Vec<FormId> = data.unit(u).unit.refs.iter().filter_map(|r| match r {
+                    fnv_script::unit::RefSlot::Form(f) if data.quests.contains_key(&FormId(*f)) => Some(FormId(*f)),
+                    _ => None,
+                }).collect();
+                self.talk_held_quests.extend(named);
+            }
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), action_ref: None, quest: def.quest });
         }

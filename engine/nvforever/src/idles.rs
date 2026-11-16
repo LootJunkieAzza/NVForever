@@ -951,9 +951,12 @@ pub fn drive(
         let quiet = package_of(game, actor).and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
         let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), Cow::Borrowed(c)))).filter(|_| !quiet) else { continue };
         live.push(actor);
-        let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 });
+        // A package's collection starts after its begin idle, which a sequence may list
+        // as its first pick (`IdlePicker::after_begin`, item 209) [hypothesis].
+        let picker = || if key.0 { IdlePicker::default() } else { IdlePicker::after_begin(&collection, game.package_def(&FormId(key.1)).and_then(|d| d.events[0].idle)) };
+        let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: picker(), next: None, retry: 0.0 });
         if c.key != key {
-            *c = Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 };
+            *c = Collection { key, picker: picker(), next: None, retry: 0.0 };
         }
         c.retry = (c.retry - dt).max(0.0);
         // In a conversation the collection waits; its gestures come from the tree.

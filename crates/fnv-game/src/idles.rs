@@ -184,7 +184,30 @@ pub struct IdlePicker {
     done: bool,
 }
 
+/// Whether a Run In Sequence collection that lists its package's begin idle counts that
+/// idle as its first pick ([`IdlePicker::after_begin`]) [hypothesis for the rule, fitting
+/// observer checks 122 and 135 (docs/handoff/observer-checks.md): Dead Money's
+/// NVDLC01PlayerWakesUp lists its begin idle NVDLC01CameraVillaWakeUp as its whole
+/// collection (Run In Sequence, timer 0) and the original shows the wake-up once, upright
+/// about 2 s before Father Elijah's greeting with no second drop; VCG01PlayerSection2,
+/// whose begin idle is not in its collection, replays it (queue item 209)]. `false`
+/// is the earlier rule: the collection starts from its top when the begin idle ends.
+pub const BEGIN_IDLE_COUNTS_IN_SEQUENCE: bool = true;
+
 impl IdlePicker {
+    /// A picker for a package's collection whose begin idle `begin` was just asked: with
+    /// [`BEGIN_IDLE_COUNTS_IN_SEQUENCE`], a Run In Sequence collection listing `begin`
+    /// goes on from the entry after it, and one that `begin` ends plays nothing more
+    /// while the package lasts [hypothesis, as the constant]. Otherwise as `default`.
+    pub fn after_begin(c: &IdleCollection, begin: Option<FormId>) -> IdlePicker {
+        let mut p = IdlePicker::default();
+        let Some(i) = begin.filter(|_| BEGIN_IDLE_COUNTS_IN_SEQUENCE && c.run_in_sequence).and_then(|b| c.idles.iter().position(|&x| x == b)) else { return p };
+        p.at = i + 1;
+        p.picked = 1;
+        p.done = p.at >= c.idles.len();
+        p
+    }
+
     /// The next idle of `c` and the seconds to wait before it, once the last one has
     /// ended; `None` when the collection has nothing more to play. `roll(n)` chooses one
     /// of `n`.
@@ -882,6 +905,22 @@ mod tests {
         // A roll outside the list is held to its last entry.
         assert_eq!(got, [(3, 0.0), (1, 2.5), (3, 2.5)]);
         assert_eq!(IdlePicker::default().next(&collection(false, false, 1.0, 0), |_| 0), None);
+    }
+
+    /// Item 209 [hypothesis, observer check 122]: a begin idle listed in a sequence is
+    /// its first pick. Dead Money's wake-up (begin and whole collection the same idle)
+    /// plays once; a sequence listing it first goes on with the next entry and later
+    /// starts over from its top; a random one, or a begin idle not listed, changes nothing.
+    #[test]
+    fn a_begin_idle_listed_in_its_sequence_counts_as_its_first_pick() {
+        let one = collection(true, false, 0.0, 1);
+        assert_eq!(take(&mut IdlePicker::after_begin(&one, Some(FormId(1))), &one, 2), [None, None]);
+        let two = collection(true, false, 3.0, 2);
+        assert_eq!(take(&mut IdlePicker::after_begin(&two, Some(FormId(1))), &two, 3), [Some((2, 0.0)), Some((1, 3.0)), Some((2, 0.0))]);
+        assert_eq!(take(&mut IdlePicker::after_begin(&two, Some(FormId(9))), &two, 2), take(&mut IdlePicker::default(), &two, 2));
+        let random = collection(false, false, 2.0, 2);
+        assert_eq!(IdlePicker::after_begin(&random, Some(FormId(1))), IdlePicker::default());
+        assert_eq!(IdlePicker::after_begin(&two, None), IdlePicker::default());
     }
 
     #[test]

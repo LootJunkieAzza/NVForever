@@ -372,6 +372,23 @@ OnAdd, OnEquip, OnHit and so on) as the host's own player:
     guest's menu shows the lines the host sends.
   - Forced greetings and scripted conversations never start with a guest, as now
     (`coop_guest` in dialogue.rs).
+  - **The host's own conversation holds the quests its lines name (2026-11-15).** In co-op
+    the world does not pause for the host's conversation (`Game::no_pause`), so quest
+    GameMode blocks kept running in it, which they never do in the original: a
+    conversation is a menu, and GameMode does not run while one is open
+    (docs/spec-notes/scripts.md, "While a menu is open") [observed: layer5-captures.md
+    §10.7]. The Fort's gear return broke on it (owner bug, 2026-11-15, Caesar's first
+    task): the weather station guard's lines set `bGimme` in their begin script and
+    `StartQuest FortEquipmentConfiscationQuest` in their end script (INFO 0x0015BCA1,
+    0x00165712), so the quest's GameMode handed the gear back and stopped the quest
+    while the line played, and the end script then started it again and it confiscated
+    once more [observed: FalloutNV.esm, SCPT 0x00164763; owner log
+    nvforever-20261115-235453-22188]. Now every quest that a spoken line's result script
+    names (an SCRO of the quest) skips its GameMode until that conversation ends
+    (`Game::talk_held_quests`, filled in `run_line_result`, emptied when `Game::dialogue`
+    is none). The rest of the world goes on. [hypothesis: holding only the named quests
+    is enough for the lines that rely on the pause; a quest a line moves only through
+    another script is not held.]
 - **Latency:** the guest's own UI updates optimistically for low-risk actions (a door
   starts opening, a picked-up item vanishes) and is corrected if the host refuses. On a
   LAN or a nearby connection it's under 100 ms.
