@@ -1651,6 +1651,16 @@ pub struct Game<'a> {
     /// The host's: the containers a checkpoint put the player's items in, until they are
     /// given back.
     pub coop_checkpoint_holds: BTreeSet<FormId>,
+    /// Quests whose GameMode waits for this player's conversation to end, in a co-op
+    /// session where the world goes on behind it ([`Game::no_pause`]): the quests a
+    /// result script of one of its lines names. The original runs no GameMode while the
+    /// conversation is open, so such a quest reads what both of the line's scripts set
+    /// only after it closes; run in between, the Fort's confiscation quest gave the gear
+    /// back on the guard's begin script, stopped, and was started again by its end script,
+    /// which took the gear a second time (owner, 2026-11-15) [observed: FalloutNV.esm INFO
+    /// 0x0015BCA1, SCPT 0x00164763; GECK wiki GameMode: not run while a menu is open].
+    /// Emptied when the conversation ends. Not saved.
+    pub talk_held_quests: BTreeSet<FormId>,
     /// The image space modifiers a script put on the screen (ApplyImageSpaceModifier),
     /// not the engine's own (hits, chems, the kill camera): a co-op host's go on the
     /// screens of the guests in its place (queue item 180, the REPCONN launch's flashes).
@@ -2681,6 +2691,7 @@ impl<'a> Game<'a> {
             coop_deaths_taken_back: BTreeMap::new(),
             coop_checkpoints: Vec::new(),
             coop_checkpoint_holds: BTreeSet::new(),
+            talk_held_quests: BTreeSet::new(),
             script_image_modifiers: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
@@ -4293,10 +4304,16 @@ impl<'a> Game<'a> {
         // ToggleScripts: no per-frame block runs (`functions::toggles`).
         let scripts = !self.toggles.scripts_off;
         let story = if self.world_logic_off { self.story_plugins.clone() } else { Vec::new() };
+        // A co-op conversation's quests wait for it to end (`Game::talk_held_quests`).
+        if self.dialogue.is_none() {
+            self.talk_held_quests.clear();
+        }
+        let talk_held = &self.talk_held_quests;
         let due: Vec<(FormId, FormId)> = self
             .quests
             .iter_mut()
             .filter(|(_, s)| scripts && s.running)
+            .filter(|(q, _)| in_menu || !talk_held.contains(q))
             .filter(|(q, _)| !story.contains(&((q.0 >> 24) as u8)) || self.guest_own_quests.contains(q))
             .filter_map(|(q, s)| {
                 let def = data.quests.get(q)?;

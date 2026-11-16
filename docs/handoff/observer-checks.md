@@ -2090,6 +2090,18 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      collection doesn't start after a begin idle (or waits a timer that 0 doesn't mean
      "none"); the fix is in `IdlePicker::next` and the collection loop in
      `engine/nvforever/src/idles.rs`.
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`)
+     [observed: GOG 1.4.0.525, all DLC]: Dead Money by `coc NVDLC01fountain`: one wake-up;
+     the lying view holds through all of Elijah's greeting and the player stands within a
+     second of it closing, no repeat in 12 s. `player.addscriptpackage 1055c4`
+     (VCG01PlayerSection2; its editor ID does not resolve in the vanilla console): lie,
+     stand, lie about every 5-6 s for 30 s and more, so the collection does replay after
+     the begin idle. Neither rule tried fits both yet: counting the begin idle as the
+     collection's first pick gives one wake-up but ends upright before the greeting, and
+     replaying the collection with the player's idle held through the conversation rose
+     and dropped a second time (desktop run dm209b, frames dm_012.0 to dm_013.5). Check 135
+     settled it (the lying view in the greeting was a single-shot misreading): the first
+     rule is back (`IdlePicker::after_begin`).
 124. **Does the third-person camera pull in for geometry beside it, or only for geometry
      between it and the player?** The original's camera has a collision box
      [documented: GECK wiki, ToggleCameraCollision, "the collision box of the player's
@@ -2118,6 +2130,12 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      `fnv_game::functions::items::get_item_count`. Then open the container, take the
      Matchbook and run `player.getitemcount 00112015` and `player.gethasnote 00112015`
      (expected 0 and 1).
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`)
+     [observed: GOG 1.4.0.525, no NVSE, filing cabinet 00105806 in GSGeneralStore]: the
+     cabinet read 1.00 and its menu listed the Matchbook; taken there, the game showed its
+     "note added" message, and then `player.getitemcount` and the cabinet both read 0.00.
+     GetHasNote echoes nothing in the vanilla console. The rule is confirmed.
+
 ## Added 2026-11-14 (load indexes, General Oliver's cap, the Tops lounge chairs)
 
 126. **Does the original load a master-flagged `.esp` with the masters, and an unflagged
@@ -2257,3 +2275,37 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      is their only package. Watch for 3 game hours (capture every 10 s): does any thug
      start a fight with another? Then place a Freeside local drunk (FIntFreesideLocalDrunk
      base) among them: is the drunk attacked?
+## Added 2026-11-15 (Dead Money's wake-up view, frame by frame; item 209)
+
+135. **Does the view rise between the drop and Father Elijah's greeting, and where does it
+     aim during the greeting?** (P2; idles.md "Collections", check 122.) Check 122 saw the
+     view drop to lying about 2 s after arriving and still lying in the greeting, but in
+     single shots. NVDLC01CameraVillaWakeUp's clip (4.13 s) animates only `Camera1st`: it
+     holds the lying view (about 71 units back, 63 down, pitched up about 40 degrees) for
+     about 1 s, then rises steadily to no offset at 4.13 s, upright [observed: the KF's
+     B-spline, evaluated from `DeadMoney - Main.bsa`]. NVDLC01FountainStartSequenceSCRIPT
+     (quest delay 0.5 s) removes the package and starts the greeting when its 5 s timer
+     runs out. NVForever plays the clip and replays it at about 6 s; with the player's
+     idle held through the greeting it rises and drops again before the greeting (desktop
+     run dm209b, frames dm_011.5 to dm_013.5), and with the collection not replayed it is
+     upright in the greeting. To check, in the original, a new game with Dead Money:
+     `coc NVDLC01fountain`, then frames every 0.25 to 0.5 s without a gap from the end of
+     the loading screen until the greeting's first line, two frames in the greeting, and
+     frames every 0.25 s for the 2 s after the dialogue closes. Read from them: (1) whether
+     the view rises (the fountain basin or the ground comes into view) at any point
+     between the drop and the greeting, and when; (2) what the view aims at during the
+     greeting (the sky, the hologram in the middle as in 122-3, or the ground); (3) how
+     soon after the dialogue closes the view is upright, and whether it rises smoothly or
+     jumps. The answer decides how `engine/nvforever/src/idles.rs` plays a package idle
+     that drives `Camera1st` (item 209).
+     **Answered 2026-11-15** (report `overnight-results/observer-checks/report.md`, there
+     numbered 164; frames 0.26 s apart without a gap) [observed: GOG 1.4.0.525, vanilla]:
+     from the first world frame, upright at +0.00, dropped to almost all sky +0.26 to
+     +0.78, the horizon creeping up +1.0 to +1.6, rising +1.83, upright at +2.09 and
+     upright until the greeting's first line at +4.18, no second drop. (1) The view rises
+     before the greeting. (2) In the greeting it pans up over about 0.8 s onto the
+     hologram's head, centred just below the middle: the upright dialogue camera turning
+     to the speaker. (3) After the dialogue closes nothing moves, so it was upright
+     already. This corrects check 122's reading of a lying view in the greeting. The
+     begin idle counting as its sequence's first pick (`IdlePicker::after_begin`) gives
+     this: one wake-up, upright before the greeting.

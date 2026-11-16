@@ -165,6 +165,9 @@ const H_BEGIN_SAY: u32 = 0xA73;
 // TopicSource in its Add Topics.
 const T_B_HAND: u32 = 0xA74;
 const B_HAND: u32 = 0xA75;
+// A line whose begin script names QTick (a co-op conversation holds that quest's GameMode).
+const T_HOLD_Q: u32 = 0xA76;
+const H_HOLD_Q: u32 = 0xA77;
 const PATROL_REF: u32 = 0x322;
 const NPC1_REF: u32 = 0x320;
 const NPC2_REF: u32 = 0x321;
@@ -810,6 +813,15 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: H_BEGIN_SAY, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("Hold on"), begin_raw: Some(say_result(NPC1_REF, T_ASK)), end: Some("9"), ..L::default() }],
+        ),
+        topic(
+            T_HOLD_Q,
+            "TestHoldQuest",
+            "HoldQuest",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: H_HOLD_Q, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("Your things"), begin_raw: Some(unit(0, &set(var(b'G', 1), ex(&[a("7")])), &[], &[G_OUT, QTICK])), end: Some("9"), ..L::default() }],
         ),
     ]
     .concat();
@@ -1683,6 +1695,38 @@ fn a_goodbye_whose_begin_script_makes_its_speaker_say_a_line_stays_in_the_conver
     assert!(g.dialogue.is_none() && out(&g) == 9.0);
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
     assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(B_ASK))));
+}
+
+/// Co-op: the world goes on behind the conversation (`Game::no_pause`), but a quest that
+/// one of its lines' result scripts names runs no GameMode until the conversation ends, as
+/// behind the original's dialogue menu. The Fort's confiscation quest otherwise gave the
+/// gear back on the weather station guard's begin script and took it again after his end
+/// script started it anew (owner, 2026-11-15; `Game::talk_held_quests`).
+#[test]
+fn in_co_op_a_quest_a_line_names_waits_for_the_conversation_to_end() {
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(S_DEAD_END)).unwrap().choices = vec![FormId(T_HOLD_Q)];
+    let mut g = game(&f);
+    g.no_pause = true;
+    let ticks = |g: &Game| g.world.global(FormId(G_TICKS)).unwrap();
+    g.start_dialogue(actor(), Some(FormId(T_DEAD_END))).unwrap();
+    // The world goes on: QTick's GameMode runs during the conversation.
+    let t0 = ticks(&g);
+    g.frames(3);
+    assert!(ticks(&g) > t0 && g.dialogue.is_some());
+    listen(&mut g);
+    assert_eq!(pick(&mut g, T_HOLD_Q), FormId(H_HOLD_Q));
+    // From the line naming it on, QTick waits.
+    let held = ticks(&g);
+    g.frames(5);
+    assert!(g.dialogue.is_some() && out(&g) == 7.0);
+    assert_eq!(ticks(&g), held);
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && out(&g) == 9.0);
+    // The conversation over, it runs again.
+    g.frames(3);
+    assert!(ticks(&g) > held);
+    assert!(g.talk_held_quests.is_empty());
 }
 
 /// A farewell of two responses lasts as long as both together, as the line would have

@@ -109,10 +109,10 @@ fn remove_item_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// work with Notes" [documented: same notes]; observed 0 for a holotape just added,
 /// capture `fa_batch3_actions`). That holds for the player, whose notes leave the
 /// inventory for the Pip-Boy's list ([`Game::file_carried_notes`]); a note lying in
-/// another container is one of its items and counts [hypothesis: the observation was on
-/// the player; Just Assorted Mods' loot menu lists the Matchbook in a crate and then never
-/// asks RemoveItemTarget to take it, as if its count read 0, desktop probe jlm8
-/// 2026-11-15].
+/// another container is one of its items and counts [observed: observer check 125, the
+/// original 2026-11-15: a filing cabinet's `getitemcount 00112015` read 1 with the
+/// Matchbook in it, and after the take both the player and the cabinet read 0; without
+/// the rule Just Assorted Mods' loot menu never took the Matchbook, desktop probe jlm8].
 pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let of = ctx.subject()?;
     let mut n = 0;
