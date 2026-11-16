@@ -1821,6 +1821,7 @@ mod tests {
         use fnv_game::caravan::{Rank, Suit};
         let deck = |base: u32| (0..30u32).map(|i| Card::new(FormId(base + i), Suit::Hearts, Rank::Num((i % 10 + 1) as u8))).collect::<Vec<_>>();
         let mut g = Game::new(deck(0x100), deck(0x200), &mut ChaCha8Rng::seed_from_u64(7));
+        g.phase = Phase::War;
         let before: usize = g.sides.iter().map(|s| s.deck.len()).sum();
         assert!(tie_track(&mut g, PLAYER, TIE_TRACK, 24) && tie_track(&mut g, OPPONENT, TIE_TRACK, 24));
         assert_eq!((g.sides[PLAYER].caravans[TIE_TRACK].value(), g.sides[OPPONENT].caravans[TIE_TRACK].value()), (24, 24));
