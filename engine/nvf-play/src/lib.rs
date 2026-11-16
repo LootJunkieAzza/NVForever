@@ -259,6 +259,17 @@ pub enum PlaySet {
     Sync,
 }
 
+/// On a [`RefVisual`] entity that stays hidden while its reference is drawn: a part of a
+/// held weapon's model that the model's own controllers hide at rest and no clip of the
+/// holder shows (an Another Millenia revolver's `##SpeedLoader`, nvforever
+/// `weapons::spawn_model`). [`activate::sync_visuals`] hides it with its reference and
+/// never shows it again. It used to show every entity of a reference whenever the
+/// reference changed, the likely way the speed loader came out beside the cylinder of a
+/// revolver at rest [observed: owner 2026-11-15, revolver-speedloader-outside;
+/// hypothesis: the path].
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct StaysHidden;
+
 /// Marks the `Camera3d` that is the player's eyes.
 #[derive(Component)]
 pub struct PlayerCamera;

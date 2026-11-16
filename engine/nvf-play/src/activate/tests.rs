@@ -224,6 +224,21 @@ fn a_restored_change_still_reaches_the_drawn_world() {
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
 }
 
+/// A change to a reference shows its entities again, but not one that stays hidden (a
+/// revolver's speed loader at rest, `crate::StaysHidden`).
+#[test]
+fn a_change_to_a_reference_leaves_a_part_that_stays_hidden_hidden() {
+    let mut app = scene(&[]);
+    let shown = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    let loader = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().entity_mut(loader).insert((crate::StaysHidden, Visibility::Hidden));
+    app.update();
+    app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged { form_id: STIM_REF, restored: false });
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(shown), Some(&Visibility::Inherited));
+    assert_eq!(app.world().get::<Visibility>(loader), Some(&Visibility::Hidden));
+}
+
 #[test]
 fn describe_by_type_lock_and_destination() {
     let sim = sim();

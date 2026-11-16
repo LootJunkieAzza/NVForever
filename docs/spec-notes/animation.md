@@ -636,6 +636,14 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
   hand bone (the `2hh` holster bone is `Bip01 R Hand`) [observed in NVForever: owner,
   2026-10-16].
 
+- Parts that rest hidden (2026-11-15): an NPC's or co-op puppet's weapon shape under a
+  `##` node the model's own controllers hide at rest (Another Millenia's revolvers'
+  `##SpeedLoader`, a child of `##swmCylinder` 2.15 units behind it [observed:
+  `SW38SSB.nif`]) spawns hidden and carries `nvf_play::StaysHidden`: a change to the
+  holder's reference no longer shows it again, and it is never one of the gun parts
+  the holster clip switches [hypothesis: the way the speed loader came out beside the
+  cylinder at rest, owner 2026-11-15]. Log: `actor weapons: <ref> <model>: <n>
+  shape(s) the model hides at rest, kept hidden (["##SpeedLoader"])`.
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 
 Measured with `crates/fnv-nif/examples/weapon_parts_survey.rs` (a model's scene objects;
