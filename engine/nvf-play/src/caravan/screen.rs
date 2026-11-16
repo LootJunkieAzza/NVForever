@@ -68,6 +68,8 @@ const PLAY_BUTTONS: [f32; 5] = [692.0, 740.0, 788.0, 836.0, 884.0];
 /// The guide's lines: as wide as the right-hand area, the last just above the buttons.
 const GUIDE_W: f32 = 860.0;
 const GUIDE_BOTTOM: f32 = 686.0;
+/// The guide band ends clear of the first play button [design].
+const _: () = assert!(GUIDE_BOTTOM + 4.0 <= PLAY_BUTTONS[0], "the guide band is clear of the first button");
 const GUIDE_STEP: f32 = 30.0;
 /// The guide's band, under the hand and the deck and over the buttons: three lines of the
 /// menu's font; a text that needs more is set in the help box's smaller font, these apart
@@ -791,7 +793,6 @@ mod value_colour_tests {
         assert_eq!(set.lines.last().map(String::as_str), Some("Benny is thinking…"));
         assert!(set.dim_last);
         assert!(set.top() >= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "within the band");
-        assert!(GUIDE_BOTTOM + 4.0 <= PLAY_BUTTONS[0], "clear of the first button");
         for l in &set.lines {
             assert!(width(set.kind, l) <= GUIDE_W, "{l:?}");
         }
