@@ -536,6 +536,10 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
         }
     }
     error!("render: {:?} GPU error, the game stops: {}", error.ty, error.description);
+    if matches!(error.ty, ErrorType::OutOfMemory) {
+        // The player must see why the game closes (#2754); none in unattended runs.
+        tell_player_at_start("The graphics card ran out of memory, so NVForever has to close. Lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.", false);
+    }
     main.write_message(AppExit::error());
     RenderErrorPolicy::StopRendering
 }
