@@ -2385,6 +2385,14 @@ fn encode(msg: &Msg) -> Vec<u8> {
                             }
                         }
                     }
+                    StoryEntry::Swap { reference, shape, texture } => {
+                        b.push(2);
+                        b.extend_from_slice(&reference.to_le_bytes());
+                        for t in [story::swap_text(shape), story::swap_text(texture)] {
+                            b.push(t.len() as u8);
+                            b.extend_from_slice(t.as_bytes());
+                        }
+                    }
                 }
             }
         }
@@ -2775,6 +2783,14 @@ fn decode(b: &[u8]) -> Option<Msg> {
                         };
                         StoryEntry::Var { quest, index, value }
                     }
+                    2 => {
+                        let reference = r.u32()?;
+                        let n = r.u8()? as usize;
+                        let shape = String::from_utf8_lossy(r.take(n)?).into_owned();
+                        let n = r.u8()? as usize;
+                        let texture = String::from_utf8_lossy(r.take(n)?).into_owned();
+                        StoryEntry::Swap { reference, shape, texture }
+                    }
                     _ => return None,
                 });
             }
@@ -2888,6 +2904,7 @@ mod tests {
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 1, value: StoryValue::Num(1.0) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 2, value: StoryValue::Num(-0.125) },
                     StoryEntry::Var { quest: 0x1E00_2B11, index: 900, value: StoryValue::Ref(0x0010_C0DE) },
+                    StoryEntry::Swap { reference: 0x0010_3DFE, shape: "screen01:0".into(), texture: r"textures\creatures\securitron\victor_alert.dds".into() },
                 ],
             },
             Msg::Campfire { reference: 0x000C_DB59 },
