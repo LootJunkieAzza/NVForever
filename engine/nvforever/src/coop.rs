@@ -364,6 +364,7 @@ impl Plugin for CoopPlugin {
             npc_attacks: HashMap::new(),
             ai_was_off: None,
             joining_held: false,
+            clock_heard: None,
             host_quest: None,
             quest_untold: None,
             host_place: None,
@@ -550,6 +551,9 @@ pub(crate) struct Coop {
     /// A joining guest: its own world logic is held until it is flagged a guest
     /// ([`hold_joining_world`]).
     joining_held: bool,
+    /// A guest's: when (seconds of play) the host's clock was last heard, for
+    /// [`guest_hours_passed`].
+    clock_heard: Option<f32>,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
     /// A guest's: the host's quest as its messages last told it, while messages for a
@@ -2024,7 +2028,13 @@ fn take_events(
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
-                    take_clock(&mut sim.world, c);
+                    let ahead = take_clock(&mut sim.world, c);
+                    let steady = coop.clock_heard.replace(now).is_some_and(|t| now - t <= CLOCK_STEADY);
+                    if let (Some(h), Some(rt)) = (guest_hours_passed(ahead, steady), rt.as_deref_mut()) {
+                        let p = nvf_play::script::with_world(rt, sim, |rt| rt.game.pass_hours(h, false));
+                        let needs: Vec<String> = p.needs.iter().map(|&(c, a, b)| format!("{c}: {a:.0} -> {b:.0}")).collect();
+                        info!("co-op: the host's clock went {h:.2} h ahead (a wait, a sleep or a fast travel): they pass for this player too; needs {}", needs.join(", "));
+                    }
                 }
             }
             Event::Unlocked { id, reference, terminal } => {
@@ -3138,15 +3148,41 @@ fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, weapon: FormId, feet
     Some(PlaySound { sound: sound?, at: Some(at) })
 }
 
-/// A guest takes the host's clock when they differ by more than [`CLOCK_SLACK`].
-fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
-    let Ok(own) = world.calendar() else { return };
+/// A guest's hours passed with the host's clock: those it went `ahead` (from
+/// [`take_clock`]) once they are at least [`CLOCK_JUMP`] and the clock was heard steadily
+/// before (`steady`: not the first clock of a join, whose difference is the guest's own
+/// save's time), at most [`CLOCK_JUMP_MAX`]. The host's wait, sleep or fast travel moves
+/// the clock, and the hours count for every player's effects and Hardcore needs, each
+/// on its own character: only the one who slept recovers from sleep (overnight queue,
+/// owner 2026-11-15, "hardcore needs feel random"; before, a guest's needs never saw the
+/// host's hours, and the host's 8 hours slept left a guest's needs where they were)
+/// [design: the original has one player; its waits raise the needs hour by hour,
+/// `fnv_game::needs`]. A guest's own wait is pulled back by the host's clock and counts
+/// once, when it waits (`nvf_play::wait`).
+fn guest_hours_passed(ahead: f64, steady: bool) -> Option<f64> {
+    (steady && ahead >= CLOCK_JUMP).then_some(ahead.min(CLOCK_JUMP_MAX))
+}
+
+/// A forward jump of the host's clock this big (game hours) is time passed for a guest:
+/// a quarter hour, 30 s of play at TimeScale 30, well above the drift [`CLOCK_SLACK`]
+/// corrects.
+const CLOCK_JUMP: f64 = 0.25;
+/// At most this much at once (game hours): three days, a long fast travel's worth.
+const CLOCK_JUMP_MAX: f64 = 72.0;
+/// The host's clock comes this often or more (seconds); a gap longer than this, a
+/// guest's next clock is a fresh start, not hours passed.
+const CLOCK_STEADY: f32 = 10.0;
+
+/// A guest takes the host's clock when they differ by more than [`CLOCK_SLACK`]. The game
+/// hours the guest's clock went forward (negative: back; 0: kept).
+fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) -> f64 {
+    let Ok(own) = world.calendar() else { return 0.0 };
     // By the date and hour, not GameDaysPassed alone: a script (or the console) can set
     // GameHour without it.
     let same_day = (own.year, own.month, own.day) == (c.year, c.month, c.day);
     let off = if same_day { c.hour - own.hour } else { (c.days_passed - own.days_passed) * 24.0 };
     if same_day && off.abs() <= CLOCK_SLACK && (c.days_passed - own.days_passed).abs() * 24.0 <= CLOCK_SLACK {
-        return;
+        return 0.0;
     }
     if off.abs() >= 0.5 {
         info!("co-op: the host's clock: day {} {:02}:{:02} (this game was {off:+.1} h off)", c.day, c.hour as u32, (c.hour.fract() * 60.0) as u32);
@@ -3154,7 +3190,9 @@ fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
     let cal = fnv_sim::clock::Calendar { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed };
     if let Err(e) = world.set_calendar(cal) {
         warn_once!("co-op: cannot take the host's clock: {e}");
+        return 0.0;
     }
+    f64::from(off)
 }
 
 /// A host makes its presence list again at least this often (seconds).
@@ -4079,6 +4117,18 @@ fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The host's wait, sleep or fast travel is time passed for a guest; drift, a clock
+    /// set back and the first clock of a join are not.
+    #[test]
+    fn the_hosts_hours_pass_for_a_guest_but_not_a_join() {
+        assert_eq!(guest_hours_passed(1.0, true), Some(1.0), "an hour waited");
+        assert_eq!(guest_hours_passed(8.0, true), Some(8.0), "a night slept");
+        assert_eq!(guest_hours_passed(0.06, true), None, "drift");
+        assert_eq!(guest_hours_passed(-3.0, true), None, "the guest's own wait pulled back");
+        assert_eq!(guest_hours_passed(40.0, false), None, "a join: the guest's save's own time");
+        assert_eq!(guest_hours_passed(500.0, true), Some(CLOCK_JUMP_MAX));
+    }
 
     /// s182: a joining guest's own quests are held from the host's welcome until it is
     /// flagged a guest (Dead Money's MQ00 moved it out of the bunker on that first frame);

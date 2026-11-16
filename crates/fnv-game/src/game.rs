@@ -1673,6 +1673,16 @@ pub struct Game<'a> {
     /// the guest could not leave (owner's LAN playtest, 2026-11-14) [observed:
     /// FalloutNV.esm VUltraLuxeInteriorDoorSCRIPT, VGenericTimerSCRIPT nEvent 10].
     pub guest_own_quests: BTreeSet<FormId>,
+    /// A co-op guest's: the references whose object script its own dialogue line set
+    /// going (a doctor's, `crate::coop_services`), with the seconds left that it runs
+    /// here, as a world reference's script otherwise does not on a guest.
+    pub guest_own_refs: BTreeMap<FormId, f32>,
+    /// A co-op guest's: inside a script of its own dialogue line or of a reference in
+    /// [`Game::guest_own_refs`], whose changes to the player are the guest's own, not the
+    /// host's story (`crate::coop_story`).
+    pub guest_service: u32,
+    /// The doctors of the load order, found once (`crate::coop_services`).
+    pub(crate) coop_services: std::sync::OnceLock<crate::coop_services::Services>,
     /// A co-op session: nothing this player opens holds the world (owner, 2026-11-10:
     /// "it's co-op! There's no pausing!"). The engine sets it each frame
     /// (nvf-play `coop_tables::keeps_world`); [`Game::tick`] then runs the world as in
@@ -2675,6 +2685,9 @@ impl<'a> Game<'a> {
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
             guest_own_quests: BTreeSet::new(),
+            guest_own_refs: BTreeMap::new(),
+            guest_service: 0,
+            coop_services: std::sync::OnceLock::new(),
             no_pause: false,
             coop_talking: BTreeSet::new(),
             coop_talk_kill: true,
@@ -4313,7 +4326,14 @@ impl<'a> Game<'a> {
             }
             self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
-        let active = if scripts && world_logic { self.active_refs() } else { Vec::new() };
+        let mut active = if scripts && world_logic { self.active_refs() } else { Vec::new() };
+        // A guest's doctor runs here while it sees to the guest (`crate::coop_services`).
+        let own = if scripts { self.guest_own_refs_due(dt) } else { Vec::new() };
+        for r in &own {
+            if !active.contains(r) {
+                active.push(*r);
+            }
+        }
         // Doors opened or closed since the last frame, by anyone (OnOpen, OnClose).
         self.watch_doors(&active);
         for r in active {
@@ -4321,12 +4341,15 @@ impl<'a> Game<'a> {
                 break;
             }
             let Some(script) = self.ref_script(r) else { continue };
-            if self.data.script(script).is_some_and(|u| u.has_block(ev)) && !self.host_runs_script_of(r, ev) {
+            let own_ref = own.contains(&r);
+            if self.data.script(script).is_some_and(|u| u.has_block(ev)) && (own_ref || !self.host_runs_script_of(r, ev)) {
                 let key = InstKey::Ref { reference: r };
                 if !in_menu {
                     self.mark_run(key, Some(script));
                 }
+                self.guest_service += u32::from(own_ref);
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
+                self.guest_service -= u32::from(own_ref);
             }
         }
         // Actors out of the loaded area run their GameMode when the AI updates them
@@ -5756,7 +5779,12 @@ impl<'a> Game<'a> {
         }
         for u in [def.begin, def.end].into_iter().flatten() {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
-            self.run_result(u, RunCtx { self_ref: speaker, action_ref: None, quest: def.quest });
+            // Said by its speaker, as a conversation runs it (a co-op guest's doctor,
+            // `crate::coop_services`).
+            match speaker {
+                Some(sp) => self.run_info_result(sp, u, def.quest),
+                None => self.run_result(u, RunCtx { self_ref: speaker, action_ref: None, quest: def.quest }),
+            }
         }
         Ok(pass)
     }
