@@ -23,7 +23,7 @@ const LEVER: u32 = 0x160; // a named activator with a model
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
-const STIM_REF: u32 = 0x301; // XCNT 3, no collision
+pub(crate) const STIM_REF: u32 = 0x301; // XCNT 3, no collision
 const CHEST_REF: u32 = 0x302;
 const SAFE_REF: u32 = 0x303; // a chest locked at level 50 with KEY
 const DOOR_REF: u32 = 0x304; // -> DOOR_DEST in CELL_INT
@@ -81,7 +81,7 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
     }
 }
 
-fn sim() -> SimState {
+pub(crate) fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
     for b in [
