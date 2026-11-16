@@ -491,9 +491,10 @@ pub struct DataState {
     drag_from: Option<Vec2>,
     /// The Local Map's outline of the place, as far as it is made.
     outline: Option<Outline>,
-    /// The landscape heights of the cells the outline read (by grid square; `None` for a
-    /// square without land), kept while one outline is made.
-    outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
+    /// The landscape surfaces of the cells the outline read (by grid square; `None` for a
+    /// square without land), smoothed or stored as the run draws and collides them
+    /// (`crate::smooth_terrain`, #2149), kept while one outline is made.
+    outline_land: HashMap<(i32, i32), Option<fnv_world::land_surface::Surface>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's companion count at the last log.
@@ -558,6 +559,25 @@ pub struct DataState {
     custom_logged: [Option<Option<(i32, i32)>>; 2],
     /// What the World Map's dotted lines led to, and the custom marker, when last logged.
     lines_logged: Option<(Vec<LineTo>, Option<CustomMarker>)>,
+}
+
+/// [design, #2403] Synthetic list/note scrolling for reports integration tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> DataState {
+    let mut st = DataState { text_max: 1000.0, pane_of: Some((NOTES, false, 42)), ..Default::default() };
+    if step >= 1 {
+        scroll_pane(&mut st, NOTES, Some((NOTES, false, 42)), PaneMoves { pages: 1.0, ..Default::default() });
+    }
+    if step >= 2 {
+        st.sel[NOTES] = 1;
+    }
+    if step >= 3 {
+        st.first[NOTES] = 1;
+    }
+    st.navigated = step as u32;
+    st.poll = step as f32;
+    st
 }
 
 // ---- what is shown ------------------------------------------------------------------------
@@ -1224,6 +1244,14 @@ impl DataState {
     /// (`super::sounds`).
     pub fn selection(&self, tab: usize) -> (usize, bool) {
         (self.sel.get(tab).copied().unwrap_or(0), self.challenges)
+    }
+
+    /// [design, #2403 / file refs] Read-only logical list/pane/map progress. Excludes
+    /// radio playback/wave clocks, pointer hover and attempted-input counters.
+    pub fn progress(&self, tab: usize) -> impl std::fmt::Debug + '_ {
+        (self.selection(tab), self.first.get(tab), self.text_first, self.pane_of, self.notes_of_active,
+            self.active_quest, self.centre.get(tab).filter(|_| tab < 2), self.magnify.get(tab).filter(|_| tab < 2),
+            self.cursor.get(tab).filter(|_| tab < 2), &self.popup, &self.custom)
     }
 
     /// The active quest, for a save (`crate::save`): a ForceActiveQuest the Pip-Boy has
@@ -2816,11 +2844,13 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let mut ground = |x: f32, y: f32| -> Option<f32> {
         let ((lo, schema, index), grid) = (data?, grid?);
         let g = ((x / model::CELL).floor() as i32, (y / model::CELL).floor() as i32);
-        let heights = lands.entry(g).or_insert_with(|| {
-            let land = index.cells.get(grid.get(&g)?)?.land?;
-            fnv_world::land::load_land(lo, schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+        // The surface the loaded collision has too, so the outline does not change where
+        // the rays leave the loaded cells.
+        let surface = lands.entry(g).or_insert_with(|| {
+            let ids = fnv_world::land_surface::land_ids(g, |n| grid.get(&n).and_then(|c| index.cells.get(c)).and_then(|c| c.land));
+            fnv_world::land_surface::load_surface(lo, schema, &ids, crate::smooth_terrain::spec())
         });
-        fnv_phys::terrain::height_at(heights.as_ref()?, x - g.0 as f32 * model::CELL, y - g.1 as f32 * model::CELL)
+        surface.as_ref()?.height_at(x - g.0 as f32 * model::CELL, y - g.1 as f32 * model::CELL)
     };
     let Some(phys) = game.phys.as_mut() else { return };
     let player_key = phys.player.as_ref().map(|c| c.key());
@@ -3924,6 +3954,48 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
             c.text(p, 1, d, centre.x, below, Align::Centre, c.bright());
         }
     }
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_map_progress_fixture(step: usize) -> DataState {
+    let mut s = DataState::default();
+    if step >= 1 {
+        s.centre[1] = Some([0.5, 0.5]);
+    }
+    if step >= 2 {
+        s.magnify[1] = 2.0;
+    }
+    if step >= 3 {
+        s.cursor[1] = Some(Vec2::ONE);
+    }
+    if step >= 4 {
+        s.popup = Some(Popup::travel(42, "Synthetic question".into()));
+    }
+    if step >= 5 {
+        s.popup.as_mut().unwrap().step(1);
+    }
+    if step >= 6 {
+        s.active_quest = Some(43);
+    }
+    if step >= 7 {
+        s.custom = Some(CustomMarker { space: 42, pos: [1.0, 2.0, 3.0] });
+    }
+    s.navigated = step as u32;
+    s.poll = step as f32;
+    s
+}
+
+/// [design, #2403] The same logical map transitions on the Local Map tab.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_local_map_progress_fixture(step: usize) -> DataState {
+    let mut s = report_map_progress_fixture(step);
+    s.centre.swap(0, 1);
+    s.magnify.swap(0, 1);
+    s.cursor.swap(0, 1);
+    s
 }
 
 #[cfg(test)]

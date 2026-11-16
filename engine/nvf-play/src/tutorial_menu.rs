@@ -603,6 +603,15 @@ fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, w
     }
 }
 
+#[cfg(feature = "report-test-support")]
+impl TutorialView {
+    /// [design, #2403] Synthetic page/scroll/hover for detector regressions.
+    #[doc(hidden)]
+    pub fn report_progress_fixture(step: usize) -> Self {
+        Self { page: usize::from(step >= 1), scroll: if step >= 2 { 20.0 } else { 0.0 }, hover: (step >= 3).then_some(TmButton::Close), ..Default::default() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

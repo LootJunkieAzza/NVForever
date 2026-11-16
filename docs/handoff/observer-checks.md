@@ -2927,3 +2927,46 @@ already talking takes over at once, same topic or another; nothing is queued or 
      If he walks to the door out of Top and is moved on, the original starts a walk
      whose way ends at a locked door (at least as far as the door); if he stands still
      until the door is unlocked, ours is right and the trigger only serves after it.
+
+## Added 2026-11-16 (how far a spoken line carries, #2750)
+
+205. **How loud is a line between actors at 500 to 4,000 units?** (P1; #2750, voice.md
+     "Heard where it is said".) Ours: full level to 600 units (`fDialogMinDistance`),
+     600 ÷ distance beyond, faded to nothing at 2,000 (`fDialogMaxDistance`)
+     [hypothesis]. The owner hears President Kimball's speech in the original from the
+     sniper tower, 3,551 units from the podium, and nothing in the speech's records sets
+     it apart from other lines [observed: the data]. This check needs the game's sound
+     output recorded (a loopback recording; the observer has no such tool yet). In the
+     open, away from other sounds, music and radio off, voice volume 100%: have one
+     actor say the same long line (`Say` or `SayTo` of one topic) with the player put at
+     500, 1,000, 1,500, 2,000, 2,500, 3,000, 3,500 and 4,000 units from it
+     (`GetDistance` logged), facing it, and record the output's level over the line at
+     each distance. Then the same at Kimball's speech from the podium's foot, the
+     vertibird drop-off and the sniper tower. What to read off: whether the level
+     falls as min ÷ distance, where it stops falling or is cut, whether 2,000 units
+     means anything, and whether the speech differs from the ordinary line. Also
+     whether the subtitle shows at each distance.
+
+
+## Added 2026-11-15 (old-head hair outside the race list, #2714)
+
+210. **Which hair does the original use when an NPC's HAIR is outside its race's
+     list?** (P3; #2714; actors.md section 4.4.) [documented: #2714, spooknik's
+     2026-11-15 record/archive audit at main 1790ab94a] Roy, VFSRoyREF
+     0x0011365D / base VFSLocalVictim03 0x00113649, is CaucasianOldAged
+     0x000987DF (`headold.nif`) with HairAfricanAmericanBase 0x000306BE
+     (`hairbase.nif`, `hairafricanamericanbase.dds`, HCLR 192,192,192, no hat).
+     This hair is outside the race's old-hair-only HNAM list; the default male
+     hair is HairBaldingOld. Old-head alternatives exist: HairBaseOld 0x00044528
+     (`hairbaseold.nif`, `hairbaseoldnohat.egm` / `hairbaseoldhat.egm`) and
+     HairAfricanAmericanBaseOld 0x000987D9 (`hairafricanamericanbaseold.nif`).
+     The second case, VNovacDoctorMerc2, uses `hairraiderspike.nif` on an old
+     head and has no old version [documented: the same audit]. In the original,
+     at Old Mormon Fort courtyard during VMS19 objective 60, capture Roy from
+     behind and from the side, close enough to compare the scalp/hair seam;
+     also capture VNovacDoctorMerc2 from those angles. Does Roy retain the
+     record's hair with the same gap, wear the old-head version, or wear the
+     race default? Does the second case retain its hair or use a default when
+     no old version exists? [hypothesis, #2714] NVForever provisionally keeps
+     the record's model and its own EGM; a young-head model on an old head
+     could explain the reported gap. Resolve this before changing hair selection.

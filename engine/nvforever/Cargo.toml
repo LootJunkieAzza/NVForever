@@ -95,6 +95,10 @@ libc = "0.2"
 # The program icon in the Windows executable (build.rs); MIT.
 winresource = "0.1"
 
+[dev-dependencies]
+# [design, #2403] Exercise the real reports system with synthetic UI navigation states.
+nvf-play = { workspace = true, features = ["report-test-support"] }
+
 [features]
 default = ["intro-video"]
 # The intro film before a new game (nvf-play's `intro-video`: a GPL-3.0-or-later decoder,

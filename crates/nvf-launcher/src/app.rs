@@ -973,6 +973,17 @@ impl App {
                             }
                         });
                         picked.filter(|p| at.is_none_or(|i| &choices[i].stored != p))
+                    } else if let Some(&list) = self.lists.get(key) {
+                        // A list row before its value's kind: an older 1/0 it took over from
+                        // shows as the choice it stands for (catalog::list_value).
+                        let v = catalog::list_value(key, &v);
+                        let mut t = v.clone();
+                        egui::ComboBox::from_id_salt(key).width(control_w - 8.0).selected_text(t.clone()).show_ui(ui, |ui| {
+                            for c in list.iter() {
+                                ui.selectable_value(&mut t, c.to_string(), *c);
+                            }
+                        });
+                        (t != v).then_some(t)
                     } else {
                         match Kind::of_value(&v) {
                         Kind::Switch => {
@@ -994,15 +1005,6 @@ impl App {
                                 }),
                             };
                             ui.add_sized([control_w, 20.0], s).changed().then(|| part_text(f))
-                        }
-                        Kind::Text if self.lists.contains_key(key) => {
-                            let mut t = v.clone();
-                            egui::ComboBox::from_id_salt(key).width(control_w - 8.0).selected_text(t.clone()).show_ui(ui, |ui| {
-                                for c in self.lists[key] {
-                                    ui.selectable_value(&mut t, c.to_string(), *c);
-                                }
-                            });
-                            (t != v).then_some(t)
                         }
                         Kind::Text => {
                             let mut t = v.clone();

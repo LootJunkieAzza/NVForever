@@ -96,7 +96,28 @@ pub fn step_words() -> HashMap<&'static str, &'static [&'static str]> {
 /// `name()` in the engine; a test checks the engine still has every name). Other lists
 /// (the resolution, the monitor) depend on the machine and stay text.
 pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
-    HashMap::from([("kill-camera", &["Last enemy", "Every kill", "Off"][..]), ("vats-style", &["Classic", "Mark and Fire"][..])])
+    HashMap::from([
+        ("kill-camera", &["Last enemy", "Every kill", "Off"][..]),
+        ("vats-style", &["Classic", "Mark and Fire"][..]),
+        // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
+        ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
+    ])
+}
+
+/// A list row's value as one of its choices ([`list_choices`]): the older values a list took
+/// over from map to the choice they stand for (the Smooth terrain row's on/off of #2149:
+/// `1`, true, on, yes are `4x4`; `0`, false, off, no are `off`, as the engine reads them);
+/// anything else as it is (trimmed).
+pub fn list_value(key: &str, value: &str) -> String {
+    let v = value.trim();
+    if key == "smooth-terrain" {
+        match v.to_ascii_lowercase().as_str() {
+            "1" | "true" | "on" | "yes" => return "4x4".to_string(),
+            "0" | "false" | "off" | "no" => return "off".to_string(),
+            _ => {}
+        }
+    }
+    v.to_string()
 }
 
 /// The tabs in the page's order (engine/nvf-play/src/settings_layout.rs, `TAB_ORDER`), then
@@ -139,12 +160,25 @@ mod tests {
     #[test]
     fn list_choices_match_the_engines_names() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvf-play/src/");
-        for (key, file) in [("kill-camera", "kill_cam.rs"), ("vats-style", "vats_classic.rs")] {
+        for (key, file) in [("kill-camera", "kill_cam.rs"), ("vats-style", "vats_classic.rs"), ("smooth-terrain", "smooth_terrain.rs")] {
             let src = std::fs::read_to_string(format!("{root}{file}")).unwrap();
             for name in list_choices()[key] {
                 assert!(src.contains(&format!("=> \"{name}\"")), "{key}: {name} is no longer a choice in {file}");
             }
         }
+    }
+
+    /// The Smooth terrain row's older on/off reads as its choices (4x4 and off), so a
+    /// launcher with an old INI offers the list, not a switch; other values stay as they are.
+    #[test]
+    fn older_values_map_to_list_choices() {
+        let choices = list_choices();
+        for (v, want) in [("1", "4x4"), ("0", "off"), (" TRUE ", "4x4"), ("no", "off"), ("2x2", "2x2"), ("4x4-near", "4x4-near")] {
+            let got = list_value("smooth-terrain", v);
+            assert_eq!(got, want, "{v}");
+            assert!(choices["smooth-terrain"].contains(&got.as_str()));
+        }
+        assert_eq!(list_value("kill-camera", " 1 "), "1");
     }
 
     #[test]

@@ -115,6 +115,44 @@ struct Machine {
 }
 
 impl VigorMenu {
+    /// [design, #2403 / file refs] Page, review row and attribute allocation;
+    /// excludes animation playback, textures and aid clocks in `OpenMenu`.
+    pub fn progress(&self) -> Option<&Vigor> {
+        self.open.as_ref().map(|o| &o.vigor)
+    }
+
+    /// [design, #2403] Synthetic logical transitions using the machine's own actions.
+    #[cfg(feature = "report-test-support")]
+    #[doc(hidden)]
+    pub fn report_progress_fixture(step: usize) -> Self {
+        let mut vigor = Vigor::new(SpecialSheet::new([5; 7]));
+        if step >= 1 {
+            vigor.act(Action::Next);
+        }
+        if step >= 2 {
+            vigor.act(Action::Raise(None));
+        }
+        if step >= 3 {
+            vigor.page = Page::Review;
+            vigor.act(Action::Select(1));
+        }
+        Self {
+            open: Some(OpenMenu {
+                vigor,
+                roots: [Entity::PLACEHOLDER; 2],
+                nodes: HashMap::new(),
+                flip: None,
+                materials: HashMap::new(),
+                shown: HashMap::new(),
+                keyed_row: step >= 4,
+                fov_before: None,
+                aid_from: Some(step as f32),
+            }),
+            clips: None,
+            ready: None,
+            warmed: false,
+        }
+    }
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }

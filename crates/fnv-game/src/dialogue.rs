@@ -714,6 +714,9 @@ impl<'a> Game<'a> {
         }
         self.dialogue_serial = self.dialogue_serial.wrapping_add(1);
         self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), topic_list: false, lines: 0, then: None, ending: false });
+        // [design, #2724] Opening by any route fulfils this actor's pending walk-up;
+        // consume it before the first line's scripts can run (`Game::speak`).
+        self.walk_up_greets.remove(&actor);
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);

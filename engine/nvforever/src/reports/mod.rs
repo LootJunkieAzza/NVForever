@@ -29,6 +29,7 @@
 
 pub mod anomaly;
 pub mod snapshot;
+mod controls;
 mod delete;
 mod form;
 pub mod summary;
@@ -505,7 +506,7 @@ impl Plugin for ReportsPlugin {
             .add_systems(Update, (collect, track_loads, detect).chain())
             // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
             // player missed the clean end and the run was sent as a native crash (#2203).
-            .add_systems(Last, write_summary.after(bevy::window::ExitSystems));
+            .add_systems(Last, (controls::detect, write_summary.after(bevy::window::ExitSystems)).chain());
     }
 }
 

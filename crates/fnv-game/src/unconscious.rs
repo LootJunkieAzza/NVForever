@@ -80,6 +80,10 @@ pub const PLAYER_KNOCKDOWN_DOWN: f64 = 2.4;
 /// units/s at force 10 and 1,000-1,300 at force 40, campaign `knockdown_look`
 /// 2026-10-19, unconscious.md §5.5].
 pub const PUSH_SPEED: f32 = 30.0;
+/// Seconds of game time a shove not yet taken waits on an actor killed since
+/// ([`Game::take_shove`]): the engine takes it the frame it shows the death; an actor not
+/// drawn loses it [design: chosen].
+pub const DEAD_SHOVE_KEPT: f64 = 1.0;
 /// The upward speed a push gives the body, game units a second, whatever the force (no
 /// more than the push's own speed) [observed: the reference rose 42 units at force 10 and
 /// 31 at force 40, 220-240 units/s at the start under the game's gravity; same campaign].
@@ -409,8 +413,13 @@ impl Game<'_> {
         let mut up = Vec::new();
         for (r, k) in down {
             if self.is_dead(r) {
-                // Killed while down: it stays dead.
-                self.end_knockout(r);
+                // Killed while down: it stays dead. A shove the engine has not taken yet
+                // waits a moment for it: pushed and killed by the same script
+                // (`PushActorAway` then `KillActor`), the body is thrown as it dies
+                // (#2749) [design].
+                if k.shove.is_none() || now - k.at >= DEAD_SHOVE_KEPT {
+                    self.end_knockout(r);
+                }
                 continue;
             }
             if let Some(since) = k.rising {

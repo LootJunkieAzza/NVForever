@@ -100,7 +100,7 @@ fn fake_cell(job: &Job) -> Prepared {
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
     refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
-    Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
+    Prepared { cell: job.cell, surface: Some(fnv_world::land_surface::Surface::stored(&heights)), terrain, refs, times: LoadTimes::default() }
 }
 
 /// [`fake_cell`] with its second box keyframed (as a swing trap's held bodies).
@@ -250,7 +250,7 @@ fn a_destroyed_reference_collides_as_its_destruction_model_and_back() {
 
 #[test]
 fn a_job_knows_its_references_destruction_models() {
-    let job = Job { cell: PhysCell::Exterior(0, 0), refs: vec![1, 5, 9], land: None, poses: Vec::new(), scales: Vec::new(), models: vec![(5, "a.nif".into()), (9, "b.nif".into())] };
+    let job = Job { cell: PhysCell::Exterior(0, 0), refs: vec![1, 5, 9], land: None, lands: Default::default(), surface: fnv_world::land_surface::SurfaceSpec::Stored, poses: Vec::new(), scales: Vec::new(), models: vec![(5, "a.nif".into()), (9, "b.nif".into())] };
     assert_eq!(job.model_of(5), Some("a.nif"));
     assert_eq!(job.model_of(9), Some("b.nif"));
     assert_eq!(job.model_of(1), None);
@@ -449,6 +449,73 @@ fn a_start_over_a_neighbours_walkway_waits_for_it() {
     assert!((feet[2] - 420.0).abs() < 5.0, "back at the saved height: {feet:?}");
 }
 
+/// A made-up slab placed in square (2, 0) whose bounds reach west over (1, 0) into (0, 0)
+/// (#2795: HELIOS One's plaza, placed two squares from its south end).
+const SLAB: u32 = 0x0200_0002;
+
+/// [`fake_cell`], with the slab wherever the job lists it: 40 units thick, top at z 420,
+/// from x 3240 (square 0) to x 17240 (square 4), 600 units either side of y 2048.
+fn reach_cell(job: &Job) -> Prepared {
+    let mut p = fake_cell(job);
+    if job.refs.contains(&SLAB) {
+        let pl = Placement {
+            form_id: SLAB,
+            sig: *b"REFR",
+            flags: 0,
+            base: None,
+            position: [2.5 * CELL_SIZE, 0.5 * CELL_SIZE, 400.0],
+            rotation: [0.0; 3],
+            scale: 1.0,
+            enable_parent: None,
+            open_by_default: false,
+            teleport: false,
+            emittance: None,
+            imposter: false,
+            primitive: false,
+        };
+        let obj = CollisionObject { shape: Shape::Box { half_extents: [7000.0, 600.0, 20.0] }.into(), ..object(0.0, Motion::Static) };
+        let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
+        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
+    }
+    p
+}
+
+#[test]
+fn a_reference_reaching_into_loaded_squares_is_added_once_and_removed_with_the_last() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(reach_cell), loader: loader::Loader::manual(), ..Default::default() };
+    // The index as `fnv_world::reach` builds it: placed in (2, 0), reaching (0, 0)..(4, 0).
+    p.reach = Arc::new(fnv_world::reach::ReachIndex::from_entries([(SLAB, (2, 0), ((0, 0), (4, 0)))]));
+    // A square its bounds do not reach does not load it.
+    p.load(&ctx, PhysCell::Exterior(0, 1));
+    assert!(!p.has_collision(SLAB));
+    assert!(!p.cells[&PhysCell::Exterior(0, 1)].refs.contains(&SLAB));
+    // The player's square, two squares from where the slab is placed: it loads it, and the
+    // player stands on it rather than on the terrain (about z 46 there).
+    p.load(&ctx, PhysCell::Exterior(0, 0));
+    assert!(p.has_collision(SLAB));
+    let hit = p.place_player([3600.0, 0.5 * CELL_SIZE, 500.0], 120.0, 100_000.0).expect("ground");
+    assert!((hit.point[2] - 420.0).abs() < 1.0, "on the slab: {hit:?}");
+    let bodies = p.world.ref_bodies(SLAB).len();
+    assert!(bodies > 0);
+    // The next square reaches it too: still one body.
+    p.load(&ctx, PhysCell::Exterior(1, 0));
+    assert_eq!(p.world.ref_bodies(SLAB).len(), bodies, "added once");
+    assert_eq!(p.held.get(&SLAB), Some(&2));
+    // The first holder goes: the other keeps it.
+    p.unload(PhysCell::Exterior(0, 0));
+    assert_eq!(p.world.ref_bodies(SLAB).len(), bodies, "kept by the square still loaded");
+    assert_eq!(p.ref_cell.get(&SLAB), Some(&PhysCell::Exterior(1, 0)));
+    // The last goes: so does the slab.
+    p.unload(PhysCell::Exterior(1, 0));
+    assert!(!p.has_collision(SLAB));
+    assert!(!p.held.contains_key(&SLAB) && !p.ref_cell.contains_key(&SLAB));
+    // Nothing is left held once every square is gone.
+    p.unload(PhysCell::Exterior(0, 1));
+    assert!(p.held.is_empty());
+}
+
 #[test]
 fn indoors_the_one_cell_is_all_a_start_waits_for() {
     let mut p = state(true);
@@ -513,6 +580,23 @@ fn sim_with_placed(id: u32, pos: [f32; 3], rot: [f32; 3]) -> SimState {
     SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
 }
 
+/// The ground probe of the `actor_feet` test aid sees through a dynamic body resting on
+/// the spot (pete-terrain met a tumbleweed at Pete's feet, #2149); a character's own
+/// ground query still meets it.
+#[test]
+fn the_fixed_ground_leaves_out_dynamic_bodies() {
+    let d = play_data();
+    let (sim, _id, crate_at) = sim_with_crate();
+    let mut p = state(true);
+    p.load(&LoadCtx { d: &d, sim: &sim, data: None }, PhysCell::Exterior(0, 0));
+    let from = [crate_at[0], crate_at[1], crate_at[2] + 100.0];
+    let terrain = 0.01 * crate_at[0] + 0.005 * crate_at[1];
+    let (with_crate, _) = p.ground_drawn(from, 600.0, None).expect("the crate");
+    assert!(with_crate > crate_at[2], "ground_drawn meets the crate's top: {with_crate}");
+    let (fixed, _) = p.fixed_ground_drawn(from, 600.0).expect("the terrain");
+    assert!((fixed - terrain).abs() < 1.0, "fixed_ground_drawn meets the terrain at {terrain}: {fixed}");
+}
+
 #[test]
 fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     let d = play_data();
@@ -536,7 +620,7 @@ fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     assert!(!p.placed_dynamic.contains_key(&id));
     // (The made-up cells have no records, so the job names the crate itself.)
     let cell = PhysCell::Exterior(0, 0);
-    let job = with_poses(Job { cell, refs: vec![id], land: None, poses: Vec::new(), scales: Vec::new(), models: Vec::new() }, &sim);
+    let job = with_poses(Job { cell, refs: vec![id], land: None, lands: Default::default(), surface: fnv_world::land_surface::SurfaceSpec::Stored, poses: Vec::new(), scales: Vec::new(), models: Vec::new() }, &sim);
     p.insert(&LoadCtx { d: &d, sim: &sim, data: None }, fake_cell(&job));
     let b = p.world.ref_bodies(id)[0];
     for i in 0..3 {
@@ -946,4 +1030,213 @@ fn several_dynamic_bodies_join_into_one_with_their_shapes_in_place() {
     assert!(one_dynamic_body(&[body(0.0, Motion::Dynamic)]).is_none());
     assert!(one_dynamic_body(&[body(0.0, Motion::Dynamic), body(10.0, Motion::Keyframed)]).is_none());
     assert!(one_dynamic_body(&[body(0.0, Motion::Static), body(10.0, Motion::Dynamic)]).is_none());
+}
+
+/// Places in a smoothed cell (cell-local x, y) where the smoothed surface lies more than
+/// 5 units off the stored triangles, from the south-west on.
+fn lifted_spots(s: &fnv_world::land_surface::Surface) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    for k in 0..4000 {
+        let (x, y) = (300.0 + (k as f32 * 97.31) % 3500.0, 300.0 + (k as f32 * 61.17) % 3500.0);
+        if s.lift_at(x, y).is_some_and(|l| l.abs() > 5.0) && out.iter().all(|&(a, b): &(f32, f32)| (a - x).hypot(b - y) > 400.0) {
+            out.push((x, y));
+        }
+    }
+    out
+}
+
+/// The top of the static box [`smooth_cell_with`] stands at (`x`, `y`): above the stored
+/// triangles by the surface's bound and 4 units more, so above the smoothed surface too
+/// whatever the bound (12 units at the default's 8).
+fn box_top(s: &fnv_world::land_surface::Surface, x: f32, y: f32) -> f32 {
+    s.stored_height_at(x, y).unwrap() + s.bound() + 4.0
+}
+
+/// The default smoothing's made-up cell ([`smooth_cell_with`]).
+fn smooth_cell(job: &Job) -> Prepared {
+    smooth_cell_with(job, fnv_world::land_surface::SmoothParams::DEFAULT)
+}
+
+/// The previous default, kept explicitly so the interpolation mode stays covered.
+fn interpolated_cell(job: &Job) -> Prepared {
+    use fnv_world::land_surface::{SmoothMode, SmoothParams};
+    smooth_cell_with(job, SmoothParams { mode: SmoothMode::Interpolate, subdiv: 2, max_deviation: 8.0 })
+}
+
+/// The same cell fitted, 4 × 4, within 16 units: its LAND vertices move ([`smooth_cell_with`]).
+fn fitted_cell(job: &Job) -> Prepared {
+    use fnv_world::land_surface::{SmoothMode, SmoothParams};
+    smooth_cell_with(job, SmoothParams { mode: SmoothMode::Fit, subdiv: 4, max_deviation: 16.0 })
+}
+
+/// The made-up smoothed cells the landscape tests run on, the default first.
+const SMOOTH_CELLS: [fn(&Job) -> Prepared; 3] = [smooth_cell, interpolated_cell, fitted_cell];
+
+/// A made-up exterior cell on a smoothed landscape (#2149): hills in steps of 8, and a
+/// static box standing on the ground at the second of [`lifted_spots`], its top at
+/// [`box_top`].
+fn smooth_cell_with(job: &Job, params: fnv_world::land_surface::SmoothParams) -> Prepared {
+    let PhysCell::Exterior(gx, gy) = job.cell else { panic!("exterior cells only") };
+    let heights: Vec<f32> = (0..SIDE * SIDE)
+        .map(|i| {
+            let (r, c) = ((i / SIDE) as f32, (i % SIDE) as f32);
+            ((140.0 * (c * 0.7).sin() * (r * 0.5).cos() + 60.0 * ((c - r) * 0.9).sin()) / 8.0).round() * 8.0
+        })
+        .collect();
+    let mut block: fnv_world::land_surface::Block = [[None; 3]; 3];
+    block[1][1] = Some(&heights);
+    let surface = fnv_world::land_surface::Surface::smoothed(&block, params).expect("heights");
+    let params = PhysParams::default();
+    let (x0, y0) = (gx as f32 * CELL_SIZE, gy as f32 * CELL_SIZE);
+    let (bx, by) = lifted_spots(&surface)[1];
+    let top = box_top(&surface, bx, by);
+    let pl = Placement {
+        form_id: 0x0200_0000,
+        sig: *b"REFR",
+        flags: 0,
+        base: None,
+        position: [x0 + bx, y0 + by, top - 50.0],
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+        primitive: false,
+    };
+    let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[object(50.0, Motion::Static)]);
+    let refs = vec![Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated: None, drawn: None, model: None }) }];
+    let terrain = Some(PreparedTerrain::from_surface(&params, (gx, gy), &surface));
+    Prepared { cell: job.cell, surface: Some(surface), terrain, refs, times: LoadTimes::default() }
+}
+
+/// An actor standing without a character at an authored or navmesh height over the bare
+/// landscape is drawn on the smoothed surface as it stood on the stored triangles; at
+/// furniture, on a static or well above the ground it stays where its feet are (#2149).
+#[test]
+fn an_actor_standing_on_the_landscape_follows_the_smoothed_surface() {
+    for make in SMOOTH_CELLS {
+        an_actor_standing_on_the_landscape_follows(make);
+    }
+}
+
+fn an_actor_standing_on_the_landscape_follows(make: fn(&Job) -> Prepared) {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(make), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let spots = lifted_spots(&s);
+    let (x, y) = spots[0];
+    let (stored, smooth) = (s.stored_height_at(x, y).unwrap(), s.height_at(x, y).unwrap());
+    assert!((smooth - stored).abs() > 5.0);
+    assert_eq!(p.terrain_z(x, y), Some(smooth), "the collision is the smoothed surface");
+    // On the stored ground (an authored height): drawn on the smoothed ground.
+    let drawn = p.standing_drawn_feet(1, [x, y, stored], true);
+    assert!((drawn[2] - smooth).abs() < 1e-3, "{drawn:?}, ground {smooth}");
+    assert!((p.drawn_sink_of(1) - (stored - smooth)).abs() < 1e-3);
+    // A navmesh height 6 units over the stored ground: 6 over the smoothed.
+    let drawn = p.standing_drawn_feet(1, [x, y, stored + 6.0], true);
+    assert!((drawn[2] - (smooth + 6.0)).abs() < 1e-3, "{drawn:?}");
+    // At furniture: where its feet are.
+    assert_eq!(p.standing_drawn_feet(1, [x, y, stored], false), [x, y, stored]);
+    // Far above the ground (on something the collision does not know): where its feet are.
+    assert_eq!(p.standing_drawn_feet(2, [x, y, stored + 200.0], true), [x, y, stored + 200.0]);
+    // Resting on the collision as a character would: on the drawn ground, as before.
+    let rest = p.standing_drawn_feet(3, [x, y, smooth + fnv_phys::TERRAIN_SHELL], true);
+    assert!((rest[2] - smooth).abs() < 0.1, "{rest:?}");
+    // On the static box standing on the ground: where its feet are.
+    let (bx, by) = spots[1];
+    let top = box_top(&s, bx, by);
+    // (On the box's top as the ray finds it: within a float's rounding of `top`.)
+    let on_box = p.standing_drawn_feet(4, [bx, by, top], true);
+    assert!(on_box[..2] == [bx, by] && (on_box[2] - top).abs() < 1e-3, "{on_box:?}, box top {top}");
+    assert_eq!(p.landscape_lift([bx, by, top]), None);
+    // At a LAND vertex the fit moved: the collision and the lift are the moved height's.
+    if s.spec().knot_shift() > 0.0 {
+        let moved = (2..31).flat_map(|r| (2..31).map(move |c| (r, c))).find(|&(r, c)| (s.heights()[s.land_vertex(r, c)] - s.land_height(r, c)).abs() > 1.0);
+        let (r, c) = moved.expect("the fit moves some LAND vertex");
+        let (kx, ky) = (c as f32 * fnv_world::land::SPACING, r as f32 * fnv_world::land::SPACING);
+        let knot = s.heights()[s.land_vertex(r, c)];
+        assert_eq!(p.terrain_z(kx, ky), Some(knot));
+        assert!((s.lift_at(kx, ky).unwrap() - (knot - s.land_height(r, c))).abs() < 1e-3);
+        let drawn = p.standing_drawn_feet(6, [kx, ky, s.land_height(r, c)], true);
+        assert!((drawn[2] - knot).abs() < 1e-3, "{drawn:?}, moved knot {knot}");
+    }
+    // Indoors nothing follows the landscape.
+    p.space = Space::Interior(7);
+    assert_eq!(p.landscape_lift([x, y, stored]), None);
+}
+
+/// An actor asked about before the collision under it loads is looked at again once it
+/// has: the lift is not kept at none (#2149, review round 2).
+#[test]
+fn a_standing_actor_is_looked_at_again_when_its_collision_loads() {
+    for make in SMOOTH_CELLS {
+        a_standing_actor_is_looked_at_again_when_its_collision_loads_on(make);
+    }
+}
+
+fn a_standing_actor_is_looked_at_again_when_its_collision_loads_on(make: fn(&Job) -> Prepared) {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(make), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    assert!(!p.cells.contains_key(&PhysCell::Exterior(1, 0)), "only the cell underfoot is in");
+    // The made-up cells all have the same landscape: (0, 0)'s spots are (1, 0)'s too.
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let (x, y) = lifted_spots(&s)[0];
+    let (stored, smooth) = (s.stored_height_at(x, y).unwrap(), s.height_at(x, y).unwrap());
+    let feet = [CELL_SIZE + x, y, stored];
+    assert_eq!(p.standing_drawn_feet(5, feet, true), feet, "no collision there yet: where its feet are");
+    p.loader.run_manual(false);
+    for _ in 0..8 {
+        p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    }
+    assert!(p.cells.contains_key(&PhysCell::Exterior(1, 0)));
+    let drawn = p.standing_drawn_feet(5, feet, true);
+    assert!((drawn[2] - smooth).abs() < 1e-3, "the same feet, now on the smoothed ground: {drawn:?}, ground {smooth}");
+    // And back when the collision goes again.
+    p.unload(PhysCell::Exterior(1, 0));
+    assert_eq!(p.standing_drawn_feet(5, feet, true), feet);
+}
+
+/// A character that walks and stops on a sloping, smoothed landscape and is then taken
+/// away is drawn where it was drawn: its feet came from physics and are not lifted onto
+/// the landscape a second time (#2149, review round 2).
+#[test]
+fn feet_a_character_left_are_drawn_as_the_character_was() {
+    for make in SMOOTH_CELLS {
+        feet_a_character_left_are_drawn_as_the_character_was_on(make);
+    }
+}
+
+fn feet_a_character_left_are_drawn_as_the_character_was_on(make: fn(&Job) -> Prepared) {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(make), loader: loader::Loader::manual(), ..Default::default() };
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    let s = p.cells[&PhysCell::Exterior(0, 0)].surface.clone().expect("terrain");
+    let spots = lifted_spots(&s);
+    let (x, y) = spots[spots.len() - 1];
+    assert!(p.add_npc(7, [x, y, s.height_at(x, y).unwrap() + 20.0]));
+    for i in 0..90 {
+        let go = if i < 45 { [120.0, 60.0] } else { [0.0, 0.0] };
+        let b = p.npcs.get_mut(&7).unwrap();
+        p.world.move_character(&mut b.ch, CharacterInput { velocity: go, ..Default::default() });
+        p.world.step();
+    }
+    p.update_drawn_sinks();
+    let b = &p.npcs[&7];
+    let (feet, sink) = (b.ch.feet, b.sink);
+    assert!(b.ch.grounded, "it came to rest on the landscape: {feet:?}");
+    assert!((feet[0] - x).hypot(feet[1] - y) > 1.0, "it walked: {feet:?} from ({x}, {y})");
+    p.remove_npc(7);
+    let drawn = p.standing_drawn_feet(7, feet, true);
+    assert_eq!(drawn, [feet[0], feet[1], feet[2] - sink], "drawn where its character was drawn");
+    // Feet moved since (a walk on the navmesh): no longer the character's.
+    let moved = [feet[0] + 50.0, feet[1], feet[2]];
+    let _ = p.standing_drawn_feet(7, moved, true);
+    assert!(!p.left.contains_key(&7));
 }

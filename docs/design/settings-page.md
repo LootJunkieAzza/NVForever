@@ -48,16 +48,24 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
 | Graphics | Quality | `quality` (#1966; only when the install has its preset files: docs/spec-notes/quality-presets.md) |
-| Graphics | Picture | `enhanced` (#1966), `grade`, `sun-shadows`, `upscaler`, `upscaler-quality`, `dlss-model`, `fsr-library`, `frame-generation`, `frame-generation-frames`, `anti-aliasing`, `latency-reduction`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `terrain-height-blend` (#2550), `terrain-anti-tiling` (#2551), `light-shafts`, `water-reflections`, `water-mirror` |
+| Graphics | Picture | `enhanced` (#1966), `grade`, `sun-shadows`, `upscaler`, `upscaler-quality`, `dlss-model`, `fsr-library`, `frame-generation`, `frame-generation-frames`, `anti-aliasing`, `latency-reduction`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `terrain-height-blend` (#2550), `terrain-anti-tiling` (#2551), `light-shafts`, `water-reflections`, `water-mirror`, `smooth-terrain` (#2149) |
 | Graphics | Distance | `distant-lod`, `grass`, `object-distance`, `actor-distance`, `item-distance`, `shadow-distance`, `grass-distance` |
 | Graphics | World | `head-tracking`, `foot-ik`, `sky-clock` |
 | Tweaks | (none) | none named yet |
-| Debug | (none) | `overlay`, `hit-markers`, `god-mode`, `navmesh`, `scope-3d` |
+| Debug | (none) | `overlay`, `hit-markers`, `god-mode`, `navmesh`, `terrain-wireframe` (#2149), `scope-3d` |
+
+The Smooth terrain row is a list, Off, 2 x 2, 4 x 4 (the default) and 4 x 4 near, and
+applies at the next start. Its recipe is detail, bound 8, thresholds 2:6: smooth height
+steps while keeping bumps and ridges, with one surface for drawing and collision
+[design, #2149: the
+contributor's pick from in-game comparisons (2026-11-15), for the maintainer to confirm;
+world.md §3 "Smoothing"]. 4 x 4 near draws 4 × 4 near the camera and 2 × 2 further on the 4 × 4
+surface [design, #2676]; the INI's older on/off reads as 4 x 4 and Off.
 
 The table names every row the registry can hold [documented: `settings_layout.rs::SECTIONS`],
-116 with #1966's `quality` and `enhanced`,
+118 with #1966's `quality` and `enhanced`,
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
-`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling` and #2688's `sound-cover` (`KNOWN` in
+`frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #2688's `sound-cover`, and #2149's `smooth-terrain` and `terrain-wireframe` (`KNOWN` in
 `settings_layout.rs`); a test keeps
 it so (`settings_layout.rs`, `the_table_names_each_key_once_in_one_of_the_tabs`). The
 original puts the HUD and Pip-Boy colours and the crosshair in its Display category
@@ -77,7 +85,9 @@ original puts the HUD and Pip-Boy colours and the crosshair in its Display categ
 4. Every registered row is listed exactly once.
 
 So #1892's tweaks, registered under `Tweaks`, show under Tweaks in registry order without
-#1892 naming them here.
+#1892 naming them here. The `layout` aid's `<n> not in the table` counts the rows the table
+leaves out everywhere but the Tweaks tab (`ResolvedLayout::unnamed`), so it stays 0 with
+the Tweaks tab filled (88fbce1c4) and still catches a row another tab's table forgot.
 
 **The Tweaks list** (#1953 point 4, a later change): `Placement` has a `subgroup`, `None`
 throughout today. The later change gives Tweaks rows a placement `Tweaks › <group> ›

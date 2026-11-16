@@ -899,6 +899,9 @@ about 0.1 ms.
    - A first try without the sample mask (depth equality with the old prepass) lost the
      soft edges: grass thinned out and fence wires broke up. That is why the prepass writes
      them.
+   - On Vulkan it needs the vendored naga's fix (engine/vendor/README.md, "naga"; #2413):
+     upstream naga declares the sample mask output as a scalar, which Vulkan forbids, and
+     Intel's shader compiler crashed on it.
 3. **One multisample resolve instead of three** (engine/vendor/README.md, "one resolve").
    The opaque, transmissive and transparent passes each resolved the 4x HDR target, and the
    transmissive pass copied the resolved frame. Now the samples are resolved once into the

@@ -138,6 +138,11 @@ struct RepairAid(Vec<(f32, String)>);
 pub struct RepairServices(pub Option<Open>);
 
 impl RepairServices {
+    /// [design, #2403 / file refs] Logical repair choices and displayed conditions/costs;
+    /// excludes `Open::navigated`, pointer state and drawing labels.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.0.as_ref().map(|o| (o.vendor, o.selected, o.first, o.confirming, o.drawn.as_ref().map(|v| (&v.rows, v.skill, v.caps, v.total, v.all_ready))))
+    }
     pub fn is_open(&self) -> bool {
         self.0.is_some()
     }
@@ -785,6 +790,47 @@ fn close(mut commands: Commands, mut menu: ResMut<RepairServices>, roots: Query<
         }
     }
     info!("repair menu: closed");
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> RepairServices {
+    let mut o = Open { vendor: FormId(42), selected: 0, first: 0, drawn: None, pointer_pick: step >= 5, navigated: step as u32, confirming: false };
+    if step >= 1 {
+        o.selected = 1;
+    }
+    if step >= 2 {
+        o.first = 1;
+    }
+    if step >= 3 {
+        o.confirming = true;
+    }
+    o.drawn = Some(View {
+        rows: (0..20)
+            .map(|i| RowView {
+                item: FormId(100 + i),
+                extra: Extra::default(),
+                count: 1,
+                name: format!("Synthetic item {i}"),
+                label: format!("Synthetic item {i}"),
+                condition: 0.5,
+                quote: Quote::Repair { to: 1.0, cost: 10 },
+                ready: true,
+                icon: None,
+                stat: None,
+            })
+            .collect(),
+        selected: o.selected,
+        first: o.first,
+        skill: 50,
+        caps: if step >= 4 { 50 } else { 100 },
+        total: 20,
+        all_ready: true,
+        confirming: o.confirming,
+        labels: Default::default(),
+    });
+    RepairServices(Some(o))
 }
 
 #[cfg(test)]

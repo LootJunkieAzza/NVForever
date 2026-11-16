@@ -132,7 +132,8 @@ pub(crate) struct Props {
     /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
     /// used only with it (`fix_vertex_colors`).
     vertex_alpha: bool,
-    double_sided: bool,
+    /// NiStencilProperty draw mode DRAW_BOTH; also set on dismemberment caps (actor.rs).
+    pub(crate) double_sided: bool,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
@@ -1308,6 +1309,20 @@ mod tests {
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
             raw_path.contains("mask")
         }
+    }
+
+    #[test]
+    fn a_dismemberment_cap_is_alpha_tested_and_drawn_from_both_sides() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        // `upperbody.nif` `bodycaps`: NiAlphaProperty 0x12EC (test GREATER 127), no stencil;
+        // actor.rs sets `double_sided` on shapes with cap partitions.
+        let cap = Props { alpha: Some((0x12EC, 127)), textures: vec![r"gore\meatcapgore01.dds".into()], double_sided: true, ..Default::default() };
+        let (m, _) = shape_material_with(&cap, &mut tri.clone(), &mut NoTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Mask(_)));
+        assert!(m.base.double_sided && m.base.cull_mode.is_none());
+        let (m, _) = shape_material_with(&Props { double_sided: false, ..cap }, &mut tri, &mut NoTextures);
+        assert!(!m.base.double_sided && m.base.cull_mode.is_some());
     }
 
     #[test]

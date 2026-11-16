@@ -498,6 +498,35 @@ class JudgeTests(unittest.TestCase):
             Expect.parse({"text": "x", "known_failing": {"linux": ""}})
 
 
+class RoySayPauseTests(unittest.TestCase):
+    def setUp(self):
+        self.scenario = load(HERE / "scenarios.toml").by_name()["roy-say-pause-resume"]
+
+    def test_say_and_pause_inputs_share_the_world_clock(self):
+        # [design, #2714: nvf-play/script.rs, test_aid.rs] SCRIPT and KEYS use
+        # world_secs; PAUSE uses elapsed_secs and can open before a late Say.
+        launch, = plan(load(HERE / "scenarios.toml"), [self.scenario])
+        env = game_env(launch)
+        self.assertEqual(env[FROM_SCRIPTS], "1")
+        self.assertNotIn("NVF_PLAY_TEST_PAUSE", env)
+        say_at = float(env["NVF_PLAY_TEST_SCRIPT"].split(":", 1)[0])
+        pauses = [item.split(":") for item in env["NVF_PLAY_TEST_KEYS"].split(",")]
+        self.assertEqual([key for _, key in pauses], ["esc", "esc"])
+        opened, resumed = [float(at) for at, _ in pauses]
+        self.assertEqual(opened - say_at, 1)
+        self.assertEqual(resumed - opened, 5)
+
+    def test_subtitle_clear_is_required_after_completion(self):
+        # [design, #2714] Authored trace of the final two transitions only; no
+        # subtitle words or voice assets from the game are needed for this check.
+        final = self.scenario.order[1][-2:]
+        ended = "script: VFSRoyREF ended line 0x0011361F"
+        cleared = "subtitle: cleared"
+        self.assertTrue(all(o.ok for o in check_order(final, [ended, cleared])))
+        self.assertFalse(all(o.ok for o in check_order(final, [ended])))
+        self.assertFalse(all(o.ok for o in check_order(final, [cleared, ended])))
+
+
 class GameEnvTests(unittest.TestCase):
     def test_play_runs_count_the_world_aids_from_the_scripts(self):
         suite = load_text(game("p", args='["--cell", "X", "--play"]', env='{ NVF_PLAY_TEST_CONSOLE = "3:tgm" }')

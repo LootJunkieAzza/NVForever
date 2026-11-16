@@ -155,6 +155,24 @@ pub(crate) fn god_spares(g: &Game, actor: FormId, code: u16) -> bool {
     actor == FormId::PLAYER_REF && g.toggles.god_mode && matches!(code, crate::actor_values::ACTION_POINTS | crate::aid::RAD_LEVEL)
 }
 
+/// The limb conditions god mode keeps whole: Perception (head), Endurance (torso), Left
+/// and Right Attack, Left and Right Mobility Condition (codes 25–30, `AV_NAMES`); Brain
+/// Condition (31) is left as it is: the issue names the six body parts [design, #2792].
+const GOD_KEPT_LIMBS: std::ops::RangeInclusive<u16> = 25..=30;
+
+/// God mode (`tgm`) keeps a script from hurting the player: a DamageActorValue on its
+/// Health or a limb's condition does nothing, nor does a ModActorValue or ForceActorValue
+/// that would lower them (the bear traps' scripts run `DamageActorValue Health 45` and
+/// a leg's condition 50 on their victim, docs/spec-notes/traps.md §3). Restoring them, and
+/// SetActorValue, go on as for Action Points and rads [design, #2792: the maintainer's
+/// request on #2743, 2026-11-16, "no trap may damage the player in god mode"]. Hits and
+/// effects are kept off before they get here (`nvf-play` `combat::hit_player`,
+/// `Game::change_value`), so this is the script functions' check only: `add_modifier` is
+/// also how an effect's modifier is held and released, and a release must still lower.
+pub(crate) fn god_keeps_whole(g: &Game, actor: FormId, code: u16) -> bool {
+    actor == FormId::PLAYER_REF && g.toggles.god_mode && (code == crate::actor_values::HEALTH || GOD_KEPT_LIMBS.contains(&code))
+}
+
 fn set_damage_untold(g: &mut Game, actor: FormId, code: u16, d: f64) {
     // God mode: the player's Action Points are not spent (their damage never grows).
     if code == crate::actor_values::ACTION_POINTS && god_spares(g, actor, code) && d > damage(g, actor, code) {
@@ -397,6 +415,10 @@ pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     let r = ctx.subject()?;
     let code = a.code(0)?;
     let diff = a.num(1)? - actor_value(g, r, code)?;
+    // God mode: not lowering the player's Health or a limb ([`god_keeps_whole`]).
+    if diff < 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
     add_modifier(g, r, code, diff)?;
     none()
 }
@@ -405,7 +427,12 @@ pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// ActorValue, the permanent pool].
 pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    add_modifier(g, r, a.code(0)?, a.num(1)?)?;
+    let (code, d) = (a.code(0)?, a.num(1)?);
+    // God mode: not lowering the player's Health or a limb ([`god_keeps_whole`]).
+    if d < 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
+    add_modifier(g, r, code, d)?;
     none()
 }
 
@@ -435,6 +462,11 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     let amount = a.num(1)?;
+    // God mode: a trap's script does not hurt the player ([`god_keeps_whole`]); no damage,
+    // so no health-damage or crippled-limb handlers either.
+    if amount > 0.0 && god_keeps_whole(g, r, code) {
+        return none();
+    }
     let limb_before = if crate::actor_values::LIMB_CONDITIONS.contains(&code) { Some(actor_value(g, r, code)?) } else { None };
     let d = damage(g, r, code) + amount;
     set_damage(g, r, code, d);

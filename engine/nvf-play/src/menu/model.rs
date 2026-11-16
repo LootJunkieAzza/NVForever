@@ -967,6 +967,40 @@ impl Steal {
     }
 }
 
+/// The seed of one opening of `victim`'s pocket: `aid`, the test aid's number, gives the
+/// same rolls at every opening of that victim (smoke scenarios that need a take to go
+/// one way); else `clock` (the wall clock, nanoseconds) and `opening` (how many pockets
+/// this session has opened) make every opening roll afresh, so a caught take can go
+/// otherwise after a reload. Seeded by the victim alone, a victim whose first roll was
+/// over fPickPocketMaxChance (85) could never be robbed at the first try: the Legion
+/// assassin at Kimball's speech rolled 90.79 every time (#2751) [design: that the
+/// original rolls afresh each time is taken from its being a chance at all, GECK wiki
+/// Pickpocket; not captured].
+pub fn steal_seed(victim: FormId, aid: Option<u64>, clock: u64, opening: u64) -> u64 {
+    match aid {
+        Some(a) => u64::from(victim.0) ^ a,
+        None => clock ^ (u64::from(victim.0) << 24) ^ opening.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    }
+}
+
+/// [`steal_seed`] for a pocket opened now. The test aid `NVF_PLAY_TEST_PICKPOCKET_SEED`
+/// (a number, decimal or `0x` hexadecimal) fixes the rolls per victim.
+pub fn steal_seed_now(victim: FormId) -> u64 {
+    static OPENINGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let aid = std::env::var("NVF_PLAY_TEST_PICKPOCKET_SEED").ok().and_then(|v| {
+        let v = v.trim();
+        match v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+            Some(h) => u64::from_str_radix(h, 16).ok(),
+            None => v.parse().ok(),
+        }
+    });
+    if let Some(a) = aid {
+        bevy::log::info!("pickpocket: test aid NVF_PLAY_TEST_PICKPOCKET_SEED: the rolls on {victim} are seeded with {a:#X}, the same at every opening");
+    }
+    let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    steal_seed(victim, aid, clock, OPENINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
 const PLAYER: FormId = FormId::PLAYER_REF;
 
 impl MenuModel {
@@ -1874,3 +1908,87 @@ impl BarterKindMults {
 
 #[cfg(test)]
 mod tests;
+/// [design, #2403] Synthetic list/quantity/confirmation states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
+    let mut m = MenuModel::empty(mode, "Synthetic menu".into());
+    let rows: Vec<_> = (0..20)
+        .map(|i| Row {
+            item: FormId(100 + i),
+            at: None,
+            name: format!("Synthetic item {i}"),
+            count: 10,
+            weight: Some(1.0),
+            value: Some(1),
+            kind: Some(ItemKind::Weapon),
+            equipped: false,
+            quest: false,
+            condition: Some(1.0),
+            icon: None,
+            price: None,
+            bartered: false,
+            loaded: false,
+            mods: 0,
+            mods_value: 0,
+            folder: None,
+            reference: None,
+            live: false,
+        })
+        .collect();
+    m.lists = [Listing { rows: rows.clone(), ..Default::default() }, Listing { rows, ..Default::default() }];
+    if step >= 1 {
+        m.selected[0] = 1;
+    }
+    if step >= 2 {
+        m.scroll[0] = 1;
+    }
+    if step >= 3 {
+        m.category[0] = Category::Weapons;
+    }
+    if step >= 4 {
+        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1 });
+    }
+    if step >= 5 {
+        m.quantity.as_mut().unwrap().amount = 2;
+    }
+    if step >= 6 {
+        m.lists[0].value = 42;
+    }
+    if step >= 7 {
+        m.confirming_take_all = true;
+    }
+    if step >= 8 {
+        m.status = Some("Synthetic result".into());
+    }
+    m.navigated = step as u32;
+    m.pointer_pick = step >= 9;
+    m
+}
+
+/// [design, #2403] A zero-balance barter still changes when another item is offered.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_trade_progress_fixture(step: usize) -> MenuModel {
+    let mut m = report_progress_fixture(Mode::Barter(FormId(42)), 0);
+    let mut t = Trade {
+        merchant: FormId(42),
+        stock: FormId(43),
+        caps: FormId(44),
+        discount: 0,
+        skill: 50.0,
+        prices: Prices::from_settings(&FormStore::default()),
+        offered: Default::default(),
+        purse: [100; 2],
+        balance: 0,
+        sells: None,
+        withheld: vec![],
+        mult_set: [None; 2],
+    };
+    if step >= 1 {
+        t.offered[0].insert((FormId(100), None, 0), 1);
+    }
+    m.trade = Some(t);
+    m.navigated = step as u32;
+    m
+}

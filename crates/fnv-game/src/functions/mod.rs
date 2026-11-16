@@ -30,6 +30,7 @@ pub mod navigation;
 pub(crate) mod objects;
 pub use objects::{critical_stage_culls, CRITICAL_DISINTEGRATE_END, CRITICAL_GOO_END};
 pub(crate) mod player;
+pub(crate) mod player_source;
 mod quest;
 pub(crate) mod refs;
 pub use refs::FADE_OUT_HOLD;

@@ -199,6 +199,16 @@ pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
     none()
 }
 
+/// Fractional loss through the same writer as deed-based removal
+/// (docs/spec-notes/player-source-commands.md).
+pub fn remove_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = reputation(g, a)?;
+    let axis = write_axis(g, a, 1)?;
+    let amount = a.num(2)?;
+    change(g, r, axis, -amount);
+    none()
+}
+
 /// Fame or infamy over the scale, not capped: negative or above 1 when the value is
 /// [documented: GECK wiki GetReputationPct; observed: −0.3 and 2, §9.3 a]. 0 for a
 /// reputation without a scale [hypothesis].

@@ -117,7 +117,14 @@ and calls after: at most three moves can happen meanwhile).
   after `slSetFeatureLoaded` succeeds, so FSR stays blocked throughout an unload or its failure.
 - At exit: the mode off for the last frame (on `AppExit`) or at once (a window closing), then at
   shutdown the mode off, null tags, the drain, `slFreeResources` for DLSS and DLSS-G, and the
-  ordered `slShutdown`.
+  ordered `slShutdown`. A loaded save's handoff ends the old run with `std::process::exit`
+  before `App::run` returns (`handoff.rs` `end_now`); it runs the same steps first
+  (`dlss::end_now`, #2733): the render app taken back from the render thread, FSR frame
+  generation's presenters stopped and joined, the mode off at once, the window's swapchain
+  released, then the shutdown (waits without a limit, as every other exit does). Before #2733
+  that exit left Streamline to the DLLs' detach [design], and in a player's runs every such
+  exit with DLSS-G set up crashed in `nvngx_dlssg.dll` [observed: the player's logs and dumps,
+  2026-11-15]; that the detach is what crashed is a [hypothesis] the change tests.
 
 ### Frame pacing
 
@@ -132,7 +139,8 @@ driver and DLSS-G's pacer see one limiter (`frame_pace::wait_for_cap`).
   state and ratio lines (`dlss/frame_gen.rs`), the Streamline latency calls (`nv_low_latency.rs`),
   the Reflex frame limit (`frame_pace.rs`), the row's choices (`settings.rs`).
 - Smoke (`tools/smoke/scenarios.toml`, `requires = ["NVF_DLSS_DIR"]`, `front = true`):
-  `dlssg-on`, `dlssg-4x`, `dlssg-resize`, `dlssg-switch`, `dlssg-exit`, `dlssg-ui`.
+  `dlssg-on`, `dlssg-4x`, `dlssg-resize`, `dlssg-switch`, `dlssg-exit`, `dlssg-handoff-exit`,
+  `dlssg-ui`.
 
 Measured on an RTX 5070 Ti, driver 610.88, 1280x720, Goodsprings [observed, fork-notes
 `fg-spike-results.md`]: 1.93 to 2.00 frames presented per real frame at 2x over DLSS Quality and

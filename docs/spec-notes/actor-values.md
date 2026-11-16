@@ -260,3 +260,13 @@ actors, it answers:
 
 Not covered: an NPC whose level follows the player's (§3.2), and the template rule for
 actors whose template is a leveled list (§2).
+
+## Player attribute source changes (#2271)
+
+The source handler in `functions/player_source.rs` runs `ModPCAttribute Strength 1`
+through the existing attribute base writer, retaining modifiers, damage, event
+delivery and carry synchronization. The SPECIAL-only contract and the distinction
+between portable source behavior and unmeasured native behavior are recorded in
+[player source commands](player-source-commands.md). Portable controls passed for c4
+in hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
+No additional original-game observation is claimed.

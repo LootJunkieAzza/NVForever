@@ -749,6 +749,34 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<PokerStats>) {
     info!("poker summary: {} asked, {} opened ({} refused); {} hands dealt, {} won by the player; caps {:+}", s.asked, s.opened, s.refused, s.hands, s.won, s.settled);
 }
 
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> PokerScreen {
+    let mut table = Table::new(vec![Seat::new("Synthetic seat", 100, Style { tightness: 0.5, aggression: 0.5, bluff: 0.0 })], 1, 2, step as u64);
+    if step >= 2 {
+        table.seats[0].stack = 90;
+    }
+    PokerScreen(Some(Session {
+        table,
+        casino: Casino::Plain,
+        buy_in: 100,
+        status: (step >= 3).then(|| "Synthetic result".into()),
+        raise_to: if step >= 1 { 4 } else { 2 },
+        opened: step as f32,
+        dealt_at: step as f32,
+        street_at: [step as f32; 3],
+        auto: false,
+        ended: None,
+        leaving: None,
+        next_choice: Some(step as f32),
+        next_hand: None,
+        cues: vec![],
+        hands: 0,
+        won: 0,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

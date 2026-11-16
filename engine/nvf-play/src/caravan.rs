@@ -1202,6 +1202,40 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CaravanStats>) {
     info!("caravan summary: {} asked, {} opened ({} refused); {} games: {} won, {} lost; net {}; {} moves", s.asked, s.opened, s.refused, s.games, s.won, s.lost, s.net, s.moves);
 }
 
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> CaravanScreen {
+    CaravanScreen(Some(Session {
+        opponent: FormId(42),
+        opponent_name: String::new(),
+        deck_form: FormId(43),
+        opponent_deck: vec![],
+        skill: 50.0,
+        stage: if step >= 1 { Stage::Deck } else { Stage::Bet },
+        bet: Bet::new(100, 100, 0.5),
+        owned: vec![],
+        deck: if step >= 2 { vec![FormId(44)] } else { vec![] },
+        cursor: usize::from(step >= 3),
+        game: None,
+        hand: 0,
+        pick: Pick::Hand,
+        forfeit_armed: step >= 4,
+        record: Default::default(),
+        status: None,
+        help: None,
+        queued_help: vec![],
+        think_until: step as f32,
+        over_at: None,
+        leaving: None,
+        staked: false,
+        settled: false,
+        auto: false,
+        textures: Default::default(),
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

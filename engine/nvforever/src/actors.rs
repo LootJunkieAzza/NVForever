@@ -588,7 +588,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
 
 /// Spawn the actor placed by `reference` under `parent` with the reference transform
 /// `rt` (parent space); `at` is its position in game space. Returns whether anything was
-/// drawn.
+/// drawn ([`spawn_body`] returns its root entity).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     commands: &mut Commands,
@@ -603,6 +603,26 @@ pub fn spawn(
     stats: &mut ActorStats,
     hidden: bool,
 ) -> bool {
+    spawn_body(commands, parent, rt, at, reference, base, world, sim, ctx, stats, hidden).is_some()
+}
+
+/// Spawn the actor placed by `reference` under `parent` with the reference transform
+/// `rt` (parent space); `at` is its position in game space. Returns its root entity (the
+/// one under `parent` carrying its `RefVisual` and `ActorRig`), `None` if nothing was drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_body(
+    commands: &mut Commands,
+    parent: Entity,
+    rt: Affine3A,
+    at: Vec3,
+    reference: u32,
+    base: u32,
+    world: &ActorWorld,
+    sim: Option<&fnv_sim::World<'_>>,
+    ctx: &mut ActorCtx,
+    stats: &mut ActorStats,
+    hidden: bool,
+) -> Option<Entity> {
     let appearance_span = info_span!("actor::appearance").entered();
     let equipment = crate::outfits::Equipment::of(world, sim, reference);
     let a = match crate::outfits::appearance(world, base, reference, equipment.as_ref()) {
@@ -610,12 +630,12 @@ pub fn spawn(
         Err(e) => {
             stats.unresolved += 1;
             debug!("actor {reference:08X}: {e}");
-            return false;
+            return None;
         }
     };
     let Some(skel) = ctx.skeleton(&a.skeleton) else {
         stats.unresolved += 1;
-        return false;
+        return None;
     };
     drop(appearance_span);
     let uses_span = info_span!("actor::part_uses").entered();
@@ -701,13 +721,10 @@ pub fn spawn(
     } else {
         stats.record_spawns += 1;
     }
-    true
+    Some(spawned.root)
 }
 
-/// Spawn the creature placed by `reference` (ACRE) under `parent` (actors.md §10): its
-/// skeleton with the NIFZ models, scaled by the reference's and the creature's base
-/// scale, playing the skeleton's idle with `--actor-pose idle`. `rt` is the reference
-/// transform (parent space). Returns whether anything was drawn.
+/// [`spawn_creature_body`], returning whether anything was drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_creature(
     commands: &mut Commands,
@@ -720,17 +737,36 @@ pub fn spawn_creature(
     stats: &mut ActorStats,
     hidden: bool,
 ) -> bool {
+    spawn_creature_body(commands, parent, rt, reference, base, world, ctx, stats, hidden).is_some()
+}
+
+/// Spawn the creature placed by `reference` (ACRE) under `parent` (actors.md §10): its
+/// skeleton with the NIFZ models, scaled by the reference's and the creature's base
+/// scale, playing the skeleton's idle with `--actor-pose idle`. `rt` is the reference
+/// transform (parent space). Returns its root entity, `None` if nothing was drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_creature_body(
+    commands: &mut Commands,
+    parent: Entity,
+    rt: Affine3A,
+    reference: u32,
+    base: u32,
+    world: &ActorWorld,
+    ctx: &mut ActorCtx,
+    stats: &mut ActorStats,
+    hidden: bool,
+) -> Option<Entity> {
     let c = match world.resolve_creature(base, reference) {
         Ok(c) => c,
         Err(e) => {
             stats.creatures_unresolved += 1;
             debug!("creature {reference:08X}: {e}");
-            return false;
+            return None;
         }
     };
     let Some(skel) = ctx.skeleton(&c.skeleton) else {
         stats.creatures_unresolved += 1;
-        return false;
+        return None;
     };
     let parts_span = info_span!("creature::parts").entered();
     let mut uses = Vec::with_capacity(c.parts.len());
@@ -828,7 +864,7 @@ pub fn spawn_creature(
     }
     stats.unbound_shapes += spawned.unbound;
     stats.creatures += 1;
-    true
+    Some(spawned.root)
 }
 
 /// Whether `what` (a part's path, or "" for its part nodes) of creature `base` is

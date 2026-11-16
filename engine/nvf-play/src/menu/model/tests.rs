@@ -1326,3 +1326,33 @@ fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
     app.update();
     assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
 }
+
+/// #2751: two openings of one victim's pocket do not roll the same; with the test aid's
+/// number they do; and over many openings a first take at 85% goes unnoticed about 85%
+/// of the time (seeded by the victim alone, the Legion assassin's first roll was 90.79
+/// at every opening: caught every time).
+#[test]
+fn every_opening_of_a_pocket_rolls_afresh() {
+    let victim = FormId(0x0013_4FF6);
+    let rolls_of = |seed: u64| {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, seed);
+        (0..4).map(|_| st.rng.next_f32()).collect::<Vec<f32>>()
+    };
+    let clock = 1_763_000_000_000_000_000u64;
+    // The same instant, the next opening: other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock, 1)));
+    // A later instant, the same count (another session after a reload): other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock + 1_000_000, 0)));
+    // The test aid: the same at every opening, and what the fixed seed gave.
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), steal_seed(victim, Some(0x5EED), clock + 77, 9));
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), u64::from(victim.0) ^ 0x5EED);
+    let fixed = rolls_of(steal_seed(victim, Some(0x5EED), 0, 0));
+    assert!(fixed[0] * 100.0 > 85.0, "the old seed's first roll on the assassin was over the cap: {}", fixed[0] * 100.0);
+    // 10,000 openings, a few milliseconds apart: the first take at 85%.
+    let mut unseen = 0;
+    for i in 0..10_000u64 {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, steal_seed(victim, None, clock + i * 3_141_593, i));
+        unseen += u32::from(st.unnoticed(85));
+    }
+    assert!((8_300..=8_700).contains(&unseen), "{unseen} of 10,000 first takes at 85% went unnoticed");
+}

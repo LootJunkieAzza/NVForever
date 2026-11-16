@@ -529,6 +529,12 @@ pub struct DialogueScreen {
 }
 
 impl DialogueScreen {
+    /// [design, #2403 / file refs] Logical choice progress from this screen's state;
+    /// excludes aid timers and the key counter, which also advances at list boundaries.
+    pub fn progress(&self) -> impl std::fmt::Debug + '_ {
+        (self.list, self.selected, self.framed)
+    }
+
     fn new(talks: Vec<TalkScript>, unattended: bool) -> DialogueScreen {
         let aid_delay = std::env::var("NVF_PLAY_TEST_TALK_DELAY").ok().and_then(|d| d.trim().parse().ok()).unwrap_or(AID_CHOOSE_SECONDS);
         let debug_break = debug_switch(std::env::var("NVF_PLAY_DEBUG_TALK_BREAK").ok().as_deref());
@@ -562,6 +568,20 @@ impl DialogueScreen {
         }
         (self.selected, self.list, self.framed) = (0, None, false);
         (self.talk_since, self.choosing_since, self.speaking) = (None, None, None);
+    }
+}
+
+/// [design, #2403] Synthetic navigation states for reports integration tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> DialogueScreen {
+    DialogueScreen {
+        list: Some((FormId(42), 1)),
+        selected: step.min(1),
+        framed: true,
+        keyed: step as u64,
+        choosing_since: Some(step as f32),
+        ..Default::default()
     }
 }
 

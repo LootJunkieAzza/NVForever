@@ -44,6 +44,8 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 png = "0.18"
 
 [features]
+# [design, #2403] Synthetic private-screen fixtures for cross-crate reports tests only.
+report-test-support = []
 default = ["intro-video"]
 # The intro film before a new game (src/intro.rs); its Bink decoder is GPL-3.0-or-later,
 # as NVForever is (owner decision 2026-10-15).

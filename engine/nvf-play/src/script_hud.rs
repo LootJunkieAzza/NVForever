@@ -338,6 +338,17 @@ struct Subtitles {
     wheel: Option<String>,
 }
 
+impl Subtitles {
+    // [design, #2714] Log clearing once as well as newly selected text, so smoke can
+    // distinguish a finished subtitle from one left on screen.
+    fn log_change(&self, shown: &Self) -> Option<String> {
+        if self.logged == shown.logged {
+            return None;
+        }
+        Some(if self.logged.is_empty() { "subtitle: cleared".into() } else { format!("subtitle: {}", self.logged.replace('\n', " / ")) })
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     mut hud: ResMut<ScriptHud>,
@@ -366,8 +377,8 @@ fn draw(
         panel.show(p, showing);
     }
     if subs != *shown {
-        if subs.logged != shown.logged && !subs.logged.is_empty() {
-            info!("subtitle: {}", subs.logged.replace('\n', " / "));
+        if let Some(line) = subs.log_change(&shown) {
+            info!("{line}");
         }
         if subs.on_screen != shown.on_screen {
             let _hud = crate::interface::hud_units();
@@ -456,6 +467,19 @@ pub fn menu_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitle_log_reports_clearing_once_after_the_line() {
+        let empty = Subtitles::default();
+        let speaking = Subtitles { logged: "Speaker: synthetic line".into(), on_screen: vec!["synthetic line".into()], wheel: None };
+        assert_eq!(empty.log_change(&empty), None);
+        assert_eq!(speaking.log_change(&empty).as_deref(), Some("subtitle: Speaker: synthetic line"));
+        assert_eq!(speaking.log_change(&speaking), None);
+        assert_eq!(empty.log_change(&speaking).as_deref(), Some("subtitle: cleared"));
+        assert_eq!(empty.log_change(&empty), None);
+        let multiple = Subtitles { logged: "A: first\nB: second".into(), ..Default::default() };
+        assert_eq!(multiple.log_change(&speaking).as_deref(), Some("subtitle: A: first / B: second"));
+    }
 
     #[test]
     fn subtitles_are_centred_lines_of_the_hud_rect() {

@@ -91,6 +91,12 @@ class WikiParsing(unittest.TestCase):
         rec = sf.parse_page("SetNthPackage", page)
         self.assertEqual([x["kind"] for x in rec["params"]], ["form", "int"])
 
+    def test_exact_reputation_removal_regenerates_a_form_and_fractional_amount(self):
+        page = PAGE.replace("FrobWidget", "RemoveReputationExact").split(" |arguments")[0] + "\n}}"
+        rec = sf.parse_page("RemoveReputationExact", page)
+        self.assertEqual([x["kind"] for x in rec["params"]], ["form", "int", "float"])
+        self.assertEqual(rec["params"][0]["name"], "FactionID")
+
     def test_parameter_type_stops_at_the_type_word(self):
         page = PAGE.replace("|Type = ref", "|Type = int == Flags == kOne = 0x1,// BIT - 0 kTwo = 0x2")
         rec = sf.parse_page("FrobWidget", page)

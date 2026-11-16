@@ -2676,7 +2676,7 @@ pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "report-test-support"))]
 impl ScriptState {
     /// A runtime over an empty load order, for tests of what works the open menu: nothing
     /// has run, no menu is open.
@@ -2726,9 +2726,19 @@ impl ScriptState {
     }
 
     /// The player answered the open menu: it closes after this frame's scripts.
+    #[cfg(test)]
     pub(crate) fn answered(&self) -> bool {
         self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
     }
+}
+
+/// [design, #2403] Empty-load-order runtime for detector regressions only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(menu: u16) -> ScriptState {
+    let mut s = ScriptState::over_no_plugins();
+    s.rt.as_mut().unwrap().game.menu = Some(menu);
+    s
 }
 
 #[cfg(test)]

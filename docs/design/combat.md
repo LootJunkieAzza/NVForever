@@ -573,7 +573,12 @@ engine:
   (`fnv_game::functions::actor::god_spares`: the world's radiation, water, food and
   drink, effects, a script's DamageActorValue or ModActorValue) [design: owner decision
   2026-11-15, issue #2743]. A SetActorValue still sets either, and the needs of Hardcore
-  rise as ever [observed for Dehydration: aid.rs `change_value`].
+  rise as ever [observed for Dehydration: aid.rs `change_value`]. A script does not hurt
+  the player either: DamageActorValue on Health or one of the six limb conditions does
+  nothing, nor does a ModActorValue or ForceActorValue that would lower them (a bear
+  trap's OnTriggerEnter, traps.md §3); restoring and SetActorValue go on
+  (`fnv_game::functions::actor::god_keeps_whole`) [design, #2792: the maintainer's request
+  on #2743, "no trap may damage the player in god mode"].
 - `fnv_actor::player_clips` gains attack, reload and hit-reaction clips. The text keys
   time them as documented (§4.2): `Hit` fires the shot, or ends a looping reload;
   `Fire`/`Loop` run an automatic weapon's loop; `Eject` throws a shell (speed and

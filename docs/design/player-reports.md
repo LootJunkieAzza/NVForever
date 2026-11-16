@@ -38,7 +38,7 @@ What exists already and is reused, not rewritten:
   - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
   - breadcrumbs the log does not already carry (§4.2);
   - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
-  - the actor-stuck, quest-stall and script-time detectors, and thresholds set from
+  - the script-time detector and thresholds set from
     `/v1/config` (§4.4);
   - symbolising dumps (§5.4: the release PDB is over the Workers request limit).
 
@@ -264,17 +264,18 @@ expensive scripts this second, loaded cells, memory (RAM, VRAM, asset cache size
 
 ### 4.4 Anomaly detectors
 
-Checks that run every second (or on the event) and log a `nvf::anomaly` event with a
-snapshot, so bugs that never crash still reach us. Each fires at most 3 times per kind per
-session.
+[design / file refs: `engine/nvforever/src/reports/{mod,anomaly,controls,snapshot}.rs`]
+Checks sampled each frame or from log events, recorded in the session summary's `events`
+with place, cell, position, game hour and state. The world snapshot is refreshed separately
+(§4.3). Each kind fires at most 3 times per session; `controls_locked` also fires only once
+per unchanged lock. The detectors are registered only while reports are enabled.
 
 | Anomaly | When |
 |---|---|
 | fell out of world | the player or an actor is below the land height by > 500 units, or outside the cell grid |
 | player stuck | movement input held for 5 s with < 16 units moved, not in a menu |
-| actor stuck | an actor on a travel package has not moved 32 units toward its goal in 30 s |
+| controls locked (`controls_locked`) | [design, #2403] unchanged dialogue, menu or scripted control groups for 60 real seconds, with at least 5 key/mouse/controller button press edges in the trailing 60 seconds |
 | path failure | pathfinding fails 3 times in a row for one actor |
-| quest stall | (opt-in, for the main quest) a stage's objective target is unreachable: the target ref is disabled, dead or in no cell |
 | script loop | one script runs > 5 ms in a frame, or the same script errors 100 times |
 | hitch | a frame > 250 ms outside a load |
 | slow load | a load > 20 s; it says where the time went: each wait's end, the longest frame, the files read and the time in the reads (docs/design/loading-screen.md §1 step 7, #2407) |
@@ -284,8 +285,90 @@ session.
 | audio | the device lost or a voice file missing for a spoken line |
 | soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
 
-The detectors' thresholds are constants in `reports/anomaly.rs` [our choice] and can be
-tuned from the server's `/v1/config` without a new build.
+[design, #2403 / file refs: `reports/controls.rs`, `reports/anomaly.rs`]
+`controls_locked` resets its timer, input window and once-per-lock latch when the dialogue
+line/response or offered choices change, a menu/page/tab/selection changes, any effective
+control group changes (including a group re-enabled), or the hold ends. Loading clears the
+watch. Countdown and animation clocks do not count as progress. Keyboard auto-repeat and
+holding a button do not add presses; controller menu keys synthesized by `nvf_play::pad`
+are not counted again. The built-in progress audit below follows `nvf-play/src/script.rs::{hold_player,
+EngineMenus,is_script_menu}` and the resources read by `reports/controls.rs::Menus`.
+Every fingerprint stays local; screen text and input identities are not report fields.
+
+[design, #2403 / file refs: `reports/controls.rs`; resource paths below are under
+`engine/nvf-play/src/` unless prefixed `crates/`]
+
+| Built-in hold | Logical state sampled | State owner |
+|---|---|---|
+| Recipes / crafting | Station/category, filter, selected/first row, quantity prompt/amount; recipe readiness, ingredients held/required and skill figures | `crafting.rs::RecipeMenu` |
+| Lockpicking | Reference, pin angle, cylinder turn, pins remaining, phase identity, status/help, leaving flag | `lockpick.rs::LockpickScreen` |
+| Hacking | Reference/base, page, cursor, puzzle characters, remaining attempts, log and outcome; lockout lines | `terminal.rs::TerminalScreen` |
+| Terminal | Reference/base, page, submenu ancestry, item IDs/labels, selected row, result, note and note scroll | `terminal.rs::TerminalScreen` |
+| Inventory / Pip-Boy ITEMS | Mode/focus, selection/scroll/category, folder, quantity prompt/amount, status; list sizes/values and selected item/count/condition/equipped/mod state; hotkey slot, assignment feedback and assignments | `menu/model.rs::MenuModel`, `pipboy/hotkey_panel.rs::HotkeyHold`, `hotkeys.rs::Hotkeys` |
+| Barter | Inventory signals plus offered units, purses and trade balance | `menu/model.rs::MenuModel` |
+| Container | Inventory signals plus Take All confirmation | `menu/model.rs::MenuModel` |
+| Repair services | Vendor, selected/first row, confirmation, item conditions/quotes/readiness, skill, caps and total | `repair.rs::RepairServices` |
+| Pip-Boy repair | Selected/first row, preview, target condition, offered parts and merge parameters | `pipboy/repair.rs::PipRepair` |
+| Item modification | Selected/first row, target unit/mod flags and offered modifications/counts/attachment state | `pipboy/item_mod.rs::PipItemMod` |
+| Sleep / wait | Sleep/wait mode, chosen hours, accepted hours and whole hours remaining | `wait.rs::WaitMenu` |
+| Local / world map | Page/tab, map centre, magnification, cursor, custom marker; popup identity/text/answers and selected answer | `pipboy.rs::PipBoy`, `pipboy/data.rs::DataState` |
+| Pip-Boy DATA lists | Selected/first row, challenges and active-note filters, pane identity/scroll, active quest; tuned radio station/on state; playing holotape identity/pause state | `pipboy/data.rs::DataState`, `holotape.rs::Holotape`, `crates/fnv-game/src/game.rs::Game` |
+| Pip-Boy STATS | Page/tab, status subpage, selected/top rows, description scroll, reputation mode and limb; displayed HP/AP/XP, limb condition, rads and needs | `pipboy/stats/mod.rs::{StatsView,Prepared}` |
+| Dialogue | Speaker, line/response IDs, line serial/count, offered choices/topic-list mode and selected choice | `dialogue.rs::DialogueScreen`, `crates/fnv-game/src/dialogue.rs::Conversation` |
+| Level-up | Level/page, selected row/scroll, skill allocation, perk choices and answered flag | `levelup.rs::LevelUpMenu` |
+| Messages | Box serial, panel content/buttons, selected button and initial choice flag | `message_menu.rs::MessagePanel`, `crates/fnv-game/src/game.rs::Game` |
+| Standalone quantity | Chosen amount and maximum | `script_quantity.rs::ScriptQuantity` |
+| Vigor Tester | Page, review row and attribute allocation | `chargen/vigor.rs::VigorMenu` |
+| Tutorial | Page, message IDs and text scroll | `tutorial_menu.rs::TutorialView` |
+| Name / tag skills / traits / attributes | Name text, list selection/scroll, allocation sheet and answered flag | `chargen.rs::ChargenMenus` |
+| Race / appearance / barber | Look, tab, rows/groups/scroll, preset, action selection, camera view and answered flag | `creator.rs::CreatorMenu`, `creator/model.rs::Model` |
+| Pause / settings / save pages | Page, logical `PauseView::progress` and settings tab | `pause.rs::{Page,PauseView,SettingsTabStore}` |
+| Console | Input, history recall, output scroll/lines and selected reference | `console.rs::Console` |
+| Companion wheel | Companion, selected command, command state and reply line | `companion_wheel.rs::WheelScreen`, `script_hud.rs::ScriptHud` |
+| Blackjack | Bet/chips/earnings, help/status, phase, hands/active hand, dealer cards/reveal, completed rounds and leaving flag | `blackjack.rs::BlackjackScreen` |
+| Roulette | Bet/cursor, placed bets/completed spins, phase identity, chips/earnings, help/status, last pocket and ban flag | `roulette.rs::RouletteScreen` |
+| Slots | Bet, reel stops, phase identity, chips/earnings, help/status, payout-page and ban flags | `slots.rs::SlotsScreen` |
+| Poker | Raise amount, status/end reason/leaving flag, seats, button, board/street/turn, current bet, hand number and winners/showdown | `poker.rs::PokerScreen` |
+| Caravan | Stage, bet/deck/cursor, hand/pick, forfeit confirmation, help/status, sides/turn/phase/winner and leaving flag | `caravan.rs::CaravanScreen` |
+| Script control locks / fallback menu | Effective standard/Alt control-group flags, runtime menu code/prompt, message serial and dialogue signals above | `crates/fnv-game/src/game.rs::Game` |
+
+[design, #2403 / file refs: the state owners in the table]
+Redraw flags, pointer-only hover bookkeeping, attempted-navigation counters, RNG,
+scheduled sounds, radio/holotape playback clocks, partial-hour wait timers, pin-break
+age and fade/animation timestamps do not count as progress. Actual selection movement
+from the pointer does count. Hidden inactive STATS state is ignored. Regressions in
+`reports/controls.rs` exercise each menu family through the detector: logical changes
+restart the 60-second watch, while unchanged state and incidental counters/clocks with
+ineffective presses still raise one finding. The detector does not inspect pixels or
+arbitrary scripted tile values; a page change entirely inside a mod's tile tree is not
+currently a progress signal.
+
+[design, #2403 / file refs: `reports/controls.rs`, `fnv-game/src/nvse_other.rs`]
+The finding names the menu or speaker (reference and bounded name) and the current topic,
+INFO and response, if a line is active, plus up to ten offered topic IDs. It includes the
+locked groups, their known source API, and up to ten Alt-lock plugin sources, plus an
+omitted count. Standard
+`DisablePlayerControls` flags retain no caller, so their script is explicitly unknown
+(`null`); no script is inferred from a running quest. Up to ten running, uncompleted
+quests (including background quests), in FormID order, supply their IDs and current stages.
+Names are capped at 128 characters. No input key identities, dialogue text or quest text
+are added. These limits and the 60-second/five-press rule are named together in
+`reports/anomaly.rs`.
+
+[design, #2403 / file refs: `residents.rs`, `fnv-ai/src/carry.rs`,
+`fnv-nav/src/follow.rs`, `fnv-game/src/{quest,quest_targets}.rs`]
+Removed from this reports specification: `actor_stuck` and `quest_stall`. Reports can read
+actor positions and current package IDs, but not a travel goal/progress contract spanning
+detours, doors and replans; distance travelled alone is not progress toward the goal.
+That requires coordinated AI/navigation state beyond a small read-only reports hook.
+Quest target checks exist, but reports has no main-quest-only selection or separate
+quest-stall opt-in. Applying the old rule to all quests would broaden its scope and flag
+intentionally dead/disabled targets; an absent snapshot reference also does not establish
+that it has no cell. These detectors need those contracts before being specified again.
+The separate existing `softlock` watchdog remains built as listed above.
+
+[design / file refs: `reports/anomaly.rs`] Thresholds are local constants. Server
+`/v1/config` tuning is not built.
 
 ## 5. The server (Cloudflare)
 

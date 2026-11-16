@@ -152,6 +152,14 @@ pub struct Console {
     back: Option<Travel>,
 }
 
+impl Console {
+    /// [design, #2403 / file refs] Local-only editing/navigation fingerprint. Console
+    /// text stays in the hash; no command or output is attached to a report.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.open.then_some((&self.input, self.recall, self.scroll, self.selected, &self.lines))
+    }
+}
+
 /// When the console's clock starts: the first line printed (the game's start, near
 /// enough) [design: docs/design/tweaks.md].
 static CLOCK: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -1160,7 +1168,8 @@ fn world_word(d: &PlayData, word: &str) -> Result<u32, String> {
 /// worldspace, the one last walked in from an interior): the player goes to the exterior
 /// cell at grid square (x, y) ("moves the player to given exterior grid coordinates"
 /// [documented: GECK wiki CenterOnWorld, CenterOnExterior]). Where in the cell is not
-/// documented: its centre, on the landscape there [hypothesis], which the arrival rule
+/// documented: its centre, on the landscape there [hypothesis] (the run's surface,
+/// `crate::smooth_terrain::spec`, as the collision has it), which the arrival rule
 /// (physics.md §6.2) then settles as for any travel.
 fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, String), String> {
     let grid = |w: &str| w.parse::<i32>().map_err(|_| format!("{w:?} is not a grid number"));
@@ -1170,9 +1179,9 @@ fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, Stri
     // Only a cell the worldspace itself has: physics stands on a worldspace's own land,
     // not its parent's (`PhysState::set_world`).
     let cell = ws.grid.get(&g).and_then(|c| d.index.cells.get(c)).ok_or_else(|| format!("No exterior cell at {name}"))?;
-    let land = cell.land.and_then(|land| {
-        let heights = fnv_world::land::load_land(d.lo, d.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights?;
-        fnv_phys::terrain::height_at(&heights, CELL_CENTRE, CELL_CENTRE)
+    let land = cell.land.and_then(|_| {
+        let ids = fnv_world::land_surface::land_ids(g, |n| ws.grid.get(&n).and_then(|c| d.index.cells.get(c)).and_then(|c| c.land));
+        fnv_world::land_surface::load_surface(d.lo, d.schema, &ids, crate::smooth_terrain::spec())?.height_at(CELL_CENTRE, CELL_CENTRE)
     });
     // A cell without landscape: the worldspace's default land height.
     let land = land.or(ws.default_land_height).unwrap_or(0.0);
@@ -1688,6 +1697,30 @@ fn compiled(g: &mut fnv_game::Game, call: &ConsoleCall, on: Option<FormId>) -> R
     let mut lines = vec![format!("{} >> ran", call.line.trim())];
     lines.extend(warnings);
     Ok(ConsoleReply { lines, ..Default::default() })
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> Console {
+    let mut c = Console { open: true, ..Default::default() };
+    if step >= 1 {
+        c.input = "synthetic".into();
+    }
+    if step >= 2 {
+        c.recall = Some(0);
+    }
+    if step >= 3 {
+        c.scroll = 1;
+    }
+    if step >= 4 {
+        c.selected = Some(42);
+    }
+    if step >= 5 {
+        c.lines.push("Synthetic result".into());
+    }
+    c.auto_output_done = step >= 6;
+    c
 }
 
 #[cfg(test)]

@@ -275,6 +275,29 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Terrain smoothing: which recipe by default (#2149, #2676).** [design, #2149]
+  The default is the contributor's pick from nine variants compared in game and
+  screenshots on 2026-11-15, for you to confirm or change: **detail, 4 × 4, bound 8,
+  thresholds 2:6**. Interpolate keeps the 8-unit
+  height steps; fit flattens real features; detail evens the steps while keeping bumps,
+  crests and ridges (moves up to 2 units in full, fading out by 6). The 4 × 4 grid gives
+  rounder silhouettes, and bound 8 keeps placed objects in contact by holding the
+  surface within one height step of the stored triangles. Smoothing stays on by default
+  with collision following it (your 2026-11-13 decision); the setting applies at the
+  next start so drawn ground and collision change together. Measured 2026-11-15 (1920x1080,
+  unpaced, RTX 5070 Ti) [observed]: standing frame time unchanged (3.78 ms, 2 × 2 3.74, off
+  3.78), worst frame in a fast flight over Goodsprings unchanged (32.9 ms, 2 × 2 32.4);
+  about 255 MB more RAM and 130 MB more video memory than 2 × 2. Since #2676 the row is a
+  list, Off / 2 x 2 / 4 x 4 (still the default) / 4 x 4 near (4 × 4 within 2,048 units of
+  the camera, 2 × 2 further, collision on 4 × 4, no cracks between the levels); the open
+  question is which by default: 4 × 4 (now), 2 × 2 or 4 x 4 near. Measured 2026-11-16 (#2801:
+  same hillside and flight): frame time the same at every level; 4 x 4 near keeps most of
+  2 × 2's memory saving (about 250 MB RAM standing, up to 260 MB video memory in flight). The test aids
+  still choose the other recipes, and the Debug row Terrain wireframe shows the triangles.
+  Smoke `terrain-smoothing` covers the default; `terrain-smoothing-fit-s2-b8`,
+  `-interpolate-s4-b8`, `-fit-s4-b12`, `-detail-s4-b8` cover explicit recipes.
+  ([world §3 "Smoothing"](spec-notes/world.md#3-landscape-land))
+
 - **An intercom nobody has set up speaks for the actor its script names (#2454).**
   [hypothesis, #2454] When a talking activator starts a conversation before any script
   told it who speaks, ours lets the one actor its scripts name speak (Ramos for the

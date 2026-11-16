@@ -802,6 +802,53 @@ fn god_mode_keeps_damaging_effects_off_the_player() {
     assert!(near(av(&mut g, RAD_LEVEL), 10.0));
 }
 
+/// In god mode a script does not hurt the player (#2792, the maintainer's request on
+/// #2743: "no trap may damage the player in god mode"): the bear trap's DamageActorValue
+/// on Health and a leg, and a ModActorValue or ForceActorValue that would lower Health
+/// or a limb, change nothing; restoring still heals what was taken before. Without god
+/// mode they all apply.
+#[test]
+fn god_mode_keeps_script_damage_off_the_players_health_and_limbs() {
+    const LEFT_MOBILITY_CONDITION: u16 = 29;
+    const DAMAGE: u16 = 0x1181;
+    const RESTORE: u16 = 0x1182;
+    const MOD: u16 = 0x1010;
+    const FORCE: u16 = 0x110E;
+    let arg = |code: u16, n: f64| [ArgValue::Enum(code), ArgValue::Value(Value::Num(n))];
+    let f = fixture();
+    let mut g = game(&f);
+    let health = av(&mut g, HEALTH);
+    let leg = av(&mut g, LEFT_MOBILITY_CONDITION);
+    let head = av(&mut g, PERCEPTION_CONDITION);
+    assert!(health > 50.0 && leg == 100.0 && head == 100.0);
+    // Something taken before god mode came on.
+    call(&mut g, DAMAGE, &arg(HEALTH, 10.0));
+    g.toggles.god_mode = true;
+    call(&mut g, DAMAGE, &arg(HEALTH, 45.0));
+    call(&mut g, DAMAGE, &arg(LEFT_MOBILITY_CONDITION, 50.0));
+    call(&mut g, MOD, &arg(HEALTH, -20.0));
+    call(&mut g, FORCE, &arg(PERCEPTION_CONDITION, 10.0));
+    assert!(near(av(&mut g, HEALTH), health - 10.0));
+    assert_eq!(av(&mut g, LEFT_MOBILITY_CONDITION), leg);
+    assert_eq!(av(&mut g, PERCEPTION_CONDITION), head);
+    // Healing and raising go on in god mode.
+    call(&mut g, RESTORE, &arg(HEALTH, 10.0));
+    assert!(near(av(&mut g, HEALTH), health));
+    call(&mut g, MOD, &arg(HEALTH, 5.0));
+    assert!(near(av(&mut g, HEALTH), health + 5.0));
+    call(&mut g, MOD, &arg(HEALTH, -5.0));
+    assert!(near(av(&mut g, HEALTH), health + 5.0));
+    g.toggles.god_mode = false;
+    call(&mut g, MOD, &arg(HEALTH, -5.0));
+    call(&mut g, DAMAGE, &arg(HEALTH, 45.0));
+    call(&mut g, DAMAGE, &arg(LEFT_MOBILITY_CONDITION, 50.0));
+    call(&mut g, MOD, &arg(HEALTH, -20.0));
+    call(&mut g, FORCE, &arg(PERCEPTION_CONDITION, 10.0));
+    assert!(near(av(&mut g, HEALTH), health - 65.0));
+    assert!(near(av(&mut g, LEFT_MOBILITY_CONDITION), leg - 50.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 10.0));
+}
+
 /// In god mode the player's Action Points are never spent, by the engine (a VATS attack,
 /// a tweak's cost: `add_actor_value_damage`) or by a script's DamageActorValue (owner
 /// decision 2026-11-15, #2743). Without it both take them.

@@ -129,6 +129,11 @@ struct RecipeAid(Vec<(f32, String)>);
 pub struct RecipeMenu(pub Option<Open>);
 
 impl RecipeMenu {
+    /// [design, #2403 / file refs] Logical recipe navigation and ingredient outcomes;
+    /// `Open::navigated` and pointer/redraw bookkeeping are deliberately excluded.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.0.as_ref().map(|o| (o.category, o.station, o.filter, o.selected, o.first, o.quantity, o.drawn.as_ref().map(|v| (&v.rows, &v.ingredients, &v.skill))))
+    }
     pub fn is_open(&self) -> bool {
         self.0.is_some()
     }
@@ -900,6 +905,49 @@ fn close(mut commands: Commands, mut menu: ResMut<RecipeMenu>, roots: Query<Enti
         }
     }
     info!("recipe menu: closed");
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> RecipeMenu {
+    let mut o = Open { category: FormId(42), station: None, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: step as u32 };
+    if step >= 1 {
+        o.selected = 1;
+    }
+    if step >= 2 {
+        o.first = 1;
+    }
+    if step >= 3 {
+        o.filter = 1;
+    }
+    if step >= 4 {
+        o.quantity = Some((1, 3));
+    }
+    if step >= 5 {
+        o.quantity = Some((2, 3));
+    }
+    o.drawn = Some(View {
+        title: String::new(),
+        rows: (0..20).map(|i| RowView { recipe: FormId(100 + i), label: format!("Synthetic recipe {i}"), ready: true }).collect(),
+        filters: 1,
+        subcategory: None,
+        filtered: 0,
+        selected: o.selected,
+        first: o.first,
+        made_at: String::new(),
+        skill: None,
+        skill_record: None,
+        ingredients: vec![(FormId(43), "Synthetic ingredient".into(), if step >= 6 { 2 } else { 3 }, 1)],
+        weight: None,
+        value: None,
+        icon: None,
+        effects: None,
+        quantity: o.quantity,
+        labels: Default::default(),
+    });
+    o.pointer_pick = step >= 7;
+    RecipeMenu(Some(o))
 }
 
 #[cfg(test)]

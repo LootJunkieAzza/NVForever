@@ -36,6 +36,9 @@ pub struct Jip9State {
     pub camera_collision: bool,
     /// SetCursorPos for the engine: (x, y, in XML coordinates).
     pub cursor_warp: Option<(f64, f64, bool)>,
+    /// A pending XML warp belongs to StartMenu's scaled frame. The held page's
+    /// temporary context ends before the engine consumes it (mcm-page-key-events.md).
+    pub cursor_warp_start_menu: bool,
     /// The cursor in the window's pixels from its top left, as the engine last told it.
     pub cursor_px: Option<(f64, f64)>,
     /// The window's size in pixels, as the engine last told it; `None` until it does
@@ -69,6 +72,7 @@ impl Default for Jip9State {
             vanity_wheel: true,
             camera_collision: true,
             cursor_warp: None,
+            cursor_warp_start_menu: false,
             cursor_px: None,
             window: None,
             volumes: DEFAULT_VOLUMES,
@@ -186,6 +190,9 @@ pub fn type_code(sig: &[u8; 4]) -> Option<i32> {
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let zero = XVal::Num(0.0);
+    // The held Mods page exposes StartMenu through its temporary page context rather
+    // than replacing Game::menu (mcm-page-key-events.md).
+    let menu_cursor = g.menu.is_some() || g.menu_open(crate::game::menus::START);
     let v = match name {
         // ---- the cursor, the mouse, the camera
         // `[toggle]`: the state before it, so without an argument the state [observed:
@@ -209,7 +216,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "getcursorpos" => {
             let (Some(a), xml) = (axis(args.first()), num(args, 1).is_some_and(|x| x != 0.0)) else { return Some(Ok(zero)) };
             let per = px_per_unit(g);
-            if g.menu.is_none() && !g.other.jip9.hud_cursor {
+            if !menu_cursor && !g.other.jip9.hud_cursor {
                 let (w, h) = window(g);
                 let (x, y) = g.other.jip9.cursor_px.unwrap_or((w / 2.0, h / 2.0));
                 let c = if a == 0 { x } else { y };
@@ -226,9 +233,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // HUD cursor [documented].
         "setcursorpos" => {
             if let (Some(x), Some(y)) = (num(args, 0), num(args, 1)) {
-                if g.menu.is_some() || g.other.jip9.hud_cursor {
+                if menu_cursor || g.other.jip9.hud_cursor {
                     let xml = num(args, 2).is_some_and(|v| v != 0.0);
                     g.other.jip9.cursor_warp = Some((x, y, xml));
+                    g.other.jip9.cursor_warp_start_menu = g.menu_open(crate::game::menus::START);
                     let per = px_per_unit(g);
                     g.other.jip9.cursor_px = Some(if xml { (x * per, y * per) } else { (x, y) });
                 }

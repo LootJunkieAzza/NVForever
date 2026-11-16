@@ -381,3 +381,7 @@ name = "Русский"
 "Weapon wear" = "Износ оружия"
 "Fatigue" = "Усталость"
 "Ammo effect" = "Эффект патронов"
+# [design, #2149, #2676; engine/nvf-play/src/smooth_terrain.rs] The Smooth terrain row and its choices (2 x 2 and 4 x 4 read the same in every language).
+"Smooth terrain" = "Сглаживание рельефа"
+"4 x 4 near" = "4 x 4 вблизи"
+"Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares per landscape square, or 4 x 4 near you and 2 x 2 further. Drawing and collision share it. Applies at the next start." = "Сглаживает ступени высоты, сохраняя бугры и гребни: 2 x 2 или 4 x 4 на клетку рельефа, либо 4 x 4 вблизи и 2 x 2 дальше. Отрисовка и столкновения общие. Вступает в силу при следующем запуске."

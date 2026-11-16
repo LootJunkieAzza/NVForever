@@ -100,6 +100,33 @@
 //!   device it stored [documented: `src/vulkan.cpp:1349-1407`]. Then the DLSS folder's checked
 //!   files, held open since the folder pass (`win.rs` `Pins`), are released. The interposer stays
 //!   loaded.
+//! - **Ending at once** ([`end_now`], #2733): a loaded save's handoff ends the old run with
+//!   `std::process::exit` from the main schedule (`handoff.rs` `end_now`), so `App::run` never
+//!   returns and [`shutdown`] above never ran: Streamline and DLSS-G were left to the DLLs'
+//!   detach at process exit. In a player's runs every such exit with DLSS-G set up ended in a
+//!   crash in `nvngx_dlssg.dll` [observed: the player's logs and dumps, 2026-11-15]; that the
+//!   detach without `slShutdown` is what crashes is a [hypothesis] this change tests. Before
+//!   that exit, with the device made through Streamline: the render app is taken back from the
+//!   render thread (Bevy renders nothing after), FSR frame generation's presenter threads are
+//!   stopped and joined (`crate::frame_gen::stop_presenters`: they present on threads of their
+//!   own and hold the window's surface), device polling and pipeline creation are held off
+//!   (`gpu_poll::quiet`), DLSS-G's mode goes off and the window's swapchain is released
+//!   (`frame_gen.rs`, "Exit"), and [`shutdown`] runs as above. The render world is not dropped
+//!   (the point of ending at once); so the swapchain is released by hand and the device
+//!   outlives `slShutdown`, as it does above.
+//!
+//!   The old run now waits, without a time limit, for the render thread's frame, the
+//!   presenters' last presents, the pipeline gate (a pipeline being compiled) and the GPU drain
+//!   (`Device::poll` wait, `vkDeviceWaitIdle`). Not bounded [design]: every other exit waits
+//!   for the same things without a limit (Bevy's `RenderAppChannels::drop` for the render
+//!   app, `Presenter::drop`, `win.rs` `shutdown`'s drain), and a limit that gave up would
+//!   leave exactly the exit that crashed. The new run is already shown by then (its loading
+//!   screen may still be up), so a short wait is not seen; the cost is the old process's RAM
+//!   and video memory held for as long as it waits, which a long wait would take from the new
+//!   run's loading or play. A renderer or driver that never returns would leave the old
+//!   process behind the new window holding that memory, as it would hang any exit. The
+//!   handoff's own limits (`handoff.rs` `ACK_WAIT_SECS`, `GIVE_UP_MARGIN_SECS`) time the new
+//!   run's start, not this.
 //!
 //! - **Frame generation** (#2317; docs/design/dlss-frame-generation.md): with the four files of
 //!   [`FG_FILES`] in the folder beside the four above, `slInit` asks for DLSS, DLSS Frame
@@ -1053,6 +1080,86 @@ pub fn shutdown() {
     drain_log();
 }
 
+/// [`end_now`] has run (once a process).
+static ENDING: AtomicBool = AtomicBool::new(false);
+
+/// Whether this is the first time `flag` is taken (the run-once guard of [`end_now`]).
+fn first_time(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
+
+/// The process is about to end without `App::run` returning (`handoff.rs` `end_now`, which
+/// calls `std::process::exit` from the main schedule, so `main` never reaches [`shutdown`]):
+/// the module's "Ending at once". With the renderer's device made through Streamline, the
+/// render app is taken back from the render thread (so Bevy renders nothing from here on),
+/// FSR frame generation's presenter threads are stopped and joined
+/// (`crate::frame_gen::stop_presenters`), device polling and pipeline creation are held off
+/// (`gpu_poll::quiet`), DLSS-G's mode is set off and the window's swapchain released
+/// (`frame_gen.rs` `end_now`), and then the shutdown runs as at any other exit ([`shutdown`]).
+/// `why` names the reason in the log lines (`exit: <why>: …`). Runs once; nothing to do
+/// without Streamline. Waits without a time limit (the module's "Ending at once" says why).
+/// The caller ends the process right after: the render app and the poll gate are kept (never
+/// given back) until then.
+pub fn end_now(main_world: &mut World, why: &str) {
+    if !first_time(&ENDING) {
+        return;
+    }
+    #[cfg(windows)]
+    if streamline_loaded() {
+        let mut render_app = render_app_back(main_world);
+        match render_app.as_mut() {
+            // With the render thread idle no frame is handed to a presenter any more; each ends
+            // after presenting what it holds, before anything below drains or releases.
+            Some(app) => {
+                let stopped = crate::frame_gen::stop_presenters(app.world_mut());
+                if stopped > 0 {
+                    note(Level::INFO, format!("exit: {why}: {stopped} FSR frame generation presenter(s) stopped and joined"));
+                }
+            }
+            None => note(
+                Level::WARN,
+                format!("exit: {why}: the render app could not be taken back from the render thread (no pipelined rendering, or the thread stopped); presenters and the window's swapchain left in place"),
+            ),
+        }
+        // Taken only once the render thread has handed its app back and the presenters have
+        // ended (both may poll the device while finishing); held until the process ends.
+        let quiet = crate::gpu_poll::quiet();
+        frame_gen::end_now(render_app.as_mut().map(|a| a.world_mut()), why);
+        shutdown();
+        note(Level::INFO, format!("exit: {why}: Streamline shut down before the process ends"));
+        drain_log();
+        // Neither is dropped: the render world's non-send data belongs to this thread's
+        // teardown, which the process end skips; the poll gate stays shut until then.
+        std::mem::forget(render_app);
+        std::mem::forget(quiet);
+        return;
+    }
+    let _ = (main_world, why);
+    shutdown();
+}
+
+/// The render app back from the render thread (pipelined rendering), waiting for the frame it
+/// is rendering and running the main-thread tasks it may queue meanwhile, as Bevy's own
+/// extraction does [design: vendor/bevy_render/src/pipelined_rendering.rs `renderer_extract`];
+/// the render thread then waits for an app that never comes. `None` without pipelined
+/// rendering (no `RenderAppChannels`: the render app is the main app's and ran to the end of
+/// its frame before the main schedule) or when the render thread has stopped.
+#[cfg(windows)]
+fn render_app_back(main_world: &mut World) -> Option<bevy::app::SubApp> {
+    use bevy::ecs::schedule::MainThreadExecutor;
+    use bevy::render::pipelined_rendering::RenderAppChannels;
+    use bevy::tasks::ComputeTaskPool;
+
+    let executor = main_world.get_resource::<MainThreadExecutor>()?.clone();
+    let mut channels = main_world.get_resource_mut::<RenderAppChannels>()?;
+    ComputeTaskPool::get()
+        .scope_with_executor(true, Some(&*executor.0), |s| {
+            s.spawn(async { channels.recv().await });
+        })
+        .pop()
+        .flatten()
+}
+
 
 
 /// The files of [`FILES`] that `folder` lacks, in that order.
@@ -1065,6 +1172,16 @@ fn missing_files(folder: &Path) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    /// The end without Bevy's teardown runs once (#2733): the guard is taken the first time
+    /// only.
+    #[test]
+    fn the_end_at_once_runs_once() {
+        let flag = AtomicBool::new(false);
+        assert!(first_time(&flag), "the first end runs");
+        assert!(!first_time(&flag), "a second call does nothing");
+        assert!(!first_time(&flag));
+    }
 
     /// DLSS's resources are freed once DLSS is not the effective upscaler and no view is DLSS's;
     /// a frame without a DLSS view while DLSS still draws, or before the status exists, keeps

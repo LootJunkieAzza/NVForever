@@ -96,6 +96,8 @@ pub enum OpKind {
     Cos,
     Log,
     Pow,
+    /// UIO accumulated bit test (ui-bit-test-operator.md).
+    BitTest,
     Rand,
     Eq,
     Neq,
@@ -135,6 +137,7 @@ impl OpKind {
             "cos" => OpKind::Cos,
             "log" => OpKind::Log,
             "pow" => OpKind::Pow,
+            "bt" => OpKind::BitTest,
             "rand" => OpKind::Rand,
             "eq" => OpKind::Eq,
             "neq" => OpKind::Neq,
