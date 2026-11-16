@@ -477,8 +477,9 @@ pub struct PartUse {
     /// own beside the first (the blended layer of a hair model over its solid core,
     /// `nif_spawn::hair_model_layer`); empty or `None`: drawn once.
     pub layers: Vec<Option<Handle<NifMaterial>>>,
-    /// Per shape, a replacement mesh (e.g. FaceGen-morphed), or `None` for the prepared one.
-    pub meshes: Vec<Option<Handle<Mesh>>>,
+    /// Per shape, a replacement mesh (e.g. FaceGen-morphed) and its CPU copy, or `None`
+    /// for the prepared one.
+    pub meshes: Vec<Option<(Handle<Mesh>, Arc<Mesh>)>>,
     /// Shape names not to draw (e.g. the hair's `Hat` shape when no headgear is worn).
     pub hidden_shapes: Vec<String>,
     /// Attach unskinned shapes by their ancestors' names (creatures) instead of the
@@ -1217,6 +1218,12 @@ pub struct SmpCandidate {
     pub nodes: Arc<Vec<Entity>>,
     /// A rigid shape: the skeleton node it hangs from and its transform there.
     pub rigid: Option<(usize, Affine3A)>,
+    /// The CPU copy of the mesh the shape is drawn with: the actor's own (FaceGen-morphed
+    /// hair) where [`PartUse::meshes`] replaced it, else the prepared shape's. The
+    /// generator rigs this one, so a morphed hair keeps the actor's head shape [design:
+    /// rigged from the prepared mesh, a Character Kit Remake hair took the race's shape
+    /// back and the morphed scalp showed through it, owner's frame 2026-11-15].
+    pub cpu: Arc<Mesh>,
 }
 
 /// Whether a shape is one NV SMP physics may move: it has SMP data, or the generator rigs
@@ -1353,7 +1360,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                 None => vec![u.part.attach_bone().to_string()],
             };
             let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones };
-            let mesh = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
+            let (mesh, cpu) = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| (s.mesh.clone(), s.cpu.clone()));
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
             let joints: Option<Vec<Entity>> =
                 s.skin.as_ref().and_then(|(_, names)| names.iter().map(|n| skel.by_name.get(n).map(|&j| nodes[j])).collect());
@@ -1410,7 +1417,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                         (None, Some(b)) if !u.by_ancestor => Some((b, rigid_local(skel, b, &u.part.root, &s.transform))),
                         _ => None,
                     };
-                    commands.entity(e).insert(SmpCandidate { part: u.part.clone(), shape: i, skel: sk, nodes: ns, rigid });
+                    commands.entity(e).insert(SmpCandidate { part: u.part.clone(), shape: i, skel: sk, nodes: ns, rigid, cpu: cpu.clone() });
                 }
                 commands.entity(e).insert(limb.clone());
                 out.drawn.push(e);
@@ -1703,6 +1710,59 @@ mod tests {
         assert_eq!(local, shape);
         let p = (bone * local).transform_point3(Vec3::new(2.0, 0.0, 0.0));
         assert!((p - Vec3::new(-39.0, -3.7, 94.4)).length() < 1e-4, "{p}");
+    }
+
+    /// A Character Kit Remake hair the actor's FaceGen morphed: its SMP candidate carries
+    /// the morphed mesh's CPU copy, which the generator rigs, not the prepared one
+    /// (owner's frame 2026-11-15: the race's hair shape back on a morphed head, the
+    /// scalp through it).
+    #[test]
+    fn a_morphed_hair_gives_the_smp_generator_its_own_mesh() {
+        let tri = |z: f32| {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, z], [1.0, 0.0, z], [0.0, 1.0, z]]);
+            m
+        };
+        let mut props = Props::default();
+        props.hair = true;
+        let shape = PartShape {
+            name: Some("NoHat".into()),
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props,
+            cpu: Arc::new(tri(0.0)),
+            skin: None,
+            transform: Affine3A::IDENTITY,
+            cap: false,
+            partitions: Arc::default(),
+            ancestors: Vec::new(),
+            own: Affine3A::IDENTITY,
+            geometry_index: 0,
+            inverse_binds: None,
+            smp: None,
+        };
+        let part = Arc::new(PreparedPart { shapes: vec![shape], path: r"meshes\bale\hair\female\adult\x\x.nif".into(), ..Default::default() });
+        let skel = PreparedSkeleton {
+            names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())],
+            parents: vec![None, Some(0)],
+            locals: vec![Transform::IDENTITY; 2],
+            bind_world: vec![Affine3A::IDENTITY; 2],
+            by_name: [(DEFAULT_RIGID_BONE.to_string(), 1)].into_iter().collect(),
+        };
+        let uses = |meshes| PartUse { part: part.clone(), materials: vec![Handle::default()], layers: Vec::new(), meshes, hidden_shapes: Vec::new(), by_ancestor: false };
+        let candidate_z = |uses: PartUse| {
+            let mut world = World::new();
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            let mut commands = Commands::new(&mut queue, &world);
+            let parent = commands.spawn_empty().id();
+            let out = spawn_actor(&mut commands, parent, Transform::IDENTITY, &skel, &[uses]);
+            queue.apply(&mut world);
+            let cand = world.get::<SmpCandidate>(out.drawn[0]).expect("a hair candidate").clone();
+            let Some(VertexAttributeValues::Float32x3(p)) = cand.cpu.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("positions") };
+            p[0][2]
+        };
+        assert_eq!(candidate_z(uses(vec![Some((Handle::default(), Arc::new(tri(5.0))))])), 5.0);
+        assert_eq!(candidate_z(uses(vec![None])), 0.0);
     }
 
     #[test]
