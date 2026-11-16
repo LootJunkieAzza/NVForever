@@ -65,8 +65,10 @@ const INFO_Y: [f32; 3] = [40.0, 84.0, 128.0];
 const BUTTONS_RIGHT: f32 = 1664.0;
 /// The game's four buttons and Tips under them (item 163), 48 apart to leave the guide room.
 const PLAY_BUTTONS: [f32; 5] = [692.0, 740.0, 788.0, 836.0, 884.0];
-/// The guide's lines: as wide as the right-hand area, the last just above the buttons.
-const GUIDE_W: f32 = 860.0;
+/// The guide's lines, the last just above the buttons: as wide as the right-hand area
+/// left of which the player's third caravan hangs down, three face cards on its last card
+/// (owner 2026-11-16 frames: the game-over line ran over a tall THE HUB) [design].
+const GUIDE_W: f32 = 670.0;
 const GUIDE_BOTTOM: f32 = 686.0;
 /// The guide band ends clear of the first play button [design].
 const _: () = assert!(GUIDE_BOTTOM + 4.0 <= PLAY_BUTTONS[0], "the guide band is clear of the first button");
@@ -76,6 +78,12 @@ const GUIDE_STEP: f32 = 30.0;
 /// (owner 2026-11-15: a tie note ran into the "thinking" line under it) [design].
 const GUIDE_LINES: usize = 3;
 const GUIDE_BODY_STEP: f32 = 24.0;
+/// Lines of the smaller font the band holds.
+const GUIDE_BODY_LINES: usize = 4;
+/// The band's top: four lines of the smaller font, over the hand's lowest edge.
+const GUIDE_BAND_TOP: f32 = GUIDE_BOTTOM - GUIDE_BODY_STEP * GUIDE_BODY_LINES as f32;
+const _: () = assert!(GUIDE_BAND_TOP <= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "the band holds three lines of the menu's font");
+const _: () = assert!(BUTTONS_RIGHT - GUIDE_W >= PLAYER_X[2] + CARD.x / 2.0 + 3.0 * FACE_STEP.x, "the guide keeps right of the third caravan");
 const BET_BUTTONS: [f32; 4] = [705.0, 756.0, 808.0, 858.0];
 const HINT_GAP: f32 = 16.0;
 /// The betting box: rows, titles' left, values' right, its bracket.
@@ -696,7 +704,7 @@ fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, set: &GuideSet) {
         return;
     }
     let top = set.top();
-    let band = GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32;
+    let band = GUIDE_BAND_TOP;
     if top < band - 1.0 {
         warn!("caravan guide: {} lines reach {top:.0}, over the hand (the band starts at {band:.0})", set.lines.len());
     }
@@ -788,11 +796,11 @@ mod value_colour_tests {
         let width = |k: FontKind, t: &str| t.chars().count() as f32 * if k == FontKind::Body { 10.5 } else { 13.0 };
         let note = "NEW RENO and REDDING are tied at 24: a tie sells neither until one is higher. The game ends when all three are sold.";
         let set = guide_set(&width, note, Some("Benny is thinking…"));
-        assert_eq!(set.kind, FontKind::Menu);
+        assert_eq!(set.kind, FontKind::Body, "{:?}", set.lines);
         assert_eq!(set.lines.len(), 3, "{:?}", set.lines);
         assert_eq!(set.lines.last().map(String::as_str), Some("Benny is thinking…"));
         assert!(set.dim_last);
-        assert!(set.top() >= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "within the band");
+        assert!(set.top() >= GUIDE_BAND_TOP, "within the band");
         for l in &set.lines {
             assert!(width(set.kind, l) <= GUIDE_W, "{l:?}");
         }
@@ -801,7 +809,10 @@ mod value_colour_tests {
         let long = long.as_str();
         let set = guide_set(&width, long, None);
         assert_eq!(set.kind, FontKind::Body, "{:?}", set.lines);
-        assert!(set.top() >= GUIDE_BOTTOM - GUIDE_STEP * GUIDE_LINES as f32, "{:?} within the band", set.lines);
+        assert!(set.top() >= GUIDE_BAND_TOP, "{:?} within the band", set.lines);
+        // The game-over line: the menu's font, two lines.
+        let set = guide_set(&width, "Your opponent sold two of three caravans. You lose 54 caps.", None);
+        assert_eq!((set.kind, set.lines.len()), (FontKind::Menu, 2), "{:?}", set.lines);
         // Nothing to say: no lines, nothing drawn.
         assert!(guide_set(&width, "", None).lines.is_empty());
     }
