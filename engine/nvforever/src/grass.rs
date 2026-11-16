@@ -388,7 +388,10 @@ impl GrassCtx<'_> {
                 let z = patches.entry(nvf_play::grass_fire::key(at.x, at.y)).or_insert(at.z);
                 *z = z.min(at.z);
             }
-            fires.fires.add_fuel(grid, patches);
+            let back = fires.fires.add_fuel(grid, patches);
+            if back > 0 {
+                info!("grass fire: cell {grid:?} loaded again: {back} patches burnt before are burnt here again ({} kept elsewhere)", fires.fires.kept());
+            }
         }
         // By quadrant and type: smaller meshes to cull and to leave out beyond the distance.
         let mut groups: HashMap<(usize, usize), Vec<&Plant>> = HashMap::new();
