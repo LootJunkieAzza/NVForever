@@ -1367,11 +1367,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   181) over a grey strand pattern. Read as the plain specular mask of "Specular" above,
   that alpha made the hair glint under the Prospector Saloon's window light — white
   strands beside the face and a sheen on the crown — where the owner's in-game picture
-  of Sunny Smiles shows matte auburn hair. The renderers give shapes with the Hair flag
-  (hair, brows, beards) no specular [hypothesis: the hair shader does not use the
-  normal-map alpha as an ordinary specular mask; what it does with it and with the
-  `_hl` map is open — an in-game picture of hair under a strong light, from the side,
-  would show whether there is any highlight to rebuild].
+  of Sunny Smiles shows matte auburn hair. That glint ignored the material's specular
+  colour, which the renderers did not read.
+- **Hair specular colour** [observed, survey 2026-11-16 of the hair-shader shapes]: all
+  154 in the game's hair and head parts (`Fallout - Meshes.bsa`, `characters\hair\`
+  and `characters\head\`, 134 files) have specular colour (0, 0, 0) with the Specular
+  flag set; all 136 of Character Kit Remake's (`CharacterKitRemake-Hair.bsa`,
+  `meshes\bale\`, 78 files) have a light one, (0.9, 0.9, 0.9) on 121, with glossiness
+  10 to 60, and their normal maps' alpha is as high on the strands (`seductress_n.dds`
+  mean 91 of 255 where the strands are drawn, 11 on the scalp cap). The renderers give
+  a hair-shader shape the ordinary masked specular tinted by its specular colour, and
+  none where that colour is black (every vanilla one, as before) [hypothesis: the game
+  multiplies the specular term by the material's specular colour; read so, the matte
+  vanilla hair needs no rule of its own]. Without it CKR's hair, whose diffuse is a
+  dark grey to be tinted (`seductress_d.dds`), drew as flat near-black cards under a
+  dark HCLR (the Strip gambler, HCLR 24 16 7, 2026-11-16). What the hair shader does
+  with the `_hl` map (slot 2) is still open.
 - **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
   NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
   INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw

@@ -127,6 +127,9 @@ pub(crate) struct Props {
     /// or hair flag (docs/spec-notes/nif.md §6, "Emissive light").
     glow: Option<String>,
     glossiness: Option<f32>,
+    /// NiMaterialProperty `specular_color` [documented: nif.xml]. Read for hair-shader
+    /// shapes only ([`hair_specular`]).
+    specular_color: Option<[f32; 3]>,
     /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
     specular: bool,
     /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
@@ -405,6 +408,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             p.emissive = s.floats("emissive_color").and_then(|e| e.try_into().ok());
             p.emissive_mult = s.float("emissive_mult");
             p.glossiness = s.float("glossiness");
+            p.specular_color = s.floats("specular_color").and_then(|c| c.try_into().ok());
         }
         "NiStencilProperty" => {
             // 20.1.0.3+: draw mode in flags bits 10-11; older files: draw_mode field.
@@ -643,8 +647,8 @@ pub(crate) fn unlit_vertex_colors(mesh: &mut Mesh) {
 /// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
 /// 0.5 gives the usual dielectric F0 of 0.04 [hypothesis]. Shaders without the specular
 /// flag get none; shapes without a normal map keep the earlier constant. Hair-shader
-/// shapes (hair, brows, beards) get none either [hypothesis, nif.md §6 "Hair": read as a
-/// plain mask their normal-map alpha gave glinting white strands the game does not show].
+/// shapes (hair, brows, beards) get it only where their material's specular colour is
+/// not black ([`hair_specular`]), and none without a normal map.
 ///
 /// A normal map without an alpha channel (DXT1: `unmasked`) holds no mask; read as one,
 /// its alpha of 1 is the strongest mask there is, seven times the median authored one,
@@ -652,7 +656,7 @@ pub(crate) fn unlit_vertex_colors(mesh: &mut Mesh) {
 /// shine like wet paint (owner's playtest, 2026-10-11). Such a shape gets
 /// [`UNMASKED_SPECULAR`] instead [hypothesis, nif.md §6 "Specular"].
 pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
-    if props.hair {
+    if props.hair && (hair_specular(props).is_none() || !has_normal_map) {
         return (0.0, false);
     }
     match (has_normal_map, props.specular) {
@@ -661,6 +665,26 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
+}
+
+/// The specular colour of a hair-shader shape (hair, brows, beards), or `None` for one
+/// whose material asks for none: black, or no NiMaterialProperty.
+///
+/// Every hair-shader shape of the game's hair and head parts has specular colour
+/// (0, 0, 0) with the Specular flag set (154 shapes in 134 files of `Fallout -
+/// Meshes.bsa` under `characters\hair\` and `characters\head\`), and every one of
+/// Character Kit Remake's has a light one: (0.9, 0.9, 0.9) on 121 of 136, with
+/// glossiness 10 to 60 [observed, survey 2026-11-16]. Their normal maps' alpha is high
+/// on the strands either way (`hairbun_n.dds` mean 95 of 255, CKR `seductress_n.dds`
+/// mean 91 where the strands are drawn). The original's matte vanilla hair (nif.md §6
+/// "Hair": the owner's frame of Sunny Smiles) is what a black specular colour gives;
+/// read through it, the glinting white strands are gone without dropping the sheen the
+/// remake's hair is made with [hypothesis: the game multiplies the specular term by the
+/// material's specular colour; the colour as display values]. Before 2026-11-16 every
+/// hair-shader shape had no specular, and CKR's hair drew as flat dark cards.
+pub(crate) fn hair_specular(props: &Props) -> Option<Color> {
+    let c = props.specular_color?;
+    (props.specular && c.iter().any(|&v| v > 0.0)).then(|| Color::srgb(c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)))
 }
 
 /// The reflectance of a shape whose normal map has no alpha channel: the median mask of
@@ -932,6 +956,7 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         perceptual_roughness: gloss_roughness(gloss),
         metallic: 0.0,
         reflectance,
+        specular_tint: if props.hair { hair_specular(props).unwrap_or(Color::BLACK) } else { Color::WHITE },
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
@@ -1998,8 +2023,18 @@ mod tests {
         assert_eq!(specular(&flagged, true, true), (UNMASKED_SPECULAR, false));
         assert_eq!(specular(&Props::default(), true, false), (0.0, false));
         assert_eq!(specular(&flagged, false, false), (0.3, false));
+        // Hair: none with the game's black specular colour (or no material), the masked
+        // specular tinted by a light one (Character Kit Remake), none without a normal map.
         let hair = Props { specular: true, hair: true, ..Default::default() };
         assert_eq!((specular(&hair, true, false), specular(&hair, false, false)), ((0.0, false), (0.0, false)));
+        let vanilla = Props { specular_color: Some([0.0; 3]), ..hair.clone() };
+        assert_eq!(specular(&vanilla, true, false), (0.0, false));
+        assert!(hair_specular(&vanilla).is_none());
+        let ckr = Props { specular_color: Some([0.9; 3]), ..hair.clone() };
+        assert_eq!(specular(&ckr, true, false), (2.0, true));
+        assert_eq!(specular(&ckr, false, false), (0.0, false));
+        assert_eq!(hair_specular(&ckr), Some(Color::srgb(0.9, 0.9, 0.9)));
+        assert!(hair_specular(&Props { specular: false, ..ckr.clone() }).is_none());
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
