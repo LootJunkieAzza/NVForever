@@ -642,6 +642,7 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     let all = s.buttons();
     let rows: Vec<(&str, &str, f32)> = all.iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (*l, k.as_str(), t)).collect();
     buttons_backdrop(p, c, &rows);
+    let labels = rows.iter().map(|r| c.text_width(FontKind::Menu, r.0)).fold(0.0, f32::max);
     for ((label, key, cmd, on), top) in all.into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
     }
@@ -649,7 +650,6 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     // off, or nothing to say, the game's own line. The box is as wide whoever's turn it is.
     let guide = if s.forfeit_armed { String::new() } else { s.guide() };
     let text = if guide.is_empty() { s.status.clone().unwrap_or_default() } else { guide };
-    let labels = rows.iter().map(|r| c.text_width(FontKind::Menu, r.0)).fold(0.0, f32::max);
     let width = guide_width(labels, c.text_width(FontKind::Menu, &thinking_line));
     let set = guide_set(&|k, t| c.text_width(k, t), &text, width);
     guide_lines(p, c, &set);
