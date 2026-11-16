@@ -1057,6 +1057,30 @@ fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// #2766: a locked door that is disabled holds no lock in the graph (it is not in the
+/// world, so it shuts no way), and its lock is back when it is enabled again; the poll
+/// follows the world's presence as well as its locks.
+#[test]
+fn a_disabled_doors_lock_is_left_out_of_the_graph() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None);
+    s.game.world.lock(FormId(DOOR_A), Some(255)).unwrap();
+    assert!(s.ai.apply_door_locks(&mut s.game, &mut s.nav).is_some());
+    assert_eq!(s.nav.door_locks[&DOOR_A], DoorLock { level: 255, key: None });
+    // Disabled: no lock changed in the world, yet the graph lets go of this one.
+    s.game.world.set_enabled(FormId(DOOR_A), false).unwrap();
+    assert!(s.ai.apply_door_locks(&mut s.game, &mut s.nav).is_some(), "the presence change is seen");
+    assert!(!s.nav.door_locks.contains_key(&DOOR_A));
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None, "applied once");
+    // The game still has it locked.
+    assert!(s.game.world.lock_of(FormId(DOOR_A)).is_some_and(|l| l.locked));
+    // Enabled again: locked as before.
+    s.game.world.set_enabled(FormId(DOOR_A), true).unwrap();
+    assert!(s.ai.apply_door_locks(&mut s.game, &mut s.nav).is_some());
+    assert_eq!(s.nav.door_locks[&DOOR_A], DoorLock { level: 255, key: None });
+}
+
 /// A load door the game disables (a script's Disable, an enable parent's) is no way: the
 /// actor sets its package aside rather than going through it. Enabled again, the graph
 /// learns it, the package is chosen again at once and the actor gets through

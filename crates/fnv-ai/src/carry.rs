@@ -724,7 +724,10 @@ pub struct Ai {
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
     /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
-    applied_locks: Option<u64>,
+    applied_locks: Option<(u64, u64)>,
+    /// Doors the game has locked that are not in the world now: their locks are left out
+    /// of the graph until they are enabled ([`Ai::apply_door_locks`]).
+    withheld_locks: Vec<u32>,
     /// The world's presence serial and the graph's obstacle stamp after the obstacles
     /// were last brought into the graph ([`Ai::obstacles_in_line`]).
     applied_obstacles: Option<(u64, u64)>,
@@ -820,7 +823,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -886,19 +889,48 @@ impl Ai {
     /// locked: the actors whose way goes through it plan again (a locked door they cannot
     /// open is no longer a way) [hypothesis: as for a navmesh switched off]. Returns the
     /// actors sent to plan again, `None` when no lock changed.
+    ///
+    /// A door that is not in the world ([`Game::present`]: disabled by a script or an
+    /// enable parent, or placed Initially Disabled) holds no lock here: "a disabled
+    /// reference is not in the world" [documented: GECK wiki Disable], so it shuts no way,
+    /// and the graph's authored XLOC of it is taken out. Broken Steel's in-place door
+    /// 0x0D009B07 (lock level 255, no key, disabled when Death From Above gets there) made
+    /// every path past it unreachable (issue #2766). Its lock comes back when it is
+    /// enabled, so the world's presence serial is watched as well as the lock serial.
     pub fn apply_door_locks(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
-        let serial = game.world.lock_serial();
+        let serial = (game.world.lock_serial(), game.world.presence_serial());
         if self.applied_locks == Some(serial) {
             return None;
         }
+        // Only the presence moved (references enabled, disabled, created): the doors to
+        // look at are those that hold a lock or have one withheld, not every door.
+        let locks_moved = self.applied_locks.is_none_or(|a| a.0 != serial.0);
         self.applied_locks = Some(serial);
         // [design, #2538] Include cold load doors: their applicable lock can live on
         // the other side, even when this side has never been materialised.
-        let states = nav.door_refs().into_iter().map(|id| {
-            let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
-            (id, lock.map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
-        });
-        let changes = nav.sync_door_locks(states.collect::<Vec<_>>());
+        let doors: Vec<u32> = if locks_moved {
+            nav.door_refs()
+        } else {
+            let mut v: Vec<u32> = nav.door_locks.keys().copied().chain(self.withheld_locks.iter().copied()).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let mut withheld = Vec::new();
+        let states: Vec<_> = doors
+            .into_iter()
+            .map(|id| {
+                // A door the world does not know (no placed reference) is taken as there.
+                let there = game.world.is_enabled(FormId(id)).is_err() || game.present(FormId(id));
+                let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
+                if lock.is_some() && !there {
+                    withheld.push(id);
+                }
+                (id, lock.filter(|_| there).map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
+            })
+            .collect();
+        self.withheld_locks = withheld;
+        let changes = nav.sync_door_locks(states);
         self.locked_doors = nav.door_locks.keys().copied().collect();
         self.locked_doors.sort_unstable();
         if changes.is_empty() {
