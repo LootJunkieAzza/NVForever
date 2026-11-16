@@ -381,9 +381,23 @@ impl Ai {
                 Wanted::Base(x) => is_actor && data.sig(x).as_ref() == Some(b"FACT") && fnv_game::functions::faction_rank(game, r, x) >= 0,
                 _ => false,
             };
+            // A living actor it may attack: not its kin, ally or friend.
+            let foe = |game: &Game| {
+                let relation = fnv_game::functions::faction_relation(game, actor, r);
+                !game.kin(actor, r) && relation != 2 && relation != 3
+            };
             if matches(base, &sig, game) || faction {
                 // An actor it looks for: alive, unless it looks for one reference.
                 if is_actor && dead && !matches!(wanted, Wanted::Reference(_)) {
+                    return;
+                }
+                // With Allow Killing it attacks the actor it reaches, so its own kin, allies
+                // and friends are not looked for, unless it looks for one reference
+                // [hypothesis: as for an actor carrying what it looks for (below); the
+                // Freeside thugs ApocalypticMojave.esp places together outside Freeside
+                // look for any actor (object type 28) on VFSFreesideThugPackage, Allow
+                // Killing, and killed each other, owner's run 2026-11-15].
+                if is_actor && kill && !matches!(wanted, Wanted::Reference(_)) && !foe(game) {
                     return;
                 }
                 if !is_actor && !steal && is_item(&sig) {
@@ -418,16 +432,12 @@ impl Ai {
             // in FreesideThugFaction and all armed, attacked each other on
             // VFSFreesideThugPackage (Find, Allow Killing), owner's run 2026-11-15].
             if is_actor && !matches!(wanted, Wanted::Reference(_)) && (dead || kill) {
-                let foe = || {
-                    let relation = fnv_game::functions::faction_relation(game, actor, r);
-                    !game.kin(actor, r) && relation != 2 && relation != 3
-                };
                 let target = if dead {
                     carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
                 } else if !finder_creature {
-                    foe() && carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
+                    foe(game) && carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
                 } else {
-                    foe()
+                    foe(game)
                 };
                 if target {
                     out.push((goal::dist(p.pos, from.pos), r));
