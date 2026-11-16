@@ -186,6 +186,7 @@ fn unlinked_navmeshes_are_unreachable_and_ledges_are_opt_in() {
     let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
     let to = Place { space: W, pos: [350.0, 50.0, -300.0] };
     assert!(matches!(g.find_path(from, to, &PathParams::default()), Err(PathError::Unreachable { .. })));
+    assert!(g.find_path(from, to, &PathParams { safe_drop_max: Some(300.0), ..Default::default() }).is_err());
     // The same two joined by a ledge down (and up, back).
     let (mut a, mut b) = (a, b);
     let (ea, eb) = (edges_at(&a, 200.0), edges_at(&b, 200.0));
@@ -198,6 +199,21 @@ fn unlinked_navmeshes_are_unreachable_and_ledges_are_opt_in() {
     let g = graph(&[(a, W), (b, W)]);
     assert!(g.stats.ledge_edges > 0);
     assert!(g.find_path(from, to, &PathParams::default()).is_err());
+    let safe = PathParams { safe_drop_max: Some(300.0), ..Default::default() };
+    let drop = g.find_path(from, to, &safe).unwrap();
+    assert_eq!(drop.legs[0].hops.len(), 1);
+    assert!(g.find_path(from, to, &PathParams { safe_drop_max: Some(299.0), ..safe.clone() }).is_err());
+    assert!(g.find_path(to, from, &safe).is_err());
+    let mut walker = Walker::new(W, from.pos, 0.0, 100.0);
+    walker.go_to(&g, to, &safe).unwrap();
+    let mut airborne = false;
+    for _ in 0..200 {
+        walker.update(&g, 0.05);
+        airborne |= walker.air.is_some();
+    }
+    assert!(airborne);
+    assert!((walker.feet[2] + 300.0).abs() < 1.0);
+    assert!((walker.feet[0] - to.pos[0]).abs() < 2.0);
     let ledges = PathParams { ledges: true, ..Default::default() };
     let p = g.find_path(from, to, &ledges).unwrap();
     assert_eq!(p.end().map(|e| e[2]), Some(-300.0));
@@ -242,6 +258,27 @@ fn walkers_take_off_from_the_ledge_links_point() {
         }
         assert_eq!(from, Some(off), "speed {speed}, step {dt}");
     }
+}
+
+#[test]
+fn safe_drop_limit_uses_the_sloping_landing_not_the_triangle_centre() {
+    let mut a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let b = grid(2, [200.0, 0.0], 2, 2, 100.0, &[], |x, _| -300.0 - (x - 200.0) * 0.5);
+    let (ea, eb) = (edges_at(&a, 200.0), edges_at(&b, 200.0));
+    for &(at, ae, ..) in &ea {
+        link(&mut a, at, ae, 2, eb[0].0, link_kind::LEDGE_DOWN);
+    }
+    let g = graph(&[(a, W), (b, W)]);
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [350.0, 50.0, -375.0] };
+    let p = g.find_path(from, to, &PathParams { ledges: true, ..Default::default() }).unwrap();
+    let leg = &p.legs[0];
+    let h = leg.hops[0];
+    let height = leg.points[h.point][2] - leg.points[h.point + 1][2];
+    assert!(height > 300.0 && height < 320.0, "{height}");
+    let safe = PathParams { safe_drop_max: Some(height), ..Default::default() };
+    assert!(g.find_path(from, to, &safe).is_ok());
+    assert!(g.find_path(from, to, &PathParams { safe_drop_max: Some(299.0), ..safe }).is_err());
 }
 
 #[test]
@@ -721,6 +758,88 @@ fn locked_doors_that_open_in_place_close_the_way_without_the_key() {
 }
 
 #[test]
+fn locked_door_overlap_allows_only_endpoints_outside_its_footprint() {
+    // [design, #2716] Synthetic rotated door: model y is game -x. The goal's
+    // triangle reaches x=500, but the goal at x=450 is outside the footprint.
+    let g = corridor_with_door(Some(crate::graph::DoorLock { level: 255, key: None }));
+    let from = Place { space: W, pos: [350.0, 75.0, 0.0] };
+    let beside = Place { space: W, pos: [450.0, 75.0, 0.0] };
+    let t = g.locate(W, beside.pos, 1.0).unwrap();
+    let p = PathParams::default();
+    assert!(!g.door_tri_open(t, &p));
+    for (a, b) in [(from, beside), (beside, from)] {
+        let path = g.find_path(a, b, &p).unwrap();
+        assert!(path.legs[0].door_stops.is_empty());
+        assert!(path.legs[0].points.iter().all(|q| q[0] < 496.0));
+    }
+    // [design, #2716] Neither an endpoint inside/on the bounds nor a passing
+    // triangle gets the exception. A same-triangle goal inside is refused too.
+    for x in [496.0, 500.0, 504.0] {
+        let inside = Place { space: W, pos: [x, 75.0, 0.0] };
+        assert!(g.find_path(from, inside, &p).is_err());
+        assert!(g.find_path(inside, from, &p).is_err());
+        assert!(g.find_path(inside, inside, &p).is_err());
+    }
+    let across = Place { space: W, pos: [650.0, 75.0, 0.0] };
+    assert!(g.find_path(from, across, &p).is_err());
+    assert!(g.find_path(beside, across, &p).is_err());
+    assert!(g.walkable_line(W, g.locate(W, from.pos, 1.0).unwrap(), from.pos, across.pos, 0.0, &p).is_none());
+}
+
+#[test]
+fn endpoint_exemptions_cannot_cross_a_refusing_door_footprint() {
+    // [design, #2716] Adjacent triangles on opposite sides are both exempt, but
+    // their generated segment crosses the synthetic rotated door's footprint.
+    let mut g = corridor_with_door(Some(crate::graph::DoorLock { level: 50, key: Some(0x4B) }));
+    for (door_x, from, to, same_triangle) in [
+        (500.0, [450.0, 25.0, 0.0], [550.0, 75.0, 0.0], false),
+        (450.0, [430.0, 10.0, 0.0], [475.0, 10.0, 0.0], true),
+    ] {
+        g.set_in_place_doors(vec![hinged(0xD00, door_x, 0.0)], |_| Some(crate::graph::DoorLock { level: 50, key: Some(0x4B) }));
+        let (s, t) = (g.locate(W, from, 1.0).unwrap(), g.locate(W, to, 1.0).unwrap());
+        assert_eq!(s == t, same_triangle);
+        let closed = PathParams::default();
+        assert!(g.door_endpoint_open(s, from, &closed));
+        assert!(g.door_endpoint_open(t, to, &closed));
+        for (a, b) in [(from, to), (to, from)] {
+            let (a, b) = (Place { space: W, pos: a }, Place { space: W, pos: b });
+            assert!(matches!(g.find_path(a, b, &closed), Err(PathError::Unreachable { .. })));
+            let refused = PathParams { keys: vec![0x4B], refused_doors: vec![0xD00], ..Default::default() };
+            assert!(matches!(g.find_path(a, b, &refused), Err(PathError::Unreachable { .. })));
+            assert!(g.find_path(a, b, &PathParams { keys: vec![0x4B], ..Default::default() }).is_ok());
+            assert!(g.find_path(a, b, &PathParams { open_doors: vec![0xD00], ..refused }).is_ok());
+        }
+    }
+}
+
+#[test]
+fn endpoint_must_be_outside_every_refusing_door_footprint() {
+    // [design, #2716] The point clears the first rotated door but lies in the second.
+    let mut g = corridor_with_door(None);
+    g.set_in_place_doors(vec![hinged(0xD00, 500.0, 0.0), hinged(0xD01, 450.0, 0.0)], |_| Some(crate::graph::DoorLock { level: 255, key: None }));
+    let from = Place { space: W, pos: [350.0, 75.0, 0.0] };
+    let to = Place { space: W, pos: [450.0, 75.0, 0.0] };
+    let t = g.locate(W, to.pos, 1.0).unwrap();
+    assert_eq!(g.door_tris[&t].len(), 2);
+    assert!(g.find_path(from, to, &PathParams::default()).is_err());
+    assert!(g.find_path(from, to, &PathParams { open_doors: vec![0xD01], ..Default::default() }).is_ok());
+}
+
+#[test]
+fn open_locked_in_place_door_does_not_refuse_paths_or_raycasts() {
+    // [hypothesis, #2716] An open locked door is no barrier (observer check 206).
+    let g = corridor_with_door(Some(crate::graph::DoorLock { level: 255, key: None }));
+    let from = Place { space: W, pos: [350.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [650.0, 50.0, 0.0] };
+    let p = PathParams { open_doors: vec![0xD00], refused_doors: vec![0xD00], opens_doors: false, ..Default::default() };
+    assert!(g.find_path(from, to, &p).is_ok());
+    let t = g.locate(W, from.pos, 1.0).unwrap();
+    assert!(g.walkable_line(W, t, from.pos, to.pos, 0.0, &p).is_some());
+    let closed = PathParams { open_doors: Vec::new(), ..p };
+    assert!(g.find_path(from, to, &closed).is_err());
+}
+
+#[test]
 fn a_path_beside_a_door_does_not_stop() {
     // Three lanes; the door closes only the southern one, at x = 500.
     let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 3, 100.0, &[], flat), W)]);
@@ -851,6 +970,58 @@ fn floor_with_deck_above() -> NavGraph {
     seam(&mut ramp, &mut landing, link_kind::PORTAL);
     seam(&mut deck, &mut landing, link_kind::PORTAL);
     graph(&[(floor, W), (ramp, W), (landing, W), (deck, W)])
+}
+
+// [design, #2532] Synthetic ramp route with a shorter authored drop at the deck's west end.
+fn ramp_with_drop() -> NavGraph {
+    let mut floor = grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat);
+    let mut ramp = grid(2, [400.0, 0.0], 4, 1, 100.0, &[], |x, _| (x - 400.0) * 0.5);
+    let mut landing = grid(3, [800.0, 0.0], 1, 4, 100.0, &[], |_, _| 200.0);
+    let mut deck = grid(4, [0.0, 300.0], 8, 1, 100.0, &[], |_, _| 200.0);
+    seam(&mut floor, &mut ramp, link_kind::PORTAL);
+    seam(&mut ramp, &mut landing, link_kind::PORTAL);
+    seam(&mut deck, &mut landing, link_kind::PORTAL);
+    let (dt, de, ..) = edges_at(&deck, 0.0)[0];
+    let ft = edges_at(&floor, 0.0).into_iter().find(|(_, _, a, b)| a[1].min(b[1]) == 300.0).unwrap().0;
+    link(&mut deck, dt, de, floor.form_id, ft, link_kind::LEDGE_DOWN);
+    graph(&[(floor, W), (ramp, W), (landing, W), (deck, W)])
+}
+
+#[test]
+fn safe_drops_preserve_the_ordinary_ramp_and_its_smoothed_path() {
+    let g = ramp_with_drop();
+    let from = Place { space: W, pos: [50.0, 350.0, 200.0] };
+    let to = Place { space: W, pos: [50.0, 350.0, 0.0] };
+    let ordinary = g.find_path(from, to, &PathParams::default()).unwrap();
+    assert!(ordinary.legs[0].points.iter().any(|p| p[0] > 700.0));
+    assert!(ordinary.legs[0].hops.is_empty());
+    let safe = PathParams { safe_drop_max: Some(200.0), ..Default::default() };
+    assert_eq!(g.find_path(from, to, &safe).unwrap(), ordinary);
+    let shortcut = g.find_path(from, to, &PathParams { ledges: true, ..safe.clone() }).unwrap();
+    assert_eq!(shortcut.legs[0].hops.len(), 1);
+    assert!(!shortcut.legs[0].hops[0].up);
+    assert!(shortcut.length < ordinary.length);
+    let limited = PathParams { max_expanded: 1, ..safe };
+    assert!(matches!(g.find_path(from, to, &limited), Err(PathError::TooFar { .. })));
+}
+
+#[test]
+fn safe_drops_retry_when_the_ordinary_same_area_route_is_blocked() {
+    let mut g = ramp_with_drop();
+    // [design, #2532] Area labels still connect both levels, but this actor cannot use the ramp.
+    let ramp = g.by_form[&2];
+    for t in g.tris.iter_mut().filter(|t| t.mesh == ramp) {
+        t.flags |= tri_flags::WATER;
+    }
+    let from = Place { space: W, pos: [50.0, 350.0, 200.0] };
+    let to = Place { space: W, pos: [50.0, 350.0, 0.0] };
+    let ordinary = PathParams { water: false, ..Default::default() };
+    assert!(g.door_route(from, to, &ordinary).unwrap().is_empty());
+    assert!(matches!(g.find_path(from, to, &ordinary), Err(PathError::Unreachable { .. })));
+    let safe = PathParams { safe_drop_max: Some(200.0), ..ordinary };
+    let path = g.find_path(from, to, &safe).unwrap();
+    assert_eq!(path.legs[0].hops.len(), 1);
+    assert!(!path.legs[0].hops[0].up);
 }
 
 #[test]

@@ -1741,7 +1741,7 @@ mod tests {
         source.visibility.push(("SyntheticPanel".into(), 20, shows.clone()));
         source.free_visibility.push(("SyntheticPanel".into(), shows.clone(), cycle));
         source.free.push(("SyntheticWing".into(), track, cycle));
-        source.emitters.push(EmitterTrack { system: "SyntheticEmitter".into(), priority: 20, rate: None, active: Some(shows) });
+        source.emitters.push(EmitterTrack { system: "SyntheticEmitter".into(), priority: 20, rate: None, active: Some(shows), modifiers: Vec::new() });
         source.lights.push(LightTrack { light: "SyntheticLight".into(), target: LightTarget::Dimmer, values: material(0.0).values });
         let set = Arc::new(set);
         for slot in [crate::idles::IDLE_LAYER, crate::idles::IDLE_LAYER + 1] {

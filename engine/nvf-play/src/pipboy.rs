@@ -562,6 +562,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
             .add_systems(First, clear_keys_taken)
+            .add_systems(Update, hotkey_panel::controller.before(crate::tiles::inventory_menu::feed).before(PlaySet::Activation))
             .add_systems(
                 Update,
                 (
@@ -569,8 +570,8 @@ impl Plugin for PipBoyPlugin {
                     reset_manager,
                     close_keys.run_if(|pip: Res<PipBoy>| pip.opening()).run_if(takes_keys),
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
-                    repair::keys.run_if(takes_keys),
-                    item_mod::keys.run_if(takes_keys),
+                    repair::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
+                    item_mod::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
                     hotkey_panel::track,
                     items::keys.run_if(takes_keys),
                     report_menu,
@@ -894,12 +895,13 @@ fn close_keys(
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
+    taken: Res<KeysTaken>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
     let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
-    if prompt.held(&active) {
+    if prompt.held(&active) || taken.taken() {
         return;
     }
     // Esc goes back from the repair list (`repair`) and the mod menu (`item_mod`), Tab
@@ -909,10 +911,10 @@ fn close_keys(
     }
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, taken: Res<KeysTaken>, mut out: MessageWriter<PipBoyInput>) {
     let keys = keys.snapshot();
     use KeyCode::*;
-    if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
+    if taken.taken() || prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
     }
     for (k, p) in [(F1, Page::Stats), (F2, Page::Items), (F3, Page::Data)] {
@@ -1194,6 +1196,7 @@ mod tests {
             app.init_resource::<ButtonInput<KeyCode>>()
                 .init_resource::<crate::menu::PromptKeys>()
                 .init_resource::<ActiveMenu>()
+                .init_resource::<KeysTaken>()
                 .init_resource::<repair::PipRepair>()
                 .init_resource::<item_mod::PipItemMod>()
                 .add_message::<crate::menu::MenuInput>()

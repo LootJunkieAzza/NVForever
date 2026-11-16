@@ -62,6 +62,8 @@ pub struct EmitterTrack {
     pub priority: i32,
     pub rate: Option<Arc<ValueTrack>>,
     pub active: Option<BoolTrack>,
+    /// [design, #2685] Modifier name and on/off track from the same external KF.
+    pub modifiers: Vec<(String, BoolTrack)>,
 }
 
 impl EmitterTrack {
@@ -269,19 +271,27 @@ impl Clip {
         for t in &seq.tracks {
             materials.extend(MaterialTrack::of(t));
             lights.extend(LightTrack::of(t));
-            if let (Some(n), Some("NiPSysEmitterCtlr")) = (&t.node_name, t.controller_type.as_deref()) {
-                let priority = t.priority.unwrap_or(0) as i32;
-                let k = match emitters.iter().position(|e| e.system == *n && e.priority == priority) {
-                    Some(k) => k,
-                    None => {
-                        emitters.push(EmitterTrack { system: n.clone(), priority, rate: None, active: None });
-                        emitters.len() - 1
+            if let (Some(n), Some(controller)) = (&t.node_name, t.controller_type.as_deref()) {
+                if matches!(controller, "NiPSysEmitterCtlr" | "NiPSysModifierActiveCtlr") {
+                    let priority = t.priority.unwrap_or(0) as i32;
+                    let k = match emitters.iter().position(|e| e.system == *n && e.priority == priority) {
+                        Some(k) => k,
+                        None => {
+                            emitters.push(EmitterTrack { system: n.clone(), priority, rate: None, active: None, modifiers: Vec::new() });
+                            emitters.len() - 1
+                        }
+                    };
+                    if controller == "NiPSysModifierActiveCtlr" {
+                        if let (Some(name), Some(keys)) = (&t.controller_id, &t.bools) {
+                            emitters[k].modifiers.push((name.clone(), keys.clone()));
+                        }
+                    } else {
+                        match t.interpolator_id.as_deref() {
+                            Some("BirthRate") => emitters[k].rate = t.values.clone().map(Arc::new),
+                            Some("EmitterActive") => emitters[k].active = t.bools.clone(),
+                            _ => {}
+                        }
                     }
-                };
-                match t.interpolator_id.as_deref() {
-                    Some("BirthRate") => emitters[k].rate = t.values.clone().map(Arc::new),
-                    Some("EmitterActive") => emitters[k].active = t.bools.clone(),
-                    _ => {}
                 }
             }
             if let (Some(n), Some(b), Some("NiVisController")) = (&t.node_name, &t.bools, t.controller_type.as_deref()) {

@@ -723,10 +723,9 @@ impl Runtime {
         let stand_in = World::new(sim.forms, sim.refs, world.config());
         self.game = Game::restore(data, world, cfg, &s)?;
         self.game.put_session(session);
-        // The engine's seat is not saved, so a load stands the player up
-        // (docs/design/save-load.md §3.4); the saved furniture use goes with it, or
-        // GetSitting and its kin go on reading the seat (#1573).
-        self.game.set_furniture_use(FormId::PLAYER_REF, None);
+        // The engine's seats are not saved, so a load stands the player and every NPC up
+        // (docs/design/save-load.md §3.4): `Game::restore` clears each saved furniture use,
+        // or GetSitting and its kin go on reading the seat (#1573, #2797).
         let mut world = std::mem::replace(&mut self.game.world, stand_in);
         // The world's session edits (game settings, leveled lists, base containers changed
         // by script) last for the run, not in the save (`fnv_sim::world::WorldSession`).
@@ -2815,6 +2814,23 @@ mod restore_tests {
         rt.restore_save(&mut sim, save).unwrap();
         assert_eq!(sim.world.roll_level(), 20);
         assert_eq!(sim.world.config().player_level, 1);
+    }
+
+    /// #2797 (and #1573 for the player): a save made while an NPC and the player sat
+    /// loads with both standing in the game's state; the engine reports a new seat.
+    #[test]
+    fn a_load_stands_every_seated_actor_up() {
+        use fnv_game::game::FurnitureUse;
+        let (mut rt, mut sim, _) = in_fade();
+        let seat = FurnitureUse { reference: MARKER, marker_id: 11, state: 3 };
+        rt.game.set_furniture_use(ACTOR, Some(seat));
+        rt.game.set_furniture_use(FormId::PLAYER_REF, Some(seat));
+        let save = with_world(&mut rt, &mut sim, |rt| rt.game.snapshot());
+        assert_eq!(save.extra[&ACTOR].furniture, Some(seat));
+        rt.restore_save(&mut sim, save).unwrap();
+        assert_eq!(rt.game.furniture_use(ACTOR), None, "the NPC stands");
+        assert_eq!(rt.game.furniture_use(FormId::PLAYER_REF), None, "the player stands");
+        assert!(!rt.game.furniture_used_by_other(FormId::PLAYER_REF, MARKER), "the seat is free");
     }
 }
 

@@ -351,7 +351,7 @@ impl ActorIdle {
     pub fn layers(&self, player: &mut BlendPlayer) {
         for (k, (p, w)) in self.0.shown().enumerate() {
             let len = p.play.keys.length.max(1e-3);
-            player.layers[IDLE_LAYER + k] = (w > 0.0).then(|| Layer { clip: p.clip.clone(), phase: (p.play.time() / len).min(0.999), weight: w });
+            player.layers[IDLE_LAYER + k] = (w > 0.0).then(|| Layer { clip: p.clip.clone(), phase: (p.play.time() / len).min(if p.clip.clip.cycle_type == 2 { 1.0 } else { 0.999 }), weight: w });
         }
     }
 }
@@ -726,7 +726,21 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng, endless: b
         Loops::Forever => None,
         Loops::Times(n) => Some(n),
     };
-    Ok((clip, IdlePlay::new(keys, passes)))
+    let play = effect_play(&clip, keys, passes);
+    Ok((clip, play))
+}
+
+/// [design, #2685] CLAMP effect tracks keep their final values until replacement.
+const HOLD_CLAMP_EFFECT_IDLES: bool = true;
+
+fn effect_play(clip: &Clip, keys: IdleKeys, passes: Option<u32>) -> IdlePlay {
+    let play = IdlePlay::new(keys, passes);
+    if HOLD_CLAMP_EFFECT_IDLES && clip.cycle_type == 2 && (!clip.materials.is_empty() || !clip.emitters.is_empty()) {
+        // [design, #2685] CLAMP overrides a record's repeat count for effect idles.
+        IdlePlay::new(keys, Some(1)).clamped()
+    } else {
+        play
+    }
 }
 
 /// The KF file an idle plays, as its record names it.
@@ -2073,6 +2087,37 @@ mod tests {
         s.advance(3.03);
         s.check_owner(|_| None);
         assert!(s.start(7, IdleSource::PackageIdles, None, 2, play(3.0, 0.0, Some(1))));
+    }
+
+    #[test]
+    fn clamp_effect_idle_layers_keep_the_exact_last_sample() {
+        use fnv_nif::anim::{Channel, Sequence, ValueTrack};
+        use nvf_assets::anim_play::{MaterialTarget, MaterialTrack};
+        let seq = Sequence { block: 0, name: Some("OwnedEffect".into()), start_time: 0.0, stop_time: 2.0,
+            frequency: 1.0, cycle_type: 2, accum_root_name: None, text_keys: Vec::new(), tracks: Vec::new() };
+        let mut clip = Clip::from_sequence(&seq);
+        clip.materials.push(MaterialTrack { shape: "OwnedGlow".into(), target: MaterialTarget::SelfIllum,
+            values: Arc::new(ValueTrack::Point3(Channel::Static(Some([0.2; 3])))), cycle: None, priority: 1 });
+        let keys = IdleKeys::read(0.0, 2.0, &[]);
+        let mut play = effect_play(&clip, keys, Some(3));
+        play.advance(100.0);
+        assert_eq!((play.time(), play.weight(), play.gone()), (2.0, 1.0, false));
+        let mut slot = ActorIdle::default();
+        slot.0.start(1, IdleSource::Script, None, Arc::new(BoundClip::bind(Arc::new(clip.clone()), |_| None)), play);
+        let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+        slot.layers(&mut player);
+        assert_eq!(player.layers[IDLE_LAYER].as_ref().unwrap().phase, 1.0);
+        clip.cycle_type = 0;
+        let mut ordinary = effect_play(&clip, keys, Some(1));
+        ordinary.advance(3.0);
+        ordinary.advance(1.0);
+        assert!(ordinary.gone());
+        clip.cycle_type = 2;
+        clip.materials.clear();
+        let mut ordinary = effect_play(&clip, keys, Some(1));
+        ordinary.advance(3.0);
+        ordinary.advance(1.0);
+        assert!(ordinary.gone());
     }
 
     #[test]

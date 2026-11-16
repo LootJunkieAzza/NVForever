@@ -580,6 +580,87 @@ fn an_ally_that_sees_a_fight_helps() {
 }
 
 #[test]
+fn a_faction_ally_of_the_player_takes_up_the_players_fight() {
+    // #2794 (combat-ai.md §10.3) [hypothesis: Assistance counts the player as an ally to
+    // help]. The rats are made allies of the player's faction (SetAlly); the bandit (a
+    // raider) attacks the player. The helper (Helps Allies) detects the player and joins;
+    // the coward (Helps Allies, Cowardly) stays out; neither while the rats are neutral to
+    // the player. With Helps Nobody the helper stays out; it never fights its own ally (a
+    // rat attacking the player); after the player itself (a crime) it stays out; as a
+    // teammate it is left to `teammates_assist`.
+    const SET_ALLY: u16 = 0x1079;
+    const SET_AV: u16 = 0x100F;
+    let (bandit, helper, coward, own, player) = (FormId(BANDIT_REF), FormId(HELPER_REF), FormId(COWARD_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    let ally = |g: &mut Game| {
+        let ctx = Ctx { unit: "test".into(), opcode: SET_ALLY, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[form(RATS), form(PLAYER_FACTION)]);
+    };
+    let sees_player = |g: &mut Game, who: FormId| {
+        let t = g.time;
+        g.detection.pairs.insert((who, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, t));
+    };
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.would_attack(bandit, player) && !g.would_attack(helper, bandit));
+    fighting(&mut g, BANDIT_REF, PLAYER);
+    sees_player(&mut g, helper);
+    sees_player(&mut g, coward);
+    assert_eq!(g.call_allies(), 0, "neutral to the player");
+    ally(&mut g);
+    assert_eq!(g.reaction_to(helper, player), fnv_game::provocation::ALLY);
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, bandit) && !g.would_attack(coward, bandit));
+    assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == bandit && x.cause == Cause::Ally)));
+    let notes = g.provocations.take_notes();
+    assert!(notes.iter().any(|n| matches!(n, Note::Assists { helper: h, victim, attacker } if *h == helper && *victim == player && *attacker == bandit)));
+    assert!(notes.iter().any(|n| matches!(n, Note::StaysOut { helper: h, victim } if *h == coward && *victim == player)));
+    assert_eq!(g.call_allies(), 0, "once");
+
+    // Helps Nobody: stays out.
+    let mut g = game(&f);
+    ally(&mut g);
+    call(&mut g, SET_AV, HELPER_REF, &[ArgValue::Enum(av::ASSISTANCE), ArgValue::Value(Value::Num(0.0))]);
+    fighting(&mut g, BANDIT_REF, PLAYER);
+    sees_player(&mut g, helper);
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, bandit));
+
+    // An attacker that is the helper's own ally (a fellow rat): not fought.
+    let mut g = game(&f);
+    ally(&mut g);
+    fighting(&mut g, OWN_REF, PLAYER);
+    sees_player(&mut g, helper);
+    g.detection.pairs.insert((helper, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, own) && !g.would_attack(helper, player));
+
+    // A helper after the player itself (a crime of the player's against it), its faction
+    // reaction still Ally: it does not join, so two of the player's attackers never turn
+    // on each other.
+    let mut g = game(&f);
+    ally(&mut g);
+    g.player.crime_enemies.insert(helper);
+    assert_eq!(g.reaction_to(helper, player), fnv_game::provocation::ALLY);
+    assert!(g.would_attack(helper, player));
+    fighting(&mut g, BANDIT_REF, PLAYER);
+    sees_player(&mut g, helper);
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.provocations.holds(helper, bandit));
+    assert!(!g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assists { helper: h, .. } if *h == helper)));
+
+    // A teammate: its own rule, one note only.
+    let mut g = game(&f);
+    ally(&mut g);
+    g.extra.entry(helper).or_default().teammate = true;
+    fighting(&mut g, BANDIT_REF, PLAYER);
+    sees_player(&mut g, helper);
+    assert_eq!(g.call_allies(), 1);
+    let notes = g.provocations.take_notes();
+    assert_eq!(notes.iter().filter(|n| matches!(n, Note::Assists { helper: h, .. } if *h == helper)).count(), 1);
+    assert!(!g.provocations.holds(helper, bandit), "no Assistance grudge: the teammate rule gives an alarm");
+}
+
+#[test]
 fn an_actor_that_sees_a_danger_to_itself_fight_joins_against_it() {
     // Playtest list 5 item 35: the wolf (aggression 2, Raiders) would attack the helper
     // (aggression 0, Average confidence, Rats), who would not attack it; seeing it fight
@@ -914,6 +995,56 @@ fn an_escort_joins_its_charges_fights() {
     // Another package: no help.
     g.extra.entry(escort).or_default().current_package = None;
     fighting(&mut g, WATCHMAN_REF, PLAYER);
+    assert_eq!(g.escorts_assist(), 0);
+}
+
+#[test]
+fn a_defensive_follower_joins_its_targets_fights_and_starts_none() {
+    // #2793, packages.md §3.1 [documented: GECK wiki Category:Packages, Defensive Combat,
+    // "The exception is for the Accompany, Escort and Follow packages. For these three, if
+    // the target is attacked, the actor will join into the combat"]. Ganger A (Very
+    // Aggressive, neutral to the rats) follows the loafer, its kin, on a Defensive Combat
+    // package: it leaves the helper (a rat) alone on sight, and takes up the loafer's
+    // fight once the rat attacks it. The same on an Accompany package; on a Travel
+    // package (the default type) it does not.
+    use fnv_game::package::{flags, PackageDef, PackageType, Target, TargetKind};
+    const FOLLOW_PACK: u32 = 0x8F2;
+    const ACCOMPANY_PACK: u32 = 0x8F3;
+    const TRAVEL_PACK: u32 = 0x8F4;
+    let mut f = fixture();
+    let charge = Some(Target { kind: TargetKind::Reference(Some(FormId(LOAFER_REF))), count_distance: 0 });
+    for (pack, ty) in [(FOLLOW_PACK, PackageType::Follow), (ACCOMPANY_PACK, PackageType::Accompany), (TRAVEL_PACK, PackageType::Travel)] {
+        f.data.package_defs.insert(FormId(pack), PackageDef { ty, target: charge, flags: flags::DEFENSIVE_COMBAT, ..Default::default() });
+    }
+    // The ganger's AI data says Cowardly (the fixture's `aidt`), and a coward stays out:
+    // Average here.
+    const SET_AV: u16 = 0x100F;
+    let average = |g: &mut Game| call(g, SET_AV, GANGER_A_REF, &[ArgValue::Enum(av::CONFIDENCE), ArgValue::Value(Value::Num(2.0))]);
+    for pack in [FOLLOW_PACK, ACCOMPANY_PACK] {
+        let mut g = game(&f);
+        average(&mut g);
+        let (ganger, loafer, rat) = (FormId(GANGER_A_REF), FormId(LOAFER_REF), FormId(HELPER_REF));
+        assert!(g.would_attack(ganger, rat), "Very Aggressive: without the package it attacks the neutral rat");
+        g.extra.entry(ganger).or_default().current_package = Some(FormId(pack));
+        assert!(!g.would_attack(ganger, rat), "Defensive Combat: no attack on sight");
+        g.detection.pairs.insert((ganger, loafer), (Detection { value: -10.0, band: Band::Noticed, ..Default::default() }, g.time));
+        // Nobody attacks the loafer: nothing to join.
+        fighting(&mut g, HELPER_REF, OWN_REF);
+        assert_eq!(g.escorts_assist(), 0);
+        assert!(!g.would_attack(ganger, rat));
+        // The rat attacks the loafer: the follower takes the fight up.
+        fighting(&mut g, HELPER_REF, LOAFER_REF);
+        assert_eq!(g.escorts_assist(), 1);
+        assert!(g.would_attack(ganger, rat), "it holds a grudge against the attacker");
+        assert!(g.awareness.get(ganger).is_some_and(|a| a.alarms.iter().any(|x| x.owner == rat && x.cause == Cause::Ally)));
+        assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assists { helper, victim, attacker } if *helper == ganger && *victim == loafer && *attacker == rat)));
+        assert_eq!(g.escorts_assist(), 0, "once");
+    }
+    let mut g = game(&f);
+    average(&mut g);
+    g.extra.entry(FormId(GANGER_A_REF)).or_default().current_package = Some(FormId(TRAVEL_PACK));
+    g.detection.pairs.insert((FormId(GANGER_A_REF), FormId(LOAFER_REF)), (Detection { value: -10.0, band: Band::Noticed, ..Default::default() }, g.time));
+    fighting(&mut g, HELPER_REF, LOAFER_REF);
     assert_eq!(g.escorts_assist(), 0);
 }
 

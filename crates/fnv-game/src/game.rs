@@ -1217,10 +1217,13 @@ pub struct Speech {
     /// (`Game::next_conversation_line`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leads_on: bool,
-    /// The talking activator the speaker says this line of a conversation between
-    /// actors through (`Game::next_conversation_line`): Ramos through Hidden Valley's
-    /// intercom to Veronica (issue #2451). The activator stands for the speaker in the
-    /// world: the next line is said to it.
+    /// The talking activator the speaker says this line through: a line of a
+    /// conversation between actors (`Game::next_conversation_line`), Ramos through Hidden
+    /// Valley's intercom to Veronica (issue #2451), or the activator's Say or SayTo
+    /// (`Game::say`, issue #2768). The activator stands for the speaker in the world
+    /// ([`Speech::place`]): the next line is said to it, the listener looks at it, it must
+    /// be there for the line to go on, and its SayToDone blocks run when a Say or SayTo
+    /// line ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub through: Option<FormId>,
 }
@@ -1231,13 +1234,13 @@ pub enum LineLook {
     /// The speaker turns to the listener and the listener looks at the speaker.
     #[default]
     Both,
-    /// The listener is not made to look at the speaker: SayTo's `noTargetLookFlag`
-    /// [documented: GECK wiki SayTo, owner export: with the flag set "Joe is not forced
-    /// to look at the speaker during the SayTo"].
-    Speaker,
     /// Nobody turns: a conversation between actors started with `headTrack` 0
     /// [documented: GECK wiki StartConversation: "Enter 0 to disable" head tracking
-    /// during the conversation].
+    /// during the conversation], and a SayTo line with `noTargetLookFlag` 1
+    /// [hypothesis, observer check 218, #2796] (`functions::misc::say_to`). Until #2796
+    /// that flag only kept the listener still (a variant `Speaker`); a game saved while
+    /// such a line was said reads it as this one.
+    #[serde(alias = "Speaker")]
     Nobody,
 }
 
@@ -1260,6 +1263,12 @@ impl Speech {
     /// a hello (`Game::say_by_script`, #2582).
     pub fn said_by_script(&self) -> bool {
         self.conversation.is_none() && !self.greeting && !self.farewell && !self.hello
+    }
+
+    /// Who says the line in the world: the talking activator it is said through
+    /// ([`Speech::through`]), else its speaker.
+    pub fn place(&self) -> FormId {
+        self.through.unwrap_or(self.speaker)
     }
 }
 
@@ -4788,45 +4797,80 @@ impl<'a> Game<'a> {
     /// takes over, as o30 saw ([`Game::say_line`]). NVForever's talking state ends with
     /// the line, not about 4.9 s after it as o30 measured in the original.
     pub fn say_by_script(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
-        if let Some(s) = self.speech.iter().find(|s| s.speaker == speaker && s.topic == topic && s.said_by_script()) {
+        // A line said through a talking activator is the activator's here ([`Game::say`]).
+        if let Some(s) = self.speech.iter().find(|s| s.place() == speaker && s.topic == topic && s.said_by_script()) {
             return Some(s.info);
         }
         self.say_with(speaker, target, topic, say_to, true)
     }
 
+    /// The line of [`Game::say`] and [`Game::say_by_script`].
+    ///
+    /// **A talking activator** with a talking actor ([`Game::talker`]: the one
+    /// SetTalkingActivatorActor gave it, else the one its scripts name) says that actor's
+    /// lines: the line is chosen with the actor as the speaker (the conditions on the
+    /// speaker such as GetIsID, faction and voice type, the fixed-speaker check, Say Once),
+    /// with IsActorTalkingThroughActivator 1 on it while choosing, and said by the actor
+    /// through the activator ([`Speech::through`]), as a conversation through one is
+    /// (issue #2451) [hypothesis, issue #2768: Vault 101's intercom given Jonas says
+    /// CG02IntercomConv, whose lines test GetIsID Jonas, and the Pitt's Ashur intercom its
+    /// lines of Ashur's (TTW, observed headless by the maintainer); observer check 219;
+    /// documented: catalogue SetTalkingActivatorActor, "makes a talking activator use the
+    /// dialogue of a given actor"]. When the actor has no line of the topic the activator's
+    /// own lines are tried as before [design, #2768: every line said before is said
+    /// still]. Without a talking actor nothing changes.
     fn say_with(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool, in_stead: bool) -> Option<FormId> {
         let listener = target.or(Some(FormId::PLAYER_REF));
-        // The fallback is decided from the data, not from select_line's result: a topic
-        // with a line the speaker passes the fixed-speaker check for never falls back, so
-        // a spent Say Once line or a false condition leaves the call unsaid as before.
-        let chosen = if in_stead && self.no_line_for_speaker(speaker, topic) {
-            self.select_line_as(speaker, listener, topic, |_| true, crate::dialogue::Says::InStead)
-        } else {
-            self.select_line(speaker, listener, topic)
+        let through = match self.talker(speaker) {
+            (actor, Some(t)) if actor != speaker => {
+                let outer = self.talking_through.replace((actor, t));
+                let info = self.choose_said_line(actor, listener, topic, in_stead);
+                self.talking_through = outer;
+                info.map(|i| (actor, t, i))
+            }
+            _ => None,
         };
-        let Some(info) = chosen else {
+        let kind = if say_to { LineKind::SayTo } else { LineKind::Say };
+        if let Some((actor, t, info)) = through {
+            self.say_line_through(actor, target, topic, info, kind, Some(t));
+            return Some(info);
+        }
+        let Some(info) = self.choose_said_line(speaker, listener, topic, in_stead) else {
             self.emit(EventKind::NoLine { speaker, topic });
             if say_to {
                 self.say_to_unsaid.push((speaker, topic));
             }
             return None;
         };
-        self.say_line(speaker, target, topic, info, if say_to { LineKind::SayTo } else { LineKind::Say });
+        self.say_line(speaker, target, topic, info, kind);
         Some(info)
     }
 
-    /// Say's flags on the line `speaker` is saying ([`Speech::force_subtitles`],
-    /// [`Speech::two_d`]).
+    /// The line of `topic` `speaker` says to `listener` by Say or SayTo ([`Game::say_with`]).
+    fn choose_said_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, in_stead: bool) -> Option<FormId> {
+        // The fallback is decided from the data, not from select_line's result: a topic
+        // with a line the speaker passes the fixed-speaker check for never falls back, so
+        // a spent Say Once line or a false condition leaves the call unsaid as before.
+        if in_stead && self.no_line_for_speaker(speaker, topic) {
+            self.select_line_as(speaker, listener, topic, |_| true, crate::dialogue::Says::InStead)
+        } else {
+            self.select_line(speaker, listener, topic)
+        }
+    }
+
+    /// Say's flags on the line `speaker` is saying, or saying through the talking
+    /// activator `speaker` ([`Speech::force_subtitles`], [`Speech::two_d`]).
     pub fn set_line_flags(&mut self, speaker: FormId, force_subtitles: bool, two_d: bool) {
-        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker || s.through == Some(speaker)) {
             s.force_subtitles = force_subtitles;
             s.two_d = two_d;
         }
     }
 
-    /// Set who the line `speaker` is saying turns to whom ([`LineLook`]).
+    /// Set who the line `speaker` is saying (or saying through the talking activator
+    /// `speaker`) turns to whom ([`LineLook`]).
     pub fn set_line_look(&mut self, speaker: FormId, look: LineLook) {
-        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker || s.through == Some(speaker)) {
             s.look = look;
         }
     }
@@ -4840,21 +4884,24 @@ impl<'a> Game<'a> {
     ///   "forced to look at the speaker" unless `noTargetLookFlag`]: its head only for a
     ///   SayTo line [design], head and body in a conversation between actors, where it
     ///   speaks next [design, as `fnv_ai` has turned both since it started them];
-    /// - nobody, when the line's [`LineLook`] says so.
+    /// - nobody, when the line's [`LineLook`] says so (StartConversation's `headTrack` 0,
+    ///   SayTo's `noTargetLookFlag` 1).
     ///
     /// A line said to nobody (Say) turns nobody. Whether the engine can turn a body (one
-    /// on furniture or on its way cannot) is the engine's.
+    /// on furniture or on its way cannot) is the engine's. A line said through a talking
+    /// activator ([`Speech::through`]) is said by the activator here: the listener looks
+    /// at it, and the actor, who is not there, does not turn (an activator turns nobody)
+    /// [design, docs/spec-notes/talking-activators.md §2].
     pub fn facings(&self) -> Vec<Facing> {
         let mut out = Vec::new();
         for s in &self.speech {
-            let Some(to) = s.target.filter(|t| *t != s.speaker) else { continue };
+            let speaker = s.place();
+            let Some(to) = s.target.filter(|t| *t != speaker) else { continue };
             if s.look == LineLook::Nobody {
                 continue;
             }
-            out.push(Facing { who: s.speaker, to, body: true, speaking: true, info: s.info });
-            if s.look == LineLook::Both {
-                out.push(Facing { who: to, to: s.speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
-            }
+            out.push(Facing { who: speaker, to, body: true, speaking: true, info: s.info });
+            out.push(Facing { who: to, to: speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
         }
         out
     }
@@ -4865,10 +4912,24 @@ impl<'a> Game<'a> {
     /// 3.6 [design]; [`Game::say`]; [`LineKind`]). A line of a conversation
     /// between actors lasts as long as its first response.
     pub(crate) fn say_line(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, info: FormId, kind: LineKind) {
+        self.say_line_through(speaker, target, topic, info, kind, None)
+    }
+
+    /// [`Game::say_line`] for a line `speaker` says through the talking activator
+    /// `through` ([`Speech::through`], [`Game::say`]), marked before its begin script runs.
+    pub(crate) fn say_line_through(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, info: FormId, kind: LineKind, through: Option<FormId>) {
         let data = self.data;
         let dv = self.dialogue_view();
         let Some(def) = dv.info(&info) else { return };
         self.cut_line(speaker);
+        // One line at a time where it is said: a talking activator's own line and a line
+        // said through it by its talking actor cut each other, whichever starts second
+        // [design, #2768: else both would end, each with its SayToDone].
+        let place = through.unwrap_or(speaker);
+        let others: Vec<FormId> = self.speech.iter().filter(|s| s.speaker != speaker && s.place() == place).map(|s| s.speaker).collect();
+        for o in others {
+            self.cut_line_where(|s| s.speaker == o && s.place() == place);
+        }
         self.mark_said(speaker, info, false);
         let conversation = match kind {
             LineKind::Conversation(n) => Some(n),
@@ -4890,7 +4951,7 @@ impl<'a> Game<'a> {
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
         let immediate = def.has(crate::data::info_flag::RUN_IMMEDIATELY);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false, through: None });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, farewell: false, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: immediate, leads_on: false, through });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -4949,12 +5010,18 @@ impl<'a> Game<'a> {
     /// quest stages and must not be lost; the owner's catch-all statement was about the
     /// greeting].
     pub(crate) fn cut_line(&mut self, speaker: FormId) {
-        if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker) {
+        self.cut_line_where(|s| s.speaker == speaker);
+    }
+
+    /// [`Game::cut_line`] for the first line that `which` picks.
+    fn cut_line_where(&mut self, which: impl Fn(&Speech) -> bool) {
+        if let Some(k) = self.speech.iter().position(which) {
             if self.speech[k].goodbye_at_player() {
                 self.end_line(k);
                 return;
             }
             let s = self.speech.remove(k);
+            let speaker = s.speaker;
             self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
             if let (Some(lines), Some(target)) = (s.conversation, s.target) {
                 self.emit(EventKind::ActorConversationEnded { speaker, target, reason: crate::dialogue::ended::CUT, lines });
@@ -4966,8 +5033,9 @@ impl<'a> Game<'a> {
     /// the conversation with the player. While the player chooses, the actor is not
     /// talking [hypothesis]. A SayTo line held by a menu (a conversation included) still
     /// counts, as for the other menus.
+    /// A talking activator a line is said through ([`Speech::through`]) is talking too.
     pub fn is_talking(&self, actor: FormId) -> bool {
-        self.speech.iter().any(|s| s.speaker == actor) || self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_some())
+        self.speech.iter().any(|s| s.speaker == actor || s.through == Some(actor)) || self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_some())
     }
 
     /// Whether an actor is saying its Goodbye greeting at the player (the player talked
@@ -5004,7 +5072,10 @@ impl<'a> Game<'a> {
         let death = self.data.by_edid("Death");
         for s in self.speech.iter_mut().filter(|s| only.is_none_or(|o| o == s.speaker)) {
             s.remaining -= dt;
-            let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted()) && self.world.is_enabled(s.speaker).unwrap_or(false);
+            // Through a talking activator the activator must be there, the actor need not
+            // be (`crate::talking_activators`); the actor's death still cuts the line.
+            let place = s.place();
+            let here = self.world.peek(place).is_none_or(|w| !w.deleted()) && self.world.is_enabled(place).unwrap_or(false);
             // A Goodbye greeting at the player whose speaker is drawn into a fight ends at
             // once as if said to the end (`Game::cut_line`, `Game::greets_player`) [owner
             // statement 2026-10-27: "skip to the end of the line as if she finished
@@ -5046,7 +5117,14 @@ impl<'a> Game<'a> {
                 // its speaker's new line ends) neither sees nor clears the outer one's
                 // request, and the outer state comes back afterwards [design].
                 let outer = (std::mem::replace(&mut self.farewell_ending, s.farewell), self.farewell_then.take());
+                // A line said through a talking activator: its speaker still talks through
+                // it while the end script runs (`Game::talking_through`, #2768).
+                let outer_through = match s.through {
+                    Some(t) => self.talking_through.replace((speaker, t)),
+                    None => self.talking_through,
+                };
                 self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+                self.talking_through = outer_through;
                 then = self.farewell_then.take().filter(|_| s.farewell);
                 (self.farewell_ending, self.farewell_then) = outer;
             }
@@ -5080,8 +5158,10 @@ impl<'a> Game<'a> {
             return;
         }
         // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
-        // tutorials, docs/spec-notes/level-design.md §11.2 D1].
-        self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
+        // tutorials, docs/spec-notes/level-design.md §11.2 D1]. A line said through a
+        // talking activator was the activator's Say or SayTo: its blocks run on it
+        // ([`Game::say`]) [hypothesis, observer check 219].
+        self.ref_event(s.place(), event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         // A Dialogue package's Say To line to another actor goes on as a conversation
         // between them (`Game::say_package_line`).
         if s.leads_on {
@@ -6375,6 +6455,7 @@ impl<'a> Game<'a> {
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
+        g.stand_everyone_up();
         g.player = s.player.clone();
         // The world does not save the level it rolls at.
         g.sync_player_level();

@@ -158,6 +158,30 @@ impl Timing {
     }
 }
 
+/// The clip timing an NPC's gun cycle runs on (nvforever `npc_combat`), from the clips
+/// found in the actor's own rig: the reload clips as they are, and for a semi-automatic
+/// weapon its attack clip's length and `a:` key, so [`Timing::of`] spaces its shots by
+/// the attack clip as it does the player's (module notes) [design, #2739: before, an
+/// NPC's semi-automatic gun fired every 1 ÷ Attack Shots/Sec whatever its clip, which
+/// is the clip's rate for the people's guns (combat-rules.md §4) but not for a sentry
+/// bot's missile launcher, 1 ÷ 1.5789 = 0.63 s against its `2hlattackleft.kf`, `a:R` at
+/// 0.967 s, end 2.0 s [documented: fnvtool esm decode, FalloutNV.esm; fnvtool bsa list /
+/// nif decode, Fallout - Meshes.bsa]; "Attack Shots/sec ... is calculated on the Art and
+/// Sound tab", from the attack animation [documented: GECK wiki
+/// FWeaponConditionRateOfFireXX]]. An automatic weapon keeps its Fire Rate (no attack
+/// clip passed). The `Hit` key, a spin-up and the `Attach` key are left out: the NPC's
+/// attack clip starts with its shot, not with the pull.
+pub fn npc_clip_timing(clips: &ClipTiming, automatic: bool) -> ClipTiming {
+    ClipTiming {
+        reload_len: clips.reload_len,
+        reload_hit: clips.reload_hit,
+        reload_open_len: clips.reload_open_len,
+        attack_len: clips.attack_len.filter(|_| !automatic),
+        next_attack: clips.next_attack.filter(|_| !automatic),
+        ..ClipTiming::default()
+    }
+}
+
 /// How fast an actor reloads, as a multiple of the reload clip's own speed, before its
 /// perks' Reload Speed entry point: 0.5 + 0.1 × Agility, so 1 at Agility 5, 0.6 at 1 and
 /// 1.5 at 10 [documented: Fallout Wiki, Agility (Fallout: New Vegas): the reload time is

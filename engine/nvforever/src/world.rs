@@ -1217,7 +1217,7 @@ fn spawn_ref(
             light_scale,
             &p,
             emittance,
-        )
+        ).is_some_and(|light| light.emitting)
     {
         stats.lights += 1;
     }
@@ -1538,9 +1538,9 @@ pub(crate) fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
+            if let Some(light) = crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
-                stats.lights_hidden += 1;
+                if light.emitting { stats.lights_hidden += 1; }
             } else {
                 commands.entity(holder).despawn();
             }

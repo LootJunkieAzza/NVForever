@@ -437,12 +437,13 @@ pub(crate) fn shoot(
             shooter.idle = 0.0;
             shooter.wait = (shooter.wait - dt).max(0.0);
             // Its reload takes as long as its reload clips in its rig, once known, between
-            // reloads (as `npc_combat` times a gunman's).
+            // reloads, and a semi-automatic gun's shots follow its attack clip there: the
+            // same handoff as `npc_combat`'s gunmen (`AttackTimes::gun_timing`, #2739), so
+            // its cadence does not change between a fight and a use. The volley pauses and
+            // the fire-delay wait stay on top (`wait`).
             if !shooter.reload_timed && matches!(shooter.cycle.phase, Phase::Ready | Phase::Cooldown { .. }) {
-                if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == gun) {
-                    let clips = ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() };
-                    let rate = crate::npc_combat::teammate_attack_rate(g, me, Some(gun));
-                    shooter.cycle.timing = Timing::of(ws, &clips, &c.tuning).with_attack_rate(rate);
+                if let Some((_, timing)) = times.gun_timing(id, gun, ws, &c.tuning, || crate::npc_combat::teammate_attack_rate(g, me, Some(gun))) {
+                    shooter.cycle.timing = timing;
                     shooter.reload_timed = true;
                 }
             }

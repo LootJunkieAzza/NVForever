@@ -28,10 +28,11 @@
 //!   tab that does not show is a fallback; one that does not take the pointer is warned of and the
 //!   page stays: the keys and the device's knob still turn the tabs.
 //! - **The buttons**: on a PC Repair shows on every tab and Mod on Weapons, row or not; Equip, Drop
-//!   and Hotkey are a controller's in the file, which NVForever's page does not show either; inside a
+//!   and Hotkey are a controller's in the file; inside a
 //!   Misc folder Cancel stands in Repair's place [observed: private job run07c_inventory, 1280x720, private job run07c_inventory_b, 1280x720]. The original's keyring has
 //!   no "Back" row and stands last on Misc: NVForever's rows are the model's, a known difference.
-//!   Their commands stay reachable by a script's click.
+//!   Their commands stay reachable by a script's click. [design, #2312] With Controller,
+//!   the optional Hotkey button shows RB/R1 and opens the shared modal; Equip/Drop stay hidden.
 //! - **Words too wide for their card** give way where the title is still a built-in label: a
 //!   plugin's setting stands. [`TIGHT_TITLES`].
 //! - **Page content only**, as `super::stats_menu`: the page paints into the Pip-Boy's image, whose
@@ -41,7 +42,8 @@
 //! - **The hotkey panel** shows while a hotkey's key is held [design: the owner 2026-10-26, `hotkey_panel`
 //!   module notes]: the owner's own panel at the owner's place (`hotkey_panel::draw_over_tiles`), over
 //!   the page, whose picture, badge, skill and buttons give way. The file's `IM_HotKeyWheel` stays
-//!   hidden: no capture has seen it open, so it is a known difference, and the Hotkey button with it.
+//!   hidden: no capture has seen it open, so it is a known difference. [design, #2312]
+//!   RB also opens this shared panel, with modal D-pad/A/B input before the tile feed.
 //! - **The repair list and the mod menu** have their own files, not read here: while one is open
 //!   the page is not eligible and the hand-built body draws it, as it does today.
 //! - **The prompt** is `QuantityMenu`'s while the page is ready (`super::menus::quantity_tiled`),
@@ -211,7 +213,7 @@ fn required_paths() -> Vec<String> {
         paths.push(format!("{LIST}/{}/{piece}", list::SCROLLBAR));
     }
     for (name, button) in BUTTONS {
-        // The Hotkey button stays hidden: a file without it serves.
+        // [design, #2312] Hotkey is optional: older/cut-down menus still serve.
         if button != Button::Hotkey {
             paths.push(button_path(name));
             paths.push(format!("{}/button_text", button_path(name)));
@@ -263,6 +265,8 @@ pub struct Hints {
     pub repair: String,
     pub modify: String,
     pub cancel: String,
+    /// [design, #2312] Empty with keys; the current pad's RB/R1 otherwise.
+    pub hotkey: String,
 }
 
 /// What the page shows of the model, as written last. A plain snapshot, so tests need no world.
@@ -285,6 +289,8 @@ pub struct Shown {
     /// private job run07c_inventory, 1280x720]: the root's `_EquippableItem`, which the file's
     /// marker beside the highlighted row follows.
     pub equippable: bool,
+    /// [design, #2312; hotkeys::can_hold] The selected row accepts a hotkey.
+    pub hotkey_lit: bool,
     /// A Misc folder is open [hypothesis: the root's `_KeyringOpen`, which Cancel follows].
     pub keyring: bool,
     pub hints: Hints,
@@ -328,6 +334,7 @@ impl Shown {
             modify_lit: selected.is_some(),
             ammo: selected.is_some_and(|r| r.kind == Some(ItemKind::Ammo)),
             equippable: selected.is_some_and(|r| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid)) && r.condition.is_none_or(|c| c > 0.0)),
+            hotkey_lit: selected.is_some_and(|r| r.folder.is_none() && r.kind.is_some_and(crate::hotkeys::can_hold)),
             keyring: m.folder.is_some(),
             hints,
             condition_title,
@@ -399,8 +406,8 @@ fn write_tight_titles(ui: &mut Ui, condition: &str) {
 }
 
 /// The buttons' `visible`, hints, Repair's word and the `target`s the file dims by [observed: the
-/// capture]. Equip, Drop and Hotkey are never shown: the file has them for a controller, the hand-built
-/// page shows none either, and their hints are empty in the original. Repair's word follows the
+/// capture]. [design, #2312] Hotkey shows with Controller; Equip and Drop stay hidden.
+/// Repair's word follows the
 /// condition and its light a spare, two questions: the longer word can be lit. Mod shows on the Weapons
 /// tab, lit with a row, whatever the row, so the owner's "always bright" holds for any row.
 fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) {
@@ -410,7 +417,8 @@ fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) 
             Button::Repair => (s.repair.shown, Some(&s.hints.repair)),
             Button::Mod => (s.modify, Some(&s.hints.modify)),
             Button::Cancel => (s.keyring, Some(&s.hints.cancel)),
-            Button::Equip | Button::Drop | Button::Hotkey => (false, None),
+            Button::Hotkey => (!s.hints.hotkey.is_empty(), Some(&s.hints.hotkey)),
+            Button::Equip | Button::Drop => (false, None),
         };
         put(ui, &path, "visible", on(shown));
         if let Some(hint) = hint {
@@ -420,6 +428,8 @@ fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) 
     let path = button_path("IM_RepairButton");
     put(ui, &path, "target", on(s.repair.usable));
     put(ui, &button_path("IM_ModButton"), "target", on(s.modify_lit));
+    // [design, #2312; hotkeys::can_hold] Match the immediate-mode Hotkey hint's light.
+    put(ui, &button_path("IM_HotkeyButton"), "target", on(s.hotkey_lit));
     let Some(button) = ui.find_tile(&path) else { return };
     // The file's word (a setting's, a plugin's) is kept to come back to.
     let file_word = file_repair_word.get_or_insert_with(|| ui.tile(button).get("string").map_or_else(String::new, |v| v.text().to_string()));
@@ -824,6 +834,7 @@ fn hints_of(game: &fnv_game::Game<'_>) -> Hints {
         repair: crate::pad::game_hint(&game_string(game, "sPCMenuHintR"), &[KeyCode::KeyR], at),
         modify: crate::pad::game_hint(&game_string(game, "sPCMenuHintX"), &[KeyCode::KeyX], at),
         cancel,
+        hotkey: if crate::pad::labels() == crate::pad::Labels::Keys { String::new() } else { crate::pipboy::items::hotkey_button() },
     }
 }
 
@@ -1100,6 +1111,7 @@ pub(crate) struct FeedOut<'w> {
     hold: ResMut<'w, HotkeyHold>,
     hotkeys: ResMut<'w, Hotkeys>,
     tweaks: Option<Res<'w, crate::tweaks::TweakSettings>>,
+    taken: Res<'w, crate::pipboy::KeysTaken>,
 }
 
 /// Commands on a row behind a guard saying what its tile stood for, checked as they apply.
@@ -1130,7 +1142,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let is_paused = paused.as_ref().is_some_and(|p| p.0);
     let model = active.as_ref().and_then(|a| a.0.as_ref()).filter(|m| m.mode == Mode::Inventory);
     let prompt = model.is_some_and(|m| m.quantity.is_some());
-    let menu = takes(&tiles, *switch, &pip, game, is_paused, closed, prompt).filter(|_| !tiles.others);
+    let menu = takes(&tiles, *switch, &pip, game, is_paused, closed, prompt).filter(|_| !tiles.others && !out.taken.taken() && out.hold.controller.is_none());
     let (Some(menu), Some(m)) = (menu, model) else {
         *state = Feed::default();
         tiles.view.drag = None;
@@ -1227,7 +1239,14 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             ItemsTile::Button(Button::Cancel) => {
                 out.commands.write(MenuInput(if m.folder.is_some() { Command::Back } else { Command::Close }));
             }
-            ItemsTile::Button(Button::Hotkey) => {}
+            ItemsTile::Button(Button::Hotkey) => {
+                // [design, #2312] The optional tile opens the same modal as pad RB.
+                if crate::pad::labels() != crate::pad::Labels::Keys {
+                    if let Some(row) = m.selected_row(Side::Player).filter(|r| r.folder.is_none()) {
+                        out.hold.open_controller(row);
+                    }
+                }
+            }
             ItemsTile::Bar(BarPiece::Marker) => {
                 pressed_marker = true;
                 let list_tile = tiles.view.list_tile(ui, Side::Player);
@@ -1396,8 +1415,9 @@ mod tests {
             modify_lit: selected < rows,
             ammo: false,
             equippable: true,
+            hotkey_lit: true,
             keyring: false,
-            hints: Hints { repair: "[R]".into(), modify: "[X]".into(), cancel: "[Back]".into() },
+            hints: Hints { repair: "[R]".into(), modify: "[X]".into(), cancel: "[Back]".into(), hotkey: String::new() },
             condition_title: "Short".into(),
             panel: None,
         }
@@ -1757,6 +1777,27 @@ mod tests {
         let mut t = InventoryTiles::default();
         // The fixture's tab then holds no text tile: its word is written on the tab alone.
         assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut t), Err("tab 0 is not shown".to_string()));
+    }
+
+    #[test]
+    fn optional_hotkey_button_follows_device_and_selected_item() {
+        let mut ui = tree_changed(|xml| xml.replace("</rect>\n              <image name=\"IM_ItemIcon\"/>", "<image name=\"IM_HotkeyButton\"><text name=\"button_text\"><string>Bind</string></text></image></rect>\n              <image name=\"IM_ItemIcon\"/>"));
+        let path = button_path("IM_HotkeyButton");
+        assert!(ui.find_tile(&path).is_some());
+        let mut tiles = InventoryTiles::default();
+        let mut snapshot = shown(1, 0);
+        snapshot.hints.hotkey = "RB)".into();
+        run(&mut ui, Some(snapshot.clone()), &mut tiles).unwrap();
+        assert_eq!(at(&ui, &path, "visible"), 1.0);
+        assert_eq!(at(&ui, &path, "target"), 1.0);
+        assert_eq!(words(&ui, &path, "_PCButtonText"), "RB)");
+        assert_eq!(items_tile(&ui, &tiles.view, &tiles.written.tabs, ui.find_tile(&path).unwrap()), Some(ItemsTile::Button(Button::Hotkey)));
+        snapshot.hotkey_lit = false;
+        run(&mut ui, Some(snapshot.clone()), &mut tiles).unwrap();
+        assert_eq!(at(&ui, &path, "target"), 0.0);
+        snapshot.hints.hotkey.clear();
+        run(&mut ui, Some(snapshot), &mut tiles).unwrap();
+        assert_eq!(at(&ui, &path, "visible"), 0.0);
     }
 
     #[test]

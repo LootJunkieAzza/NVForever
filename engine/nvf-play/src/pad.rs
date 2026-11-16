@@ -1022,6 +1022,7 @@ pub(crate) struct MenuPages<'w> {
     poker: Option<Res<'w, crate::poker::PokerScreen>>,
     stats: Option<Res<'w, crate::pipboy::stats::StatsView>>,
     items: Option<Res<'w, crate::menu::ActiveMenu>>,
+    hotkey: Option<Res<'w, crate::pipboy::hotkey_panel::HotkeyHold>>,
 }
 
 impl MenuPages<'_> {
@@ -1052,7 +1053,7 @@ impl MenuPages<'_> {
 /// "file"], pressing the key NVForever's hand-built menu answers for that control.
 pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use fnv_game::game::menus;
-    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
+    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger, RightTrigger2, South, West};
     // A help box over a minigame: its own buttons rest, so A (Enter) and B (Esc) close
     // the box as its keys do (blackjack's A is otherwise its F) [design, #1662].
     if at.tab == HELP_PAGE {
@@ -1075,8 +1076,9 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         // the D-pad: hypothesis, as the container menu, #1827].
         menus::BARTER => &[(West, KeyA), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
         // inventory_menu.xml: Repair Y, Mod LB (Drop X: `crate::pipboy::items`, which has
-        // no key for it; Hotkey RB: the hotkeys are held digits, not built for the pad).
-        menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
+        // no key for it). [design, #2312] RB opens the modal directly in hotkey_panel;
+        // reserving KeyH here keeps RB from becoming the shared PageDown.
+        menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (RightTrigger, KeyH), (LeftTrigger2, F1), (RightTrigger2, F3)],
         // stats_menu.xml: Stimpak A, Doctor's Bag Y, Rad-X X on the status tab; the
         // General/Reputation switch X on the General tab.
         // [design] CND's existing West -> KeyX mapping cycles the chosen limb.
@@ -1159,17 +1161,23 @@ pub(crate) fn menu_keys(
     let mut want: Vec<KeyCode> = Vec::new();
     if on {
         let at = if paused.as_ref().is_some_and(|p| p.0) { PAUSE_AT } else { pages.at(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.top_menu())) };
-        let own = if in_menu { menu_buttons(at) } else { &[] };
-        let shared = ALWAYS.iter().chain(if in_menu { IN_MENUS.iter() } else { [].iter() }).filter(|(b, _)| !own.iter().any(|(o, _)| o == b));
-        for (b, k) in own.iter().chain(shared) {
-            let down = if mk.held.contains(k) { pads.iter().any(|g| g.pressed(*b)) } else { pads.iter().any(|g| g.just_pressed(*b)) };
-            if down && !want.contains(k) {
-                want.push(*k);
+        // [design, #2312] Consume the opening edge as well as every modal frame.
+        // The raw pad reader owns A/B and directions; no page/list action may leak.
+        let panel = in_menu && at.code == Some(fnv_game::game::menus::INVENTORY) && at.tab != HELP_PAGE
+            && (pages.hotkey.as_ref().is_some_and(|h| h.controller.is_some()) || pads.iter().any(|g| g.just_pressed(GamepadButton::RightTrigger)));
+        if !panel {
+            let own = if in_menu { menu_buttons(at) } else { &[] };
+            let shared = ALWAYS.iter().chain(if in_menu { IN_MENUS.iter() } else { [].iter() }).filter(|(b, _)| !own.iter().any(|(o, _)| o == b));
+            for (b, k) in own.iter().chain(shared) {
+                let down = if mk.held.contains(k) { pads.iter().any(|g| g.pressed(*b)) } else { pads.iter().any(|g| g.just_pressed(*b)) };
+                if down && !want.contains(k) {
+                    want.push(*k);
+                }
             }
-        }
-        if in_menu {
-            if let Some(s) = sticks.as_ref() {
-                stick_keys(menu_stick(at), &pads.filter_sticks(s), &mk.held, &mut want);
+            if in_menu {
+                if let Some(s) = sticks.as_ref() {
+                    stick_keys(menu_stick(at), &pads.filter_sticks(s), &mk.held, &mut want);
+                }
             }
         }
     }

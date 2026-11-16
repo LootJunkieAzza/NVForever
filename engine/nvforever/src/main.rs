@@ -540,6 +540,12 @@ struct Args {
     /// the display's refresh (no vsync).
     #[arg(long)]
     log_frame_times: Option<f32>,
+    /// Test aid with --log-frame-times: frames a second at most for this run (0: none), the
+    /// settings page's Frame rate limit, which --log-frame-times otherwise leaves off with
+    /// the page's row (frame_pace.rs). For checking a cap on purpose, e.g. DLSS Frame
+    /// Generation's Reflex limit (#2731, #2732: set before the window's swapchain exists).
+    #[arg(long, requires = "log_frame_times")]
+    frame_cap: Option<u32>,
     /// Test aid with --log-frame-times: after each logged period switch to the next of
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
@@ -1538,8 +1544,9 @@ fn main() -> AppExit {
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
     .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
-    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
-    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
+    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap unless
+    // --frame-cap asks for one (a measuring run only: the page's row decides otherwise).
+    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: args.frame_cap.unwrap_or(0) }))
     .add_plugins(anti_lag::AntiLagPlugin(args.latency_reduction))
     // Defaults snapshots this command-line/default choice before apply_stored reads the INI.
     .add_plugins(frame_gen::FrameGenPlugin(args.frame_generation.unwrap_or_default()))
@@ -1638,8 +1645,11 @@ fn main() -> AppExit {
     .add_systems(Last, readahead::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .add_systems(Update, particles::sync_idle_materials.after(anim_objects::hold).before(nvf_assets::material_anim::bind_rig_materials))
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
     .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream))
+    // [design, #2685] Manager morphs follow the active rig, including restored groups.
+    .add_systems(Update, nvf_assets::morph::play_sequence_morphs.after(advance_animations))
     .init_resource::<activators::ActivatorStats>()
     .add_systems(
         Update,
@@ -1866,7 +1876,7 @@ fn main() -> AppExit {
         // The props idles hold (anim_objects.rs): after the idles started and ended.
         app.init_resource::<anim_objects::AnimObjects>()
             .add_systems(Startup, anim_objects::read)
-            .add_systems(Update, anim_objects::hold.after(idles::drive))
+            .add_systems(Update, anim_objects::hold.after(idles::drive).before(advance_animations))
             .add_systems(Update, idles::play_npc_sequences.after(idles::drive))
             .add_systems(Last, anim_objects::report);
     }

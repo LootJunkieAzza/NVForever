@@ -91,6 +91,12 @@ pub struct Allowed {
 }
 
 impl Allowed {
+    /// [design, #2715] The sole-marker exemption requires every other package
+    /// behaviour off, even when an allowed alternative has no available objects.
+    fn only_idle_markers(self) -> bool {
+        self.idle_markers && !self.eating && !self.sleeping && !self.conversation && !self.furniture && !self.wandering
+    }
+
     pub fn of(def: &PackageDef) -> Allowed {
         Allowed {
             eating: !def.sandbox_flag(type_flags::NO_EATING),
@@ -199,6 +205,7 @@ const POINT_TRIES: usize = 8;
 /// the same object until that many seconds have passed [documented: GECK wiki,
 /// iSandBoxPreventRepeatedActionTime]. This rule is not that setting and claims no parity
 /// with it: it applies only to the sole object, and counts from the other behaviour.
+/// [design, #2715] `Allowed::only_idle_markers` exempts its sole eligible last marker.
 pub const SOLE_OBJECT_AGAIN_AFTER: f64 = 60.0;
 
 /// An object there was no way to, the last time the actor tried.
@@ -275,7 +282,7 @@ impl Sandbox {
     /// The sandbox of `actor` under `def`, starting at `at` (where the actor arrived).
     pub fn start(game: &Game, actor: FormId, package: FormId, def: &PackageDef, goal: &Goal, at: Place) -> Sandbox {
         let (centre, radius) = match goal {
-            Goal::Near { place, radius } => (*place, if *radius > 0.0 { *radius } else { DEFAULT_RADIUS }),
+            Goal::Near { place, radius, .. } => (*place, if *radius > 0.0 { *radius } else { DEFAULT_RADIUS }),
             Goal::Inside { .. } => (at, f32::INFINITY),
             _ => (at, def.location.map(|l| l.radius as f32).filter(|r| *r > 0.0).unwrap_or(DEFAULT_RADIUS)),
         };
@@ -484,9 +491,9 @@ impl Sandbox {
                 self.seatless_meals += 1;
             }
         }
-        // Otherwise one of the behaviours that take turns. Candidates per kind, without
+        // [design, #1505, #2715] Candidates per kind, without
         // the object just used, unless it is the only one open and the actor has done
-        // something else for a while since (#1505).
+        // something else for a while since (#1505), with the idle-only exception below.
         let fresh = |o: &&(FormId, [f32; 3], f32)| Some(o.0) != self.last_object;
         let seats: Vec<&(FormId, [f32; 3], f32)> = objects.iter().filter(|o| flags(o.0).is_some_and(|f| f & furniture::SIT != 0)).collect();
         // Not a marker whose idles are all another skeleton's (`marker_fits`): a person
@@ -496,7 +503,13 @@ impl Sandbox {
         let markers: Vec<&(FormId, [f32; 3], f32)> =
             objects.iter().filter(|o| refs.get(o.0).is_some_and(|p| data.idle_markers.contains_key(&p.base) && fits(p.base))).collect();
         let another = (self.allowed.furniture && seats.iter().any(fresh)) || (self.allowed.idle_markers && markers.iter().any(fresh));
-        let again = !another && self.other_since.is_some_and(|t| game.time - t >= SOLE_OBJECT_AGAIN_AFTER);
+        // [design, #2715] With only idle markers allowed and only the last marker
+        // open, keep using it instead of inserting Standing. The action-type rule
+        // allows repetition "unless it has no other options" [documented: GECK wiki,
+        // Sandbox Package, Action Selection]. The object exemption is provisional
+        // [hypothesis: the original scene is unmeasured; observer check 208].
+        let sole_idle_marker = self.allowed.only_idle_markers() && markers.len() == 1 && Some(markers[0].0) == self.last_object;
+        let again = !another && (sole_idle_marker || self.other_since.is_some_and(|t| game.time - t >= SOLE_OBJECT_AGAIN_AFTER));
         let seats: Vec<_> = seats.into_iter().filter(|o| again || fresh(o)).collect();
         let markers: Vec<_> = markers.into_iter().filter(|o| again || fresh(o)).collect();
         let spot = if self.allowed.wandering { self.wander_spot(nav, at) } else { None };
@@ -629,7 +642,7 @@ impl Sandbox {
     /// radius; its pauses (4 to 12 seconds at a spot) and walk are a sandbox's wander
     /// [design, #2027: the original's cadence is not measured, observer check 115].
     pub fn guard(game: &Game, actor: FormId, package: FormId, def: &PackageDef, centre: Place, radius: f32) -> Sandbox {
-        let mut s = Sandbox::start(game, actor, package, def, &Goal::Near { place: centre, radius }, centre);
+        let mut s = Sandbox::start(game, actor, package, def, &Goal::Near { place: centre, radius, reference: None }, centre);
         s.allowed = Allowed { eating: false, sleeping: false, conversation: false, idle_markers: false, furniture: false, wandering: true };
         s.points = true;
         s

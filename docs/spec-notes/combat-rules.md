@@ -169,7 +169,12 @@ each the identity by default. Reading PERK records is a later step.
     | varmint rifle | `2hrattack8.kf` | 1.267 | 1.333 | 1.4 × 1.1 | 1.216 (1.54 ÷ 1.267) |
 
     Timing shots by the clip's end made them 5–20 % slower than the original (owner
-    playtest 2026-10-19). NPCs use 1 ÷ Attack Shots/Sec, already the same rate.
+    playtest 2026-10-19). NPCs (and creatures' body guns) take the same rule from the
+    standing attack clip in their own rig once it is known, 1 ÷ Attack Shots/Sec until
+    then (`attack::npc_clip_timing`, §4.1, #2739). Where the clip has an `a:` key this
+    gives the record's rate, as in the observed table above; a clip without one gives
+    the slower rate of its end, and a creature's own clip can differ from the record
+    (the sentry bot's launcher).
 - **When the shot leaves.** At the attack clip's `Hit` key [documented:
   NiTextKeyExtraData]. Automatic weapons fire at once, except those that spin up.
 - **Spin-up** [owner decision 2026-10-10]. An automatic weapon whose attack clip has
@@ -259,6 +264,82 @@ each the identity by default. Reading PERK records is a later step.
 - **Regenerating weapons** gain a round every `regen_rate` seconds and cannot be
   reloaded by hand [documented].
 - **No-ammo weapons.** Melee and unarmed weapons cycle without ammo.
+
+### 4.1 NPCs' shot timing and body guns' magazines (#2739)
+
+The owner saw sentry bots fire missiles back to back in NVForever and with a pause
+between them in the original [observed: owner playtest, #2739].
+
+- **The records** [documented: fnvtool esm decode, FalloutNV.esm]:
+  `SentryBotMissileLauncher2HL` (WEAP 0x00057E8F) is an Embedded Weapon, not automatic,
+  Clip Size 1, ammo AmmoMissile, Attack Shots/Sec 1.5789, Fire Rate 1.0, attack and
+  animation multipliers 1.0, Animation Type Launcher (2 Hand), Attack Animation
+  AttackLeft, Reload Animation ReloadB, Semi-Automatic Fire Delay 0.1-0.5 s, Min/Max Range
+  500/2000, Reload Time 2.3333. Its creatures (`CrSentryBotGLHard` 0x000E585D with the
+  laser gatling, `CrSentryBotMGArmy` 0x000A5C6F with the minigun) fight with combat style
+  `CSSentrybot` (Take Cover Chance 0, Wait-to-Fire Timer 10/10, Fire Timer 2/2,
+  Semi-Auto Firing Delay Mult 1/1).
+- **The clips** [documented: fnvtool bsa list / nif decode, Fallout - Meshes.bsa, main
+  session 2026-11-16]: `meshes\creatures\sentrybot\` has 60 `.kf` files, among them
+  `2hlattackleft.kf` (sequence AttackLeft, 0 to 2.0 s, clamped; keys `BlendIn:1` 0.033,
+  `Hit` 0.067, `a:R` 0.967, end 2.0), its up and down forms, `2hlaim`, `2hlequip`,
+  `2hlunequip`, `2hlholster` and `2hljamb.kf`, but **no reload clip**. Of all creature
+  folders only `nvsecuritron`, `protectron` and `smspinebreaker` have a reload `.kf`.
+- **What NVForever did** [design: `engine/nvforever/src/npc_combat.rs` on be6db0948]:
+  an NPC's semi-automatic gun fired every 1 ÷ Attack Shots/Sec, its clip never asked
+  (the launcher: 0.63 s, shorter than both its clip's `a:R` and its end); a creature's
+  embedded gun had no magazine, so it never reloaded. The other pauses in the data were
+  applied, or do not apply:
+  - the weapon's Semi-Automatic Fire Delay (times the style's multipliers) follows every
+    NPC shot, embedded guns included; the launcher's 0.1-0.5 s is shorter than its
+    interval, so it adds nothing;
+  - the style's Wait / Wait-to-Fire / Fire timers are cover timers ("how long to stand out
+    of cover looking for targets to appear", "how long to stay out of cover firing at
+    targets once they are seen" [documented: GECK wiki Combat Style]); NVForever applies
+    them while a fighter holds cover, and CSSentrybot's Take Cover Chance 0 never takes
+    cover;
+  - the weapon choice (`fnv_combat::body_weapon`, combat-ai.md §19) switches by distance
+    and crippled limbs, at most every 1.5 s, never on a timer: with the launcher the only
+    gun that suits (the target past the other gun's reach and beyond the 1000-unit blast,
+    or the other gun's limb crippled), it fires nothing else;
+  - the WEAP's Reload Time is "Unused" [documented: GECK wiki Weapons]; it is no source.
+- **Shot timing** (`fnv_combat::attack::npc_clip_timing`) [design, #2739]: an NPC's or a
+  creature's semi-automatic gun is timed by the standing attack clip of its WEAP Attack
+  Animation in its own rig (`attack_anims`, with the reload clips; one handoff,
+  `AttackTimes::gun_timing`, for a fight's gunmen and for Use Weapon shooters, whose
+  volley pauses come on top), by §4's rule for the player: the `a:` key's time (the clip's length without one) ÷ (attack multiplier ×
+  animation multiplier). Until the clip is known, and without one, 1 ÷ Attack Shots/Sec as
+  before. Automatic weapons keep their Fire Rate. The `Hit` key gives no wind-up: the
+  NPC's clip starts with its shot. Sources: "Attack Shots/sec ... is calculated on the Art
+  and Sound tab" of the weapon form [documented: GECK wiki FWeaponConditionRateOfFireXX],
+  i.e. from an attack animation; the `a:` key "determines when the animation can be
+  interrupted to play the next animation" [documented: GECK wiki NiTextKeyExtraData];
+  "Attack Multiplier ... will also increase or decrease the projectile ejection rate"
+  [documented: GECK wiki Weapons].
+  - The sentry bot's launcher now fires every 0.967 s (its `a:R`), not 0.63 s. That is
+    still no barrage-length pause: by the player's rule the clip's end (2.0 s) is not
+    waited for. Whether the original waits for the end, switches to its gun between
+    missiles, or has another pause is observer check 221 [hypothesis].
+  - The wiki also says Semi-Automatic Fire Delay Max "determines semi-auto weapon's fire
+    rate when used by actors" [documented: GECK wiki Weapons]; NVForever waits that delay
+    after each shot besides the cycle's interval (npc_combat module notes).
+- **Magazine** (`fnv_combat::body_weapon::has_magazine`) [design, #2739]: an embedded gun
+  has a magazine and reloads by the people's rule (as soon as it is empty, for as long as
+  its reload clip runs) once its creature's rig is known to have the weapon's reload clip
+  (`<stance prefix>reload<x>.kf` of its Reload Animation in the creature's folder or its
+  `specialanims`). A creature without that clip fires on without a magazine as before:
+  the 2.0 s fallback stands in for clips not yet known. This changes only the creatures
+  whose folders have such a clip (Securitrons, protectrons, the spinebreaker skeleton's
+  super mutants and nightkin, where the names match); the sentry bot has none, so its
+  launcher keeps firing without reloads. Whether the original pauses a creature that has
+  no reload animation is observer check 221 [hypothesis].
+- **Ammunition**: rounds still come from nowhere [design: owner 2026-10-17, "they dont
+  use ammo"]. The WEAP flag NPCs Use Ammo ("Actors will use up the associated ammo in
+  their inventory like the player does. (This setting is disabled by default.)"
+  [documented: GECK wiki Weapons]) is not read; the launcher's flags as decoded for #2739
+  are Embedded Weapon, Can't Drop and Non-Playable [documented: fnvtool esm decode,
+  FalloutNV.esm], so the original's sentry bot is taken not to spend its AmmoMissile
+  either [hypothesis].
 
 ## 5. Projectiles, swings, blasts (`projectile.rs`, `shot.rs`)
 

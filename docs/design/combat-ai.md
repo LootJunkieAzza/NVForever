@@ -296,6 +296,27 @@ alarm at the attacker's position (`Cause::Ally`), so it becomes Alert and fights
 detects the attacker: `provocation: … helps … against …`. `Game::call_allies` runs after
 each round of measurements.
 
+**The player as the one helped** (#2794) [hypothesis: whether Assistance counts the player
+as an ally to help is not documented; the maintainer expects it, issue thread]: the player
+has no entry among the fighters, so `call_allies` adds one: its foes are every actor in a
+combat state with the player on its target list (not a teammate), at their positions, and
+its watchers whoever detects the player (band Detected). A watcher helps when its
+Assistance covers its reaction to the player (Ally with Helps Allies, Friend with Helps
+Friends and Allies), with every check above (never against its own ally or friend, cowards
+stay out). A watcher that is after the player itself (a crime of the player's against it,
+a grudge, a StartCombat on the player, or the player on its target list) does not help,
+whatever its faction reaction [design, #2794]. The player's teammates are left to their own
+rule (followers.md §3). The
+scripted-fight rule below does not keep the player's allies out: it is about the allies of
+the actor a script set on the player, and the player is the one attacked there. The case:
+on the House route the Legate's camp Securitrons (VHDSecuritronFaction, PlayerFaction
+Ally; Helps Allies) are each set on one of General Oliver's guards when the player picks
+the fight, and Oliver on the player with `StartCombat player` [documented:
+issue #2794, cited records] (a fight his own guards stay out of when the player has not hit him); by this rule,
+once its guard is down, a Securitron goes on to Oliver and the fifth guard [design; observer
+check 217 asks the original]. Smoke:
+`house-camp-securitron-assist`.
+
 Goodsprings' settlers share GoodspringsFaction and have Assistance 2 [observed:
 `fnvtool actor values`], so shooting one brings the others that see it; Violet's dogs
 share FiendsFactionNV with her (Assistance 2), so they now join her fights.
@@ -452,7 +473,9 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   the next refused within fCombatYieldRetryTime, a yield past fCombatYieldTime refused),
   `a_neutral_fighting_someone_else_ignores_a_stray_hit_from_a_fighting_player` (the
   owner's exception), `an_ally_that_sees_a_fight_helps` (Assistance, never against its
-  own ally).
+  own ally), `a_faction_ally_of_the_player_takes_up_the_players_fight` (#2794: the player
+  as the one helped; Helps Nobody, a coward, an attacker that is the helper's ally and a
+  teammate stay out of this rule, and so does a helper the player committed a crime against).
 - Smoke scenario `provoked-yield` [observed 2026-10-12]: in the general store the player
   shoots Chet (`provocation: GSChetRef 0x00104C79 (neutral) is attacked by the player
   and fights back`, his Assault line "What was that for?"), he fights back with his .357,
@@ -1882,8 +1905,18 @@ bloatfly and protectron folders also keep stance clips there.
 - An arm whose limb condition (the WEAP Embedded Weapon Actor Value) is 0 is left out
   [hypothesis: "the condition value affected when the weapon is targeted", GECK wiki
   Weapons]: crippling Mister Handy's left arm leaves it its saw.
-- Body weapons do not wear or break, do not reload (no magazine) and do not slow their
-  creature as two-handed weapons in hand do [design].
+- Body weapons do not wear or break and do not slow their creature as two-handed weapons
+  in hand do [design].
+- **Shot timing and reloading** (#2739; docs/spec-notes/combat-rules.md §4.1): a
+  semi-automatic body gun, like any NPC's, is timed by its attack clip in its rig as the
+  player's (the `a:` key, else the clip's end, ÷ the attack multipliers;
+  `fnv_combat::attack::npc_clip_timing`), 1 ÷ Attack Shots/Sec until the clip is known.
+  A body gun has a magazine and reloads by the people's rule once its creature's rig is
+  known to have the weapon's reload clip (only the Securitron, protectron and spinebreaker
+  folders have reload clips); without one it fires on without a magazine
+  (`fnv_combat::body_weapon::has_magazine`) [design, #2739; observer check 221]. Before, a
+  sentry bot's missile launcher fired every 0.63 s; now every 0.967 s (`2hlattackleft.kf`
+  `a:R`), still without reloads (its folder has no reload clip).
 
 **Not built**: VATS targeting of a body weapon; the original's own switching rule (a
 capture of a Mister Gutsy at several distances would settle it); the protectron's and

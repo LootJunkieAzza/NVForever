@@ -2207,6 +2207,36 @@ fn securitron_expression_survives_a_load() {
     assert!(old.securitron_faces.is_empty());
 }
 
+/// #2797: a load stands every actor up, NPCs as the player (#1573): the saved furniture
+/// use is cleared, so GetSitting reads 0 and the seat is free until the engine seats the
+/// body again; the rest of the actor's saved state stays.
+#[test]
+fn a_load_clears_every_actors_furniture_use() {
+    use fnv_game::game::FurnitureUse;
+    let f = fixture();
+    let mut g = game(&f);
+    let (npc, chair) = (FormId(ADULT_REF), FormId(CONT_REF));
+    let seated = FurnitureUse { reference: chair, marker_id: 11, state: 3 };
+    g.set_furniture_use(npc, Some(seated));
+    g.set_furniture_use(FormId::PLAYER_REF, Some(FurnitureUse { reference: FormId(CREA_REF), marker_id: 12, state: 3 }));
+    g.extra.get_mut(&npc).unwrap().ai_off = true;
+    assert_eq!(call(&mut g, 0x109F, Some(ADULT_REF), &[]), 3.0, "GetSitting before the save");
+    let snap = g.snapshot();
+    assert_eq!(snap.extra[&npc].furniture, Some(seated), "the save itself is unchanged");
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut h = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(h.furniture_use(npc), None, "the NPC stands after the load");
+    assert_eq!(h.furniture_use(FormId::PLAYER_REF), None, "and the player too");
+    assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 0.0, "GetSitting after the load");
+    assert!(!h.furniture_used_by_other(FormId::PLAYER_REF, chair), "the chair is free");
+    assert!(h.extra[&npc].ai_off, "the actor's other saved state stays");
+    // The engine seats it again and says so: GetSitting follows.
+    h.set_furniture_use(npc, Some(seated));
+    assert_eq!(call(&mut h, 0x109F, Some(ADULT_REF), &[]), 3.0);
+}
+
 /// Kill challenges count the player's kills by the record's filters, complete at the
 /// threshold and queue their notices (docs/spec-notes/challenges.md).
 #[test]

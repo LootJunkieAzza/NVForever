@@ -894,8 +894,9 @@ fn frame_generation_after_device(api: &Api, held: &Held, identity: Option<(vk::P
     super::frame_token::install(calls);
     // At least once, and with DLSS-G on Reflex must be on (`eFailReflexNotDetectedAtRuntime`,
     // `sl_dlss_g.h:131-132`; `ProgrammingGuideReflex.md:177`); not thread safe, so here,
-    // before the render thread starts. The latency reduction switch sets it from then on.
-    let reflex = super::frame_token::set_reflex_options(REFLEX_MODE_LOW_LATENCY, 0).unwrap_or(SlResult::OK);
+    // before the render thread starts. The latency reduction switch sets it from then on, and
+    // again once the window's swapchain is made (`frame_token.rs`, "Reflex and the swapchain").
+    let reflex = super::frame_token::set_reflex_options(REFLEX_MODE_LOW_LATENCY, 0).map_or(SlResult::OK, |(_, _, r)| r);
     // DLSS-G stays loaded when the start's choice is DLSS; otherwise it is unloaded now, before
     // the window's swapchain exists, and loaded when chosen (`frame_gen.rs`).
     let at_start = FG_AT_START.load(std::sync::atomic::Ordering::Relaxed);

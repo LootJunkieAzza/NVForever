@@ -128,19 +128,79 @@ and calls after: at most three moves can happen meanwhile).
 
 ### Frame pacing
 
-While DLSS-G runs, the frame cap (the page's, or variable refresh's) divided by the frames shown
-per real frame goes to Reflex's `frameLimitUs` and frame pacing does not wait itself, so the
-driver and DLSS-G's pacer see one limiter (`frame_pace::wait_for_cap`).
+While DLSS-G runs, the frame cap (the page's, or variable refresh's) divided by the frames DLSS-G
+presents per real frame goes to Reflex's `frameLimitUs` and frame pacing does not wait itself, so
+the driver and DLSS-G's pacer see one limiter (`frame_pace::wait_for_cap`).
+
+- **The divisor follows what DLSS-G presents** (#2731; `dlss/fg_cap.rs`), from each present's
+  `numFramesActuallyPresented` and whether the mode was on for it. Before, it was the frames
+  asked for whatever DLSS-G did, so menus (mode off) and a pause in generation that Streamline
+  makes by itself while its status stays `eOk` ("DLSS-G disabled: window not focused") held the
+  real frames, all that was shown, at a fraction of the limit: 480 real and 480 presented in 10 s
+  at a limit of 48 [observed: a player's logs, #2731]. The rules [design]:
+  - *Waiting* (the full limit): at the start, after DLSS-G is loaded or unloaded, and after the
+    mode was off for 8 real frames in a row ("menus"). The first present with the mode on divides
+    by the frames asked for at once (the bootstrap: the cap does not decide whether DLSS-G
+    generates); a new Generated frames choice, up or down, does the same. Both start the history
+    again.
+  - *Following the rate*: the history is the last 192 presents with the mode on, every count in
+    it (those presented once too). From 16 of them on, after every present, the divisor moves to
+    their mean, rounded half up, between 1 and the frames asked for, when the mean is 0.75 or more
+    away. 1 is the full limit (paused); the same rule divides again once the mean is back to 1.75
+    ("generation resumed"), then climbs in steps (2, 3, 4), one line each.
+  - *A quick pause*: while divided, a run of presents shown once longer than 15 and longer than
+    every run shown once that ended in the last 1024 presents goes to the full limit at once (the
+    window not in front, or generation never started), and the history keeps only that run.
+  - *What this guarantees* (the tests check each): a steady rate settles (within 16 presents).
+    A pattern repeating with a period of at most 64 presents settles and then never moves again:
+    over 192 presents its mean spreads by at most 0.42 (period 55), under the 0.5 a move and its
+    way back need with a hysteresis of 0.75, and its runs shown once are no longer than those
+    remembered, so no quick pause follows the first period. The time to settle is not bounded by
+    one history; the tests check their patterns have settled after 1000 presents and stay for
+    5000. Where it settles can depend on where it came from: 4, 1, 4, 1 at 4x (2.5) settles at 3
+    from the start and at 2 after a pause. Losing the front reaches the full limit after 16
+    presents shown once when no such run came in the last 1024 presents, and otherwise after one
+    more than the longest (the mean alone within 176 after steady fours). Generation back after a
+    long pause divides again within 48 presents when DLSS-G presents 4 a real frame (72 for 3,
+    144 for 2).
+  - A present that showed nothing (minimised, outdated) counts for none of these; a window change
+    holds the mode off for 1-3 frames, under the 8. Each change is one line, `DLSS-G: frame cap:
+    real frames at the full limit, was divided by 4 (menus: DLSS-G's mode off for 8 frames)`, and
+    the new limit one `Reflex options:` line.
+- **Reflex's options are set again after every swapchain** (#2732). On Vulkan Streamline's Reflex
+  hands the mode and the limit to the driver (`vkSetLatencySleepModeNV`) on the swapchain it
+  tracks at the call, does nothing (and answers `eOk`) while it tracks none, and a swapchain it
+  takes on later does not get them [documented: Streamline `vknvll2.cpp` `notifyCreateSwapchain`,
+  `setSleepMode`; `reflexEntry.cpp` `slSetData`, `slHookVkCreateSwapchainKHRAfter`]. Options set
+  before DLSS-G's swapchain (the start with frame generation on) were lost: real frames at 64-82 a
+  second under a limit of 36 [observed: a player's logs, #2732]. The vendored wgpu-hal counts the
+  swapchains it makes (`vulkan::swapchains_made`, moved on after `vkCreateSwapchainKHR` returns);
+  when the count moved since the options were set, they are set again, once, with the line
+  `DLSS-G: Reflex options set again for a new swapchain: … (swapchains made: N)`
+  (`frame_token.rs`; a change of the options says `Reflex options: … (swapchains made: N)`, and a
+  refused call, made again each frame, is said once while it repeats unchanged). This covers the
+  start, the live switch and a resize's reconfigure alike.
+- **The Generated frames row** says, in place of its note, when the limit divided by the choice
+  leaves fewer than 60 real frames a second ("4x at a limit of 144: 36 real frames a second, …"),
+  which a player found choppy where 2x (72) was fine [observed: #2731].
 
 ## Checks
 
 - Unit tests: the FFI layouts (`dlss/ffi.rs`), the merged requirements (`preflight.rs`), the
   frame numbers and PCL markers (`frame_token.rs`), the generate rule, options, window steps,
   state and ratio lines (`dlss/frame_gen.rs`), the Streamline latency calls (`nv_low_latency.rs`),
-  the Reflex frame limit (`frame_pace.rs`), the row's choices (`settings.rs`).
+  the Reflex frame limit (`frame_pace.rs`), the cap's divisor from series of presented counts
+  (`dlss/fg_cap.rs`), Reflex's options set again after a new swapchain (`dlss/frame_token.rs`),
+  the row's choices and its few-real-frames note (`settings.rs`).
 - Smoke (`tools/smoke/scenarios.toml`, `requires = ["NVF_DLSS_DIR"]`, `front = true`):
   `dlssg-on`, `dlssg-4x`, `dlssg-resize`, `dlssg-switch`, `dlssg-exit`, `dlssg-handoff-exit`,
   `dlssg-ui`.
+
+  `dlssg-on`, `dlssg-4x`, `dlssg-cap-menu`, `dlssg-cap-start`, `dlssg-resize`, `dlssg-switch`,
+  `dlssg-exit`, `dlssg-ui`. The scenarios measure with `--log-frame-times`, which leaves the
+  page's Frame rate limit row out, so the two `dlssg-cap-*` ones give the limit with the test aid
+  `--frame-cap 144`, in place from the start (before the window's swapchain).
+
 
 Measured on an RTX 5070 Ti, driver 610.88, 1280x720, Goodsprings [observed, fork-notes
 `fg-spike-results.md`]: 1.93 to 2.00 frames presented per real frame at 2x over DLSS Quality and

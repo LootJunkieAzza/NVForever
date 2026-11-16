@@ -591,6 +591,45 @@ fn automatic_fire_rate_and_regen() {
     assert_eq!(shots(&run(&mut c, &t, 10, 0.05, |k| k == 0, 0)), 1);
 }
 
+/// #2739: an NPC's semi-automatic gun is spaced by its attack clip in the actor's rig, as
+/// the player's: a 2.0 s clip without an `a:` key gives a shot every 2.0 s, not 1 ÷ Attack
+/// Shots/Sec (0.63 s for 1.5789); with an `a:` key (the sentry bot's `a:R` at 0.967 s),
+/// from that key. Without a clip, 1 ÷ Attack Shots/Sec as before. An automatic weapon
+/// keeps its Fire Rate, its clip left out. The NPC's timing has no wind-up (its clip
+/// starts with the shot).
+#[test]
+fn an_npcs_semi_automatic_gun_follows_its_attack_clip() {
+    let t = CombatTuning::default();
+    let launcher = WeaponStats { clip_size: 1, attack_shots_per_sec: 1.578_947_4, attack_mult: 1.0, anim_mult: 1.0, embedded: true, ..gun(20) };
+    let interval = |w: &WeaponStats, clips: &ClipTiming| Timing::of(w, &fnv_combat::attack::npc_clip_timing(clips, w.automatic), &t);
+    let clip = ClipTiming { attack_len: Some(2.0), hit_time: Some(0.067), reload_len: Some(1.5), ..ClipTiming::default() };
+    let timed = interval(&launcher, &clip);
+    assert!((timed.interval - 2.0).abs() < 1e-5, "{timed:?}");
+    assert_eq!((timed.fire_delay, timed.reload), (0.0, 1.5));
+    let keyed = interval(&launcher, &ClipTiming { next_attack: Some((0.967, NextAttack::Right)), ..clip });
+    assert!((keyed.interval - 0.967).abs() < 1e-5, "{keyed:?}");
+    let unknown = interval(&launcher, &ClipTiming::default());
+    assert!((unknown.interval - 1.0 / 1.578_947_4).abs() < 1e-5, "{unknown:?}");
+    // The cycle: a trigger pulled whenever it is ready fires every 2.0 s, not every 0.63 s.
+    let mut c = Cycle::new(&launcher, timed, true, 1);
+    let (dt, mut held, mut at, mut times) = (1.0 / 120.0, false, 0.0f32, Vec::new());
+    while at < 9.0 {
+        let trigger = !held;
+        held = trigger;
+        if c.step(&t, Input { trigger, reload: false, dt, carried: 0 }).iter().any(|e| matches!(e, Event::Fired { .. })) {
+            times.push(at);
+        }
+        at += dt;
+    }
+    let gaps: Vec<f32> = times.windows(2).map(|p| p[1] - p[0]).collect();
+    assert!(gaps.len() >= 3 && gaps.iter().all(|g| (g - 2.0).abs() < 0.03), "{gaps:?}");
+    // An automatic weapon: its Fire Rate, whatever its attack clip.
+    let minigun = WeaponStats { automatic: true, fire_rate: 15.0, clip_size: 255, attack_shots_per_sec: 15.0, ..gun(9) };
+    let auto = interval(&minigun, &ClipTiming { attack_len: Some(2.0), next_attack: Some((0.5, NextAttack::Right)), spin_up: Some(0.9), ..ClipTiming::default() });
+    assert!((auto.interval - 1.0 / 15.0).abs() < 1e-5 && auto.spin_up == 0.0, "{auto:?}");
+    assert_eq!(auto.interval, interval(&minigun, &ClipTiming::default()).interval);
+}
+
 /// A minigun: its attack clip puts the first shot 0.967 s in (`2hhattackspin.kf`).
 #[test]
 fn a_spinning_weapon_fires_after_its_spin_up() {
