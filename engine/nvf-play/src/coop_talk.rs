@@ -26,8 +26,13 @@
 //! - **The wait ends with the talk.** The world runs on behind a co-op conversation
 //!   (`crate::coop_tables::keeps_world`), so a talk this game has ends here when its
 //!   player is down, a loading screen comes, a fight finds its player or its actor, or the
-//!   two are [`WALKED_AWAY`] apart ([`talk_ends`]); its end is told at once (0), as a
-//!   goodbye's is. A player that left the session is forgotten at once, not after
+//!   two are [`WALKED_AWAY`] farther apart than when the talk began ([`talk_ends`]); its
+//!   end is told at once (0), as a goodbye's is. The start counts because a script's
+//!   actor may open a talk from afar: the Strip's Securitron messenger
+//!   (VMQTopsSecMessengerREF) starts Victor's welcome about 1200 units from the player
+//!   [observed: host log 2026-11-16], and its Goodbye lines put its own face back
+//!   (`SetSecuritronExpression ... police neutral`, INFO 0x0011CD1E/21/22/23) [observed:
+//!   fnvtool script decompile], so ending it at once left Victor's face on the robot. A player that left the session is forgotten at once, not after
 //!   [`STALE`].
 //!
 //! Outside a session nothing is sent and the set is empty: solo is unchanged.
@@ -64,12 +69,15 @@ pub struct TalkGuard {
     /// The actors the other players talk to, with the name of the player talking
     /// (the wait prompt names them, `crate::activate`).
     pub talkers: HashMap<u32, String>,
+    /// This player's conversation: its actor and how far apart the two were when it
+    /// began (the walked-away measure starts there).
+    began: Option<(FormId, f32)>,
 }
 
 impl Default for TalkGuard {
     fn default() -> Self {
         // `NVF_COOP_KILL_IN_TALK=0` starts with the setting off (the two-window check).
-        TalkGuard { players_may_kill: std::env::var("NVF_COOP_KILL_IN_TALK").map_or(true, |v| v != "0"), heard: HashMap::new(), told: (0, 0.0), talkers: HashMap::new() }
+        TalkGuard { players_may_kill: std::env::var("NVF_COOP_KILL_IN_TALK").map_or(true, |v| v != "0"), heard: HashMap::new(), told: (0, 0.0), talkers: HashMap::new(), began: None }
     }
 }
 
@@ -103,15 +111,15 @@ fn talking(own: u32, heard: &HashMap<u8, (u32, f32)>, now: f32) -> BTreeSet<Form
 
 /// Why this player's co-op conversation ends now, if it does (module notes): its player
 /// is down, a loading screen is up, a fight has its player or its actor, or the two are
-/// `apart` more than [`WALKED_AWAY`].
-pub fn talk_ends(down: bool, loading: bool, fought: bool, apart: Option<f32>) -> Option<&'static str> {
+/// `apart` more than [`WALKED_AWAY`] beyond the distance the talk `began` at.
+pub fn talk_ends(down: bool, loading: bool, fought: bool, apart: Option<f32>, began: f32) -> Option<&'static str> {
     if down {
         Some("this player is down")
     } else if loading {
         Some("a loading screen")
     } else if fought {
         Some("a fight")
-    } else if apart.is_some_and(|d| d > WALKED_AWAY) {
+    } else if apart.is_some_and(|d| d > began + WALKED_AWAY) {
         Some("walked away")
     } else {
         None
@@ -147,13 +155,20 @@ fn share(
         let fought = g.awareness.state(actor).in_combat()
             || g.awareness.actors.iter().any(|(r, a)| a.state == fnv_game::awareness::State::Combat && g.combat_target_of(*r) == Some(me));
         let apart = player.as_deref().zip(sim.as_deref().and_then(|s| s.world.peek(actor))).map(|(p, a)| (0..3).map(|i| (p.feet[i] - a.pos[i]).powi(2)).sum::<f32>().sqrt());
-        if let Some(why) = talk_ends(g.is_dead(me), loading.as_deref().is_some_and(|l| l.active()), fought, apart) {
+        if st.began.map(|(a, _)| a) != Some(actor) {
+            st.began = Some((actor, apart.unwrap_or(0.0)));
+        }
+        let began = st.began.map_or(0.0, |(_, d)| d);
+        if let Some(why) = talk_ends(g.is_dead(me), loading.as_deref().is_some_and(|l| l.active()), fought, apart, began) {
             if g.end_dialogue() {
                 info!("co-op talk: this player's conversation with {actor} ends: {why}");
             }
         }
     }
     let own = g.dialogue.as_ref().map_or(0, |c| c.actor.0);
+    if own == 0 {
+        st.began = None;
+    }
     if own != st.told.0 || (own != 0 && now - st.told.1 >= AGAIN) {
         tables.send(0, game::TALK, own.to_le_bytes().to_vec());
         st.told = (own, now);
@@ -193,12 +208,17 @@ mod tests {
     #[test]
     fn a_talk_ends_when_its_player_is_taken_from_it() {
         // Talking, near, no fight: it goes on (a goodbye ends it in fnv_game).
-        assert_eq!(talk_ends(false, false, false, Some(120.0)), None);
-        assert_eq!(talk_ends(false, false, false, None), None);
+        assert_eq!(talk_ends(false, false, false, Some(120.0), 0.0), None);
+        assert_eq!(talk_ends(false, false, false, None, 0.0), None);
         // Down, a loading screen, a fight, walked away.
-        assert_eq!(talk_ends(true, false, false, Some(120.0)), Some("this player is down"));
-        assert_eq!(talk_ends(false, true, false, Some(120.0)), Some("a loading screen"));
-        assert_eq!(talk_ends(false, false, true, Some(120.0)), Some("a fight"));
-        assert_eq!(talk_ends(false, false, false, Some(WALKED_AWAY + 1.0)), Some("walked away"));
+        assert_eq!(talk_ends(true, false, false, Some(120.0), 0.0), Some("this player is down"));
+        assert_eq!(talk_ends(false, true, false, Some(120.0), 0.0), Some("a loading screen"));
+        assert_eq!(talk_ends(false, false, true, Some(120.0), 0.0), Some("a fight"));
+        assert_eq!(talk_ends(false, false, false, Some(WALKED_AWAY + 1.0), 0.0), Some("walked away"));
+        // A talk a script's actor opens from afar (the Strip messenger, ~1200 units) goes
+        // on at that distance and ends only once the player is WALKED_AWAY farther off.
+        assert_eq!(talk_ends(false, false, false, Some(1196.0), 1196.0), None);
+        assert_eq!(talk_ends(false, false, false, Some(1196.0 + WALKED_AWAY - 1.0), 1196.0), None);
+        assert_eq!(talk_ends(false, false, false, Some(1196.0 + WALKED_AWAY + 1.0), 1196.0), Some("walked away"));
     }
 }
