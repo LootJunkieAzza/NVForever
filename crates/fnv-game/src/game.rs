@@ -1258,6 +1258,10 @@ pub struct Game<'a> {
     /// lasts for the session; SetEventHandlerAlt is flushed on every load].
     pub(crate) handlers: Vec<Handler>,
     handler_seq: u64,
+    /// Base forms whose activation NVForever plays itself (the darts and fillet mods'
+    /// boards, `nvf-play`'s `minigames`): the OnActivate handlers that name such a board
+    /// are not heard ([`Game::activation_heard`]) [design].
+    pub native_boards: BTreeSet<FormId>,
     /// JIP LN's SetOn…EventHandler and main-loop registrations (task J6); not saved.
     pub(crate) jip: crate::jip_events::JipEvents,
     /// The temporary inventory references foreach made this frame (task B5): container
@@ -2551,6 +2555,7 @@ impl<'a> Game<'a> {
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
+            native_boards: BTreeSet::new(),
             jip: Default::default(),
             debug_plugins: BTreeSet::new(),
             temp_refs: Vec::new(),
@@ -3806,11 +3811,16 @@ impl<'a> Game<'a> {
     /// [documented: DispatchEventAlt]. Returns how many ran. Free when nothing is
     /// registered, so a firing point costs nothing in an unmodded game.
     pub fn dispatch_event(&mut self, event: &str, args: Vec<fnv_script::vm::XVal>, on: Option<FormId>) -> usize {
+        self.dispatch_event_where(event, args, on, |_, _| true)
+    }
+
+    /// [`Game::dispatch_event`] for the handlers `keep` lets through.
+    fn dispatch_event_where(&mut self, event: &str, args: Vec<fnv_script::vm::XVal>, on: Option<FormId>, keep: impl Fn(&Game, &Handler) -> bool) -> usize {
         if self.handlers.is_empty() {
             return 0;
         }
         let lname = event.to_ascii_lowercase();
-        let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| h.event == lname && self.handler_matches(h, &args, on)).cloned().collect();
+        let mut hs: Vec<Handler> = self.handlers.iter().filter(|h| h.event == lname && self.handler_matches(h, &args, on) && keep(self, h)).cloned().collect();
         if hs.is_empty() {
             return 0;
         }
@@ -5600,8 +5610,27 @@ impl<'a> Game<'a> {
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target
     /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
     /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    ///
+    /// A board NVForever plays itself ([`Game::native_boards`]) is the exception: a
+    /// handler whose first filter names it is its own mod's way to open the mod's game,
+    /// which here would run beside NVForever's (the darts mod's opening stopped at a file
+    /// that needs a function NVForever does not have and printed "Camera.txt failed to
+    /// compile" on every throw of the owner's, 2026-11-15) [design]. Other handlers still
+    /// hear it.
     pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
-        self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+        let args = vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)];
+        let native = functions::base_of(self, target).is_some_and(|b| self.native_boards.contains(&b));
+        if !native {
+            self.dispatch_event("OnActivate", args, Some(target));
+            return;
+        }
+        let at = fnv_script::vm::XVal::Ref(target.0);
+        let names = |g: &Game, h: &Handler| h.filters.iter().any(|(i, f)| *i == 1 && g.filter_matches(f, &at, h.alt));
+        let quiet = self.handlers.iter().filter(|h| h.event == "onactivate" && names(self, h)).count();
+        if quiet > 0 {
+            self.emit(EventKind::Skipped { unit: "OnActivate".into(), what: format!("{target}: {quiet} handler(s) naming a board NVForever plays itself") });
+        }
+        self.dispatch_event_where("OnActivate", args, Some(target), |g, h| !names(g, h));
     }
 
     /// [`Game::activation_begins`] after the handlers: whether the activation goes on.

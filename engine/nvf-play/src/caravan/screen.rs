@@ -65,10 +65,26 @@ const INFO_Y: [f32; 3] = [40.0, 84.0, 128.0];
 const BUTTONS_RIGHT: f32 = 1664.0;
 /// The game's four buttons and Tips under them (item 163), 48 apart to leave the guide room.
 const PLAY_BUTTONS: [f32; 5] = [692.0, 740.0, 788.0, 836.0, 884.0];
-/// The guide's lines: as wide as the right-hand area, the last just above the buttons.
-const GUIDE_W: f32 = 860.0;
-const GUIDE_BOTTOM: f32 = 686.0;
+/// The guide's box (item 163): left of the buttons and the opponent's "thinking" line,
+/// under the hand and the deck, right of the player's third caravan with three face cards
+/// on its last card, down to the frame's foot. Its lines start at the top, in the menu's
+/// font while they fit, else in the help box's smaller one (owner 2026-11-15: a tie note
+/// over the buttons ran into the "thinking" line; 2026-11-16 frames: a tie note with a
+/// card's tip reached up over the hand) [design].
+const GUIDE_X: f32 = 1000.0;
+const GUIDE_TOP: f32 = 622.0;
+const GUIDE_FLOOR: f32 = 930.0;
+/// Between the box and the buttons or the "thinking" line.
+const GUIDE_GAP: f32 = 24.0;
+/// The narrowest the box gets, however wide the buttons' words.
+const GUIDE_MIN_W: f32 = 240.0;
 const GUIDE_STEP: f32 = 30.0;
+const GUIDE_BODY_STEP: f32 = 24.0;
+/// The opponent's "thinking" line, alone just above the first button.
+const THINK_TOP: f32 = PLAY_BUTTONS[0] - 36.0;
+const _: () = assert!(GUIDE_X >= PLAYER_X[2] + CARD.x / 2.0 + 3.0 * FACE_STEP.x, "the guide keeps right of the third caravan");
+const _: () = assert!(GUIDE_TOP >= PLAYER_DECK.1 + HAND_CARD.y + 8.0 && GUIDE_TOP >= PLAYER_HAND.1 + HAND_CARD.y + 8.0, "the guide starts under the deck and the hand");
+const _: () = assert!(THINK_TOP + 34.0 <= PLAY_BUTTONS[0], "the thinking line is clear of the first button");
 const BET_BUTTONS: [f32; 4] = [705.0, 756.0, 808.0, 858.0];
 const HINT_GAP: f32 = 16.0;
 /// The betting box: rows, titles' left, values' right, its bracket.
@@ -408,8 +424,8 @@ fn zones_for(pad: f32, cards: Option<usize>) -> Vec<(Vec2, Vec2)> {
 
 /// Where the game screen's words are during a game, as rectangles (min, max) in the frame
 /// (y down), with `pad` round each: the caravans' values and names, the top right counters
-/// (and the status line beside them), the guide's lines over the buttons (three lines at
-/// most for its usual tips) and the buttons [design: the layout above]. The pot's money
+/// (and the status line beside them), the guide's box left of the buttons, the "thinking"
+/// line over them and the buttons [design: the layout above]. The pot's money
 /// keeps out of them too, so no number or label lies on a cap (parity, 2026-11-12).
 pub fn text_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
     let rows_left = VALUE_X[0] - 70.0;
@@ -417,7 +433,8 @@ pub fn text_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
     let z = [
         (Vec2::new(rows_left, OPPONENT_ROW - 6.0), Vec2::new(rows_right, PLAYER_ROW + 38.0)),
         (Vec2::new(INFO_X.0 - 20.0, 0.0), Vec2::new(FRAME_W, INFO_Y[2] + 40.0)),
-        (Vec2::new(BUTTONS_RIGHT - GUIDE_W, GUIDE_BOTTOM - 30.0 - 2.0 * GUIDE_STEP), Vec2::new(FRAME_W, GUIDE_BOTTOM + 4.0)),
+        (Vec2::new(GUIDE_X, GUIDE_TOP), Vec2::new(BUTTONS_RIGHT - 240.0, GUIDE_FLOOR)),
+        (Vec2::new(BUTTONS_RIGHT - 380.0, THINK_TOP), Vec2::new(FRAME_W, PLAY_BUTTONS[0])),
         (Vec2::new(BUTTONS_RIGHT - 380.0, PLAY_BUTTONS[0] - 10.0), Vec2::new(FRAME_W, PLAY_BUTTONS[4] + 44.0)),
     ];
     z.into_iter().map(|(a, b)| (a - Vec2::splat(pad), b + Vec2::splat(pad))).collect()
@@ -620,34 +637,35 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
         c.text_in(p, FontKind::Menu, title, INFO_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, value, INFO_X.1, y, true, b);
     }
-    if g.phase != Phase::Over && !mine && s.help.is_none() {
-        let thinking = format!("{} is thinking…", s.opponent_name);
-        let w = c.text_width(FontKind::Menu, &thinking);
-        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, GUIDE_BOTTOM - 28.0, w, 32.0);
-        c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, GUIDE_BOTTOM - 30.0, true, amber(180.0));
-    }
+    let thinking_line = format!("{} is thinking…", s.opponent_name);
+    let thinking = g.phase != Phase::Over && !mine && s.help.is_none();
     let all = s.buttons();
     let rows: Vec<(&str, &str, f32)> = all.iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (*l, k.as_str(), t)).collect();
     buttons_backdrop(p, c, &rows);
+    let labels = rows.iter().map(|r| c.text_width(FontKind::Menu, r.0)).fold(0.0, f32::max);
     for ((label, key, cmd, on), top) in all.into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
     }
-    // The guide (item 163) in the message area, in place of the short messages; with the
-    // guide off, or nothing to say, the game's own line.
+    // The guide (item 163) in its box, in place of the short messages; with the guide
+    // off, or nothing to say, the game's own line. The box is as wide whoever's turn it is.
     let guide = if s.forfeit_armed { String::new() } else { s.guide() };
-    if guide.is_empty() {
-        status(p, c, s, GUIDE_BOTTOM - 30.0);
-    } else {
-        guide_lines(p, c, &guide);
+    let text = if guide.is_empty() { s.status.clone().unwrap_or_default() } else { guide };
+    let width = guide_width(labels, c.text_width(FontKind::Menu, &thinking_line));
+    let set = guide_set(&|k, t| c.text_width(k, t), &text, width);
+    guide_lines(p, c, &set);
+    if thinking {
+        let w = c.text_width(FontKind::Menu, &thinking_line);
+        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, THINK_TOP + 2.0, w, 32.0);
+        c.text_in(p, FontKind::Menu, &thinking_line, BUTTONS_RIGHT, THINK_TOP, true, amber(180.0));
     }
 }
 
-/// A text broken into lines of at most `width` (whole words).
-fn wrap_words(c: &Ctx, text: &str, width: f32) -> Vec<String> {
+/// A text broken into lines of at most `width` (whole words) in a font.
+fn wrap_words(width_of: &dyn Fn(FontKind, &str) -> f32, kind: FontKind, text: &str, width: f32) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {
-            Some(l) if c.text_width(FontKind::Menu, &format!("{l} {word}")) <= width => {
+            Some(l) if width_of(kind, &format!("{l} {word}")) <= width => {
                 l.push(' ');
                 l.push_str(word);
             }
@@ -657,15 +675,51 @@ fn wrap_words(c: &Ctx, text: &str, width: f32) -> Vec<String> {
     lines
 }
 
-/// The guide's lines, right-aligned over the buttons, the last at [`GUIDE_BOTTOM`].
-fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, text: &str) {
-    let lines = wrap_words(c, text, GUIDE_W);
-    let n = lines.len() as f32;
-    let top = GUIDE_BOTTOM - 30.0 - GUIDE_STEP * (n - 1.0);
-    let w = lines.iter().map(|l| c.text_width(FontKind::Menu, l)).fold(0.0, f32::max);
-    crate::casino_hud::glass(p, BUTTONS_RIGHT - w, top + 2.0, w, GUIDE_STEP * (n - 1.0) + 32.0);
-    for (i, l) in lines.iter().enumerate() {
-        c.text_in(p, FontKind::Menu, l, BUTTONS_RIGHT, top + GUIDE_STEP * i as f32, true, amber(255.0));
+/// The guide's lines as they are set: the font, the lines apart, the lines.
+#[derive(Debug)]
+struct GuideSet {
+    kind: FontKind,
+    step: f32,
+    lines: Vec<String>,
+}
+
+impl GuideSet {
+    /// The last line's foot.
+    fn bottom(&self) -> f32 {
+        GUIDE_TOP + self.step * self.lines.len() as f32
+    }
+}
+
+/// The guide box's width: from [`GUIDE_X`] to the buttons' words (`labels` their widest)
+/// or the "thinking" line (`thinking` wide), whichever reaches further left.
+fn guide_width(labels: f32, thinking: f32) -> f32 {
+    let buttons_left = BUTTONS_RIGHT - HINT_GAP - 34.0 - labels;
+    let thinking_left = BUTTONS_RIGHT - thinking;
+    (buttons_left.min(thinking_left) - GUIDE_GAP - GUIDE_X).max(GUIDE_MIN_W)
+}
+
+/// The guide's `text` wrapped at `width`: in the menu's font while it fits the box, else
+/// in the help box's.
+fn guide_set(width_of: &dyn Fn(FontKind, &str) -> f32, text: &str, width: f32) -> GuideSet {
+    let menu = GuideSet { kind: FontKind::Menu, step: GUIDE_STEP, lines: wrap_words(width_of, FontKind::Menu, text, width) };
+    if menu.bottom() <= GUIDE_FLOOR {
+        return menu;
+    }
+    GuideSet { kind: FontKind::Body, step: GUIDE_BODY_STEP, lines: wrap_words(width_of, FontKind::Body, text, width) }
+}
+
+/// The guide's lines in its box, from the top.
+fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, set: &GuideSet) {
+    if set.lines.is_empty() {
+        return;
+    }
+    if set.bottom() > GUIDE_FLOOR + 1.0 {
+        warn!("caravan guide: {} lines reach {:.0}, past the box's floor at {GUIDE_FLOOR:.0}", set.lines.len(), set.bottom());
+    }
+    let w = set.lines.iter().map(|l| c.text_width(set.kind, l)).fold(0.0, f32::max);
+    crate::casino_hud::glass(p, GUIDE_X, GUIDE_TOP + 2.0, w, set.step * set.lines.len() as f32 + 2.0);
+    for (i, l) in set.lines.iter().enumerate() {
+        c.text_in(p, set.kind, l, GUIDE_X, GUIDE_TOP + set.step * i as f32, false, amber(255.0));
     }
 }
 
@@ -736,5 +790,32 @@ mod value_colour_tests {
         assert_eq!(value_colour(26, b), SOLD);
         assert_eq!(value_colour(27, b), OVER);
         assert_eq!(value_colour(0, b), b);
+    }
+
+    /// Owner 2026-11-15: the tie note ran into the opponent's "thinking" line; the
+    /// 2026-11-16 frames: with a card's tip it reached up over the hand. The guide's box,
+    /// left of the buttons and the thinking line, holds the longest notes.
+    #[test]
+    fn the_guide_box_holds_the_tie_notes_clear_of_the_buttons_and_the_thinking_line() {
+        let width = |k: FontKind, t: &str| t.chars().count() as f32 * if k == FontKind::Body { 10.5 } else { 13.0 };
+        let thinking = width(FontKind::Menu, "Benny is thinking…");
+        let labels = width(FontKind::Menu, "Discard Track");
+        let w = guide_width(labels, thinking);
+        assert!(GUIDE_X + w + GUIDE_GAP <= BUTTONS_RIGHT - thinking, "left of the thinking line");
+        assert!(GUIDE_X + w + GUIDE_GAP <= BUTTONS_RIGHT - HINT_GAP - 34.0 - labels, "left of the buttons");
+        let note = "NEW RENO and REDDING are tied at 24: a tie sells neither until one is higher. The game ends when all three are sold.";
+        let tip = "8: adds 8 to one of your caravans. It must keep the caravan's direction or match its suit, and can't repeat its last value.";
+        let two = "NEW RENO and REDDING are tied at 24; THE HUB and SHADY SANDS are tied at 22: a tie sells neither until one is higher. The game ends when all three are sold.";
+        for text in [note.to_string(), format!("{note} {tip}"), format!("{two} {tip}")] {
+            let set = guide_set(&width, &text, w);
+            assert!(set.bottom() <= GUIDE_FLOOR, "{:?} within the box", set.lines);
+            assert!(set.lines.iter().all(|l| width(set.kind, l) <= w), "{:?}", set.lines);
+        }
+        assert_eq!(guide_set(&width, note, w).kind, FontKind::Menu);
+        // The game-over line.
+        assert_eq!(guide_set(&width, "Your opponent sold two of three caravans. You lose 54 caps.", w).lines.len(), 2);
+        // Wide buttons' words: the box keeps its least width.
+        assert_eq!(guide_width(2000.0, thinking), GUIDE_MIN_W);
+        assert!(guide_set(&width, "", w).lines.is_empty());
     }
 }

@@ -39,7 +39,9 @@
 //! (as ShowCaravanMenu on that actor), `match`, `raise`, `accept`, `add`, `remove`,
 //! `randomize`, `play`, `auto` (the player's side plays by the opponent's rules from then
 //! on, help boxes close by themselves and the results go on after [`AUTO_RESULTS`]),
-//! `forfeit`, `help` (closes the help box), `continue`, `exit`. At exit, when the menu was asked for: "caravan
+//! `forfeit`, `help` (closes the help box), `continue`, `exit`, `tie:<value>` (the second
+//! track's caravans, NEW RENO and REDDING, rebuilt from each side's own deck to that value,
+//! the owner's tie of 2026-11-15; test only). At exit, when the menu was asked for: "caravan
 //! summary: …".
 
 pub mod guide;
@@ -439,6 +441,7 @@ enum AidStep {
     Open(CaravanRequest),
     Auto,
     Input(CaravanInput),
+    Tie(u32),
 }
 
 fn hex(s: &str) -> Option<u32> {
@@ -451,7 +454,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
         .map(|(t, what)| {
             let (op, arg) = what.split_once(':').unwrap_or((what, ""));
             let parts: Vec<&str> = arg.split(':').collect();
-            let bad = || format!("{what:?}: expected seed:<n>, caps:<n>, cards:<deck>, open:<actor>:<deck>[:<share>], match, raise, accept, add, remove, randomize, play, auto, forfeit, help, continue or exit");
+            let bad = || format!("{what:?}: expected seed:<n>, caps:<n>, cards:<deck>, open:<actor>:<deck>[:<share>], match, raise, accept, add, remove, randomize, play, auto, forfeit, help, continue, exit or tie:<value>");
             let num = |s: Option<&&str>| s.and_then(|s| s.trim().parse::<i64>().ok()).ok_or_else(bad);
             let step = match op {
                 "seed" => AidStep::Seed(num(parts.first())? as u64),
@@ -475,6 +478,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "help" => AidStep::Input(CaravanInput::CloseHelp),
                 "continue" => AidStep::Input(CaravanInput::Continue),
                 "exit" => AidStep::Input(CaravanInput::Exit),
+                "tie" => AidStep::Tie(num(parts.first())?.clamp(1, 40) as u32),
                 _ => return Err(bad()),
             };
             Ok((t, step))
@@ -569,8 +573,62 @@ fn run_aid(time: AidTime, mut aid: ResMut<CaravanAid>, mut open: MessageWriter<O
             AidStep::Input(i) => {
                 input.write(i);
             }
+            AidStep::Tie(value) => {
+                let Some(g) = screen.0.as_mut().and_then(|s| s.game.as_mut()) else {
+                    warn!("caravan: test aid tie: no game on the table");
+                    continue;
+                };
+                let done = [PLAYER, OPPONENT].map(|side| tie_track(g, side, TIE_TRACK, value));
+                if done.iter().all(|&d| d) {
+                    info!("caravan: test aid: {} and {} set to {value}", guide::track_name(PLAYER, TIE_TRACK), guide::track_name(OPPONENT, TIE_TRACK));
+                } else {
+                    warn!("caravan: test aid tie: no cards in the decks make {value} (player {}, opponent {})", done[0], done[1]);
+                }
+            }
         }
     }
+}
+
+/// The track the `tie` aid step sets: NEW RENO against REDDING, as in the owner's frame.
+const TIE_TRACK: usize = 1;
+
+/// Test aid: `side`'s caravan on `track` rebuilt from two to four number cards of its own
+/// deck adding up to `value`; the caravan's old cards go to the bottom of the deck. False
+/// (nothing changed) when no such cards are left.
+fn tie_track(g: &mut Game, side: usize, track: usize, value: u32) -> bool {
+    let s = &mut g.sides[side];
+    let numbers: Vec<usize> = (0..s.deck.len()).filter(|&i| s.deck[i].rank.number().is_some()).collect();
+    let worth = |i: usize| s.deck[i].rank.number().unwrap_or(0);
+    let mut pick: Option<Vec<usize>> = None;
+    'search: for n in 2..=4usize {
+        let mut at: Vec<usize> = (0..n).collect();
+        while numbers.len() >= n {
+            if at.iter().map(|&k| worth(numbers[k])).sum::<u32>() == value {
+                pick = Some(at.iter().map(|&k| numbers[k]).collect());
+                break 'search;
+            }
+            // The next combination of `n` of the number cards, in order.
+            let Some(j) = (0..n).rev().find(|&j| at[j] < numbers.len() - n + j) else { break };
+            at[j] += 1;
+            let base = at[j];
+            for (o, a) in at[j + 1..].iter_mut().enumerate() {
+                *a = base + 1 + o;
+            }
+        }
+    }
+    let Some(mut pick) = pick else { return false };
+    pick.sort_unstable_by(|a, b| b.cmp(a));
+    let mut cards: Vec<Card> = pick.iter().map(|&i| s.deck.remove(i)).collect();
+    cards.reverse();
+    let old = std::mem::take(&mut s.caravans[track].cards);
+    for p in old {
+        s.deck.insert(0, p.card);
+        for f in p.faces {
+            s.deck.insert(0, f);
+        }
+    }
+    s.caravans[track].cards = cards.into_iter().map(|card| rules::Placed { card, faces: Vec::new() }).collect();
+    true
 }
 
 /// The games scripts asked for (ShowCaravanMenu), opened while playing (after the
@@ -1756,6 +1814,24 @@ mod tests {
         assert_eq!((p.change, p.short), (100 - 12, 0));
         // More than the purse holds.
         assert_eq!(pay_plan(&Purse { caps: 3, notes: vec![] }, 5).short, 2);
+    }
+
+    #[test]
+    fn the_tie_aid_builds_both_caravans_to_the_value_from_their_own_decks() {
+        use fnv_game::caravan::{Rank, Suit};
+        let deck = |base: u32| (0..30u32).map(|i| Card::new(FormId(base + i), Suit::Hearts, Rank::Num((i % 10 + 1) as u8))).collect::<Vec<_>>();
+        let mut g = Game::new(deck(0x100), deck(0x200), &mut ChaCha8Rng::seed_from_u64(7));
+        g.phase = Phase::War;
+        let before: usize = g.sides.iter().map(|s| s.deck.len()).sum();
+        assert!(tie_track(&mut g, PLAYER, TIE_TRACK, 24) && tie_track(&mut g, OPPONENT, TIE_TRACK, 24));
+        assert_eq!((g.sides[PLAYER].caravans[TIE_TRACK].value(), g.sides[OPPONENT].caravans[TIE_TRACK].value()), (24, 24));
+        assert!(g.sides[PLAYER].caravans[TIE_TRACK].cards.iter().all(|p| p.card.form.0 / 0x100 == 1), "the player's own cards");
+        assert!(guide::tie_note(&g).is_some_and(|n| n.starts_with("NEW RENO and REDDING are tied at 24")));
+        let after: usize = g.sides.iter().map(|s| s.deck.len() + s.caravans[TIE_TRACK].cards.len()).sum();
+        assert_eq!(after, before, "no card made or lost");
+        // Nothing adds up to it: nothing changes.
+        assert!(!tie_track(&mut g, PLAYER, TIE_TRACK, 41));
+        assert_eq!(parse_aid("30:tie:24").unwrap()[0].1, AidStep::Tie(24));
     }
 
     #[test]

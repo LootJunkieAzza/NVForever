@@ -16,7 +16,7 @@ use fnv_game::caravan::{Caravan, Card, Dir, Game, Move, Phase, Rank, Suit, OPPON
 const PLAYER_NAMES: [&str; 3] = ["DAYGLOW", "NEW RENO", "THE HUB"];
 const OPPONENT_NAMES: [&str; 3] = ["BONEYARD", "REDDING", "SHADY SANDS"];
 
-fn track_name(side: usize, track: usize) -> &'static str {
+pub(crate) fn track_name(side: usize, track: usize) -> &'static str {
     let names = if side == OPPONENT { OPPONENT_NAMES } else { PLAYER_NAMES };
     names.get(track).copied().unwrap_or("the caravan")
 }

@@ -209,3 +209,23 @@ fn the_extender_hears_the_players_own_activation_once() {
     assert!(activations(&g, GUN_NOW).is_empty());
     assert_eq!(g.radio_switches(GUN_NOW), 0);
 }
+
+/// Owner 2026-11-15: a board NVForever plays itself (`Game::native_boards`, the darts mod's)
+/// is not heard by the handlers that name it, its mod's way to open the mod's own game;
+/// a handler that names nothing still hears it, and other activators are heard as before.
+#[test]
+fn a_board_nvforever_plays_is_not_heard_by_handlers_naming_it() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.run_source("SetEventHandler \"OnActivate\" (begin function {ref rTarget, ref rActor}\nset TestGlobal to TestGlobal + 100\nend) \"first\"::TrapTripwire01", Default::default()).expect("compiles");
+    g.run_source("SetEventHandler \"OnActivate\" (begin function {ref rTarget, ref rActor}\nset TestGlobal to TestGlobal + 1\nend)", Default::default()).expect("compiles");
+    let heard = |g: &Game| g.world.global(FormId(GLOBAL)).unwrap();
+    g.activate(P, WIRE_REF, ActMode::Hand).unwrap();
+    assert_eq!(heard(&g), 101.0, "both handlers before the board is NVForever's");
+    g.native_boards.insert(FormId(WIRE));
+    g.activate(P, WIRE_REF, ActMode::Hand).unwrap();
+    assert_eq!(heard(&g), 102.0, "only the handler that names nothing");
+    assert!(g.events.iter().any(|e| matches!(&e.kind, EventKind::Skipped { unit, what } if unit == "OnActivate" && what.contains("1 handler"))));
+    g.activate(P, GUN_NOW, ActMode::Hand).unwrap();
+    assert_eq!(heard(&g), 103.0, "another activator: the unnamed handler alone, as before");
+}
