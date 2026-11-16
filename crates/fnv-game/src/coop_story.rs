@@ -187,7 +187,8 @@ impl CoopStory {
 impl Game<'_> {
     /// Whether a script call in `ctx` on the player counts as the host's story (module notes).
     pub fn story_counts(&self, ctx: &crate::functions::Ctx) -> bool {
-        self.coop_guest && (self.coop_story.console_counts || &*ctx.unit != "console")
+        // A guest's own purchase is its own (`Game::guest_service`).
+        self.coop_guest && self.guest_service == 0 && (self.coop_story.console_counts || &*ctx.unit != "console")
     }
 }
 

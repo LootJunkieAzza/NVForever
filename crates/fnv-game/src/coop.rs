@@ -101,7 +101,8 @@ const SHOW_BARTER_MENU: u16 = 0x1173;
 const SHOW_CARAVAN_MENU: u16 = 0x125A;
 /// The services a guest may also buy, as a companion's player would (owner, item 130
 /// Q1): repair (ShowRepairMenu), crafting at a vendor (ShowRecipeMenu) and a doctor's
-/// healing (ResetHealth) [observed: `schemas/script/functions.json` opcodes].
+/// healing (ResetHealth) [observed: `schemas/script/functions.json` opcodes]; the masters'
+/// doctors' own lines are found apart (`crate::coop_services`).
 /// Random encounters every player sets off in co-op, not only the host (owner, item 131:
 /// the first few, then "add all" 2026-11-09). In their scripts the player is any player
 /// [design]:
@@ -200,13 +201,15 @@ fn only_takes_leave(data: &GameData, d: &InfoDef) -> bool {
 /// [`Game::guest_lines`]: the lines that trade, deal Caravan or exchange a casino's
 /// chips, then, until nothing more is added, the lines whose choices (TCLT) offer a topic
 /// with such a line.
-fn guest_lines(data: &GameData) -> BTreeSet<FormId> {
+fn guest_lines(data: &GameData, doctors: &BTreeSet<FormId>) -> BTreeSet<FormId> {
     let calls = |u: crate::data::UnitId| {
         let mut n = BTreeMap::new();
         crate::intro::calls(&data.unit(u).program, &mut n);
         [SHOW_BARTER_MENU, SHOW_CARAVAN_MENU, SHOW_REPAIR_MENU, SHOW_RECIPE_MENU, RESET_HEALTH].iter().any(|o| n.contains_key(o)) || exchanges_chips(data, data.unit(u))
     };
     let mut out: BTreeSet<FormId> = data.infos.iter().filter(|(_, d)| d.begin.into_iter().chain(d.end).any(calls)).map(|(i, _)| *i).collect();
+    // A doctor's services (`crate::coop_services`).
+    out.extend(doctors.iter().copied());
     loop {
         let topics: BTreeSet<FormId> = out.iter().filter_map(|i| data.infos.get(i)?.topic).collect();
         let more: Vec<FormId> = data.infos.iter().filter(|(i, d)| !out.contains(i) && d.choices.iter().any(|t| topics.contains(t))).map(|(i, _)| *i).collect();
@@ -523,7 +526,7 @@ impl Game<'_> {
     /// a guest trades, plays and buys or cashes in chips, and leaves the quests to the
     /// host; owner 2026-11-05: the cashiers, nothing more].
     pub fn guest_lines(&self) -> &BTreeSet<FormId> {
-        self.guest_lines.get_or_init(|| guest_lines(self.data))
+        self.guest_lines.get_or_init(|| guest_lines(self.data, &self.coop_services().lines))
     }
 
     /// A guest: `actor` is a target of the host's active quest's open objectives, so the

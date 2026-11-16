@@ -22,7 +22,7 @@
 
 use crate::cond::{Operand, RunOn};
 use crate::data::{info_flag, InfoDef};
-use crate::game::{Game, LineKind, LineLook, RunCtx, Speech};
+use crate::game::{Game, LineKind, LineLook, Speech};
 use crate::trace::EventKind;
 use fnv_sim::{clock, FormId};
 use rand_core::RngCore;
@@ -752,7 +752,7 @@ impl<'a> Game<'a> {
                 self.dialogue_transition();
             }
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
-            self.run_result(u, RunCtx { self_ref: Some(actor), action_ref: None, quest: def.quest });
+            self.run_info_result(actor, u, def.quest);
         }
     }
 

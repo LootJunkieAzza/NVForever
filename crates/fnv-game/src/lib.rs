@@ -63,6 +63,7 @@ pub mod coop;
 pub mod coop_perks;
 pub mod coop_story;
 pub mod coop_rewards;
+pub mod coop_services;
 pub mod player_voice;
 pub mod cond;
 pub mod coverage;
