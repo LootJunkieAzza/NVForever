@@ -20,11 +20,11 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [GetIgnoreFriendlyHits](https://geckwiki.com/index.php?title=GetIgnoreFriendlyHits) | 0x1152 obs | 1 / 1 |  |  | int | Returns 1 if the actor is set to ignore friendly hits, else 0. |
 | ref.[GetIsAlerted](https://geckwiki.com/index.php?title=GetIsAlerted) | 0x105B obs | 2 / 1 | 21 |  | int | Returns 1 when the actor is in its alerted state; that state only drives animation and leaves real combat status untouched. |
 | ref.[GetIsCurrentPackage](https://geckwiki.com/index.php?title=GetIsCurrentPackage) | 0x10A1 obs | 29 / 19 | 5 | AIPackage:form | boolean | Returns 1 if the calling actor is currently running the given AI package, else 0. |
-| ref.[GetPackageTarget](https://geckwiki.com/index.php?title=GetPackageTarget) | 0x10E9 doc |  |  |  | ref | Returns the reference that is the calling actor's current AI package target, if any. |
+| ref.[GetPackageTarget](https://geckwiki.com/index.php?title=GetPackageTarget) |  |  |  |  | ref | Returns the reference that is the calling actor's current AI package target, if any. |
 | ref.[GetRestrained](https://geckwiki.com/index.php?title=GetRestrained) | 0x10F4 obs | 5 / 5 | 2 |  | int | Returns 1 if the actor was set restrained with the matching setter, else 0. |
 | ref.[IsActorsAIOff](https://geckwiki.com/index.php?title=IsActorsAIOff) |  |  |  |  | int | Returns 1 when AI has been switched off for the caller, else 0. |
 | ref.[IsContinuingPackagePCNear](https://geckwiki.com/index.php?title=IsContinuingPackagePCNear) | 0x1096 xe |  |  |  | int | Returns 1 if the calling actor wants a new package but is held on its current one because that package continues while the player is near. |
-| ref.[Look](https://geckwiki.com/index.php?title=Look) | 0x105C obs | 159 / 30 |  | :unknown, Target:reference, rotateBody?:int | void | Makes the calling actor keep its head turned toward a target reference, optionally turning the whole body as well. |
+| ref.[Look](https://geckwiki.com/index.php?title=Look) | 0x105C obs | 159 / 30 |  | Target:reference, rotateBody?:int | void | Makes the calling actor keep its head turned toward a target reference, optionally turning the whole body as well. |
 | ref.[RemoveScriptPackage](https://geckwiki.com/index.php?title=RemoveScriptPackage) | 0x1098 obs | 185 / 100 |  |  | void | Removes the script package currently running on the calling actor, so it picks a new package; needed only for packages added to run indefinitely. |
 | ref.[ResetAI](https://geckwiki.com/index.php?title=ResetAI) | 0x11FA obs | 711 / 336 |  |  |  | Wipes all of an actor's current AI behaviours, after which combat, pathing and packages are evaluated afresh. |
 | ref.[SetActorsAI](https://geckwiki.com/index.php?title=SetActorsAI) | 0x118B obs | 3 / 3 |  | processAI:int |  | Turns an actor's processing off (0) or on (any other integer); scripts still run but packages, detection, Havok and animation do not process. |
@@ -38,11 +38,11 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[StopCombat](https://geckwiki.com/index.php?title=StopCombat) | 0x1017 obs | 282 / 90 |  |  |  | Ends the calling actor's combat state so it stops fighting. |
 | ref.[StopCombatAlarmOnActor](https://geckwiki.com/index.php?title=StopCombatAlarmOnActor) (SCAOnActor) | 0x1101 obs | 97 / 33 |  |  |  | Clears the fighting flag on every enemy targeting the calling actor, returning them to normal routines. |
 | ref.[StopLook](https://geckwiki.com/index.php?title=StopLook) | 0x105D obs | 242 / 16 |  |  | void | Cancels forced head tracking set by Look so the actor goes back to normal head tracking. |
-| ref.[StopWaiting](https://geckwiki.com/index.php?title=StopWaiting) |  |  |  | PackageID:unknown |  | Returns an actor to normal package behaviour after it was put into the wait state by Wait. |
+| ref.[StopWaiting](https://geckwiki.com/index.php?title=StopWaiting) | 0x10B8 obs |  |  | PackageID:unknown |  | Returns an actor to normal package behaviour after it was put into the wait state by Wait. |
 | ref.[ToggleActorsAI](https://geckwiki.com/index.php?title=ToggleActorsAI) |  |  |  |  |  | Toggles the calling actor's AI on and off. |
 | [ToggleDetection](https://geckwiki.com/index.php?title=ToggleDetection) (TDetect) |  |  |  |  | void | Toggles whether actors are able to detect each other. |
 | ref.[UseWeapon](https://geckwiki.com/index.php?title=UseWeapon_(Function)) | 0x119C obs | 13 / 13 |  | weapontoUse:form, whereToStand:reference, target:reference, numberOfShots:int, crouchToReload?:int, holdFire?:int, alwaysHit?:int, doNoDamage?:int, targetShouldBeHere?:int |  | Makes the calling actor use a weapon from a given spot against a target for a number of shots, with optional behaviour flags. |
-| ref.[Wait](https://geckwiki.com/index.php?title=Wait) |  |  |  | PackageID:unknown |  | Puts an actor into wait behaviour for a given package. |
+| ref.[Wait](https://geckwiki.com/index.php?title=Wait) | 0x10B7 obs |  |  | PackageID:unknown |  | Puts an actor into wait behaviour for a given package. |
 
 ## Actor Functions
 
@@ -52,7 +52,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[AddSpell](https://geckwiki.com/index.php?title=AddSpell) | 0x101C obs | 40 / 23 |  | spellEffect:form | void | Gives the calling actor an actor effect (spell, ability or addiction in vanilla) that applies immediately. |
 | ref.[AgeRace](https://geckwiki.com/index.php?title=AgeRace) | 0x11E4 obs | 2 / 1 |  | AgeValue:int | void | Moves the calling actor up or down a number of age steps within its race chain, swapping it to the older or younger linked race. |
 | ref.[AlwaysShowActorSubtitles](https://geckwiki.com/index.php?title=AlwaysShowActorSubtitles) | 0x1277 obs | 16 / 3 |  | Toggle:int | void | Toggles whether the calling actor's dialogue subtitles are always displayed (0 off, 1 on). |
-| [ClearActorsFactionsPlayerEnemyFlag](https://geckwiki.com/index.php?title=ClearActorsFactionsPlayerEnemyFlag) |  |  |  | ActorRefID:reference | void | Clears the player-enemy crime flag on every crime-tracking faction of the given actor. |
+| [ClearActorsFactionsPlayerEnemyFlag](https://geckwiki.com/index.php?title=ClearActorsFactionsPlayerEnemyFlag) | 0x11CA obs |  |  | ActorRefID:reference | void | Clears the player-enemy crime flag on every crime-tracking faction of the given actor. |
 | ref.[Drop](https://geckwiki.com/index.php?title=Drop) | 0x1057 obs | 4 / 4 |  | ObjectID:reference, Count:int | void | Makes the calling actor drop a given count of an item at its feet. |
 | [DropMe](https://geckwiki.com/index.php?title=DropMe) | 0x10A6 obs | 58 / 6 |  |  |  | Drops the calling item out of the container it sits in; has no effect if it is not in a container. |
 | ref.[DuplicateAllItems](https://geckwiki.com/index.php?title=DuplicateAllItems) |  |  |  | TargetContainerRefID:reference | void | Copies all items from the calling actor or container into a target container. |
@@ -103,15 +103,15 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[IsSwimming](https://geckwiki.com/index.php?title=IsSwimming) | 0x10B9 xe |  | 7 |  | int | Yields 1 when the calling actor is swimming, otherwise 0. |
 | ref.[KillActor](https://geckwiki.com/index.php?title=KillActor) (Kill) | 0x108B obs | 597 / 204 |  | Killer:reference, DismemberLimb:int, CauseOfDeath:int |  | Kills the calling actor, with optional arguments naming the killer, which body part to dismember, and how death is categorised. |
 | [KillAllActors](https://geckwiki.com/index.php?title=KillAllActors) (KillAll) |  |  |  | Killer:reference |  | Kills every actor in the loaded area: the grid of cells around the player in an exterior, or the player's current cell in an interior; optional killer argument. |
-| ref.[MatchFaceGeometry](https://geckwiki.com/index.php?title=MatchFaceGeometry) |  |  |  | sourceNPC:reference, matchPercent:float |  | Morphs the calling actor's face geometry toward a source actor's face by a percentage from 0 to 100. |
-| ref.[MatchRace](https://geckwiki.com/index.php?title=MatchRace) |  |  |  | ActorRefID:reference |  | Changes the calling actor's race to the race currently held by another actor. |
+| ref.[MatchFaceGeometry](https://geckwiki.com/index.php?title=MatchFaceGeometry) | 0x11DF obs |  |  | sourceNPC:reference, matchPercent:float |  | Morphs the calling actor's face geometry toward a source actor's face by a percentage from 0 to 100. |
+| ref.[MatchRace](https://geckwiki.com/index.php?title=MatchRace) | 0x11E5 obs |  |  | ActorRefID:reference |  | Changes the calling actor's race to the race currently held by another actor. |
 | ref.[MFG](https://geckwiki.com/index.php?title=ModifyFaceGen) |  |  |  | EmotionType:string, EmotionID:int, EmotionIntensity:int | void | Applies facial expression, phoneme or modifier morphs to the calling character; takes a type, an ID and an intensity. |
-| ref.[ModDisposition](https://geckwiki.com/index.php?title=ModDisposition) |  |  |  | actor:reference, dispositionChange:float |  | Changes the calling actor's disposition toward the specified actor by the given amount. |
+| ref.[ModDisposition](https://geckwiki.com/index.php?title=ModDisposition) | 0x1053 obs |  |  | actor:reference, dispositionChange:float |  | Changes the calling actor's disposition toward the specified actor by the given amount. |
 | [PlayerInRegion](https://geckwiki.com/index.php?title=PlayerInRegion) | 0x1264 xe |  | 74 | :form | int | Condition function returning 1 if the player is in the given region, otherwise 0. |
 | ref.[PlayGroup](https://geckwiki.com/index.php?title=PlayGroup) | 0x1013 obs | 864 / 225 |  | AnimGroup:string, InitFlag:int |  | Plays a named animation group on the calling reference, with an init flag controlling how the transition starts. |
 | ref.[RemoveAllItems](https://geckwiki.com/index.php?title=RemoveAllItems) | 0x10AD obs | 59 / 31 |  | targetContainer:reference, retainOwnershipFlag:int, hideMessages:int | void | Removes everything from the calling reference's inventory, moving it to an optional target container or destroying it; unplayable biped items and, for the player, quest items are exempt. |
 | ref.[RemoveAllTypedItems](https://geckwiki.com/index.php?title=RemoveAllTypedItems) | 0x1249 obs | 295 / 39 |  | targetContainer:reference, retainOwnershipFlag:int, suppressMessages:int, typeCode:int, exceptionFormlist:form | void | Extended RemoveAllItems that removes only items of a chosen form type, optionally skipping members of an exemption form list; unplayable biped items and player quest items are exempt. |
-| ref.[RemoveMerchantContainer](https://geckwiki.com/index.php?title=RemoveMerchantContainer) | 0x11B8 doc |  |  |  |  | Clears the merchant container assigned to an actor. |
+| [RemoveMerchantContainer](https://geckwiki.com/index.php?title=RemoveMerchantContainer) |  |  |  | actor:reference |  | Clears the merchant container assigned to an actor. |
 | ref.[RemoveSpell](https://geckwiki.com/index.php?title=RemoveSpell) | 0x101D obs | 146 / 33 |  | EffectID:reference | void | Removes an actor effect from the calling actor; in the vanilla game only addictions and abilities are such effects. |
 | ref.[ResetHealth](https://geckwiki.com/index.php?title=ResetHealth) | 0x1150 obs | 54 / 48 |  |  |  | Restores the calling actor's health and cures crippled limbs. |
 | ref.[ResetInventory](https://geckwiki.com/index.php?title=ResetInventory) | 0x11ED obs | 17 / 3 |  |  |  | Resets the calling reference's inventory, discarding all earlier added, removed or computed contents. |
@@ -124,7 +124,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[SetActorAlpha](https://geckwiki.com/index.php?title=SetActorAlpha) (SAA) | 0x1129 obs | 127 / 28 |  | alpha:float |  | Sets the transparency (alpha) of the calling actor. |
 | ref.[SetActorFullName](https://geckwiki.com/index.php?title=SetActorFullName) | 0x111C obs | 26 / 18 |  | message:form |  | Changes the calling actor's display name to the title of the given message form. |
 | ref.[SetClass](https://geckwiki.com/index.php?title=SetClass) |  |  |  | class:form |  | Changes the calling actor's class to the given class form, running autocalc only if the actor has autocalc enabled. |
-| ref.[SetMerchantContainer](https://geckwiki.com/index.php?title=SetMerchantContainer) |  |  |  | container:reference |  | Assigns a merchant container reference to the calling actor. |
+| ref.[SetMerchantContainer](https://geckwiki.com/index.php?title=SetMerchantContainer) | 0x11B7 obs |  |  | container:reference |  | Assigns a merchant container reference to the calling actor. |
 | ref.[SetNPCRadio](https://geckwiki.com/index.php?title=SetNPCRadio) | 0x11C4 obs | 6 / 5 |  | radioStation:reference | void | Makes the calling NPC act as a radio playing a given radio station reference, or switches that off. |
 | [SetPCEnemyOfFaction](https://geckwiki.com/index.php?title=SetPCEnemyOfFaction) | 0x10C6 obs | 24 / 19 |  | faction:form, enemyFlag:int |  | Sets or clears the flag marking the player as an enemy of a crime-tracking faction after a major crime. |
 | ref.[SetPlayerTeammate](https://geckwiki.com/index.php?title=SetPlayerTeammate) | 0x11C5 obs | 189 / 116 |  | teammateFlag:int |  | Makes the calling actor behave as the player's combat teammate (1) or clears it (0), so others treat it as in the player faction. |
@@ -140,7 +140,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[GetClothingValue](https://geckwiki.com/index.php?title=GetClothingValue) | 0x1029 xe |  |  |  | float | Returns the clothing value, from 0 to 100 as a float, of the armor the calling actor is wearing. |
 | [GetDeadCount](https://geckwiki.com/index.php?title=GetDeadCount) | 0x1054 obs | 27 / 24 | 444 | ActorID:unknown | int | Returns the total number of actors of the given base actor type that have been killed. |
 | ref.[GetDetected](https://geckwiki.com/index.php?title=GetDetected) | 0x102D obs | 69 / 35 | 22 | TargetID:reference |  | Returns 1 if the calling actor currently detects the target reference, usable as script or condition function. |
-| ref.[GetForceSneak](https://geckwiki.com/index.php?title=GetForceSneak) |  |  |  |  | success:0/1 | Returns 1 if the calling actor is currently in a forced-sneak state. |
+| ref.[GetForceSneak](https://geckwiki.com/index.php?title=GetForceSneak) | 0x10D2 obs |  |  |  | success:0/1 | Returns 1 if the calling actor is currently in a forced-sneak state. |
 | ref.[GetInSameCell](https://geckwiki.com/index.php?title=GetInSameCell) | 0x1020 obs | 99 / 48 | 33 | Target:form | bool | Returns 1 when the calling reference and the target actor occupy one cell, else 0. |
 | ref.[GetInWorldspace](https://geckwiki.com/index.php?title=GetInWorldspace) | 0x1136 obs | 91 / 56 | 345 | worldspace:reference | int | Returns 1 when the calling actor stands in an exterior cell of the given worldspace; always 0 inside interiors. |
 | ref.[GetIsClass](https://geckwiki.com/index.php?title=GetIsClass) | 0x1044 xe |  | 10 | Class:form | boolean | Returns 1 if the calling actor's class is the given class form. |
@@ -192,14 +192,14 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [GetPermanentActorValue](https://geckwiki.com/index.php?title=GetPermanentActorValue) (GetPermAV) | 0x11EF obs | 7 / 7 | 134 | statName:string | float | Returns an actor value's permanent value, like the base value but also including permanent modifiers such as skill books. |
 | [IsPlayerTagSkill](https://geckwiki.com/index.php?title=IsPlayerTagSkill) | 0x11CE obs | 23 / 3 |  | [SkillName]:unknown | int | Returns 1 if the given skill occupies any of the player's tag skill slots, otherwise 0. |
 | ref.[ModActorValue](https://geckwiki.com/index.php?title=ModActorValue) (ModAV) | 0x1010 obs | 62 / 36 |  | ActorValue:actor_value, Value:int | void | Permanently changes the calling actor's chosen actor value by a positive or negative amount. |
-| [ModPCAttribute](https://geckwiki.com/index.php?title=ModPCAttribute) | 0x1110 doc |  |  | StatName:string, value:int |  | Raises or lowers one of the player's SPECIAL attributes by an amount treated as permanent, like a level-up increase. |
+| [ModPCAttribute](https://geckwiki.com/index.php?title=ModPCAttribute) |  |  |  | StatName:string, value:int |  | Raises or lowers one of the player's SPECIAL attributes by an amount treated as permanent, like a level-up increase. |
 | ref.[RestoreActorValue](https://geckwiki.com/index.php?title=RestoreActorValue) (RestoreAV) | 0x1182 obs | 284 / 52 |  | actorValue:string, value:float |  | Heals damage on an actor value by raising its damage modifier toward zero by the given (possibly fractional) amount. |
 | ref.[SetActorValue](https://geckwiki.com/index.php?title=SetActorValue) (SetAV) | 0x100F obs | 730 / 291 |  | StatName:actor_value, Value:int |  | Sets the base value of an actor value on the calling actor to a new integer value. |
 | [SetPlayerTagSkill](https://geckwiki.com/index.php?title=SetPlayerTagSkill) | 0x11CD obs | 23 / 1 |  | SkillName:string, iSkillIndex:int | void | Assigns a named skill as the player's tag skill at index 0 to 3, granting the starting tag bonus in that skill. |
 | [SetSPECIALPoints](https://geckwiki.com/index.php?title=SetSPECIALPoints) | 0x1218 obs | 2 / 2 |  | iTotalPoints:int | void | Opens the character-generation attributes page so the player can distribute SPECIAL points up to a specified total. |
 | [SetTagSkills](https://geckwiki.com/index.php?title=SetTagSkills) | 0x121A obs | 3 / 3 |  | addedPoints:int, showInitialTaggedSkills?:int | void | Opens the character-generation skills page to let the player choose tagged skills up to a given total. |
 | [ShowLoveTesterMenuParams](https://geckwiki.com/index.php?title=ShowLoveTesterMenuParams) | 0x1245 obs | 1 / 1 |  | iPoints:int | void | Opens the Vigor Tester menu so the player can distribute or redistribute SPECIAL points. |
-| [ShowSPECIALBookMenuParams](https://geckwiki.com/index.php?title=ShowSPECIALBookMenuParams) (ssbmp) |  |  |  | iPoints:int | void | Opens the SPECIAL book menu so the player can distribute or redistribute SPECIAL points. |
+| [ShowSPECIALBookMenuParams](https://geckwiki.com/index.php?title=ShowSPECIALBookMenuParams) (ssbmp) | 0x11EE obs |  |  | iPoints:int | void | Opens the SPECIAL book menu so the player can distribute or redistribute SPECIAL points. |
 
 ## Animation Functions
 
@@ -240,8 +240,8 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[IsCellOwner](https://geckwiki.com/index.php?title=IsCellOwner) | 0x1118 xe |  |  | Cell:string, ActorRefID?:reference | int | Returns 1 if the named cell is owned by the given NPC or faction; with the second argument omitted it tests for player ownership. |
 | ref.[IsInMyOwnedCell](https://geckwiki.com/index.php?title=IsInMyOwnedCell) | 0x1092 xe |  |  |  | int | Returns 1 when the caller is within a cell it owns. |
 | [PurgeCellBuffers](https://geckwiki.com/index.php?title=PurgeCellBuffers) (PCB) | 0x1189 obs | 32 / 23 |  |  |  | Forcibly unloads all cells in the cell buffers that are not currently attached. |
-| [ResetInterior](https://geckwiki.com/index.php?title=ResetInterior) |  |  |  | cellID:form |  | Marks the given interior cell as expired. |
-| [SetCellFullName](https://geckwiki.com/index.php?title=SetCellFullName) |  |  |  | cellID:form, messageID:form |  | Changes a cell's display name to the title text of the given message form, affecting load door labels and the local map. |
+| [ResetInterior](https://geckwiki.com/index.php?title=ResetInterior) | 0x1127 obs |  |  | cellID:form |  | Marks the given interior cell as expired. |
+| [SetCellFullName](https://geckwiki.com/index.php?title=SetCellFullName) | 0x111B obs |  |  | cellID:form, messageID:form |  | Changes a cell's display name to the title text of the given message form, affecting load door labels and the local map. |
 | [SetCellImageSpace](https://geckwiki.com/index.php?title=SetCellImageSpace) | 0x1196 obs | 2 / 2 |  | Cell:string, :string |  | Changes the imagespace assigned to a cell. |
 | [SetCellOwnership](https://geckwiki.com/index.php?title=SetCellOwnership) | 0x1119 obs | 18 / 8 |  | cell:form, newOwner?:form |  | Sets a cell's owner to the given NPC or faction base form; with no second argument the player becomes the owner. |
 | [SetCellPublicFlag](https://geckwiki.com/index.php?title=SetCellPublicFlag) (SetPublic) | 0x10BB obs | 12 / 4 |  | cellID:form, publicFlag:int | traitValue:float | Sets a cell's public flag to 1 or 0; public cells cannot have trespassing, so this changes crime behaviour in the cell. |
@@ -362,14 +362,14 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 
 | Function | Opcode | Calls / scripts | Cond | Params | Returns | Summary |
 |---|---|---|---|---|---|---|
-| [SetLastExtDoorActivated](https://geckwiki.com/index.php?title=SetLastExtDoorActivated) |  |  |  | Door:reference |  | Sets which exterior door counts as the last one activated. |
+| [SetLastExtDoorActivated](https://geckwiki.com/index.php?title=SetLastExtDoorActivated) | 0x1230 obs |  |  | Door:reference |  | Sets which exterior door counts as the last one activated. |
 
 ## Encounter Zone Functions
 
 | Function | Opcode | Calls / scripts | Cond | Params | Returns | Summary |
 |---|---|---|---|---|---|---|
 | ref.[GetInZone](https://geckwiki.com/index.php?title=GetInZone) | 0x11BE xe |  |  | zone:form | int | Returns 1 if the calling reference is in a cell attached to the given encounter zone, else 0. |
-| [SetZoneRespawns](https://geckwiki.com/index.php?title=SetZoneRespawns) |  |  |  | encounterZone:form, respawnFlag:int |  | Turns respawning on or off for an encounter zone; the change is stored in saves. |
+| [SetZoneRespawns](https://geckwiki.com/index.php?title=SetZoneRespawns) | 0x11EA obs |  |  | encounterZone:form, respawnFlag:int |  | Turns respawning on or off for an encounter zone; the change is stored in saves. |
 
 ## Event Handlers
 
@@ -396,7 +396,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [SetAlly](https://geckwiki.com/index.php?title=SetAlly) | 0x1079 obs | 127 / 104 |  | faction1:form, faction2:form, F1toF2Flag?:int, F2toF1Flag?:int |  | Sets a friend or ally relationship between two factions, adding the second to the first's reaction list if missing; not called on a reference. |
 | [SetEnemy](https://geckwiki.com/index.php?title=SetEnemy) | 0x1078 obs | 478 / 334 |  | Faction1:unknown, Faction2:unknown, F1toF2Flag?:unknown, F2toF1Flag?:unknown |  | Sets an enemy or neutral relationship between two factions, adding the second to the first's reaction list if missing; not called on a reference. |
 | ref.[SetFactionRank](https://geckwiki.com/index.php?title=SetFactionRank) | 0x1089 obs | 34 / 29 |  | FactionID:form, newRank?:int |  | Sets the calling actor's rank within a faction, joining the faction at that rank if not already a member; a negative rank removes the actor from it. |
-| [SetFactionReaction](https://geckwiki.com/index.php?title=SetFactionReaction) |  |  |  | faction:form, targetFaction:form, modValue:int |  | Sets how one faction regards a target faction to the given amount. |
+| [SetFactionReaction](https://geckwiki.com/index.php?title=SetFactionReaction) | 0x10A8 obs |  |  | faction:form, targetFaction:form, modValue:int |  | Sets how one faction regards a target faction to the given amount. |
 | [SetPCExpelled](https://geckwiki.com/index.php?title=SetPCExpelled) |  |  |  | FactionID:string, iFlag:int | void | Expels the player from a faction and sets the expelled flag, or clears the flag when the second argument is 0. |
 
 ## File Functions
@@ -492,7 +492,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | Function | Opcode | Calls / scripts | Cond | Params | Returns | Summary |
 |---|---|---|---|---|---|---|
 | [EnableLoadingMenu](https://geckwiki.com/index.php?title=EnableLoadingMenu) | 0x1270 obs | 2 / 2 |  |  |  | Forces a generic loading screen, not location-specific, to appear for a few seconds. |
-| [SetLocationSpecificLoadScreensOnly](https://geckwiki.com/index.php?title=SetLocationSpecificLoadScreensOnly) |  |  |  | flag:int |  | Restricts load screens to those tied specifically to the current cell when set to 1. |
+| [SetLocationSpecificLoadScreensOnly](https://geckwiki.com/index.php?title=SetLocationSpecificLoadScreensOnly) | 0x1200 obs |  |  | flag:int |  | Restricts load screens to those tied specifically to the current cell when set to 1. |
 
 ## Lock Functions
 
@@ -547,7 +547,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | ref.[PlaceAtMeHealthPercent](https://geckwiki.com/index.php?title=PlaceAtMeHealthPercent) |  |  |  | placedObject:form, healthPercent:float, count:int, distance?:float, direction?:int |  | Spawns an injured actor or item near the calling reference, at a given fraction of full health, with count and optional distance and direction. |
 | [PlaySound](https://geckwiki.com/index.php?title=PlaySound) | 0x1026 obs | 502 / 218 |  | sound:form, SystemSound:int |  | Plays a sound form non-positionally; a non-zero system-sound flag makes it play even in menu mode, otherwise it may be queued until game mode returns. |
 | ref.[PlaySound3D](https://geckwiki.com/index.php?title=PlaySound3D) | 0x10B2 obs | 120 / 53 |  | soundID:form |  | Plays a sound form positionally at the calling reference's location. |
-| [RemapWaterType](https://geckwiki.com/index.php?title=RemapWaterType) |  |  |  | OldWaterType:other, NewWaterType:other |  | Swaps every occurrence of one water type for a different water type. |
+| [RemapWaterType](https://geckwiki.com/index.php?title=RemapWaterType) | 0x1237 obs |  |  | OldWaterType:other, NewWaterType:other |  | Swaps every occurrence of one water type for a different water type. |
 | ref.[Reset3DState](https://geckwiki.com/index.php?title=Reset3DState) | 0x1146 obs | 12 / 1 |  |  |  | Clears saved animation and Havok state for a reference, mainly to reset triggered traps. |
 | ref.[ResetFallDamageTimer](https://geckwiki.com/index.php?title=ResetFallDamageTimer) |  |  |  |  |  | Resets the fall damage timer so the calling object takes damage as though it had just started falling. |
 | [Return](https://geckwiki.com/index.php?title=Return) |  |  |  |  |  | Stops script processing from that line onward, including all later blocks of the script. |
@@ -664,9 +664,9 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 |---|---|---|---|---|---|---|
 | [AddAchievement](https://geckwiki.com/index.php?title=AddAchievement) | 0x114A obs | 152 / 122 |  | AchievementNumber:int | void | Unlocks the achievement with the given index on Steam or GFWL; takes a single integer and is not called on a reference. |
 | ref.[AddCardToPlayer](https://geckwiki.com/index.php?title=AddCardToPlayer) (AddCard) | 0x125B obs | 4 / 3 |  |  | void | Adds the calling playing card reference to the player's Caravan deck. |
-| [AdvancePCLevel](https://geckwiki.com/index.php?title=AdvancePCLevel) (AdvLevel) | 0x10D5 doc |  |  |  | void | Increments the player's character level and brings up the level-up menu. |
+| [AdvancePCLevel](https://geckwiki.com/index.php?title=AdvancePCLevel) (AdvLevel) |  |  |  |  | void | Increments the player's character level and brings up the level-up menu. |
 | [AutoDisplayObjectives](https://geckwiki.com/index.php?title=AutoDisplayObjectives) | 0x1225 obs | 2 / 1 |  | iType:int | void | Enables (1) or disables (0) automatic on-screen display of the active quest's objectives, used when the Pip-Boy cannot be opened. |
-| [ClearNoActivationSound](https://geckwiki.com/index.php?title=ClearNoActivationSound) |  |  |  |  | void | Restores the no-activation sound to its default. |
+| [ClearNoActivationSound](https://geckwiki.com/index.php?title=ClearNoActivationSound) | 0x11FD obs |  |  |  | void | Restores the no-activation sound to its default. |
 | [DisablePlayerControls](https://geckwiki.com/index.php?title=DisablePlayerControls) | 0x1061 obs | 220 / 174 |  | MovementFlag (0/1) (optional),?:unknown, PipboyFlag (0/1) (optional),?:unknown, FightingFlag (0/1) (optional),?:unknown, POVFlag (0/1) (optional),?:unknown, LookingFlag (0/1) (optional),?:unknown, RolloverTextFlag (0/1) (optional),?:unknown, SneakingFlag (0/1) (optional)?:unknown | void | Disables chosen groups of player controls via seven optional 0/1 flags (movement, Pip-Boy, fighting, point of view, looking, rollover text, sneaking). |
 | [EnableFastTravel](https://geckwiki.com/index.php?title=EnableFastTravel) | 0x1111 obs | 83 / 64 |  | canFastTravel?:unknown, canWait?:unknown, keepOnCellChange?:unknown | void | Allows or forbids player fast travel, with optional flags for waiting and for keeping the setting across cell changes. |
 | [EnablePlayerControls](https://geckwiki.com/index.php?title=EnablePlayerControls) | 0x1060 obs | 177 / 143 |  | MovementFlag (0/1) (optional),?:unknown, PipboyFlag (0/1) (optional),?:unknown, FightingFlag (0/1) (optional),?:unknown, POVFlag (0/1) (optional),?:unknown, LookingFlag (0/1) (optional),?:unknown, RolloverTextFlag (0/1) (optional),?:unknown, SneakingFlag (0/1) (optional)?:unknown | void | Re-enables player controls turned off by DisablePlayerControls using seven optional 0/1 flags; with no parameters everything is enabled. |
@@ -674,9 +674,9 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [GetPCIsRace](https://geckwiki.com/index.php?title=GetPCIsRace) | 0x1082 xe |  |  | Race:form | int | Returns 1 if the player's race matches the given race; the player-only version of GetIsRace. |
 | [GetPCIsSex](https://geckwiki.com/index.php?title=GetPCIsSex) | 0x1083 obs | 8 / 2 | 190 | Sex:unknown | int | Tests the player's gender against Male or Female and returns 1 on a match, else 0. |
 | [GetPCMiscStat](https://geckwiki.com/index.php?title=GetPCMiscStat) | 0x1138 obs | 4 / 2 |  | miscStat:string | int | Returns the value of a named player miscellaneous statistic, given as a string. |
-| [GetPCSleepHours](https://geckwiki.com/index.php?title=GetPCSleepHours) |  |  |  |  | int | Gives the hours of sleep the player picked in the menu, or 0 when the player is awake. |
+| [GetPCSleepHours](https://geckwiki.com/index.php?title=GetPCSleepHours) | 0x10BC obs |  |  |  | int | Gives the hours of sleep the player picked in the menu, or 0 when the player is awake. |
 | [GetPlayerControlsDisabled](https://geckwiki.com/index.php?title=GetPlayerControlsDisabled) | 0x1062 obs | 5 / 4 |  | Movement?:int, Pipboy?:int, Fighting?:int, POV?:int, Looking?:int, RolloverText?:int, Sneaking?:int | bool | Returns 1 if any of the selected player controls are disabled, else 0; each optional flag picks a control group. |
-| [GetPlayerGrabbedRef](https://geckwiki.com/index.php?title=GetPlayerGrabbedRef) | 0x11CF doc |  |  |  | ref | Returns the reference of the object held by the player's grab at the moment, or none. |
+| [GetPlayerGrabbedRef](https://geckwiki.com/index.php?title=GetPlayerGrabbedRef) |  |  |  |  | ref | Returns the reference of the object held by the player's grab at the moment, or none. |
 | [GetVATSMode](https://geckwiki.com/index.php?title=GetVATSMode) | 0x10E0 obs | 2 / 1 | 2 |  | int | Returns the player's current VATS view mode as an integer. |
 | [GetXPForNextLevel](https://geckwiki.com/index.php?title=GetXPForNextLevel) | 0x1215 obs | 3 / 2 |  |  |  | Returns the amount of experience the player needs to reach the next level. |
 | [IsPC1stPerson](https://geckwiki.com/index.php?title=IsPC1stPerson) | 0x1188 obs | 2 / 2 | 9 |  | int | Returns 1 for a first-person camera and 0 for third-person. |
@@ -690,10 +690,10 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [ResetXP](https://geckwiki.com/index.php?title=ResetXP) | 0x126D obs | 2 / 2 |  |  |  | Sets the player's experience points back to zero; not called on a reference. |
 | [RewardXP](https://geckwiki.com/index.php?title=RewardXP) | 0x1177 obs | 1303 / 1148 |  | value:int | void | Awards an integer amount of experience points to the player; not called on a reference. |
 | [SetInCharGen](https://geckwiki.com/index.php?title=SetInChargen) | 0x10E7 obs | 16 / 15 |  | iFlag:int | void | Puts the player into or out of character-generation state, in which level-ups are withheld. |
-| [SetNoActivationSound](https://geckwiki.com/index.php?title=SetNoActivationSound) |  |  |  | Sound:string | void | Overrides the default sound played when activation is refused with a specified sound. |
+| [SetNoActivationSound](https://geckwiki.com/index.php?title=SetNoActivationSound) | 0x11FC obs |  |  | Sound:string | void | Overrides the default sound played when activation is refused with a specified sound. |
 | [SetPCSleepHours](https://geckwiki.com/index.php?title=SetPCSleepHours) | 0x10BD obs | 3 / 3 |  | iHours:int |  | Forces the player to sleep for the given number of hours. |
-| [SetPCToddler](https://geckwiki.com/index.php?title=SetPCToddler) |  |  |  | isToddler:int | void | Switches the player to the toddler walk animation set (1) or back to normal (0). |
-| [SetPCYoung](https://geckwiki.com/index.php?title=SetPCYoung) |  |  |  | isYoung:int | void | Flags the player as young, which limits the player to the race's default hair and suppresses loading of face attachments. |
+| [SetPCToddler](https://geckwiki.com/index.php?title=SetPCToddler) | 0x1202 obs |  |  | isToddler:int | void | Switches the player to the toddler walk animation set (1) or back to normal (0). |
+| [SetPCYoung](https://geckwiki.com/index.php?title=SetPCYoung) | 0x11E6 obs |  |  | isYoung:int | void | Flags the player as young, which limits the player to the race's default hair and suppresses loading of face attachments. |
 | [ShowPlasticSurgeonMenu](https://geckwiki.com/index.php?title=ShowPlasticSurgeonMenu) | 0x11F2 obs | 2 / 2 |  |  | void | Opens the menu where the player changes their face; takes no parameters. |
 | [ShowRaceMenu](https://geckwiki.com/index.php?title=ShowRaceMenu) | 0x10DA obs | 3 / 3 |  |  | void | Opens the race menu (Gene Projector in FO3, Reflectron in New Vegas) for choosing sex, race, face and hair; takes no parameters. |
 | ref.[ShowRepairMenu](https://geckwiki.com/index.php?title=ShowRepairMenu) (srm) | 0x117A obs | 15 / 15 |  |  |  | Opens the repair menu so equipment can be repaired for caps, using the calling actor's repair skill. |
@@ -766,7 +766,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [GetReputationPct](https://geckwiki.com/index.php?title=GetReputationPct) | 0x123E xe |  | 2 | FactionID:string, Fame/Infamy:int | void | Returns the player's fame or infamy with a reputation as a 0 to 1 fraction of that reputation's maximum; second argument 0 is infamy, 1 fame. |
 | [GetReputationThreshold](https://geckwiki.com/index.php?title=GetReputationThreshold) | 0x123F obs | 143 / 47 | 1643 | ReputationID:string, Mixed/Good/Bad:int | void | Returns the player's reputation tier (0 to 6) with a reputation, given an axis argument: 0 mixed, 1 good, 2 bad. |
 | [RemoveReputation](https://geckwiki.com/index.php?title=RemoveReputation) | 0x123A obs | 11 / 6 |  | FactionID:string, Fame/Infamy:int, Amount:int | void | Removes preset-sized reputation, fame or infamy, from a faction; despite the page summary saying adds, it subtracts. |
-| [RemoveReputationExact](https://geckwiki.com/index.php?title=RemoveReputationExact) | 0x123C doc |  |  | FactionID:string, Fame/Infamy:int, Amount:float | void | Removes an exact, possibly fractional, amount of fame or infamy from a faction's reputation. |
+| [RemoveReputationExact](https://geckwiki.com/index.php?title=RemoveReputationExact) |  |  |  | FactionID:string, Fame/Infamy:int, Amount:float | void | Removes an exact, possibly fractional, amount of fame or infamy from a faction's reputation. |
 | [SetReputation](https://geckwiki.com/index.php?title=SetReputation) | 0x1238 obs | 255 / 95 |  | Reputation:form, Fame/Infamy:int, Amount:float | void | Sets the player's fame or infamy with a reputation form to an exact amount, replacing the previous value. |
 
 ## Scale Functions
@@ -818,11 +818,11 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [ClearScreenSplatter](https://geckwiki.com/index.php?title=ClearScreenSplatter) | 0x1241 obs | 1 / 1 |  |  | void | Clears the screen splatter effect. |
 | [DeactivateAllHighlights](https://geckwiki.com/index.php?title=DeactivateAllHighlights) |  |  |  |  |  | Console-only command that turns off all VATS body-part highlights. |
 | ref.[DisableAllActors](https://geckwiki.com/index.php?title=DisableAllActors) (DisAA) |  |  |  |  |  | Disables all actors; needs a calling reference and may only take effect on already-loaded actors after a cell change. |
-| [DisableAllMines](https://geckwiki.com/index.php?title=DisableAllMines) |  |  |  |  | void | Disables every mine in the cell the player currently occupies. |
+| [DisableAllMines](https://geckwiki.com/index.php?title=DisableAllMines) | 0x122F obs |  |  |  | void | Disables every mine in the cell the player currently occupies. |
 | [DisableHardcoreTracking](https://geckwiki.com/index.php?title=DisableHardcoreTracking) (babby) | 0x126A query |  |  |  |  | Sets the flag recording that the player has ever turned off Hardcore mode, which permanently blocks the Hardcore achievement for that playthrough. |
 | ref.[EnterTrigger](https://geckwiki.com/index.php?title=EnterTrigger) | 0x11BA obs | 160 / 110 |  | ActionRef:reference | void | Forces a trigger-enter event on the calling trigger reference, with the argument naming the reference that entered. |
 | ref.[Exists](https://geckwiki.com/index.php?title=Exists) | 0x119F xe |  | 21 | [TARGET]:unknown | int | Condition function returning 1 when the self and target references in the condition differ, else 0; used in combat dialogue to detect a distinct second speaker. |
-| [FadeSFX](https://geckwiki.com/index.php?title=FadeSFX) (FSFX) |  |  |  | enable:float | void | Fades out all sound except music over the given number of seconds, useful around video playback. |
+| [FadeSFX](https://geckwiki.com/index.php?title=FadeSFX) (FSFX) | 0x1227 obs |  |  | enable:float | void | Fades out all sound except music over the given number of seconds, useful around video playback. |
 | ref.[ForceTakeCover](https://geckwiki.com/index.php?title=ForceTakeCover) (TakeCover) |  |  |  | TargetID?:reference, Duration?:int |  | Unused in New Vegas; makes an actor retreat from a target actor for a set number of seconds. |
 | [ForceTerminalBack](https://geckwiki.com/index.php?title=ForceTerminalBack) | 0x1223 obs | 80 / 39 |  |  | void | When run from a terminal menu item's result script, moves the terminal back one level, or closes it from the top level. |
 | ref.[FriendDispositionBoost](https://geckwiki.com/index.php?title=FriendDispositionBoost) |  |  |  |  | void | Modifies the calling actor's disposition so it reaches friend level with the player. |
@@ -876,6 +876,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [IsWaterObject](https://geckwiki.com/index.php?title=IsWaterObject) | 0x1130 xe |  | 1 |  |  | Yields 1 when whatever is being activated is placeable water; the base game uses it for the drinking animation. |
 | [IsWin32](https://geckwiki.com/index.php?title=IsWin32) | 0x120C obs | 1 / 1 | 2 |  | int | Yields 1 when the game runs on a PC, otherwise 0. |
 | [IsXBox](https://geckwiki.com/index.php?title=IsXBox) | 0x1135 obs | 2 / 2 | 2 |  | int | Yields 1 when the game runs on the Xbox, otherwise 0. |
+| KillQuestUpdates | 0x1231 obs |  |  |  |  |  |
 | ref.[ModBarterGold](https://geckwiki.com/index.php?title=ModBarterGold) |  |  |  | modifyBy:float |  | Adjusts the barter gold stored on the calling actor by the given amount. |
 | [ModPCSkill](https://geckwiki.com/index.php?title=ModPCSkill) |  |  |  | StatName:string, value:int |  | Meant to add skill points that count toward leveling like earned ones, but it is unused in New Vegas and changes nothing there. |
 | [OutputLocalMapPictures](https://geckwiki.com/index.php?title=OutputLocalMapPictures) (OLMP) |  |  |  |  | void | Writes the local map to disk as a set of PNG images, forcibly changing the grids-to-load setting so only the local area is output. |
@@ -921,9 +922,10 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [ToggleTrees](https://geckwiki.com/index.php?title=ToggleTrees) (TT) |  |  |  |  | void | Disables or enables the animated parts of all speedtrees. |
 | [ToggleWaterSystem](https://geckwiki.com/index.php?title=ToggleWaterSystem) (TWS) |  |  |  |  | void | Disables or enables water rendering. |
 | trapUpdate | 0x110C obs | 1 / 1 |  |  |  |  |
-| [TriggerHitShader](https://geckwiki.com/index.php?title=TriggerHitShader) |  |  |  | strength:float |  | Manually triggers the screen-blur hit effect normally used when the player staggers, with a given strength. |
+| [TriggerHitShader](https://geckwiki.com/index.php?title=TriggerHitShader) | 0x1144 obs |  |  | strength:float |  | Manually triggers the screen-blur hit effect normally used when the player staggers, with a given strength. |
 | [TriggerHUDShudder](https://geckwiki.com/index.php?title=TriggerHUDShudder) |  |  |  | val1?:float, val2?:float, val3?:float, val4?:float |  | Triggers a shudder effect on the HUD, using four optional float parameters for intensity and duration. |
-| [TriggerScreenBlood](https://geckwiki.com/index.php?title=TriggerScreenBlood) (TSB) |  |  |  | count:int | traitValue:float | Shows a screen blood effect that fades slowly; the count sets the amount. |
+| TriggerLODApocalypse | 0x11F3 obs |  |  |  |  |  |
+| [TriggerScreenBlood](https://geckwiki.com/index.php?title=TriggerScreenBlood) (TSB) | 0x1205 obs |  |  | count:int | traitValue:float | Shows a screen blood effect that fades slowly; the count sets the amount. |
 | TriggerScreenSplatter | 0x1240 obs | 8 / 1 |  |  |  |  |
 
 ## VATS Functions
