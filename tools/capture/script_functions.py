@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the script-function catalogue (`fnv.script.functions/1`) from three sources.
+"""Build the script-function catalogue (`fnv.script.functions/1`) from named sources.
 
 1. A private MediaWiki export of the GECK wiki category "Functions (All)"
    (geckwiki.com, Special:Export, current revisions only). Only the *structured* fields of
@@ -12,6 +12,9 @@
    (CTDA) usage. See docs/spec-notes/script-functions.md section 3 for the observations.
 3. Optionally xEdit's `Core/wbDefinitionsFNV.pas` (MPL-2.0, TES5Edit/TES5Edit, branch
    dev-4.1.6): its condition-function table gives an index per function name.
+4. Cited native command-table fallbacks and retained original GetCommandOpcode
+   registration-query IDs (schemas/script/command_opcodes.json). A registration
+   query establishes the command's name-to-ID mapping, not execution of that command.
 
 Outputs are our own JSON and Markdown; no wiki text and no game content (only names that
 the wiki also documents, opcodes, and counts) is written.
@@ -38,6 +41,58 @@ import zlib
 
 SCHEMA = "fnv.script.functions/1"
 WIKI_URL = "https://geckwiki.com/index.php?title="
+
+# Documented native command IDs for commands absent from the shipped-script scan
+# and xEdit's condition list. Source: https://mod.gib.me/fonv/functions.html,
+# GetPackageTarget: 4329; RemoveMerchantContainer: 4536, both calling-reference,
+# no-argument commands; GetPlayerGrabbedRef:4559, global/no-argument.
+# Observed bytecode and xEdit indices below keep precedence;
+# these are not native execution captures.
+DOCUMENTED_OPCODES = {"getpackagetarget": 0x10E9, "removemerchantcontainer": 0x11B8,
+                      "getplayergrabbedref": 0x11CF,
+                      "advancepclevel": 0x10D5, "modpcattribute": 0x1110,
+                      "removereputationexact": 0x123C}
+
+# [observed] Original GetCommandOpcode registration queries retained in
+# schemas/script/command_opcodes.json (2026-10-27, xNVSE 6.4.9, JIP LN 57.30,
+# JohnnyGuitar 528). These establish name -> ID registration, not execution of
+# these commands, argument semantics, or mod compatibility. Keep this additive
+# map separate from documented native tables and shipped-script observations.
+REGISTRATION_QUERY_OPCODES = {
+    "getcurrenthealth": 0x1451, "setcurrenthealth": 0x1452,
+    "getrefcount": 0x1476, "getowner": 0x14D7,
+    "isequipped": 0x15B9, "getinvrefsforitem": 0x15BA,
+    "getweaponrefmodflags": 0x270C, "setweaponrefmodflags": 0x270D,
+    "getitemrefcurrenthealth": 0x270F, "setitemrefcurrenthealth": 0x2710,
+    "getallitemrefs": 0x2767, "removemeiralt": 0x27E2,
+    "playmagiceffectvisuals": 0x1124, "stopmagiceffectvisuals": 0x1126,
+    "evaluatespellconditions": 0x119D, "getpipboymode": 0x3168,
+    "setactorrefraction": 0x1154,
+    "setstringsetting": 0x2284, "setcasinowinningslevel": 0x125D,
+    "setdefaultopen": 0x10D8, "getdefaultopen": 0x10D7,
+    "modscale": 0x113D, "setsize": 0x10A4,
+    "addnpctoleveledlist": 0x1234, "addcreaturetoleveledlist": 0x1235,
+    "placeatmehealthpercent": 0x11BD,
+    "setradiotodialogueonlymode": 0x1278, "disablehardcoretracking": 0x126A,
+    "toggledemigodmode": 0x124C, "getfollowers": 0x2637, "getdroppedrefs": 0x2780,
+}
+
+# A collected console row on ShowFullSceneGraph also names SetStringSetting.
+# Its identity and summary stay intact; the registration belongs to the LU
+# command's own page, not every catalogue row sharing its name.
+REGISTRATION_QUERY_ROWS = {
+    "setstringsetting": {"origin": "LU", "page": "SetStringSetting"},
+}
+
+
+def _registration_query_opcode(row):
+    key = row["name"].lower()
+    scope = REGISTRATION_QUERY_ROWS.get(key, {})
+    if any(row.get(field) != value for field, value in scope.items()):
+        return None
+    return REGISTRATION_QUERY_OPCODES.get(key)
+
+
 MASTERS = ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm",
            "LonesomeRoad.esm", "GunRunnersArsenal.esm", "CaravanPack.esm",
            "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm"]
@@ -405,9 +460,12 @@ PAGELESS += [
 # The rest of the registered commands no wiki page lists (#2326), batch 1: argument counts
 # and kinds from the compile-shape run in the original (each name compiled with 23 argument
 # patterns inside `if 0`; docs/spec-notes/ext-unlisted-rest.md §1), behaviour from set rest1.
-def _x(name, origin, returns, params=(), ref=None, aliases=None, cat=None):
+def _x(name, origin, returns, params=(), ref=None, aliases=None, cat=None, opcode=None):
     rec = {"name": name, "page": None, "origin": origin, "returns": {"type": returns, "name": None},
            "params": list(params), "categories": [cat or f"Functions ({origin})"]}
+    if opcode:
+        rec["opcodes"] = [opcode]
+        rec["opcode_evidence"] = "observed"
     if aliases:
         rec["aliases"] = aliases
     if ref:
@@ -544,9 +602,10 @@ PAGELESS += [
     _x("SetCameraShotPath", _JG, "int", [_p("cameraShot", "form"), _S("path")]),
     _x("GetCasinoDeckTexture", _JG, "string_var", [_p("casino", "form"), _I("deck", True)]),
     _x("SetCasinoDeckTexture", _JG, "int", [_p("casino", "form"), _I("deck", True), _I("flag", True)]),
-    _x("GetExtraAccuracyPenaltyMult", _JG, "float", [_S("key", True)], ref="reference"),
-    _x("SetExtraAccuracyPenaltyMult", _JG, "int", [_F("mult"), _S("key", True)], ref="reference"),
-    _x("RemoveExtraAccuracyPenaltyMult", _JG, "int", [_S("key", True)], ref="reference"),
+    # Observed command metadata: optional form (kind 61), no required parent.
+    _x("GetExtraAccuracyPenaltyMult", _JG, "float", [_p("form", "form", None, True)], opcode="0x3212"),
+    _x("SetExtraAccuracyPenaltyMult", _JG, "int", [_F("mult"), _p("form", "form", None, True)], opcode="0x320F"),
+    _x("RemoveExtraAccuracyPenaltyMult", _JG, "int", [_p("form", "form", None, True)], opcode="0x3210"),
     _x("GetSwitchNodeIndex", _JG, "int", [_S("node"), _I("flag", True)], ref="reference"),
     _x("SetMusicTypePath", _JG, "int", [_p("musicType", "form"), _S("path")]),
     _x("SetMediaLocationControllerOverride", _JG, "int", [_p("controller", "form")], aliases=["SetMLCOverride"]),
@@ -986,6 +1045,12 @@ def build(wiki, scan, xedit, notes):
     anomalies = []
     for e in entries:
         key = e["name"].lower()
+        # The native command table has ref.RemoveMerchantContainer with no args.
+        # Correct even an older parsed wiki row whose table invented an actor arg;
+        # this must survive regeneration, not just a hand edit of functions.json.
+        if key == "removemerchantcontainer":
+            e["calling_reference"] = "[actor:ref]"
+            e["params"] = []
         vanilla = e["origin"] in VANILLA_ORIGINS or e["origin"] == "observed-only"
         e["family"] = "vanilla" if vanilla else "extender"
         if not vanilla and core_family(e):
@@ -997,6 +1062,7 @@ def build(wiki, scan, xedit, notes):
             e["wiki"] = WIKI_URL + e["page"].replace(" ", "_")
         ops = observed.get(key, {})
         xi = xedit_by_name.get(key)
+        query_opcode = _registration_query_opcode(e)
         if xi and xi[0] < 0x1000 and vanilla:
             e["condition_index"] = xi[0]
             e["xedit_param_types"] = xi[1]
@@ -1011,6 +1077,12 @@ def build(wiki, scan, xedit, notes):
         elif xi and vanilla and xi[0] < 0x1000:
             e["opcodes"] = [f"0x{xi[0] + 0x1000:04X}"]
             e["opcode_evidence"] = "xedit_index"
+        elif query_opcode is not None:
+            e["opcodes"] = [f"0x{query_opcode:04X}"]
+            e["opcode_evidence"] = "GetCommandOpcode"
+        elif vanilla and key in DOCUMENTED_OPCODES:
+            e["opcodes"] = [f"0x{DOCUMENTED_OPCODES[key]:04X}"]
+            e["opcode_evidence"] = "documented"
         if ops:
             e["script_calls"] = sum(scan["calls"][o] for o in ops)
             e["scripts_using"] = sum(scan["scripts"].get(o, 0) for o in ops)
@@ -1076,7 +1148,9 @@ def render_md(doc):
            "`schemas/script/functions.json`; do not edit by hand. Conventions and tags: "
            "`docs/spec-notes/script-functions.md`.", "",
            "Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition "
-           "index + 0x1000), calls / scripts = uses in the shipped masters' compiled scripts, "
+           "index + 0x1000, `doc` = documented native command table, "
+           "`query` = original GetCommandOpcode registration query, not execution of that command), "
+           "calls / scripts = uses in the shipped masters' compiled scripts, "
            "cond = uses in CTDA conditions, params (`?` = optional).", ""]
     by_cat = collections.defaultdict(list)
     for f in fns:
@@ -1098,8 +1172,9 @@ def render_md(doc):
                 name = "ref." + name
             op = ""
             if f.get("opcodes"):
-                op = " ".join(f["opcodes"]) + (" obs" if f["opcode_evidence"] == "observed"
-                                               else " xe")
+                evidence = {"observed": "obs", "xedit_index": "xe", "documented": "doc",
+                            "GetCommandOpcode": "query"}[f["opcode_evidence"]]
+                op = " ".join(f["opcodes"]) + " " + evidence
             use = f"{f['script_calls']} / {f['scripts_using']}" if f.get("script_calls") else ""
             params = ", ".join(p["name"] + ("?" if p.get("optional") else "") + ":" + p["kind"]
                                for p in f.get("params", []))

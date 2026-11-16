@@ -215,12 +215,23 @@ Top level: `sources`, `scan` (alignment statistics), `statement_opcodes`, `begin
 | `calling_reference` | wiki text for the reference it runs on (`ref.Func`); absent = no reference | documented |
 | `params[]` | `name`, raw wiki `type`, normalised `kind` (`int`, `float`, `reference`, `form`, `string`, `axis`, `actor_value`, `variable`, `array`, `other`, `unknown`), `optional` | documented |
 | `returns` | `type`, `name` | documented |
-| `opcodes`, `opcode_evidence` | `observed` or `xedit_index` (§4) | observed / documented |
+| `opcodes`, `opcode_evidence` | `observed` shipped-script scan, `xedit_index`, original `GetCommandOpcode` registration query, or explicitly cited `documented` native-command-table fallback | observed / documented |
 | `condition_index`, `xedit_param_types` | from xEdit | documented |
 | `script_calls`, `scripts_using`, `condition_uses` | use in shipped masters, for setting priorities | observed |
 | `observed_spellings` | undocumented spellings in shipped source | observed |
 | `summary`, `notes[]`, `bugs[]` | our paraphrase of the wiki page; `bugs` = original-engine quirks reported there | documented (paraphrased) |
 | `categories`, `console_only`, `wiki_condition_func` | wiki metadata | documented |
+
+`GetCommandOpcode` evidence retains original registration-query IDs from
+`schemas/script/command_opcodes.json`; it proves a name-to-ID mapping, not execution
+of that command, argument semantics, or mod compatibility. Shipped-script scan
+evidence takes precedence, followed by admitted vanilla xEdit indices, retained
+registration queries, and documented native-table fallbacks. Query metadata does
+not create shipped-script usage counts. The generated Markdown remains vanilla-only;
+its `query` tag distinguishes registration queries from `obs`, `xe`, and `doc`.
+When collected rows share a name, registration-query metadata is scoped to its
+command row. `SetStringSetting`'s LU own-page row receives its query ID; the
+console row collected on `ShowFullSceneGraph` retains its identity without that ID.
 
 The wiki's argument types are free-form (`0/1`, `x/y/z`, `StatName`, `baseform`, …).
 `kind` is a rough grouping; the bytecode encoding (§3.2) is what decides.
