@@ -20,6 +20,13 @@
 //!   and its rotation is relative to the reference's: so read, the heads of 185 of the 278
 //!   lie behind where the reference faces (bodies fallen backwards); read as a world
 //!   rotation, they point every way [hypothesis: the reading].
+//! - An entry 0 a body's height over the reference (66.33 units, the angles those of the
+//!   skeleton's bind pose) is the standing pose the editor keeps when nobody laid the corpse
+//!   out [observed: 0x0015A878 and 0x0016A9AE in FalloutNV.esm, and all nine corpses
+//!   ApocalypticMojave.esp places by Cottonwood Cove, which stood upright at rest; owner
+//!   2026-11-15]. It is not used: such a corpse falls from its death pose, as one without
+//!   `XRGD` does [hypothesis: the original lays them down; standing corpses there are not
+//!   what the owner saw in it].
 //! - `XRGB` "Ragdoll Biped Rotation" is always (0, 0, −π/2): the bind rotation of `Bip01`
 //!   in the same convention. Not used.
 //!
@@ -37,6 +44,11 @@ pub fn rotation(angles: [f32; 3]) -> Mat3 {
     Mat3::from_cols_array(&fnv_world::transform::ref_rotation(angles)).transpose()
 }
 
+/// How far from the reference an `XRGD`'s root body (entry 0) may lie for the entries to be
+/// a corpse's pose: half the pelvis's standing height (66.33) [design; the lying poses'
+/// entry 0 is within 0.05 units of the reference].
+pub const STANDING_ROOT: f32 = 33.0;
+
 fn iso(t: Vec3, r: Mat3) -> Iso {
     let m = r.transpose().to_cols_array();
     Iso { translation: t.to_array(), rotation: m }
@@ -49,6 +61,10 @@ fn iso(t: Vec3, r: Mat3) -> Iso {
 pub fn pose(body_nodes: &[Option<&str>], skel: &PreparedSkeleton, bones: &[Bone], at: [f32; 3], angles: [f32; 3], scale: f32) -> Result<Vec<Option<Iso>>, String> {
     if bones.len() != body_nodes.len() || bones.is_empty() {
         return Err(format!("{} entries for {} bodies", bones.len(), body_nodes.len()));
+    }
+    let up = Vec3::from(bones[0].position).length();
+    if up > STANDING_ROOT {
+        return Err(format!("its root body {up:.0} units from the reference: the editor's standing pose, not a corpse's"));
     }
     let n = skel.parents.len();
     let mut body_of = vec![None; n];
@@ -147,5 +163,18 @@ mod tests {
         let p3 = pose(&rag, &skel, &bones, at, [0.0, 0.0, -std::f32::consts::FRAC_PI_2], 1.0).unwrap();
         assert!(close(quat(&p3[0].unwrap()) * Vec3::X, -Vec3::X));
         assert!(pose(&rag, &skel, &bones[..1], at, [0.0; 3], 1.0).is_err(), "one entry per body");
+    }
+
+    #[test]
+    fn the_editors_standing_pose_is_not_a_corpses() {
+        // ApocalypticMojave.esp's Cottonwood Cove corpses (owner 2026-11-15): entry 0 at
+        // (0.17, 0.03, 66.33), the bind pose's pelvis height; they stood upright at rest.
+        let skel = skeleton();
+        let standing = [Bone { position: [0.17, 0.03, 66.33], angles: [0.0, 0.0, -1.57] }, Bone { position: [31.0, 0.0, 0.0], angles: [0.0; 3] }];
+        let e = pose(&RAG, &skel, &standing, [0.0; 3], [0.0; 3], 1.0).unwrap_err();
+        assert!(e.contains("standing"), "{e}");
+        // A lying pose's entry 0 is about 0 (FalloutNV.esm: within 0.05 on 276 of 278).
+        let lying = [Bone { position: [0.03, -0.02, 0.01], angles: [0.0; 3] }, standing[1]];
+        assert!(pose(&RAG, &skel, &lying, [0.0; 3], [0.0; 3], 1.0).is_ok());
     }
 }

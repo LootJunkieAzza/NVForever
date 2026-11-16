@@ -25,6 +25,10 @@ const RATS: u32 = 0x902;
 const IDLERS: u32 = 0x903;
 const GANG_A: u32 = 0x904;
 const GANG_B: u32 = 0x905;
+/// An army that names itself an ally and the wearers of its enemy's armour an enemy (as
+/// VCaesarsLegionFaction and ArmorNCRFactionNVEnemy).
+const LEGION: u32 = 0x906;
+const ENEMY_ARMOR: u32 = 0x907;
 
 const LEADER: u32 = 0x830;
 const MEMBER: u32 = 0x831;
@@ -65,6 +69,10 @@ const LURKER: u32 = 0x871;
 const NAMELESS: u32 = 0x872;
 /// What a wolf carries (a created leveled wolf carries it too).
 const PELT: u32 = 0x880;
+/// A legionary, and an officer of the army that is also in its enemy-armour faction (as
+/// FortVulpesInculta).
+const LEGIONARY: u32 = 0x873;
+const SPY: u32 = 0x874;
 
 const CELL: u32 = 0x200;
 const LEADER_REF: u32 = 0x320;
@@ -83,6 +91,8 @@ const GANGER_B_REF: u32 = 0x32C;
 const COWARD_REF: u32 = 0x32D;
 const LURKER_REF: u32 = 0x32E;
 const NAMELESS_REF: u32 = 0x32F;
+const LEGIONARY_REF: u32 = 0x330;
+const SPY_REF: u32 = 0x331;
 /// Sixteen references of the creature whose template list holds a wolf and a rat.
 const MIXED_REFS: std::ops::Range<u32> = 0x340..0x350;
 const PLAYER: u32 = 0x14;
@@ -175,6 +185,8 @@ fn plugin_bytes() -> Vec<u8> {
         // Two gangs that name nobody but a third faction, each other not at all.
         record(b"FACT", 0, GANG_A, &[sub(b"EDID", z("GangA")), xnam(RATS, 0)]),
         record(b"FACT", 0, GANG_B, &[sub(b"EDID", z("GangB")), xnam(RATS, 0)]),
+        record(b"FACT", 0, LEGION, &[sub(b"EDID", z("Legion")), xnam(LEGION, 2), xnam(ENEMY_ARMOR, 1)]),
+        record(b"FACT", 0, ENEMY_ARMOR, &[sub(b"EDID", z("EnemyArmor")), xnam(LEGION, 1), xnam(ENEMY_ARMOR, 3)]),
     ]
     .concat();
     let npcs = [
@@ -191,6 +203,8 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, LOAFER, &[sub(b"EDID", z("Loafer")), acbs(0), snam(IDLERS, 0), aidt(1)]),
         record(b"NPC_", 0, GANGER_A, &[sub(b"EDID", z("GangerA")), acbs(0), snam(GANG_A, 0), snam(IDLERS, 0), aidt(2)]),
         record(b"NPC_", 0, GANGER_B, &[sub(b"EDID", z("GangerB")), acbs(0), snam(GANG_B, 0), snam(IDLERS, 0), aidt(1)]),
+        record(b"NPC_", 0, LEGIONARY, &[sub(b"EDID", z("Legionary")), acbs(0), snam(LEGION, 0), aidt(1)]),
+        record(b"NPC_", 0, SPY, &[sub(b"EDID", z("Spy")), acbs(0), snam(LEGION, 0), snam(ENEMY_ARMOR, 0), aidt(1)]),
     ]
     .concat();
     let creatures = [
@@ -227,6 +241,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", LOAFER_REF, LOAFER),
         placed(b"ACHR", GANGER_A_REF, GANGER_A),
         placed(b"ACHR", GANGER_B_REF, GANGER_B),
+        placed(b"ACHR", LEGIONARY_REF, LEGIONARY),
+        placed(b"ACHR", SPY_REF, SPY),
         placed(b"ACRE", COWARD_REF, COWARD),
         placed(b"ACRE", LURKER_REF, LURKER),
         placed(b"ACRE", NAMELESS_REF, NAMELESS),
@@ -807,6 +823,22 @@ fn a_shared_faction_does_not_make_enemies_kin() {
     let (a, b) = (FormId(GANGER_A_REF), FormId(GANGER_B_REF));
     assert!(!g.kin(a, b));
     assert!(g.would_attack(a, b) && !g.would_attack(b, a));
+}
+
+#[test]
+fn an_army_that_names_itself_an_ally_keeps_its_own_from_fighting() {
+    // Owner 2026-11-15, Finger of Suspicion: FortVulpesInculta is in VCaesarsLegionFaction
+    // (which names itself an ally) and in ArmorNCRFactionNVEnemy (which it names an
+    // enemy); in the original nobody in Caesar's tent attacks him. Allies cannot attack
+    // each other [documented: wiki Category:Factions], and the shared faction makes them
+    // allies whatever their other factions say.
+    let f = fixture();
+    let mut g = game(&f);
+    let (legionary, spy) = (FormId(LEGIONARY_REF), FormId(SPY_REF));
+    assert!(g.kin(legionary, spy) && g.kin(spy, legionary));
+    assert!(!g.would_attack(legionary, spy) && !g.would_attack(spy, legionary));
+    // A raider and the watchman share only Idlers, which names no reactions: still enemies.
+    assert!(g.would_attack(FormId(BANDIT_REF), FormId(WATCHMAN_REF)));
 }
 
 #[test]
