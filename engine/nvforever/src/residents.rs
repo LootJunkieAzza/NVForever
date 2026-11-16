@@ -2692,6 +2692,7 @@ impl Core {
                 | AiEvent::FetchGot { .. }
                 | AiEvent::FetchDropped { .. }
                 | AiEvent::RangeSwap { .. }
+                | AiEvent::RangeFists { .. }
                 | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
@@ -3040,6 +3041,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::FetchDropped { from, why } => format!("rearm: gives up on {}: {why}", n(from)),
         AiEvent::RangeSwap { weapon, distance } => format!("rearm: takes up {} for its target {distance:.0} units away", n(weapon)),
+        AiEvent::RangeFists { weapon, distance } => format!("rearm: puts away {} for its fists: its target {distance:.0} units away is inside its blast", n(weapon)),
         AiEvent::EscortWaits { package, target, away } => format!(
             "escorts {}: waits, it is {} behind ({})",
             n(target),

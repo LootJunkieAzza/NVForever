@@ -327,6 +327,8 @@ impl Game<'_> {
         let resist = if level > 0.0 { fa::actor_value(self, p, RAD_RESISTANCE).unwrap_or(0.0) } else { 0.0 };
         let resisted = taken(level, resist, 1.0);
         let rate = taken(level, resist, setting(self, "fRadiationAccumulationRate", 1.0));
+        // God mode: the player takes none of it (`functions::actor::god_spares`, #2743).
+        let rate = if self.toggles.god_mode { 0.0 } else { rate };
         if rate > 0.0 && dt > 0.0 {
             self.shift_need(RAD_LEVEL, rate * dt);
         }

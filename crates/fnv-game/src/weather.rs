@@ -1,6 +1,8 @@
 //! The weather scripts ask for and the one on the screen (docs/design/script-stubs.md
 //! §3): SetWeather, ForceWeather, ReleaseWeatherOverride, IsRaining and
-//! GetIsCurrentWeather. The sky (`nvforever` `sky.rs`) takes the request and tells
+//! GetIsCurrentWeather, GetCurrentWeatherPercent and classification queries.
+//! The sky (`nvforever` `sky.rs`)
+//! takes the request and tells
 //! back which weather it shows ([`Game::set_shown_weather`]).
 
 use crate::functions::{none, yes, Args, Ctx};
@@ -33,6 +35,11 @@ pub struct WeatherState {
     /// The weather shown before the one shown now (ClimateControl's
     /// GetOutgoingWeather), as the engine told the change.
     pub outgoing: Option<FormId>,
+    /// Last finite sky measurement; transient and absent before the host reports.
+    measured_fraction: Option<f32>,
+    /// Destination classification and settled state from the same finite report.
+    /// A fraction-only host must not reuse an earlier classification measurement.
+    measured_classification: Option<(u8, bool)>,
 }
 
 impl Game<'_> {
@@ -54,6 +61,26 @@ impl Game<'_> {
         }
         self.weather.shown = Some(weather);
         self.weather.raining = raining;
+        // This legacy setter makes no fraction measurement. The reporting bridge
+        // supplies one separately; never retain a measurement across this write.
+        self.weather.measured_fraction = None;
+        self.weather.measured_classification = None;
+    }
+
+    /// Record the actual sky producer's progress after reporting shown weather.
+    /// Invalid or unbound measurements become unavailable, not a clamped value.
+    pub fn set_shown_weather_fraction(&mut self, fraction: f32) {
+        self.weather.measured_fraction = (self.weather.shown.is_some()
+            && fraction.is_finite() && (0.0..=1.0).contains(&fraction)).then_some(fraction);
+        self.weather.measured_classification = None;
+    }
+
+    /// Report one sky observation, without advancing or selecting weather.
+    /// `classification` is the shown WTHR DATA byte; `settled` means no prior sky.
+    pub fn set_shown_weather_sample(&mut self, fraction: f32, classification: u8, settled: bool) {
+        self.set_shown_weather_fraction(fraction);
+        self.weather.measured_classification = self.weather.measured_fraction
+            .map(|_| (classification, settled));
     }
 }
 
@@ -98,6 +125,38 @@ pub fn release_weather_override(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<V
 /// reads 0.
 pub fn is_raining(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.weather.raining)
+}
+
+/// The last measured transition fraction. The public command's range and alias
+/// are documented by GECK GetCurrentWeatherPercent. Unmeasured returns zero
+/// [hypothesis: engineering policy]; no native cold/endpoint parity is inferred.
+pub fn get_current_weather_percent(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(f64::from(g.weather.measured_fraction.unwrap_or(0.0))))
+}
+
+/// `IsSnowing`: the documented binary settled-snow query. Unmeasured is zero
+/// [hypothesis: engineering policy], as for the other measured sky queries.
+pub fn is_snowing(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    yes(g.weather.measured_classification.is_some_and(|(class, settled)| class & 8 != 0 && settled))
+}
+
+fn classified_fraction(g: &Game, flag: u8) -> Result<Value, String> {
+    let fraction = if g.weather.measured_classification.is_some_and(|(class, _)| class & flag != 0) {
+        g.weather.measured_fraction.unwrap_or(0.0)
+    } else { 0.0 };
+    Ok(Value::Num(f64::from(fraction)))
+}
+
+/// Destination Pleasant classification, weighted by the existing sky fade.
+/// [documented: GECK IsPleasant]; no outgoing-weather contribution is invented.
+pub fn is_pleasant(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    classified_fraction(g, 1)
+}
+
+/// Destination Cloudy classification, weighted by the existing sky fade.
+/// Contract qualification is recorded in docs/spec-notes/current-weather-percent.md.
+pub fn is_cloudy(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    classified_fraction(g, 2)
 }
 
 /// `GetIsCurrentWeather weather`: 1 when that weather is the current one [documented:

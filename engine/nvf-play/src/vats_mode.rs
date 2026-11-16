@@ -1123,6 +1123,16 @@ fn player_ap(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<(f3
     })
 }
 
+/// The Action Points the player has to mark with: unlimited in god mode, where an attack
+/// takes none (`fnv_game::functions::actor::god_spares`) [design: owner decision
+/// 2026-11-15, issue #2743]; unlimited too without the script runtime.
+fn ap_to_mark(script: Option<&mut ScriptState>, sim: &mut SimState) -> f32 {
+    if crate::combat::god_mode() {
+        return f32::INFINITY;
+    }
+    player_ap(script, sim).map_or(f32::INFINITY, |a| a.0)
+}
+
 /// The sound side of [`update`].
 #[derive(SystemParam)]
 struct Sounds<'w> {
@@ -1655,7 +1665,11 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         info!("vats mode: perks change the AP cost {:.1} -> {:.1} ({})", w.cost, cost.max(0.0), by.join(", "));
         w.cost = cost.max(0.0);
     }
-    let ap_now = ap.map_or(f32::INFINITY, |a| a.0);
+    let god = crate::combat::god_mode();
+    let ap_now = if god { f32::INFINITY } else { ap.map_or(f32::INFINITY, |a| a.0) };
+    if god {
+        info!("vats mode: god mode: Action Points are unlimited, an attack takes none ({:.0} now)", ap.map_or(0.0, |a| a.0));
+    }
     v.queue = MarkQueue::new(w.cost, w.rounds_per_shot, w.rounds);
     // Not even one mark: no AP for it, or (a burst) not a whole burst loaded.
     if let Err(r) = v.queue.check(ap_now) {
@@ -2581,7 +2595,7 @@ fn mark_actor(
         Ok(true) => info!("vats mode: {actor:08X} is cloaked: marked through Enhanced Sensors"),
         Ok(false) => {}
     }
-    let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
+    let ap_now = ap_to_mark(script.as_deref_mut(), sim);
     let earlier = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == part).count() as u32;
     // The classic style's special attack costs its own AP (vats-classic.md §9).
     let special = v.weapon.as_ref().and_then(|w| w.special).filter(|_| special && v.style == VatsStyle::Classic);
@@ -2639,7 +2653,7 @@ fn mark_actor(
 /// [`WHOLE_TO_HIT`]'s base chance; its point stays where it was marked.
 #[allow(clippy::too_many_arguments)]
 fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Option<&mut ScriptState>, sim: &mut SimState, player: &Player, hud: &mut HudMessage, sounds: &mut Sounds) {
-    let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
+    let ap_now = ap_to_mark(script.as_deref_mut(), sim);
     let earlier = v.queue.marks().iter().filter(|m| m.target.0 == object).count() as u32;
     match v.queue.push(FormId(object), None, ap_now) {
         Ok(k) => {
@@ -2728,7 +2742,7 @@ pub fn projectile_under(all: &[crate::combat::VatsProjectile], rules: &Projectil
 /// the distance and the player's skill only, as small as a held weapon [design:
 /// docs/design/tweaks.md; the readme's rule, "only the distance + player skill"].
 fn mark_projectile(v: &mut VatsMode, p: crate::combat::VatsProjectile, script: Option<&mut ScriptState>, sim: &mut SimState, player: &Player, hud: &mut HudMessage, sounds: &mut Sounds) {
-    let ap_now = player_ap(script, sim).map_or(f32::INFINITY, |a| a.0);
+    let ap_now = ap_to_mark(script, sim);
     let earlier = v.spots.iter().filter(|s| s.projectile == Some(p.id)).count() as u32;
     match v.queue.push(FormId(0), None, ap_now) {
         Ok(k) => {
@@ -2835,7 +2849,15 @@ fn start_mark(v: &mut VatsMode, i: usize, script: Option<&mut ScriptState>, sim:
     let Some(m) = v.queue.marks().get(i).copied() else { return 0.0 };
     v.started = v.started.max(i + 1);
     let Some(rt) = script.and_then(|sc| sc.rt.as_mut()) else { return 0.0 };
-    with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS, m.cost as f64));
+    let left = with_world(rt, sim, |rt| {
+        fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS, m.cost as f64);
+        fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS).unwrap_or(0.0)
+    });
+    // God mode: the game takes none (`ap_to_mark`); the cost is still counted as the
+    // attack's in the lines and the summary.
+    if crate::combat::god_mode() {
+        info!("vats mode: god mode: attack {} takes none of the player's Action Points: {left:.0} left", i + 1);
+    }
     v.spent += m.cost;
     v.stats.ap_spent += m.cost;
     m.cost

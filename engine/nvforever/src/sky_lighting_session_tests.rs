@@ -1,9 +1,9 @@
 //! Real compiled Game writes -> production lighting reader -> SkyState -> Projection.
 //! The source-only baseline adds a neutral reader seam, not a new lighting policy.
 use super::*;
-use crate::authored_test_records as lighting_build;
+pub(super) use crate::authored_test_records as lighting_build;
 #[path = "../../../crates/fnv-game/tests/common/lighting_templates.rs"]
-mod fixtures;
+pub(super) mod fixtures;
 use fixtures::*;
 use crate::world::{effective_cell_lighting, WorldData};
 use fnv_script::vm::XVal;
@@ -18,7 +18,7 @@ fn world(f: &Fixture) -> WorldData {
     }
 }
 
-fn sky() -> SkyState {
+pub(super) fn sky() -> SkyState {
     SkyState {
         climate: Climate::default(), weather: Weather::default(), hour: 12.0,
         fog_override: None, interior: None, interior_grade: None, shadows: false,

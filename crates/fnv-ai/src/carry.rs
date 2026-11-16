@@ -384,6 +384,10 @@ pub enum AiEvent {
     /// Its weapon does not fire at its target `distance` away: it holds `weapon`, which
     /// does (`crate::rearm`).
     RangeSwap { weapon: FormId, distance: f32 },
+    /// Its target `distance` away stayed inside its explosive `weapon`'s blast and it
+    /// carries nothing that fires there: it puts `weapon` away and fights with its fists
+    /// (`crate::rearm`, #2745).
+    RangeFists { weapon: FormId, distance: f32 },
     /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
     Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).

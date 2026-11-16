@@ -4312,6 +4312,72 @@ fn a_fighter_takes_the_incinerator_for_a_far_target_and_the_flamer_for_a_near_on
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(FLAMER)), "{:?}", s.events(R_SB_NOTHING));
 }
 
+#[test]
+fn a_cornered_fighter_with_an_explosive_weapon_takes_up_its_knife() {
+    // #2745: an incinerator (blast 150) with its target 100 units off and no gun that
+    // fires there: it steps back first (the engine's rule), then, still too close after
+    // `CORNERED_SECONDS`, holds the knife it carries though a knife is not its class.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(INCINERATOR, 1), (KNIFE, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(INCINERATOR)).unwrap();
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(1.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "not before it had time to step back");
+    s.run(3.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::RangeSwap { weapon, .. } if *weapon == FormId(KNIFE))), "{ev:?}");
+}
+
+#[test]
+fn a_cornered_fighter_with_only_an_explosive_weapon_fights_with_its_fists_until_clear() {
+    // #2745 (the Boomers in the Nellis barracks): nothing else carried, so it puts the
+    // incinerator away for its fists; no empty-hand rule takes it up again while the
+    // target is too close; with the target clear of the blast it holds it again, and the
+    // same when the fight ends.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(INCINERATOR, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(INCINERATOR)).unwrap();
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(4.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert_eq!(s.game.held_weapon(me), None, "{ev:?}");
+    assert_eq!(s.game.rearms.put_away.get(&me), Some(&FormId(INCINERATOR)));
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::RangeFists { weapon, .. } if *weapon == FormId(INCINERATOR))), "{ev:?}");
+    // The empty-hand rules (re-arming's and the style's) leave its fists alone.
+    s.game.arm_by_style();
+    s.run(2.0);
+    assert_eq!(s.game.held_weapon(me), None, "{:?}", s.events(R_SB_NOTHING));
+    // The target 1,500 units off: clear of the blast, so the incinerator again.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0], feet[1] + 1500.0, 0.0]);
+    s.run(1.5);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "{:?}", s.events(R_SB_NOTHING));
+    assert!(s.game.rearms.put_away.is_empty());
+    // Cornered again, then the fight is over: it holds the incinerator once more.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(6.0);
+    assert_eq!(s.game.held_weapon(me), None, "{:?}", s.events(R_SB_NOTHING));
+    s.game.calm_rearm(me);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)));
+    assert!(s.game.rearms.put_away.is_empty());
+}
+
 /// Stay-at locations given by an object, and a Guard that remains near what it guards
 /// (#961, `goal::stay_at`, packages.md §7.7) [hypothesis: no source says how either
 /// chooses its place]: Near Object ID walks to the nearest reference of the base (the

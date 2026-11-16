@@ -113,6 +113,11 @@ impl Game<'_> {
             return None;
         }
         if held.is_none() {
+            // Fists by choice: an explosive weapon put away with its target too close
+            // (`crate::rearm`, "Too close") is not an empty hand to fill.
+            if self.rearms.put_away.contains_key(&actor) {
+                return None;
+            }
             return self.best_carried(actor).map(|(w, _, _)| w);
         }
         let carried: Vec<(FormId, f32, Reach)> = inv
