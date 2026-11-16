@@ -24,8 +24,11 @@ node only with modes 1 and 3; a remove leaves the mirror as it is (mode 0 waits 
 | ClearRuntimeNodes `object` | the calling plugin's entries dropped, the others kept; the number dropped [documented: "Nodes created by other mods are left intact", the `> 0` example]. A script of no plugin clears nothing and gives 0, even right after its own InsertNode [observed: jipppln; hypothesis: its entries count as no mod's]. A reference's inserted nodes go from its drawn tree at once [hypothesis] |
 | AttachFormModel `target form mode "node\|suffix"` | `form`'s model (MODL) as an entry under `node` (the root without one), and `form`'s own entries after it, the suffix kept on them; modes 1/3 attach, 0/2 remove; mode 3 on a drawn reference attaches at once (`SceneEdit::Attach`); 1 on success [documented]. Success is the form having a model; a remove gives 1 whether or not the entry was there [observed: jipppln, a second remove gives 1 again] |
 
-Follow-up: the engine does not yet rename attached blocks with the suffix, or rebuild a
-base form's references from the list on their next 3D load.
+The reference AttachModel producer applies suffixes to its own source nodes and
+implements modes 0/1/2/3 with exact instance ownership
+([nif-attachments](nif-attachments.md)). Base-form-wide replay,
+CopyRuntimeNodes/ClearRuntimeNodes attachment ownership, and AttachFormModel
+removal/replay remain follow-ups; list operations alone do not qualify drawing.
 
 ## 2. The rest
 

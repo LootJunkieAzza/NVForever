@@ -23757,6 +23757,50 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-reference-attach-owned"
+source = "[design: docs/spec-notes/nif-attachments.md] Authored duplicate-name geometry and unequal bound materials through real AttachModel dispatch. UNRUN; no native or pixel comparison."
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvf-assets/src/model/attachment.rs", "engine/nvforever/src/nif_attachments.rs", "engine/nvforever/src/nif_attach_model_probe.rs", "tools/smoke/fixtures/attach-model-owned/"]
+requires = ["NVF_PLAY_TEST_ATTACH_MODEL_HOME", "NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW", "NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH"]
+note = "Run exact manifest/Data/HOME admission before launch, then pass the owned Data view with CLI --data. The normal smoke CLI does not itself validate this manifest. HOME/mods is not a loose-mesh root. Run the field judge on the same complete log; scenario regexes alone do not establish geometry/material pairing or captured-entity retirement."
+env = { RUST_LOG = "info,nvf_play::script=debug", NVFOREVER_HOME = "{env:NVF_PLAY_TEST_ATTACH_MODEL_HOME}", NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW = "{env:NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW}", NVF_PLAY_TEST_ATTACH_MODEL_PROBE = "1", NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH = "{env:NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH}", NVF_PLAY_TEST_CONSOLE = '4:ToggleFirstPerson 0;4.3:close;5:player.GetChildBlocks "" 1;5.3:close;7:PrintC "nvf attach warm %g", (Ar_Size (player.GetChildBlocks "" 1));7.3:close;9:PrintC "nvf attach requested %g", (AttachModel player 3 "|*_nvfa*nvf_smoke/attach_model.nif");9.5:close;14:PrintC "nvf attach removal submitted %g", (AttachModel player 2 "|*_nvfa*nvf_smoke/attach_model.nif");14.5:close' }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 20
+timeout = 180
+ends = "run log: the game exited normally"
+expect = [
+  { re = "nif attach probe: preflight prepared shapes=2 .* rig=0 ", count = 1, label = "ordinary baseline ModelCtx prepares two authored static drawables" },
+  { re = "nif attach probe: preflight shape .* vertices=4 .* positions_finite=1 .* roughness_finite=1", count = 2, label = "real prepared geometry and material fields before Attach" },
+  { re = 'script: print "nvf attach warm [1-9][0-9]*"', label = "real third-person recipient is published" },
+  { re = 'script: print "nvf attach requested [01]"', count = 1, label = "submission return only; physical fields are checked independently" },
+  { re = 'nif attach probe: present .* vertices=4 ', count = 2, label = "two actual mesh/material field rows" },
+  { re = 'nif attach probe: captured .* count=2 distinct_entities=1 distinct_meshes=1', count = 1, label = "physical entity and mesh identity" },
+  { re = 'nif attach probe: retained .* captured_count=2 matching_named=2 same_handles=1 same_ancestry=1', count = 1, label = "stable captured ownership before mode2" },
+  { re = 'script: print "nvf attach removal submitted [01]"', count = 1, label = "explicit authored removal submission before deferred producer execution" },
+  { re = 'nif attach probe: removed .* captured_count=2 gone=2 matching_named=0 host_live=1 selected_same=1', count = 1, label = "captured entities gone and recipient preserved" },
+]
+order = [[
+  { text = "nif attach probe: preflight prepared shapes=2 " },
+  { text = "nif attach probe: preflight shape " },
+  { re = 'script: print "nvf attach requested [01]"' },
+  { text = "nif attach probe: present " },
+  { text = "nif attach probe: captured " },
+  { text = "nif attach probe: retained " },
+  { re = 'script: print "nvf attach removal submitted [01]"' },
+  { text = "nif attach probe: removed " },
+]]
+forbid = [
+  { text = "nif attach probe: preflight unavailable " },
+  { text = "nif attach probe: terminal " },
+  { text = "nif attach probe: unavailable " },
+  { text = "nif attach probe: recipient " },
+  { re = "script error in " },
+  { re = "(?i)script: attachmodel failed in " },
+  { re = "NVF_PLAY_TEST_CONSOLE: .*: (?:expected <seconds>:<line>|bad seconds)" },
+  { re = 'attachment .*could not supply a complete graph' },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]
@@ -29748,8 +29792,8 @@ run_seconds = 40
 order = [[
   { re = 'use weapon: VMS18SecuritronREF 0x001299AB uses WeapNVSecuritronSubmachineGun on VMS18HeckGundersonREF \(its package VMS18SecuritronFire1\): 6 shots; always hit, no damage', label = "the Securitron opens fire on Heck with its Do No Damage package" },
   { text = "combat: a harmless shot by 0x001299AB hits 0x0010D4EF: its hit blocks ran, no damage", label = "a harmless shot runs Heck's OnHit for the Securitron" },
-  { text = "script: OnDeath of FalloutNV.esm|SCPT 0x00125AF0 ran on Some(0x0010D4EF)", label = "its KillActor kills Heck: his OnDeath block runs" },
-  { text = "script: VMS18SecuritronREF says 0x00129988", label = "the Securitron says its death reaction (VMS18SecuritronHeckDeathReaction)" },
+  { text = "script: VMS18SecuritronREF says 0x00129988", label = "the Securitron says its death reaction (VMS18SecuritronHeckDeathReaction), said from within his OnDeath block" },
+  { text = "script: OnDeath of FalloutNV.esm|SCPT 0x00125AF0 ran on Some(0x0010D4EF)", label = "its KillActor kills Heck: his OnDeath block has run (logged once the block is over, so after the line it says; #2738)" },
 ]]
 expect = [
   { text = "use weapon: VMS18SecuritronREF 0x001299AB stops: VMS18HeckGundersonREF is dead or gone", label = "the Securitron stops firing at the dead Heck (same frame as its line: not ordered)" },
@@ -30189,6 +30233,24 @@ order = [[
 ]]
 expect = [
   { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "one stay, one refusal" },
+]
+
+[[scenario]]
+name = "load-phases-goodsprings"
+source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
+note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
+areas = ["loading", "streaming"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+order = [[
+  { re = 'loading screen phases: up [\d.]+ s; .*cells to draw .*; longest frame [\d.]+ s of \d+; read \d+ files, [\d.]+ MB, [\d.]+ s reading, [\d.]+ s queued for an archive', label = "the start's screen is timed" },
+  "GSDocMitchellHouseIntDoorREF activated",
+  { re = 'loading screen phases: up [\d.]+ s; the travel to go out .*actors to draw .*; read (?P<n>\d+) files', range = [100, 100000], label = "the door's screen is timed, the files of Goodsprings read under it" },
+]]
+expect = [
+  { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
 ]
 
 [[scenario]]
