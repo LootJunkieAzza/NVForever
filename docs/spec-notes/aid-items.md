@@ -376,6 +376,19 @@ Rules (`crates/fnv-game/src/perks.rs`) [hypothesis unless said]:
 
 ## 11. Rads and Hardcore's needs over time
 
+`DisableHardcoreTracking` (0x126A, alias `babby`, #2271) now sets the existing saved
+`hardcore_was_off` eligibility flag, which IsAlwaysHardcore consumes. It does not
+switch off Hardcore mode or clear/stop survival needs [documented: GECK wiki
+DisableHardcoreTracking](https://geckwiki.com/index.php?title=DisableHardcoreTracking).
+This follows the existing permanently recorded eligibility state; platform
+achievement delivery remains outside this command's scope.
+
+Two `hardcore_tracking` controls cover source/alias and SCTX-free authored
+SCDA, actual eligibility queries, retained needs and continuing accumulation,
+idempotence, serialized restore, and use while Hardcore is already off. They are
+authored and unexecuted. No new original-game or platform-achievement observation
+is claimed.
+
 Records [observed: FalloutNV.esm]: the actor values Dehydration (H2O), Hunger
 ("Starvation") and Sleep Deprivation; the settings `fHCStarvationRate` 25 and
 `fHCSleepDeprivationRate` 50 (no dehydration rate in any master); RADS, DEHY, HUNG and

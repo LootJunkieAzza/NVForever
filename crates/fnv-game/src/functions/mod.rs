@@ -512,6 +512,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1229, "SetPCCanUsePowerArmor", Impl(player::set_pc_can_use_power_armor)),
             (0x1058, "AddTopic", Impl(player::add_topic)),
             (0x126B, "IsAlwaysHardcore", Impl(player::is_always_hardcore)),
+            (0x126A, "DisableHardcoreTracking", Impl(player::disable_hardcore_tracking)),
             // Quests.
             (0x11AD, "CompleteAllObjectives", Impl(quest::complete_all_objectives)),
             (0x11DB, "ResetQuest", Impl(quest::reset_quest)),

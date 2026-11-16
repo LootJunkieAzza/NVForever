@@ -13,6 +13,7 @@ mod common;
 mod digest;
 
 mod abilities;
+mod hardcore_tracking;
 mod actor_values;
 mod aid;
 mod appearance;

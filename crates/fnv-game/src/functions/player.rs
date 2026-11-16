@@ -459,6 +459,13 @@ pub fn is_always_hardcore(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     yes(on && !g.player.hardcore_was_off)
 }
 
+/// Permanently disqualify this playthrough's always-Hardcore tracking. This
+/// records eligibility without switching off Hardcore or clearing its needs.
+pub fn disable_hardcore_tracking(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.player.hardcore_was_off = true;
+    none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

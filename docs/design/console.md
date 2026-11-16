@@ -139,8 +139,10 @@ or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
 `AdvLevel`, `bat`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
 `registered_names_are_catalogue_console_commands` pins the two numbers: **33** in the
-wiki's "Console Functions" category, **92** others. Implementing one lowers a number
-there; a catalogue update that adds one raises it. Sorted (2026-10-31):
+wiki's "Console Functions" category, **91** others. Implementing one lowers a number
+there; a catalogue update that adds one raises it. Registering
+`DisableHardcoreTracking` reduced the latter count from 92 to 91.
+Sorted (2026-11-16):
 
 **Console functions players use**: all built (`cow`, `coe`, `saq`, `rdf`, `rat`, `zap`,
 `slpm`, `bat`, `tfow`, `temo`, `tlik`, `MFG`, `plm`, `clm`, `s1st`, `SetVel`; in the
@@ -160,7 +162,7 @@ menu words `delete`, `depth`, `front`, `iso`, `reload`, `stack`,
 `use`, `usz`, `visible` [hypothesis for each: from its catalogue summary; revisit one
 when a player or a capture campaign asks for it].
 
-**The other 92** are script functions no master calls, many listed by the wiki as
+**The other 91** are script functions no master calls, many listed by the wiki as
 unused in New Vegas (`ModPCSkill`, `GetFactionReaction`, …) or as conditions with an opcode
 (`GetGold`, `SameFaction`, …). `GetCurrentWeatherPercent`, `IsSnowing`,
 `IsPleasant` and `IsCloudy` now read the reported weather sample and are no longer
