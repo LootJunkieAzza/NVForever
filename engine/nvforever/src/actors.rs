@@ -914,6 +914,10 @@ pub(crate) fn arm_weapon(
         let models: Vec<&str> = w.addons.iter().filter_map(|a| world.actors.armors.get(a)).filter_map(|a| a.worn[0].as_deref()).collect();
         info!("actor weapons: {reference:08X} {path}: worn with its hand model(s) {models:?} in place of the bare hand");
     }
+    if shapes.rest_hidden > 0 {
+        let names: Vec<&str> = part.part_rest.iter().filter(|(_, v)| !*v).map(|(n, _)| n.as_str()).collect();
+        info!("actor weapons: {reference:08X} {path}: {} shape(s) the model hides at rest, kept hidden ({names:?})", shapes.rest_hidden);
+    }
     hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
     hold.back = shapes.back;
     if !shapes.posed.is_empty() {

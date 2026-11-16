@@ -23,7 +23,7 @@ const LEVER: u32 = 0x160; // a named activator with a model
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
-const STIM_REF: u32 = 0x301; // XCNT 3, no collision
+pub(crate) const STIM_REF: u32 = 0x301; // XCNT 3, no collision
 const CHEST_REF: u32 = 0x302;
 const SAFE_REF: u32 = 0x303; // a chest locked at level 50 with KEY
 const DOOR_REF: u32 = 0x304; // -> DOOR_DEST in CELL_INT
@@ -81,7 +81,7 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
     }
 }
 
-fn sim() -> SimState {
+pub(crate) fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
     for b in [
@@ -222,6 +222,21 @@ fn a_restored_change_still_reaches_the_drawn_world() {
     app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged { form_id: STIM_REF, restored: true });
     app.update();
     assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
+}
+
+/// A change to a reference shows its entities again, but not one that stays hidden (a
+/// revolver's speed loader at rest, `crate::StaysHidden`).
+#[test]
+fn a_change_to_a_reference_leaves_a_part_that_stays_hidden_hidden() {
+    let mut app = scene(&[]);
+    let shown = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    let loader = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().entity_mut(loader).insert((crate::StaysHidden, Visibility::Hidden));
+    app.update();
+    app.world_mut().resource_mut::<Messages<RefChanged>>().write(RefChanged { form_id: STIM_REF, restored: false });
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(shown), Some(&Visibility::Inherited));
+    assert_eq!(app.world().get::<Visibility>(loader), Some(&Visibility::Hidden));
 }
 
 #[test]

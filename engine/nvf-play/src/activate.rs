@@ -974,7 +974,7 @@ pub(crate) fn activate(
 // ---- visual sync -----------------------------------------------------------------
 
 type NewVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility), Added<RefVisual>>;
-type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility)>;
+type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility, Has<crate::StaysHidden>)>;
 
 /// Whether a reference is drawn: present in the simulation ([`SimState::present`]) and not
 /// culled by its critical stage (GooEnd, DisintegrateEnd: `fnv_game::Game::culled`). A
@@ -1005,9 +1005,9 @@ pub fn sync_visuals(
     if changed.is_empty() {
         return;
     }
-    for (r, mut v) in &mut visuals.p1() {
+    for (r, mut v, stays) in &mut visuals.p1() {
         if let Some(n) = changed.get_mut(&r.0) {
-            v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
+            v.set_if_neq(if drawn(&sim, script, r.0) && !stays { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }

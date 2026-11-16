@@ -504,6 +504,8 @@ pub struct SpawnedWeapon {
     pub gun: Vec<(Entity, String)>,
     /// Those on a bone of their own ([`WeaponHold::back`]).
     pub back: Vec<Entity>,
+    /// How many rest hidden (a revolver's speed loader, [`rests_hidden`]).
+    pub rest_hidden: usize,
     /// Those under a part the aim or draw clip moves: the shape, its place in the model
     /// and its place in the hand ([`WeaponHold::parts`]).
     pub posed: Vec<(Entity, Transform, Transform)>,
@@ -540,8 +542,14 @@ pub fn spawn_model(
         let tr = Transform::from_matrix(Mat4::from(part.root * s.transform));
         // A part the model's own controllers hide at rest (a revolver's speed loader,
         // `model::part_rest_visibility`): hidden, as no clip of the holder shows it here.
-        let visibility = if rests_hidden(&part.part_rest, names()) { Visibility::Hidden } else { Visibility::Inherited };
+        let rest_hidden = rests_hidden(&part.part_rest, names());
+        let visibility = if rest_hidden { Visibility::Hidden } else { Visibility::Inherited };
         let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr, visibility)).id();
+        // And kept hidden when its holder's reference changes (`nvf_play::StaysHidden`).
+        if rest_hidden {
+            commands.entity(e).insert(nvf_play::StaysHidden);
+            out.rest_hidden += 1;
+        }
         if let Some((_, names)) = &s.skin {
             nvf_assets::actor::skin_in_place(commands, e, names.len());
         }
@@ -554,7 +562,7 @@ pub fn spawn_model(
         if bone.is_some() {
             commands.entity(e).insert(OnBack);
             out.back.push(e);
-        } else if let Some(g) = names().find_map(|n| gun_nodes.iter().find(|g| g.eq_ignore_ascii_case(n))) {
+        } else if let Some(g) = names().find_map(|n| gun_nodes.iter().find(|g| g.eq_ignore_ascii_case(n))).filter(|_| !rest_hidden) {
             out.gun.push((e, g.clone()));
         }
         if let Some(drawn) = bone.is_none().then(|| drawn_place(held, s)).flatten() {

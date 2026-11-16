@@ -37,7 +37,12 @@ controls.md (bindings).
   outfit's left forearm sleeve, `PipBoyOn…` or without a Pip-Boy `PipBoyOff…` (#2173)
   (gloves and the Pip-Boy whole; no head, hair or other
   armour; skin tinted as in third person; `fnv_actor::first_person`), and the weapon's
-  first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
+  first-person model (WEAP `WNAM`, a STAT). A held weapon's own hand models (WEAP `BIPL`, worn
+  on the third-person body in place of the bare right hand) are worn by the arms too,
+  unless the weapon has a `WNAM`: the Deathclaw, Bladed and Mantis Gauntlets have no
+  model but that hand model, the power fist and ballistic fist no `WNAM` [observed:
+  FalloutNV.esm]; without it the arms showed bare fists for the Deathclaw Gauntlet
+  [observed: owner 2026-11-15]. The Displacer Glove (`WNAM`) keeps the bare hand. `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
   node: 118 units above the feet, 78 crouched. Shown in first person.
 - An outfit change in the inventory menu rebuilds both. Without the first-person
