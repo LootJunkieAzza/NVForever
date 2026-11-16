@@ -851,7 +851,8 @@ pub(crate) fn tick(
                     info!("grass fire {fire}: started at ({:.0}, {:.0}, {:.0}) by {by} with {}", f.origin[0], f.origin[1], f.origin[2], item_name(script.as_deref(), f.item));
                 }
             }
-            FireEvent::Ended { fire } => info!(
+            // A guest's copy of the host's fire (the host logs the fire): none, as for its start.
+            FireEvent::Ended { fire } if !gf.guest => info!(
                 "grass fire {}: out after {:.1} s: {} patches burnt, reached {:.0} units of {:.0}, {} spreads held by the limits, {} actors caught fire",
                 fire.id,
                 gf.fires.now - fire.started,
