@@ -33,8 +33,14 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
   cell's patches with the height of the lowest plant's ground.
 - Grass switched off (`--no-grass`, settings) means no fuel: nothing burns.
 - When a cell is neither loaded nor being loaded (it fell behind the player, or the player
-  went indoors) its patches and what burnt of them are forgotten. The grass regrows the
-  next time it loads: burnt grass is not kept in saves, and it comes back whole.
+  went indoors) its patches and its fires are forgotten, but what fire reached there is
+  kept, as burnt out (a patch still burning too), with its ground's height
+  (`Fires::kept`). The next time the cell loads, those patches are ash and scorched
+  ground again, even where no grass grows on this game, and do not burn twice
+  [design: owner 2026-11-15 via parity: grass burnt while a co-op player was elsewhere
+  must be burnt when that player arrives or joins]. Burnt grass lasts for the session; it
+  is not kept in saves. Log: `grass fire: cell (x, y) loaded again: <n> patches burnt
+  before are burnt here again (<m> kept elsewhere)`.
 
 ## 3. Spread
 
@@ -123,8 +129,13 @@ Code: `engine/nvf-play/src/grass_fire.rs` (the model, the ignition, the actors),
 - A guest who joins while fires burn, or whose stream starts again, gets them as they
   are (`Fires::snapshot`): when its stream starts and again when it asks for the
   syncing screen's answer, standing in its place with its cells loaded, the host sends
-  every patch burning, with the seconds it has left, and every patch burnt out and still
-  remembered (fire 0, `BURNT_OUT`: ash and scorched ground, no flames). A patch it
+  every patch burning, with the seconds it has left, and every patch burnt out, in its
+  loaded cells or kept from cells it left (fire 0, `BURNT_OUT`: ash and scorched ground,
+  no flames).
+- Burnt grass is shared world state: the host sends every patch it lights to every
+  guest wherever the guest is, and each game keeps what burnt in cells it has not loaded
+  (§2), so a guest who was elsewhere, or who joined later, finds it burnt when its cell
+  loads, and so does the host when it comes back. A patch it
   already has is not lit twice. Log: host `replication: player <n> is told the grass
   fires here: <b> patches burning, <a> burnt out`; guest `grass fire: <a> patches the
   host's fires burnt out before this player came are burnt here too`.

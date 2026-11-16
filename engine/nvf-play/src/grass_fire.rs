@@ -5,8 +5,10 @@
 //!
 //! - **Patches.** The ground is split into squares of [`PATCH`] game units. A patch has
 //!   fuel when grass grows on it: the renderer, which places the grass, says so per cell
-//!   ([`Fires::add_fuel`]) and forgets a cell when it unloads ([`Fires::forget_cell`]), so
-//!   burnt grass is whole again when the player comes back.
+//!   ([`Fires::add_fuel`]) and forgets a cell when it unloads ([`Fires::forget_cell`]).
+//!   What burnt there is kept ([`Fires::kept`]) and burnt again when the cell loads, so
+//!   burnt grass stays burnt for the session [design: owner 2026-11-15 via parity, co-op:
+//!   a player who comes later finds the grass another burnt]. Not kept in saves.
 //! - **Spread.** A burning patch lights each patch within [`FireRules::jump`] patches of
 //!   it that has fuel and has not burnt (so a fire crosses the bare ground between
 //!   tufts), after a random delay ([`FireRules::spread_secs`] per patch of distance),
@@ -45,6 +47,12 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 pub const PATCH: f32 = 64.0;
 /// An exterior cell's side (game units): a patch's cell for a guest's remote patches.
 const CELL: f32 = 4096.0;
+
+/// The exterior cell (grid square) a patch is in.
+pub fn cell_of(k: Key) -> (i32, i32) {
+    let per = (CELL / PATCH) as i32;
+    (k.0.div_euclid(per), k.1.div_euclid(per))
+}
 /// [`LitPatch::fire`] of a patch that already burnt out (fire ids start at 1).
 pub const BURNT_OUT: u32 = 0;
 /// Patches along each side of the burn map: 32,768 units (eight cells) before it wraps,
@@ -243,6 +251,8 @@ pub struct FireStats {
     pub too_many: u32,
     pub held: u32,
     pub forgotten: u32,
+    /// Burnt patches burnt again when their cell loaded again.
+    pub restored: u32,
     /// The most patches burning at once.
     pub peak_burning: usize,
 }
@@ -258,6 +268,10 @@ pub struct Fires {
     fuel: HashMap<Key, Fuel>,
     by_cell: HashMap<(i32, i32), Vec<Key>>,
     burns: HashMap<Key, Burn>,
+    /// Patches fire reached in cells not loaded now, with their ground's height: burnt
+    /// out, kept for when the cell loads again ([`Fires::add_fuel`]) and for a guest who
+    /// joins ([`Fires::snapshot`]).
+    kept: HashMap<Key, f32>,
     /// The patches burning or sinking: their byte in the map still changes.
     active: HashSet<Key>,
     fires: Vec<Fire>,
@@ -289,6 +303,7 @@ impl Fires {
             fuel: HashMap::new(),
             by_cell: HashMap::new(),
             burns: HashMap::new(),
+            kept: HashMap::new(),
             active: HashSet::new(),
             fires: Vec::new(),
             queue: BinaryHeap::new(),
@@ -303,8 +318,11 @@ impl Fires {
         }
     }
 
-    /// The patches with grass in `cell` (grid square), with their ground's height.
-    pub fn add_fuel(&mut self, cell: (i32, i32), patches: impl IntoIterator<Item = (Key, f32)>) {
+    /// The patches with grass in `cell` (grid square), with their ground's height. What
+    /// burnt in the cell while it was away is burnt out here again (ash, scorched ground),
+    /// including patches with no grass here (a guest's grass may be thinner than the
+    /// host's): returns how many.
+    pub fn add_fuel(&mut self, cell: (i32, i32), patches: impl IntoIterator<Item = (Key, f32)>) -> usize {
         let list = self.by_cell.entry(cell).or_default();
         for (k, z) in patches {
             if let std::collections::hash_map::Entry::Vacant(e) = self.fuel.entry(k) {
@@ -312,6 +330,22 @@ impl Fires {
                 list.push(k);
             }
         }
+        let back: Vec<(Key, f32)> = self.kept.iter().filter(|(k, _)| cell_of(**k) == cell).map(|(k, z)| (*k, *z)).collect();
+        for &(k, z) in &back {
+            self.kept.remove(&k);
+            self.remember_ground(k, z);
+            if let std::collections::hash_map::Entry::Vacant(e) = self.burns.entry(k) {
+                e.insert(Burn::Ash);
+                self.set_texel(k, 255);
+            }
+        }
+        self.stats.restored += back.len() as u32;
+        back.len()
+    }
+
+    /// Patches burnt out in cells not loaded now (module notes).
+    pub fn kept(&self) -> usize {
+        self.kept.len()
     }
 
     /// The cells whose grass is known.
@@ -343,17 +377,20 @@ impl Fires {
         self.burning
     }
 
-    /// Forget a cell (it unloaded): its grass, and what burnt of it, so it grows whole
-    /// the next time the cell loads. Returns the patches forgotten that fire had reached.
+    /// Forget a cell (it unloaded): its grass, and its fires. What fire reached there is
+    /// kept as burnt out (one still burning too: it would have burnt out by the time
+    /// anyone comes back), for the next time the cell loads. Returns the patches kept.
     pub fn forget_cell(&mut self, cell: (i32, i32)) -> usize {
         let Some(keys) = self.by_cell.remove(&cell) else { return 0 };
         let mut n = 0;
         for k in keys {
+            let z = self.fuel.get(&k).map(|f| f.z);
             if self.fuel.get(&k).is_some_and(|f| f.cell == cell) {
                 self.fuel.remove(&k);
             }
             let Some(b) = self.burns.remove(&k) else { continue };
             n += 1;
+            self.kept.insert(k, z.unwrap_or(0.0));
             self.active.remove(&k);
             if let Burn::Burning { fire, .. } = b {
                 self.burning -= 1;
@@ -480,7 +517,7 @@ impl Fires {
     /// burns already.
     pub fn light_remote(&mut self, p: LitPatch) -> Option<bool> {
         let k = p.key;
-        if self.burns.contains_key(&k) {
+        if self.burns.contains_key(&k) || self.kept.contains_key(&k) {
             return None;
         }
         if p.fire == BURNT_OUT {
@@ -521,8 +558,7 @@ impl Fires {
     /// when the cell does.
     fn remember_ground(&mut self, k: Key, z: f32) {
         if let std::collections::hash_map::Entry::Vacant(v) = self.fuel.entry(k) {
-            let per = (CELL / PATCH) as i32;
-            let cell = (k.0.div_euclid(per), k.1.div_euclid(per));
+            let cell = cell_of(k);
             v.insert(Fuel { z, cell });
             self.by_cell.entry(cell).or_default().push(k);
         }
@@ -545,6 +581,8 @@ impl Fires {
                 Burn::Burnt { .. } | Burn::Ash => out.push(LitPatch { key: k, z, fire: BURNT_OUT, item: FormId(0), by: None, secs: 0.0 }),
             }
         }
+        // Burnt where no one is now: a guest keeps them for when it gets there.
+        out.extend(self.kept.iter().map(|(&k, &z)| LitPatch { key: k, z, fire: BURNT_OUT, item: FormId(0), by: None, secs: 0.0 }));
         out.sort_by_key(|p| (p.fire, p.key));
         out
     }
@@ -649,8 +687,8 @@ impl Fires {
     pub fn summary(&self) -> String {
         let s = &self.stats;
         format!(
-            "grass fires summary: {} started, {} landings fed a live fire, {} patches burnt (at most {} at once), {} actors caught fire, refused: {} no grass, {} already burnt, {} too many fires; {} spreads held by the limits, {} patches forgotten with their cells, {} still burning",
-            s.fires, s.fed, s.patches, s.peak_burning, s.actors_caught, s.no_grass, s.burnt, s.too_many, s.held, s.forgotten, self.fires.len()
+            "grass fires summary: {} started, {} landings fed a live fire, {} patches burnt (at most {} at once), {} actors caught fire, refused: {} no grass, {} already burnt, {} too many fires; {} spreads held by the limits, {} patches forgotten with their cells, {} still burning; {} burnt patches kept away from their cells, {} burnt again when a cell came back",
+            s.fires, s.fed, s.patches, s.peak_burning, s.actors_caught, s.no_grass, s.burnt, s.too_many, s.held, s.forgotten, self.fires.len(), self.kept.len(), s.restored
         )
     }
 }
@@ -1103,22 +1141,80 @@ mod tests {
     }
 
     #[test]
-    fn a_forgotten_cell_grows_back() {
+    fn a_forgotten_cell_keeps_what_burnt() {
         let mut f = Fires::default();
         f.add_fuel((0, 0), (0..4).map(|x| ((x, 0), 0.0)));
         f.add_fuel((1, 0), (64..68).map(|x| ((x, 0), 0.0)));
         f.ignite([32.0, 32.0, 0.0], ITEM, None).unwrap();
         run(&mut f, 2.0);
         assert!(f.burning() > 0);
-        assert!(f.forget_cell((0, 0)) > 0);
+        let reached = f.forget_cell((0, 0));
+        assert!(reached > 0);
         assert_eq!(f.burning(), 0);
+        // Away: nothing of it in the map (another cell may share its texels), no fuel.
         assert!(f.map.iter().all(|&v| v == 0));
         assert!(!f.has_fuel((0, 0)) && f.has_fuel((64, 0)));
+        assert_eq!(f.kept(), reached);
         run(&mut f, 3.0);
         assert!(f.fires().is_empty());
-        // Loaded again: it burns again.
-        f.add_fuel((0, 0), (0..4).map(|x| ((x, 0), 0.0)));
-        assert!(f.ignite([32.0, 32.0, 0.0], ITEM, None).is_ok());
+        // Loaded again: what burnt is ash again, and does not burn twice.
+        assert_eq!(f.add_fuel((0, 0), (0..4).map(|x| ((x, 0), 0.0))), reached);
+        assert_eq!(f.kept(), 0);
+        assert_eq!(f.burn((0, 0)), Some(Burn::Ash));
+        assert_eq!(f.map[texel((0, 0))], 255);
+        assert_eq!(f.ignite([32.0, 32.0, 0.0], ITEM, None), Err(Refused::Burnt));
+    }
+
+    /// Co-op (owner 2026-11-15): grass the host burnt where a guest was not is burnt when
+    /// the guest gets there, whether the guest saw it burn from afar or joined later, and
+    /// the host still has it after it walked away.
+    #[test]
+    fn burnt_grass_waits_for_a_player_who_comes_later() {
+        let mut host = field(8);
+        host.record = true;
+        let mut guest = Fires::default();
+        let mut late = Fires::default();
+        host.ignite(point((4, 4)), ITEM, None).unwrap();
+        let mut t = 0.0;
+        while t < 60.0 {
+            for p in std::mem::take(&mut host.lit) {
+                guest.light_remote(p);
+            }
+            host.step(0.1);
+            guest.step(0.1);
+            // The guest is elsewhere: the cell is not loaded there, so it is forgotten
+            // each frame (`grass_fire_fx`).
+            guest.forget_cell((0, 0));
+            t += 0.1;
+        }
+        assert_eq!(host.stats.patches, 64);
+        assert_eq!(guest.kept(), 64);
+        assert!(guest.map.iter().all(|&v| v == 0));
+        // The host walks away, then a guest joins: the snapshot still holds them.
+        assert_eq!(host.forget_cell((0, 0)), 64);
+        let snap = host.snapshot();
+        assert_eq!(snap.len(), 64);
+        assert!(snap.iter().all(|p| p.fire == BURNT_OUT && p.z == 100.0));
+        for p in snap {
+            assert_eq!(late.light_remote(p), Some(false));
+        }
+        late.forget_cell((0, 0));
+        // Each arrives (the cell loads, with less grass on the guests): all 64 burnt.
+        host.add_fuel((0, 0), (0..8).flat_map(|x| (0..8).map(move |y| ((x, y), 100.0))));
+        guest.add_fuel((0, 0), [((0, 0), 100.0)]);
+        late.add_fuel((0, 0), []);
+        for f in [&host, &guest, &late] {
+            assert_eq!((0..8).flat_map(|x| (0..8).map(move |y| (x, y))).filter(|k| f.burn(*k) == Some(Burn::Ash)).count(), 64);
+            assert_eq!(f.kept(), 0);
+        }
+        assert_eq!(guest.map, host.map);
+        assert_eq!(late.map, host.map);
+        // A patch kept is not lit twice by a digest sent again.
+        let mut g = Fires::default();
+        let p = LitPatch { key: (1, 1), z: 100.0, fire: BURNT_OUT, item: ITEM, by: None, secs: 0.0 };
+        assert_eq!(g.light_remote(p), Some(false));
+        g.forget_cell((0, 0));
+        assert_eq!(g.light_remote(p), None);
     }
 
     #[test]
