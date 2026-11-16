@@ -26,6 +26,11 @@
 //! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
 //! (native_crash.rs) and a line in the run log, and the run log check above still names them.
 //!
+//! **A run that just stops** (no panic, no dump: a stack overflow, an abort, the process
+//! ended from outside): a watcher process adds the process's exit code to the end of the run
+//! log (exit_watch.rs, #2755), and an allocation that fails says so in the log first
+//! ([`SaysWhenEmpty`]).
+//!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
 //! in the run log, the console and crash reports ([`redact`]; owner's request 2026-11-06,
@@ -249,6 +254,8 @@ pub fn install(data: &Path, previous_running: bool) {
     match File::create(&path) {
         Ok(f) => {
             let _ = RUN_LOG.set(RunLog { path: path.clone(), writer: Mutex::new(Some(LineWriter::new(f))) });
+            // How this process ends, when nothing in it sees that (exit_watch.rs).
+            crate::exit_watch::start(&path);
         }
         Err(e) => eprintln!("run log: {}: {e}", redact(&path.display().to_string())),
     }
@@ -263,11 +270,87 @@ pub fn install(data: &Path, previous_running: bool) {
     crate::native_crash::install(&dir, &run_stamp);
     crate::events_log::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
-    let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
+    let unclean = previous.filter(|_| !previous_running).and_then(|p| {
+        let text = std::fs::read_to_string(&p).ok().filter(|t| ended_abnormally(t))?;
+        let exit = crate::exit_watch::said(&text).map(str::to_string);
+        Some((p, exit))
+    });
     let _ = UNCLEAN.set(unclean);
 }
 
-static UNCLEAN: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// The run before this one, when it did not end normally: its log, and what the log says
+/// of its process's exit code (exit_watch.rs).
+static UNCLEAN: OnceLock<Option<(PathBuf, Option<String>)>> = OnceLock::new();
+
+/// Lines an allocation failure may write (a loop of failing allocations must not fill the log).
+const ALLOC_FAIL_LINES: u32 = 4;
+/// Allocations that failed in this run.
+static ALLOC_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The system allocator, which says in the run log when it has no memory to give (#2755).
+/// Rust aborts when an allocation fails and its caller cannot go on: on Windows that is a
+/// fail-fast, which no exception filter sees (native_crash.rs), so the run log just stopped.
+/// Rust's own "memory allocation of N bytes failed" goes to the console only.
+pub struct SaysWhenEmpty;
+
+// SAFETY: every call goes to the system allocator unchanged; a null answer is only noted.
+unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        // SAFETY: the caller's contract is System's.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc_zeroed(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
+        if p.is_null() {
+            alloc_failed(new_size);
+        }
+        p
+    }
+}
+
+/// An allocation of `size` bytes failed: a line in the run log, written straight to the
+/// file. Nothing here allocates (there is no memory), and the log's lock is never waited on
+/// (the failing allocation can be the log's own).
+fn alloc_failed(size: usize) {
+    if ALLOC_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= ALLOC_FAIL_LINES {
+        return;
+    }
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        let t = now_secs();
+        let (y, m, d) = civil_from_days((t / 86_400) as i64);
+        let s = t % 86_400;
+        let _ = writeln!(
+            f,
+            "{y:04}{m:02}{d:02}-{:02}{:02}{:02} ERROR nvforever::crash: out of memory: an allocation of {size} bytes failed (the process aborts when its caller cannot go on without it)",
+            s / 3600,
+            s / 60 % 60,
+            s % 60
+        );
+        let _ = f.flush();
+    }
+}
 
 /// Test aid `NVF_PLAY_TEST_PANIC=<seconds>`: a thread of its own ("nvf-test-panic")
 /// panics that long after the first frame (when the camera's place is known), so the
@@ -509,8 +592,12 @@ pub fn report_start(mut commands: Commands) {
     if let Some(p) = crate::events_log::path() {
         info!("events log: {}", p.display());
     }
-    if let Some(Some(p)) = UNCLEAN.get() {
+    if let Some(Some((p, exit))) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
+        match exit {
+            Some(e) => warn!("run log: the previous run's process ended with exit code {e}"),
+            None => warn!("run log: the previous run's exit code was not recorded"),
+        }
     }
     commands.insert_resource(bevy::render::error_handler::RenderErrorHandler(render_error));
 }
@@ -590,6 +677,17 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2755: an allocation the system cannot give is noted (and, with a run log, written).
+    #[test]
+    fn a_failed_allocation_is_noted() {
+        let before = ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed);
+        let layout = std::alloc::Layout::from_size_align(isize::MAX as usize - 4095, 4096).unwrap();
+        // SAFETY: a non-zero size; the null answer is not used.
+        let p = unsafe { std::alloc::GlobalAlloc::alloc(&SaysWhenEmpty, std::hint::black_box(layout)) };
+        assert!(p.is_null(), "no system gives half the address space");
+        assert!(ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed) > before);
+    }
 
     /// #2203: a system reading AppExit in Last after `ExitSystems` sees the exit Bevy writes
     /// when the last window closes (here: no window at all) in that same, final frame.

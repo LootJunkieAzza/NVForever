@@ -28996,6 +28996,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "native-crash-exit-code"
+source = "#2755: a watcher process adds the process's exit code to the end of the run log of a run that did not exit normally, and the next start names it (engine/nvforever/src/exit_watch.rs, crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/exit_watch.rs", "engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# Windows only, as the watcher is. The run after native-crash-dump in the same home: that run's process ended with 0xC0000005.
+requires = ["WINDIR"]
+env = { NVFOREVER_HOME = "native-crash-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 5
+expect = [
+  "run log: the previous run did not end normally and left no crash report",
+  "run log: the previous run's process ended with exit code 0xC0000005 (access violation)",
+  "run log: the game exited normally",
+]
+
+[[scenario]]
 name = "native-crash-signal"
 source = "#2167, docs/design/player-reports.md section 3.2 (#1425, #1825): on Linux a native crash writes the signal, the fault address and the top frames into the run log, and the process still ends by the same signal (engine/nvforever/src/native_crash_unix.rs)"
 areas = ["crash"]
