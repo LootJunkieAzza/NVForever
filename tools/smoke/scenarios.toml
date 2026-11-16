@@ -29835,7 +29835,22 @@ order = [[
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
 
 [[scenario]]
-<<<<<<< HEAD
+name = "mod-diagnostic-log-tool"
+kind = "tool"
+source = "docs/handoff/mod-diagnostic-cli.md: actual bounded mod-log CLI over two authored log files; log records differ from reported exit totals, and private words are opt-in"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnvtool/src/mod_log_digest.rs", "crates/fnvtool/src/ext_cmd.rs", "tools/smoke/fixtures/mod-diagnostics/"]
+commands = [["ext", "mod-log", "{repo}/tools/smoke/fixtures/mod-diagnostics/run.txt", "--previous", "{repo}/tools/smoke/fixtures/mod-diagnostics/before.txt"]]
+expect = [
+  { json = "detail", schema = "fnv.ext.mod_log/1", equals = false },
+  { json = "run.sessions.#", schema = "fnv.ext.mod_log/1", equals = 1 },
+  { json = "run.sessions.0.exit_rows_present", schema = "fnv.ext.mod_log/1", equals = true },
+  { json = "run.sessions.0.log_records.script_failure", schema = "fnv.ext.mod_log/1", equals = 1 },
+  { json = "run.sessions.0.reported_exit_counts.skipped_statements", schema = "fnv.ext.mod_log/1", equals = 47 },
+  { json = "changes.session", schema = "fnv.ext.mod_log/1", equals = 0 },
+]
+
+[[scenario]]
 name = "strip-entry-calm"
 source = "issue #2456: entering the Strip by the north gate starts the scripted scene VStripSS3 (VFSVegasDoorSCRIPT sets VStreetSS3.bstarts and starts the quest): its four NCR troopers (VStripSS3Girl01/02REF, VStripSS3Watcher01/02REF) are enabled 2,900 units from the player. They are also in ArmorVCaesarsLegionFaction, so a Legionary's murder made them attack the player on sight, and House's messenger Securitron and the street Securitrons joined, for good; a crime's faction flag now lasts 0.18 game hours, as in the original (crime::FACTION_FLAG_DAYS, crates/fnv-game/src/crime.rs; observer check 203; owner's ruling on #2498)"
 note = "the scene is started from the console at 4 s as the gate door's script starts it; at 12 s the player stands 500 units south of it (at the gate, 2,900 units off, the troopers do not see the player at noon); nobody may fight the player or alarm others about the player over the 45 s"
@@ -29853,21 +29868,6 @@ forbid = [
   { re = 'alert: VStripSS3\S+ \S+ Normal → (Alert|Combat)', label = "a trooper of the scene turns on the player" },
   { text = "fights the player", label = "someone fights the player" },
   { re = 'alarms .* about the player', label = "someone alarms others about the player" },
-=======
-name = "mod-diagnostic-log-tool"
-kind = "tool"
-source = "docs/handoff/mod-diagnostic-cli.md: actual bounded mod-log CLI over two authored log files; log records differ from reported exit totals, and private words are opt-in"
-areas = ["scripts", "extender", "mods"]
-paths = ["crates/fnvtool/src/mod_log_digest.rs", "crates/fnvtool/src/ext_cmd.rs", "tools/smoke/fixtures/mod-diagnostics/"]
-commands = [["ext", "mod-log", "{repo}/tools/smoke/fixtures/mod-diagnostics/run.txt", "--previous", "{repo}/tools/smoke/fixtures/mod-diagnostics/before.txt"]]
-expect = [
-  { json = "detail", schema = "fnv.ext.mod_log/1", equals = false },
-  { json = "run.sessions.#", schema = "fnv.ext.mod_log/1", equals = 1 },
-  { json = "run.sessions.0.exit_rows_present", schema = "fnv.ext.mod_log/1", equals = true },
-  { json = "run.sessions.0.log_records.script_failure", schema = "fnv.ext.mod_log/1", equals = 1 },
-  { json = "run.sessions.0.reported_exit_counts.skipped_statements", schema = "fnv.ext.mod_log/1", equals = 47 },
-  { json = "changes.session", schema = "fnv.ext.mod_log/1", equals = 0 },
->>>>>>> refs/sweep/main
 ]
 
 [[scenario]]
