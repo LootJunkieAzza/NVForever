@@ -9,15 +9,17 @@
 //! | kind | when |
 //! |---|---|
 //! | `fell_out_of_world` | the engine put the player back after falling through the land or out of an interior (nvf-play player.rs) |
+//! | `object_fell_through` | the engine caught a dropped item (nvf-play phys.rs) or a corpse (ragdoll.rs) that sank through the land (#2753) |
+//! | `gpu_error` | a GPU error stopped the game: out of GPU memory, a lost device (crash.rs `render_error`) |
 //! | `path_failure` | an actor cannot reach the place of its package (residents.rs) |
 //! | `script_loop` | one script has errored [`SCRIPT_ERRORS`] times |
 //! | `missing_asset` | a model, texture, actor file or particles failed to load (nvf-assets guard.rs) |
 //! | `save_trouble` | a save failed to write, or a load fell back to the main menu |
-//! | `audio` | no audio output device; a spoken line without its voice file |
+//! | `audio` | no audio output device; a spoken line without its voice file (not a line with no words, such as `...`) |
 //! | `hitch` | a frame over [`HITCH_MS`] outside a load and the [`HITCH_SETTLE_SECS`] after one |
 //! | `slow_load` | a loading screen up longer than [`SLOW_LOAD_MS`] |
 //! | `player_stuck` | movement held [`STUCK_SECS`] with under [`STUCK_UNITS`] moved, while playing |
-//! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs) |
+//! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs), once a game is loaded (not in the `viewer` state at the start, when the RAM in use is other programs') |
 //! | `softlock` | the player is held and nothing in the game moves on to let them go: controls off or restrained with no story event, a conversation with no line and no choice, a line that never ends, a menu that never opens (nvf-play softlock.rs, `fnv_game::softlock`) |
 //!
 //! Not yet: actors stuck on a travel package, and quests that stall while the player is
@@ -108,6 +110,17 @@ pub fn classify(level: &str, msg: &str) -> Option<Found> {
     }
     if warn && msg.starts_with("player fell out of interior") {
         return Some(Found::Now("fell_out_of_world", json!({ "space": "interior", "line": cut(msg) })));
+    }
+    if warn && msg.starts_with("dropped 0x") && msg.contains(" fell through the world") {
+        return Some(Found::Now("object_fell_through", json!({ "what": "dropped item", "line": cut(msg) })));
+    }
+    if warn && msg.starts_with("ragdoll: actor ") && msg.contains(" fell through at ") {
+        return Some(Found::Now("object_fell_through", json!({ "what": "corpse", "line": cut(msg) })));
+    }
+    if let Some(rest) = msg.strip_prefix("render: ").filter(|_| level == "ERROR") {
+        if let Some((ty, _)) = rest.split_once(" GPU error, the game stops") {
+            return Some(Found::Now("gpu_error", json!({ "error": ty, "line": cut(msg) })));
+        }
     }
     if let Some((what, rest)) = msg.strip_prefix("softlock: ").filter(|_| warn).and_then(|r| r.split_once(' ')) {
         return Some(Found::Now("softlock", json!({ "what": what, "line": cut(rest) })));
@@ -218,6 +231,11 @@ impl Detectors {
     /// RAM or VRAM share of the budget; fires on crossing [`MEMORY_SHARE`] upward.
     pub fn check_memory(&mut self, s: &mut Summary, here: &Here, t_s: u64, vram: Option<(u64, u64)>, ram_share: Option<f64>) {
         let vram_share = vram.filter(|(_, b)| *b > 0).map(|(u, b)| u as f64 / b as f64);
+        // Before a game is loaded the RAM in use is other programs' (38 of 85 events from
+        // players in 2026-11-12..15 fired there, #2758): not counted.
+        if here.state == "viewer" {
+            return;
+        }
         let high = vram_share.is_some_and(|v| v > MEMORY_SHARE) || ram_share.is_some_and(|r| r > MEMORY_SHARE);
         if high && !self.memory_high {
             self.fire(s, here, t_s, "memory", json!({ "vram_share": vram_share.map(|v| (v * 100.0).round() / 100.0), "ram_share": ram_share.map(|v| (v * 100.0).round() / 100.0) }));
@@ -257,6 +275,10 @@ mod tests {
         assert_eq!(kind("WARN", "load: C:\\s.nvfsave: bad header; starting again on the main menu"), Some("save_trouble"));
         assert_eq!(kind("WARN", "audio output: no device (gone); sound runs silent until one appears"), Some("audio"));
         assert_eq!(classify("WARN", "script error in GSScript: bad ref"), Some(Found::ScriptError("GSScript".into())));
+        assert_eq!(kind("WARN", "dropped 0xFF000179 fell through the world: collision removed, put back where it was dropped"), Some("object_fell_through"));
+        assert_eq!(classify("WARN", "ragdoll: actor 001710BB fell through at (-9617, -96521, 10863), terrain z 11015: back above the ground").map(|f| matches!(f, Found::Now(_, ref d) if d["what"] == "corpse")), Some(true));
+        assert_eq!(classify("ERROR", "render: OutOfMemory GPU error, the game stops: "), Some(Found::Now("gpu_error", json!({ "error": "OutOfMemory", "line": "render: OutOfMemory GPU error, the game stops: " }))));
+        assert_eq!(kind("WARN", "render: GPU validation error 1 of 20 let through (most likely a broken file): x"), None, "a validation error let through is no stop");
         assert_eq!(kind("INFO", "model not loaded: x"), None, "only warnings count");
         assert_eq!(kind("WARN", "something else"), None);
     }
@@ -305,5 +327,17 @@ mod tests {
         d.check_memory(&mut s, &h, 2, Some((500, 1000)), None);
         d.check_memory(&mut s, &h, 3, None, Some(0.95));
         assert_eq!(s.events.len(), 2);
+    }
+
+    #[test]
+    fn memory_is_not_counted_before_a_game_is_loaded() {
+        let mut d = Detectors::default();
+        let mut s = Summary::default();
+        let mut h = Here { state: "viewer", ..Default::default() };
+        d.check_memory(&mut s, &h, 0, Some((30, 8000)), Some(0.96));
+        assert!(s.events.is_empty(), "other programs' RAM at the start");
+        h.state = "playing";
+        d.check_memory(&mut s, &h, 60, Some((30, 8000)), Some(0.96));
+        assert_eq!(s.events.len(), 1);
     }
 }

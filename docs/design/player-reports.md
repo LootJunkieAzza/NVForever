@@ -271,6 +271,8 @@ session.
 | Anomaly | When |
 |---|---|
 | fell out of world | the player or an actor is below the land height by > 500 units, or outside the cell grid |
+| object fell through | a dropped item or a corpse sank through the land and the engine put it back (#2753, #2758) |
+| GPU error | a GPU error stopped the game: out of GPU memory or a lost device (#2754, #2758) |
 | player stuck | movement input held for 5 s with < 16 units moved, not in a menu |
 | actor stuck | an actor on a travel package has not moved 32 units toward its goal in 30 s |
 | path failure | pathfinding fails 3 times in a row for one actor |
@@ -278,10 +280,10 @@ session.
 | script loop | one script runs > 5 ms in a frame, or the same script errors 100 times |
 | hitch | a frame > 250 ms outside a load |
 | slow load | a load > 20 s |
-| memory | RAM or VRAM within 10 % of the budget |
+| memory | RAM or VRAM within 10 % of the budget, once a game is loaded (not at the start, when the RAM in use is other programs') |
 | missing asset | the first failure of each path |
 | save trouble | a save that fails to write, or a load that falls back (#1360) |
-| audio | the device lost or a voice file missing for a spoken line |
+| audio | the device lost or a voice file missing for a spoken line (a line with no words, such as `...`, has none by design) |
 | soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
 
 The detectors' thresholds are constants in `reports/anomaly.rs` [our choice] and can be
