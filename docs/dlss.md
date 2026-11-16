@@ -271,6 +271,13 @@ not generated; menus and loading screens show real frames only. The performance 
 rate shows the frames shown and, in brackets, the real ones. The log's `DLSS-G:` lines say what
 happened.
 
+The **Frame rate limit** counts the frames shown: with frame generation on, real frames are held
+to the limit divided by the frames shown for each (144 at 2x: 72 real frames a second). In menus,
+and whenever no frames are being generated (another window in front), real frames get the whole
+limit. A limit divided that far that fewer than 60 real frames a second are left (144 at 4x: 36)
+can feel choppy; the Generated frames row then says so. Fewer generated frames, or a limit nearer
+the screen's refresh rate, give more real frames.
+
 ## When DLSS is greyed out
 
 When DLSS cannot run, the Upscaler row's DLSS entry is greyed out with the reason. If DLSS is

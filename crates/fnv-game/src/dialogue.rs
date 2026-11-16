@@ -1574,11 +1574,12 @@ impl<'a> Game<'a> {
             self.talking_through = None;
             if let Some(f) = follow {
                 let topic = dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.say_line(talker, Some(to), topic, f, next);
+                // Said through the activator from the start, so it cuts a line the
+                // activator is saying (`Game::say_line_through`, #2768).
+                self.say_line_through(talker, Some(to), topic, f, next, via);
                 self.set_line_look(talker, said.look);
                 if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == talker && s.info == f) {
                     s.earlier_topics = earlier;
-                    s.through = via;
                 }
                 return;
             }
@@ -1602,11 +1603,10 @@ impl<'a> Game<'a> {
                 1 => linked[0],
                 n => linked[self.rng.next_u32() as usize % n],
             };
-            self.say_line(who, Some(to), topic, info, next);
+            self.say_line_through(who, Some(to), topic, info, next, through);
             self.set_line_look(who, said.look);
             if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == info) {
                 s.earlier_topics = earlier;
-                s.through = through;
             }
             return;
         }

@@ -279,15 +279,46 @@ impl NavGraph {
         self.set_in_place_doors(in_place_doors(lo, schema, ix), |d| door_lock(lo, schema, d));
     }
 
-    /// Whether an actor with `p` may cross triangle `t`: no locked door it cannot open
-    /// (without the key, not its own) stands on it.
+    // [hypothesis, #2716] An open in-place door is no barrier, even while locked or
+    // previously refused by its script; docs/spec-notes/navmesh.md, observer check 206.
+    fn in_place_door_open(&self, d: u32, p: &PathParams) -> bool {
+        if p.open_doors.contains(&d) {
+            return true;
+        }
+        if p.refused_doors.contains(&d) {
+            return false;
+        }
+        match self.door_locks.get(&d) {
+            None => true,
+            Some(_) if p.open_locked || p.owned_doors.contains(&d) => true,
+            Some(l) => l.key.is_some_and(|k| p.keys.contains(&k)),
+        }
+    }
+
+    /// [design, #2716] Whether every in-place door overlapping triangle `t` permits
+    /// this actor; live open state takes precedence over refusal (hypothesis above).
     pub fn door_tri_open(&self, t: u32, p: &PathParams) -> bool {
         let Some(doors) = self.door_tris.get(&t) else { return true };
-        doors.iter().all(|d| match self.door_locks.get(d) {
-            _ if p.refused_doors.contains(d) => false,
-            None => true,
-            Some(_) if p.open_locked || p.owned_doors.contains(d) => true,
-            Some(l) => l.key.is_some_and(|k| p.keys.contains(&k)),
+        doors.iter().all(|&d| self.in_place_door_open(d, p))
+    }
+
+    /// [design, #2716] A path endpoint may use an overlapping triangle when its point
+    /// is outside every refusing door's oriented footprint. Boundary points are inside.
+    pub(crate) fn door_endpoint_open(&self, t: u32, at: [f32; 3], p: &PathParams) -> bool {
+        let Some(doors) = self.door_tris.get(&t) else { return true };
+        doors.iter().all(|&d| {
+            self.in_place_door_open(d, p) || self.in_place.get(&d).is_some_and(|door| door.entry(at, at).is_none())
+        })
+    }
+
+    /// [design, #2716] Endpoint triangle exemptions never permit a generated segment
+    /// to enter a refusing door's oriented footprint, including within one triangle.
+    pub(crate) fn door_segments_open(&self, corridor: &[u32], points: &[[f32; 3]], p: &PathParams) -> bool {
+        let mut doors: Vec<u32> = corridor.iter().filter_map(|t| self.door_tris.get(t)).flatten().copied().collect();
+        doors.sort_unstable();
+        doors.dedup();
+        doors.into_iter().all(|d| {
+            self.in_place_door_open(d, p) || self.in_place.get(&d).is_some_and(|door| points.windows(2).all(|s| door.entry(s[0], s[1]).is_none()))
         })
     }
 }

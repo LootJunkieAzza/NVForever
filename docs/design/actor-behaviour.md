@@ -593,12 +593,30 @@ forgets both). Before this, a sandbox with one object used it once and then stoo
 wandered) until the package changed [observed: issue #1505's synthetic run, 50 standing
 choices in 600 s].
 
+The narrow exception is an idle-marker-only package: idle markers enabled and eating,
+sleeping, conversation, furniture and wandering all disabled. When its last marker is
+the only eligible marker, it selects that marker again at expiry, with no Standing
+choice between [design, #2715: `Allowed::only_idle_markers`, `Sandbox::next`]. A second
+eligible marker still takes priority; disabled, reserved, incompatible and failed-route
+markers pass through the existing eligibility filters. Every other package retains the
+60-second rule, including one permitting wandering without a reachable wander spot
+[design: `Sandbox::objects`, `Sandbox::next`]. The wiki's action-type rule includes
+“unless it has no other options” [documented: GECK wiki,
+[Sandbox Package, Action Selection](https://geckwiki.com/index.php?title=Sandbox_Package),
+offline revision 32636]; extending that qualification to the sole marker keeps Pacer's
+cover pose continuous [hypothesis: original scene unmeasured; observer check 208].
+After loading, the first choice has no initial timer wait: `Sandbox::start` is immediately
+due, and `set_schedule` restores only the day's rolls. An actor already at its marker
+begins it on the first AI update [design: `Ai::settle`, `Ai::sandbox_step`; regression
+`a_loaded_idle_marker_only_sandbox_picks_its_marker_on_the_first_update`].
+
 The GECK wiki documents a setting for this area, `iSandBoxPreventRepeatedActionTime`,
 default 30: a sandboxing NPC does not repeat an action on the same object until that many
 seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime;
 docs/spec-notes/packages.md §3]. NVForever does not read it. The two differ: the setting
 reads as a wait on every object (several objects could each come back after 30 s), with
-nothing said about when the seconds start; ours keeps the object just used out for as
+nothing said about when the seconds start; except for the idle-only exemption above,
+ours keeps the object just used out for as
 long as any other object is open, and lets it back only when it is the only one, 60 s
 after the first other behaviour began. Whether to follow the setting instead is the
 maintainer's question in owner-review.md.
@@ -613,10 +631,16 @@ radius and uses nothing; no-wander alternates chair and idle marker; all off sta
 night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
 on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
 sandboxers never on one chair; the same run twice; the patrol wait). The only object
-(#1505), in the same file: a lone chair, and a lone idle marker, used again a minute after
+(#1505), in the same file: a lone chair, and a lone idle marker with another behaviour
+permitted, used again a minute after
 each stand and never at the look after it, nor early after an interruption; a disabled
 second chair and one with no way to it (its #1504 backoff going on) leave the first as the
 only one; two chairs, and a chair with a marker, still take turns without standing between.
+Idle-only coverage (#2715) checks a sole marker through repeated timer expiries without
+Standing (zero and nonzero marker timers), immediate selection after schedule restoration,
+two markers alternating, disabled markers excluded, and each of the five other allowed
+behaviours retaining the minute of Standing when alternatives are unavailable
+[design: `crates/fnv-ai/tests/carry.rs`].
 `fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
@@ -1021,7 +1045,9 @@ destination, 13) and "no navmesh near the start" 1; every other verdict is uncha
 With them came: GetIsUsedItem, GetIsUsedItemType, GetIsUsedItemEquipType and
 GetUsedItemActivate (what an actor uses: its furniture, or what its package had it take
 or use); Pretend In Combat (running, weapon out), Allow Swimming (water avoided without
-it), Allow Falls (ledge links allowed with it) and No Warn/Attack Behavior (no
+it), Allow Falls (unrestricted downward ledge links allowed with it;
+[design, #2532] harmless authored drops can connect an otherwise unreachable route
+without it, packages.md section 7.1) and No Warn/Attack Behavior (no
 aggro-radius warnings); packages.md §3.1.
 
 ## 6. Decisions for the owner

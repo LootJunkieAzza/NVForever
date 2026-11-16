@@ -83,13 +83,21 @@ pub struct IdlePlay {
     /// Seconds the last pose is held at the end of the clip before the idle ends
     /// ([`IdlePlay::again`]).
     hold: f32,
+    /// [design, #2685] Keep effect idles at their end until explicitly replaced/stopped.
+    clamp: bool,
 }
 
 impl IdlePlay {
     /// Start an idle that plays its loop `passes` times (`None`: until
     /// [`IdlePlay::leave_loop`] or [`IdlePlay::stop`]).
     pub fn new(keys: IdleKeys, passes: Option<u32>) -> IdlePlay {
-        IdlePlay { keys, t: 0.0, age: 0.0, passes: passes.map(|n| n.max(1)), out: None, hold: 0.0 }
+        IdlePlay { keys, t: 0.0, age: 0.0, passes: passes.map(|n| n.max(1)), out: None, hold: 0.0, clamp: false }
+    }
+
+    /// [design, #2685] Hold the final sample without fading; stop still releases it.
+    pub fn clamped(mut self) -> Self {
+        self.clamp = true;
+        self
     }
 
     /// The same idle asked for again while this one still shows: it is not started over.
@@ -141,8 +149,10 @@ impl IdlePlay {
         }
         if self.passes == Some(1) && self.t >= self.keys.length + self.hold {
             self.t = self.keys.length;
-            self.out = Some(0.0);
-            return true;
+            if !self.clamp {
+                self.out = Some(0.0);
+                return true;
+            }
         }
         false
     }
@@ -225,6 +235,20 @@ mod tests {
 
     const PLAIN: IdleKeys = IdleKeys { length: 2.0, loop_range: None, blend_in: 0.5, blend_out: 0.25 };
     const LOOPED: IdleKeys = IdleKeys { length: 6.0, loop_range: Some((1.0, 5.0)), blend_in: 0.0, blend_out: 0.5 };
+
+    #[test]
+    fn a_clamped_effect_holds_exact_end_until_stopped() {
+        let mut play = IdlePlay::new(PLAIN, Some(1)).clamped();
+        play.advance(0.5);
+        assert_eq!(play.time(), 0.5);
+        play.advance(100.0);
+        assert_eq!((play.time(), play.weight(), play.ended(), play.gone()), (2.0, 1.0, false, false));
+        play.advance(100.0);
+        assert_eq!(play.time(), 2.0);
+        play.stop();
+        play.advance(1.0);
+        assert!(play.gone());
+    }
 
     #[test]
     fn a_one_shot_idle_plays_to_its_end_and_fades_out() {

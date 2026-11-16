@@ -1211,6 +1211,17 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   normal-map alpha as an ordinary specular mask; what it does with it and with the
   `_hl` map is open — an in-game picture of hair under a strong light, from the side,
   would show whether there is any highlight to rebuild].
+  L'il Devil (HAIR 0x000987DB `HairRaiderFCat`, `Characters\Hair\HairRaiderFCat.NIF`)
+  has strands in `HairRaider01_hl.dds` where `HairRaider01.dds` is black on its crown:
+  9% of `NoHat`'s area samples black, opaque diffuse texels (RGB ≈ 0.001,
+  alpha ≈ 0.99), against at most 1% for the other raider hairs. Of 2,506 black,
+  opaque diffuse texels, 2,084 have `_hl` luma above 0.08; crown-region luma is
+  about 0.17 in `_hl` against 0.001 in the diffuse, despite overall luma correlation
+  0.97 [documented: issue #2350, supplied `fnvtool esm decode`, `fnvtool nif` and
+  texture measurements]. The original may use `_hl` for crown colour or brightness
+  [hypothesis, #2350]; whether its crown tints is unknown. Settle
+  [observer check 216](../handoff/observer-checks.md#added-2026-11-15-lil-devils-crown-issue-2350)
+  before considering a change to the provisional tint rule [design, #2350].
 - **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
   NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
   INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw

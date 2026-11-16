@@ -24,6 +24,9 @@
 //!   first saw it in this fight, with its weapon drawn, and a gun only facing it (within
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
+//!   a semi-automatic gun's shots are spaced by its attack clip in its own rig once known
+//!   (`attack_anims`, the player's rule: `fnv_combat::attack::npc_clip_timing`, #2739),
+//!   by 1 ÷ Attack Shots/Sec until then;
 //!   an automatic weapon's trigger is held for a burst and let go for a pause
 //!   (`fnv_combat::burst`: the V.A.T.S. burst's rounds, a 0.5–1.5 s pause scaled by the
 //!   style's semi-automatic delay multipliers; embedded weapons too, issue #1448), and
@@ -42,7 +45,11 @@
 //!   reloads, which would close the weapon after one. The same gun keeps its magazine
 //!   on a new target. Rounds come from nowhere: an NPC uses no ammunition from its
 //!   inventory [design: owner 2026-10-17, "they dont use ammo"]. Reloading before the
-//!   magazine is empty (in cover, out of sight) is not built.
+//!   magazine is empty (in cover, out of sight) is not built. A creature's embedded gun
+//!   has a magazine, and reloads so, once its rig is known to have the weapon's reload
+//!   clip; without one (the sentry bot's folder has none) it fires on without a magazine
+//!   (`fnv_combat::body_weapon::has_magazine` [design, #2739]; docs/spec-notes/
+//!   combat-rules.md §4.1).
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
@@ -1665,8 +1672,9 @@ pub(crate) fn fight(
                                 info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
                             }
                             let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
-                            // A body weapon has no magazine to change: it never reloads (§19).
-                            Cycle::new(ws, timing, ws.embedded, ws.clip_size.max(1))
+                            // A body weapon has no magazine until its creature's reload
+                            // clip for it is known (below; `body_weapon::has_magazine`, #2739).
+                            Cycle::new(ws, timing, !fnv_combat::body_weapon::has_magazine(ws.embedded, None), ws.clip_size.max(1))
                         })
                     }),
                     _ => None,
@@ -2689,12 +2697,34 @@ pub(crate) fn fight(
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some((cycle, reload_timed)) = fighter.ranged.as_mut().and_then(RangedAttack::firearm_mut) else { continue };
                     // Its reload takes as long as its reload clips in its rig, once known
-                    // (between reloads, so one under way runs to its end).
+                    // (between reloads, so one under way runs to its end); a semi-automatic
+                    // gun's shots follow its attack clip there as the player's do (#2739:
+                    // `fnv_combat::attack::npc_clip_timing`).
                     if !*reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
-                        if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            let rate = teammate_attack_rate(g, me, Some(*w));
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
+                        if let Some((timed, timing)) = times.gun_timing(id, *w, ws, &c.tuning, || teammate_attack_rate(g, me, Some(*w))) {
+                            cycle.timing = timing;
                             *reload_timed = true;
+                            // A body gun gets its magazine with its reload clip: it reloads
+                            // as the people's guns do; without the clip it fires on without
+                            // one (`body_weapon::has_magazine`, #2739).
+                            let magazine = fnv_combat::body_weapon::has_magazine(ws.embedded, timed.reload_len);
+                            if ws.embedded {
+                                let pace = match timed.attack_len {
+                                    Some(len) => format!(
+                                        "fires every {:.2} s (its attack clip {len:.2} s{})",
+                                        cycle.timing.interval,
+                                        timed.next_attack.map_or(String::new(), |(t, _)| format!(", the next shot from its a: key at {t:.2} s"))
+                                    ),
+                                    None if ws.automatic => format!("fires every {:.2} s (its Fire Rate)", cycle.timing.interval),
+                                    None => format!("fires every {:.2} s (1 / Attack Shots/Sec: no attack clip in its rig)", cycle.timing.interval),
+                                };
+                                let mag = match timed.reload_len.filter(|_| magazine) {
+                                    Some(len) => format!("has a magazine of {} and reloads in {len:.2} s", cycle.clip_size),
+                                    None => "has no reload clip in its rig: no magazine".to_string(),
+                                };
+                                info!("npc combat: {me_name}'s body gun {} {pace}; {mag}", ws.edid.as_deref().unwrap_or("?"));
+                            }
+                            cycle.no_ammo = !magazine;
                         }
                     }
                     let reloading = cycle.reloading();

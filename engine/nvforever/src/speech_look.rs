@@ -7,7 +7,9 @@
 //! the drawn actors.
 //!
 //! - **Heads.** Each actor that turns is given a forced head-tracking target
-//!   ([`LookOverride`], `head_look.rs`): the listener's eyes, or the player's. Head
+//!   ([`LookOverride`], `head_look.rs`): the listener's eyes, or the player's; for a line
+//!   said through a talking activator (an intercom, a loudspeaker: `Speech::place`,
+//!   issues #2451 and #2768) the point where the activator is placed ([`look_target`]). Head
 //!   tracking turns the head within its usual limits and eases it back when the
 //!   override is taken off at the end of the line. An override something else set (a
 //!   test aid) is left alone; so is the actor of a conversation with the player
@@ -119,6 +121,23 @@ pub(crate) fn standing_body_stays(npc: bool, dead: bool, held: bool, walk_test: 
     }
 }
 
+/// Whether a placed reference of this record type is an actor (NPC or creature).
+fn is_actor_sig(sig: &[u8; 4]) -> bool {
+    sig == b"ACHR" || sig == b"ACRE"
+}
+
+/// The head-tracking target for a facing toward `to`: the player's eyes, an actor's head,
+/// or, for a placed object that is no actor (`object`: where it is, game space; a talking
+/// activator a line is said through, `Game::facings`), that point [design, #2768:
+/// `LookAt::Actor` finds only actors, so an intercom was looked at by nobody].
+pub(crate) fn look_target(to: FormId, object: Option<[f32; 3]>) -> LookAt {
+    if to == FormId::PLAYER_REF {
+        LookAt::Player
+    } else {
+        object.map_or(LookAt::Actor(to.0), LookAt::Point)
+    }
+}
+
 /// Turn the actors to whom they talk, and let go of those whose line is over.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn face(
@@ -152,11 +171,14 @@ pub(crate) fn face(
     let name = |r: FormId| if r == FormId::PLAYER_REF { "the player".to_string() } else { game.map_or_else(|| format!("{:08X}", r.0), |g| g.data.name(r)) };
     // Where `to` stands (Bevy space), and how far it is off the front of `entity`'s body
     // as drawn last frame, radians.
+    // A placed object that is no actor (a talking activator a line is said through) is
+    // where the simulation has it.
+    let object_at = |to: FormId| sim.refs.get(to).filter(|p| !is_actor_sig(&p.sig)).and(nvf_play::voice::speaker_place(&sim, to)).map(|(_, at)| at);
     let place_of = |to: FormId| {
         if to == FormId::PLAYER_REF {
             player.as_ref().map(|p| space::to_bevy(p.feet))
         } else {
-            by_ref.get(&to.0).and_then(|&j| globals.get(list[j].0).ok()).map(|g| g.translation())
+            by_ref.get(&to.0).and_then(|&j| globals.get(list[j].0).ok()).map(|g| g.translation()).or_else(|| object_at(to).map(space::to_bevy))
         }
     };
     let off_now = |entity: Entity, to: FormId| globals.get(entity).ok().zip(place_of(to)).map(|(g, t)| yaw_pitch(g.affine().inverse().transform_point3(t)).0);
@@ -164,7 +186,7 @@ pub(crate) fn face(
     // Heads: speaking wins over listening when an actor does both.
     let mut want: HashMap<u32, LookAt> = HashMap::new();
     for f in facings.iter().filter(|f| !f.speaking).chain(facings.iter().filter(|f| f.speaking)) {
-        want.insert(f.who.0, if f.to == FormId::PLAYER_REF { LookAt::Player } else { LookAt::Actor(f.to.0) });
+        want.insert(f.who.0, look_target(f.to, object_at(f.to)));
     }
     if !want.is_empty() && !heads_on.enabled && !looks.warned {
         looks.warned = true;
@@ -333,5 +355,15 @@ mod tests {
         assert_eq!(standing_body_stays(true, false, false, false, false, true, None), Some(BY_AI));
         assert_eq!(standing_body_stays(true, false, false, false, true, false, None), Some("its heading is its route's (--npc-travel)"));
         assert_eq!(standing_body_stays(true, false, false, true, false, false, None), Some("the walk test moves it"));
+    }
+
+    /// A listener of a line said through a talking activator looks at the point where the
+    /// activator is (#2768); actors and the player as before.
+    #[test]
+    fn a_facing_toward_a_talking_activator_looks_at_its_place() {
+        assert_eq!(look_target(FormId::PLAYER_REF, None), LookAt::Player);
+        assert_eq!(look_target(FormId(0x1234), None), LookAt::Actor(0x1234));
+        assert_eq!(look_target(FormId(0x601), Some([10.0, 20.0, 30.0])), LookAt::Point([10.0, 20.0, 30.0]));
+        assert!(is_actor_sig(b"ACHR") && is_actor_sig(b"ACRE") && !is_actor_sig(b"REFR"));
     }
 }

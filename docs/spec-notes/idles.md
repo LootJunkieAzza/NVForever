@@ -359,7 +359,7 @@ words, with where ours stands:
   here) and `BSPriority#50#` in its `UPB`.
 - **In the engine** (`engine/nvforever/src/anim_objects.rs`) [design, from the above]:
   while an actor's idle slot plays an IDLE that has animated objects (until it has faded
-  out), each object's model is drawn rigid under its `Prn` bone; when another idle starts
+  out), each object's complete model hierarchy is drawn under its `Prn` bone (root fallback); when another idle starts
   or the idle is over, the objects are taken away. Log: `anim object: <actor> holds
   <model> on <bone> (<ANIO>, idle <IDLE>)`, and `anim objects summary: … objects drawn
   for … idles played, … could not be drawn` at the end.
@@ -387,6 +387,53 @@ words, with where ours stands:
   model to `LooseVCG01PlayerTakeReflectron`, which no script or dialogue line of
   FalloutNV.esm names [observed]), the objects' own controllers, and checking against
   the game how long an object stays (the whole idle, as here, or only between keys).
+
+### 10.1 Chamber effects and external KF controllers (#2685)
+
+- [observed: data, main session 2026-11-15, issue #2685, FalloutNV.esm script/record
+  and Fallout - Meshes.bsa NIF/KF decode, upstream 1790ab94a] ANIO `hChamberFXAmin`
+  (0x0016125F) names `animobjects\hchamberFX.NIF` and DATA IDLE `MrHouseOpen`
+  (0x0013A23A); `hChamberFXAmin02` (0x001618FB) names
+  `animobjects\hchamberFXLSO.NIF` and DATA `MrHouseOverloadLifeSupport` (0x0013A818).
+  These two links support the reading DATA = idle.
+  [documented: offline GECK wiki 2026-10-28 snapshot, search.py --title "Animated Object" --read]
+  The requested wiki title was tried and is absent.
+- [observed: data, same main-session decode, #2685] `WakeUp.kf` has one CLAMP sequence,
+  `SpecialIdle_Wakeup`, 0..19.4 seconds. Its SELF_ILLUM tracks target the creature's
+  NIFZ parts (heart, helmet lights, back light, shell buttons and bed console).
+  Its smoke shapes and five particle systems instead belong to the ANIO model,
+  whose root `Effects` has `Prn` = `Bip01`. Alpha/UV, emitter birth/on-off, modifier
+  on-off and particle emittance tracks belong to the same KF.
+- [design, #2685; engine/nvforever/src/anim_objects.rs, nvf-assets/src/model.rs]
+  Prepare the ANIO against the external KF, so its target shapes get the material
+  features and hierarchy they require. Play transforms and material tracks with the
+  ordinary placed-model players, synchronized to the actor idle's clock. Preserve the
+  model's authored root transform below Prn; fall back to the skeleton root when Prn
+  is absent or unavailable. Replacement/stop removes the complete attachment tree
+  after the existing cross-fade. An object's independent controllers remain outside
+  this external-KF playback rule.
+- [design, #2685; idles.rs::HOLD_CLAMP_EFFECT_IDLES, fnv-actor/src/idle_play.rs]
+  A CLAMP idle carrying material/emitter tracks plays once and keeps its exact final
+  sample at full weight until replaced or stopped. Ordinary finite idles still fade
+  away. This keeps glow tracks and attached effects alive; keyed emitter-off values
+  suppress new births. This provisional generalization is listed in owner-review.
+- [hypothesis, #2685] The visible steam/glow envelope and lingering haze follow these
+  authored tracks, with no invented fog density or emitter rates. Original-game
+  timing, final appearance and reload behavior still need observer check **212**.
+- [design: crates/fnv-game/src/game.rs::object_groups, engine/nvforever/src/object_anims.rs]
+  Enabled ground fog (REFR 0x001629DD, model `effects\NV\hChamberGroundFog.NIF`,
+  `Forward` CLAMP 0..52.33 s [observed: data, main session #2685]) already draws through
+  `script_draw`, plays its sequence on `PlayGroup Forward 1`, and restores the saved
+  group at its end. [design, #2685; nvf-assets/src/morph.rs::play_sequence_morphs]
+  Its manager morph now binds `Forward` by shape/frame name and follows the same
+  `Playing::sequence_time` as UV/alpha, including the held or restored endpoint.
+  Each rig receives a private morph mesh; other copies keep their own pose.
+- [design: engine/nvforever/src/idles.rs::ActorIdle; crates/fnv-game/src/game.rs saved
+  state] Actor idle slots and their playback times are not serialized. Consequently
+  this change retains glow/ANIO state during the live session, but cannot restore a
+  held actor idle after load or actor respawn. Implementing that requires a separate
+  idle snapshot/reconstruction path; no new save fields are introduced here. Fog's
+  existing saved group state continues to work independently.
 
 ## 11. Drawn-weapon fidgets from the IDLE tree
 

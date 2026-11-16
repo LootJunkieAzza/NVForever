@@ -39,7 +39,8 @@
 //!   device. With a controller the original's whole column [observed: the original's
 //!   screenshots on issue #1896, taken with a controller connected]: the equip action
 //!   ("Equip", "Unequip" on what is worn, "Use" on aid; A), "Drop" (X), the repair action
-//!   ("Repair" / "Maintain", Y, `super::repair`), "Hotkey" (a held key 1-8 and a click)
+//!   ("Repair" / "Maintain", Y, `super::repair`), "Hotkey" (RB, `super::hotkey_panel`)
+//!   [design, #2312],
 //!   and, on Weapons, "Mod" (LB). With the keyboard and mouse only "Repair R)" /
 //!   "Maintain R)" on every tab and "Mod X)" under it on Weapons [observed 2026-11-09: the
 //!   original's InventoryMenu button tiles read with keyboard and mouse on each ITEMS
@@ -558,6 +559,9 @@ fn on_row_click(
 ) {
     let keys = keys.snapshot();
     let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+    if hold.controller.is_some() {
+        return;
+    }
     // The player's tweak: a right click does not drop [design: docs/design/tweaks.md].
     let no_right_drop = tweaks.as_ref().is_some_and(|t| t.no_right_click_drop);
     let Ok(r) = rows.get(click.entity) else { return };
@@ -748,7 +752,7 @@ pub fn page_hints(tab: Category, row: Option<&Row>, repair: (&'static str, bool)
             Hint::new(equip, key(KeyCode::Enter), !(enter && item.is_some())),
             Hint::new(super::labels::built_in_label("sInventoryDrop"), drop_key(), !droppable),
             repair,
-            Hint::new(super::labels::built_in_label("sInventoryHotKey"), HOTKEY_KEYS.into(), !holdable),
+            Hint::new(super::labels::built_in_label("sInventoryHotKey"), hotkey_button(), !holdable),
         ]
     };
     if tab == Category::Weapons {
@@ -763,10 +767,10 @@ pub fn page_hints(tab: Category, row: Option<&Row>, repair: (&'static str, bool)
 const USE: &str = "Use";
 const UNEQUIP: &str = "Unequip";
 
-/// The hotkey hint's keys: a hotkey's key (1, 3 to 8; 2 is Ammo Swap) held while the row
-/// is clicked (`super::hotkey_panel`); no controller button does it yet (`crate::pad`'s
-/// inventory buttons) [design].
-const HOTKEY_KEYS: &str = "1-8)";
+/// [design, #2312] The existing hint/glyph path names RB (or R1) for the panel.
+pub fn hotkey_button() -> String {
+    format!("{})", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::RightTrigger), crate::pad::labels()))
+}
 
 /// The drop hint's key: a right click on the keyboard and mouse (owner 2026-11-02, #1393),
 /// with a controller its X (`IM_DropButton`'s `&xbuttonx;` [documented:
@@ -1054,14 +1058,14 @@ mod tests {
         let keys_misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
         let keys_empty = shown(&page_hints(Category::Weapons, None, ("Repair", false), false, true));
 
-        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey 1-8)", false), hint("Mod LB)", false)]);
+        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey RB)", false), hint("Mod LB)", false)]);
         assert_eq!(bare, ("Repair", true, "Mod", true, false));
-        assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey 1-8)", false)]);
-        assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey 1-8)", false)]);
+        assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey RB)", false)]);
+        assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", false)]);
         assert_eq!(book, "Use");
         assert_eq!(refused, ("Equip A)".to_string(), true, false));
         for h in &misc_ammo {
-            assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey 1-8)", true)]);
+            assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey RB)", true)]);
         }
         assert!(quest);
         assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");

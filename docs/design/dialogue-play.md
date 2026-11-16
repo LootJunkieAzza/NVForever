@@ -885,7 +885,15 @@ conversation between actors):
 - the **listener** looks at the speaker [documented for SayTo, §9.1]: head only for a
   SayTo line [design]; head and body in a conversation between actors, where it speaks
   next [design: `fnv_ai::social` already turned both bodies];
-- SayTo with `noTargetLookFlag` 1: only the speaker turns (`LineLook::Speaker`);
+- SayTo with `noTargetLookFlag` 1: nobody turns, body or head, and no head is left with
+  a forced look afterwards (`LineLook::Nobody`) [hypothesis, observer check 218; #2796,
+  2026-11-16]. The listener staying still is the wiki's (§9.1); the speaker not turning
+  to the target is read from the flag's name and the shipped data: 22 SayTo calls to the
+  player pass it (the McCarran monorail guards' warnings, Curtis's radio call in the
+  McCarran tower), and with the player as the target the wiki's reading alone would do
+  nothing. Curtis's call only works with his back to the player. Until #2796 the flag
+  turned the speaker only; the 2026-10-11 rule above still holds for every SayTo without
+  it (owner-review.md, Tier 3);
 - StartConversation with `headTrack` 0: nobody turns, for every line of that
   conversation (`LineLook::Nobody`, carried from line to line) [hypothesis: left out, it
   is on];
@@ -918,8 +926,9 @@ SayTo from the speaker's script.
 ### 9.4 Checks (2026-10-11)
 
 - `cargo test -p fnv-game --test integration dialogue::lines_said_to_someone_turn_the_two_to_each_other`:
-  SayTo with and without the flag, Say, a conversation between actors with and without
-  `headTrack` 0 (and its reply).
+  SayTo without the flag, Say, a conversation between actors with and without
+  `headTrack` 0 (and its reply); `dialogue::say_to_with_no_target_look_turns_nobody`:
+  SayTo with the flag to the player and to an actor (#2796).
 - Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test
   aid: to Cheyenne 157° behind her, the AI turned her body and the line ended with
   Cheyenne +0° off her front; Cheyenne (a dog) was given Sunny as her head's target
@@ -927,7 +936,7 @@ SayTo from the speaker's script.
   turns depends on its skeleton and was not checked. The same with `--no-npc-packages`: `speech_look.rs`
   turned her -160° in 1.06 s, ending at +0°. To the player 96° off: ended at +0°. With
   `noTargetLookFlag` 1 to GoodspringsSettler04Ref and to Cheyenne: only Sunny turned
-  (ended at -1° and +0°).
+  (ended at -1° and +0°); since #2796 nobody turns for those lines.
 - The unattended opening (`--new-game`): Doc Mitchell's 13 SayTo lines to the player in
   the first 90 s turn his head; while he sits on his chair (001059B0) the body stays, as
   §8.1 has it for sitting actors. The opening's idle summary and stage 55 are as before.

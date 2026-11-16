@@ -266,13 +266,66 @@ location, in cell (radius ignored), near reference; the radius is editable.
   navmesh. Package idles play at the destination.
   - **At an xMarkerHeading** (built 2026-11-08) [documented: GECK wiki, NPC population,
     level-design.md: the heading version "shows which way an actor standing there will
-    face"]: an actor whose package location is "near reference" an xMarkerHeading (the
+    face"]: an actor whose package location resolves to a placed xMarkerHeading (the
     engine's base 0x34) turns, once there, to the marker's heading at the standing turn
     rate (`fnv_ai` `marker_heading`, set in `settle`, for every package type that
     settles there; a sandbox keeps its own). Owner report (TTW, the G.O.A.T.): Mr.
     Brotch at `CG03MrBrotchTeachMarker` (heading 22°, towards the desks) faced the lab
     bench, the heading he walked in with. Whether the original turns for a radius other
     than 0 (his `CG03MrBrotchGiveGOAT` has 20) is not known; ours turns for any.
+    [design, #2526: `fnv_ai::goal::location_reference`, `carry::marker_heading`]
+    Near reference, near linked reference, near object ID and near object type share
+    the destination-reference resolver. `Goal::Near` retains the selected reference
+    alongside the travel position; arrival facing reads it without repeating the
+    nearest-object search from the actor's new position. Guard with Remain Near
+    Reference to Guard retains its effective target, so an unrelated location marker
+    cannot supply its heading. Plain XMarkers
+    keep the walker's arrival heading; furniture, sandbox and guard-wander handling
+    retain precedence. [documented: #2526 writer brief, main session's fnvtool esm
+    decode / ai show of FalloutNV.esm] Kimball's guards `VHDRangerKimballGuard01REF`
+    (0012FCD4) and `02REF` (0012FCD5) use Travel `VHDKimballGuardSpeechIdlePackage`
+    (00131F13), near linked reference, radius 0; their linked stage markers 00131F0E/F
+    are xMarkerHeading base 00000034, z rotation 3.3832 rad.
+  - **At the editor position** [hypothesis, #2526, observer check 213]: Travel and
+    standing Guard with a near-editor location radius below `GUARD_WANDER_MIN_RADIUS`
+    (16 units, the existing #2027 cutoff) face the actor's placed editor z rotation.
+    [design: `carry::settle`, `marker_heading`] This excludes sandbox/wander and Guard
+    remaining near its target; it turns at the existing standing rate. A runtime-created
+    actor without a placed editor rotation has no arrival heading supplied by this rule.
+    [documented: #2526 supplied ai-show evidence] The speech crowd's
+    `VHDCivilianIdlePackage` (00133EC3) is Travel near editor location, radius 0.
+  - **Guard package selection audit** [documented: #2526 supplied `2526-ai.json`,
+    `2526-guard-packages.json` and w2 brief; main-session fnvtool ai show and quest-script
+    SLSD/SCVR decode of FalloutNV.esm, 2026-11-15]: both guards' list order is StageFront
+    (00135004), KimballDead (00134B20), SpeechIdle (00131F13), Saferoom01/02
+    (00133EB6/7), then Follow01/02 (0013259E / 00131F12). All conditions are AND,
+    run on subject. VMQ03a (00131F08, script 00131F0A) variable indices are
+    `iKimballFlee` 2, `bKimballSaferoom` 3, `AssassinAttack` 5,
+    `iVertibirdBombActive` 9, `iDetonatorFound` 11, `bKimballDead` 26;
+    VHDKimballSpeech (00130C78, script 00130C77) `iKimballStage` is index 4.
+    With `iKimballStage = 2` and these VMQ03a variables at 0:
+    - StageFront requires flee != 1, detonator < 2, bomb < 3, attack == 2 and
+      GetIsReference(guard02) == 1. It fails attack == 2 for both, and the reference
+      condition also excludes guard01.
+    - KimballDead requires dead == 1 and fails; SpeechIdle requires dead == 0,
+      flee == 0 and speech stage == 2, so passes for both and wins before the rest.
+    - Saferoom packages require saferoom == 1, flee == 1 and their own guard reference;
+      Follow packages require only their own guard reference. Neither can displace a
+      valid earlier SpeechIdle. During attack == 2, StageFront can win for guard02
+      when its other conjuncts pass; it never wins for guard01.
+    [documented: supplied `2526-records.md`, SCPT 00145EC2] Moore's introduction sets
+    the speech variable to 2 and reevaluates both guards. [design: `fnv_game::ai`
+    `select_package`, `check_package`; `game::eval_conditions`; `functions::quest`
+    `get_quest_variable`; `functions::refs::get_is_reference`] The evaluator reads
+    quest instance variables by index, compares the subject for GetIsReference and
+    chooses the first valid package. Synthetic `fnv-ai/tests/carry.rs` coverage checks
+    the supplied conjunctions/order for both guards, including attack, death, flee and
+    saferoom transitions: no condition-evaluation bug is established. The selected
+    SpeechIdle destination is each guard's linked stage marker; retaining its heading
+    fixes the demonstrated facing defect. [design: tools/smoke/scenarios.toml]
+    `scene-kimball-guard-natural-heading` stages these quest variables and asserts both
+    natural SpeechIdle selections and arrival headings without AddScriptPackage;
+    `scene-kimball-guard-heading` remains the focused forced-package arrival check.
 - **Sandbox**: ambient behaviour within the location radius: it scores nearby objects
   (food, furniture, idle markers, other actors), weights them by a per-kind probability
   that drops to zero for the kind just chosen and rises for the others; sleep start
@@ -287,6 +340,17 @@ location, in cell (radius ignored), near reference; the radius is editable.
   setting: its own rule for the object just used, and for the only object open
   (60 s, issue #1505), is a design choice under the maintainer's review
   (docs/design/actor-behaviour.md §5.5, docs/owner-review.md; observer check 114 asks the original).
+  The action-type rule permits repetition “unless it has no other options”
+  [documented: GECK wiki, [Sandbox Package, Action Selection](https://geckwiki.com/index.php?title=Sandbox_Package),
+  offline revision 32636]. An idle-marker-only package with just its last marker open
+  reuses that marker at expiry without Standing [design, #2715:
+  `fnv_ai::sandbox::Allowed::only_idle_markers`, `Sandbox::next`]. All five other
+  behaviours must be disabled; permitting one retains the default even when it has
+  no available choices [design, #2715: `Sandbox::next`]. Pacer's cower package permits only idle markers and names
+  VFSNCRFightPacerMarkerREF (REFR 0x001293EC), DefaultCowerIdleMarker (IDLM 0x000C47CC,
+  timer 0), with LooseCowerIdles (0x000C0A9A, looping 3rdP_Cowering.kf)
+  [documented: #2715 issue comment, supplied record findings]. That he stays cowering
+  throughout the original's staged fight is unmeasured [hypothesis; observer check 208].
 - **Patrol**: walk the chain of linked references; repeatable patrols loop (or go back
   and forth) and start at the nearest point; non-repeatable ones start at the first point
   and are done at the last; data on the points (Idle Markers, XMarkerHeading: idle time,
@@ -458,10 +522,16 @@ not work" on Escort]:
   player followed led the player to its location; our choice: the 64]. At the destination its goal is met. A target that is gone or dead
   is not waited for [our choice]. Without PKE2, 200 [our choice: the most common value].
   The target's own count / distance (256, 800) is not used [hypothesis: unknown meaning].
-- **Joining the target's fights** (since 2026-10-20, `Game::escorts_assist` in
-  `fnv_game::provocation`, called with `Game::call_allies`) [documented: Defensive Combat,
-  "if the target is attacked, the actor will join into the combat"]: while its current
-  package is Escort, the actor takes up its charge's fight against each actor attacking
+- **Joining the target's fights** (since 2026-10-20 for Escort, since 2026-11-16 for
+  Follow and Accompany too, #2793; `Game::escorts_assist` in `fnv_game::provocation`,
+  called with `Game::call_allies`) [documented: Category:Packages, Defensive Combat, "The
+  exception is for the Accompany, Escort and Follow packages. For these three, if the
+  target is attacked, the actor will join into the combat"]: while its current package is
+  Accompany, Escort or Follow (`provocation::CHARGE_PACKAGES`; the charge is the package
+  target, PTDT, a specific reference or the linked reference, the same field for all
+  three [documented: Follow Package and Accompany Package, "Specific Reference: actors
+  only", "Standard Reference selector, filtered to actors"]), the actor takes up its
+  charge's fight against each actor attacking
   the charge (in a combat state with the charge on its target list, or having hurt it):
   it holds a grudge against the attacker and is alarmed at its position, as an assisting
   ally (combat-ai.md §10.3), whatever its Assistance and whether or not the package is
@@ -474,8 +544,12 @@ not work" on Escort]:
   once the other side fights back (then it attacks the charge); a charge that provoked
   the attacker is helped all the same; it holds from the package's start to its end, also
   once the destination is reached; an escort that is the player's teammate is left to
-  the teammate rule (followers.md §3). Follow and Accompany share the documented
-  exception and are not built. No placed actor runs an Escort package without a quest
+  the teammate rule (followers.md §3). A Defensive Combat actor still starts no fight of
+  its own (`Game::hostility`): it only joins its charge's. Before #2793 only Escort was
+  built, so the Hoover Dam escort Securitron (`VHDSecuritronEscort01REF` 0x001554DB on
+  `DefaultFollowPlayerFar` 0x001554DC: Follow, target the player, Defensive Combat)
+  never fought the Legion attacking the player [observed: a tester's events file, issue
+  #2793]; smoke scenario `house-escort-assist`. No placed actor runs an Escort package without a quest
   stage (NellisRaquelIntroEscortAIPackage, GomezEscortTo*), so the smoke scenario
   `package-escort-fights` gives one by script. Log: `provocation: <escort> helps <charge>
   against <attacker>`.
@@ -610,8 +684,15 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   way on land (it is still taken when there is no other) [our choice]; with it 3 times,
   as before.
 - **Allow Falls**: "Actors will not jump off of an elevation that will cause damage
-  unless this flag is set" [documented]: with it the way may use the navmesh's ledge links
-  [hypothesis: ledge links are those drops].
+  unless this flag is set" [documented: GECK wiki Category:Packages, Flags Tab].
+  [design, #2532: `fnv_ai::Ai::path_params`, `fnv_nav::PathParams::safe_drop_max`]
+  With it the existing unrestricted ledge policy applies. Without it, an authored
+  downward link may connect an otherwise unreachable route when its planned takeoff
+  to landing is no higher than `fJumpFallHeightMin` (fallback `SAFE_DROP_HEIGHT`, 600,
+  following `engine/nvf-play/src/falls.rs`; physics.md section 6.10).
+  [hypothesis, #2532] This individual-link height predicts a harmless fall; original
+  scene parity, collision along the arc and cumulative falls remain unverified
+  (observer check 214). No new links or ranger-specific package overrides are created.
 - **No Warn/Attack Behavior** (4 Ambush, 18 Dialogue, 6 Eat and others): no aggro-radius
   warnings or attack (`fnv_game::aggro`) [hypothesis: the flag's name, xEdit; no page
   describes it].

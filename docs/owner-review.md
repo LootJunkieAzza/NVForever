@@ -30,6 +30,16 @@ the spec it links to.
   simultaneous activity. Alternatives
   from the issue: an Auto choice, ask once, or discoverability only. Ruling otherwise
   changes this selection policy ([controller section 1](design/controller.md)).
+- **NPC semi-automatic guns fire at their attack clip's pace (#2739).** [design, #2739]
+  An NPC's or creature's semi-automatic gun, in a fight and in a Use Weapon, is now timed
+  by its attack clip in its own rig as the player's is: the clip's `a:` key, else its end,
+  ÷ the weapon's attack multipliers (before: always 1 ÷ Attack Shots/Sec). Where the clip
+  has an `a:` key this matches the record's rate for the people's guns (combat-rules.md
+  §4 table); a gun whose clip has no `a:` key fires more slowly (the player's 5–20 %).
+  The sentry bot's launcher goes from 0.63 s to 0.967 s between missiles; the original's
+  interval is observer check 221. Ruling otherwise: back to 1 ÷ Attack Shots/Sec for
+  NPCs (`fnv_combat::attack::npc_clip_timing`)
+  ([combat-rules section 4.1](spec-notes/combat-rules.md)).
 - **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
   `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
   QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
@@ -135,8 +145,28 @@ the spec it links to.
     original (observer check 180 asks about the Silver Rush customer this was found on).
     It changes every Cowardly actor in every fight. Should cowards still fight back when
     cornered, or wait until hurt? ([combat-ai §12](design/combat-ai.md))
+85. **Faction allies of the player take up fights against the player (#2794).** An actor
+    whose faction names one of the player's an Ally (or a Friend, with Helps Friends and
+    Allies) and whose Assistance helps it now joins against whoever fights the player
+    when it detects the player, as it would for any other ally; before, Assistance never
+    counted the player, so the Legate's camp Securitrons (PlayerFaction Ally, Helps
+    Allies) stood by once their scripted guards were dead and never fought General
+    Oliver. The documentation does not say Assistance counts the player
+    [hypothesis: your expectation in the issue thread]; cowards, Helps Nobody, actors
+    allied to the attacker and anyone after the player itself (a crime, a grudge) stay out, teammates keep their own rule. It reaches faction
+    disguises too: in NCR armour ArmorNCRFactionNV is the player's friend, so NCR
+    soldiers with Helps Friends and Allies join the player's fights. If allies now pile
+    into fights you start (they join once the other side fights back), say where.
+    Observer check 217 asks the original. ([combat-ai §10.3](design/combat-ai.md))
 
 ## Tier 2: movement and controls feel
+
+- **Harmless authored drops without Allow Falls (#2532).** [design, #2532]
+  Use `fJumpFallHeightMin` (`SAFE_DROP_HEIGHT` fallback 600) as the per-link safety
+  limit when the ordinary route is unavailable; no invented ledge links. A lower
+  limit would leave more patrol routes unreachable. [hypothesis] This predicts
+  harmless falls; parity is pending observer check 214
+  ([navmesh](design/navmesh.md#3-paths), [packages](spec-notes/packages.md)).
 
 - **Darting movement clips (#2352).** [design, #2352] `ROOT_EXCURSION_RATIO = 1.5`
   selects moves whose sampled root excursion exceeds 1.5 times net travel; their
@@ -275,6 +305,18 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **SayTo's "no target look" flag turns nobody (#2796).** [hypothesis, #2796] A SayTo with
+  `noTargetLookFlag` 1 now turns neither the speaker nor the target, so Curtis talks into
+  his radio in the McCarran tower without turning to the player below. Without the flag
+  the speaker still turns to whom it talks (your 2026-10-11 rule). This changes the 22
+  shipped SayTo calls to the player that carry the flag (the monorail guards would warn
+  you without turning). The narrower reading, the speaker stays only when the target is
+  the player, is a one-line change. ([dialogue-play §9.2](design/dialogue-play.md))
+- **Hold CLAMP effect idles (#2685).** [design, #2685] `HOLD_CLAMP_EFFECT_IDLES` keeps
+  a CLAMP actor idle with material/emitter tracks at its exact end until replacement or
+  stop, overriding repeat counts. This keeps attached chamber effects and pod glow;
+  disabling it restores finite-idle fade-out. Review the generalization to other
+  effect idles ([idles section 10.1](spec-notes/idles.md#101-chamber-effects-and-external-kf-controllers-2685)).
 - **Terrain smoothing: which recipe by default (#2149, #2676).** [design, #2149]
   The default is the contributor's pick from nine variants compared in game and
   screenshots on 2026-11-15, for you to confirm or change: **detail, 4 × 4, bound 8,
@@ -305,6 +347,14 @@ the spec it links to.
   bunker and being sent out for your gear by McNamara left your controls off for good.
   Check in game that Ramos speaks on the intercom there on a sneak-in save.
   ([talking-activators §2](spec-notes/talking-activators.md))
+- **An intercom whose talking actor has no line says its own (#2768).** [design, #2768]
+  A script's Say or SayTo on a talking activator now says its talking actor's line
+  (observer check 219 asks whether the original does). When that actor has no line of
+  the topic, ours falls back to the activator's own lines, as before #2768, so no line
+  an intercom said before is lost. The alternative: no fallback, so a talking activator
+  with an actor set says only that actor's lines, nothing otherwise (closer to the
+  catalogue's "use the dialogue of a given actor"). Ruling otherwise changes
+  `Game::say_with` alone. ([talking-activators §2](spec-notes/talking-activators.md))
 - **Grass fires: size, speed and regrowth (#2567).** [design] Burning weapons and blasts
   light generated grass; a fire spreads in 64-unit patches (0.5-1.5 s a step, faster
   downwind), each patch burns 6 s, and a fire stops at 1,024 units from its start or 500
@@ -533,6 +583,8 @@ the spec it links to.
     sets one)? ([actor-behaviour §5.5](design/actor-behaviour.md),
     [packages §3](spec-notes/packages.md); what the original does:
     [observer check 114](handoff/observer-checks.md))
+    - [design, #2715] Idle-marker-only packages now reuse their sole eligible last marker
+      without Standing; every other package retains this default (observer check 208).
 57. **A Use Weapon package with Continue During Combat keeps firing at its own target
     when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
     anyone) stays at its stand and goes on firing its package's volleys at the package's

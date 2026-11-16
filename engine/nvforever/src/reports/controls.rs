@@ -711,7 +711,7 @@ mod tests {
         let before = keys.clone();
         keys.0[0] = Some(Slot { item: 42, mods: 0 });
         navigation_resets_detection(before, keys.clone(), keys, |w| pip_page(w, Page::Items, 0), "Pip-Boy Items");
-        let fixture = |step| HotkeyHold { slot: Some(0), said: (step >= 1).then(|| "Synthetic assignment".into()), aid: (step >= 2).then_some(0) };
+        let fixture = |step| HotkeyHold { slot: Some(0), said: (step >= 1).then(|| "Synthetic assignment".into()), aid: (step >= 2).then_some(0), controller: None };
         navigation_resets_detection(fixture(0), fixture(1), fixture(2), |w| pip_page(w, Page::Items, 0), "Pip-Boy Items");
     }
 

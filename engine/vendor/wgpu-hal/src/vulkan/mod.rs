@@ -223,6 +223,13 @@ pub fn with_latency_swapchain<R>(call: impl FnOnce(vk::SwapchainKHR) -> R) -> Op
     swapchain::with_latency_swapchain(call)
 }
 
+/// NVForever (2026-11-16): how many swapchains have been created so far in the process (any
+/// device, any surface). It moves on once `vkCreateSwapchainKHR` has returned, so a caller that
+/// sees it move knows that a layer tracking the new swapchain (Streamline's Reflex) has seen it.
+pub fn swapchains_made() -> u64 {
+    swapchain::swapchains_made()
+}
+
 #[expect(missing_debug_implementations, reason = "TODO?")]
 pub struct Surface {
     swapchain: RwLock<Option<Box<dyn swapchain::Swapchain>>>,

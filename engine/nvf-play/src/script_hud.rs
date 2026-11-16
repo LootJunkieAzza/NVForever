@@ -299,7 +299,9 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         // it as a 2D sound heard anywhere (Say's is2D).
         // The player's tweak sets its own distance [design: docs/design/tweaks.md].
         let reach = g.tweaks.subtitle_distance;
-        let heard = if reach > 0.0 { player.is_none_or(|p| crate::voice::hearing(sim, p, s.speaker).is_some_and(|(_, d)| d < reach)) } else { crate::voice::audible(sim, player, s.speaker) };
+        // Heard where it is said: through a talking activator, at the activator, with no
+        // distance attenuation (`crate::voice::in_reach`).
+        let heard = crate::voice::audible_line(sim, player, s.place(), s.through.is_some(), (reach > 0.0).then_some(reach));
         if !heard && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }

@@ -175,3 +175,30 @@ fn creature_kffz_and_nifz_lists() {
     assert_eq!(d.kffz, ["SpecialIdle_Bark.kf", "b.kf"]);
     assert_eq!(d.nifz, ["Dog.NIF"]);
 }
+
+#[test]
+fn animated_objects_decode_idle_links_models_overrides_and_deletions() {
+    let anio = |fid, flags, name: &str, idle| record(b"ANIO", flags, fid, &[
+        sub(b"EDID", z(name)), sub(b"MODL", z("AnimObjects\\OwnedEffect.NIF")),
+        sub(b"DATA", u32::to_le_bytes(idle).to_vec()),
+    ]);
+    let master = [tes4(&[]), top(b"ANIO", &[
+        anio(0x810, 0, "Old", 0x900), anio(0x811, 0, "Deleted", 0x900),
+    ].concat())].concat();
+    let plugin = [tes4(&["Test.esm"]), top(b"ANIO", &[
+        anio(0x810, 0, "Replacement", 0x01000901), anio(0x811, 0x20, "Deleted", 0x900),
+        anio(0x01000812, 0, "SelfIndex", 0x02000902),
+    ].concat())].concat();
+    let plugins = vec![Plugin::parse(&master, "Test.esm".into()).unwrap(), Plugin::parse(&plugin, "Mod.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let (_, schema) = load();
+    let mut issues = Issues::default();
+    let all = fnv_actor::idle::anim_objects(&lo, &schema, &mut issues);
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].id, FormId(0x810));
+    assert_eq!(all[0].edid.as_deref(), Some("Replacement"));
+    assert_eq!(all[0].model.as_deref(), Some("meshes\\animobjects\\ownedeffect.nif"));
+    assert_eq!(all[0].idle, Some(FormId(0x01000901)));
+    assert_eq!(all[1].idle, Some(FormId(0x01000902)));
+    assert!(issues.is_empty());
+}

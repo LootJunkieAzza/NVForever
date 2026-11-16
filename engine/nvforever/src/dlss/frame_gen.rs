@@ -34,6 +34,9 @@
 //!     `crate::frame_gen::GeneratedFrames` (the performance overlay's count); a line every ten
 //!     seconds with real and presented frames; a status other than `eOk` while on turns frame
 //!     generation off for the session, said once with the flags' names [documented: §14.3].
+//!     The frames presented, with whether the mode was on, also decide what frame pacing's cap
+//!     is divided by (`fg_cap.rs`, #2731): the frames DLSS-G presents while it generates, 1 in
+//!     menus and while it presents one per real frame; each change is one `frame cap:` line.
 //! - **UI buffer** ([`ui_buffer`], stage 4 item 2; after the UI, before Bevy's upscaling blit,
 //!   where FSR's frame generation's `generate` sits): on a tagged frame a full-screen pass writes
 //!   a display-sized `R16Float` UI alpha from the frame (with the UI) and its HUD-less copy: 1
@@ -254,6 +257,8 @@ struct FrameGen {
     /// The swapchain was just made again by the live toggle: the mode stays off one frame more
     /// ([`window_changes`]).
     just_switched: bool,
+    /// What frame pacing's cap is divided by, from the frames presented ([`state`], `fg_cap.rs`).
+    cap: super::fg_cap::CapDivisor,
 }
 
 /// The UI buffer's full-screen pass, its textures (two used in turn, as the HUD-less) and the
@@ -303,6 +308,9 @@ impl FrameGen {
         shared.store(load, Ordering::Relaxed);
         self.applied = None;
         self.presented_off = true;
+        // Loaded or unloaded: the cap's divisor starts again at the full limit (`fg_cap.rs`).
+        self.cap = super::fg_cap::CapDivisor::default();
+        super::FG_DIVISOR.store(1, Ordering::Relaxed);
     }
 
     fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) -> Self {
@@ -335,6 +343,7 @@ impl FrameGen {
             ui: None,
             ui_said: false,
             just_switched: false,
+            cap: super::fg_cap::CapDivisor::default(),
         }
     }
 }
@@ -378,6 +387,7 @@ fn on() -> bool {
 /// `slGetFeatureFunction` under `kFeatureDLSS_G`.
 pub(super) fn install(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) {
     *frame_gen() = Some(FrameGen::new(get_state, set_options, loaded));
+    super::FG_DIVISOR.store(1, Ordering::Relaxed);
     ON.store(true, Ordering::Relaxed);
     ACTIVE.store(true, Ordering::Relaxed);
 }
@@ -799,6 +809,13 @@ fn state(world: &mut World) {
         period.presented += u64::from(state.num_frames_actually_presented);
     }
     let is_on = fg.applied.is_some_and(|a| a.on);
+    // What frame pacing's cap is divided by now (`fg_cap.rs`): the frames this present showed,
+    // whether the mode was on for it, the frames asked for.
+    let asked = fg.applied.map_or(1, |a| a.frames + 1);
+    if let Some(change) = fg.cap.after(super::fg_cap::Present { mode_on: is_on, presented: state.num_frames_actually_presented, asked }) {
+        super::FG_DIVISOR.store(change.to, Ordering::Relaxed);
+        note_fg(Level::INFO, change.line());
+    }
     {
         if let Some(generated) = &generated {
             generated.0.fetch_add(u64::from(state.num_frames_actually_presented.saturating_sub(1)), Ordering::Relaxed);
@@ -1000,7 +1017,6 @@ fn follow_request(request: Extract<Option<Res<crate::frame_gen::DlssgRequest>>>)
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     fg.requested_frames = request.frames.clamp(1, 3);
-    super::FG_MULTIPLIER.store(fg.requested_frames + 1, Ordering::Relaxed);
     if request.on == fg.loaded {
         // A newer choice cancels a switch that has not reached Streamline yet.
         fg.toggle = None;

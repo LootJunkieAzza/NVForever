@@ -243,7 +243,7 @@ Start cannot be bound.
   | Container | X Take All; LT / RT pick the player's list / the container's, "LT)" and "RT)" drawn under them; D-pad left / right the picked list's category [observed: the original, #1827; documented: `CM_Items_TitleButton`, `CM_Container_TitleButton`]; while "How many?" is up its own buttons rest: the D-pad steps the amount, LT / RT by ten [design, #1827] |
   | Barter | X Accept; LT / RT and the D-pad as the container menu's [documented: `BM_Items_TitleButton`, `BM_Container_TitleButton`; the D-pad: hypothesis, #1827] |
   | Pip-Boy (every page) | LT / RT the previous / next page (STATS, ITEMS, DATA, round again); D-pad left / right the tabs [design: owner 2026-11-02] |
-  | Pip-Boy ITEMS | X Drop (`pipboy::items`, not while "How many?" is up), Y Repair, LB Mod |
+  | Pip-Boy ITEMS | X Drop (`pipboy::items`, not while "How many?" is up), Y Repair, LB Mod; RB Hotkey [design, #2312] |
   | Pip-Boy STATS | status tab: A Stimpak, Y Doctor's Bag, X Rad-X; General tab: X switch lists |
   | Pip-Boy DATA | Y Challenges (Notes tab); A Fast Travel on the World Map's marker, Set Active on Quests, Tune on Radio; X Place Marker (the custom marker's question, #1954), Show Location, the notes' filter (`pipboy::data`, #1897) |
   | Crafting | X Accept |
@@ -271,12 +271,25 @@ Start cannot be bound.
   and stand in `pad::MenuAt` as codes of their own (`POKER_MENU`, `PAUSE_MENU`); while
   the pause menu is up its buttons are the menu's own, not those of a menu under it.
 
-  On the ITEMS page the triggers are the pages and LB is Mod, so of the shared paging
-  buttons only RB (Page Down) is left there; the D-pad steps the rows both ways.
+  [design, #2312; `pad::menu_buttons`, `pipboy::hotkey_panel`] On ITEMS the triggers
+  change pages, LB is Mod and RB opens the hotkey panel for the selected item. The
+  D-pad normally steps rows/tabs; while the panel is open it owns all pad menu input.
   On the STATS status tab X is Rad-X, which only acts on the RAD view; on CND and EFF it
   does nothing.
 
-  Not followed: the ITEMS page's RB Hotkey (the hotkeys are held digit keys).
+  [documented: #2312's supplied `menus\main\inventory_menu.xml` facts] The Hotkey
+  button is `IM_HotkeyButton`, RB, labelled by `sInventoryHotKey`. [design, #2312]
+  Both the hand-built and tiled ITEMS pages open the existing panel at slot 1. D-pad
+  right/down advances one slot and left/up goes back, wrapping across all eight
+  (`hotkey_panel::PAD_SLOT_COUNT`); Ammo Swap remains reserved and refuses assignment.
+  A assigns the item and closes on success; a refusal stays visible. B cancels without
+  changing slots. Closing/changing the page, changing input device or opening another
+  modal cancels. The stepping order is provisional [hypothesis: original selection
+  method unknown; observer check 211]. The hand-built hint uses the load order's
+  `sInventoryHotKey` word (our built-in fallback otherwise), followed by RB/R1 and the
+  existing glyph renderer. The tile page shows its optional `IM_HotkeyButton` with the
+  same pad hint and keeps the file's label. Held-digit/click/Enter assignment with the
+  keyboard is unchanged. Smokes: `pipboy-hotkey-assign-pad`, `tiles-items-hotkey-pad`.
 - On the Pip-Boy DATA page's maps the right stick moves the cursor (the highlight box),
   pushed past an edge it pans the map, and the left stick's up and down zooms in and out
   smoothly while held [observed: the original; the speeds are design], built in
@@ -436,8 +449,10 @@ those settings so a mod that changes them changes this too.
 
 - The original's own button pictures from `Interface\Shared\Button\` in place of letters
   (NVForever draws its own glyphs instead, §3a).
-- The ITEMS page's RB Hotkey (§3's "not followed"); the tiled menus' file hints
-  following the device (§3).
+- [hypothesis, #2312] The original's controller slot-selection method remains unknown
+  (observer check 211); the provisional D-pad stepping rule is built (§3).
+- The tiled menus' remaining file hints following the device (§3); ITEMS Hotkey's
+  optional RB button is built [design, #2312; `tiles/inventory_menu.rs`].
 - A pointer moved by a stick for the mouse-only parts of menus still left: the dialogue
   list (the Pip-Boy map's stick cursor and zoom are built, §3).
 - Several controllers told apart for the controls (any pad's buttons work them); only the
