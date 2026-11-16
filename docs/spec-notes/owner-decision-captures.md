@@ -395,6 +395,14 @@ the player hidden 1,500 units from gecko 0x0016518B:
   nothing_it_wants`). People on such packages (prospectors looting containers, Freeside
   thugs, slavers: 17 Find packages carry the flag) keep the old rule, attacking only an
   actor carrying what they look for [hypothesis: no person was observed].
+- **Since 2026-11-15** a person, like a creature, never takes its kin, ally or friend for
+  such a target, whatever it carries [hypothesis, from the gecko leaving its kin alone].
+  Without it the five Freeside thugs that ApocalypticMojave.esp places together in
+  WastelandNV near the north gate (VFSFreesideThugRandom 0x270011EE..F2 in the owner's
+  load order, all in FreesideThugFaction and armed) killed each other on
+  VFSFreesideThugPackage (Find, object type 28, Allow Killing) [observed: owner's log
+  2026-11-15 22:10]. Test `a_person_finding_with_allow_killing_spares_its_kin`.
+  Observer check 135 asks the original.
 
 ## 7. Second run, 2026-10-19 [observed]
 

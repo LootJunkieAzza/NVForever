@@ -2242,3 +2242,17 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      stimpaks, a 9mm pistol and its rounds) and take screenshots every 0.5 s for 15 s.
      Note each line's exact form (name and count order, the word used), whether the
      rounds show as one line or many, and how long each line stays.
+
+## Added 2026-11-15 (Freeside thugs on a Find package with Allow Killing)
+
+135. **Does a person on a Find package with Allow Killing attack its own kin when the kin
+     carries what the package looks for?** (P3; owner-decision-captures.md §6.) The
+     original's gecko on VCrGeckoFindFood left the other gecko alone [observed: campaign
+     `gecko_find`]; no person was observed. NVForever now lets a person on such a package
+     attack only a stranger (not kin, ally or friend) carrying what it looks for [hypothesis].
+     To check, in the original: place three VFSFreesideThugRandom (0x00118A8E) 300 units
+     apart in an empty exterior with no one else near, the player 3,000 units away and
+     hidden (tcl, tdetect). VFSFreesideThugPackage (Find, object type 28, Allow Killing)
+     is their only package. Watch for 3 game hours (capture every 10 s): does any thug
+     start a fight with another? Then place a Freeside local drunk (FIntFreesideLocalDrunk
+     base) among them: is the drunk attacked?

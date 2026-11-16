@@ -160,6 +160,8 @@ const R_POACHER: u32 = 0x88C;
 const R_BUYER: u32 = 0x88D;
 const R_VENDOR: u32 = 0x88E;
 const R_STOCK: u32 = 0x88F;
+/// A second poacher, of the first one's base: its kin.
+const R_POACHER_KIN: u32 = 0x890;
 
 const C: Space = Space::Interior(CELL);
 
@@ -274,6 +276,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_IDLE_FINDER, "IdleFinderRef", N_IDLE_FINDER, [1200.0, 1200.0, 0.0], None),
         placed(b"ACRE", R_HUNTER, "HunterRef", N_HUNTER, [1100.0, 600.0, 0.0], None),
         placed(b"ACHR", R_POACHER, "PoacherRef", N_POACHER, [1100.0, 700.0, 0.0], None),
+        placed(b"ACHR", R_POACHER_KIN, "PoacherKinRef", N_POACHER, [1250.0, 700.0, 0.0], None),
         placed(b"ACHR", R_BUYER, "BuyerRef", N_BUYER, [1600.0, 200.0, 0.0], None),
         vendor,
         placed(b"REFR", R_STOCK, "VendorStockRef", STOCK, [1900.0, 1900.0, -2000.0], None),
@@ -482,6 +485,26 @@ fn a_find_package_with_allow_killing_attacks_an_actor_carrying_nothing_it_wants(
     let mut s = sim(&f, &[R_POACHER]);
     s.run(10.0);
     assert!(!s.events(R_POACHER).iter().any(|e| matches!(e, AiEvent::Found { act: Act::Attacks, .. })), "{:?}", s.events(R_POACHER));
+}
+
+/// A person on Find with Allow Killing leaves its kin alone even when the kin carries
+/// what it looks for, and attacks a stranger carrying it [hypothesis: as the gecko left
+/// its kin alone; the Freeside thugs ApocalypticMojave.esp places together killed each
+/// other on VFSFreesideThugPackage, owner's run 2026-11-15].
+#[test]
+fn a_person_finding_with_allow_killing_spares_its_kin() {
+    let f = fixture();
+    let attacks = |s: &Sim| -> Vec<u32> { s.events(R_POACHER).iter().filter_map(|e| if let AiEvent::Found { object, act: Act::Attacks, .. } = e { Some(object.0) } else { None }).collect() };
+    let mut s = sim(&f, &[R_POACHER]);
+    s.game.world.add_item(FormId(R_POACHER_KIN), FormId(MEAT), 1).unwrap();
+    s.run(10.0);
+    assert!(attacks(&s).is_empty(), "{:?}", s.events(R_POACHER));
+    // The same meat on a stranger (the calm one, 400 units off): attacked.
+    let mut s = sim(&f, &[R_POACHER]);
+    s.game.world.add_item(FormId(R_CALM), FormId(MEAT), 1).unwrap();
+    s.run(10.0);
+    let a = attacks(&s);
+    assert!(!a.is_empty() && a.iter().all(|r| *r == R_CALM), "{:?}", s.events(R_POACHER));
 }
 
 /// Allow Buying: the vendor's merchant container holds the tonics; the buyer goes up to

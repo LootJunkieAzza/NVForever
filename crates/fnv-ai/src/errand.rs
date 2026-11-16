@@ -341,8 +341,9 @@ impl Ai {
 
     /// The objects of the area that `wanted` names, with how far each is from `from`,
     /// nearest first. An item owned by another is left alone without Allow Stealing; a
-    /// dead actor counts when it carries it; with Allow Killing a living one counts when it
-    /// carries it, or for a creature finder whenever it is not kin, ally or friend; with
+    /// dead actor counts when it carries it; with Allow Killing a living one that is not
+    /// kin, ally or friend counts, for a person when it carries it, for a creature
+    /// whatever it carries; with
     /// Allow Buying a living vendor counts when it has one to sell that the actor can pay
     /// for ([`Ai::offer`]).
     #[allow(clippy::too_many_arguments)]
@@ -411,12 +412,22 @@ impl Ai {
             // (no food in its inventory or death item) and left the other gecko alone; a
             // Very Aggressive gecko on its Patrol attacked bloatflies too; AI observer
             // campaigns `gecko_find` 2026-10-19, owner-decision-captures.md §6].
+            // A living one is never its kin, ally or friend, for a person as for a creature
+            // [hypothesis for people: the gecko left its kin alone (above); without it the
+            // Freeside thugs ApocalypticMojave.esp places together outside Freeside, all
+            // in FreesideThugFaction and all armed, attacked each other on
+            // VFSFreesideThugPackage (Find, Allow Killing), owner's run 2026-11-15].
             if is_actor && !matches!(wanted, Wanted::Reference(_)) && (dead || kill) {
-                let target = if dead || !finder_creature {
-                    carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
-                } else {
+                let foe = || {
                     let relation = fnv_game::functions::faction_relation(game, actor, r);
                     !game.kin(actor, r) && relation != 2 && relation != 3
+                };
+                let target = if dead {
+                    carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
+                } else if !finder_creature {
+                    foe() && carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
+                } else {
+                    foe()
                 };
                 if target {
                     out.push((goal::dist(p.pos, from.pos), r));
