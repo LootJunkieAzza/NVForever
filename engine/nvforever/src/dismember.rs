@@ -6,7 +6,9 @@
 //!   (the stump) stays, a gone part's torso cap shows on the stump, a severed part's section
 //!   cap shows (it leaves with the severed bones). A shape skinned to bones on both sides of
 //!   a severed part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
-//!   to its own bones only, so none stretches from the body to the piece. A shape without partitions whose bones
+//!   to its own bones only, so none stretches from the body to the piece; the body's
+//!   weights on the piece's bones move to anchors on the bone above the cut, the same in
+//!   every shape ([`anchor_slots`]). A shape without partitions whose bones
 //!   all lie in an exploded part's bone tree (head, hair, eyes, hat) is not drawn. Hidden
 //!   shapes are given a mesh with no triangles, so the visibility other systems set
 //!   (`RefVisual`) does not bring them back. Done again whenever shapes are spawned
@@ -22,6 +24,7 @@
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::prelude::*;
 use fnv_combat::data::BodyPartData;
 use fnv_combat::rng::SplitMix;
@@ -94,11 +97,27 @@ struct Gore {
     /// Per actor, the pieces thrown and the distances from its corpse those at rest lie
     /// at, for the log line that tells where the gore ended up.
     landed: HashMap<u32, (u32, Vec<f32>)>,
+    /// Per actor reference, body bone above a cut and gone bone (skeleton node indices):
+    /// the gone bone's pose relative to that body bone when its piece was cut off
+    /// ([`anchor_slots`]), so the stump keeps it when the shapes are cut again.
+    anchors: HashMap<(u32, usize, usize), Affine3A>,
 }
 
 impl Default for Gore {
     fn default() -> Gore {
-        Gore { applied: HashMap::new(), next: 1, pieces: Vec::new(), rng: SplitMix(0x60AE), waiting: Vec::new(), boxes: HashMap::new(), shapes_redrawn: 0, joints_cut: 0, thrown: 0, landed: HashMap::new() }
+        Gore {
+            applied: HashMap::new(),
+            next: 1,
+            pieces: Vec::new(),
+            rng: SplitMix(0x60AE),
+            waiting: Vec::new(),
+            boxes: HashMap::new(),
+            shapes_redrawn: 0,
+            joints_cut: 0,
+            thrown: 0,
+            landed: HashMap::new(),
+            anchors: HashMap::new(),
+        }
     }
 }
 
@@ -188,8 +207,9 @@ pub fn piece_of(bp: u16, cap: bool, sides: &[u16]) -> Option<u8> {
 /// (for a piece, its bone nearest the cut; for the body, the nearest bone above the first
 /// cut), and per piece the body's joint above its cut. A shape with partitions goes by them
 /// (`piece_of`, else `partition_drawn`); one without, triangle by triangle, with the side
-/// most of its corners' weight lies on. None for a shape all on one side.
-type Sever = (Vec<(u8, Vec<u32>)>, Vec<u8>, Vec<Option<u16>>, Vec<Option<u16>>);
+/// most of its corners' weight lies on. Last, the triangles left undrawn (a piece the
+/// shape has no partitions of). None for a shape all on one side.
+type Sever = (Vec<(u8, Vec<u32>)>, Vec<u8>, Vec<Option<u16>>, Vec<Option<u16>>, usize);
 fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String>)], exploded: &BTreeSet<u16>, severed: &BTreeSet<u16>) -> Option<Sever> {
     let (joints, weights) = skin_weights(&shape.cpu)?;
     let side: Vec<u8> = shape
@@ -225,38 +245,133 @@ fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String
     fallback[0] = above_top(sides.iter().filter_map(|(_, names)| top_of(names)).min_by_key(|&i| depth(rig, i)));
     let above: Vec<Option<u16>> = std::iter::once(None).chain(sides.iter().map(|(_, names)| above_top(top_of(names)))).collect();
     let mut groups: Vec<(u8, Vec<u32>)> = (0..n as u8).map(|k| (k, Vec::new())).collect();
+    let mut dropped = 0;
+    // The side most of a triangle's corners' weight lies on.
+    let heaviest = |t: &[u32; 3]| {
+        let mut on = vec![0.0f32; n];
+        for &v in t {
+            let (Some(j), Some(w)) = (joints.get(v as usize), weights.get(v as usize)) else { continue };
+            for c in 0..4 {
+                on[side.get(j[c] as usize).copied().unwrap_or(0) as usize] += w[c];
+            }
+        }
+        (0..n).max_by(|&a, &b| on[a].total_cmp(&on[b])).unwrap_or(0)
+    };
     if shape.partitions.is_empty() {
         let tris: Vec<u32> = match shape.cpu.indices() {
             Some(i) => i.iter().map(|i| i as u32).collect(),
             None => (0..shape.cpu.count_vertices() as u32).collect(),
         };
         for t in tris.as_chunks::<3>().0 {
-            let mut on = vec![0.0f32; n];
-            for &v in t {
-                let (Some(j), Some(w)) = (joints.get(v as usize), weights.get(v as usize)) else { continue };
-                for c in 0..4 {
-                    on[side.get(j[c] as usize).copied().unwrap_or(0) as usize] += w[c];
-                }
-            }
-            let k = (0..n).max_by(|&a, &b| on[a].total_cmp(&on[b])).unwrap_or(0);
-            groups[k].1.extend_from_slice(t);
+            groups[heaviest(t)].1.extend_from_slice(t);
         }
     } else {
         let locations: Vec<u16> = sides.iter().map(|s| s.0).collect();
+        // A piece this shape has no partition of (part, torso section or cap) though
+        // its bones carry some of it: the feral ghoul's pants, all BP_TORSO over both
+        // thighs, left an empty trouser leg on the body (#2677, the owner's playtest of
+        // 2026-11-15). Its drawn triangles carried mostly by that piece are not drawn:
+        // sent with the piece they hung off the leg's cut or lay apart from it, since
+        // nothing in the shape below the thigh holds them to the leg (the owner's
+        // playtest of 2026-11-16) [design].
+        let unparted: Vec<bool> = std::iter::once(false)
+            .chain(locations.iter().enumerate().map(|(i, &l)| {
+                fallback[i + 1].is_some() && !shape.partitions.iter().any(|p| [l, l * 1000, 100 + l, 200 + l].contains(&p.body_part))
+            }))
+            .collect();
         for p in shape.partitions.iter() {
             match piece_of(p.body_part, p.cap, &locations).filter(|&k| fallback[k as usize].is_some()) {
                 Some(k) => groups[k as usize].1.extend_from_slice(&p.indices),
-                None if partition_drawn(p.body_part, p.cap, exploded, severed) => groups[0].1.extend_from_slice(&p.indices),
+                None if partition_drawn(p.body_part, p.cap, exploded, severed) => {
+                    if p.cap || !unparted.contains(&true) {
+                        groups[0].1.extend_from_slice(&p.indices);
+                        continue;
+                    }
+                    for t in p.indices.as_chunks::<3>().0 {
+                        if unparted[heaviest(t)] {
+                            dropped += 1;
+                        } else {
+                            groups[0].1.extend_from_slice(t);
+                        }
+                    }
+                }
                 None => {}
             }
         }
     }
-    // Nothing leaves and no body triangle reaches into a piece: drawn as before.
+    // Nothing leaves or goes and no body triangle reaches into a piece: drawn as before.
     let reaches = |v: &u32| joints[*v as usize].iter().zip(weights[*v as usize]).any(|(&j, w)| w > 0.0 && side.get(j as usize) != Some(&0));
-    if groups.iter().skip(1).all(|g| g.1.is_empty()) && !groups[0].1.iter().any(reaches) {
+    if dropped == 0 && groups.iter().skip(1).all(|g| g.1.is_empty()) && !groups[0].1.iter().any(reaches) {
         return None;
     }
-    Some((groups, side, fallback, above))
+    Some((groups, side, fallback, above, dropped))
+}
+
+/// An anchor slot: the shape's joint it stands for, the skeleton node carrying it, the
+/// joint's pose relative to that node.
+type AnchorSlot = (usize, usize, Affine3A);
+
+/// The anchors of a cut shape's piece joints (`sever_mesh`'s `anchors`): for each joint j
+/// on a piece (`side[j] > 0`), a slot past the shape's own joints, carried by the
+/// skeleton's first node above that piece's top that lies on the body, with j's pose
+/// relative to it. Returned with each slot's (joint, node, pose relative to the node).
+///
+/// Every shape of the actor takes the same node and pose for a gone bone, so the stump
+/// (torso section), its torso cap in another shape and the rest of the body stay together
+/// whatever bones each shape happens to be skinned to (#2677: the radscorpion's torso cap
+/// shape has no bone above its tail, and its cap left with the tail). The pose is the one
+/// at the cut, kept per actor (`Gore::anchors`) for cutting the shapes again later; a part
+/// severed before this run (a loaded game) takes the skeleton's bind pose [design].
+fn anchor_slots(
+    rig: &ActorRig,
+    shape: &LimbShape,
+    side: &[u8],
+    sides: &[(u16, HashSet<String>)],
+    fresh: &BTreeSet<u16>,
+    globals: &Query<&GlobalTransform>,
+    cache: &mut HashMap<(u32, usize, usize), Affine3A>,
+) -> (Vec<Option<u16>>, Vec<AnchorSlot>) {
+    let on_piece = |n: usize| rig.skel.names[n].as_deref().is_some_and(|name| sides.iter().any(|(_, names)| names.contains(&name.to_ascii_lowercase())));
+    // Per side, the body node above the piece's top.
+    let above: Vec<Option<usize>> = sides
+        .iter()
+        .map(|(_, names)| {
+            let top = names.iter().filter_map(|b| node(rig, b)).min_by_key(|&i| depth(rig, i))?;
+            let mut cur = rig.skel.parents[top];
+            while let Some(c) = cur {
+                if !on_piece(c) {
+                    return Some(c);
+                }
+                cur = rig.skel.parents[c];
+            }
+            None
+        })
+        .collect();
+    let mut anchors = vec![None; shape.bones.len()];
+    let mut slots = Vec::new();
+    for (j, &s) in side.iter().enumerate() {
+        if s == 0 {
+            continue;
+        }
+        let (Some(bone), Some(Some(at))) = (node(rig, &shape.bones[j]), above.get(s as usize - 1)) else { continue };
+        let at = *at;
+        let key = (rig.reference, at, bone);
+        let rel = match cache.get(&key) {
+            Some(r) => *r,
+            None => {
+                let now = fresh
+                    .contains(&sides[s as usize - 1].0)
+                    .then(|| Some(globals.get(rig.nodes[at]).ok()?.affine().inverse() * globals.get(rig.nodes[bone]).ok()?.affine()))
+                    .flatten();
+                let r = now.unwrap_or_else(|| rig.skel.bind_world[at].inverse() * rig.skel.bind_world[bone]);
+                cache.insert(key, r);
+                r
+            }
+        };
+        anchors[j] = Some((shape.bones.len() + slots.len()) as u16);
+        slots.push((j, at, rel));
+    }
+    (anchors, slots)
 }
 
 /// The nodes of the part at `location`.
@@ -285,21 +400,23 @@ pub fn partition_drawn(bp: u16, cap: bool, exploded: &BTreeSet<u16>, severed: &B
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn apply_skins(
     mut commands: Commands,
     script: Option<Res<ScriptState>>,
     combat: Res<Combat>,
     rigs: Query<(&ActorRig, Option<&LimbRig>)>,
     added: Query<&RefVisual, Added<LimbShape>>,
-    mut shapes: Query<(Entity, &RefVisual, &LimbShape, &mut Mesh3d, Option<&CutMesh>)>,
+    mut shapes: Query<(Entity, &RefVisual, &LimbShape, &mut Mesh3d, Option<&CutMesh>, Option<&mut SkinnedMesh>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut gore: ResMut<Gore>,
+    globals: Query<&GlobalTransform>,
+    mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
 ) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let mut respawned: HashSet<u32> = added.iter().map(|r| r.0).collect();
     // A redrawn shape given another mesh since (`CutMesh`): its actor is drawn again.
-    for (_, r, _, mesh, cut) in &shapes {
+    for (_, r, _, mesh, cut, _) in &shapes {
         if cut.is_some_and(|c| c.0 != mesh.0.id()) && respawned.insert(r.0) {
             info!("dismember: {:08X}'s shape was given its whole mesh back: drawn without its gone parts again", r.0);
         }
@@ -322,17 +439,42 @@ fn apply_skins(
         // stump (torso section) and torso cap, both weighted mostly to its bones, follow them
         // together.
         let sides: Vec<(u16, HashSet<String>)> = severed.iter().map(|&l| (l, part_names(rig, data, l))).collect();
+        // Severed since the shapes were last drawn: their bones are still where the cut
+        // left them.
+        let before: HashSet<u16> = gore.applied.get(&rig.reference).map(|a| a.iter().filter(|g| !g.1).map(|g| g.0 as u16).collect()).unwrap_or_default();
+        let fresh: BTreeSet<u16> = severed.iter().copied().filter(|l| !before.contains(l)).collect();
+        if gone.is_empty() {
+            gore.anchors.retain(|k, _| k.0 != rig.reference);
+        }
         let torso_gone = exploded.contains(&0);
         let mut redrawn = 0;
-        let mut cut = (0, 0);
-        for (e, r, shape, mut mesh, _) in &mut shapes {
+        let mut cut = (0, 0, 0);
+        for (e, r, shape, mut mesh, _, skin) in &mut shapes {
             if r.0 != rig.reference {
                 continue;
             }
-            if let Some((groups, side, fallback, above)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
+            if let Some((groups, side, fallback, above, dropped)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
                 cut.0 += 1;
+                cut.2 += dropped;
                 cut.1 += groups.iter().filter(|g| g.0 > 0).map(|g| g.1.len() / 3).sum::<usize>();
-                mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback, &above));
+                // The shape's own joints, then the anchors of its gone ones.
+                let mut anchors = Vec::new();
+                if let (Some(mut skin), Some(base)) = (skin, shape.binds.as_ref().and_then(|b| bindposes.get(b)).map(|b| b.to_vec())) {
+                    let own = shape.bones.len();
+                    if skin.joints.len() >= own && base.len() == own {
+                        let slots;
+                        (anchors, slots) = anchor_slots(rig, shape, &side, &sides, &fresh, &globals, &mut gore.anchors);
+                        let mut joints = skin.joints[..own].to_vec();
+                        let mut inverse = base.clone();
+                        for (j, at, rel) in slots {
+                            joints.push(rig.nodes[at]);
+                            inverse.push(Mat4::from(rel) * base[j]);
+                        }
+                        skin.inverse_bindposes = bindposes.add(SkinnedMeshInverseBindposes::from(inverse));
+                        skin.joints = joints;
+                    }
+                }
+                mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback, &above, &anchors));
                 commands.entity(e).try_insert(CutMesh(mesh.0.id()));
                 redrawn += 1;
                 continue;
@@ -357,7 +499,8 @@ fn apply_skins(
             redrawn += 1;
         }
         if cut.0 > 0 {
-            info!("dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces", rig.reference, severed.iter().collect::<Vec<_>>(), cut.0, cut.1);
+            let undrawn = if cut.2 > 0 { format!(", {} triangles of shapes without partitions of a severed part not drawn", cut.2) } else { String::new() };
+            info!("dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces{undrawn}", rig.reference, severed.iter().collect::<Vec<_>>(), cut.0, cut.1);
         }
         gore.shapes_redrawn += redrawn;
         debug!("dismember: {:08X} drawn without {:?}, with stumps for {:?}: {redrawn} shapes", rig.reference, exploded, severed);

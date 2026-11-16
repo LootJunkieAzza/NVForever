@@ -426,8 +426,21 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   the body by the body's bone above the cut of the piece carrying most of it (the stump and the
   torso cap are weighted mostly to the gone part's bones [observed: `republican_02.nif`
   `MeatCapBody:0` cap 210: 83 of its 90 weight units on `Bip01 R Thigh`, 7 on the calf, 0.4 on
-  the pelvis]). A shape without partitions (head, hair, hat) is
-  split triangle by triangle, by the side most of its corners' weight lies on [design].
+  the pelvis]). A body vertex keeps its weights on the gone part's bones, each moved to an
+  *anchor*: an extra joint of the shape carried by the skeleton's first body node above that
+  piece's top, holding the gone bone's pose relative to it at the cut (the skeleton's bind pose
+  for a part severed before the run). Every shape of the actor takes the same anchors, so the
+  stump and the torso cap stay together and where they were, whatever bones each shape is
+  skinned to [design, #2677: the owner's creature playtest of 2026-11-15 found the radscorpion's
+  torso cap 201 leaving with the tail (its shape `meatcapbody` has no bone above `Bip01 Tail`),
+  and the deathclaw's and centaur's torso caps floating apart from their stumps, each shape
+  having picked its own bone above the cut]. A shape without partitions (head, hair, hat) is
+  split triangle by triangle, by the side most of its corners' weight lies on [design]. In a
+  shape with partitions but none of a severed part (no part, torso section or cap partition
+  of it) whose bones still carry some of it, the drawn triangles carried mostly by that piece
+  are not drawn [design: the feral ghoul's `Pants`, all BP_TORSO over both thighs, left an
+  empty trouser leg on the body; sent with the leg, the trouser leg hung off its cut or lay
+  apart from it, skinned to the thigh alone (owner's playtests of 2026-11-15 and -16)].
   An exploded part is not cut: its ragdoll bodies stay jointed and undrawn (§6), and the stump
   and torso cap follow them together.
   Log: `dismember: <ref> cut apart for severed [<locations>]: <n> shapes, <m> triangles leave

@@ -16843,6 +16843,24 @@ expect = [
 manual = "coyote_right_legs.png and coyote_all_legs.png: the coyote's legs lying apart, capped; on the body a short stump at each hip and shoulder closed by a red cap, no view through the body to the ground"
 
 [[scenario]]
+name = "sever-ghoul-legs"
+source = "#2677 (docs/spec-notes/dismemberment.md §5): feralghoul.nif's Pants are one BP_TORSO partition over both thighs; a severed leg's trouser leg is not drawn (it hung empty on the body, then off the leg's cut) [design]; the stumps and torso caps stay on the body by anchors on the bone above the cut [design] [observed: fnvtool nif decode]"
+note = "A feral ghoul (CrFeralGhoul1A) is placed and held 80 units in front of the player on flat ground, killed with a machete at 6 s, its left leg chopped from 8 s, its right from 11.5 s (Dismember Only, seeded rolls); frames after each. The left leg leaves with its section cap (466 triangles of feralghoul.nif: part 7 and cap 107) and the 172 Pants triangles carried mostly by the left thigh are not drawn"
+areas = ["combat"]
+paths = ["engine/nvforever/src/dismember.rs", "engine/nvf-assets/src/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:player:PlaceAtMe:CrFeralGhoul1A:1,2.2:call:0xFF000000:SetRestrained:1,2.4:moveto:0xFF000000:player:0:80:0", NVF_PLAY_TEST_HIT = "6:0xFF000000:300:WeapNVMachete:limb=EnduranceCondition,8:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,8.5:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,9:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,9.5:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,10:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,10.5:0xFF000000:40:WeapNVMachete:limb=LeftMobilityCondition,11.5:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition,12:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition,12.5:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition,13:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition,13.5:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition,14:0xFF000000:40:WeapNVMachete:limb=RightMobilityCondition", NVF_PLAY_TEST_LOOK = "4:0:-60", NVF_PLAY_TEST_CONTROL = "7:aimcorpse,11:aimcorpse,15:aimcorpse", NVF_PLAY_TEST_SHOTS = "7.5:ghoul_dead.png,11.3:ghoul_left_leg.png,15.5:ghoul_both_legs.png" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'dismember: Feral Ghoul 0xFF000000: Left Leg severed', label = "a machete severs the ghoul corpse's left leg" },
+  { re = 'dismember: FF000000 cut apart for severed \[7\]: [1-9][0-9]* shapes, 466 triangles leave with the pieces, 172 triangles of shapes without partitions of a severed part not drawn', label = "the leg leaves with its section cap; the trouser leg over it is not drawn" },
+  { re = 'dismember: Feral Ghoul 0xFF000000: Right Leg severed', label = "and its right leg" },
+  { re = 'dismember: FF000000 cut apart for severed \[7, 10\]: [1-9][0-9]* shapes, [1-9][0-9]* triangles leave with the pieces, [1-9][0-9]* triangles of shapes without partitions', label = "both legs cut apart, both trouser legs gone" },
+  { re = 'dismember: .* 0xFF000000: .* exploded', count = 0, label = "the machete never explodes" },
+]
+manual = "ghoul_left_leg.png and ghoul_both_legs.png: the legs lying apart, bare and capped at the thigh; on the body a capped stump at each hip, no empty trouser leg, no cloth lying loose, no view through the body to the ground"
+
+[[scenario]]
 name = "combat-npc-range-swap"
 source = "owner request 2026-10-25: \"the incinerator would be better at a distance and the flamer up close\" (docs/design/combat-ai.md §22, the target's distance)"
 note = "Cook-Cook (FiendCookCookRef) is moved 900 units from the player and set on the player at 3.5 s, god mode: he fights with his Incinerator (it fires from 276 to 1,500 units). At 10 s he is moved 100 units from the player, inside the Incinerator's blast: he takes up his Flamer. At 18 s he is moved 1,100 units off, beyond the flame's 640: he takes up the Incinerator again"
