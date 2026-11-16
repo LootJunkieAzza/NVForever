@@ -340,7 +340,7 @@ pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &Spa
         }
         let model = &a.parts.get(*part_index.get(ui)?)?.model;
         if *has_tri[ui].get_or_insert_with(|| data.vfs.exists(&sibling(model, "tri"))) {
-            let rest = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
+            let rest = u.meshes.get(i).cloned().flatten().map_or_else(|| s.mesh.clone(), |(m, _)| m);
             shapes.push(LipShape { entity, model: model.clone(), cpu: s.cpu.clone(), rest });
         }
     }

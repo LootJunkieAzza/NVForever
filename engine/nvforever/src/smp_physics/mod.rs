@@ -292,10 +292,11 @@ fn rig_candidates(
             });
             sys.and_then(|sys| rig_from_xml(&mut commands, e, cand, shape, &sys, skinned, label.clone()))
         } else {
-            // The prepared part's CPU copy, never the drawn asset: actor meshes are
-            // render-world only, and reading an extracted one's attributes panics (a
-            // later actor sharing the mesh, crash 2026-11-15 17:59 at Primm).
-            rig_generated(&mut commands, &mut cache, &mut meshes, &mut binds, e, cand, shape, &mesh3d.0, &shape.cpu, label.clone())
+            // The drawn mesh's CPU copy (the actor's FaceGen-morphed hair, or the
+            // prepared part's), never the drawn asset: actor meshes are render-world
+            // only, and reading an extracted one's attributes panics (a later actor
+            // sharing the mesh, crash 2026-11-15 17:59 at Primm).
+            rig_generated(&mut commands, &mut cache, &mut meshes, &mut binds, e, cand, shape, &mesh3d.0, &cand.cpu, label.clone())
         };
         match made {
             Some(rig) => {
