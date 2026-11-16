@@ -337,6 +337,12 @@ starting `NVForever (2026-11-12)`:
   do not present; upstream's `Surface::raw_native_swapchain` gives the handle but nothing
   keeps it alive afterwards, and reading it waits behind a blocked acquire or present. One
   handle for the process: with two windows the newer swapchain takes the calls.
+- `vulkan::swapchains_made` (new, public; marked `NVForever (2026-11-16)`): a count of the
+  swapchains `create_swapchain` has made in the process, on any device, moved on after
+  `vkCreateSwapchainKHR` returned. Streamline's Reflex sets its sleep mode and frame limit on
+  the swapchain it tracks at the call, and a new swapchain starts without them, so the
+  engine sets Reflex's options again when the count moves (`nvforever/src/dlss/frame_token.rs`,
+  LootJunkieAzza/NVForever#2732).
 
 Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass. The copy
 is the crates.io package as published (its `examples` are kept: the manifest names them).

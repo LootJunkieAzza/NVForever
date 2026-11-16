@@ -186,6 +186,17 @@ a terminal that opens at its menu (unlocked, hacked before, password held) is no
   and the faction reactions [documented: Category:Crime, either indicator "will override
   any other faction reaction"], until the crime expires (§3.7) or a script clears the
   flag (ClearFactionPlayerEnemyFlag, SetPCEnemyOfFaction 0).
+- **Every crime-tracking faction, the armour faction too** (#2456, #2498) [observed:
+  docs/handoff/observer-checks.md check 203, captures `karl_murder` and `karl_murder2`,
+  2026-11-15]: in the original a Cottonwood Cove Legionary killed in front of Aurelius
+  made the player an enemy of both VCaesarsLegionFaction and ArmorVCaesarsLegionFaction
+  0x00134B6E, the Hidden armour faction that also holds the four NCR troopers of the
+  Strip scene VStripSS3 and Karl at Red Rock (their members' factions are enemies of
+  each other: a tag, not a side). Both flags read 0 again about 0.18 game hours later
+  (§3.7). NVForever flags every crime-tracking faction of the victim, as the original
+  does; the flag is short-lived (owner's ruling on #2498, owner-review item 65). The
+  rule #2498 first had, never flagging a faction that is no side, is dropped: the
+  original sets that flag.
 
 ### 3.5 Assault
 
@@ -222,13 +233,25 @@ faction given) on the player and makes it say Assault [documented].
   examples: a theft victim stops attacking three days after the theft, the BOS three days
   after the last murder). The setting is read from the load order, 3 when no plugin sets
   it (FalloutNV.esm does not) [documented: Complete List of GameSettings; observed].
+- **The faction flag is short** [observed: observer check 203, capture `karl_murder2`,
+  2026-11-15]: after the Cove murder both Legion flags held while the player moved to
+  the Searchlight airport, then read 0 there about 0.18 game hours (11 game minutes)
+  after the murder, with no cell change and no script clearing them (FalloutNV.esm's
+  scripts never clear those flags [observed: script text]). Aurelius, the witness, was
+  still in combat with the player after that: his own grudge outlasts the flag. What
+  clears the flag (a timer, the crime list's update, the witnesses' reports) is not
+  known; that the same 0.18 hours holds for every crime's flag (a theft's, the Evil
+  faction's area alert, a murder with more witnesses) is a [hypothesis]: only that one
+  murder's was timed.
 - **What NVForever keeps** [design: the wiki's crime list reduced to what it decides]:
   for each faction a crime made the player an enemy of (a seen murder, §3.4, also one
   seen only by witnesses already hostile; the Evil faction's area alert, combat-ai.md),
   the game day (GameDaysPassed) of the last such crime; for each crime enemy (§3.6: theft, opened lock, trespass, murder witnessed,
   SendTrespassAlarm, SendAssaultAlarm), the day of the last crime that made it one. A
-  later crime restarts the count. When the count reaches `iCoolDownTimerSetting` days the
-  crime enemy forgives the player and the faction flag is cleared (`Game::expire_crimes`).
+  later crime restarts the count. The faction flag is cleared 0.18 game hours after the
+  last crime that set it (`crime::FACTION_FLAG_DAYS`, owner's ruling on #2498: "Short-lived
+  flag"); a crime enemy forgives the player when the count reaches
+  `iCoolDownTimerSetting` days (`Game::expire_crimes`).
 - **A script's flag stays** [design]: SetPCEnemyOfFaction 1 sets a flag no crime list
   holds; it stays until a script clears it (SetPCEnemyOfFaction 0,
   ClearFactionPlayerEnemyFlag, ClearActorsFactionsPlayerEnemyFlag), even when a crime set
@@ -247,7 +270,7 @@ faction given) on the player and makes it say Assault [documented].
   SetPCEnemyOfFaction, and a quest's hostility must not end. A flag a crime set in such
   a save stays until a script clears it, as before #2467.
 - **Log**: `crime: the player is no longer an enemy of <faction>: the last crime against
-  it is <d> game days old`, `crime: <actor> no longer counts the player's crimes: the last
+  it is <h> game hours old`, `crime: <actor> no longer counts the player's crimes: the last
   is <d> game days old`.
 - **Why it mattered** (#2467) [observed: `fnvtool esm decode`, FalloutNV.esm; the cause a
   hypothesis, the owner's run left no log]: Karl (`VRRCKarl`, the Legion's envoy at Red
@@ -259,7 +282,10 @@ faction given) on the player and makes it say Assault [documented].
   are in none [observed: a scan of FalloutNV.esm's NPC_ and FACT records, 2026-11-14].
   Killing one of the 189 unprovoked while a fellow Legionary sees the player is a murder
   (§3.4) that flags the victim's crime-tracking factions, the armour faction among them;
-  without expiry Karl attacked on sight for good. Killing one of the 52 takes the Evil
+  without expiry Karl attacked on sight for good, and with the three days' expiry for
+  three days. In the original the flag is gone within minutes, and Karl, entering his
+  longhouse after it, stays seated; with the armour flag up in front of him he attacks at
+  once [observed: observer check 203]. Killing one of the 52 takes the Evil
   faction's area alert (`crate::provocation`), which flags that Evil faction only, and
   the kill then counts as self-defence (the victim is a member of a faction the player
   is now an enemy of), so it never flags the armour faction [observed: smoke run of
@@ -374,10 +400,12 @@ GetOwnerOfCell, HasOwnership, SetIsPCAMurderer, ClearActorsFactionsPlayerEnemyFl
   warnings, RewardKarma; crimes expiring, §3.7: after three days of waiting, a script's
   clock jump, the Wait menu's check, a script's flag kept, a later crime restarting the
   count, an older save dated at the load).
-- Smoke scenarios `crime-expiry-karl-hostile` and `crime-expiry-karl-calm` (§3.7, #2467):
-  a Cottonwood Cove Legionary in no Evil faction murdered while another, at its post,
-  detects the player, then the longhouse at Red Rock; Karl fights at once, and after a
-  clock jump of four days he does not.
+- Smoke scenarios `crime-karl-flag-clears` and `crime-expiry-legion-calm` (§3.4, §3.7,
+  #2467, #2456, #2498): a Cottonwood Cove Legionary in no Evil faction murdered while
+  another, at its post, detects the player, then the longhouse at Red Rock. The murder
+  flags VCaesarsLegionFaction and the armour faction; half a game hour later both flags
+  are cleared, and Karl does not fight; after a clock jump of four days the witnesses
+  forgive too.
 - In play, smoke scenarios `crime-steal` (a carton of cigarettes taken in front of Chet in
   his store: "crime: theft against GSChet … turned on the player: [GSChetRef …]", the
   karma line and his fight) and `karma-fiend` (Violet shot dead: "crime: karma +100 for

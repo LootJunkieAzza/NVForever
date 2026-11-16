@@ -30,6 +30,19 @@ pub(crate) fn with_latency_swapchain<R>(call: impl FnOnce(vk::SwapchainKHR) -> R
     (*swapchain != vk::SwapchainKHR::null()).then(|| call(*swapchain))
 }
 
+// NVForever (2026-11-16): Streamline's Reflex sets its sleep mode and frame limit on the
+// swapchain it tracks at the call, and a new swapchain starts without them
+// (LootJunkieAzza/NVForever#2732), so the engine sets them again after each new one.
+/// Swapchains created so far in the process, on any device and surface ([`swapchains_made`]).
+static SWAPCHAINS_MADE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// How many swapchains `create_swapchain` has made so far. It moves on after
+/// `vkCreateSwapchainKHR` has returned, so a reader that sees it move knows the new swapchain
+/// exists.
+pub(crate) fn swapchains_made() -> u64 {
+    SWAPCHAINS_MADE.load(core::sync::atomic::Ordering::Acquire)
+}
+
 /// `raw` is about to be replaced or destroyed: no call is given it from here on, and any
 /// running one has returned.
 fn retire_latency_swapchain(raw: vk::SwapchainKHR) {
@@ -296,6 +309,8 @@ impl Surface for NativeSurface {
         if low_latency {
             *LATENCY_SWAPCHAIN.lock() = raw;
         }
+        // NVForever (2026-11-16): one more swapchain made (`swapchains_made`).
+        SWAPCHAINS_MADE.fetch_add(1, core::sync::atomic::Ordering::Release);
 
         let images = unsafe { functor.get_swapchain_images(raw) }
             .map_err(crate::vulkan::map_host_device_oom_err)?;

@@ -40,9 +40,11 @@
 //!   protectron's `ProjectileNode_RHandLaser` in `1hprhandlaser.nif`, hung from
 //!   `Bip01 R Forearm` [observed: `fnvtool nif decode`]), [`place_muzzles`] puts the
 //!   [`Muzzle`] on that drawn node, moved with each switch of arms (#1535).
-//! - Body weapons do not wear (`nvf_play::combat::wear_weapon`) or reload (`npc_combat`:
-//!   no magazine) [design], and slow nothing (the two-handed run penalty is for weapons
-//!   in hand).
+//! - Body weapons do not wear (`nvf_play::combat::wear_weapon`) [design], and slow
+//!   nothing (the two-handed run penalty is for weapons in hand). A body gun reloads
+//!   (`npc_combat`) only where its creature's folder has the weapon's reload clip
+//!   (`fnv_combat::body_weapon::has_magazine` [design, #2739]); elsewhere it has no
+//!   magazine.
 
 use crate::actors::ActorWorld;
 use crate::creature_stance::{CreatureClips, CreatureStance, NoStance, StanceAttach};

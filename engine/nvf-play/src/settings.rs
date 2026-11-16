@@ -52,6 +52,11 @@
 //! but the INI's text still loads it ([`apply_stored`]): a stored request survives a run in
 //! which it cannot be met.
 //!
+//! A row's note can give other words for a while ([`set_note_now`]): while its function says
+//! something (already in the language shown), the page shows that under the rows in place of
+//! the row's own note, e.g. the Generated frames row saying how few real frames a second the
+//! frame rate limit leaves (nvforever, #2731). It should keep to the note's budget too.
+//!
 //! A list that took over from an older row can read that row's INI key when its own is not in
 //! the file ([`set_older_key`]; its `load` takes the older row's text), and the test aids can
 //! still name the older row ([`set_list_alias`], [`pick_alias`]): nvforever's `fsr-upscaling`,
@@ -362,6 +367,10 @@ pub type ChoiceLabel = fn(&World, &str) -> String;
 /// ([`set_choice_unavailable`]).
 pub type ChoiceUnavailable = fn(&World, &str) -> Option<String>;
 
+/// Words a row's note gives now in place of its own, already in the language shown; `None`:
+/// its own note ([`set_note_now`]).
+pub type NoteNow = fn(&World) -> Option<String>;
+
 /// Whether a list's choice of this name is an action rather than a state to keep
 /// ([`set_choice_action`]).
 pub type ChoiceAction = fn(&str) -> bool;
@@ -393,6 +402,8 @@ pub struct Settings(
     /// How an older INI key's value splits into the rows' own ([`set_older_split`]): (the
     /// older key, the split).
     Vec<(&'static str, OlderSplit)>,
+    /// Rows whose note gives other words for a while ([`set_note_now`]).
+    Vec<(&'static str, NoteNow)>,
 );
 
 /// An older row's INI value read as the values of the rows that took over from it
@@ -444,6 +455,13 @@ impl Settings {
     pub fn disabled_status(&self, world: &World, i: usize) -> Option<&'static str> {
         let key = self.0.get(i)?.key;
         (self.2.iter().find(|(k, _)| *k == key)?.1)(world)
+    }
+
+    /// The words row `i`'s note gives now in place of its own ([`set_note_now`]); `None`: its
+    /// own.
+    pub fn note_now(&self, world: &World, i: usize) -> Option<String> {
+        let key = self.0.get(i)?.key;
+        (self.8.iter().find(|(k, _)| *k == key)?.1)(world)
     }
 
     /// List row `i`'s words and reasons for its choices, when it has any ([`ChoiceLooks`]).
@@ -538,6 +556,16 @@ pub fn set_disabled_status(app: &mut App, key: &'static str, status: fn(&World) 
     let mut settings = app.world_mut().resource_mut::<Settings>();
     settings.2.retain(|(k, _)| *k != key);
     settings.2.push((key, status));
+}
+
+/// Give row `key`'s note `note`'s words, in place of its own, while it says something (module
+/// notes). The words are drawn as they come: `note` translates them itself
+/// (`fnv_util::words::trf`).
+pub fn set_note_now(app: &mut App, key: &'static str, note: NoteNow) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    settings.8.retain(|(k, _)| *k != key);
+    settings.8.push((key, note));
 }
 
 /// Show list `key`'s choices by `label`'s words instead of their names (module notes). The

@@ -20,11 +20,13 @@
 //!   **crime enemy** of the player (GetActorCrimePlayerEnemy): it attacks the player
 //!   whatever its aggression ([`Game::crime_enemy`], read by `Game::would_attack`)
 //!   [design, as an assaulted actor's grudge].
-//! - **Crimes expire** (§3.7): a crime enemy, and the player's enemy flag with a faction
-//!   that a crime set, last `iCoolDownTimerSetting` (3) game days from the last crime
-//!   that made them [documented: GECK wiki Category:Crime, "This flag is updated via the
-//!   crime list, so it is cleared when all the crimes causing it to be set expire"; the
-//!   default, Complete List of GameSettings]. A flag a script set (SetPCEnemyOfFaction)
+//! - **Crimes expire** (§3.7): a crime enemy lasts `iCoolDownTimerSetting` (3) game days
+//!   from the last crime that made it [documented: GECK wiki Category:Crime; the default,
+//!   Complete List of GameSettings]. The player's enemy flag with a faction that a crime
+//!   set lasts [`FACTION_FLAG_DAYS`] (0.18 game hours) from the last crime that set it
+//!   [observed: observer check 203, a seen murder's flags on VCaesarsLegionFaction and
+//!   ArmorVCaesarsLegionFaction; that every crime's flag lasts as long: hypothesis;
+//!   owner's ruling on #2498, owner-review item 65]. A flag a script set (SetPCEnemyOfFaction)
 //!   stays until a script clears it [design]. [`Game::expire_crimes`] ends them, read
 //!   against GameDaysPassed whenever hostility is asked afresh, so time passing by any
 //!   route (play, waiting, sleeping, travel, a script setting the clock) counts (#2467).
@@ -287,7 +289,8 @@ pub struct Settings {
     pub warning_timer: f64,
     /// KarmaVeryEvil, KarmaEvil, KarmaGood, KarmaVeryGood.
     pub bounds: [f64; 4],
-    /// iCoolDownTimerSetting: game days a crime lasts [documented: GECK wiki Category:Crime,
+    /// iCoolDownTimerSetting: game days a crime enemy (an actor) keeps the crime
+    /// [documented: GECK wiki Category:Crime,
     /// 3 by default; Complete List of GameSettings, 3; FalloutNV.esm does not set it,
     /// observed].
     pub cool_down_days: f64,
@@ -319,6 +322,16 @@ impl Settings {
         }
     }
 }
+
+/// Game days the player's enemy flag with a faction lasts after the last crime that set
+/// it: 0.18 game hours. In the original a seen murder at Cottonwood Cove flagged both
+/// VCaesarsLegionFaction and ArmorVCaesarsLegionFaction, and both read 0 again about
+/// 0.18 game hours (11 minutes) later, with no cell change and no script clearing them,
+/// while the witness kept fighting the player [observed: docs/handoff/observer-checks.md
+/// check 203, capture `karl_murder2`, 2026-11-15]. That the same span holds for every
+/// crime-set flag (a theft's, the Evil faction's area alert) is a [hypothesis]: only a
+/// murder's was timed. Owner's ruling on #2498 (owner-review item 65): "Short-lived flag".
+pub const FACTION_FLAG_DAYS: f64 = 0.18 / 24.0;
 
 /// The slack of [`Game::expire_crimes`]: GameDaysPassed is an f32, a few seconds' worth
 /// of a day at a few hundred days [design].
@@ -763,7 +776,7 @@ impl Game<'_> {
 
     /// The player is an enemy of `faction` from now on (a crime against it it tracks,
     /// `crate::provocation`'s Evil faction area); noted the first time. The flag lasts
-    /// iCoolDownTimerSetting game days from this crime, a later one restarting the count
+    /// [`FACTION_FLAG_DAYS`] from this crime, a later one restarting the count
     /// ([`Game::expire_crimes`]).
     pub(crate) fn make_player_enemy_of(&mut self, faction: FormId) {
         let day = self.crime_day();
@@ -815,10 +828,11 @@ impl Game<'_> {
         self.player.enemy_of_script.remove(&faction);
     }
 
-    /// Crimes older than iCoolDownTimerSetting game days end (module notes, §3.7): each
-    /// crime enemy whose last crime is that old forgives the player, and each faction
-    /// flag a crime set whose last crime is that old is cleared, unless a script set it
-    /// too [documented: GECK wiki Category:Crime; design: a script's flag stays]. Read
+    /// Crimes end (module notes, §3.7): each crime enemy whose last crime is
+    /// iCoolDownTimerSetting game days old forgives the player [documented: GECK wiki
+    /// Category:Crime], and each faction flag a crime set whose last crime is
+    /// [`FACTION_FLAG_DAYS`] old is cleared [observed: observer check 203], unless a script
+    /// set it too [design: a script's flag stays]. Read
     /// against GameDaysPassed now, so it holds however the clock moved. Called where
     /// hostility is asked afresh: a detection round's and a combat AI frame's start, the
     /// crime tick, the Wait menu's check and the script functions that read the flags.
@@ -829,9 +843,9 @@ impl Game<'_> {
         }
         let Some(now) = self.game_days() else { return false };
         let limit = self.crime_settings().cool_down_days;
-        let old = |since: f64| now - since + EXPIRY_SLACK_DAYS >= limit;
-        let factions: Vec<(FormId, f64)> = self.player.enemy_of_crimes.iter().filter(|(_, &d)| old(d)).map(|(&f, &d)| (f, now - d)).collect();
-        let actors: Vec<(FormId, f64)> = self.player.crime_enemy_since.iter().filter(|(_, &d)| old(d)).map(|(&a, &d)| (a, now - d)).collect();
+        let old = |since: f64, limit: f64| now - since + EXPIRY_SLACK_DAYS >= limit;
+        let factions: Vec<(FormId, f64)> = self.player.enemy_of_crimes.iter().filter(|(_, &d)| old(d, FACTION_FLAG_DAYS)).map(|(&f, &d)| (f, now - d)).collect();
+        let actors: Vec<(FormId, f64)> = self.player.crime_enemy_since.iter().filter(|(_, &d)| old(d, limit)).map(|(&a, &d)| (a, now - d)).collect();
         for &(faction, days) in &factions {
             self.player.enemy_of_crimes.remove(&faction);
             if !self.player.enemy_of_script.contains(&faction) && self.player.enemy_of.remove(&faction) {

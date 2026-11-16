@@ -157,9 +157,45 @@ the actor jumps or drops over them (actor-jumps.md §3).
   navmesh's triangles: **1,043** of them stand on navmesh in FalloutNV.esm [observed:
   `fnvtool nav graph`, `stats.in_place_doors`]. Others stand where no navmesh runs (a
   closet door at the navmesh's edge, e.g. 0x0010618E in GSProspectorSaloonInterior)
-  [observed: `nav near`]. A locked one closes its triangles to actors without its key, as
-  a locked teleport door closes its link [engine choice on the lock rule above]. Their
+  [observed: `nav near`]. A closed locked one closes passing triangles to actors without
+  its key [design, #2716; endpoint and open-state exceptions below]. Their
   models and animation: docs/spec-notes/doors.md.
+- **Endpoints beside an in-place door** [design, #2716]: overlap with OBND tags a whole
+  triangle (`crates/fnv-nav/src/doors.rs::set_in_place_doors`), but the original path's
+  snapped start and goal triangles are exempt from door refusal when their respective
+  points lie outside every refusing door's oriented footprint. A point on the footprint's
+  boundary is inside. Intermediate triangles retain the refusal; unrelated endpoints of
+  teleport legs get no exemption (`path.rs::search_path`, `passable_for_path`).
+  [design, #2716] After funneling, shortcuts and door-stop insertion, `search_path`
+  rejects any generated segment entering a refusing door's oriented footprint
+  (`doors.rs::door_segments_open`). This also guards adjacent exempt endpoints on
+  opposite sides of a door and crossings within one exempt triangle.
+  [documented: issue #2716, spooknik comment, 2026-11-15, supplied record findings]
+  `SecretDoorMarkerREF` (0x0012791D, 3764,592,8872) is 31 units beyond the footprint of
+  `MickSecretDoorREF` (0x00121FF2, x 3627..3733), but its triangle 75 in NAVM 0x00115DD6
+  overlaps the bounds. The door requires a key (XLOC 255), has no key or owner, and is
+  opened by `VFSMickTravelToLinkedPackage` (0x00127920)'s end script after Mick arrives;
+  that script sets `VFreeformFreeside.MickHoldoutWeapons` to 4 and evaluates his package.
+- **Open in-place doors** [hypothesis, #2716]: an open door does not refuse triangles
+  to any actor, even while locked or previously refused by its activation script.
+  [documented: GECK wiki SetOpenState, offline snapshot 2026-10-28,
+  https://geckwiki.com/index.php?title=SetOpenState] `SetOpenState 1` sets the door open;
+  the wiki does not establish NPC navigation through an open locked door. [documented:
+  issue #2716, supplied record findings] Mick's next package,
+  `VFSMickSecretSalesConversationPackage` (0x00127921), goes through that still-locked
+  door to `SecretSalesMarkerREF` (0x0016CCA1). [design / file refs] `PathParams::open_doors`
+  supplies live state to both triangle refusal and approach stops; `fnv_ai::Ai::path_params`
+  includes script-opened and untouched default-open locked doors. [hypothesis, #2716]
+  Runtime passage also permits an already-open in-place door despite a cached or fresh
+  activation refusal. [design / `fnv_ai::Ai::ask_door`] The activation attempt still runs
+  for crossing events; live state afterward decides whether a refusal cancels movement.
+  [design, #2716 / `fnv_ai::Ai::ask_door`] A door closed after planning must pass
+  its live lock permission check after activation: current inventory key or its own
+  ownership, plus configured path permission overrides. Cell ownership does not
+  authorize the lock. If permission is absent, the path is cancelled before movement
+  or an opening request, even when the door has no activation script. Load-door
+  behavior is unchanged. Original-game check:
+  `docs/handoff/observer-checks.md` **206**.
 - A door's bounds can be wider than its opening: `UtlDoor01`'s span 249 units across
   (−69 to 180), more than the doorway the navmesh runs through at 0x0012C97C [observed];
   the walkable stretch of navmesh along the door's line is taken as the opening instead
@@ -249,12 +285,14 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
   its ends are outline vertices, doors, `in_place_doors`: the doors that open in place
   standing on it).
 - `fnvtool nav path --from <ref|x,y,z> --to <ref|x,y,z> [--space S] [--clearance R]
-  [--ledges] [--no-doors] [--large] [--open-locked] [--keys K,...]` → `fnv.nav.path/1`:
+  [--ledges] [--no-doors] [--large] [--open-locked] [--keys K,...] [--open-door D]` → `fnv.nav.path/1`:
   the resolved ends, params, `door_route` (the doors to go through, with the space each
   leads into and its lock, or an error) and its time, and `path` (length, triangles
   expanded, snap distances, legs: space, polyline points, corridor size, navmeshes
   crossed, the door ending the leg, `door_stops`: each door that opens in place on the
   leg and the point where the actor stops to open it) or `error`.
+  [design, #2716] `--open-door D` is repeatable; it supplies known open in-place door
+  FormIDs without enabling `--open-locked` for other doors.
 - `fnvtool nav walk` (the path options, plus `--speed`, `--max-seconds`,
   `--goal-radius`, `--every`, `--max-slope`, `--any-slope`, `--with-actors`,
   `--nif-schema`, `--no-meshes`) → `fnv.nav.walk/1`: an NPC-sized physics character

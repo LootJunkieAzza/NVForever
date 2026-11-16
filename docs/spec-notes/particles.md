@@ -618,3 +618,33 @@ v\FuseSparks.dds`), below the node
     drops, were chosen as the combination that looks most like the video. Four were
     tried; with system units for the drag or the reference's scale on the radius, the
     mist floated above the jet or off to its side.
+
+
+### 7.8 External idle KF tracks on animated objects (#2685)
+
+[design, #2685; engine/nvf-assets/src/anim_play.rs::Clip::from_sequence,
+particles.rs::ParticleSystemDef::bind_idle; engine/nvforever/src/particles.rs]
+ANIO particle systems use the placed-model simulator and sequence-emission representation
+(section 6.7). Bind KF system names to that instance's definitions, birth-rate float
+channels and on/off bool channels to sequence time, and modifier controller IDs to the
+authored modifier names. Inactive emitters and gravity, drag and bomb modifiers are retained with
+their authored off default so a KF can enable them. Modifier keys are kept per sequence
+for particles born under it. [design, #2685; ParticleSystemDef::bind_idle] External
+sequence IDs are allocated from IDs absent from both emission and gravity/drag/bomb
+modifier tables; filtering embedded emissions does not renumber their IDs.
+Account for a nonzero KF start when converting to the simulator's elapsed sequence time.
+Cached particle definitions and other instances remain unchanged. Emitter positions use
+named nodes in the attached hierarchy. Particle materials use ordinary RigMaterials
+slots only for systems named by the KF and the attachment's idle clock, so SELF_ILLUM, emittance, alpha and UV tracks reach
+particle draw meshes too. A held CLAMP final sample retains emitter-off values while
+existing particles finish their lifetimes.
+[design, #2685; material_anim.rs::RigMaterials::apply] Only driven material members
+are written (plus explicit fade/dark behavior and restoration of previously driven
+members). Untargeted systems keep the builder's material, and an alpha-only track
+preserves normalized emissive brightness, texture transforms and refraction.
+
+[observed: data, main session 2026-11-15, issue #2685, upstream 1790ab94a]
+The chamber model `animobjects\hchamberFX.NIF` has five particle systems and the
+smoke-strip shapes named by the creature's `WakeUp.kf`; they are absent from its NIFZ
+parts. [hypothesis] Visual parity and the exact effect envelope await observer check 212;
+no original-game capture or game data was accessed by this implementation session.

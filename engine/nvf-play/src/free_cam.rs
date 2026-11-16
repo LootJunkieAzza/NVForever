@@ -295,17 +295,70 @@ fn hold_world(free: Res<FreeCam>, console: Res<Console>, paused: Res<crate::paus
 
 /// `tm`: hide the HUD (with the compass), the crosshair and the corner and quest
 /// messages; their own systems show them again when it is undone.
+/// [design, #2659] Include the independent enemy piece (`hud.rs::spawn_hud`).
 #[allow(clippy::type_complexity)]
 fn hide_menus(
     hidden: Res<MenusHidden>,
     mut roots: Query<
         &mut Visibility,
-        Or<(With<crate::hud::HudRoot>, With<crate::reticle::Root>, With<crate::corner_messages::AreaRoot>, With<crate::quest_messages::AreaRoot>)>,
+        Or<(With<crate::hud::HudRoot>, With<crate::tiles::vanilla::EnemyPiece>, With<crate::reticle::Root>, With<crate::corner_messages::AreaRoot>, With<crate::quest_messages::AreaRoot>)>,
     >,
 ) {
     if hidden.0 {
         for mut v in &mut roots {
             v.set_if_neq(Visibility::Hidden);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tiles::vanilla::EnemyPiece;
+
+    #[test]
+    fn tm_hides_and_restores_the_independent_enemy_bar() {
+        use bevy::camera::visibility::{VisibilityPlugin, VisibilitySystems};
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, VisibilityPlugin))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
+            .init_resource::<MenusHidden>()
+            .init_resource::<crate::hud::HudView>()
+            .add_systems(Update, |view: Res<crate::hud::HudView>, mut bars: Query<&mut Visibility, With<EnemyPiece>>| {
+                // [design: hud.rs::draw] Each frame the HUD writes its eligibility;
+                // the late tm override must win even after the console closes.
+                for mut visibility in &mut bars {
+                    *visibility = if view.enemy_shown { Visibility::Inherited } else { Visibility::Hidden };
+                }
+            })
+            .add_systems(PostUpdate, hide_menus.before(VisibilitySystems::VisibilityPropagate));
+        let screen = app.world_mut().spawn(Visibility::Inherited).id();
+        let bar = app.world_mut().spawn((EnemyPiece, Visibility::Hidden, ChildOf(screen))).id();
+        let name = app.world_mut().spawn((Visibility::Inherited, ChildOf(bar))).id();
+        let assert_bar = |app: &App, shown: bool| {
+            assert_eq!(*app.world().get::<Visibility>(bar).unwrap(), if shown { Visibility::Inherited } else { Visibility::Hidden });
+            assert_eq!(app.world().get::<InheritedVisibility>(name).unwrap().get(), shown);
+        };
+
+        app.world_mut().resource_mut::<crate::hud::HudView>().enemy_shown = true;
+        app.update();
+        assert_bar(&app, true);
+        app.world_mut().resource_mut::<MenusHidden>().0 = true;
+        for _ in 0..2 {
+            app.update();
+            assert_bar(&app, false);
+        }
+        app.world_mut().resource_mut::<MenusHidden>().0 = false;
+        app.update();
+        assert_bar(&app, true);
+
+        app.world_mut().resource_mut::<MenusHidden>().0 = true;
+        app.update();
+        app.world_mut().resource_mut::<crate::hud::HudView>().enemy_shown = false;
+        app.world_mut().resource_mut::<MenusHidden>().0 = false;
+        app.update();
+        assert_bar(&app, false);
     }
 }

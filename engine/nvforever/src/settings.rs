@@ -1002,6 +1002,7 @@ fn register_graphics(app: &mut App) {
     );
     nvf_play::settings::set_choice_unavailable(app, FRAMES_KEY, frames_unavailable);
     nvf_play::settings::set_disabled_status(app, FRAMES_KEY, frames_dimmed);
+    nvf_play::settings::set_note_now(app, FRAMES_KEY, frames_note_now);
     add_setting(
         app,
         Setting {
@@ -1518,6 +1519,43 @@ fn pick_frames(world: &mut World, name: &str) -> bool {
     let Some(frames) = frames_named(name) else { return false };
     world.resource_mut::<crate::frame_gen::DlssgFrames>().0 = frames;
     true
+}
+
+/// Real frames a second under which the Generated frames row's note warns ([`FRAMES_FEW_NOTE`]).
+const FEW_REAL_FRAMES: u32 = 60;
+
+/// The Generated frames row's note while the frame rate limit divided by the frames shown per
+/// real frame leaves fewer than [`FEW_REAL_FRAMES`] real frames a second (#2731): a player found
+/// 4x at a limit of 144 (36 real frames) choppy and 2x (72) fine [observed: the report in
+/// #2731]. Its `{choice}`, `{limit}` and `{real}` are filled in ([`frames_note_for`]).
+pub(crate) const FRAMES_FEW_NOTE: &str = "{choice} at a limit of {limit}: {real} real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.";
+
+/// [`FRAMES_FEW_NOTE`] for `frames` generated per real frame (1 for 2x) under a cap of `cap`
+/// frames shown a second (0: none), when the real frames left are fewer than
+/// [`FEW_REAL_FRAMES`]; `None` otherwise (the row's own note stands).
+fn frames_note_for(frames: u32, cap: u32) -> Option<String> {
+    let frames = frames.clamp(1, 3);
+    let real = cap / (frames + 1);
+    (cap > 0 && real < FEW_REAL_FRAMES).then(|| {
+        fnv_util::words::trf(FRAMES_FEW_NOTE, &[("choice", &FRAMES_CHOICES[(frames - 1) as usize]), ("limit", &cap), ("real", &real)])
+    })
+}
+
+/// The Generated frames row's note now ([`frames_note_for`]): with DLSS the Frame generation
+/// choice, the frames it generates (the choice, at most what the GPU offers, as
+/// `frame_gen::follow_switch` asks for) and the cap frame pacing hands Reflex while it runs
+/// (the page's or variable refresh's, `frame_pace::effective_cap`).
+fn frames_note_now(world: &World) -> Option<String> {
+    if world.resource::<crate::frame_gen::FrameGeneration>().kind != crate::frame_gen::FrameGenKind::Dlss {
+        return None;
+    }
+    let chosen = world.resource::<crate::frame_gen::DlssgFrames>().0.clamp(1, 3);
+    let frames = match crate::dlss::frame_generation_max() {
+        0 => chosen,
+        max => chosen.min(max.max(1)),
+    };
+    let cap = frame_pace::effective_cap(world.get_resource::<FramePace>().map_or(0, |p| p.cap), world.get_resource::<frame_pace::Refresh>().map_or(0, |r| r.vrr_cap));
+    frames_note_for(frames, cap)
 }
 
 /// A Generated frames choice the GPU does not offer (once its limit is known).
@@ -2277,6 +2315,36 @@ dlss-model=Preset K
         };
         assert_eq!(switches(UPSCALER_KEY), ["--fsr", "--upscaler", "--upscaler-quality"]);
         assert_eq!(switches(QUALITY_KEY), switches(UPSCALER_KEY), "a switch given keeps both rows or neither");
+    }
+
+    /// #2731: the Generated frames row's note says when the frame rate limit divided by the
+    /// frames shown per real frame leaves fewer than 60 real frames a second, within the budget.
+    #[test]
+    fn the_generated_frames_note_warns_under_sixty_real_frames() {
+        let at = |frames, cap| frames_note_for(frames, cap);
+        // A limit of 144: 2x leaves 72, fine; 3x 48 and 4x 36 are said.
+        assert_eq!(at(1, 144), None);
+        assert_eq!(
+            at(2, 144).as_deref(),
+            Some("3x at a limit of 144: 48 real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.")
+        );
+        assert_eq!(
+            at(3, 144).as_deref(),
+            Some("4x at a limit of 144: 36 real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.")
+        );
+        // A limit of 240 (variable refresh's on a fast screen): 120, 80 and 60, none under 60.
+        assert_eq!((at(1, 240), at(2, 240), at(3, 240)), (None, None, None));
+        // Lower limits; no limit says nothing.
+        assert!(at(1, 90).is_some_and(|n| n.starts_with("2x at a limit of 90: 45 real frames")));
+        assert!(at(3, 120).is_some_and(|n| n.contains(": 30 real frames")));
+        assert_eq!((at(1, 0), at(3, 0)), (None, None));
+        for frames in 1..=3 {
+            for cap in frame_pace::CAPS.into_iter().chain([240, 225, 1000]) {
+                if let Some(note) = at(frames, cap) {
+                    assert_eq!(nvf_play::settings::note_over_budget(&note), None, "{note}");
+                }
+            }
+        }
     }
 
     /// #2377: the renderer's rows that register without the game's files or the command line

@@ -24,7 +24,9 @@ whatever the switch, and the switch sets Reflex's mode (`eLowLatency` or `eOff`)
 backend makes the same driver calls on the swapchain it tracks [documented: Streamline 2.14.16
 `vknvll2.cpp`]; DLSS Frame Generation requires it on (`eFailReflexNotDetectedAtRuntime`) and
 turns latency reduction on while it runs, as FSR's frame generation does. While frame generation
-runs, the frame cap goes to Reflex's `frameLimitUs` and frame pacing does not wait itself. When
+runs, the frame cap, divided by the frames DLSS-G presents per real frame (#2731), goes to
+Reflex's `frameLimitUs` and frame pacing does not wait itself; Reflex's options are set again after
+every new swapchain, which does not get them otherwise (#2732). When
 frame generation could not start, both are unloaded and the direct calls run as before. The log
 names it: `latency reduction: NVIDIA Reflex through Streamline available on …` at the start,
 `NVIDIA Reflex (Streamline)` as the technique, and with `NVF_PACE_LOG=1` a line from Reflex's own

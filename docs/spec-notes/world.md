@@ -548,6 +548,24 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     override flag until ReleaseWeatherOverride and then until the next roll [documented:
     GECK wiki SetWeather/ForceWeather "the weather will change back in the normal fashion
     according to the weather system"; hypothesis: that is the next roll].
+  - A held script weather survives a door into another worldspace, even when that
+    world's lists do not include it [hypothesis, #1997; observer check 209 in
+    `docs/handoff/observer-checks.md`]. The lifetime follows the wording of both
+    [ForceWeather](https://geckwiki.com/index.php?title=ForceWeather) and
+    [SetWeather](https://geckwiki.com/index.php?title=SetWeather): "If OverrideWeatherFlag
+    is 1, the weather will not change again until ReleaseWeatherOverride is called."
+    [documented: offline GECK wiki snapshot 2026-10-28].
+    [ReleaseWeatherOverride](https://geckwiki.com/index.php?title=ReleaseWeatherOverride)
+    says to "allow the weather to resume normal dynamic operation" [documented: same
+    snapshot]. The cross-door interpretation remains provisional pending check 209.
+    The replacement sky keeps the script/pin/resume state, shown and fading-out weather,
+    fade progress and those weathers' image-space adapters; the destination supplies
+    its own climate and region lists for later rolls. Natural unpinned weather starts
+    from the destination's sky [design: `worldspace.rs::carry_sky`,
+    `sky.rs::SkyState::carry_weather_from`]. A save after the door uses the same shown
+    weather and held flag as a save before it; load restores the hold before the first
+    placement [design: `sky.rs::SAVE_HOOK`, `SkyState::restore_saved`,
+    `nvf-play/src/save.rs::header`, `nvforever/src/main.rs` load setup].
   - A loaded game shows its saved weather and keeps it, without a roll, while the list
     followed at its place lists it; `--weather` pins one weather for the whole run (the
     parity lab passes it for every exterior frame; interior frames do not use the sky).

@@ -469,11 +469,15 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     - **With a controller** the whole column, top to bottom in the original's order: the
       equip action ("Equip A)", "Unequip A)" on what is worn, "Use A)" on aid and books),
       "Drop X)", the repair action ("Repair Y)", "Maintain Y)" at full condition; dim on
-      what nothing repairs: aid, misc, ammo), "Hotkey 1-8)", and on Weapons "Mod LB)" (dim
+      what nothing repairs: aid, misc, ammo), the Hotkey hint, and on Weapons "Mod LB)" (dim
       on a weapon without mod slots) [observed: the original's screenshots on issue #1896,
       taken with a controller connected, 1920 × 1080: Equip (Use on Aid), Drop, Repair,
-      Hot Key, then Mod on Weapons only]. The hotkey keeps "1-8)", no button assigns
-      hotkeys yet [design].
+      Hot Key, then Mod on Weapons only]. [design, #2312; `hotkey_panel.rs`]
+      Hotkey now names RB (R1 with PlayStation labels): it opens the panel for the
+      selected item, D-pad right/down advances and left/up goes back with wrapping,
+      A assigns and B cancels. This selection method is provisional [hypothesis;
+      observer check 211]; Ammo Swap refuses assignment. The word still comes from
+      the load order's `sInventoryHotKey`, else our built-in label.
     - **With the keyboard and mouse** only the repair action ("Repair R)" / "Maintain R)")
       on every tab, dim where it does nothing, and "Mod X)" under it on Weapons [observed
       2026-11-09: the original's InventoryMenu button tiles read with keyboard and mouse
@@ -1081,9 +1085,9 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 | The rows (`MenuModel`'s player list) | `IM_InventoryListTemplate` rows under `IM_InventoryList`, by `item_menu`: `ListItemText/string` (`look::row_text`), `IM_Template_ItemMarker/visible` (equipped), `_y`, `height`, `_scroll_delta`, the bar's counts, `_highlight_y`, `_selected_height` | As the container's, one side. Folder rows and "Back" are rows like any other. `IM_EquipItemMarker`, the hollow square by the highlighted row, is the file's, from `_EquippableItem` [observed: the capture]. |
 | The selected row's picture, badge, skill | `IM_ItemIcon/filename,visible,x,width,height`; `IM_ItemIconBadge/filename,visible`; `IM_StrReq/string,visible` (the number only) | Hidden with the panel. Ammunition's picture stands at x 410, 350 square, against 450 and 380 [observed: the capture, on ammunition no carried weapon takes; hypothesis: on all]. |
 | The figures (`items::info_of`, no DPS on this page) | `item_card::write` under `IM_ItemInfoRect`, whose `visible` follows having a row [observed: the capture] | The same cards as the container's; `user6` 1 on weapons, 0 on armour; effects on the first free row, one row up on aid, at y 110 under two rows [observed]. `ModInfoOne` to `Three` unwritten (not in `Info`). |
-| The buttons | `visible`: Repair on every tab but inside a Misc folder, `target` while R does something (a spare and something to repair), the file dimming it; Mod on the Weapons tab, `target` with a row; Cancel inside a Misc folder, in Repair's place, sending `Back` there, E or a click; Equip, Drop and Hotkey never [observed: all of it, the capture; the file has those three for a controller, and the hand-built page shows none] | The words are the file's, but Repair's follows the condition, the longer word can be lit: `sMaintainItem`'s text where the load order defines it, else "Upkeep", by `fnv_game::repair::hint`'s rule, on the button's `string`, the file's coming back. With no row it holds on Weapons and Apparel, and is the file's on the others [observed: the capture]. |
+| The buttons | `visible`: Repair on every tab but inside a Misc folder, `target` while R does something (a spare and something to repair), the file dimming it; Mod on the Weapons tab, `target` with a row; Cancel inside a Misc folder, in Repair's place, sending `Back` there, E or a click; Equip, Drop and Hotkey hidden with keyboard/mouse [observed: the capture]. Hotkey shows with Controller and names RB/R1, its target following `hotkeys::can_hold` [design, #2312] | The words are the file's, but Repair's follows the condition, the longer word can be lit: `sMaintainItem`'s text where the load order defines it, else "Upkeep", by `fnv_game::repair::hint`'s rule, on the button's `string`, the file's coming back. With no row it holds on Weapons and Apparel, and is the file's on the others [observed: the capture]. |
 | Root | `_EquippableItem` (a weapon, armour or aid row, not broken [observed: 0 at condition 0]), `_KeyringOpen` (a Misc folder open) | Armour and aid [hypothesis]. |
-| The hotkey panel (`HotkeyHold`, `Hotkeys`) | Nothing of the file's: `hotkey_panel::draw_over_tiles` draws the owner's panel over the page while a key is held, and `IM_ButtonRect` and the picture, badge and skill give way. `IM_HotKeyWheel` stays hidden | [the owner 2026-10-26, and 2026-10-27 for its place]. **A difference**: the capture never saw the file's wheel open, so it is not built here. |
+| The hotkey panel (`HotkeyHold`, `Hotkeys`) | Nothing of the file's: `hotkey_panel::draw_over_tiles` draws the owner's panel over the page while a key is held or the controller modal is open [design, #2312], and `IM_ButtonRect` and the picture, badge and skill give way. `IM_HotKeyWheel` stays hidden | [the owner 2026-10-26, and 2026-10-27 for its place]. **A difference**: the capture never saw the file's wheel open, so it is not built here. |
 | `IM_Background` | hidden in both frames | The shell's background and scanlines, as §5.1.1. |
 | The prompt | nothing in the image: `QuantityMenu` on the window (`menus::quantity_tiled`) | As the container's. |
 | The repair list, the mod menu | not eligible: the hand-built body draws them | Their own files are other work. |
@@ -1099,7 +1103,7 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 | Cards' values, the headline's values, `IM_StrReq` | Figures from the model and record data; "--" for what is unread, as the hand-built page. |
 | `AmmoInfo`'s title | Record data, or armour's class by the model's word (`item_card`, `info_of`), as the container's. |
 | The panel's line | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`), drawn by that module. |
-| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's); with a controller the button's name, and none on Cancel: B closes the Pip-Boy, as on the hand-built page. Equip, Drop and Hotkey: none, as the original's. |
+| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's); with a controller the button's name, and none on Cancel: B closes the Pip-Boy, as on the hand-built page. Equip and Drop: none. Hotkey: the current pad's RB/R1 with Controller, hidden with keyboard/mouse [design, #2312; `inventory_menu::hints_of`]. |
 
 **Input** (`inventory_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written;
 nothing else here touches the hand-built pointer [design]. It takes nothing under the prompt, with

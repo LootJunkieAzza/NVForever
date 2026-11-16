@@ -19,6 +19,24 @@
 //! `kReflexMarkerSleep` branch], so it sleeps outside the lock (the sleep lasts until the
 //! driver's signal, which must not hold up the render thread's markers).
 //!
+//! **Reflex and the swapchain** (LootJunkieAzza/NVForever#2732). On Vulkan, Streamline's Reflex
+//! (the `VK_NV_low_latency2` backend) hands the options to the driver with
+//! `vkSetLatencySleepModeNV` on the swapchain it tracks at the call, and does nothing (and still
+//! answers `eOk`) while it tracks none; it tracks the swapchain from the hook after
+//! `vkCreateSwapchainKHR` and drops it in the hook before `vkDestroySwapchainKHR`, and taking a
+//! new one does not hand it the options already set [documented: Streamline
+//! `source/platforms/sl.chi/vknvll2.cpp` `notifyCreateSwapchain`, `notifyDestroySwapchain`,
+//! `setSleepMode` (lines 187-226 of the copy in fork-notes `dlss-streamline/sources/fg`);
+//! `source/plugins/sl.reflex/reflexEntry.cpp` `slSetData` (the options branch) and
+//! `slHookVkCreateSwapchainKHRAfter`, lines 470-490, 970-985]. `ProgrammingGuideReflex.md` says
+//! only that the options need not be set again while they do not change (line 177). So options
+//! set before DLSS-G's swapchain is made (the start with frame generation on) never reach it, as
+//! a player's run showed: real frames uncapped at 64-82 a second under a limit of 36
+//! [observed: the player's logs in #2732]. [`set_reflex_options`] therefore sets them again,
+//! once, whenever a swapchain was made since they were last set (the vendored wgpu-hal's
+//! `swapchains_made`, moved on after each `vkCreateSwapchainKHR` returns: the start, the live
+//! switch, a resize's reconfigure), and `dlss::reflex_options` says so in the log.
+//!
 //! Installed by `win.rs` once Streamline's device exists and Reflex stays loaded; taken away
 //! before `slShutdown`. Until then every call here does nothing.
 
@@ -170,30 +188,93 @@ pub(super) fn sleep(index: u32) -> SlResult {
     }
 }
 
-/// Reflex's options as last set: mode and frame limit.
-static REFLEX_APPLIED: Mutex<Option<(i32, u32)>> = Mutex::new(None);
+/// Reflex's options as last set: mode, frame limit, and how many swapchains had been made
+/// when they were (`wgpu::hal::vulkan::swapchains_made`, read before the call).
+static REFLEX_APPLIED: Mutex<Option<Applied>> = Mutex::new(None);
+
+/// Reflex's options as set, with the swapchain count they were set at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Applied {
+    pub(super) mode: i32,
+    pub(super) frame_limit_us: u32,
+    pub(super) swapchains: u64,
+}
+
+/// Why Reflex's options are set now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SetWhy {
+    /// The mode or the frame limit changed (or none was set yet).
+    Changed,
+    /// The same options again: a swapchain was made since they were set, and it does not
+    /// have them (the module comment's "Reflex and the swapchain").
+    NewSwapchain,
+}
+
+/// Whether to set Reflex's options `mode` and `frame_limit_us` when `swapchains` have been made
+/// so far and `applied` was set last; `None`: nothing to do.
+pub(super) fn send_for(applied: Option<Applied>, mode: i32, frame_limit_us: u32, swapchains: u64) -> Option<SetWhy> {
+    match applied {
+        Some(a) if a.mode == mode && a.frame_limit_us == frame_limit_us => (a.swapchains != swapchains).then_some(SetWhy::NewSwapchain),
+        _ => Some(SetWhy::Changed),
+    }
+}
 
 /// `slReflexSetOptions` with `mode` and `frame_limit_us` (0: no limit) when either differs from
-/// what was last set; `None` when nothing changed. Not thread safe [documented:
-/// `sl_reflex.h` `PFun_slReflexSetOptions`]: only the main thread calls it (`win.rs` once at
-/// `Plugin::cleanup`, then `nv_low_latency.rs` at each frame's input). A failed call leaves the
-/// last applied options, so it is made again next time.
-pub(super) fn set_reflex_options(mode: i32, frame_limit_us: u32) -> Option<SlResult> {
+/// what was last set, or a swapchain was made since ([`send_for`]); `None` when nothing is to be
+/// done, else why it was set, the swapchains made so far and the result. Not thread safe
+/// [documented: `sl_reflex.h` `PFun_slReflexSetOptions`]: only the main thread calls it
+/// (`win.rs` once at `Plugin::cleanup`, then `nv_low_latency.rs` at each frame's input). A
+/// failed call leaves the last applied options, so it is made again next time.
+///
+/// The count is read before the call: a swapchain made between the read and the call may or may
+/// not get the options, and the count it moved on then sets them again at the next call
+/// [design].
+pub(super) fn set_reflex_options(mode: i32, frame_limit_us: u32) -> Option<(SetWhy, u64, SlResult)> {
     let guard = calls();
-    let Some(c) = guard.as_ref() else { return Some(SlResult(21)) };
+    let Some(c) = guard.as_ref() else { return Some((SetWhy::Changed, 0, SlResult(21))) };
+    let swapchains = wgpu::hal::vulkan::swapchains_made();
     let mut applied = REFLEX_APPLIED.lock().unwrap_or_else(PoisonError::into_inner);
-    if *applied == Some((mode, frame_limit_us)) {
-        return None;
-    }
+    let send = send_for(*applied, mode, frame_limit_us, swapchains)?;
     let mut options = ReflexOptions::new();
     options.mode = mode;
     options.frame_limit_us = frame_limit_us;
     // SAFETY: options from their constructor, alive for the call.
     let result = unsafe { (c.reflex_set_options)(&options) };
     if result.is_ok() {
-        *applied = Some((mode, frame_limit_us));
+        *applied = Some(Applied { mode, frame_limit_us, swapchains });
     }
-    Some(result)
+    Some((send, swapchains, result))
+}
+
+/// Refused `slReflexSetOptions` calls, which are made again each frame: a refusal is said when
+/// it differs from the one before (options or result), so the same refusal repeated frame after
+/// frame is said once; all are counted until a call works (`dlss::reflex_options`). Refusals
+/// that alternate are each said [design: kept simple; options change only with the switch or
+/// the cap].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Retries {
+    /// The options (mode, frame limit) and result last refused, said.
+    said: Option<(i32, u32, i32)>,
+    /// Refused calls since the last that worked.
+    failed: u32,
+}
+
+impl Retries {
+    pub(super) const fn new() -> Self {
+        Self { said: None, failed: 0 }
+    }
+
+    /// A call refused with `key` (mode, frame limit, result): whether to say it.
+    pub(super) fn failed(&mut self, key: (i32, u32, i32)) -> bool {
+        self.failed = self.failed.saturating_add(1);
+        self.said.replace(key) != Some(key)
+    }
+
+    /// A call worked: the refused ones before it, and the count starts again.
+    pub(super) fn worked(&mut self) -> u32 {
+        self.said = None;
+        std::mem::take(&mut self.failed)
+    }
 }
 
 /// A Reflex mode's header name, for the log.
@@ -288,12 +369,41 @@ mod tests {
     }
 
     #[test]
+    fn reflex_options_are_set_again_after_a_new_swapchain() {
+        let applied = |mode, frame_limit_us, swapchains| Some(Applied { mode, frame_limit_us, swapchains });
+        assert_eq!(send_for(None, 1, 0, 0), Some(SetWhy::Changed), "none set yet");
+        assert_eq!(send_for(applied(1, 0, 0), 1, 0, 0), None, "the same options, no swapchain since");
+        // Set before the window's swapchain (the start with frame generation on): the first
+        // swapchain made sets them again, once.
+        assert_eq!(send_for(applied(1, 27_778, 0), 1, 27_778, 1), Some(SetWhy::NewSwapchain));
+        assert_eq!(send_for(applied(1, 27_778, 1), 1, 27_778, 1), None, "once per swapchain");
+        // The live switch makes two (native, then Streamline's proxy), or a resize one more.
+        assert_eq!(send_for(applied(1, 27_778, 1), 1, 27_778, 3), Some(SetWhy::NewSwapchain));
+        assert_eq!(send_for(applied(1, 27_778, 1), 1, 6_944, 3), Some(SetWhy::Changed), "a change is said as a change");
+        assert_eq!(send_for(applied(1, 27_778, 1), 0, 27_778, 1), Some(SetWhy::Changed));
+    }
+
+    #[test]
+    fn a_refused_reflex_call_is_said_once_then_counted() {
+        let mut r = Retries::new();
+        assert_eq!(r.worked(), 0, "nothing refused yet");
+        assert!(r.failed((1, 6_944, -1)), "the first refusal is said");
+        assert!(!(0..100).any(|_| r.failed((1, 6_944, -1))), "the same refusal each frame is not");
+        assert!(r.failed((1, 13_889, -1)), "other options refused are said");
+        assert_eq!(r.worked(), 102, "the call that works says how many failed");
+        assert_eq!(r.worked(), 0);
+        assert!(r.failed((1, 13_889, -1)), "said again after a call worked");
+        // Only a repeat of the refusal before is kept quiet: alternating ones are each said.
+        assert!(r.failed((1, 6_944, -1)) && r.failed((1, 13_889, -1)));
+    }
+
+    #[test]
     fn nothing_is_called_until_installed() {
         assert!(!active());
         assert_eq!(set_constants(1, &Constants::new()), SlResult(21));
         assert_eq!(mark(0, 1), SlResult(21));
         assert_eq!(sleep(1), SlResult(21));
-        assert_eq!(set_reflex_options(1, 0), Some(SlResult(21)));
+        assert_eq!(set_reflex_options(1, 0), Some((SetWhy::Changed, 0, SlResult(21))));
         assert!(token(1).is_err());
         assert!(reflex_report().is_none());
         assert_eq!(SlResult(21).name(), "eErrorNotInitialized");

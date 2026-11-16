@@ -66,6 +66,10 @@ const HOME_REACH: f32 = 4096.0;
 /// allow swimming (`Ai::path_params`), against 1 on land [our choice].
 pub const NO_SWIM_WATER_COST: f32 = 50.0;
 
+/// Fallback safe drop height [design, #2532; documented: physics.md §6.10 and
+/// engine/nvf-play/src/falls.rs use 600 when fJumpFallHeightMin is absent].
+const SAFE_DROP_HEIGHT: f32 = 600.0;
+
 /// A way through a radiation marker's radius costs this many times as much for an actor
 /// that avoids radiation [design: kept off where a way round is not far longer, still
 /// taken when there is none].
@@ -237,6 +241,8 @@ pub enum AiEvent {
     DoorWaitCancelled { door: FormId },
     /// The walk ended at the package's place, after `seconds` and `travelled` units.
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
+    /// Arrival's standing heading target, radians [design, #2526; `Ai::settle`].
+    ArrivalFacing { heading: f32 },
     /// No way to the package's location: the package is set aside.
     Unreachable { package: FormId, why: String },
     /// Out of sight, with no door joining where it is and where its package sends it: it
@@ -724,7 +730,10 @@ pub struct Ai {
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
     /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
-    applied_locks: Option<u64>,
+    applied_locks: Option<(u64, u64)>,
+    /// Doors the game has locked that are not in the world now: their locks are left out
+    /// of the graph until they are enabled ([`Ai::apply_door_locks`]).
+    withheld_locks: Vec<u32>,
     /// The world's presence serial and the graph's obstacle stamp after the obstacles
     /// were last brought into the graph ([`Ai::obstacles_in_line`]).
     applied_obstacles: Option<(u64, u64)>,
@@ -820,7 +829,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -886,19 +895,48 @@ impl Ai {
     /// locked: the actors whose way goes through it plan again (a locked door they cannot
     /// open is no longer a way) [hypothesis: as for a navmesh switched off]. Returns the
     /// actors sent to plan again, `None` when no lock changed.
+    ///
+    /// A door that is not in the world ([`Game::present`]: disabled by a script or an
+    /// enable parent, or placed Initially Disabled) holds no lock here: "a disabled
+    /// reference is not in the world" [documented: GECK wiki Disable], so it shuts no way,
+    /// and the graph's authored XLOC of it is taken out. Broken Steel's in-place door
+    /// 0x0D009B07 (lock level 255, no key, disabled when Death From Above gets there) made
+    /// every path past it unreachable (issue #2766). Its lock comes back when it is
+    /// enabled, so the world's presence serial is watched as well as the lock serial.
     pub fn apply_door_locks(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
-        let serial = game.world.lock_serial();
+        let serial = (game.world.lock_serial(), game.world.presence_serial());
         if self.applied_locks == Some(serial) {
             return None;
         }
+        // Only the presence moved (references enabled, disabled, created): the doors to
+        // look at are those that hold a lock or have one withheld, not every door.
+        let locks_moved = self.applied_locks.is_none_or(|a| a.0 != serial.0);
         self.applied_locks = Some(serial);
         // [design, #2538] Include cold load doors: their applicable lock can live on
         // the other side, even when this side has never been materialised.
-        let states = nav.door_refs().into_iter().map(|id| {
-            let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
-            (id, lock.map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
-        });
-        let changes = nav.sync_door_locks(states.collect::<Vec<_>>());
+        let doors: Vec<u32> = if locks_moved {
+            nav.door_refs()
+        } else {
+            let mut v: Vec<u32> = nav.door_locks.keys().copied().chain(self.withheld_locks.iter().copied()).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let mut withheld = Vec::new();
+        let states: Vec<_> = doors
+            .into_iter()
+            .map(|id| {
+                // A door the world does not know (no placed reference) is taken as there.
+                let there = game.world.is_enabled(FormId(id)).is_err() || game.present(FormId(id));
+                let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
+                if lock.is_some() && !there {
+                    withheld.push(id);
+                }
+                (id, lock.filter(|_| there).map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
+            })
+            .collect();
+        self.withheld_locks = withheld;
+        let changes = nav.sync_door_locks(states);
         self.locked_doors = nav.door_locks.keys().copied().collect();
         self.locked_doors.sort_unstable();
         if changes.is_empty() {
@@ -1267,7 +1305,7 @@ impl Ai {
         if let Some((place, radius)) = a.sandbox.as_ref().filter(|s| s.off_guard_area(here)).map(Sandbox::area) {
             let a = self.agents.get_mut(&actor).expect("listed");
             a.sandbox = None;
-            a.goal = Some(Goal::Near { place, radius });
+            a.goal = Some(Goal::Near { place, radius, reference: None });
         }
         let a = &self.agents[&actor];
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
@@ -2389,13 +2427,14 @@ impl Ai {
             self.set_using(game, actor, Some(f));
         } else if let Some((centre, radius)) = guard {
             sandbox = Some(Sandbox::guard(game, actor, package, def, centre, radius));
-        } else if let Some(heading) = marker_heading(game, def) {
+        } else if let Some(heading) = marker_heading(game, actor, def, a.goal.as_ref()) {
             // At an xMarkerHeading it stands the way the marker faces [documented: GECK
             // wiki, NPC population, level-design.md: the heading version "shows which way
             // an actor standing there will face"]. Mr. Brotch's teaching spot in the
             // G.O.A.T. (CG03MrBrotchTeachMarker, 22°) faces the desks; before, he kept the
             // heading he walked in with and taught the wall.
             self.agents.get_mut(&actor).expect("listed").face_to = Some(heading);
+            self.log(game, actor, AiEvent::ArrivalFacing { heading });
         }
         if let Some(mut sandbox) = sandbox {
             if let Some(s) = self.restored_schedule(actor, package) {
@@ -2429,8 +2468,7 @@ impl Ai {
         // set"; "Allow Falls: Actors will not jump off of an elevation that will cause
         // damage unless this flag is set" [documented: GECK wiki Packages, Flags tab].
         // Without Allow Swimming water costs [`NO_SWIM_WATER_COST`] times as much (a way
-        // through water is still taken when there is no other) [our choice]; Allow Falls
-        // lets the way use the navmesh's ledge links [hypothesis: ledges are the drops].
+        // through water is still taken when there is no other) [design].
         if game.package_has(actor, flags::ALLOW_SWIMMING) {
             params.water_cost = params.water_cost.min(self.cfg.params.water_cost);
         } else {
@@ -2438,6 +2476,11 @@ impl Ai {
         }
         if game.package_has(actor, flags::ALLOW_FALLS) {
             params.ledges = true;
+        } else if !params.ledges {
+            // [hypothesis, #2532] An authored drop no higher than the damage threshold
+            // is safe without Allow Falls; use the planned takeoff and landing. The
+            // threshold/fallback follows nvf-play falls.rs (physics.md §6.10).
+            params.safe_drop_max = Some(game.world.forms.setting_f32("fJumpFallHeightMin").unwrap_or(SAFE_DROP_HEIGHT).max(0.0));
         }
         // Avoid Radiation: the radiation markers near it cost a way through them more
         // (`avoids_radiation`).
@@ -2460,7 +2503,13 @@ impl Ai {
         // key and owned by Dad's base (TTW's Fallout3.esm REFR 0602EA4A); without this his
         // package was out of reach and the scene stopped, owner's TTW run 2026-11-02].
         params.owned_doors.extend(self.locked_doors.iter().copied().filter(|&d| game.ownership(FormId(d)).is_some_and(|o| !o.from_cell && game.counts_as_owner(actor, &o))));
-        // Doors the game has open (opened, or open by default and since touched).
+        // [design, #2716 / fnv_sim::World::initial] An untouched locked door uses its
+        // default-open placement; a materialized reference's live state wins below.
+        // Open locked doors do not refuse nav triangles [hypothesis,
+        // docs/spec-notes/navmesh.md; observer check 206].
+        params.open_doors.extend(self.locked_doors.iter().copied().filter(|&d| {
+            game.world.peek(FormId(d)).is_none() && game.world.placed.get(FormId(d)).is_some_and(|r| r.open_by_default)
+        }));
         params.open_doors.extend(game.world.changed().filter(|(_, s)| s.open).map(|(id, _)| id.0));
         // A creature flagged "Can't Open Doors" [documented: GECK wiki
         // GetActorBaseFlagsHigh, Creature column] uses no teleport door [hypothesis: what
@@ -2495,7 +2544,26 @@ impl Ai {
         }
         let Some(door) = ahead else { return true };
         a.asked_door = Some((door, a.package));
-        if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
+        let answer = game.npc_door(actor, FormId(door));
+        // [hypothesis, #2716] An already-open in-place door is no barrier, even with
+        // a cached or fresh script refusal (navmesh.md; observer check 206). [design]
+        // Ask first to preserve crossing events and use live state after the script.
+        let in_place = game.world.placed.get(FormId(door)).is_some_and(|r| r.teleport.is_none());
+        let open_in_place = in_place && game.world.get(FormId(door)).is_ok_and(|s| s.open);
+        // [design, #2716] SetOpenState can close a door without changing its lock
+        // (`Game::set_ref_open`). A path planned while open grants no permission to
+        // reopen it: recheck the live lock, key and own ownership after activation,
+        // with the same configured overrides as `path_params`. Cell ownership does
+        // not authorize opening a locked door (`path_params`).
+        let p = &self.cfg.params;
+        let locked_out = in_place && !open_in_place && game.world.lock_of(FormId(door)).is_some_and(|lock| {
+            lock.locked
+                && !p.open_locked
+                && !p.owned_doors.contains(&door)
+                && !game.ownership(FormId(door)).is_some_and(|o| !o.from_cell && game.counts_as_owner(actor, &o))
+                && !lock.key.is_some_and(|key| p.keys.contains(&key.0) || game.world.item_count(actor, key).is_ok_and(|n| n > 0))
+        });
+        if open_in_place || (answer != fnv_game::npc_doors::DoorAnswer::Refused && !locked_out) {
             return true;
         }
         a.walker.follower = None;
@@ -2618,7 +2686,7 @@ impl Ai {
         };
         match &goal {
             Goal::Here => there(self, game),
-            Goal::Near { place, radius } => {
+            Goal::Near { place, radius, .. } => {
                 if self.within(feet, *place, *radius) {
                     there(self, game)
                 } else {
@@ -2687,7 +2755,7 @@ impl Ai {
         let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
         let at = |place: &Goal| match place {
             Goal::Here => true,
-            Goal::Near { place, radius } => place.space == feet.space && hdist(feet.pos, place.pos) <= radius.max(RESTRAINED_REACH) && (feet.pos[2] - place.pos[2]).abs() <= 256.0,
+            Goal::Near { place, radius, .. } => place.space == feet.space && hdist(feet.pos, place.pos) <= radius.max(RESTRAINED_REACH) && (feet.pos[2] - place.pos[2]).abs() <= 256.0,
             Goal::Inside { space, .. } => *space == feet.space,
             _ => false,
         };
@@ -2722,7 +2790,7 @@ impl Ai {
     /// ([`Goal::Near`], [`Goal::Inside`]); `None`: it is there.
     pub(crate) fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
         match stay {
-            Goal::Near { place, radius } => (!self.within(feet, *place, *radius)).then_some(*place),
+            Goal::Near { place, radius, .. } => (!self.within(feet, *place, *radius)).then_some(*place),
             Goal::Inside { space, at } => (feet.space != *space).then_some(*at),
             _ => None,
         }
@@ -3151,7 +3219,7 @@ impl Ai {
             // radius had "arrived" in the walk's first frame and talked from where it
             // stood, docs/spec-notes/npc-behaviour-compare.md §8).
             _ if own_walk || a.search.is_some() || a.chat.is_some() => false,
-            (Some(Goal::Near { place, radius }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
+            (Some(Goal::Near { place, radius, .. }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
             (Some(Goal::Inside { space, .. }), _) => feet.space == *space,
             _ => false,
         };
@@ -3316,11 +3384,25 @@ pub fn guard_wander_radius(def: &fnv_game::package::PackageDef) -> Option<f32> {
 /// steps of a few units would only twitch the actor on the spot.
 pub const GUARD_WANDER_MIN_RADIUS: f32 = 16.0;
 
-/// The heading of the xMarkerHeading a package's location names ("near reference"), if
-/// it names one.
-fn marker_heading(game: &Game, def: &fnv_game::package::PackageDef) -> Option<f32> {
-    let fnv_game::package::LocationKind::NearReference(Some(r)) = def.location.as_ref()?.kind else { return None };
-    game.world.placed.get(r).filter(|p| p.base == X_MARKER_HEADING).map(|p| p.rot[2])
+/// Arrival's standing heading [documented: GECK wiki, Bethsoft Tutorial NPC population,
+/// linked xMarkerHeading destinations; docs/spec-notes/packages.md §3].
+fn marker_heading(game: &Game, actor: FormId, def: &fnv_game::package::PackageDef, goal: Option<&Goal>) -> Option<f32> {
+    // At a small editor location, Travel and standing Guard restore the placed
+    // heading [hypothesis, #2526, observer check 213]. Sandbox/wander choose their own;
+    // a Guard remaining near its target uses that target's place (`goal::resolve`).
+    if def.location.is_some_and(|loc| loc.kind == fnv_game::package::LocationKind::NearEditor && (loc.radius as f32) < GUARD_WANDER_MIN_RADIUS)
+        && (def.ty == PackageType::Travel || def.ty == PackageType::Guard && !def.remain_near_reference())
+    {
+        return game.world.placed.get(actor).map(|p| p.rot[2]);
+    }
+    // Read the effective destination kept when travel began, including a Guard's
+    // target, rather than selecting the location again [design, #2526; goal::resolve].
+    let destination = match goal? {
+        Goal::Talk(talk) => talk.wait.as_ref(),
+        goal => goal,
+    };
+    let Goal::Near { reference: Some(r), .. } = destination else { return None };
+    game.world.placed.get(*r).filter(|p| p.base == X_MARKER_HEADING).map(|p| p.rot[2])
 }
 
 /// The actor is where its package wants it: the package's goal is met, or, for a Use

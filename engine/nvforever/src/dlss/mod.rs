@@ -171,6 +171,8 @@ mod ffi;
 // The download, the signature checks and the folder rule live in `nvf-dlss-files`, shared with
 // the launcher (#2765); they keep their paths here.
 pub(crate) use nvf_dlss_files::download;
+#[cfg(any(windows, test))]
+mod fg_cap;
 #[cfg(windows)]
 mod frame_gen;
 #[cfg(windows)]
@@ -295,9 +297,10 @@ pub(crate) fn frame_generation_on() -> bool {
 /// pacing's own ([`frame_generation_running`]).
 static FG_ENDED: AtomicBool = AtomicBool::new(false);
 
-/// Frames presented per real frame asked for (the Generated frames row + 1, `frame_gen.rs`
-/// `follow_request`); 1 otherwise.
-static FG_MULTIPLIER: AtomicU32 = AtomicU32::new(1);
+/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
+/// per real frame, 1 while it does not generate (menus, a pause in generation), from
+/// `frame_gen.rs` `state` (`fg_cap.rs`; #2731).
+static FG_DIVISOR: AtomicU32 = AtomicU32::new(1);
 
 /// The frame limit Reflex is to keep, in microseconds per real frame (0: none), from frame
 /// pacing's cap while frame generation runs (`frame_pace.rs` `wait_for_cap`).
@@ -307,14 +310,15 @@ static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
 /// ended by a failed status. While it does, latency reduction is on with it (`crate::frame_gen`
 /// `follow_switch`, `LatencyReduction::by_frame_generation`) and the frame cap is Reflex's
 /// (`frame_pace.rs`), also in menus, where DLSS-G's mode is off for a while but frame generation
-/// is not over.
+/// is not over (the cap then is not divided: [`frame_generation_divisor`]).
 pub(crate) fn frame_generation_running() -> bool {
     frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed) && frame_generation_loaded()
 }
 
-/// Frames presented per real frame asked for while frame generation runs (1 otherwise).
-pub(crate) fn frame_generation_multiplier() -> u32 {
-    if frame_generation_running() { FG_MULTIPLIER.load(Ordering::Relaxed).max(1) } else { 1 }
+/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
+/// per real frame, smoothed, or 1 while it does not generate (`fg_cap.rs`); 1 otherwise.
+pub(crate) fn frame_generation_divisor() -> u32 {
+    if frame_generation_running() { FG_DIVISOR.load(Ordering::Relaxed).max(1) } else { 1 }
 }
 
 /// The frame limit Reflex keeps (microseconds per real frame, 0: none), set by frame pacing
@@ -338,24 +342,39 @@ pub(crate) fn reflex_running() -> bool {
 }
 
 /// Reflex's options for the latency reduction switch (`eLowLatency` on, `eOff` off) and the
-/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes
-/// (`slReflexSetOptions` is not thread safe: the main thread, `nv_low_latency.rs` at each
-/// frame's input). Each change is said. `Err`: Streamline refused, or Reflex does not run.
+/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes or a
+/// swapchain was made since they were set, which does not have them (`frame_token.rs`, "Reflex
+/// and the swapchain"; #2732) (`slReflexSetOptions` is not thread safe: the main thread,
+/// `nv_low_latency.rs` at each frame's input). Each is said, with the swapchains made so far:
+/// `Reflex options: … (swapchains made: N)` for a change, `Reflex options set again for a new
+/// swapchain: … (swapchains made: N)` for the other. A refused call is made again each frame; a
+/// refusal repeated frame after frame is said once, and the call that works after it says how
+/// many tries failed (`frame_token::Retries`). `Err`: Streamline refused, or Reflex does not run.
 pub(crate) fn reflex_options(on: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         use ffi::{REFLEX_MODE_LOW_LATENCY, REFLEX_MODE_OFF};
+        static RETRIES: Mutex<frame_token::Retries> = Mutex::new(frame_token::Retries::new());
         let mode = if on { REFLEX_MODE_LOW_LATENCY } else { REFLEX_MODE_OFF };
         let limit = REFLEX_LIMIT_US.load(Ordering::Relaxed);
         match frame_token::set_reflex_options(mode, limit) {
             None => Ok(()),
-            Some(result) => {
-                let line = format!("Reflex options: mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+            Some((why, swapchains, result)) => {
+                let options = format!("mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+                let head = match why {
+                    frame_token::SetWhy::Changed => "Reflex options",
+                    frame_token::SetWhy::NewSwapchain => "Reflex options set again for a new swapchain",
+                };
+                let mut retries = RETRIES.lock().unwrap_or_else(PoisonError::into_inner);
                 if result.is_ok() {
-                    note_fg(Level::INFO, line);
+                    let failed = retries.worked();
+                    let after = if failed > 0 { format!(", after {failed} refused tries") } else { String::new() };
+                    note_fg(Level::INFO, format!("{head}: {options} (swapchains made: {swapchains}{after})"));
                     Ok(())
                 } else {
-                    note_fg(Level::WARN, &line);
+                    if retries.failed((mode, limit, result.0)) {
+                        note_fg(Level::WARN, format!("{head}: {options} (swapchains made: {swapchains}); tried again each frame, the same refusal said once"));
+                    }
                     Err(format!("slReflexSetOptions {}", result.name()))
                 }
             }

@@ -229,8 +229,8 @@ fn show_notes(
                 stats.faction_enemies += 1;
                 info!("crime: the player is now an enemy of {}", g.data.name(faction));
             }
-            // A crime's cooldown ran out (`Game::expire_crimes`, #2467).
-            Note::FactionEnemyEnded { faction, days } => info!("crime: the player is no longer an enemy of {}: the last crime against it is {days:.2} game days old", g.data.name(faction)),
+            // A crime's flag or cooldown ran out (`Game::expire_crimes`, #2467, #2498).
+            Note::FactionEnemyEnded { faction, days } => info!("crime: the player is no longer an enemy of {}: the last crime against it is {:.2} game hours old", g.data.name(faction), days * 24.0),
             Note::CrimeEnemyEnded { actor, days } => info!("crime: {} no longer counts the player's crimes: the last is {days:.2} game days old", name(g, actor)),
             Note::Trespassing { cell, owner, now } => {
                 let what = if now { "trespasses in" } else { "left" };

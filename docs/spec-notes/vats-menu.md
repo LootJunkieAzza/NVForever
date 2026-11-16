@@ -91,7 +91,7 @@ In `tiles/vats_menu.rs`, `write`; each choice is tagged there.
 | part box `alpha` | 215 selected, 255 the others | observed: screenshots (the selected part's box and name are fainter; it is lit on the body); the number is by eye |
 | Select `visible`, `_PCButtonText` | shown with the left button's hint while the pointer is on a part | observed: screenshots (Select and its hint only with the pointer on a part); the hint's words are NVForever's |
 | arrows' `mouseover` | 1 while the pointer is on one | documented (the file switches the picture by it) |
-| row `string`, `listindex` | the queued part's name, the attack's place in the queue | design / documented (`listindex`) |
+| row `string`, `listindex` | `<target>: <part>` from the data names (target alone without parts), the attack's place in the queue | [design, #2659] colon joiner; [documented: issue #2659 item 1] capture description; documented (`listindex`) |
 | row `height`, list `height`, `_scroll_delta` | the text's height; six rows | documented (the prefabs' comments) |
 | list `childcount` | its live children | hypothesis (the tree does not keep it) |
 | Accept `target` | on with an attack queued | design |

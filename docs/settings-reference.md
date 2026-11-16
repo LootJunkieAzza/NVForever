@@ -773,6 +773,9 @@ After the Controls tab's own rows (see the end of this page):
   4x three. More looks smoother and costs a little more latency and graphics memory; 3x and
   4x only where the graphics card offers them (RTX 50 series). Takes effect at once. Only
   with DLSS frame generation. Not in the original.
+- In its place on the page while the frame rate limit divided by the frames shown per real
+  frame is under 60 (#2731), e.g.: 4x at a limit of 144: 36 real frames a second, which can
+  feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.
 - More: docs/design/dlss-frame-generation.md
 - Registered in `engine/nvforever/src/settings.rs`
 

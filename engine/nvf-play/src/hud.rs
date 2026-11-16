@@ -253,6 +253,8 @@ pub struct HudView {
     /// The HUD is on the screen: the player is in the world, and no script holds the
     /// player's movement (§5).
     pub shown: bool,
+    /// [design, #2659] The enemy piece can stay visible during classic playback.
+    pub enemy_shown: bool,
     /// Health and action points, 0 to 1 of their full values.
     pub health: f32,
     pub action_points: f32,
@@ -271,7 +273,7 @@ pub struct HudView {
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
+        HudView { shown: false, enemy_shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, detected_by: None, armor: None, kill_cam: false }
     }
 }
 
@@ -558,6 +560,10 @@ fn gather(
         info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
     let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
+    // [design, #2659] Only the classic enemy piece survives playback, including its
+    // attack camera. All other HUD visibility rules keep using `shown`.
+    now.enemy_shown = *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open
+        && (!killcam || vats.as_ref().is_some_and(|v| v.style() == crate::vats_classic::VatsStyle::Classic && v.active()));
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();
@@ -566,11 +572,17 @@ fn gather(
     now.armor = combat.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.armor_condition)).and_then(|c| c.hud_armor(&mut sim));
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
+        if let Some(v) = &vats {
+            now.weapon.ammo = v.displayed_ammo(now.weapon.ammo);
+        }
         // The player's tweak hides the ammo counter [design: docs/design/tweaks.md].
         if tweaks.as_ref().is_some_and(|t| t.hide_ammo_label) {
             now.weapon.ammo = None;
             now.weapon.abbrev = None;
         }
+    }
+    if now.weapon.ammo != view.weapon.ammo {
+        info!("hud: ammo count {}", ammo_text(now.weapon.ammo));
     }
     // The player's tweak leaves the sneak label off [design: docs/design/tweaks.md].
     // The player's tweaks: the label off, or shown standing too [design: docs/design/tweaks.md].
@@ -994,7 +1006,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         set_line(p, &art.font, &font.lines(text, None).remove(0), x, base, color);
     };
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    commands.spawn((HudRoot, screen, Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
+    commands.spawn((HudRoot, screen.clone(), Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
         root.spawn((HpPiece, piece, DrawnByTiles)).with_children(|p| {
@@ -1074,6 +1086,12 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
             });
             p.spawn((AmmoText, at(0.0, 0.0, AP_PANEL.x, AP_PANEL.y)));
         });
+        // The sneak word, top middle.
+        let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
+        root.spawn((SneakText, piece, DrawnByTiles));
+    });
+    // [design, #2659] Independent of the corner root hidden during playback.
+    commands.spawn((screen, Pickable::IGNORE)).with_children(|root| {
         // The enemy's health, bottom middle: its long line level with the corner pieces'
         // (§8).
         let red = crime_colour();
@@ -1102,9 +1120,6 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
             p.spawn((EnemyName, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
             p.spawn((EnemyStats, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
         });
-        // The sneak word, top middle.
-        let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
-        root.spawn((SneakText, piece, DrawnByTiles));
     });
 }
 
@@ -1127,8 +1142,7 @@ pub fn sight_alpha(at: f32) -> f32 {
     ENEMY_SIGHT_ALPHA + (1.0 - ENEMY_SIGHT_ALPHA) * wave
 }
 
-/// The enemy piece's top from the view's top while the classic VATS style chooses
-/// targets, interface units [design].
+/// [design] Dead Eye's enemy piece top, in interface units; classic uses the bottom.
 const ENEMY_VATS_TOP: f32 = 40.0;
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -1146,6 +1160,7 @@ fn draw(
     mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
     mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
     (tweaks, time, vats): (Option<Res<crate::tweaks::TweakSettings>>, Res<Time<Real>>, Option<Res<crate::vats_mode::VatsMode>>),
+    mut classic_bar: Local<Option<bool>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -1162,24 +1177,29 @@ fn draw(
     for mut v in &mut root {
         v.set_if_neq(show(view.shown));
     }
-    if !view.shown {
-        return;
-    }
     for mut v in &mut condition {
         v.set_if_neq(show(view.weapon.condition.is_some()));
     }
-    // While VATS is on, in either style, the enemy's piece stands at the top of the view,
-    // over the target [design: the fork owner 2026-11-10, "keep the NPC healthbar above",
-    // "on top in both versions"; the original keeps it at the bottom in VATS, observed on
-    // the owner's screenshots].
-    let at_top = vats.is_some_and(|v| v.active());
+    // [design, #2659] Classic uses the normal bottom anchor, including playback;
+    // Dead Eye retains its existing top placement.
+    let at_top = vats.as_ref().is_some_and(|v| v.style() == crate::vats_classic::VatsStyle::DeadEye && v.active());
     let (top, bottom) = if at_top { (u(ENEMY_VATS_TOP), Val::Auto) } else { (Val::Auto, u(MARGIN_Y + enemy_top())) };
     for (mut v, mut node) in &mut enemy {
-        v.set_if_neq(show(target.0.is_some()));
+        v.set_if_neq(show(view.enemy_shown && target.0.is_some()));
         if node.top != top || node.bottom != bottom {
             node.top = top;
             node.bottom = bottom;
         }
+    }
+    let classic = vats.as_ref().filter(|v| v.style() == crate::vats_classic::VatsStyle::Classic && v.active()).map(|v| v.playing_back());
+    if classic != *classic_bar {
+        if let Some(playback) = classic {
+            info!("hud: classic VATS enemy bar bottom centre ({})", if playback { "playback" } else { "target screen" });
+        }
+        *classic_bar = classic;
+    }
+    if !view.shown {
+        return;
     }
     let cnd = view.weapon.condition.unwrap_or(0.0);
     let width = u(condition_width(cnd));
@@ -1220,7 +1240,7 @@ fn pips(
     mut tick: Local<Option<Option<Handle<Image>>>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
-    if !view.shown {
+    if !view.shown && !view.enemy_shown {
         return;
     }
     let Ok(window) = windows.single() else { return };
@@ -1342,7 +1362,7 @@ fn texts(
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
-    if !view.shown || ammo.is_empty() {
+    if (!view.shown && !view.enemy_shown) || ammo.is_empty() {
         return;
     }
     let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
@@ -1458,6 +1478,31 @@ fn enemy_colours(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_enemy_bar_stays_at_the_bottom_when_playback_hides_the_corners() {
+        use crate::hud_target::TargetHealth;
+        let _hud = crate::interface::hud_units();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<Time<Real>>()
+            .insert_resource(HudView { shown: true, enemy_shown: true, ..default() })
+            .insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Practice robot".into(), health: 1.0, hostile: true, anatomy: None, anatomy_dr: None, after: None })))
+            .add_systems(Update, draw);
+        app.update();
+        app.update();
+        app.world_mut().resource_mut::<HudView>().shown = false;
+        app.update();
+        let world = app.world_mut();
+        let mut enemies = world.query_filtered::<(&Node, &Visibility, &ChildOf), With<EnemyPiece>>();
+        let (node, visible, parent) = enemies.single(world).unwrap();
+        assert_eq!(*visible, Visibility::Inherited);
+        assert_eq!(node.top, Val::Auto);
+        assert_eq!(node.bottom, u(MARGIN_Y + enemy_top()));
+        assert!(world.get::<HudRoot>(parent.parent()).is_none());
+        let mut roots = world.query_filtered::<&Visibility, With<HudRoot>>();
+        assert_eq!(*roots.single(world).unwrap(), Visibility::Hidden);
+    }
 
     #[test]
     fn the_armor_row_shows_reddens_and_flashes_by_its_thresholds() {

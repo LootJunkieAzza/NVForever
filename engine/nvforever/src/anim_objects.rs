@@ -1,35 +1,14 @@
-//! Animated objects (docs/spec-notes/idles.md §10): the props actors hold while an idle
-//! plays, such as Chet's broom while he sweeps (`LooseSweeping`, `aoSweepingBroom`) or a
-//! cigarette while smoking. `fnv_actor::idle::anim_objects` reads the ANIO records; each
-//! names the IDLE it goes with and a model whose `Prn` extra data names the bone it hangs
-//! from. While an actor's idle slot plays an IDLE that has animated objects (`idles.rs`,
-//! [`ActorIdle`]), their models are drawn under those bones of its skeleton, rigid, as
-//! a rigid body part is (`nvf_assets::actor::rigid_local`); when the idle ends or another
-//! starts they are taken away [hypothesis for the game's rule, idles.md §10].
-//!
-//! A node of the object's model that the idle's clip has a track for is moved by that
-//! track, every frame (idles.md §10): Doc Mitchell's mirror (`nvpropreflectron.nif`,
-//! whose node `##Dummy01_Reflectron01` is stored about 200 units from the hand) is
-//! brought into his hand and handed over by the track of that name in
-//! `SpecialIdle_NVCG01DocGiveMirror`.
-//!
-//! Log: `anim object: <actor> holds <model> on <bone> (<idle>)` per object drawn,
-//! `anim object: <actor> <ANIO> node <name> follows the idle's track` per node moved, and
-//! at the end `anim objects summary: …`.
-//!
-//! Not done: the player's idles (none of the player's known idles has an object), an
-//! object's own controllers (`aobroom.nif` carries a transform controller on its root,
-//! not played), and objects whose model has no `Prn` (drawn at `Bip01 Head`, the rigid
-//! parts' default).
+//! [design, #2685; docs/spec-notes/idles.md section 10] ANIO attachments use the
+//! placed-model rig, material and particle players with the actor idle's external KF.
+//! Attach at Prn (root fallback), remove on replacement, retain held CLAMP effects.
 
 use crate::idles::{ActorIdle, Playing};
 use crate::limbs::ActorRig;
 use crate::world::WorldData;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_nif::anim::TransformTrack;
-use nvf_assets::actor::{rigid_local, ActorCtx, ActorParts};
-use nvf_assets::anim_play::BoundClip;
+use nvf_assets::actor::rigid_local;
+use nvf_assets::anim_play::{BoundClip, Playing as ModelPlaying};
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -68,44 +47,23 @@ impl AnimObjects {
     }
 }
 
-/// The animated objects drawn on an actor now (on its root): for which idle (its slot
-/// serial), their entities, and their nodes the idle's clip moves.
+/// [design, #2685] Complete attachment roots, owned by one idle slot serial.
 #[derive(Component)]
 pub struct HeldObjects {
     serial: u32,
     entities: Vec<Entity>,
-    moved: Vec<Moved>,
 }
 
-/// A node of an object's model moved by a track of the idle's clip.
-struct Moved {
-    /// The node's entity, under the bone.
-    entity: Entity,
-    bone: usize,
-    /// The transform above the node in the model: the part's root and the node's
-    /// ancestors.
-    above: Affine3A,
-    /// The node's stored transform, for what the track has no channel for.
-    rest: Affine3A,
-    track: Arc<TransformTrack>,
-}
-
-impl Moved {
-    /// The node's transform under its bone with the track sampled at `time`.
-    fn local(&self, rig: &ActorRig, time: f32) -> Transform {
-        let (s0, r0, t0) = self.rest.to_scale_rotation_translation();
-        let t = self.track.translation.sample(time).map_or(t0, Vec3::from_array);
-        let r = self.track.rotation_at(time).map_or(r0, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
-        let s = self.track.scale.sample(time).map_or(s0.x, |[s]| s);
-        let node = Affine3A::from_scale_rotation_translation(Vec3::splat(s), r, t);
-        Transform::from_matrix(Mat4::from(rigid_local(&rig.skel, self.bone, &self.above, &node)))
-    }
-}
-
-/// The clip time an idle shows, as [`ActorIdle::layers`] gives it to the blend player.
+/// [design, #2685] Sample the exact end as well as the start of a held CLAMP idle.
 fn clip_time(p: &Playing<Arc<BoundClip>>) -> f32 {
-    let len = p.play.keys.length.max(1e-3);
-    p.clip.time_at((p.play.time() / len).min(0.999))
+    p.clip.clip.start + p.play.time().min(p.play.keys.length)
+}
+
+/// [design, #2685] Keep outgoing props during the existing cross-fade, then remove
+/// them when that idle disappears from the slot.
+fn attachment_idle<'a>(idle: Option<&'a ActorIdle>, objects: &AnimObjects) -> Option<&'a Playing<Arc<BoundClip>>> {
+    let has = |p: &&Playing<Arc<BoundClip>>| p.group.is_none() && objects.by_idle.contains_key(&p.idle);
+    idle.and_then(|i| i.0.cur.as_ref().filter(has).or(i.0.prev.as_ref().filter(has)))
 }
 
 /// Read the records once the world data is there.
@@ -116,106 +74,83 @@ pub fn read(mut a: ResMut<AnimObjects>, world: Res<WorldData>) {
     }
 }
 
-/// Draw the objects of each actor's idle while it plays; take them away after. Nodes
-/// the idle's clip has tracks for follow them.
+/// [design, #2685] Spawn one complete ANIO tree under Prn, falling back to root.
+fn attach_model(
+    commands: &mut Commands, rig: &ActorRig, prepared: &nvf_assets::model::PreparedModel,
+    model: &str, clip: &Arc<nvf_assets::anim_play::Clip>, prn: Option<&str>, time: f32,
+) -> Option<(Entity, HashMap<String, Entity>, String)> {
+    let b = prn.and_then(|name| rig.skel.by_name.get(name)).copied().unwrap_or(0);
+    let &parent = rig.nodes.get(b)?;
+    let bone_name = rig.skel.names[b].clone().unwrap_or_else(|| "<root>".into());
+    let local = rigid_local(&rig.skel, b, &prepared.root, &Affine3A::IDENTITY);
+    let part = prepared.rig.as_ref()?;
+    // [design, #2685] Preparation also expands tracks to shapes sharing properties.
+    let drawn_clip = part.idle.as_ref().unwrap_or(clip);
+    let (root, _, nodes) = part.spawn_playing(commands, parent, Transform::from_matrix(Mat4::from(local)), model, 0.0, Some(drawn_clip));
+    let mut player = ModelPlaying::new(model, drawn_clip, |name| nodes.get(name).copied());
+    player.time = time;
+    player.held = true;
+    commands.entity(root).insert(player);
+    if prepared.particles {
+        commands.entity(root).insert((
+            crate::particles::ModelEmitter::placed(model, rig.reference),
+            crate::particles::IdleParticleRig { nodes: nodes.clone(), clip: clip.clone() },
+        ));
+    }
+    Some((root, nodes, bone_name))
+}
+
+/// [design, #2685] Attach full model hierarchies and synchronize to the idle clock.
 pub fn hold(
     mut commands: Commands,
     mut objects: ResMut<AnimObjects>,
-    mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     actors: Query<(Entity, &ActorRig, Option<&ActorIdle>, Option<&HeldObjects>)>,
-    mut transforms: Query<&mut Transform>,
+    mut players: Query<&mut ModelPlaying>,
 ) {
-    let objects = &mut *objects;
-    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     for (e, rig, idle, held) in &actors {
-        // The idle playing (also while it fades out at its end), not a script's group; else
-        // the one before it while it still shows under the next one's fade-in, so an
-        // idle brought back by the line that asks for it again keeps its objects
-        // (#1355: Doc's mirror, a chair fidget starting as the hand-over ended).
-        let has = |p: &&Playing<Arc<BoundClip>>| p.group.is_none() && objects.by_idle.contains_key(&p.idle);
-        let playing = idle.and_then(|i| i.0.cur.as_ref().filter(has).or(i.0.prev.as_ref().filter(has)));
+        let playing = attachment_idle(idle, &objects);
         let want = playing.map(|p| (p.idle, p.serial));
         if held.map(|h| h.serial) == want.map(|w| w.1) {
             if let (Some(h), Some(p)) = (held, playing) {
-                let time = clip_time(p);
-                for m in &h.moved {
-                    if let Ok(mut t) = transforms.get_mut(m.entity) {
-                        *t = m.local(rig, time);
+                for &root in &h.entities {
+                    if let Ok(mut player) = players.get_mut(root) {
+                        player.time = clip_time(p);
                     }
                 }
             }
             continue;
         }
         if let Some(h) = held {
-            for &x in &h.entities {
-                commands.entity(x).despawn();
+            for &root in &h.entities {
+                commands.entity(root).despawn();
             }
             commands.entity(e).remove::<HeldObjects>();
         }
         let (Some((idle, serial)), Some(p)) = (want, playing) else { continue };
         objects.stats.idles += 1;
-        let time = clip_time(p);
         let mut entities = Vec::new();
-        let mut moved: Vec<Moved> = Vec::new();
         for (edid, model) in objects.by_idle[&idle].clone() {
-            let Some(part) = ctx.part(&model) else {
+            let clip = &p.clip.clip;
+            let Some(prepared) = models.model_for_idle(&model, idle, clip) else {
                 objects.stats.failed += 1;
-                warn!("anim object: {edid} ({model}) does not load");
                 continue;
             };
-            let bone_name = part.attach_bone().to_string();
-            let Some(&b) = rig.skel.by_name.get(&bone_name) else {
+            let Some(part) = &prepared.rig else {
                 objects.stats.failed += 1;
-                warn!("anim object: {:08X} has no {bone_name} for {edid}", rig.reference);
                 continue;
             };
-            // The entity of each node the clip moves, shared by the shapes below it.
-            let mut nodes: HashMap<String, Entity> = HashMap::new();
-            for s in part.shapes.iter().filter(|s| !s.cap) {
-                // The outermost ancestor the clip has a track for (`ancestors` runs from
-                // the parent outwards).
-                let found = s.ancestors.iter().enumerate().rev().find_map(|(k, (name, own))| {
-                    let name = name.as_deref()?;
-                    let (_, track) = p.clip.clip.tracks.iter().find(|(n, _)| n == name)?;
-                    Some((k, name.to_string(), *own, track.clone()))
-                });
-                let Some((k, name, rest, track)) = found else {
-                    let local = rigid_local(&rig.skel, b, &part.root, &s.transform);
-                    let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(local)))).id();
-                    commands.entity(rig.nodes[b]).add_child(x);
-                    if let Some((_, names)) = &s.skin {
-                        nvf_assets::actor::skin_in_place(&mut commands, x, names.len());
-                    }
-                    entities.push(x);
-                    continue;
-                };
-                let node = match nodes.get(&name) {
-                    Some(&x) => x,
-                    None => {
-                        let above = s.ancestors[k + 1..].iter().rev().fold(part.root, |acc, (_, t)| acc * *t);
-                        let mut m = Moved { entity: Entity::PLACEHOLDER, bone: b, above, rest, track };
-                        let x = commands.spawn((m.local(rig, time), Visibility::default())).id();
-                        commands.entity(rig.nodes[b]).add_child(x);
-                        entities.push(x);
-                        m.entity = x;
-                        moved.push(m);
-                        nodes.insert(name.clone(), x);
-                        info!("anim object: {:08X} {edid} node {name} follows the idle's track", rig.reference);
-                        x
-                    }
-                };
-                let below = s.ancestors[..k].iter().rev().fold(Affine3A::IDENTITY, |acc, (_, t)| acc * *t) * s.own;
-                let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(below)))).id();
-                commands.entity(node).add_child(x);
-                if let Some((_, names)) = &s.skin {
-                    nvf_assets::actor::skin_in_place(&mut commands, x, names.len());
-                }
+            let strings = models.node_strings(&model, "Prn");
+            let prn = part.nodes.first().and_then(|n| n.name.as_ref()).and_then(|name| strings.get(name));
+            let Some((root, nodes, bone_name)) = attach_model(&mut commands, rig, &prepared, &model, clip, prn.map(String::as_str), clip_time(p)) else { continue };
+            for (name, _) in clip.tracks.iter().filter(|(name, _)| nodes.contains_key(name)) {
+                info!("anim object: {:08X} {edid} node {name} follows the idle's track", rig.reference);
             }
+            entities.push(root);
             objects.stats.drawn += 1;
             info!("anim object: {:08X} holds {model} on {bone_name} ({edid}, idle {idle:08X})", rig.reference);
         }
-        commands.entity(e).insert(HeldObjects { serial, entities, moved });
+        commands.entity(e).insert(HeldObjects { serial, entities });
     }
 }
 
@@ -225,4 +160,94 @@ pub fn report(mut exit: MessageReader<AppExit>, objects: Res<AnimObjects>) {
     }
     let s = objects.stats;
     info!("anim objects summary: {} objects drawn for {} idles played, {} could not be drawn", s.drawn, s.idles, s.failed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::{system::RunSystemOnce, world::CommandQueue};
+    use fnv_actor::idle_play::{IdleKeys, IdlePlay};
+    use fnv_nif::anim::{Channel, Sequence, Track, TrackData, ValueTrack};
+    use nvf_assets::anim_play::Clip;
+    use nvf_assets::model::{PreparedModel, Rig, RigNode, RigShape};
+
+    #[test]
+    fn idle_attaches_full_model_reaches_materials_holds_end_and_detaches_on_replacement() {
+        let mut world = World::new();
+        crate::particles::model_ctx_resources(&mut world);
+        let bones: Vec<_> = (0..2).map(|_| world.spawn(Transform::IDENTITY).id()).collect();
+        let skel = nvf_assets::actor::PreparedSkeleton {
+            names: vec![Some("Root".into()), Some("OwnedBone".into())],
+            by_name: HashMap::from([("Root".into(), 0), ("OwnedBone".into(), 1)]),
+            bind_world: vec![Affine3A::IDENTITY; 2], ..default()
+        };
+        let rig = ActorRig { reference: 7, base: 8, body: 8, skeleton: "owned.nif".into(),
+            skel: Arc::new(skel), nodes: bones.clone(), base_scale: 1.0 };
+        let actor = world.spawn(rig.clone()).id();
+        let mut seq = Sequence {
+            block: 0, name: Some("OwnedIdle".into()), start_time: 0.0, stop_time: 2.0,
+            frequency: 1.0, cycle_type: 2, accum_root_name: None, text_keys: Vec::new(),
+            tracks: vec![Track {
+                node_name: Some("OwnedGlow".into()), controller_type: Some("NiMaterialColorController".into()),
+                controller_id: Some("SELF_ILLUM".into()), priority: Some(1), data: TrackData::Other("OwnedSynthetic".into()),
+                bools: None, values: Some(ValueTrack::Point3(Channel::Static(Some([0.3, 0.5, 0.7])))), interpolator_id: None,
+            }],
+        };
+        for (controller, id, value) in [
+            ("NiAlphaController", "", 0.4),
+            ("NiTextureTransformController", "0-0-TT_TRANSLATE_U", 0.25),
+            ("NiTextureTransformController", "0-0-TT_TRANSLATE_V", 0.75),
+            ("BSMaterialEmittanceMultController", "", 2.0),
+        ] {
+            seq.tracks.push(Track {
+                node_name: Some("OwnedGlow".into()), controller_type: Some(controller.into()),
+                controller_id: Some(id.into()), priority: Some(1), data: TrackData::Other("OwnedSynthetic".into()),
+                bools: None, values: Some(ValueTrack::Float(Channel::Static(Some([value])))), interpolator_id: None,
+            });
+        }
+        let clip = Arc::new(Clip::from_sequence(&seq));
+        let prepared = PreparedModel { particles: true, root: Affine3A::IDENTITY, rig: Some(Rig {
+            nodes: vec![
+                RigNode { name: Some("Effects".into()), parent: None, local: Transform::IDENTITY, hidden: false, billboard: None },
+                RigNode { name: Some("OwnedGlow".into()), parent: Some(0), local: Transform::IDENTITY, hidden: false, billboard: None },
+            ],
+            shapes: vec![RigShape { node: 1, mesh: default(), material: default(), skin: None, morph: None,
+                look: ("OwnedGlow".into(), [0.0; 3], 1.0, 1.0), refraction: 0.0, animated: true }],
+            idle: None, door: None, groups: Vec::new(), effect: None,
+        }), ..default() };
+        let mut queue = CommandQueue::default();
+        let (root, nodes, bone) = attach_model(&mut Commands::new(&mut queue, &world), &rig, &prepared,
+            "owned.nif", &clip, Some("OwnedBone"), 0.0).unwrap();
+        queue.apply(&mut world);
+        assert_eq!(bone, "OwnedBone");
+        assert_eq!(world.get::<ChildOf>(root).unwrap().parent(), bones[1]);
+        assert!(world.get::<crate::particles::ModelEmitter>(root).is_some());
+        let mats = world.get::<nvf_assets::material_anim::RigMaterials>(root).unwrap();
+        let values = nvf_assets::material_anim::sample(&mats.slots, &mats.idle, 2.0, 2.0, false);
+        assert_eq!(values[0].colour, [0.3, 0.5, 0.7]);
+        assert_eq!(values[0].mult, 2.0);
+        assert_eq!(values[0].alpha, 0.4);
+        assert_eq!(values[0].uv, [0.25, 0.75]);
+        let mut idle = ActorIdle::default();
+        let bound = Arc::new(BoundClip::bind(clip.clone(), |_| None));
+        let play = IdlePlay::new(IdleKeys::read(0.0, 2.0, &[]), Some(1)).clamped();
+        let serial = idle.0.start_group(0, bound.clone(), play);
+        let p = idle.0.cur.as_mut().unwrap();
+        p.idle = 9;
+        p.group = None;
+        p.play.advance(100.0);
+        world.insert_resource(AnimObjects { by_idle: HashMap::from([(9, vec![("Owned".into(), "owned.nif".into())])]), ..default() });
+        world.entity_mut(actor).insert((idle, HeldObjects { serial, entities: vec![root] }));
+        world.run_system_once(hold).unwrap();
+        assert_eq!(world.get::<ModelPlaying>(root).unwrap().time, 2.0);
+        world.get_mut::<ActorIdle>(actor).unwrap().0.start_group(1, bound, play);
+        world.run_system_once(hold).unwrap();
+        assert!(world.get_entity(root).is_err());
+        assert!(world.get_entity(nodes["OwnedGlow"]).is_err());
+        let (fallback, _, bone) = attach_model(&mut Commands::new(&mut queue, &world), &rig, &prepared,
+            "owned.nif", &clip, Some("MissingBone"), 0.0).unwrap();
+        queue.apply(&mut world);
+        assert_eq!(bone, "Root");
+        assert_eq!(world.get::<ChildOf>(fallback).unwrap().parent(), bones[0]);
+    }
 }

@@ -357,7 +357,9 @@ fn write_prompt(ui: &mut Ui, shown: Shown, input: &Frame) {
 
 fn write_enemy(ui: &mut Ui, shown: Shown, input: &Frame) {
     let enemy = input.enemy.as_ref();
-    let visible = shown.enemy && enemy.is_some_and(|e| share(e.health) < 1.0);
+    // [design, #2659] Shown owns visibility: classic VATS also shows full-health targets
+    // (engine/nvf-play/src/tiles/mod.rs::HudTiles::shown).
+    let visible = shown.enemy && enemy.is_some();
     if let Some(enemy) = enemy {
         if let Some(tile) = ui.find_tile("HUDMainMenu/EnemyHealth") {
             num(ui, tile, "systemcolor", if enemy.hostile { 2.0 } else { 1.0 });

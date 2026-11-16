@@ -5076,10 +5076,22 @@ run_seconds = 34
 expect = [
   "CheyenneREF listens to SunnyRef",
   { re = 'speech look: line [0-9A-F]+ over: SunnyRef has .* (?P<n>[+-]\d+)° off its front', range = [-5, 5], all = true, label = "each line over: SunnyRef has … off its front within a few degrees of 0" },
-  { re = 'speech look summary: 3 lines' },
+  { re = 'speech look summary: 2 lines' },
   # Line 1 is said to Cheyenne (she listens), line 2 to the player, line 3 to Cheyenne
-  # with the flag that keeps listeners still: one "listens" line in all.
+  # with noTargetLookFlag 1, which turns nobody (#2796): one "listens" line in all, and
+  # Sunny turns for two lines only.
   { re = 'listens to', count = 1, label = "no listens line for the last one (one listens line in all)" },
+  { re = 'speech look: SunnyRef says a line to', count = 2, label = "Sunny turns for lines 1 and 2, not for the flagged line 3 (#2796)" },
+  # All three lines start: the aid logs its call without an error only when the line is
+  # being said (nvf-play script.rs ScriptAid::SayTo), and each start logs "script: … says".
+  { re = 'test aid: script SayTo\("0x00104E85", "0x0010588E", "GREETING", false\)(?!:)', count = 1, label = "line 1 (to Cheyenne) starts" },
+  { re = 'test aid: script SayTo\("SunnyRef", "player", "GREETING", false\)(?!:)', count = 1, label = "line 2 (to the player) starts" },
+  { re = 'test aid: script SayTo\("SunnyRef", "0x0010588E", "GREETING", true\)(?!:)', count = 1, label = "line 3 (to Cheyenne, noTargetLookFlag 1) starts" },
+  { re = 'script: SunnyRef says ', count = 3, label = "Sunny starts three lines" },
+]
+forbid = [
+  { re = 'test aid: script SayTo\(.*\): ', label = "a say_to aid failed (its error follows the call)" },
+  { text = "has no line of", label = "the say_to aid found no line to say" },
 ]
 manual = "add --no-npc-packages to see 'the body turns' by speech_look.rs itself"
 
@@ -6953,32 +6965,36 @@ expect = [
 ]
 
 [[scenario]]
-name = "crime-expiry-karl-hostile"
-source = "issue #2467 (owner's playtest 2026-11-14): Karl, the Legion's envoy at Red Rock, attacked on sight. He is in ArmorVCaesarsLegionFaction (Track Crime), and a seen murder of a Legionary in no Evil faction makes the player an enemy of the victim's crime-tracking factions, that one among them (docs/spec-notes/crime-karma.md §3.4, §3.7). Within iCoolDownTimerSetting (3) days of the murder he fights: the crime path that sets the flag, staged here"
-note = "at Cottonwood Cove (--day 30, hour 12) the face aid puts the player at NVCCLegionary5REF's post (0x001364BC, which its OnLoad script SCPT 0x00174CE8 disables) at 14 s, in sight of NVCCAurelius (0x0012D6E2), who detects the player; the script aid kills NVCCLegionary4REF (0x001364C0, in no Evil faction, karma 0) as the player at 18 s (Game::kill): a murder the witness saw. coc to Karl's longhouse at 22 s; the face aid puts the player in front of Karl (0x00140E71) at 30 s. Karl never saw the murder: he fights by the faction flag alone. A Legionary in an Evil faction (NVLegionaryAlexusREF, CaesarsLegionTechMineFaction) is no victim for this: the Evil faction's area alert flags that faction only, and the kill then counts as self-defence. crime-expiry-karl-calm is the same with the clock moved on four days first"
+name = "crime-karl-flag-clears"
+source = "issue #2467 (owner's playtest 2026-11-14): Karl, the Legion's envoy at Red Rock, attacked on sight. He is in ArmorVCaesarsLegionFaction (Track Crime) and not in VCaesarsLegionFaction [observed: fnvtool esm decode VRRCKarl 0x00140E60]. In the original a seen murder at Cottonwood Cove flags both VCaesarsLegionFaction and the armour faction, and both flags clear by themselves about 0.18 game hours later; Karl, entering his longhouse after that, stays seated [observed: docs/handoff/observer-checks.md check 203]. Owner's ruling on #2498 (docs/owner-review.md item 65): a short-lived flag (crime::FACTION_FLAG_DAYS, docs/spec-notes/crime-karma.md §3.4, §3.7)"
+note = "at Cottonwood Cove (--day 30, hour 12) the face aid puts the player at NVCCLegionary5REF's post (0x001364BC, which its OnLoad script SCPT 0x00174CE8 disables) at 14 s, in sight of NVCCAurelius (0x0012D6E2), who detects the player; the script aid kills NVCCLegionary4REF (0x001364C0, in no Evil faction, karma 0) as the player at 18 s (Game::kill): a murder the witness saw. At 20 s `set GameDaysPassed to 30.53` moves the clock on about half a game hour (the run itself lasts 0.37 game hours, at TimeScale 30): the flags are older than 0.18 game hours and clear at the next detection round, the witness keeps its grudge (3 days). coc to Karl's longhouse at 22 s; the face aid puts the player in front of Karl (0x00140E71) at 30 s, where he detects the player. Before #2498 this scenario was crime-expiry-karl-hostile and expected Karl to fight by the armour faction's flag (kept 3 days); crime-expiry-legion-calm moves the clock on four days instead"
 areas = ["crime"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "22:coc 4BRRCPapasCabin;22.3:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "20:set GameDaysPassed to 30.53;20.3:close;22:coc 4BRRCPapasCabin;22.3:close" }
 args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour", "12", "--day", "30", "--no-voice"]
 run_seconds = 44
 order = [[
   { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
-  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the flag lands on the armour faction, Karl's (faction lines name the Editor ID)" },
-  { re = 'alert: VRRCKarl 00140E71 \w+ → Combat', label = "Karl fights in the longhouse, by the flag alone" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "right after the murder the armour faction is flagged, as in the original (faction lines name the Editor ID)" },
+  { re = 'crime: the player is no longer an enemy of ArmorVCaesarsLegionFaction: the last crime against it is \d+\.\d\d game hours old', label = "minutes later the armour faction's flag is cleared" },
+  { re = 'detection: VRRCKarl 00140E71 → the player: \w+ → detected', label = "Karl at Red Rock detects the player" },
 ]]
 expect = [
   { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
-  { re = 'crime: murder against .*turned on the player: \[\S', label = "a murder the witness saw: it turns" },
+  { re = 'crime: murder against NVCCLegionary4REF 0x001364C0; seen by \[', label = "a murder the witness saw" },
+  { re = 'crime: the player is now an enemy of VCaesarsLegionFaction$', label = "the Legion's own faction is flagged too" },
+  { re = 'crime: the player is no longer an enemy of VCaesarsLegionFaction: the last crime against it is \d+\.\d\d game hours old', label = "and cleared with it" },
 ]
 forbid = [
-  { re = 'crime: the player is no longer an enemy of ', label = "no crime expires within the run" },
+  { re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl does not fight or search for the player at Red Rock: the flag has cleared" },
+  { re = "crime: .* no longer counts the player's crimes", label = "the witness's own grudge lasts 3 days, past the run" },
   { re = 'provocation: the player attacked .*\(Evil\)', label = "the victim is in no Evil faction" },
 ]
 
 [[scenario]]
-name = "crime-expiry-karl-calm"
-source = "issue #2467: the crime-expiry-karl-hostile set-up, and the clock moved on four game days after the murder (a script setting GameDaysPassed, as the console's `set` does): the crime is older than iCoolDownTimerSetting (3 days), the flag a crime set is cleared, and Karl at Red Rock does not fight (docs/spec-notes/crime-karma.md §3.7) [documented: GECK wiki Category:Crime]"
-note = "as crime-expiry-karl-hostile, with `set GameDaysPassed to 34.5` at 20 s (the murder at about day 30.0); expiry is read at the next detection round's start"
+name = "crime-expiry-legion-calm"
+source = "issue #2467: the crime-karl-flag-clears set-up with the clock moved on four game days after the murder (a script setting GameDaysPassed, as the console's `set` does): the flags the murder set (VCaesarsLegionFaction and ArmorVCaesarsLegionFaction) are cleared (0.18 game hours, observer check 203, owner's ruling on #2498), the crime is older than iCoolDownTimerSetting (3 days) so the witnesses forgive [documented: GECK wiki Category:Crime], and Karl at Red Rock does not fight (docs/spec-notes/crime-karma.md §3.7)"
+note = "as crime-karl-flag-clears, with `set GameDaysPassed to 34.5` at 20 s (the murder at about day 30.5); expiry is read at the next detection round's start"
 areas = ["crime"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/rest.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/crime.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "14:001364BC,30:00140E71", NVF_PLAY_TEST_SCRIPT = "18:kill:0x001364C0", NVF_PLAY_TEST_CONSOLE = "20:set GameDaysPassed to 34.5;20.3:close;22:coc 4BRRCPapasCabin;22.3:close" }
@@ -6986,14 +7002,17 @@ args = ["--world", "WastelandNV", "--pos=63363,-89150,-1500", "--play", "--hour"
 run_seconds = 44
 order = [[
   { re = 'detection: NVCCAurelius 0012D6E2 → the player: \w+ → detected', label = "a witness (Aurelius, who sees the murder) detects the player before the kill" },
-  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the murder sets the armour faction's flag (faction lines name the Editor ID)" },
-  { re = 'crime: the player is no longer an enemy of ArmorVCaesarsLegionFaction: the last crime against it is 4\.\d\d game days old', label = "four days on, the crime's flag is cleared" },
+  { re = 'crime: the player is now an enemy of VCaesarsLegionFaction$', label = "the murder sets the Legion's own faction's flag (faction lines name the Editor ID)" },
+  { re = 'crime: the player is no longer an enemy of VCaesarsLegionFaction: the last crime against it is \d+\.\d\d game hours old', label = "four days on, the crime's flag is cleared" },
 ]]
 expect = [
   { re = 'test aid: the player killed 0x001364C0', label = "the player kills NVCCLegionary4REF (Game::kill)" },
+  { re = 'crime: the player is now an enemy of ArmorVCaesarsLegionFaction$', label = "the armour faction is flagged too, as in the original" },
   { re = "crime: .* no longer counts the player's crimes: the last is 4\\.\\d\\d game days old", label = "the witness forgives too" },
 ]
-forbid = [{ re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl does not fight or search for the player at Red Rock" }]
+forbid = [
+  { re = 'alert: VRRCKarl 00140E71 \w+ → (Alert|Combat)', label = "Karl stays calm at Red Rock" },
+]
 
 [[scenario]]
 name = "karma-fiend"
@@ -9198,6 +9217,51 @@ expect = [
   { re = 'load: restored .*seated\.nvfsave', label = "the save is restored" },
   { re = 'console: GetSitting on player >> 0\.00', label = "standing after the load" },
 ]
+
+[[scenario]]
+name = "npc-seated-save-write"
+source = "issue #2797: an NPC saved while seated stands after a load, GetSitting reads 0 until the engine seats it again; the first half: Easy Pete (EasyPeteRef, 00104C80) sits on his porch chair 0010634A at 09:00 under EasyPeteChairPackage8x4 (as resetai-seated), GetSitting reads 3, save (npc-seated-save-load and npc-seated-save-resits read this save, so run them together)"
+areas = ["save", "furniture"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvforever/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+env = { NVFOREVER_HOME = "npc-seated-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "15:call:EasyPeteRef:GetSitting", NVF_PLAY_TEST_CONSOLE = "18:save npcseated;19:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "9", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { text = "furniture: 00104C80 is on 0010634A", label = "Easy Pete sits on his chair" },
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "seated before the save" },
+  { re = 'save: wrote .*npcseated\.nvfsave', label = "the save is written while he sits" },
+]]
+
+[[scenario]]
+name = "npc-seated-save-load"
+source = "issue #2797: the second half: --load the save npc-seated-save-write made with no NPC packages (nothing seats him again): Easy Pete's GetSitting reads 0 and no seated idle (FurnitureFidget, ChairDialogueIdles) plays on him while he stands; before the fix the saved furniture use came back and both read the seat"
+areas = ["save", "furniture"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvforever/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+env = { NVFOREVER_HOME = "npc-seated-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:EasyPeteRef:GetSitting,14:call:EasyPeteRef:GetSitting" }
+args = ["--play", "--load", "npcseated", "--no-npc-packages", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'load: restored .*npcseated\.nvfsave', label = "the save is restored" },
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 0", count = 2, label = "standing after the load, at both probes" },
+]
+forbid = [
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "the saved seat read back after the load" },
+  { re = 'idle: EasyPeteRef plays Sit', label = "a seated idle on the standing body" },
+]
+
+[[scenario]]
+name = "npc-seated-save-resits"
+source = "issue #2797: the third part: --load the same save with Easy Pete's package running: his AI walks him back to his chair and the engine reports the new seat (a new furniture line), after which GetSitting reads 3 again"
+areas = ["save", "furniture"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvforever/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+env = { NVFOREVER_HOME = "npc-seated-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "40:call:EasyPeteRef:GetSitting" }
+args = ["--play", "--load", "npcseated", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { re = 'load: restored .*npcseated\.nvfsave', label = "the save is restored" },
+  { text = "furniture: 00104C80 is on 0010634A", label = "the engine seats him again and says so" },
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "seated again" },
+]]
 
 [[scenario]]
 name = "ammo-type-save-write"
@@ -12879,6 +12943,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "house-escort-assist"
+source = "#2793: a Follow package with Defensive Combat joins its target's fights (fnv-game provocation.rs escorts_assist, CHARGE_PACKAGES; docs/spec-notes/packages.md section 3.1)"
+note = "the Hoover Dam escort Securitron VHDSecuritronEscort01REF (0x001554DB; its own package DefaultFollowPlayerFar 0x001554DC: Follow, target the player, Defensive Combat; VHDSecuritronFaction names VCaesarsLegionFaction an Enemy) is enabled and put 256 units from the player in Goodsprings, the Legion Centurion reference 0x0014392F (vHDLVLCLCenturionNCRBattle) is enabled, put 700 units off and set on the player with StartCombat; the player is in god mode. Defensive Combat keeps the escort from attacking the Centurion on sight; it takes up the player's fight against him. With #2794 its Assistance (Helps Friends and Allies, the player's ally) gives the same line, so this checks the scene, not which rule; the unit tests in crates/fnv-game/tests/factions.rs tell them apart. Not run by the writer: whether the two references come along from the dam's worldspace by MoveTo is for the first run to show No fight starts in this setup (the Centurion moved in from Hoover Dam is alerted but never drawn; with a drawn Goodsprings attacker and no package limit the run still logs 0 actors fought, as package-escort-fights does), so this checks the escort taking up the fight; house-camp-securitron-assist checks a Securitron really fighting."
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:VHDSecuritronEscort01REF:Enable,3.5:moveto:VHDSecuritronEscort01REF:player:256:0:0,6:call:0x0014392F:Enable,6.5:moveto:0x0014392F:player:700:0:0,8:call:0x0014392F:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "VHDSecuritronEscort01REF"]
+run_seconds = 40
+expect = [
+  "VHDSecuritronEscort01REF: package DefaultFollowPlayerFar",
+  { re = 'provocation: VHDSecuritronEscort01REF 0x001554DB helps the player against .*0x0014392F', label = "the escort takes up the player's fight against the Centurion" },
+]
+
+[[scenario]]
+name = "house-camp-securitron-assist"
+source = "#2794: a faction ally of the player with Helps Allies takes up a fight against the player (fnv-game provocation.rs call_allies; docs/design/combat-ai.md section 10.3) [hypothesis: the maintainer's expectation, observer check 217]"
+note = "the Legate's camp scene on the test aids [documented: issue #2794, cited records]: the enable parent VHDLegateCampSecuritronMarker 0x00155DC9 is enabled (it enables the four Securitrons LegateCampSecuritron01REF..04REF 0x00155DC2, C3, C4, C1: VHDSecuritronFaction, PlayerFaction Ally; Unaggressive, Helps Allies), General Oliver (vHDGeneralOliverRef2 0x001483F1) and his five guards (0x001483F5, F4, F6, F8, F7) are enabled, the player is put 500 units from Oliver, then Oliver's greeting (INFO 0x001596C6: unghosts them, Aggression 1, Assistance 2) and the attack choice (INFO 0x0015993C: StartCombat player on Oliver, each Securitron StartCombat on one of guards 1-4, SendAssaultAlarm) run as said lines; god mode. Nobody is given Oliver: a Securitron takes up the player's fight against him by Assistance and fights him. Not run by the writer: whether the camp trigger SCPT 0x001483FA fires on the move and how the guards fall are for the first run to show"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:enable:0x00155DC9,2.1:enable:0x001483F1,2.2:enable:0x001483F5,2.3:enable:0x001483F4,2.4:enable:0x001483F6,2.5:enable:0x001483F8,2.6:enable:0x001483F7,3:moveto:player:0x001483F1:0:-500:0,10:info:0x001596C6:0x001483F1,12:info:0x0015993C:0x001483F1" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 75
+expect = [
+  { re = 'provocation: \S+ 0x00155DC[1-4] helps the player against \S+ 0x001483F1', label = "a camp Securitron takes up the player's fight against Oliver" },
+  { re = 'npc combat: \S+ 0x00155DC[1-4] fights vHDGeneralOliverRef2 with', label = "a camp Securitron fights Oliver" },
+]
+
+[[scenario]]
 name = "package-find"
 source = "Find packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): FFER24FindFood given to a Goodsprings settler"
 note = "mole rat meat is placed at the player and a settler 300 units off is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): it walks to the meat and takes it"
@@ -13275,6 +13367,60 @@ expect = [
   { re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the HUD's enemy bar shows the selected target at full health" },
 ]
 forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
+
+[[scenario]]
+name = "vats-classic-align"
+source = "[design, #2659] Queue rows join target/part data names, displayed ammo subtracts queued reservations, and the classic enemy bar stays at bottom centre through playback (docs/design/vats-classic.md section 13; issue #2659 items 1-3)"
+note = "The vats-classic-menu-file scene: queue two attacks, undo both, queue one and accept. Queue text includes both names; ammo returns when undoing. No ammunition is consumed by queueing. Main-session before/after pictures also compare head and leg fill."
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvforever/src/vats_highlight.rs", "crates/fnv-game/src/ui_hud/copies.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:s,11.5:mouse-left,12:mouse-left,12.4:mouse-right,12.8:mouse-right,13.2:mouse-left,13.6:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+order = [
+  [
+    { re = '1 queued \[Fiend Guard Dog: [^,\]]+\]', label = "queue row joins the target FULL and part name" },
+    { re = '2 queued \[Fiend Guard Dog: [^,\]]+, Fiend Guard Dog: [^,\]]+\]', label = "both rows keep both names" },
+    "vats mode: firing 1 marked shots",
+  ],
+  [
+    "hud: ammo count 6/18",
+    "hud: ammo count 5/18",
+    "hud: ammo count 4/18",
+    "hud: ammo count 5/18",
+    "hud: ammo count 6/18",
+  ],
+  [
+    "hud: classic VATS enemy bar bottom centre (target screen)",
+    "hud: classic VATS enemy bar bottom centre (playback)",
+  ],
+]
+expect = [
+  { re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the selected target has a bar even at full health" },
+  { re = 'vats mode summary: entered 1 times, 3 marks, 1 shots, 26 AP spent', label = "only the accepted attack spends ammunition and AP" },
+]
+forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
+
+[[scenario]]
+name = "vats-classic-enemy-bar-tm"
+source = "[design, #2659] free_cam::hide_menus includes the independent hand-built EnemyPiece; undoing tm restores normal HUD eligibility (docs/design/vats-classic.md section 13)"
+note = "[design: vats_mode.rs::update] Opening the console ends classic VATS. In the vats-classic-menu-file dog scene with the hand-built HUD selected explicitly, show the full-health enemy bar, enter tm and close the console, then re-enter targeting while tm is on. Undo tm, close the console and re-enter targeting again to check restoration."
+areas = ["combat", "vats", "ui", "console"]
+paths = ["engine/nvf-play/src/free_cam.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats,11.5:aimvats,13.5:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11.7:v,13.7:v", NVF_PLAY_TEST_VATS_STYLE = "classic", NVF_PLAY_TEST_CONSOLE = "11:tm;11.3:close;13:tm;13.3:close", NVF_PLAY_TEST_SHOTS = "10.8:enemy_bar_tm_before.png,12.5:enemy_bar_tm_hidden.png,14.5:enemy_bar_tm_restored.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  "hud: classic VATS enemy bar bottom centre (target screen)",
+  "ToggleMenus: the HUD is hidden",
+  "console: close",
+  "hud: classic VATS enemy bar bottom centre (target screen)",
+  "ToggleMenus: the HUD is shown",
+  "console: close",
+  "hud: classic VATS enemy bar bottom centre (target screen)",
+]]
+expect = [{ re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the selected target has a visible bar before tm" }]
+manual = "[design, #2659] enemy_bar_tm_before.png: enemy name/bar at bottom centre; enemy_bar_tm_hidden.png: no enemy name/bar after closing the console; enemy_bar_tm_restored.png: enemy name/bar restored."
 
 [[scenario]]
 name = "vats-classic-engine-screen"
@@ -26871,6 +27017,71 @@ forbid = [
 ]
 
 [[scenario]]
+name = "dlssg-cap-menu"
+source = "#2731, docs/design/dlss-frame-generation.md \"Frame pacing\": a frame rate limit of 144 (the test aid --frame-cap, as --log-frame-times leaves the page's row out) divided by the two frames DLSS-G presents per real frame in play, handed to Reflex in full while the pause menu has DLSS-G's mode off, and divided again once play goes on"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Generated frames stays at its default, 2x."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-cap-menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--frame-cap", "144", "--no-voice", "--no-lodgen"]
+run_seconds = 36
+expect = [
+  { re = "DLSS-G: frame cap: real frames at the full limit, was divided by 2 \\(menus: DLSS-G's mode off for 8 frames\\)", label = "the full limit in the pause menu" },
+  { re = 'DLSS-G: Reflex options: mode eLowLatency, frame limit 6944 us a real frame: eOk \(swapchains made: \d+\)', label = "the whole limit of 144 handed to Reflex in the menu" },
+  { re = 'DLSS-G: Reflex options: mode eLowLatency, frame limit 13889 us a real frame: eOk \(swapchains made: \d+\)', label = "144 divided by the two frames presented per real frame in play" },
+]
+order = [[
+  { text = "DLSS-G: Reflex options: mode eLowLatency, frame limit 13889 us a real frame: eOk", label = "divided in play before the menu" },
+  { re = "DLSS-G: frame cap: real frames at the full limit, was divided by 2 \\(menus" },
+  { text = "DLSS-G: Reflex options: mode eLowLatency, frame limit 6944 us a real frame: eOk" },
+  { re = "DLSS-G: frame cap: real frames at the limit divided by 2, was the full limit \\(generation starting: DLSS-G's mode on\\)", label = "divided again once play goes on" },
+  { text = "DLSS-G: Reflex options: mode eLowLatency, frame limit 13889 us a real frame: eOk" },
+]]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-cap-menu (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { re = 'Reflex options( set again for a new swapchain)?: mode \w+, frame limit [^:]+: e(?!Ok)', label = "slReflexSetOptions refused" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk (frame generation ended)" },
+  { re = 'DLSS-G: frame cap: real frames at the full limit, was divided by \d \(presented', label = "generation paused while the window is in front" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions or slReflexSetOptions failing" },
+  { re = 'present and acquire errors since last: [1-9]', label = "a VkResult error from DLSS-G's error callback (out of date counted apart)" },
+]
+
+[[scenario]]
+name = "dlssg-cap-start"
+source = "#2732, #2731, docs/design/dlss-frame-generation.md \"Frame pacing\": DLSS Frame Generation and a frame rate limit of 144 (the test aid --frame-cap) both from the start: the limit reaches Reflex once the window's swapchain exists (sent again for the new swapchain, or as a change), and real frames hold 72 a second at 2x in play, where the limit sent before the swapchain alone was lost"
+note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. The real-frame check takes only whole ten-second lines (10.0-10.5 s) at 1.9-2.1 presented per real frame, so a line that also counts loading or menu time at the full limit is left out; each must hold at most 800 real frames (72 a second over 10.5 s, and a quarter second at 144). A GPU slower than 72 real frames a second at 1280x720 over DLSS Quality passes it without testing the limit."
+areas = ["graphics"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/vendor/wgpu-hal/src/vulkan/**"]
+requires = ["NVF_DLSS_DIR"]
+front = true
+env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-cap-start-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "dlss", "--log-frame-times", "10", "--frame-cap", "144", "--no-voice", "--no-lodgen"]
+run_seconds = 48
+expect = [
+  { re = 'DLSS-G: Reflex options( set again for a new swapchain)?: mode eLowLatency, frame limit 6944 us a real frame: eOk \(swapchains made: [1-9]\d*', label = "the whole limit of 144 sent while a swapchain exists, before play (#2732)" },
+  { re = 'DLSS-G: Reflex options( set again for a new swapchain)?: mode eLowLatency, frame limit 13889 us a real frame: eOk \(swapchains made: [1-9]\d*', label = "144 divided by two in play" },
+  { re = 'DLSS-G: 10\.[0-5] s: (?P<n>\d+) real frames, \d+ presented \((1\.9|2\.0|2\.1)\d* per real frame\), status eOk', min = 2, label = "at least two whole ten-second lines of generation at 2x" },
+  { re = 'DLSS-G: 10\.[0-5] s: (?P<n>\d+) real frames, \d+ presented \((1\.9|2\.0|2\.1)\d* per real frame\), status eOk', range = [0, 800], all = true, label = "each of them about 72 real frames a second or fewer (no floor: a slow GPU or a load stall is not a cap failure)" },
+]
+order = [[
+  { re = 'DLSS-G: Reflex options( set again for a new swapchain)?: mode eLowLatency, frame limit 6944 us a real frame: eOk \(swapchains made: [1-9]' },
+  { re = "DLSS-G: frame cap: real frames at the limit divided by 2, was the full limit \\(generation starting: DLSS-G's mode on\\)", label = "divided once play starts" },
+  { re = 'DLSS-G: Reflex options: mode eLowLatency, frame limit 13889 us a real frame: eOk' },
+]]
+forbid = [
+  { re = '\]\[streamline\]\[error\]', label = "an error from Streamline in dlssg-cap-start (e.g. a tagged image's format it cannot read)" },
+  { text = "Validation Error", label = "a Vulkan validation error in dlssg-cap-start" },
+  { re = 'Reflex options( set again for a new swapchain)?: mode \w+, frame limit [^:]+: e(?!Ok)', label = "slReflexSetOptions refused in dlssg-cap-start" },
+  { re = 'Reflex options( set again for a new swapchain)?: mode \w+, frame limit none: eOk \(swapchains made: [1-9]', label = "no limit sent once a swapchain exists" },
+  { text = "DLSS-G: status ", label = "a DLSS-G status other than eOk in dlssg-cap-start" },
+  { re = 'DLSS-G: frame cap: real frames at the full limit, was divided by \d \(presented', label = "generation paused in dlssg-cap-start, the window in front" },
+  { text = "tried again each frame", label = "slDLSSGSetOptions or slReflexSetOptions failing in dlssg-cap-start" },
+]
+
+[[scenario]]
 name = "dlssg-resize"
 source = "#2317, docs/design/dlss-frame-generation.md \"Window changes\": the window resized during play with DLSS Frame Generation on (test aid NVF_DLSSG_RESIZE): DLSS-G's mode off and presented once before Bevy reconfigures the surface (the vendored HoldSurfaceReconfigure), on again at the new size, and back"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. NVF_DLSSG_RESIZE's seconds count from the app's start, so 16 s is a few seconds into play."
@@ -28114,11 +28325,11 @@ run_seconds = 26
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
   { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
-  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\)$', label = "Apparel: the set without Mod" },
-  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\)$', label = "Aid: Use; Repair dim" },
-  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
-  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey RB\)$', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey RB\)$', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey RB\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
   { text = "pipboy hints: mod menu: Mod A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
   { re = 'pipboy hints: mod menu: Mod A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
   { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
@@ -29860,6 +30071,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "strip-entry-calm"
+source = "issue #2456: entering the Strip by the north gate starts the scripted scene VStripSS3 (VFSVegasDoorSCRIPT sets VStreetSS3.bstarts and starts the quest): its four NCR troopers (VStripSS3Girl01/02REF, VStripSS3Watcher01/02REF) are enabled 2,900 units from the player. They are also in ArmorVCaesarsLegionFaction, so a Legionary's murder made them attack the player on sight, and House's messenger Securitron and the street Securitrons joined, for good; a crime's faction flag now lasts 0.18 game hours, as in the original (crime::FACTION_FLAG_DAYS, crates/fnv-game/src/crime.rs; observer check 203; owner's ruling on #2498)"
+note = "the scene is started from the console at 4 s as the gate door's script starts it; at 12 s the player stands 500 units south of it (at the gate, 2,900 units off, the troopers do not see the player at noon); nobody may fight the player or alarm others about the player over the 45 s"
+areas = ["crime", "combat-groups", "detection"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set VStreetSS3.bstarts to 1;startquest VStreetSS3;setquestdelay VStreetSS3 0.1;4.3:close", NVF_PLAY_TEST_GOTO = "12:-420:5250:1030" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { re = 'script: VStripSS3Girl0[12]REF enabled', label = "the scene's troopers are enabled" },
+  { re = 'script: VStripSS3Watcher0[12]REF enabled', label = "and its watchers" },
+]]
+expect = [{ re = 'detection: VStripSS3\S+ \S+ → the player: hidden → noticed', label = "a trooper of the scene notices the player (with the player an enemy of ArmorVCaesarsLegionFaction it went to Alert here and alarmed others, 2026-11-14)" }]
+forbid = [
+  { re = 'alert: VStripSS3\S+ \S+ Normal → (Alert|Combat)', label = "a trooper of the scene turns on the player" },
+  { text = "fights the player", label = "someone fights the player" },
+  { re = 'alarms .* about the player', label = "someone alarms others about the player" },
+]
+
+[[scenario]]
 name = "mccarran-boyd-one-body"
 source = "issue #2461 (owner): after the Silus interrogation Lt. Carrie Boyd (LieutenantBoydREF 0x000F0678, CampMCTermInt02) was drawn twice, one body in the room and one outside the door, and the one in the room talked as the other. The scene's records: Silus's GREETING (INFO 0x000F1873) MoveTo's her to BoydExitREF 0x000FA73E (325, 719); the assassin trick's line (INFO 0x000F2DDE) MoveTo's her to XMarker 0x000FB4E1 (467, 1386) by the room's door and its end script sets bBoydEnter, so VFreeformMcCarran2BoydPatrolReturn walks her to her linked ref 0x000FA73D (296, 1665) in the room; the trigger 0x000FA742 there starts the POW2Int exchange with Silus, whose last line sets bBoydExit, and VFreeformMcCarran2BoydPatrolExit walks her back to BoydExitREF. One body per reference throughout (engine/nvforever/src/residents.rs drawn_twice, nav.rs show_actor)"
 note = "the player stands in the interrogation room; Silus's greeting is said at 3 s and the trick's line at 8 s (as the dialogue would, conditions not required). The census is taken at exit; the warnings name a body spawned and lost before it was found"
@@ -30887,6 +31118,235 @@ forbid = [
   "voice: stopped VFSRoyREF line 0x0011361F",
   { re = 'voice: playing .*0011361f_1\.ogg .*\[.*silent', label = "the line must be audible" },
   "script: VFSWayneREF says 0x0011363B",
+]
+
+[[scenario]]
+name = "mick-secret-door-paths"
+kind = "tool"
+source = "[documented: issue #2716, spooknik comment 2026-11-15, supplied record findings] Mick's linked marker is beside his locked hidden door; the Travel end script opens it before the secret-sales trip. [design, #2716] Endpoint triangles beside oriented bounds remain reachable. [hypothesis, #2716] Open locked doors are no barrier (observer check 206)."
+areas = ["nav", "ai"]
+paths = ["crates/fnv-nav/", "crates/fnvtool/src/nav_path.rs"]
+commands = [
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--space", "FreesideMickandRalphs", "--from", "FreesideMickREF", "--to", "SecretDoorMarkerREF"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--space", "FreesideMickandRalphs", "--from", "SecretDoorMarkerREF", "--to", "SecretSalesMarkerREF", "--open-door", "0x00121FF2"],
+]
+expect = [{ json = "path.length", schema = "fnv.nav.path/1", range = [1, 2000], count = 2, label = "both legs find a path without open-locked" }]
+
+[[scenario]]
+name = "mick-secret-door-packages"
+source = "[documented: issue #2716, spooknik comment 2026-11-15, supplied record findings] MickHoldoutWeapons 1 selects VFSMickTravelToLinkedPackage; its end script opens MickSecretDoorREF, sets the variable to 4 and evaluates Mick's package. [design, #2716] Reach the marker beside the locked door. [hypothesis, #2716] His next package can pass the open locked door (observer check 206)."
+note = "[design, #2716] The console aid plays the dialogue line's effect at 6 s, then evaluates Mick. Travel arrival and the next package prove the end script ran. The player's coordinates are the shop-side spot supplied in issue #2716."
+areas = ["nav", "ai", "scripts"]
+paths = ["crates/fnv-nav/", "crates/fnv-ai/"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "6:set VFreeformFreeside.MickHoldoutWeapons to 1;FreesideMickREF.EvaluatePackage;6.3:close" }
+args = ["--cell", "FreesideMickandRalphs", "--pos=3807,-58,8872", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FreesideMickREF"]
+run_seconds = 60
+order = [[
+  { text = "FreesideMickREF: package VFSMickTravelToLinkedPackage", label = "Mick takes the travel package" },
+  { text = "FreesideMickREF: arrived after", label = "he reaches the marker beside the locked door" },
+  { text = "FreesideMickREF: package VFSMickSecretSalesConversationPackage", label = "the end script starts his secret-sales package" },
+]]
+forbid = [
+  { text = "cannot reach the place of VFSMickTravelToLinkedPackage", label = "the closed door does not refuse the adjacent goal" },
+  { text = "cannot reach the place of VFSMickSecretSalesConversationPackage", label = "the open locked door does not refuse the next trip" },
+]
+
+[[scenario]]
+name = "pacer-cower-sole-marker"
+source = "[documented: #2715 issue comment, supplied record findings] VFSPacerCowerNCRFightPackage permits only idle markers; VFSNCRFightPacerMarkerREF (0x001293EC) uses DefaultCowerIdleMarker (timer 0) and looping LooseCowerIdles. [documented: GECK wiki Sandbox Package, Action Selection] The action-type rule allows repetition unless it has no other options. [design, #2715] Sandbox::next reuses the last marker immediately only for an idle-marker-only package with that sole eligible marker; observer check 208 measures original parity."
+note = "[design: engine/nvf-play/src/script.rs script aids, engine/nvforever/src/residents.rs sandbox logs, idles.rs marker debug logs] Start VMS19, set ncrfight 1, place Pacer at his named marker as the King's scene does, then move the player nearby. Require the cower animation, at least four marker choices, no Standing pick, and procedure 46 at 118 s, at least 90 s after cowering began. The placement offsets are synthetic staging choices."
+areas = ["ai", "animation", "scripts"]
+paths = ["crates/fnv-ai/src/sandbox.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/idles.rs"]
+env = { RUST_LOG = "info,nvforever::idles=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:start:VMS19,3:var:VMS19:ncrfight:1,4:moveto:VFSPacerREF:VFSNCRFightPacerMarkerREF,6:moveto:player:VFSNCRFightPacerMarkerREF:0:-250:0", NVF_PLAY_TEST_CONSOLE = "118:VFSPacerREF.GetCurrentAIProcedure;118.5:close" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "14", "--no-voice", "--no-messages", "--npc-packages", "all,VFSPacerREF"]
+run_seconds = 130
+expect = [
+  { text = "VFSPacerREF: package VFSPacerCowerNCRFightPackage", label = "Pacer selects his staged-fight sandbox" },
+  { re = 'VFSPacerREF: sandbox: goes to idle marker 0x001293EC', min = 4, label = "Pacer reselects his sole marker through repeated timer expiries" },
+  { re = 'idle: VFSPacerREF plays LooseCowerIdles .*\(MarkerIdles\)', label = "the marker plays Pacer's cower idle" },
+  { re = 'VFSPacerREF: sandbox: stands', count = 0, label = "no Standing stretch between marker uses" },
+  { re = 'console: GetCurrentAIProcedure on VFSPacerREF >> 46\.00', count = 1, label = "Pacer is still using the idle marker at 118 seconds" },
+  { gap = ["idle: VFSPacerREF plays LooseCowerIdles", "console: GetCurrentAIProcedure on VFSPacerREF >> 46.00"], range = [90, 125], label = "the no-Standing observation spans at least 90 simulation seconds" },
+]
+
+[[scenario]]
+name = "held-weather-worldspace-write"
+source = "[documented: offline GECK wiki ForceWeather / SetWeather / ReleaseWeatherOverride] Override lasts until release. [hypothesis, #1997; observer check 209] It lasts across a worldspace door. [design: sky.rs carry_weather_from; existing strip-crowd-evening and save-weather-write scenarios] Force a hold in Freeside, use the Strip gate, check the shown hold, save for held-weather-worldspace-load."
+note = "[design: strip-crowd-evening] Reuse its gate, start pose and passport test aid. [design: save-weather-write] Reuse its named weather; no command-line weather pin. Run the write and load scenarios together."
+areas = ["sky", "weather", "save"]
+paths = ["engine/nvforever/src/worldspace.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "held-weather-worldspace-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "00119875:1", NVF_PLAY_TEST_TALK = "0:*=leave", NVF_PLAY_TEST_CONSOLE = "6:ForceWeather NVHooverDamWeather 1;6.5:close;24:GetIsCurrentWeather NVHooverDamWeather;25:save smoke-weather-worldspace;26:close", NVF_PLAY_TEST_SCRIPT = "12:activate:FreesideGateToStripREF" }
+args = ["--play", "--world", "FreesideWorld", "--pos=-6850,-10120,1040", "--heading", "220", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 32
+order = [[
+  { re = 'weather: NVHooverDamWeather by a script \(at once, held until released\)', label = "ForceWeather holds the weather before the door" },
+  { re = 'render: worldspace [0-9A-F]{8} -> [0-9A-F]{8} \(TheStripWorldNew\)', label = "the gate switches into the Strip worldspace" },
+  { re = 'weather: NVHooverDamWeather \([0-9A-F]{8}\) held after sky replacement', label = "the replacement sky retains the named hold" },
+  { re = 'console: GetIsCurrentWeather >> 1\.00', label = "the held weather is still shown after the door" },
+  { re = 'save: wrote .*smoke-weather-worldspace\.nvfsave', label = "save the hold after the door" },
+]]
+expect = [{ re = 'weather: the climate takes over', count = 0, label = "the climate never takes over the hold" }]
+
+[[scenario]]
+name = "held-weather-worldspace-load"
+source = "[design, #1997: sky.rs SAVE_HOOK / restore_saved] Load the save from held-weather-worldspace-write after its Freeside-to-Strip door; the weather remains held from first placement."
+areas = ["sky", "weather", "save"]
+paths = ["engine/nvforever/src/worldspace.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "held-weather-worldspace-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GetIsCurrentWeather NVHooverDamWeather;15:close" }
+args = ["--play", "--load", "smoke-weather-worldspace", "--no-voice", "--no-messages"]
+run_seconds = 19
+order = [[
+  { re = 'load: the weather stays held as a script left it', label = "the hold is restored before the first placement" },
+  { re = 'load: restored .*smoke-weather-worldspace\.nvfsave', label = "the post-door save is loaded" },
+  { re = 'console: GetIsCurrentWeather >> 1\.00', label = "the held weather remains shown after load" },
+]]
+expect = [
+  { re = 'weather: \S+ at \d\d:\d\d', count = 0, label = "the loaded sky never changes weather" },
+  { re = 'weather: the climate takes over', count = 0, label = "the loaded hold is never replaced by a roll" },
+]
+
+[[scenario]]
+name = "pipboy-hotkey-assign-pad"
+source = "[design, #2312] controller.md section 3: RB opens the existing ITEMS hotkey panel, D-pad steps all eight slots, A assigns, B cancels; provisional selection method pending observer check 211"
+note = "Reuses pipboy-hotkey-assign's inventory fixture. RB opens slot 1, right visits Ammo Swap (A refuses), down reaches slot 3 and A assigns. Reopen, move left and cancel with B; the Pip-Boy stays open. After closing, D-pad down uses slot 3. No mouse/digit assignment."
+areas = ["hotkeys", "pipboy", "controller"]
+paths = ["engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVFOREVER_HOME = "pipboy-hotkey-assign-pad-home", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,40:close", NVF_PLAY_TEST_KEYS = "28:pad-RB,29:pad-D-Pad Right,30:pad-A,31:pad-D-Pad Down,32:pad-A,34:pad-RB,35:pad-D-Pad Left,36:pad-B,43:pad-D-Pad Down" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 46
+expect = [
+  "controls: input device Controller",
+  { text = "pipboy hotkeys: controller opened, key 1 chosen", count = 2 },
+  { re = 'pipboy hints: items Weapons: .*Hotkey RB\)', min = 1 },
+  "pipboy hotkeys: controller key 2 chosen",
+  { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', count = 1 },
+  "pipboy hotkeys: controller key 3 chosen",
+  { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', count = 1 },
+  "pipboy hotkeys: controller key 8 chosen",
+  { text = "pipboy hotkeys: controller closed", count = 2 },
+  { re = 'hotkeys: slot 3: equipped \.357 Magnum Revolver', count = 1 },
+  { re = 'hotkeys: slot (1|8) holds', count = 0, label = "B cancels without assigning" },
+]
+order = [["controller opened", "controller key 2 chosen", "slot 2 is Ammo Swap", "controller key 3 chosen", "hotkeys: slot 3 holds", "controller closed", "controller opened", "controller key 8 chosen", "controller closed", "hotkeys: slot 3: equipped"]]
+
+
+[[scenario]]
+name = "tiles-items-hotkey-pad"
+source = "[design, #2312] controller.md section 3: RB opens the existing ITEMS hotkey panel, D-pad steps all eight slots, A assigns, B cancels; provisional selection method pending observer check 211"
+note = "Reuses pipboy-hotkey-assign's inventory fixture. RB opens slot 1, right visits Ammo Swap (A refuses), down reaches slot 3 and A assigns. Reopen, move left and cancel with B; the Pip-Boy stays open. After closing, D-pad down uses slot 3. No mouse/digit assignment."
+areas = ["hotkeys", "pipboy", "controller"]
+paths = ["engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVFOREVER_HOME = "tiles-items-hotkey-pad-home", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,40:close", NVF_PLAY_TEST_KEYS = "28:pad-RB,29:pad-D-Pad Right,30:pad-A,31:pad-D-Pad Down,32:pad-A,34:pad-RB,35:pad-D-Pad Left,36:pad-B,43:pad-D-Pad Down" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 46
+expect = [
+  { text = "controls: input device Controller", label = "tile assignment uses Controller" },
+  { text = "pipboy hotkeys: controller opened, key 1 chosen", count = 2, label = "tile page opens the shared modal twice" },
+  { text = "tiles: InventoryMenu hotkey panel shown, key 1", min = 2 },
+  { text = "pipboy hotkeys: controller key 2 chosen", label = "tile panel visits Ammo Swap" },
+  { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', count = 1, label = "tile panel refuses reserved slot" },
+  { text = "pipboy hotkeys: controller key 3 chosen", label = "tile panel advances to slot 3" },
+  { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', count = 1, label = "tile panel assigns the fixture item" },
+  { text = "pipboy hotkeys: controller key 8 chosen", label = "tile panel wraps backwards" },
+  { text = "pipboy hotkeys: controller closed", count = 2, label = "tile modal closes after confirm and cancel" },
+  { re = 'hotkeys: slot 3: equipped \.357 Magnum Revolver', count = 1, label = "D-pad uses the slot assigned over tiles" },
+  { re = 'hotkeys: slot (1|8) holds', count = 0, label = "tile modal cancellation changes no assignment" },
+]
+order = [["controller opened", "controller key 2 chosen", "slot 2 is Ammo Swap", "controller key 3 chosen", "hotkeys: slot 3 holds", "controller closed", "controller opened", "controller key 8 chosen", "controller closed", "hotkeys: slot 3: equipped"]]
+
+[[scenario]]
+name = "house-chamber-fx"
+source = "[documented: issue #2685, main-session record/script/NIF/KF decode 2026-11-15, upstream 1790ab94a] MrHouseOpen names an ANIO effect, and the unseal enables ground fog then plays its Forward group"
+note = "[design, #2685] Lucky38ControlRoom is the chamber cell from house-pod-sealed. Aids stand in for terminal housestate/PlayIdle and Enable/PlayGroup; final screenshots need observer comparison 212"
+areas = ["idles", "actors", "animation", "particles"]
+paths = ["crates/fnv-actor/src/idle_play.rs", "crates/fnv-actor/src/idle.rs", "engine/nvforever/src/anim_objects.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/morph.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "13:var:NVCRMrHouse01REF:housestate:0,13:play_idle:NVCRMrHouse01REF:MrHouseOpen", NVF_PLAY_TEST_CONSOLE = "13.1:0x001629DD.enable;14:0x001629DD.playgroup forward 1;14.3:close", NVF_PLAY_TEST_SHOTS = "15:house_chamber_fx_start.png,35:house_chamber_fx_held.png,69:house_chamber_fog_held.png" }
+args = ["--cell", "Lucky38ControlRoom", "--play", "--pos=1024,-2400,8010", "--heading", "180", "--pitch", "1.5", "--fov", "15", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 72
+expect = [
+  { re = 'idle: NVCRMrHouse01REF plays MrHouseOpen', label = "unseal idle starts" },
+  { re = 'anim object: 0014B095 holds .*hchamberfx\.nif on Bip01 \(hChamberFXAmin, idle 0013A23A\)', count = 1, label = "chamber ANIO attaches once" },
+  { re = 'playgroup: hChamberGroundFogREF (plays Forward \(once, 52\.\d+ s\), flag 1|drawn \(enabled at run time\), plays Forward from)', label = "enabled fog starts its Forward sequence" },
+  { re = 'vertex morphs: .* GroundFog:0 plays Forward on rig clock', label = "fog geometry receives its Forward sample" },
+  { re = 'particles: 0014B095 .*hchamberfx\.nif emits as its SpecialIdle_Wakeup says: 5 of 5 systems', label = "idle KF reaches all five ANIO particle systems" },
+  { re = 'particles: born in .*hchamberfx\.nif:', label = "ANIO particles were born" },
+  { re = 'actor materials: reference 0014B095 shape ##heart:0 driven by its clips', label = "pod glow reaches a NIFZ material" },
+]
+manual = "[hypothesis, #2685] Steam bursts at start, pod glow at 35 s, and lingering ground haze at 69 s; compare observer check 212. Actor idle reload parity remains unimplemented."
+
+[[scenario]]
+name = "scene-kimball-guard-heading"
+source = "[documented: #2526 writer brief, main session fnvtool esm decode / ai show] Guard refs 0012FCD4/5 run Travel 00131F13 near linked stage markers 00131F0E/F (xMarkerHeading base 34, z 3.3832 rad). [design: fnv_ai carry.rs::settle] Reference-valued locations share goal.rs::location_reference and supply the marker heading on arrival."
+note = "[design, #2526] Hoover Dam cell 16,5: scene-kimball-speech's three dialogue setup aids, with both guards enabled and SpeechIdle explicitly assigned after placing them 150 units from their own stage markers. This isolates arrival facing; natural package selection (the condition audit in packages.md section 3) is covered by scene-kimball-guard-natural-heading."
+areas = ["ai", "quests", "nav"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-game/src/ai.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x00136DCE:VHDColonelMooreREF,6:info:0x001446A7:VHDCaptainGrahamREF,20:info:0x0014469F:VHDCaptainGrahamREF,23:call:VHDRangerKimballGuard01REF:Enable,23.1:call:VHDRangerKimballGuard02REF:Enable,24:moveto:VHDRangerKimballGuard01REF:VHDKimballGuard1StageMarkerREF:150:0:0,24.1:moveto:VHDRangerKimballGuard02REF:VHDKimballGuard2StageMarkerREF:150:0:0,25:call:VHDRangerKimballGuard01REF:AddScriptPackage:VHDKimballGuardSpeechIdlePackage,25.1:call:VHDRangerKimballGuard02REF:AddScriptPackage:VHDKimballGuardSpeechIdlePackage" }
+args = ["--play", "--cell", "16,5", "--world", "WastelandNV", "--npc-packages", "VHDKimballREF,VHDColonelMooreREF,VHDRangerKimballGuard01REF,VHDRangerKimballGuard02REF", "--hour", "9", "--no-voice", "--no-messages"]
+run_seconds = 65
+expect = [
+  { text = "script: VMQ03a stage 20 set", label = "speech visit setup calls the vertibird" },
+  { re = 'VHDRangerKimballGuard01REF: faces (?P<n>[0-9.]+) on arrival', range = [3.38, 3.39], label = "first guard takes its linked stage marker heading" },
+  { re = 'VHDRangerKimballGuard02REF: faces (?P<n>[0-9.]+) on arrival', range = [3.38, 3.39], label = "second guard takes its linked stage marker heading" },
+]
+forbid = [
+  { re = 'VHDRangerKimballGuard0[12]REF: cannot reach', label = "both guards reach their nearby stage markers" },
+]
+
+
+[[scenario]]
+name = "scene-kimball-guard-natural-heading"
+source = "[documented: #2526 w2 brief, main-session fnvtool ai show + quest-script SLSD/SCVR decode, FalloutNV.esm, 2026-11-15] Subject-run AND conditions: at speech iKimballStage 2 and VMQ03a variables 0, StageFront fails AssassinAttack == 2, KimballDead fails bKimballDead == 1, and SpeechIdle passes for both guards before Saferoom/Follow. Linked stage markers have z rotation 3.3832 rad."
+note = "[design, #2526] Direct quest-variable setup in Hoover Dam cell 16,5: first set speech stage 0, enable both guards and place them 150 units from their own linked stage markers; clear all VMQ03a variables used by the package lists, then set speech stage 2 and EvaluatePackage. No AddScriptPackage override or dialogue result script: the actual lists and conditions must select SpeechIdle and each guard must arrive facing its linked marker's heading."
+areas = ["ai", "quests", "nav"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/quest.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:var:VHDKimballSpeech:iKimballStage:0,4:call:VHDRangerKimballGuard01REF:Enable,4.1:call:VHDRangerKimballGuard02REF:Enable,5:moveto:VHDRangerKimballGuard01REF:VHDKimballGuard1StageMarkerREF:150:0:0,5.1:moveto:VHDRangerKimballGuard02REF:VHDKimballGuard2StageMarkerREF:150:0:0,6:var:VMQ03a:iKimballFlee:0,6.1:var:VMQ03a:iDetonatorFound:0,6.2:var:VMQ03a:iVertibirdBombActive:0,6.3:var:VMQ03a:AssassinAttack:0,6.4:var:VMQ03a:bKimballDead:0,6.5:var:VMQ03a:bKimballSaferoom:0,7:var:VHDKimballSpeech:iKimballStage:2,8:call:VHDRangerKimballGuard01REF:EvaluatePackage,8.1:call:VHDRangerKimballGuard02REF:EvaluatePackage" }
+args = ["--play", "--cell", "16,5", "--world", "WastelandNV", "--npc-packages", "VHDRangerKimballGuard01REF,VHDRangerKimballGuard02REF", "--hour", "9", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [
+  [
+    { text = 'test aid: script Var("VHDKimballSpeech", "iKimballStage", 2.0)', label = "natural speech state staged" },
+    { text = "VHDRangerKimballGuard01REF: package VHDKimballGuardSpeechIdlePackage", label = "guard one selects SpeechIdle from its own list" },
+    { re = 'VHDRangerKimballGuard01REF: faces (?P<n>[0-9.]+) on arrival', range = [3.38, 3.39], label = "guard one takes its linked stage marker heading" },
+  ],
+  [
+    { text = 'test aid: script Var("VHDKimballSpeech", "iKimballStage", 2.0)', label = "natural speech state staged" },
+    { text = "VHDRangerKimballGuard02REF: package VHDKimballGuardSpeechIdlePackage", label = "guard two selects SpeechIdle from its own list" },
+    { re = 'VHDRangerKimballGuard02REF: faces (?P<n>[0-9.]+) on arrival', range = [3.38, 3.39], label = "guard two takes its linked stage marker heading" },
+  ],
+]
+forbid = [
+  { re = 'VHDRangerKimballGuard0[12]REF: cannot reach', label = "both guards reach their nearby stage markers" },
+]
+
+[[scenario]]
+name = "legate-rangers-showdown"
+source = "[documented: #2532 supplied main-session fnvtool record brief, 2026-11-15] SCPT 001438CA enables 001438DA/DB for battle state 1, showdownstart 1 and controller 001438E3.spawnheroes 1; PACK 001438E8 is their intended patrol without Allow Falls. [design, #2532] Test natural package selection, marker 01 arrival, and descent to marker 02; cannot-reach lines diagnose missing links or damaging drops."
+note = "[design: existing cdc-lanius-leaves-marker scenario] Start at its camp position in WastelandNV, then move only the player to the supplied VLegateWaitPlayerMarker. [documented: supplied SCPT 00142A7D] Set legatestarts to 9 before starting the scene. [observed: supplied main-session fnvtool nav path at upstream 1790ab94a] The approach to marker 01 works without ledges; marker 01 (001438D3) to 02 (001438D4) needs ledges, about 221 units down, with a 987-unit route. [hypothesis, #2532] Both rangers naturally choose E8 and physically traverse this harmless authored drop. No ranger package or position is injected."
+areas = ["ai", "nav", "quests"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs", "crates/fnv-nav/src/follow.rs", "engine/nvforever/src/residents.rs", "docs/spec-notes/packages.md", "docs/spec-notes/actor-jumps.md"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:moveto:player:VLegateWaitPlayerMarker:0:0:0,2:var:0x00133075:iBattleState:1,2.1:var:0x001438E6:legatestarts:9,2.2:var:0x001438E6:showdownstart:1,2.3:var:0x001438E3:spawnheroes:1" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=109397,20263,6200", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "001438DA,001438DB,00137A9D"]
+run_seconds = 60
+order = [
+  [
+    { re = '001438DA: package VLegateRangerRunToCamp01', label = "first ranger naturally chooses the patrol" },
+    { re = '001438DA: (runs|walks) to .*\(patrol point (VLegateCampRangerRunMarker01REF|0x001438D3)\)', label = "first ranger sets off to marker 01" },
+    { re = '001438DA: arrived after .*\(patrol point (VLegateCampRangerRunMarker01REF|0x001438D3)\)', label = "first ranger reaches marker 01" },
+    { re = '001438DA: (runs|walks) to .*\(patrol point (VLegateCampRangerRunMarker02REF|0x001438D4)\)', label = "first ranger sets off to marker 02" },
+    { re = 'actor jumps: 001438DA is in the air on Jump', label = "first ranger descends after marker 01" },
+    { re = '001438DA: arrived after .*\(patrol point (VLegateCampRangerRunMarker02REF|0x001438D4)\)', label = "first ranger reaches marker 02 after the drop" },
+  ],
+  [
+    { re = '001438DB: package VLegateRangerRunToCamp01', label = "second ranger naturally chooses the patrol" },
+    { re = '001438DB: (runs|walks) to .*\(patrol point (VLegateCampRangerRunMarker01REF|0x001438D3)\)', label = "second ranger sets off to marker 01" },
+    { re = '001438DB: arrived after .*\(patrol point (VLegateCampRangerRunMarker01REF|0x001438D3)\)', label = "second ranger reaches marker 01" },
+    { re = '001438DB: (runs|walks) to .*\(patrol point (VLegateCampRangerRunMarker02REF|0x001438D4)\)', label = "second ranger sets off to marker 02" },
+    { re = 'actor jumps: 001438DB is in the air on Jump', label = "second ranger descends after marker 01" },
+    { re = '001438DB: arrived after .*\(patrol point (VLegateCampRangerRunMarker02REF|0x001438D4)\)', label = "second ranger reaches marker 02 after the drop" },
+  ],
+]
+forbid = [
+  { re = '001438D[AB]: cannot reach', label = "ranger cannot-reach diagnostic" },
 ]
 
 [[scenario]]

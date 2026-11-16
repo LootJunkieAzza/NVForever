@@ -393,7 +393,7 @@ impl Animator {
     pub fn emitter(&self, system: &str) -> Option<(bool, Option<f32>)> {
         let mut best: Option<EmitterSelection> = None;
         for l in self.layers.iter().filter(|l| l.ease > 0.0) {
-            for e in l.clip.emitters.iter().filter(|e| e.system == system) {
+            for e in l.clip.emitters.iter().filter(|e| e.system == system && (e.rate.is_some() || e.active.is_some())) {
                 let priority = (l.sequence_priority, e.priority);
                 if best.is_none_or(|(p, _)| priority >= p) {
                     best = Some((priority, e.at(l.sample_time(self.phase))));
@@ -827,7 +827,7 @@ mod tests {
         // 21.6 a second; no rate keys, so the rate is the interpolator's lone value.
         let mut c = (*clip(&[("A", [0.0; 3], 30)], 2.6)).clone();
         let active = BoolTrack { value: None, keys: vec![(0.0, false), (1.0, true), (1.833, false)] };
-        c.emitters = vec![EmitterTrack { system: "##PCloud01".into(), priority: 55, rate: None, active: Some(active) }];
+        c.emitters = vec![EmitterTrack { system: "##PCloud01".into(), priority: 55, rate: None, active: Some(active), modifiers: Vec::new() }];
         let throw = Arc::new(c);
         let mut a = animator();
         assert_eq!(a.emitter("##PCloud01"), None);
