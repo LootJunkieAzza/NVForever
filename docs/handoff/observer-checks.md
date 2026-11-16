@@ -2263,7 +2263,7 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
 
 ## Added 2026-11-15 (Freeside thugs on a Find package with Allow Killing)
 
-135. **Does a person on a Find package with Allow Killing attack its own kin when the kin
+136. **Does a person on a Find package with Allow Killing attack its own kin when the kin
      carries what the package looks for?** (P3; owner-decision-captures.md §6.) The
      original's gecko on VCrGeckoFindFood left the other gecko alone [observed: campaign
      `gecko_find`]; no person was observed. NVForever now lets a person on such a package

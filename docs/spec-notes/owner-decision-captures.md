@@ -406,7 +406,7 @@ the player hidden 1,500 units from gecko 0x0016518B:
   its kin, allies and friends are not looked for, unless it names one reference
   [hypothesis, same grounds]. The thugs' package is such a Find. Tests
   `a_person_finding_with_allow_killing_spares_its_kin` and
-  `a_find_for_any_actor_with_allow_killing_spares_its_kin`. Observer check 135 asks the
+  `a_find_for_any_actor_with_allow_killing_spares_its_kin`. Observer check 136 asks the
   original.
 
 ## 7. Second run, 2026-10-19 [observed]
