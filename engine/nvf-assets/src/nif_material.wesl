@@ -264,6 +264,20 @@ fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
 // frame's display values [hypothesis]: the sum is formed in display values (gamma 2.2),
 // held to ADD_DISPLAY_MAX (2.0) or the frame's own value if brighter, and the difference
 // to the frame returned as linear light.
+// The sRGB transfer, display value to linear (as bevy::color's Srgba to LinearRgba;
+// CPU mirror: nif_spawn.rs `unlit_vertex_colors`' conversion).
+fn display_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((max(c, vec3(0.0)) + 0.055) / 1.055, vec3(2.4));
+    return select(hi, lo, c <= vec3(0.04045));
+}
+
+// The light an additive shape adds once fogged (CPU mirror: nif_material.rs
+// `fogged_addition`): its colour through the fog less black through the same fog.
+fn fogged_addition(fogged: vec3<f32>, fogged_black: vec3<f32>) -> vec3<f32> {
+    return max(fogged - fogged_black, vec3(0.0));
+}
+
 fn add_display(colour: vec3<f32>, a: f32, behind: vec3<f32>) -> vec3<f32> {
     let b = max(behind, vec3(0.0));
     let shown = pow(b, vec3(1.0 / 2.2));
@@ -471,8 +485,17 @@ fn nif_fragment(
         }
         holes_band = select(select(0.0, 1.0, h >= surface.holes.x - surface.holes.y), 0.0, cut_out);
     }
-    @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(in, is_front);
-    @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(in, is_front, terrain_fp);
+    // NifSurface::emissive_rule.z: an unlit shape's vertex colours are display values,
+    // blended across its triangles as such and made linear here, per fragment
+    // (nif_spawn.rs `unlit_vertex_colors`, nif.md §6 "Unlit vertex colours as display
+    // values", #2435). Made linear at the vertices, the blend kept a colour falling to
+    // black bright almost to the black edge: a glow card's soft wash became a board.
+    var vin = in;
+    @if(VERTEX_COLORS) if surface.emissive_rule.z > 0.5 {
+        vin.color = vec4(display_to_linear(in.color.rgb), in.color.a);
+    }
+    @if(!TERRAIN_ANTI_TILING) var pbr_input = pbr_input_from_standard_material(vin, is_front);
+    @if(TERRAIN_ANTI_TILING) var pbr_input = terrain_pbr_standard(vin, is_front, terrain_fp);
     @if(FACEGEN_TINT && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
         // base_color is material colour × vertex colour × texel: the texel is read again
         // as pbr_input_from_standard_material reads it, and its tinted value takes its
@@ -481,7 +504,7 @@ fn nif_fragment(
         let uv = (standard.uv_transform * vec3(in.uv, 1.0)).xy;
         let texel = base_color_texel(in.instance_index, uv, view.mip_bias).rgb;
         var factor = standard.base_color.rgb;
-        @if(FACEGEN_TINT && VERTEX_UVS_A && VERTEX_COLORS) factor *= in.color.rgb;
+        @if(FACEGEN_TINT && VERTEX_UVS_A && VERTEX_COLORS) factor *= vin.color.rgb;
         let tinted = facegen_tint(texel, facegen_offset_at(in.instance_index, uv));
         pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb + factor * (tinted - texel), pbr_input.material.base_color.a);
     }
@@ -491,7 +514,7 @@ fn nif_fragment(
         // (pipboy_picture), as FACEGEN_TINT's above.
         let standard = standard_material(in.instance_index);
         var factor = standard.base_color.rgb;
-        @if(PIPBOY_SCREEN && VERTEX_UVS_A && VERTEX_COLORS) factor *= in.color.rgb;
+        @if(PIPBOY_SCREEN && VERTEX_UVS_A && VERTEX_COLORS) factor *= vin.color.rgb;
         let picture = pipboy_picture(in.instance_index, screen_uv, screen_dx, screen_dy, surface.pipboy_a, surface.pipboy_b, in.position.xy);
         pbr_input.material.base_color = vec4(factor * picture, pbr_input.material.base_color.a);
     }
@@ -620,7 +643,15 @@ fn nif_fragment(
         // keeps Bevy's copy of it in every view). A ONE / ONE shape adds its colour whole,
         // faded only by the view-angle falloff.
         let add_a = select(out.color.a, falloff, surface.add_whole > 0.5);
-        let fogged = main_pass_post_lighting_processing(pbr_input, vec4(out.color.rgb, 1.0));
+        // Fog takes the added light away and adds no fog colour of its own: the frame
+        // behind is already fogged. Bevy's fog is colour × k + fog term, so the added
+        // light is the fogged colour less the fogged black (nif_material.rs
+        // `fogged_addition`; nif.md §6 "Additive blend", "Fog on added light", #2435).
+        // Fogged as a surface, black vertex colour still added the room's fog colour, and
+        // a ONE / ONE glow card with no texture (Gomorrah's wall sconces) was a flat,
+        // hard-edged board of fog colour.
+        let fogged_black = main_pass_post_lighting_processing(pbr_input, vec4(0.0, 0.0, 0.0, 1.0));
+        let fogged = vec4(fogged_addition(main_pass_post_lighting_processing(pbr_input, vec4(out.color.rgb, 1.0)).rgb, fogged_black.rgb), 1.0);
         @if(!ADD_LINEAR) let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, transmission_uv(frag_coord_to_uv(in.position.xy)), 0.0).rgb;
         @if(!ADD_LINEAR) out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
         // NifSurface::add_linear: the colour added as it is, in linear light.

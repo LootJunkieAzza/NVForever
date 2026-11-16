@@ -183,7 +183,7 @@ fn clearing_ammo_projectile_falls_back_to_weapon_without_leaking_neighbor_edits(
 fn ordinary_actor_shot_without_script_runtime_preserves_typed_values() {
     let mut a = app();
     a.world_mut().remove_resource::<ScriptState>();
-    a.world_mut().write_message(ActorFire { shooter: FormId::PLAYER_REF, weapon: GUN, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false });
+    a.world_mut().write_message(ActorFire { shooter: FormId::PLAYER_REF, weapon: GUN, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false, sure: None });
     tick(&mut a);
     last(&a, PROJ, 1000.0, 10.0);
     typed_unchanged(&a);
@@ -259,7 +259,7 @@ fn consumer_app() -> App {
 }
 
 fn request_actor_shot(app: &mut App, weapon: FormId) {
-    app.world_mut().write_message(ActorFire { shooter: FormId::PLAYER_REF, weapon, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false });
+    app.world_mut().write_message(ActorFire { shooter: FormId::PLAYER_REF, weapon, origin: [10.0, 20.0, 94.0], aim: [0.0, 1.0, 0.0], cone: 0.0, muzzle: None, harmless: false, sure: None });
 }
 
 fn take_fired(app: &mut App) -> Vec<ShotFired> {

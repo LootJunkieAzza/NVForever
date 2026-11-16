@@ -2067,6 +2067,22 @@ Combat is not a parity target; the rules are **[design]** unless tagged. Rules:
   nearer than 276, and the Incinerator again for one beyond 640 [observed: FalloutNV.esm,
   `fnvtool combat weapon`]. The weapon's own projectile is read: an ammunition that
   brings its own would change the reach (none of these two does).
+- **Too close for its blast** (#2745, owner 2026-11-15: Boomers in the Nellis barracks
+  "just stand there with grenade launchers and let you kill them"). Indoors a launcher's
+  step back (§16) can run into a wall, and with nothing of its own class that fires that
+  near the fighter held its fire for good. Now a fighter whose explosive weapon does not
+  fire because its target is inside the blast, and that carries nothing of its own class
+  that does, steps back as before; still too close after 2 s
+  (`fnv_game::rearm::CORNERED_SECONDS`; the target stayed close though it stepped back,
+  or the room left it no way back), it holds the best weapon of **any** class it carries
+  that fires there (a sidearm, a knife), and with none puts the explosive weapon away and
+  fights with its **fists**. While it fights with them neither empty-hand rule (re-arming's
+  best carried, `Game::arm_by_style`) puts the launcher back and it fetches nothing;
+  with its target clear of the blast again (64 units inside the limit, at most every 3 s)
+  or the fight over (`Game::calm_rearm`), it holds the explosive weapon again. A combat
+  style with Ignore Damaging Self fires through its own blast (§17.6), so it keeps its
+  weapon. Log: `rearm: puts away <weapon> for its fists: its target <n> units away is
+  inside its blast` [design].
 - **The fetch.** It runs there (the ammunition first when it is nearer), and holds its
   fire meanwhile (as a fleeing actor, `npc_combat`). At each item it stops and plays the
   pick-up idle, `LoosePickUpGroundObject` (`PickUpGroundObject_0.3.kf`), a child of
@@ -2088,7 +2104,8 @@ Combat is not a parity target; the rules are **[design]** unless tagged. Rules:
 class); `crates/fnv-ai/tests/carry.rs` (an unarmed fighter fetches a gun and a copy of its
 rounds; a gunman takes a weak gun over a strong knife, and the knife only with no rounds
 anywhere; a gun with no rounds is left; the weapon held is kept over other carried ones
-until lost); smoke `combat-npc-rearm`. Observed 2026-10-25: Violet, stripped of her items,
+until lost; a cornered incinerator user takes up its knife, and with nothing else its
+fists until the target is clear or the fight ends, #2745); smoke `combat-npc-rearm`. Observed 2026-10-25: Violet, stripped of her items,
 ran 1,638 units, copied a 5.56mm round from a placed `LootAmmoBox556mm` (nearer than the
 box laid for her), picked up the service rifle and fired with it; in `battle-ncr-fiends`
 seven fetches, none given up, and Cook-Cook kept his Incinerator.
@@ -2143,7 +2160,8 @@ target through every phase of the attack and fired only once turned to it
   `h2hfastleft.kf` (`fnv_actor::locomotion::weapon_moves`); the player's body takes
   `h2hleft.kf` walking (animation.md §9.6).
 - **Fire arc**: a gun fires only within 3° of straight ahead (`FIRE_FACING`, was 30°), or
-  its weapon's Aim Arc when above 0. A scripted weapon use keeps 30° (`USE_FACING`).
+  its weapon's Aim Arc when above 0. A scripted weapon use's shots have the same arc
+  (`use_weapon::shot_facing`, issue #2725); its blows keep 30° (`USE_FACING`).
 - **Measured**: the `npc combat facing` line at exit (how far off its target a gunman faced
   at each shot, and a person the AI runs in each frame it was locked on); `battle-ncr-fiends`
   and `combat-violet` check it. Before: a 2-minute NCR–Fiend battle had 84 frames over 10°

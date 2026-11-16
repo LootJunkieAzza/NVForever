@@ -1520,6 +1520,37 @@ fn a_live_unit_is_not_equipped_removed_dropped_or_moved() {
     assert_eq!(back.peek(p).unwrap().inventory.as_ref().unwrap().live_count(mine), 1);
 }
 
+/// A resurrected actor's own items are made up again (World::restock_inventory, #2683):
+/// what was taken comes back, what it still has is not doubled, what it was given stays.
+#[test]
+fn a_restocked_inventory_gets_back_what_is_missing_of_its_own_list() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let before = w.peek(g).unwrap().inventory.clone().unwrap();
+    // Nothing missing: nothing added.
+    assert!(w.restock_inventory(g).unwrap().is_empty());
+    // Its gun and one of its two mines are gone (dropped beside the body, looted); it was
+    // given five caps.
+    let inv = w.inventory_mut(g).unwrap();
+    assert_eq!(inv.take(id(LONG_GUN), 1).len(), 1);
+    assert_eq!(inv.take(id(MINE), 1).len(), 1);
+    w.add_item(g, id(CAPS), 5).unwrap();
+    let mut added = w.restock_inventory(g).unwrap();
+    added.sort();
+    let mut want = vec![(id(LONG_GUN), 1), (id(MINE), 1)];
+    want.sort();
+    assert_eq!(added, want);
+    let inv = w.peek(g).unwrap().inventory.clone().unwrap();
+    for (item, n) in before.iter() {
+        assert_eq!(inv.count(item), n, "{item:?}");
+    }
+    assert_eq!(inv.count(id(CAPS)), 5, "what it was given stays");
+    // It holds the gun again; the suit it never lost is still worn, once.
+    assert!(inv.is_equipped(id(LONG_GUN)) && inv.is_equipped(id(SUIT)));
+    assert_eq!(inv.equipped().len(), before.equipped().len());
+}
+
 /// A rebuilt inventory (ResetInventory, a resurrection's empty pick) keeps the live units
 /// of planted explosives (#1640): their plants still find them.
 #[test]

@@ -736,6 +736,9 @@ pub struct Sfx {
     frame: u64,
     /// How long requests waited for their files (the exit report).
     pub waits: Waits,
+    /// One-shots played at a place since [`crate::sound_cover`] last took them: their gain
+    /// at the listener (no effects volume), distance and seconds.
+    pub cover_notes: Vec<(f32, f32, f32)>,
     /// The age limit in force ([`MAX_ONE_SHOT_WAIT`]; the tests' real decodes on a busy
     /// machine would otherwise run into it).
     one_shot_wait: Duration,
@@ -817,6 +820,7 @@ impl Sfx {
             waiting: Vec::new(),
             frame: 0,
             waits: Waits::default(),
+            cover_notes: Vec::new(),
             one_shot_wait: MAX_ONE_SHOT_WAIT,
             reported: HashSet::new(),
             rng: SplitMix(0x5f37_59df),
@@ -1978,6 +1982,12 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
             sfx.release(sound, slot, true);
         }
         return (seconds, Begun::Refused);
+    }
+    // Heard at the listener, for the sound cover (`crate::sound_cover`): what the record
+    // and the distance leave, the effects volume not in it.
+    // At most a battle's worth waits, should nothing take them.
+    if let (true, Some(d), true) = (settings.play, distance, sfx.cover_notes.len() < 512) {
+        sfx.cover_notes.push((static_gain(s) * distance_gain(s, d), d, seconds));
     }
     let placed = match placed {
         Some(_) if s.has("2D") => {

@@ -38,7 +38,7 @@ remain pending; no rendered/native run or complete B42 operation is established.
 NPC/inventory cloning, all per-record traits, IDLE admission and complete save
 parity are separate. They must not be implied by a nonzero placement return.
 
-[design: reviewed interim guard] A checked Game snapshot inspects the retained
+[hypothesis: historical interim guard] A checked Game snapshot inspects the retained
 reference bases and deleted-created base tombstones against its clone table. Both
 actual engine saving and the headless save/load boundary must use it. Engine
 SaveGame callbacks run first; rejection then happens before serialization/enqueue,
@@ -66,12 +66,12 @@ scripts rather than create a reference that silently loses its script. General
 script inheritance remains outside this initial admission; later script edits to
 a placed alias or its original are also explicitly refused.
 
-[design: practical save limit] A deleted clone reference keeps its base tombstone.
+[hypothesis: historical practical save limit] A deleted clone reference keeps its base tombstone.
 Consequently the guard still refuses saving after deletion, until an appropriate
 load/reset replaces that state. This provisional safety policy is not a playable
 persistence solution and must not be staged as a completed mod repair.
 
-## Current-main source port
+## Historical source port
 
 [documented: qualification scope] This provisional source port is based on exact
 3dccb3c1c633e7d5eb06501de98dc580d7cda8a2 and is Part of #2391, not a
@@ -80,3 +80,97 @@ historical evidence only. Compilation, tests, rendering and native controls on
 this port have not run. Whole-save refusal, including deleted-created reference
 tombstones, remains intentional until a complete persistence contract exists.
 This is not a playable persistence or complete B42 acceptance claim.
+
+
+## Deleted inert references: bounded persistence proposal
+
+Repository context: exact main1790ab94a5ae8a8a4ef56b84e3454c3363d78866 keeps
+deleted created references in World snapshot deleted_created, mapping the original
+reference to its base. The temporary scene descriptor and Game clone map are
+session-only. The checked save boundary therefore rejects even a deleted
+reference. This is an intentional existing guard, not evidence of native behavior.
+
+[hypothesis: engineering persistence policy] Admit only deleted created references
+whose direct STAT, MSTT or PROJ clone already has an admitted inert scene descriptor.
+Retain the exact tombstone reference/base pair, authored original, supported kind
+and optional effective model override. Preserve empty override separately from no
+override. Do not replace the base with its original, remove the tombstone or revive
+the temporary form. Restored provenance is private bookkeeping: it is not inserted
+into the clone lookup, temporary World base table, renderer or script instances.
+Saved variables can retain the old ID; the base remains invalid after load.
+
+[hypothesis: version policy] Ordinary snapshots remain fnv.game.state/1. A snapshot
+with retired provenance uses fnv.game.state/2-retired-scenes and a clone-sequence
+reservation. The feature tag deliberately leaves the existing /2 unknown-version
+test aid unsupported. Older readers reject the new format through their existing
+format check instead of silently ignoring the extra metadata. New readers reject
+provenance on /1, the feature format without provenance, invalid alias ranges or
+sequence reservations, orphaned or live aliases, overlapping reference identities
+and reference allocators that would reuse a retired ID.
+
+[hypothesis: identity policy] The shared clone sequence advances beyond all clones
+allocated before that save; only retired scene descriptors are retained. Allocation
+skips loaded-record, existing-clone and reserved retired identities. It fails before
+overflowing the local index-zero range or the existing compiled-unit namespace at
+FE200000. This bounds the existing allocator; it does not declare an original-game
+capacity or persist unrelated unused clones. Ordinary snapshots without retired
+provenance retain their existing temporary-clone invalid-ID behavior.
+
+[hypothesis: load scope] Identical load orders, including plugins appended after the
+saved list, may restore this format. Reordered or missing saved plugins explicitly
+refuse before the generic fnv-save FormID walker can reinterpret alias identities.
+Ordinary saves retain their existing name-based plugin remapping. Restoration
+checks the actual loaded original kind and script admission, and refuses authored
+alias collisions. A loaded retired alias stays unavailable to scene placement.
+This first policy does not claim arbitrary load-order migration.
+
+Live scene clones, clone chains, unsupported/scripted or inventory placement, and
+unadmitted aliases keep their existing refusal boundaries. SaveGame callbacks
+still run before checking; the engine refuses unsupported state before enqueueing
+or replacing a file. No gameplay input, save-request scheduling, native version,
+physics, rendering or clone combat-style policy changes.
+
+The shared authored comparison uses the actual TempCloneForm, SetModelPath,
+PlaceAtMe and MarkForDelete source calls, checked snapshots, World/Game restoration,
+the engine SaveGame callback and fnv-save container writer/read-for-load. It
+asserts exact IDs/provenance, no clone revival, independent originals, repeated
+saves, allocator reservation, malformed/collision refusals, ordinary unused-ID
+carriers and ordinary plugin remapping. The previous tombstone-refusal assertion
+is explicitly replaced by the proposed successful headless save boundary on both
+comparison sides; its original main body is retained in preparation evidence.
+No passing count is implied by these source controls. Actual CPU, full-profile
+save/load, rendered and native qualification belong to an exact executed revision.
+An installed temporary-reference creator has not been attributed by this proposal;
+it is not a complete B42 or #2391 implementation.
+
+
+## Source-bound CPU qualification
+
+[implementation evidence] The historical source-port and guard qualifications
+above describe their original checkpoints. The bounded retired-scene candidate
+has since completed two separate controlled Windows CPU comparisons on public
+main `1790ab94a5ae8a8a4ef56b84e3454c3363d78866` plus the authored fixtures.
+These are NVForever implementation results, not original-game observations.
+
+The Rust 1.97.1 core comparison ran the same 19 integration controls on both
+sides: baseline 12 passed and seven failed at their first temporary-base
+snapshot/save refusal; candidate 19 passed, with zero ignored on either side.
+Later assertions in each failing baseline case were not reached. Ordinary, live,
+scripted, inventory, chain and unused-clone compatibility controls remain part
+of that comparison. An earlier compile timeout ran zero cases and supplies no
+regression outcome.
+
+A separate normal Rust 1.99.0 engine-workspace comparison ran the same three
+SaveNow/container controls on both sides: baseline one ordinary-remap control
+passed and two failed at their first checked-snapshot refusal; candidate three
+passed, zero ignored. It exercised SaveGame callbacks, enqueue admission, the
+actual save-container writer/reader and World/Game restore. Later baseline
+container/restore assertions were not reached after those refusals. These
+engine results are not a combined 22-case executable or a reuse of the core
+binary.
+
+The public-source adoption retains the authored production and fixture bytes.
+Documentation changes and a later current-main composition have not been
+compiled or executed by this adoption. Broader suites, strict lint, installed
+GAME scenarios, native parity, existing user-save recovery, rendered/collision
+behavior and complete B42/profile acceptance remain unqualified.

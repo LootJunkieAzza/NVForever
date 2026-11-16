@@ -2627,6 +2627,8 @@ impl Core {
                 _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
+                | AiEvent::PutThere { .. }
+                | AiEvent::DoorsClosedToIt { .. }
                 | AiEvent::HeightWaived { .. }
                 | AiEvent::DoorRefused { .. }
                 | AiEvent::DoorWaitCancelled { .. }
@@ -2690,6 +2692,7 @@ impl Core {
                 | AiEvent::FetchGot { .. }
                 | AiEvent::FetchDropped { .. }
                 | AiEvent::RangeSwap { .. }
+                | AiEvent::RangeFists { .. }
                 | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
@@ -2826,6 +2829,19 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::PutThere { package, from, to } => format!(
+            "put at the place of {} out of sight, no door joining the two: ({:.0}, {:.0}, {:.0}) in {}, from ({:.0}, {:.0}, {:.0}) in {}",
+            n(package),
+            to.pos[0],
+            to.pos[1],
+            to.pos[2],
+            nav::space_name(world, to.space),
+            from.pos[0],
+            from.pos[1],
+            from.pos[2],
+            nav::space_name(world, from.space)
+        ),
+        AiEvent::DoorsClosedToIt { package } => format!("stays: the way to the place of {} needs a load door, and it cannot open doors", n(package)),
         AiEvent::HeightWaived { at } => format!("ends its walk off its goal's height, at ({:.0}, {:.0}, {:.0}): no new path helped", at[0], at[1], at[2]),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
         AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
@@ -3025,6 +3041,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::FetchDropped { from, why } => format!("rearm: gives up on {}: {why}", n(from)),
         AiEvent::RangeSwap { weapon, distance } => format!("rearm: takes up {} for its target {distance:.0} units away", n(weapon)),
+        AiEvent::RangeFists { weapon, distance } => format!("rearm: puts away {} for its fists: its target {distance:.0} units away is inside its blast", n(weapon)),
         AiEvent::EscortWaits { package, target, away } => format!(
             "escorts {}: waits, it is {} behind ({})",
             n(target),

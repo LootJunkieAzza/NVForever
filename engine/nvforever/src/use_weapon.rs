@@ -5,7 +5,7 @@
 //! target's chest, drawn from the muzzle), counting them on the game's use.
 //!
 //! - **When it fires**: with its weapon drawn (`alert.rs` draws it for a weapon use),
-//!   facing its target (within [`USE_FACING`]), not restrained (SetRestrained
+//!   facing its target (a gun within [`shot_facing`], a blow within [`USE_FACING`]), not restrained (SetRestrained
 //!   "blocks weapon use from Use Weapon packages and UseWeapon" [documented: catalogue
 //!   notes on SetRestrained]), its target where the use wants it (the function's last
 //!   argument, within `fnv_game::use_weapon::TARGET_HERE_RADIUS`), and, with Hold Fire
@@ -49,7 +49,9 @@ use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::weapon::Stage;
-use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase, Timing};
+use fnv_combat::data::WeaponStats;
+use fnv_combat::tuning::CombatTuning;
 use fnv_combat::spread::{self, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_game::use_weapon::{After, Source, TARGET_HERE_RADIUS};
@@ -62,10 +64,22 @@ use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use std::collections::{BTreeMap, HashMap};
 
-/// A scripted weapon use fires and swings only while its target is within this angle of
-/// straight ahead, radians (30°: the combat AI's arc before it held its gunmen to 3°,
-/// kept here, where nothing but the walker turns the actor) [design].
+/// A scripted weapon use swings only while its target is within this angle of straight
+/// ahead, radians (30°: the combat AI's arc before it held its gunmen to 3°, kept for
+/// blows) [design]. A gun's shots have [`shot_facing`].
 pub const USE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
+
+/// How far off its heading a weapon use's shooter may have its target and fire, radians:
+/// the combat gunmen's rule (`npc_combat::fire_facing`: 3°, or the weapon's Aim Arc when
+/// above 0) [design: issue #2725. A use's shot flies from the eyes straight at the
+/// target whatever way the body points, so at the 30° of [`USE_FACING`] Orris shot his
+/// thugs with the revolver pointing well aside while he was still turning to the next
+/// one; the original's gunmen fire only once turned to their target, observed for combat
+/// (campaign fiend_facing), a hypothesis for a package's use]. The in-place turn
+/// (`fnv_ai::carry`) brings the shooter round.
+pub fn shot_facing(aim_arc: f32) -> f32 {
+    crate::npc_combat::fire_facing(aim_arc)
+}
 
 pub struct UseWeaponPlugin;
 
@@ -89,6 +103,65 @@ struct Shooter {
     wait: f32,
     /// What it last waited for, told once each time it changes.
     held: Option<&'static str>,
+    /// Its first shot of this use has been told (how far off its heading the target was).
+    told: bool,
+    /// Its cycle's reload takes as long as its rig's reload clips (`AttackTimes::reloads`).
+    reload_timed: bool,
+    /// Seconds since it last had a use; 0 while it has one.
+    idle: f32,
+    /// The clock at its last shot.
+    last_shot: Option<f32>,
+}
+
+/// How long an actor between two uses keeps its gun's cycle: the time left before its
+/// next shot and what its magazine holds [design: chosen; the original's is not known].
+/// Orris's three packages follow one another within seconds (#2763).
+const KEEP_IDLE: f32 = 30.0;
+
+impl Shooter {
+    fn new(seq: u64, weapon: FormId, ws: &WeaponStats, timing: Timing) -> Shooter {
+        Shooter { seq, weapon, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None, told: false, reload_timed: false, idle: 0.0, last_shot: None }
+    }
+
+    /// It goes on to another use with the same gun: the gun's cycle (the time left
+    /// before its next shot, its magazine, a reload under way) and the wait before its
+    /// next pull stay as they are, as a combat gunman's do when its target changes
+    /// (`npc_combat`'s `kept`) (#2763) [design].
+    fn next_use(&mut self, seq: u64) {
+        self.seq = seq;
+        self.held = None;
+        self.told = false;
+        self.idle = 0.0;
+    }
+
+    /// A frame without a use: the cycle and the wait run on. Whether it is kept.
+    fn rest(&mut self, t: &CombatTuning, dt: f32) -> bool {
+        self.idle += dt;
+        self.wait = (self.wait - dt).max(0.0);
+        self.pulled = false;
+        let _ = self.cycle.step(t, Input { trigger: false, reload: false, dt, carried: u32::MAX / 2 });
+        self.idle < KEEP_IDLE
+    }
+
+    /// Seconds before it can fire again: the wait before its next pull, or what is left
+    /// of the cycle's time between shots, whichever is longer.
+    fn next_shot_in(&self) -> f32 {
+        match self.cycle.phase {
+            Phase::Cooldown { left } => self.wait.max(left),
+            _ => self.wait,
+        }
+    }
+}
+
+/// The wait before a semi-automatic gun's next pull: a roll `u` in the weapon's
+/// semi-automatic fire delay, each end times the combat style's multiplier, as the
+/// combat AI's gunmen wait (`npc_combat`); 0 for an automatic weapon (#2763).
+fn pull_wait(ws: &WeaponStats, mult: (f32, f32), u: f32) -> f32 {
+    if ws.automatic {
+        return 0.0;
+    }
+    let (lo, hi) = (ws.semi_auto_fire_delay[0] * mult.0, ws.semi_auto_fire_delay[1] * mult.1);
+    (lo + (hi - lo).max(0.0) * u).max(0.0)
 }
 
 /// One actor carrying out a melee weapon use (module notes).
@@ -185,6 +258,13 @@ struct Stats {
     harmless_blow_scripts: usize,
     missed: usize,
     chained: usize,
+    /// The farthest off its heading a shooter had its target at a shot, radians.
+    widest_shot: f32,
+    /// Uses that went on with the cycle of the actor's last use (the same gun).
+    went_on: usize,
+    /// The shortest time between two shots of one actor's semi-automatic gun, seconds,
+    /// with the gun and the actor.
+    quickest: Option<(f32, String, String)>,
 }
 
 /// The bones a shot aims at, in order of preference: the target's chest as it is posed,
@@ -213,6 +293,7 @@ pub(crate) fn shoot(
     bones: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
+    let clock = time.elapsed_secs();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     if rt.game.menu.is_some() || rt.game.dialogue.is_some() {
         return;
@@ -306,10 +387,28 @@ pub(crate) fn shoot(
             };
             let Some(ws) = c.forms.weapons.get(&gun) else { continue };
             still.push(id);
+            let weapon_name = ws.edid.clone().unwrap_or_else(|| gun.to_string());
             let fresh = s.by.get(&id).is_none_or(|x| x.seq != w.seq || x.weapon != gun);
             if fresh {
-                let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
-                s.by.insert(id, Shooter { seq: w.seq, weapon: gun, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None });
+                // The same gun as its last use: its cycle goes on (#2763). Else a new
+                // one, timed as a combat gunman's (`npc_combat`).
+                match s.by.get_mut(&id).filter(|x| x.weapon == gun) {
+                    Some(x) => {
+                        x.next_use(w.seq);
+                        s.stats.went_on += 1;
+                        info!(
+                            "use weapon: {name} {me} goes on with its {weapon_name} from its last use: {:.2} s before its next shot, {} of {} rounds loaded",
+                            x.next_shot_in(),
+                            x.cycle.magazine,
+                            x.cycle.clip_size
+                        );
+                    }
+                    None => {
+                        let rate = crate::npc_combat::teammate_attack_rate(g, me, Some(gun));
+                        let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
+                        s.by.insert(id, Shooter::new(w.seq, gun, ws, timing));
+                    }
+                }
                 s.stats.actors.insert(id, name.clone());
                 match w.source {
                     Source::Script => s.stats.from_scripts += 1,
@@ -325,15 +424,28 @@ pub(crate) fn shoot(
                     Source::Script => "a script".to_string(),
                     Source::Package(p) => format!("its package {}", g.data.name(p)),
                 };
-                let weapon_name = ws.edid.clone().unwrap_or_else(|| gun.to_string());
                 info!(
                     "use weapon: {name} {me} uses {weapon_name} on {target_name} ({from}): {shots}{}{}",
                     if flags.is_empty() { String::new() } else { format!("; {}", flags.join(", ")) },
                     if w.weapon.is_some_and(|x| x != gun) { "; not the weapon named, which is no gun" } else { "" }
                 );
             }
+            // The style's multipliers of the semi-automatic fire delay, as the fight reads
+            // them.
+            let delay_mult = g.combat_style(me).as_deref().map_or((1.0, 1.0), |st| st.semi_auto_delay_mult);
             let shooter = s.by.get_mut(&id).expect("inserted");
+            shooter.idle = 0.0;
             shooter.wait = (shooter.wait - dt).max(0.0);
+            // Its reload takes as long as its reload clips in its rig, once known, between
+            // reloads (as `npc_combat` times a gunman's).
+            if !shooter.reload_timed && matches!(shooter.cycle.phase, Phase::Ready | Phase::Cooldown { .. }) {
+                if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == gun) {
+                    let clips = ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() };
+                    let rate = crate::npc_combat::teammate_attack_rate(g, me, Some(gun));
+                    shooter.cycle.timing = Timing::of(ws, &clips, &c.tuning).with_attack_rate(rate);
+                    shooter.reload_timed = true;
+                }
+            }
             let tchest = chests.get(&w.target.0).copied().unwrap_or([tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST]);
             // What holds its fire this frame.
             let restrained = g.extra.get(&me).is_some_and(|e| e.restrained);
@@ -368,7 +480,9 @@ pub(crate) fn shoot(
                 shooter.held = why;
             }
             let drawn = hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
-            let facing = facing_off(global, feet, tfeet) <= USE_FACING;
+            let off = facing_off(global, feet, tfeet);
+            let arc = shot_facing(ws.aim_arc);
+            let facing = off <= arc;
             let ready = why.is_none() && drawn && facing;
             // No pull while it reloads (a pull would close a round-by-round reload after a
             // round); an empty magazine is reloaded at once, as the combat AI's gunmen do.
@@ -379,6 +493,20 @@ pub(crate) fn shoot(
             for e in shooter.cycle.step(&c.tuning, Input { trigger, reload: empty && !reloading, dt, carried: u32::MAX / 2 }) {
                 match e {
                     Event::Fired { .. } => {
+                        if !shooter.told {
+                            shooter.told = true;
+                            info!("use weapon: {name} {me} fires at {target_name} facing it: {:.1} degrees off its heading (it may be {:.0})", off.to_degrees(), arc.to_degrees());
+                        }
+                        s.stats.widest_shot = s.stats.widest_shot.max(off);
+                        // A semi-automatic gun: how long after its last shot, this use's
+                        // or the one before (#2763).
+                        if let Some(gap) = shooter.last_shot.filter(|_| !ws.automatic).map(|t| clock - t) {
+                            info!("use weapon: {name} {me} fires its {weapon_name} {gap:.2} s after its last shot (the gun's time between shots is {:.2} s)", shooter.cycle.timing.interval);
+                            if s.stats.quickest.as_ref().is_none_or(|q| gap < q.0) {
+                                s.stats.quickest = Some((gap, weapon_name.clone(), name.clone()));
+                            }
+                        }
+                        shooter.last_shot = Some(clock);
                         let muzzle = muzzle_at.get(&id).copied();
                         let to = vec::sub(tchest, eyes);
                         let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
@@ -391,26 +519,25 @@ pub(crate) fn shoot(
                             let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, ..Stance::default() };
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
-                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage });
+                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, sure: w.always_hit.then_some(w.target) });
                         anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);
                         s.stats.harmless += usize::from(w.no_damage);
                         let roll = next_unit(&mut s.rng);
+                        // The gun's own delay before its next pull, whatever the use does
+                        // next: more shots, a pause, or its end and another use (#2763).
+                        let delay = pull_wait(ws, delay_mult, next_unit(&mut s.rng));
                         let Some(u) = g.weapon_uses.get_mut(&me) else { break };
                         match u.shot(roll) {
-                            After::More => {
-                                if !ws.automatic {
-                                    let [lo, hi] = ws.semi_auto_fire_delay;
-                                    shooter.wait = lo + (hi - lo).max(0.0) * next_unit(&mut s.rng);
-                                }
-                            }
+                            After::More => shooter.wait = delay,
                             After::Pause(p) => {
-                                shooter.wait = p;
+                                shooter.wait = p.max(delay);
                                 // A volley is over: the trigger is let go.
                                 shooter.pulled = true;
                             }
                             After::Done => {
+                                shooter.wait = delay;
                                 info!("use weapon: {name} {me} has fired its {} shots at {target_name}", u.fired);
                                 g.end_weapon_use(me);
                                 s.stats.done += 1;
@@ -434,8 +561,9 @@ pub(crate) fn shoot(
                 }
             }
         }
-        // Those no longer using a weapon stand up.
-        s.by.retain(|id, _| still.contains(id));
+        // Those no longer using a weapon stand up; a gun's cycle is kept a while for
+        // the actor's next use ([`KEEP_IDLE`]).
+        s.by.retain(|id, x| still.contains(id) || x.rest(&c.tuning, dt));
         s.swingers.retain(|id, _| still.contains(id));
         for (a, u) in g.weapon_uses.iter_mut() {
             if !still.contains(&a.0) {
@@ -660,13 +788,70 @@ fn report(mut exit: MessageReader<AppExit>, shooters: Res<Shooters>, stats: Opti
         s.chained,
     );
     info!("use weapon summary: harmless hits whose target's hit blocks ran: {harmless_scripts} shots, {} blows", s.harmless_blow_scripts);
+    info!("use weapon summary: shots fired with the target at most {:.1} degrees off the shooter's heading", s.widest_shot.to_degrees());
+    match &s.quickest {
+        Some((gap, gun, who)) => info!("use weapon summary: {} uses went on with the gun's cycle from the actor's last use; the shortest time between two shots of a semi-automatic gun: {gap:.2} s ({gun}, {who})", s.went_on),
+        None => info!("use weapon summary: {} uses went on with the gun's cycle from the actor's last use; no semi-automatic gun fired twice", s.went_on),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::acts_on;
+
+    /// #2725: a use's shooter fires within the combat gunmen's arc, not the 30° its blows
+    /// keep: 3°, or the weapon's own Aim Arc.
+    #[test]
+    fn a_use_fires_only_within_the_gunmens_arc() {
+        use super::{shot_facing, USE_FACING};
+        assert_eq!(shot_facing(0.0), crate::npc_combat::FIRE_FACING);
+        assert!((shot_facing(0.0).to_degrees() - 3.0).abs() < 1e-4);
+        assert!(shot_facing(0.0) < USE_FACING);
+        assert!((shot_facing(45.0).to_degrees() - 45.0).abs() < 1e-4, "a weapon's Aim Arc is its own");
+    }
     use fnv_game::use_weapon::{Source, WeaponUse};
     use fnv_sim::FormId;
+
+    /// #2763: a second use with the same gun goes on with the first one's cycle: the
+    /// time before the next shot and the magazine, not a fresh gun ready at once.
+    #[test]
+    fn a_second_use_keeps_the_guns_cycle() {
+        use super::{pull_wait, Shooter, KEEP_IDLE};
+        use fnv_combat::attack::{ClipTiming, Event, Input, Timing};
+        use fnv_combat::data::WeaponStats;
+        use fnv_combat::tuning::CombatTuning;
+        // The hunting revolver's numbers: 1.5 shots a second, five rounds.
+        let ws = WeaponStats { attack_shots_per_sec: 1.5, clip_size: 5, ammo_use: 1, attack_mult: 1.0, anim_mult: 1.0, semi_auto_fire_delay: [0.0, 0.3], ..WeaponStats::default() };
+        let t = CombatTuning::default();
+        let timing = Timing::of(&ws, &ClipTiming::default(), &t);
+        assert!((timing.interval - 1.0 / 1.5).abs() < 1e-4);
+        let mut sh = Shooter::new(1, FormId(0x10), &ws, timing);
+        let pull = |sh: &mut Shooter, trigger: bool, dt: f32| sh.cycle.step(&t, Input { trigger, reload: false, dt, carried: 100 }).into_iter().filter(|e| matches!(e, Event::Fired { .. })).count();
+        assert_eq!(pull(&mut sh, true, 0.016), 1, "the first use's shot");
+        assert_eq!(sh.cycle.magazine, 4);
+        // The use is over; a frame later the next one begins.
+        assert!(sh.rest(&t, 0.016), "kept between uses");
+        sh.next_use(2);
+        assert_eq!(sh.seq, 2);
+        assert_eq!(sh.cycle.magazine, 4, "the magazine is the same gun's");
+        assert!(sh.next_shot_in() > 0.6, "the time between shots still runs: {}", sh.next_shot_in());
+        assert_eq!(pull(&mut sh, true, 0.016), 0, "no shot at once at the next target");
+        let mut waited = 0.032;
+        let mut fired = 0;
+        while fired == 0 && waited < 2.0 {
+            fired = pull(&mut sh, false, 0.016) + pull(&mut sh, true, 0.016);
+            waited += 0.032;
+        }
+        assert_eq!(fired, 1);
+        assert!(waited >= 1.0 / 1.5, "the second use's shot comes the gun's interval after the first: {waited}");
+        assert_eq!(sh.cycle.magazine, 3);
+        // Long without a use, it is let go.
+        assert!(!sh.rest(&t, KEEP_IDLE));
+        // The delay before the next pull takes the style's multipliers.
+        assert_eq!(pull_wait(&ws, (1.0, 1.0), 0.5), 0.15);
+        assert_eq!(pull_wait(&ws, (1.0, 2.0), 1.0), 0.6);
+        assert_eq!(pull_wait(&WeaponStats { automatic: true, ..ws.clone() }, (1.0, 1.0), 0.5), 0.0);
+    }
 
     /// #2145 review: the shooter acts on a use only in place and with its target standing
     /// among the drawn people; a marker target (never among them), a target not drawn, or

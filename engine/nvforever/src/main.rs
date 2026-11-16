@@ -30,6 +30,11 @@ mod native_crash;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod nif_mirror;
+mod nif_attachments;
+// Authored record builders are loaded once for the engine test binary.
+#[cfg(test)]
+#[path = "../../../crates/fnv-game/tests/common/mod.rs"]
+mod authored_test_records;
 mod anim_paths;
 mod actor_feet;
 mod tumble;
@@ -2289,10 +2294,7 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     if g.take_weather_release() {
         sky.release_script_weather();
     }
-    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
-    if g.weather.shown != Some(shown) || g.weather.raining != raining {
-        g.set_shown_weather(shown, raining);
-    }
+    report_script_weather(g, &sky);
     // The scripts' wind and lightning (SetWindDirection, TriggerLightningFX;
     // `fnv_game::nvse_jip12`); their climate and moons: `worldspace::script_sky`.
     let wind = g.script_wind();
@@ -2302,6 +2304,16 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     if g.take_lightning() {
         sky.lightning_request = true;
     }
+}
+
+/// Publish this bridge pass's sky observation; clock/fade scheduling stays unchanged.
+fn report_script_weather(g: &mut fnv_game::Game<'_>, sky: &sky::SkyState) {
+    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
+    if g.weather.shown != Some(shown) || g.weather.raining != raining {
+        g.set_shown_weather(shown, raining);
+    }
+    // Progress changes even while the shown form and stable-rain flag do not.
+    g.set_shown_weather_sample(sky.fade, sky.weather.classification, sky.prev.is_none());
 }
 
 fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>, hold: Option<ResMut<nvf_play::pipboy::data::travel::WeatherHold>>) {

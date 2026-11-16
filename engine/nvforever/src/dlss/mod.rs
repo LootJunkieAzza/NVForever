@@ -121,7 +121,7 @@
 //! wait in a buffer, written each frame (`First`) and at shutdown.
 
 #[cfg(any(windows, test))]
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, PoisonError};
 
@@ -141,7 +141,9 @@ use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscale
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
-pub(crate) mod download;
+// The download, the signature checks and the folder rule live in `nvf-dlss-files`, shared with
+// the launcher (#2765); they keep their paths here.
+pub(crate) use nvf_dlss_files::download;
 #[cfg(windows)]
 mod frame_gen;
 #[cfg(windows)]
@@ -149,29 +151,20 @@ mod frame_token;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
-mod security;
+use nvf_dlss_files::security;
 pub(crate) mod sizing;
 #[cfg(windows)]
 mod win;
 
 pub(crate) use sizing::OptimalSizes;
 
-/// The folder holding the four files instead of the one beside the program.
+/// The folder rule, the files it must hold (the interposer first) and the frame
+/// generation files (`nvf-dlss-files`).
 #[cfg(any(windows, test))]
-const ENV_DIR: &str = "NVF_DLSS_DIR";
-/// The folder beside the program.
-#[cfg(any(windows, test))]
-const FOLDER_NAME: &str = "dlss";
-/// The files the folder must hold, the interposer first.
-#[cfg(any(windows, test))]
-const FILES: [&str; 4] = ["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"];
-/// DLSS Frame Generation's files beside [`FILES`] (#2317): the feature, its NGX model,
-/// and Reflex and PCL, which DLSS-G requires through Streamline [documented:
-/// `ProgrammingGuideDLSS_G.md` §8.0, `ProgrammingGuideReflex.md` §6.0;
-/// fork-notes `fg-facts.md` §1]. The preflight already pins the three `sl.*` files and accepts
-/// NVIDIA-signed `nvngx_*.dll` (`preflight.rs` `RELEASE_DLLS`).
-#[cfg(any(windows, test))]
-const FG_FILES: [&str; 4] = ["sl.dlss_g.dll", "nvngx_dlssg.dll", "sl.reflex.dll", "sl.pcl.dll"];
+use nvf_dlss_files::{resolve_folder, FolderSource, FG_FILES, FILES};
+/// The folder's variable, read where the loader runs (Windows).
+#[cfg(windows)]
+use nvf_dlss_files::ENV_DIR;
 
 /// Whether DLSS Frame Generation can run this session, as far as the loader knows: the files
 /// (none of the four frame generation files, or not the loader at all), the GPU's support (from
@@ -1060,33 +1053,7 @@ pub fn shutdown() {
     drain_log();
 }
 
-/// Where the folder came from, for the log.
-#[cfg(any(windows, test))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FolderSource {
-    /// `NVF_DLSS_DIR`.
-    EnvDir,
-    /// `<program folder>\dlss`.
-    BesideProgram,
-}
 
-/// The folder: `NVF_DLSS_DIR` when set (it must be absolute: Streamline wants absolute plugin
-/// paths [documented: `sl_core_types.h:565`] and the signature check a full path
-/// [documented: `sl_security.h:328-330`]), else `dlss` beside the program.
-#[cfg(any(windows, test))]
-fn resolve_folder(dir_var: Option<&std::ffi::OsStr>, exe_dir: Option<&Path>) -> Result<(PathBuf, FolderSource), String> {
-    match dir_var.filter(|v| !v.is_empty()) {
-        Some(v) => {
-            let path = PathBuf::from(v);
-            if path.is_absolute() {
-                Ok((path, FolderSource::EnvDir))
-            } else {
-                Err(format!("{ENV_DIR}={} is not an absolute path", path.display()))
-            }
-        }
-        None => exe_dir.map(|d| (d.join(FOLDER_NAME), FolderSource::BesideProgram)).ok_or_else(|| "the program's own folder is unknown".to_string()),
-    }
-}
 
 /// The files of [`FILES`] that `folder` lacks, in that order.
 #[cfg(any(windows, test))]
@@ -1246,7 +1213,7 @@ mod tests {
         for availability in [0, FgAvailability::FilesMissing as u8] {
             assert_eq!(frame_generation_reason(true, availability, None, || true), Some("Files missing: Download DLSS… on the Upscaler row"));
             assert_eq!(frame_generation_reason(true, availability, None, || false), Some("The DLSS Frame Generation files are missing"));
-            let done = download::Phase::Done(PathBuf::from("dlss"));
+            let done = download::Phase::Done(std::path::PathBuf::from("dlss"));
             assert_eq!(frame_generation_reason(true, availability, Some(&done), || panic!("installed: no offer needed")), Some("Restart to use DLSS Frame Generation"));
             assert_eq!(frame_generation_reason(false, availability, None, || panic!("Windows only")), Some("Not on this GPU"));
         }

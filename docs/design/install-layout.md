@@ -102,7 +102,8 @@ SCharGenQuest=001FFFF8
 SIntroMovie=
 ```
 
-Both are read once at start and never written; unattended runs read them only under their
+The launcher's Mods page writes these two lines for the player with one box (launcher.md,
+Mods). Both are read once at start and never written by the game; unattended runs read them only under their
 own `NVFOREVER_HOME`.
 
 These lines go in NVForever's own `NVForever.ini`, not the original's

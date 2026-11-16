@@ -1774,6 +1774,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "ai-no-door-out-of-sight"
+kind = "tool"
+source = "docs/spec-notes/packages.md §11 (#2405): out of sight, an actor whose package's place no door at all leads to (Gomez in the NCR safehouse's side room, a two-triangle navmesh island, sent to GomezDoor by SafehouseNCRRangerLeave) is put there instead of reporting it unreachable every hour; a creature that cannot open doors (Rey, following Old Lady Gibson out of her shack) stays without a path failure"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs", "crates/fnvtool/src/ai_run.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "3", "--start-hour", "12", "--actor", "GomezREF", "--quest-var", "vSafehouse:10=1", "--out-of-sight"],
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "3", "--start-hour", "12", "--actor", "GibsonDogReyRef", "--actor", "OldLadyGibsonRef"],
+]
+expect = [
+  { json = "actors.?actor=GomezREF.event_counts.put_there", schema = "fnv.ai.run/1", equals = 1, label = "Gomez is put at GomezDoor once, out of sight" },
+  { json = "actors.?actor=GomezREF.event_counts.arrived", schema = "fnv.ai.run/1", equals = 1, label = "and has arrived there" },
+  { json = "actors.?actor=GomezREF.event_counts.unreachable", schema = "fnv.ai.run/1", count = 0, label = "no hourly 'cannot reach' for Gomez" },
+  { json = "actors.?actor=GibsonDogReyRef.event_counts.doors_closed_to_it", schema = "fnv.ai.run/1", range = [1, 10], label = "Rey stays when Old Lady Gibson goes out of her door" },
+  { json = "actors.?actor=GibsonDogReyRef.event_counts.unreachable", schema = "fnv.ai.run/1", count = 0, label = "no path failure for Rey" },
+  { json = "actors.?actor=OldLadyGibsonRef.event_counts.door", schema = "fnv.ai.run/1", range = [1, 10], label = "she does go out (the case is met)" },
+]
+
+[[scenario]]
+name = "ai-no-door-out-of-sight-game"
+source = "docs/spec-notes/packages.md §11 (#2405): in the game, with the player outside the NCR safehouse's cave door (0x001593B6, WastelandNV), Gomez in the interior behind it is out of the loaded area; his Leave package (vSafehouse variable 10, GomezGoToSleep, = 1) sends him from the side room's navmesh island to GomezDoor, which no door joins: he is put there instead of logging 'cannot reach' every game hour (players' reports, build 0.7.0)"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "2:set vSafehouse.GomezGoToSleep to 1;2.5:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=-3600,26900,5460", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all,GomezREF"]
+run_seconds = 150
+expect = [
+  { re = 'GomezREF: put at the place of SafehouseNCRRangerLeave out of sight, no door joining the two: \(2811, 951, 6438\) in SafehouseNCRINT', label = "Gomez is put at GomezDoor out of sight" },
+  "ai summary",
+]
+forbid = [
+  { re = 'GomezREF: cannot reach the place of SafehouseNCRRangerLeave', label = "Gomez's Leave is not reported unreachable" },
+]
+
+[[scenario]]
 name = "ai-observed"
 kind = "tool"
 source = "CLAUDE.md: after AI package changes, with the owner's observer captures: fnvtool ai observed and ai run --samples (actor-behaviour.md §4, §5.3)"
@@ -4037,6 +4072,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "vigor-tester-new-game"
+source = "#2406 (reports: Doc Mitchell's house has the most frame hitches): in a new game the Vigor Tester's machine is spawned hidden behind the start's loading screen and its first opening takes it (docs/spec-notes/vigor-tester.md §7, docs/design/streaming-hitches.md §6)"
+note = "vigor-tester's steps in a --new-game start (the opening's own menus held off; menu 1074 asked by the test aid 3 s after the screen comes down); the machine made ready is the one shown, turned and clicked"
+areas = ["chargen", "vigor", "menus"]
+paths = ["engine/nvf-play/src/chargen/vigor.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0" }
+args = ["--play", "--new-game", "--no-voice"]
+messages = true  # its checks read message boxes: no --no-messages added (smoke/scenarios.py)
+run_seconds = 20
+order = [[
+  { re = 'vigor tester: made ready behind the loading screen in \d+ ms \(\d+ parts\)', label = "the machine is spawned behind the start's loading screen" },
+  "loading screen down after",
+  "vigor tester: the machine made ready behind the loading screen is used",
+  "vigor tester: open, S.P.E.C.I.A.L.",
+  "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
+]]
+expect = [
+  "Endurance 6, 0 points remaining",
+  "vigor tester summary: opened 1 times, 5 changes, 8 page turns, 2 clicks on its buttons, done 1 times",
+]
+
+[[scenario]]
 name = "vigor-sounds"
 source = "playtest list 5 item 39 (2026-10-16): the Vigor Tester's sounds between pages and raising and lowering an attribute (docs/spec-notes/vigor-tester.md §6)"
 note = "vigor-tester's steps with Luck lowered once and raised once more, so that every sound is heard; not shared with it (a launch of its own, as vigor-tester)"
@@ -4951,6 +5008,38 @@ order = [[
 expect = [
   { text = "combat: 0x0016526B destruction stage", count = 3, label = "each of the bouquet's stages is reached exactly once" },
 ]
+
+[[scenario]]
+name = "gas-trap-gun-fired-inside"
+source = "#2687; GECK wiki Traps [documented]: a gas trap goes off when a weapon is fired inside it; engine/nvf-play/src/gas_traps.rs. The GasTrapDummy hit is a [hypothesis]"
+note = "Vault 22's spore purge gas (V22SporePurgeGasRef 0x000F0908, V22TrapGasFire01: a Gas Trap-layer sphere phantom, nothing solid) is enabled at 3 s, as Keely's line INFO 0x000F43F8 does. The player is moved into it at 5 s and fires a 10mm pistol at 9 s. The 10mm is in neither gas list, so the cloud is hit with GasTrapDummy (in ExplodesGasTrapsOnHit). Its script's DamageObject 5 takes it to stage 1 (burning), its self-damage to stage 2 and explosion 0x000348D0, and its OnDestructionStageChange completes There Stands the Grass (VMS06) objective 50. Before #2687 the phantom was dropped and nothing happened"
+areas = ["traps", "scripts", "combat"]
+paths = ["engine/nvf-play/src/gas_traps.rs", "engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/phys/prepare.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:enable:0x000F0908,5:moveto:player:0x000F0908", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONTROL = "6:weapon,9:fire", NVF_PLAY_TEST_CONSOLE = "16:getobjectivecompleted VMS06 50;0F0908.getdestructionstage;16.5:close" }
+args = ["--cell", "Vault22e", "--pos=3592,2200,8470", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'script: .* has 1 gas volume\(s\) in its model' },
+  { re = 'combat: a shot fired inside it reaches gas cloud 0x000F0908, hit with GasTrapDummy: its hit blocks ran' },
+  "combat: 0x000F0908 destruction stage -1 -> 1",
+  { re = 'combat: 0x000F0908 destruction stage 1 -> 2, disabled, 1 explosion\(s\)' },
+  { re = 'console: GetObjectiveCompleted.* >> 1\.00' },
+]]
+
+[[scenario]]
+name = "gas-trap-shishkebab-walk-in"
+source = "#2687; V22TrapGasSCRIPT 0x000EF405 OnTriggerEnter: an actor with a weapon of ExplodesGasTrapsOnTouch drawn sets the cloud off [observed: fnvtool script decompile]; the Gas Trap-layer phantom kept as a trigger volume"
+note = "Vault 22's spore purge gas (V22SporePurgeGasRef 0x000F0908) is enabled at 3 s, as Keely's line does (the vault's other clouds hang on disabled enable parents until it burns). The player draws the Shishkebab (0000434E) at 4 s and is moved into the gas at 7 s. Its OnTriggerEnter (IsWeaponInList ExplodesGasTrapsOnTouch, IsWeaponOut) runs DamageObject 5, so it reaches stage 1, and its OnDestructionStageChange completes VMS06 objective 50"
+areas = ["traps", "scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/phys/prepare.rs", "engine/nvf-play/src/gas_traps.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:enable:0x000F0908,7:moveto:player:0x000F0908", NVF_PLAY_TEST_EQUIP = "0000434E", NVF_PLAY_TEST_CONTROL = "4:weapon", NVF_PLAY_TEST_CONSOLE = "14:getobjectivecompleted VMS06 50;14.5:close" }
+args = ["--cell", "Vault22e", "--pos=3592,2200,8470", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  "script: player entered trigger V22SporePurgeGasRef",
+  "combat: 0x000F0908 destruction stage -1 -> 1",
+  { re = 'console: GetObjectiveCompleted.* >> 1\.00' },
+]]
 
 # ------------------------------------------------------------------ dialogue, Pip-Boy, terminals
 
@@ -9748,10 +9837,10 @@ expect = [
 [[scenario]]
 name = "grenade-launcher-arc"
 source = "#1471: the Grenade Launcher's round on the Searchlight Airport runway, first person, along the runway (heading 75), aimed level, 15 and 30 degrees up; the original's (o26_gl, combat-rules.md §5) left 110-140 units above the ground at 1,750 units/s and first hit the ground 793 / 1,944 / 2,815 units out after 0.45 / 1.16 / 1.86 s, going off there"
-note = "the radscorpions about are killed first (killall, as the original's save had them); no spread (NVF_PLAY_TEST_NO_SPREAD), so each round leaves along the aim; the view is set again before each shot (the kick lifts it); each `fire` press is let go 0.1 s later"
+note = "the radscorpions about are killed first (killall, as the original's save had them), and the giant one (0x00162975) is then disabled: its corpse lies about 1,650 units out with its trunk 160 units off the line, and the 15 degree round, 75 units over the ground there on its way down, struck its raised stinger (hit 0x00162975 on Stinger) instead of the ground (#2762); no spread (NVF_PLAY_TEST_NO_SPREAD), so each round leaves along the aim; the view is set again before each shot (the kick lifts it); each `fire` press is let go 0.1 s later"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/projectile.rs", "crates/fnv-combat/src/shot.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0,10:75:15,15:75:30", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.1:fire,11:fire,11.1:fire,16:fire,16.1:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close;1.6:00162975.disable;1.9:close", NVF_PLAY_TEST_LOOK = "2:75:0,10:75:15,15:75:30", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.1:fire,11:fire,11.1:fire,16:fire,16.1:fire" }
 args = ["--cell", "Goodsprings", "--pos=37000,-117160,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 22
 expect = [
@@ -13012,6 +13101,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "god-mode-vats-ap-condition"
+source = "issue #2743 (owner decision 2026-11-15): in god mode the player has unlimited Action Points and the weapon loses no condition. vats-mode-two-marks's run"
+note = "vats-mode-two-marks's setup (god mode, the .357, two dogs marked and shot): each attack's 26 AP is counted as its cost and none is taken from the player; the two shots wear the revolver by nothing"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: god mode: Action Points are unlimited, an attack takes none \((?P<n>\d+) now\)', range = [1, 1000], label = "entering VATS in god mode: the AP are unlimited" },
+  { re = 'vats mode: marked .* mark 2; 52 AP reserved, unlimited AP left', label = "two marks, not held to the AP" },
+  { re = "vats mode: god mode: attack 1 takes none of the player's Action Points: \\d+ left", label = "the first attack takes none" },
+  { re = "vats mode: god mode: attack 2 takes none of the player's Action Points: \\d+ left", label = "nor the second" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "both shots fired (52 AP their cost)" },
+]]
+expect = [
+  { re = "condition summary: the player's weapons lost 0\\.0 health, .*, armour lost 0\\.0 health", label = "the revolver and the armour lost no condition" },
+]
+
+[[scenario]]
 name = "vats-classic-queue"
 source = "fork owner 2026-11-09: the original's VATS flow as the default style, the world stopped while targets are chosen (docs/design/vats-classic.md §2 to §7)"
 note = "vats-mode-two-marks's setup in the classic style at its default, a full stop: the player turns to a dog at 9.8 s, V at 10 s finds the targets and stops the clock (speed 0; the aids' clock then counts real time, so the later keys still come); S moves to another part, the left button queues two attacks on it, E plays them at half speed while the player takes fVATSPlayerDamageMult of a hit. 2 x 26 = 52 AP"
@@ -13498,10 +13607,10 @@ forbid = [{ re = 'vats mode: the Mysterious Stranger comes', label = "the Strang
 [[scenario]]
 name = "vats-grim-reaper-nerves"
 source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Grim Reaper's Sprint gives 20 AP back after a VATS kill, Nerves of Steel speeds AP regeneration (docs/design/vats-mode.md §18.3, §18.4)"
-note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate). Since 2026-11-11 a mark on a dead actor is dropped unspent (vats-classic.md 8.1): when both marks landed on the same dog the second was dropped and the .44's 20 AP came back whole, so the regeneration line came only in the runs that marked both dogs. The weapon is now the .357 (26 AP a shot) and the dogs have 1 health: either way more AP is spent than comes back, and the rest regenerates"
+note = "the Goodsprings dogs set on the player, whose Health is 50000 from 3 s (not god mode: there no AP is spent, so none could come back, #2743); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate). Since 2026-11-11 a mark on a dead actor is dropped unspent (vats-classic.md 8.1): when both marks landed on the same dog the second was dropped and the .44's 20 AP came back whole, so the regeneration line came only in the runs that marked both dogs. The weapon is now the .357 (26 AP a shot) and the dogs have 1 health: either way more AP is spent than comes back, and the rest regenerates"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:player:Health:50000,3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
@@ -14002,6 +14111,23 @@ expect = [
   { re = 'knockout: [0-9A-F]{8} is up: it may move again', label = "his get-up clip ends" },
   { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
+]
+
+[[scenario]]
+name = "knockdown-push-then-kill"
+source = "issue #2749 (engine/nvforever/src/deaths.rs; crates/fnv-game/src/unconscious.rs DEAD_SHOVE_KEPT): Kimball's visit, the Legion route. The end script of the Legion sniper's package 0x00164F88 is PushActorAway on the Ranger and then KillActor on him. The Ranger was dead before he was ever shown knocked down, so the push's shove was never taken and his body dropped where it stood instead of going off the tower"
+note = "knockdown-push's placement (Easy Pete 300 units north of the player at 14 s); at 16 s one console line pushes him with force 10 from the player and kills him. He dies thrown as a ragdoll: the shove is taken by the death, not lost"
+areas = ["combat", "knockouts", "scripts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;EasyPeteRef.killactor;16.6:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'knockout: Easy Pete \S+ knocked down \(pushed\)', label = "the push knocks him down in the rules" },
+  { re = 'knockout: [0-9A-F]{8} thrown at \(-?\d+, (?P<n>-?\d+), \d+\) units/s as it dies$', range = [250, 350], label = "killed by the same line, his body is thrown north at the push's 300 units/s as it dies" },
+  { re = 'ragdoll: actor [0-9A-F]{8} at rest at', label = "the thrown body comes to rest as a ragdoll" },
+  { re = 'knockout: Easy Pete \S+ gets up', count = 0, label = "dead, he does not get up" },
+  { re = 'the shove is lost', count = 0, label = "the shove reaches the ragdoll" },
 ]
 
 [[scenario]]
@@ -14532,6 +14658,21 @@ expect = [
   { re = 'sneak gauges summary: on true, shown (?P<n>[\d.]+) s', range = [10, 30], label = "shown for the time sneaking" },
   { re = 'sneak gauges summary: .*most light (?P<n>\d+)', range = [30, 100], label = "noon light measured at the player" },
   { re = 'sneak gauges summary: .*most noise (?P<n>\d+)', range = [100, 1000], label = "the shot is loud" },
+]
+
+[[scenario]]
+name = "sneak-sound-cover"
+source = "#2688 (docs/design/detection.md §11): the sounds of the world heard at the player cover its noise; the player sneaks in Goodsprings at noon with the gauges on, the placed sounds there are noted and measured as cover, and the gauges' cover mark shows"
+areas = ["detection", "hud", "audio"]
+paths = ["engine/nvf-play/src/sound_cover.rs", "engine/nvf-play/src/sneak_gauges.rs", "engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/radio.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:5", NVF_PLAY_TEST_SETTINGS = "4.5:sneak-gauges", NVF_PLAY_TEST_CONTROL = "8:sneak" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'sound cover summary: on true, (?P<n>\d+) sounds noted', range = [1, 100000000], label = "placed sounds are noted at the player" },
+  { re = 'sound cover summary: .*, (?P<n>\d+) measurements', range = [10, 1000], label = "the cover is measured with detection" },
+  { re = 'sound cover summary: .*most cover (?P<n>\d+)', range = [1, 100], label = "some sound of the world is heard" },
+  { re = 'sneak gauges summary: .*cover mark (?P<n>[\d.]+) s', range = [1, 30], label = "the noise bar shows the cover mark" },
 ]
 
 [[scenario]]
@@ -15327,10 +15468,10 @@ expect = [
 [[scenario]]
 name = "explosion-radiation"
 source = "docs/spec-notes/radiation.md §2.1: a Fat Man fired at the ground by the Prospector Saloon (as fatman-explosion-particles, aimed steeper) leaves FatManNukeExplosion's radiation zone (EXPL: 10 rads a second within 616 units, dissipation 12 s): the player in it takes rads, its level fades, waiting is refused while it irradiates, and it fades away"
-note = "NVF_PLAY_TEST_GOD keeps the player alive at the blast (it lands about 100 units ahead, about 6 s in); the wait opens at 9 s, inside the zone's 12 s"
+note = "the player's Health is set to 50000 by the console at 1 s to live through the blast (god mode did that until #2743, where it came to keep the rads off too: god-mode-no-rads); the blast (it lands about 100 units ahead, about 6 s in); the wait opens at 9 s, inside the zone's 12 s"
 areas = ["radiation", "combat", "wait"]
 paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/wait.rs", "crates/fnv-game/src/needs.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_WAIT = "9:open" }
+env = { NVF_PLAY_TEST_CONSOLE = "1:player.setav health 50000;1.5:close", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_WAIT = "9:open" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 26
 order = [[
@@ -15344,6 +15485,26 @@ order = [[
 expect = [
   { re = 'wait menu: refused \(wait\): the player is taking radiation damage', label = "no waiting while it irradiates" },
   { re = 'radiation summary: .*\(\+(?P<n>[\d.]+)\).*, 1 explosion zone\(s\)', range = [20, 70], label = "rads taken in the zone (at most 60 before Rad Resistance)" },
+]
+
+[[scenario]]
+name = "god-mode-no-rads"
+source = "issue #2743 (owner decision 2026-11-15): in god mode the player gains no radiation. explosion-radiation's Fat Man blast, as it ran before, with god mode on"
+note = "NVF_PLAY_TEST_GOD keeps the player alive at the blast and, since #2743, its rads where they were; no wait is asked for"
+areas = ["radiation", "combat", "wait"]
+paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/wait.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 26
+order = [[
+  { re = 'combat: explosion FatManNukeExplosion at', label = "the Fat Man's blast, in god mode" },
+  { re = 'radiation: explosion FatManNukeExplosion leaves a radiation zone \(#1\): 10\.0 rads/s within 616 units, fading over 12 s', label = "it leaves its radiation zone" },
+  { re = 'radiation: level (10|9)\.\d rads/s \(zone of FatManNukeExplosion (10|9)\.\d\), taking 0\.00/s', label = "the player stands in the zone and takes none of it" },
+  { re = 'radiation: the zone of FatManNukeExplosion \(#1\) has faded', label = "the zone ends" },
+]]
+expect = [
+  { re = 'radiation summary: .*\(\+0\.0\).*, 1 explosion zone\(s\)', label = "no rads gained in the zone" },
+  { re = 'radiation: level .* taking (0\.0[1-9]|0\.[1-9]\d|[1-9]\d*\.\d\d)/s', count = 0, label = "never taking any" },
 ]
 
 [[scenario]]
@@ -16043,10 +16204,10 @@ order = [[
 [[scenario]]
 name = "pickpocket-plant-dynamite"
 source = "#1640 (docs/spec-notes/pickpocket.md §5): a stick of dynamite placed in a pocket while sneaking goes live; the victim panics (the idle tree's root naming GetPlantedExplosive) and stands; after fProjectileInventoryGrenadeTimer it goes off and kills him (its 75 points hurt anyone); the kill is the player's and no faction turns on the player"
-note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s, as in pickpocket-steal); the console sets the player's Sneak to 100 at 2 s (the placement's chance at its cap); the inventory is emptied at 6 s, after the pre-order packs' items have come, and given one stick of Dynamite at 6.5 s (value 25: a chance of 78% against Chet's Sneak 15; a Frag Grenade's value of 150 leaves 16%, and the seeded first roll, 64, would catch it); the player stands at him (NEAR), sneaks at 4 s, is put in front of him at 7 s (FACE), presses E at 8 s, moves to the player's side at 9.5 s (left), places the dynamite at 10 s (Enter; the roll is seeded by the victim, so it repeats) and closes the menu at 11 s (E); the fuse's 2 s run after. Chet, in front of the player, detects him, so the kill is seen by its victim (Goodsprings infamy, observed 2026-11-06); nobody else is in the store to turn"
+note = "the pocket's rolls are seeded by the victim (NVF_PLAY_TEST_PICKPOCKET_SEED, as every opening was before #2751), so the placement goes the same way each run; Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s, as in pickpocket-steal); the console sets the player's Sneak to 100 at 2 s (the placement's chance at its cap); the inventory is emptied at 6 s, after the pre-order packs' items have come, and given one stick of Dynamite at 6.5 s (value 25: a chance of 78% against Chet's Sneak 15; a Frag Grenade's value of 150 leaves 16%, and the seeded first roll, 64, would catch it); the player stands at him (NEAR), sneaks at 4 s, is put in front of him at 7 s (FACE), presses E at 8 s, moves to the player's side at 9.5 s (left), places the dynamite at 10 s (Enter; the roll is seeded by the victim, so it repeats) and closes the menu at 11 s (E); the fuse's 2 s run after. Chet, in front of the player, detects him, so the kill is seen by its victim (Goodsprings infamy, observed 2026-11-06); nobody else is in the store to turn"
 areas = ["activate", "menus", "crime", "idles"]
 paths = ["engine/nvf-play/src/pickpocket.rs", "crates/fnv-game/src/pickpocket.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
+env = { NVF_PLAY_TEST_PICKPOCKET_SEED = "0x5EED", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 20
 order = [[
@@ -16061,10 +16222,10 @@ forbid = [{ text = "crime: the player is now an enemy of", label = "no faction t
 [[scenario]]
 name = "pickpocket-live-item"
 source = "#1640 item 5, first part (docs/spec-notes/pickpocket.md §5): a planted explosive reserves its unit in the pocket (Extra::live); the victim cannot equip, drop or lose it to RemoveItem; its blast takes exactly that unit"
-note = "[design] pickpocket-plant-dynamite's placement (Chet restrained, Sneak 100, one Dynamite placed at 10 s, the menu closed at 11 s). The console then tries Chet's EquipItem, Drop and RemoveItem on the Dynamite during the fuse and counts it (still 1), closes, and counts again after the blast (0). The live check line reads the row from the open pocket menu, listed again as the dynamite is armed (pickpocket::arm_given); the refusal of a take is the unit tests an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once and a_live_explosive_is_a_row_of_its_own_that_stays."
+note = "the pocket's rolls are seeded by the victim (NVF_PLAY_TEST_PICKPOCKET_SEED, as every opening was before #2751), so the placement goes the same way each run; [design] pickpocket-plant-dynamite's placement (Chet restrained, Sneak 100, one Dynamite placed at 10 s, the menu closed at 11 s). The console then tries Chet's EquipItem, Drop and RemoveItem on the Dynamite during the fuse and counts it (still 1), closes, and counts again after the blast (0). The live check line reads the row from the open pocket menu, listed again as the dynamite is armed (pickpocket::arm_given); the refusal of a take is the unit tests an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once and a_live_explosive_is_a_row_of_its_own_that_stays."
 areas = ["activate", "menus", "crime"]
 paths = ["engine/nvf-play/src/pickpocket.rs", "crates/fnv-game/src/pickpocket.rs", "crates/fnv-sim/src/inventory.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close;11.3:GSChetRef.EquipItem WeapNVDynamite;11.4:GSChetRef.Drop WeapNVDynamite 1;11.5:GSChetRef.RemoveItem WeapNVDynamite 1;11.7:GSChetRef.GetItemCount WeapNVDynamite;12:close;15:GSChetRef.GetItemCount WeapNVDynamite;15.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
+env = { NVF_PLAY_TEST_PICKPOCKET_SEED = "0x5EED", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close;11.3:GSChetRef.EquipItem WeapNVDynamite;11.4:GSChetRef.Drop WeapNVDynamite 1;11.5:GSChetRef.RemoveItem WeapNVDynamite 1;11.7:GSChetRef.GetItemCount WeapNVDynamite;12:close;15:GSChetRef.GetItemCount WeapNVDynamite;15.3:close", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
@@ -16412,6 +16573,22 @@ expect = [
   { re = 'idle: \S+ plays LoosePickUpGroundObject .*\(PickUp\)', label = "the game's pick-up idle plays" },
   { re = 'rearm: now holds .* it fetched', label = "she holds the rifle" },
   { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "she fights with the rifle" },
+]
+
+[[scenario]]
+name = "combat-explosive-too-close"
+source = "#2745 (owner 2026-11-15): Boomers in the Nellis barracks stood with their grenade launchers and let the player kill them; a fighter whose explosive weapon cannot fire at a target inside its blast, still too close after 2 s, takes up another weapon or its fists (docs/design/combat-ai.md §22)"
+note = "Violet's items replaced with a grenade launcher (blast 750: no shot nearer than 814) and its grenades, the player moved 300 units from her at 12 s, god mode; she holds fire within the blast, puts the launcher away and fights with her fists"
+areas = ["combat"]
+paths = ["crates/fnv-ai/src/rearm.rs", "crates/fnv-game/src/rearm.rs", "crates/fnv-game/src/style_weapon.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "12:moveto:player:FiendVioletRef:300:0:0,12.5:call:FiendVioletRef:RemoveAllItems,12.6:call:FiendVioletRef:AddItem:WeapNVGrenadeLauncher:1,12.6:call:FiendVioletRef:AddItem:Ammo40mmGrenade:12,12.7:call:FiendVioletRef:EquipItem:WeapNVGrenadeLauncher,13:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 35
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVGrenadeLauncher \(gun\)', label = "she fights with the grenade launcher first" },
+  { re = "holds fire: the player is within its weapon's blast", label = "she holds fire with the player inside the blast" },
+  { re = 'rearm: puts away .* for its fists', label = "she puts the launcher away" },
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with its fists', label = "she fights with her fists" },
 ]
 
 [[scenario]]
@@ -19502,6 +19679,26 @@ expect = [
   { json = "given_errors.*", count = 0, label = "there-stands-the-grass: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the side-quest walkthrough report (batch 4, issue #918)"
+
+[[scenario]]
+name = "mq-there-stands-the-grass-spore-purge"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/there-stands-the-grass-spore-purge.actions.json: There Stands the Grass (VMS06), Keely's spore purge: the purge gas lit completes objective 50 (#2687)"
+areas = ["quests", "scripts", "traps"]
+paths = ["crates/fnv-game/walkthrough/there-stands-the-grass-spore-purge.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/there-stands-the-grass-spore-purge.actions.json"]]
+expect = [
+  { json = "observations.?label=purge gas before Keely's line.disabled", equals = true, label = "the purge gas starts disabled" },
+  { json = "observations.?label=purge gas after Keely's line.disabled", equals = false, label = "Keely's line enables it" },
+  { json = "observations.?label=milestone: VMS06 objective 50 shown.objective.50.displayed", equals = true, label = "objective 50 shown" },
+  { json = "observations.?label=milestone: VMS06 objective 50 shown.objective.50.completed", equals = false, label = "and not done before the gas burns" },
+  { json = "observations.?label=laser through the purge gas.ran", equals = true, label = "the laser's hit runs the gas's OnHitWith" },
+  { json = "observations.?label=purge gas lit.destroyed", equals = true, label = "the gas reaches its Destroy stage" },
+  { json = "observations.?label=final: VMS06 objective 50.objective.50.completed", equals = true, label = "objective 50 completed" },
+  { json = "observations.?label=final: VMS06 objective 50.objective.60.displayed", equals = true, label = "objective 60 shown" },
+  { json = "steps.*.error", count = 0, label = "spore purge: no step fails" },
+  { json = "given_errors.*", count = 0, label = "spore purge: no given fails" },
+]
 
 [[scenario]]
 name = "mq-vault-21-tour"
@@ -23701,6 +23898,50 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-reference-attach-owned"
+source = "[design: docs/spec-notes/nif-attachments.md] Authored duplicate-name geometry and unequal bound materials through real AttachModel dispatch. UNRUN; no native or pixel comparison."
+areas = ["scripts", "actors"]
+paths = ["crates/fnv-game/src/nif_blocks.rs", "engine/nvf-assets/src/model/attachment.rs", "engine/nvforever/src/nif_attachments.rs", "engine/nvforever/src/nif_attach_model_probe.rs", "tools/smoke/fixtures/attach-model-owned/"]
+requires = ["NVF_PLAY_TEST_ATTACH_MODEL_HOME", "NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW", "NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH"]
+note = "Run exact manifest/Data/HOME admission before launch, then pass the owned Data view with CLI --data. The normal smoke CLI does not itself validate this manifest. HOME/mods is not a loose-mesh root. Run the field judge on the same complete log; scenario regexes alone do not establish geometry/material pairing or captured-entity retirement."
+env = { RUST_LOG = "info,nvf_play::script=debug", NVFOREVER_HOME = "{env:NVF_PLAY_TEST_ATTACH_MODEL_HOME}", NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW = "{env:NVF_PLAY_TEST_ATTACH_MODEL_ASSET_VIEW}", NVF_PLAY_TEST_ATTACH_MODEL_PROBE = "1", NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH = "{env:NVF_PLAY_TEST_ATTACH_MODEL_PROBE_PATH}", NVF_PLAY_TEST_CONSOLE = '4:ToggleFirstPerson 0;4.3:close;5:player.GetChildBlocks "" 1;5.3:close;7:PrintC "nvf attach warm %g", (Ar_Size (player.GetChildBlocks "" 1));7.3:close;9:PrintC "nvf attach requested %g", (AttachModel player 3 "|*_nvfa*nvf_smoke/attach_model.nif");9.5:close;14:PrintC "nvf attach removal submitted %g", (AttachModel player 2 "|*_nvfa*nvf_smoke/attach_model.nif");14.5:close' }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 20
+timeout = 180
+ends = "run log: the game exited normally"
+expect = [
+  { re = "nif attach probe: preflight prepared shapes=2 .* rig=0 ", count = 1, label = "ordinary baseline ModelCtx prepares two authored static drawables" },
+  { re = "nif attach probe: preflight shape .* vertices=4 .* positions_finite=1 .* roughness_finite=1", count = 2, label = "real prepared geometry and material fields before Attach" },
+  { re = 'script: print "nvf attach warm [1-9][0-9]*"', label = "real third-person recipient is published" },
+  { re = 'script: print "nvf attach requested [01]"', count = 1, label = "submission return only; physical fields are checked independently" },
+  { re = 'nif attach probe: present .* vertices=4 ', count = 2, label = "two actual mesh/material field rows" },
+  { re = 'nif attach probe: captured .* count=2 distinct_entities=1 distinct_meshes=1', count = 1, label = "physical entity and mesh identity" },
+  { re = 'nif attach probe: retained .* captured_count=2 matching_named=2 same_handles=1 same_ancestry=1', count = 1, label = "stable captured ownership before mode2" },
+  { re = 'script: print "nvf attach removal submitted [01]"', count = 1, label = "explicit authored removal submission before deferred producer execution" },
+  { re = 'nif attach probe: removed .* captured_count=2 gone=2 matching_named=0 host_live=1 selected_same=1', count = 1, label = "captured entities gone and recipient preserved" },
+]
+order = [[
+  { text = "nif attach probe: preflight prepared shapes=2 " },
+  { text = "nif attach probe: preflight shape " },
+  { re = 'script: print "nvf attach requested [01]"' },
+  { text = "nif attach probe: present " },
+  { text = "nif attach probe: captured " },
+  { text = "nif attach probe: retained " },
+  { re = 'script: print "nvf attach removal submitted [01]"' },
+  { text = "nif attach probe: removed " },
+]]
+forbid = [
+  { text = "nif attach probe: preflight unavailable " },
+  { text = "nif attach probe: terminal " },
+  { text = "nif attach probe: unavailable " },
+  { text = "nif attach probe: recipient " },
+  { re = "script error in " },
+  { re = "(?i)script: attachmodel failed in " },
+  { re = "NVF_PLAY_TEST_CONSOLE: .*: (?:expected <seconds>:<line>|bad seconds)" },
+  { re = 'attachment .*could not supply a complete graph' },
+]
+
+[[scenario]]
 name = "nif-blocks-mirror"
 source = "N6 (docs/design/nif-blocks.md): JIP's NIF block functions read the drawn nodes through the engine's mirror; a set node scale shows in the mirror and on the drawn node"
 areas = ["scripts", "actors"]
@@ -25816,7 +26057,7 @@ expect = [
 name = "fsr-quality"
 source = "docs/design/fsr-upscaling.md: real FSR dispatch with skinned/alpha-tested inputs, full-resolution postprocessing and HUD"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*", "engine/vendor/wgpu-ffx/**"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*", "engine/vendor/wgpu-ffx/**"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--fsr", "quality", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
 run_seconds = 18
@@ -25827,7 +26068,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-settings"
 source = "docs/design/fsr-upscaling.md: live native AA, quality, performance and off transitions; rebuild histories without stacking AA"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,12:fsr-upscaling=Quality,13:fsr-upscaling=Performance,14:fsr-upscaling=Off,15:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 20
@@ -25838,7 +26079,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-water"
 source = "docs/design/fsr-upscaling.md: render-scale transmission and water screen/depth coordinates, reactive inputs"
 areas = ["graphics", "water"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/water.wesl", "engine/vendor/bevy_pbr/src/transmission/node.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/water.wesl", "engine/vendor/bevy_pbr/src/transmission/node.rs"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--pos=59500,38500,2350", "--heading", "90", "--pitch", "-15", "--hour", "12", "--size", "1280x720", "--fsr", "balanced", "--graphics", "enhanced", "--no-lodgen", "--radius", "1"]
 run_seconds = 16
@@ -25849,7 +26090,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-resize"
 source = "docs/design/fsr-upscaling.md: window resize and Ultra Performance recreate histories and output-sized resources"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:resolution=1600x900,15:fsr-upscaling=Ultra Performance,17:fsr-upscaling=Quality", NVF_PLAY_TEST_PAUSE_MENU = "13:keep" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--no-voice", "--no-lodgen"]
 run_seconds = 23
@@ -25860,7 +26101,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-restart"
 source = "docs/design/fsr-upscaling.md: a cold process restores Quality and the kept resolution from fsr-resize; no --size or --fsr is given, as in a test run a given switch wins over the INI (#1382)"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/settings.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-lodgen"]
 run_seconds = 12
@@ -25871,7 +26112,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-dropdown"
 source = "docs/design/fsr-upscaling.md: the native dropdown presents the five upscaling qualities and keyboard selection applies Balanced"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-dropdown-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Quality,11.5:select:upscaler-quality", NVF_PLAY_TEST_PAUSE_MENU = "12:pick,13:down,14:shot,15:pick" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 21
@@ -25884,7 +26125,7 @@ name = "fsr-night-lights"
 ends = "Screenshot saved to fsr-night-lights.png"
 source = "docs/design/fsr-upscaling.md: clustered point/spot lights use normalized main-pass viewport coordinates at reduced render resolution"
 areas = ["graphics", "lights"]
-paths = ["engine/vendor/bevy_pbr/src/render/clustered_forward.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/lights.rs"]
+paths = ["engine/vendor/bevy_pbr/src/render/clustered_forward.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/lights.rs"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--world", "TheStripWorldNew", "--pos=-250,8600,1150", "--heading", "185", "--pitch", "0", "--hour", "21", "--graphics", "enhanced", "--size", "1280x720", "--fsr", "quality", "--no-voice", "--no-lodgen", "--screenshot", "fsr-night-lights.png", "--screenshot-delay", "6"]
 run_seconds = 20
@@ -25895,7 +26136,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-aa-lock"
 source = "docs/design/fsr-upscaling.md: Native AA explicitly disables the engine AA row, ignores edits while locked, and restores saved 8x when FSR is disabled"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-aa-lock-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0,14:fsr-upscaling=Off", NVF_PLAY_TEST_PAUSE_MENU = "12:shot" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--msaa", "8", "--fsr", "native-aa", "--no-voice", "--no-lodgen"]
 run_seconds = 21
@@ -25906,7 +26147,7 @@ forbid = ["settings: anti-aliasing Off", "FSR dispatch failed", "FSR 3.1 unavail
 name = "fsr-moving-weapon"
 source = "docs/design/fsr-upscaling.md revision 2: moving camera, animated first-person weapon and NPC rigs exercise real temporal inputs after correcting the motion-buffer binding"
 areas = ["graphics", "player-body", "animation"]
-paths = ["engine/vendor/wgpu-ffx/wgpu-ffx/src/pass.rs", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/vendor/wgpu-ffx/wgpu-ffx/src/pass.rs", "engine/nvf-assets/src/nif_prepass.wesl", "engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-moving-weapon-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,13:reload,17:view,19:fire", NVF_PLAY_TEST_LOOK = "9:0:-10,9.1:5:-10,9.2:10:-10,9.3:15:-10,9.4:20:-10,9.5:25:-10,9.6:30:-10", NVF_PLAY_TEST_MOVE = "10:0:1,12:0:0", NVF_PLAY_TEST_SHOTS = "14:fsr-moving-weapon.png" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--no-lodgen", "--actor-weapons", "drawn", "--fsr", "quality", "--size", "1280x720"]
 run_seconds = 24
@@ -25917,7 +26158,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-foliage"
 source = "docs/design/fsr-upscaling.md revision 3 and after revision 4: the reactive mask's opaque reference includes the terrain's blended texture layers and the sky's blended parts, so FSR keeps history on the ground under grass, bushes and trees, and against the sky"
 areas = ["graphics", "world"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/sky.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/sky.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--heading", "0", "--pitch=-8", "--hour", "12", "--size", "1280x720", "--fsr", "native-aa", "--no-voice", "--no-lodgen"]
 run_seconds = 16
@@ -25928,7 +26169,7 @@ forbid = ["FSR reactive reference: terrain layers not drawn", "FSR reactive refe
 name = "fsr-corn-cutouts"
 source = "docs/design/fsr-upscaling.md revision 3: Goodsprings' corn rows (blended, cut-out alpha) are drawn alpha-tested while FSR is on and blended again when it is off"
 areas = ["graphics", "world"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,14:fsr-upscaling=Off" }
 args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-messages", "--no-lodgen"]
 run_seconds = 18
@@ -25940,7 +26181,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "latency-reduction"
 source = "#1778, #2317, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start names AMD Anti-Lag, direct NVIDIA low latency or NVIDIA Reflex through Streamline, or says neither is available"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
@@ -25955,7 +26196,7 @@ name = "latency-reduction-direct"
 source = "#2224, #2317, docs/design/latency-reduction.md: without Streamline the direct latency route retains its startup availability and on-switch messages"
 note = "[documented: upscaler.rs::UpscalerStartup::new] NVF_DLSS_PRELOAD=0 skips Streamline unless DLSS is chosen. Explicit Off choices and the empty DLSS fixture keep inherited files and saved choices out."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/main.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { WGPU_BACKEND = "vulkan", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DIR = "{repo}/tools/smoke/fixtures/dlss-empty", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--frame-generation", "off", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
@@ -25969,7 +26210,7 @@ forbid = ["NVIDIA Reflex", "DLSS: slInit:", "DLSS: route:", "Validation Error", 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
@@ -25994,7 +26235,7 @@ forbid = [
 name = "frame-generation-switch"
 source = "h9x000/NVForever#1, docs/design/frame-generation.md \"Presentation and pacing\": frame generation switched off and on again on the settings page: its presenter thread ends before Bevy takes the window's images again, a new one starts and presents, no validation errors"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "9:frame-generation=Off,14:frame-generation=FSR 3.1" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
 run_seconds = 32
@@ -26014,7 +26255,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation-needs-fsr"
 source = "#1778, docs/design/frame-generation.md: frame generation on with FSR off says it is held off, and starts when FSR is chosen on the settings page"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--frame-generation", "--no-voice", "--no-lodgen"]
 run_seconds = 20
@@ -26036,7 +26277,7 @@ name = "dlss-no-files"
 source = "#2198, docs/design/dlss-upscaling.md: DLSS asked for with a DLSS folder that holds none of its files: the loader says so, the status says DLSS is unavailable and why, Streamline is never initialised and the camera draws natively"
 note = "NVF_DLSS_DIR names the empty fixture folder (tools/smoke/fixtures/dlss-empty) and NVF_DLSS_PRELOAD=0 keeps a preload in the runner's environment out. On Windows the loader finds the four files missing (dlss/win.rs `start`); elsewhere DLSS is Windows only (dlss/mod.rs `start`), so each expectation takes either reason"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_DLSS_DIR = "{repo}/tools/smoke/fixtures/dlss-empty", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOT_FLATNESS = "1", NVF_PLAY_TEST_SHOTS = "8:dlss-no-files.png" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-messages", "--no-lodgen"]
 run_seconds = 10
@@ -26053,7 +26294,7 @@ name = "dlss-quality"
 source = "#2198, docs/design/dlss-upscaling.md: DLSS Quality at 1280x720 outdoors: Streamline loaded and its device check passed, the instance made through the interposer, DLSS drawing the camera in its own pass at the size DLSS reports, every evaluate ok, and Streamline shut down in order"
 note = "needs NVF_DLSS_DIR (NVIDIA's files). 853x480 is the render size DLSS reported for Quality at 1280x720 in the spike's runs (2026-11-12)."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/ssao.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/ssao.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
@@ -26079,7 +26320,7 @@ name = "dlss-modes"
 source = "#2198, docs/design/dlss-upscaling.md: all five DLSS modes picked in turn on the settings page; each sets DLSS's options again after the GPU is drained and DLSS's resources are freed, and draws in DLSS's own mode; FSR picked in the same session then draws at once, through Streamline's interposer"
 note = "needs NVF_DLSS_DIR (NVIDIA's files). The picks use the older key fsr-upscaling, which the test aid still takes for the Upscaler and Upscaling mode rows (logged under it). Since every switch is live with Streamline loaded (#2198's play-test), the last pick, FSR Quality, draws FSR: the expectation that it waited for a restart and the forbid on FSR drawing became expectations that FSR draws at once"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=DLSS Native AA,13:fsr-upscaling=DLSS Balanced,15:fsr-upscaling=DLSS Performance,17:fsr-upscaling=DLSS Ultra Performance,19:fsr-upscaling=DLSS Quality,21:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26111,7 +26352,7 @@ name = "dlss-model"
 source = "#2198, docs/design/dlss-upscaling.md \"The DLSS model\": DLSS Quality, then the DLSS model row walked through J, K, L, M and back to Default on the settings page; each pick sets DLSS's options again with that preset in every mode's field, after the GPU is drained and DLSS's resources are freed, and DLSS's output is seen for each generation"
 note = "needs NVF_DLSS_DIR (NVIDIA's files). The lines are dlss/evaluate.rs's (options:, recreate:, evaluate active:, output observed:, each naming the model). The models are named by their letters since the user's rename (2026-11-12; upscaler.rs DlssModel::name), so the picks, the settings: lines and the patterns say J, not Preset J; the walk keeps its J, K, L, M order (the picks go by name, not by the row's order). 853x480 is the render size DLSS reported for Quality at 1280x720 (dlss-quality); the model does not enter the optimal settings (dlss/sizing.rs Key), so it stays. Which model NGX then uses is NGX's to say in Streamline's log, not checked here"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:dlss-model=J,13:dlss-model=K,15:dlss-model=L,17:dlss-model=M,19:dlss-model=Default" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26161,7 +26402,7 @@ name = "dlss-resize"
 source = "#2198, docs/design/dlss-upscaling.md: the window resized to 1600x900 with DLSS on, then Ultra Performance and back to Quality: DLSS's options set again for each output size and mode after the GPU is drained, as fsr-resize does for FSR"
 note = "needs NVF_DLSS_DIR (NVIDIA's files)."
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:resolution=1600x900,15:fsr-upscaling=DLSS Ultra Performance,17:fsr-upscaling=DLSS Quality", NVF_PLAY_TEST_PAUSE_MENU = "13:keep" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26183,7 +26424,7 @@ name = "dlss-frame-generation"
 source = "#2198, docs/design/frame-generation.md: frame generation asked for with DLSS drawing is held off (FSR's frame generation runs only with FSR drawing); DLSS draws as usual"
 note = "needs NVF_DLSS_DIR (NVIDIA's files)"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
@@ -26200,7 +26441,7 @@ name = "dlss-aa-lock"
 source = "#2198, docs/design/dlss-upscaling.md: DLSS Native AA (DLAA) turns the engine's anti-aliasing off and locks its row as FSR does (fsr-aa-lock); Off picked then draws natively at once and the saved 8x multisampling comes back, as fsr-aa-lock has it for FSR"
 note = "needs NVF_DLSS_DIR (NVIDIA's files). Since every switch is live with Streamline loaded (#2198's play-test), Off no longer waits for a restart: the expectation that DLSS kept drawing and the forbid on 8x coming back became the expectations that native draws and 8x is back, as in fsr-aa-lock. fsr-upscaling=Off is the older key, still taken by the test aid (logged under it)"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-aa-lock-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0,14:fsr-upscaling=Off", NVF_PLAY_TEST_PAUSE_MENU = "12:shot" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--msaa", "8", "--upscaler", "dlss", "--upscaler-quality", "native-aa", "--no-voice", "--no-lodgen"]
@@ -26223,7 +26464,7 @@ name = "dlss-live-switch"
 source = "#2198's play-test, docs/design/dlss-upscaling.md \"Switching\": with NVIDIA's files in the folder the start loads Streamline although FSR is chosen; DLSS picked on the Upscaler row then draws at once (its output observed), FSR picked again draws at once and DLSS's resources are freed, and DLSS picked once more sets its options again and draws (its output observed again, generation 2), without a restart"
 note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>). Leaving DLSS for FSR frees DLSS's resources at once (dlss/evaluate.rs `Evaluator::release`, the free: line). Back to DLSS after that release: the options are set again without a recreate (nothing held, so options set again stays 0), a new output-proof generation (2) is observed, and the shutdown frees the resources DLSS holds again; the forbid on a shutdown free became that expectation when the return to DLSS was added (2026-11-12, the review's coverage gap)"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/fsr*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/fsr*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_SETTINGS = "12:upscaler=DLSS,16:upscaler=FSR 3.1,19:upscaler=DLSS" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26257,7 +26498,7 @@ name = "dlss-restart-pick"
 source = "#2198, docs/design/dlss-upscaling.md \"Switching\": the restart that remains: a session that started without Streamline (NVF_DLSS_PRELOAD=0, as when the files were put in the folder after the start) keeps DLSS Quality picked in the INI and waits for the next start; FSR keeps drawing and Streamline is not loaded. dlss-restart starts in the same home"
 note = "the first half of a pair with dlss-restart (they share NVFOREVER_HOME, so they run in this order). Gated on NVF_DLSS_DIR with it: the files must be there for a restart to bring DLSS (without them DLSS is held out as files-missing), and without dlss-restart it proves only half. NVF_DLSS_PRELOAD=0 keeps the loader out although the files are there; since #2198's play-test the files alone load it, so the start's line names the aid. The Upscaler row shows DLSS (restart) (settings.rs `upscaler_label`); the log's line is the status's. fsr-upscaling=DLSS Quality is the older key, still taken by the test aid; the INI gets the rows' own keys"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-restart-home", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=DLSS Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26275,7 +26516,7 @@ name = "dlss-restart"
 source = "#2198, docs/design/dlss-upscaling.md \"Switching\": a cold start in dlss-restart-pick's home starts with DLSS Quality from the INI's upscaler and upscaler-quality lines (no --upscaler or --fsr given: in a test run a given switch wins over the INI) and DLSS draws"
 note = "runs after dlss-restart-pick in the same home; needs NVF_DLSS_DIR (NVIDIA's files)."
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/main.rs"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-restart-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--no-voice", "--no-lodgen"]
@@ -26294,7 +26535,7 @@ name = "dlss-preload-fsr"
 source = "#2198, docs/design/dlss-upscaling.md: NVF_DLSS_PRELOAD=1 loads Streamline with FSR chosen; FSR Quality and FSR's frame generation then run with the device made through Streamline's interposer, and DLSS never evaluates"
 note = "needs NVF_DLSS_DIR (NVIDIA's files)"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr*", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/wgpu-ffx/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/fsr*", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/wgpu-ffx/**"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_DLSS_PRELOAD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
@@ -26324,7 +26565,7 @@ name = "dlss-download-decline"
 source = "#2250, docs/dlss.md \"Download DLSS…\": Download DLSS... picked on the Upscaler row opens NVIDIA's licence; Cancel closes it and nothing is downloaded: no network access before I accept"
 note = "NVF_DLSS_DIR names target/smoke-dlss-decline, which holds no DLSS file, and NVF_DLSS_PRELOAD=0 keeps a preload in the runner's environment out, so DLSS is out of reach as files-missing and the row offers the download. The download address is a closed loopback port, so even a wrong acceptance would not reach the network. Off Windows the row does not offer it (the settings say it is not taken). Its own NVFOREVER_HOME: the pick is an action and writes no INI, but a run's settings stay out of the player's home all the same"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/dlss_download/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-decline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-decline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:16", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "cancel" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 19
@@ -26339,7 +26580,7 @@ name = "dlss-download-offline"
 source = "#2250, docs/dlss.md \"Download DLSS…\": I accept starts the download; with no answer from the server it fails, nothing is written, and the dialog shows the result with the manual way"
 note = "NVF_DLSS_DOWNLOAD_URL is a closed port on this machine (http://127.0.0.1:9), which refuses the connection: the offline failure without the network. NVF_DLSS_DIR names target/smoke-dlss-offline (no DLSS file in it; the download writes nothing there). The aid closes the dialog a second after the result. Off Windows the row does not offer it. Its own NVFOREVER_HOME"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/dlss_download/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/upscaler*", "engine/nvf-play/src/settings.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-offline-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-offline", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "http://127.0.0.1:9/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:22", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 25
@@ -26357,7 +26598,7 @@ name = "dlss-download-404"
 source = "#2250, docs/dlss.md \"Download DLSS…\": the archive's address answering 404 fails the download with the status, nothing written"
 note = "The runner's loopback server (serve) answers every request 404; NVF_DLSS_DOWNLOAD_URL points the download at it. NVF_DLSS_DIR names target/smoke-dlss-404 (no DLSS file in it). Off Windows the row does not offer it. Its own NVFOREVER_HOME"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**", "engine/nvforever/src/settings.rs", "tools/smoke/smoke/runner.py"]
+paths = ["engine/nvforever/src/dlss_download/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/settings.rs", "tools/smoke/smoke/runner.py"]
 serve = { status = 404 }
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-404-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-404", NVF_DLSS_PRELOAD = "0", NVF_DLSS_DOWNLOAD_URL = "{serve}/streamline-sdk-v2.14.16.zip", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:20", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "accept" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
@@ -26374,7 +26615,7 @@ name = "dlss-download-real"
 source = "#2250, #2409, docs/dlss.md \"Download DLSS…\": the real download from NVIDIA's Streamline 2.14.16 release: only the eight entries fetched by ranges, each SHA-256 checked, installed in the DLSS folder, the dialog says to restart; NVIDIA's attribution joins the credits. dlss-download-real-restart then loads DLSS and sets up DLSS-G from them"
 note = "needs the network and NVF_DLSS_DOWNLOAD_REAL=1. The first half of a pair with dlss-download-real-restart (they share NVFOREVER_HOME and NVF_DLSS_DIR, so they run in this order). The aid's clear deletes the eight files from target/smoke-dlss-real at the start (it touches only a smoke-dlss-* folder), so the choice is offered every run; NVF_DLSS_PRELOAD=0 and --upscaler off keep the DLSS loader from holding a file left by the last run"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+paths = ["engine/nvforever/src/dlss_download/**", "crates/nvf-dlss-files/**"]
 requires = ["NVF_DLSS_DOWNLOAD_REAL"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real", NVF_DLSS_PRELOAD = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:170", NVF_PLAY_TEST_SETTINGS = "9:upscaler=Download DLSS...", NVF_PLAY_TEST_DLSS_DOWNLOAD = "clear,accept" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "off", "--no-voice", "--no-lodgen"]
@@ -26402,7 +26643,7 @@ name = "dlss-download-real-restart"
 source = "#2250, #2409, docs/dlss.md \"Download DLSS…\": after dlss-download-real, a restart with DLSS chosen loads Streamline from the downloaded files, sets up DLSS-G and Reflex, and DLSS draws"
 note = "runs after dlss-download-real in the same NVFOREVER_HOME and NVF_DLSS_DIR; needs NVF_DLSS_DOWNLOAD_REAL (and that run's files). The DLSS-G line needs an RTX 40 series or newer and Windows' GPU scheduling on, as dlssg-on does"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss_download/**", "engine/nvforever/src/dlss/download/**"]
+paths = ["engine/nvforever/src/dlss_download/**", "crates/nvf-dlss-files/**"]
 requires = ["NVF_DLSS_DOWNLOAD_REAL"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlss-download-real-home", NVF_DLSS_DIR = "{repo}/target/smoke-dlss-real" }
 args = ["--cell", "Goodsprings", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
@@ -26422,7 +26663,7 @@ name = "dlssg-on"
 source = "#2317, docs/design/dlss-frame-generation.md: DLSS Frame Generation chosen at the start over DLSS Quality in play: DLSS-G kept loaded, Reflex through Streamline, one generated frame per real frame presented, about two frames shown per real frame; the performance overlay (--fps, NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 note = "needs NVF_DLSS_DIR with the four DLSS Frame Generation files (docs/dlss.md), an RTX 40 series or newer and Windows' GPU scheduling on. front = true: DLSS-G generates only while its window is in front, so the launch runs last with the machine to itself. --log-frame-times keeps vsync off (DLSS-G needs Display sync Off on Vulkan); the home of its own keeps a stored Display sync out."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/bevy_render/src/view/window/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/bevy_render/src/view/window/**"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-on-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "2" }
@@ -26460,7 +26701,7 @@ name = "dlssg-4x"
 source = "#2317, docs/design/dlss-frame-generation.md: Generated frames 4x picked on the settings page during play: three generated frames per real frame where the GPU offers them (DLSSGState::numFramesToGenerateMax), else as many as it offers"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Tolerant of the GPU by the state line's limit: with 'frames to generate at most 1' (RTX 40 series) 4x is held back and 2x runs; from 3 up (RTX 50 series) 4x runs. The home of its own keeps the choice between runs, so the settings line is not expected."
 areas = ["graphics", "settings"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-4x-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13", NVF_PLAY_TEST_SETTINGS = "11:frame-generation-frames=4x" }
@@ -26487,7 +26728,7 @@ name = "dlssg-resize"
 source = "#2317, docs/design/dlss-frame-generation.md \"Window changes\": the window resized during play with DLSS Frame Generation on (test aid NVF_DLSSG_RESIZE): DLSS-G's mode off and presented once before Bevy reconfigures the surface (the vendored HoldSurfaceReconfigure), on again at the new size, and back"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. NVF_DLSSG_RESIZE's seconds count from the app's start, so 16 s is a few seconds into play."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/window_mode.rs"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/vendor/bevy_render/src/view/window/**", "engine/nvforever/src/window_mode.rs"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_DLSSG_RESIZE = "16:1600x900,26:1280x720" }
@@ -26523,7 +26764,7 @@ name = "dlssg-switch"
 source = "#2317, docs/design/dlss-frame-generation.md \"Switching it on and off\": Frame generation Off then DLSS again on the settings page during play: each time DLSS-G's mode off and presented, the GPU drained, the swapchain released, slSetFeatureLoaded, the swapchain made again in the same frame; generated frames again after"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on. Streamline's own lines around each switch (sl.dlss_g unloaded and loaded, the proxy swapchain made again) are worth a look by eye."
 areas = ["graphics", "settings"]
-paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/gpu_poll.rs", "engine/vendor/bevy_render/src/view/window/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/gpu_poll.rs", "engine/vendor/bevy_render/src/view/window/**"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-switch-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "12:20", NVF_PLAY_TEST_SETTINGS = "13:frame-generation=Off,16:frame-generation=DLSS" }
@@ -26562,7 +26803,7 @@ name = "dlssg-exit"
 source = "#2317, docs/design/dlss-frame-generation.md \"Exit\": the run ends in play with DLSS Frame Generation on: mode off for AppExit's last frame or immediately on WindowClosing, then shutdown mode off, null tags, the drain, DLSS's and DLSS-G's resources freed and slShutdown, in that order"
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-exit-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
@@ -26593,7 +26834,7 @@ source = "#2317, docs/design/dlss-frame-generation.md \"Per frame\" item 3: the 
 note = "needs NVF_DLSS_DIR with the frame generation files; front = true as dlssg-on."
 manual = "Watch the HUD while the view turns (13 to 14 s into play): it should stay sharp, without the smear generated frames gave it before the UI buffer. Screenshots cannot show it: they take the real frame, never a generated one."
 areas = ["graphics"]
-paths = ["engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 requires = ["NVF_DLSS_DIR"]
 front = true
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "dlssg-ui-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "13:220:-6.4,13.2:235:-6.4,13.4:250:-6.4,13.6:265:-6.4" }
@@ -27464,10 +27705,10 @@ expect = [
 [[scenario]]
 name = "pickpocket-save-write"
 source = "[design] issue #1592 finding 3; docs/spec-notes/pickpocket.md section 5: an active inventory fuse is saved on Game::time; run with pickpocket-save-load"
-note = "[design] Uses pickpocket-plant-dynamite's placement, then opens the console half a second after the pocket closes. Queries the live plant and saves; the console stays open until exit. The isolated fixture home supplies only an authored load hook. The fuse runs on through the console, so the save is taken inside it; the live query checks that."
+note = "the pocket's rolls are seeded by the victim (NVF_PLAY_TEST_PICKPOCKET_SEED, as every opening was before #2751), so the placement goes the same way each run; [design] Uses pickpocket-plant-dynamite's placement, then opens the console half a second after the pocket closes. Queries the live plant and saves; the console stays open until exit. The isolated fixture home supplies only an authored load hook. The fuse runs on through the console, so the save is taken inside it; the live query checks that."
 areas = ["save", "crime", "menus"]
 paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/pickpocket.rs", "crates/fnv-game/tests/factions.rs", "crates/fnv-game/tests/synthetic.rs", "engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/save.rs", "tools/smoke/fixtures/pickpocket-save-home/"]
-env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/pickpocket-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close;11.5:GSChetRef.GetPlantedExplosive;11.6:GSChetRef.GetDead;11.7:GSChetRef.GetItemCount WeapNVDynamite;12:save nvf-planted", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
+env = { NVF_PLAY_TEST_PICKPOCKET_SEED = "0x5EED", NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/pickpocket-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_CONSOLE = "2:player.setav sneak 100;2.3:close;11.5:GSChetRef.GetPlantedExplosive;11.6:GSChetRef.GetDead;11.7:GSChetRef.GetItemCount WeapNVDynamite;12:save nvf-planted", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,6:call:player:RemoveAllItems,6.5:call:player:AddItem:WeapNVDynamite:1", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,9.5:left,10:enter,11:e" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 17
 expect = [
@@ -28918,7 +29159,7 @@ name = "perf-overlay-upscaling-dlss"
 source = "[design, #2242] perf_overlay/{readings,mod}.rs, upscaler/prep.rs: with DLSS Quality at 1280x720 the Upscaling row reads the size DLSS reported (853x480, as dlss-quality) and the model asked for, follows the DLSS model row to K, then the Upscaler row to FSR 3.1, which draws at once through the interposer"
 note = "needs NVF_DLSS_DIR (NVIDIA's files), like dlss-quality. The model is the one asked for (Graphics::dlss_model); which preset NGX uses for Default is not known to the engine. The switch to FSR reads the effective choice and -- for a frame or two before the render world draws FSR; only the sized line is expected"
 areas = ["renderer", "settings", "graphics"]
-paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/dlss/**"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/dlss/**", "crates/nvf-dlss-files/**"]
 requires = ["NVF_DLSS_DIR"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_FPS_LOG = "0.5", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:fps-counter-upscaling,13:dlss-model=K,15:upscaler=FSR 3.1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality"]
@@ -29187,6 +29428,22 @@ order = [[
 forbid = [{ text = "EDE1Ref: does not talk", label = "ED-E has a greeting to say" }]
 
 [[scenario]]
+name = "mod-diagnostic-log-tool"
+kind = "tool"
+source = "docs/handoff/mod-diagnostic-cli.md: actual bounded mod-log CLI over two authored log files; log records differ from reported exit totals, and private words are opt-in"
+areas = ["scripts", "extender", "mods"]
+paths = ["crates/fnvtool/src/mod_log_digest.rs", "crates/fnvtool/src/ext_cmd.rs", "tools/smoke/fixtures/mod-diagnostics/"]
+commands = [["ext", "mod-log", "{repo}/tools/smoke/fixtures/mod-diagnostics/run.txt", "--previous", "{repo}/tools/smoke/fixtures/mod-diagnostics/before.txt"]]
+expect = [
+  { json = "detail", schema = "fnv.ext.mod_log/1", equals = false },
+  { json = "run.sessions.#", schema = "fnv.ext.mod_log/1", equals = 1 },
+  { json = "run.sessions.0.exit_rows_present", schema = "fnv.ext.mod_log/1", equals = true },
+  { json = "run.sessions.0.log_records.script_failure", schema = "fnv.ext.mod_log/1", equals = 1 },
+  { json = "run.sessions.0.reported_exit_counts.skipped_statements", schema = "fnv.ext.mod_log/1", equals = 47 },
+  { json = "changes.session", schema = "fnv.ext.mod_log/1", equals = 0 },
+]
+
+[[scenario]]
 name = "mccarran-boyd-one-body"
 source = "issue #2461 (owner): after the Silus interrogation Lt. Carrie Boyd (LieutenantBoydREF 0x000F0678, CampMCTermInt02) was drawn twice, one body in the room and one outside the door, and the one in the room talked as the other. The scene's records: Silus's GREETING (INFO 0x000F1873) MoveTo's her to BoydExitREF 0x000FA73E (325, 719); the assassin trick's line (INFO 0x000F2DDE) MoveTo's her to XMarker 0x000FB4E1 (467, 1386) by the room's door and its end script sets bBoydEnter, so VFreeformMcCarran2BoydPatrolReturn walks her to her linked ref 0x000FA73D (296, 1665) in the room; the trigger 0x000FA742 there starts the POW2Int exchange with Silus, whose last line sets bBoydExit, and VFreeformMcCarran2BoydPatrolExit walks her back to BoydExitREF. One body per reference throughout (engine/nvforever/src/residents.rs drawn_twice, nav.rs show_actor)"
 note = "the player stands in the interrogation room; Silus's greeting is said at 3 s and the trick's line at 8 s (as the dialogue would, conditions not required). The census is taken at exit; the warnings name a body spawned and lost before it was found"
@@ -29377,15 +29634,23 @@ run_seconds = 100
 order = [[
   { text = "VFSOrrisREF: package VFSOrrisDetour02Package", label = "his detour trigger sends him on, running (Speed Mult 150)" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug01Package", label = "at the ambush he takes up the first shot" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "he faces the first thug as he fires (#2725)" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9A: its hit blocks ran, no damage", label = "the shot runs the first thug's OnHit: he falls" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug02Package", label = "the second thug next" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "and the second" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A9B: its hit blocks ran, no damage" },
   { text = "VFSOrrisREF: package VFSOrrisShootThug03Package", label = "and the third" },
+  { re = 'use weapon: .* 0x00115C60 fires at .* facing it: (?P<n>[0-9.]+) degrees off its heading', range = [0, 3.05], label = "and the third" },
   { text = "combat: a harmless shot by 0x00115C60 hits 0x00118A99: its hit blocks ran, no damage" },
   { text = "VFSOrrisREF: package VFSOrrisAfterCombatDialogPackage", label = "the third thug's OnHit adds his after-fight talk" },
   { text = "VFSOrrisREF: package VFSOrrisDetour03Package", label = "its end script sends him on to the south gate" },
   { text = "script: VFSOrrisREF says 0x00118A71", label = "where he ends the escort (his line's end script)" },
 ]]
+expect = [
+  { re = 'use weapon: .* 0x00115C60 fires its WeapNVHuntingRevolver (?P<n>[0-9.]+) s after its last shot', range = [0.66, 30], all = true, label = "#2763: no two of his shots, in one package or from one to the next, are closer than the hunting revolver's 0.67 s (1.5 shots a second)" },
+  { re = 'use weapon: .* 0x00115C60 goes on with its WeapNVHuntingRevolver from its last use', min = 2, label = "#2763: his second and third packages go on with the same revolver's cycle" },
+  { re = 'use weapon summary: (?P<n>\d+) uses went on with the gun.s cycle from the actor.s last use; the shortest time between two shots of a semi-automatic gun: [0-9.]+ s \(WeapNVHuntingRevolver', range = [2, 9], label = "#2763: the summary names it" },
+]
 
 [[scenario]]
 name = "chauncey-steam-room"
@@ -29689,8 +29954,8 @@ run_seconds = 40
 order = [[
   { re = 'use weapon: VMS18SecuritronREF 0x001299AB uses WeapNVSecuritronSubmachineGun on VMS18HeckGundersonREF \(its package VMS18SecuritronFire1\): 6 shots; always hit, no damage', label = "the Securitron opens fire on Heck with its Do No Damage package" },
   { text = "combat: a harmless shot by 0x001299AB hits 0x0010D4EF: its hit blocks ran, no damage", label = "a harmless shot runs Heck's OnHit for the Securitron" },
-  { text = "script: OnDeath of FalloutNV.esm|SCPT 0x00125AF0 ran on Some(0x0010D4EF)", label = "its KillActor kills Heck: his OnDeath block runs" },
-  { text = "script: VMS18SecuritronREF says 0x00129988", label = "the Securitron says its death reaction (VMS18SecuritronHeckDeathReaction)" },
+  { text = "script: VMS18SecuritronREF says 0x00129988", label = "the Securitron says its death reaction (VMS18SecuritronHeckDeathReaction), said from within his OnDeath block" },
+  { text = "script: OnDeath of FalloutNV.esm|SCPT 0x00125AF0 ran on Some(0x0010D4EF)", label = "its KillActor kills Heck: his OnDeath block has run (logged once the block is over, so after the line it says; #2738)" },
 ]]
 expect = [
   { text = "use weapon: VMS18SecuritronREF 0x001299AB stops: VMS18HeckGundersonREF is dead or gone", label = "the Securitron stops firing at the dead Heck (same frame as its line: not ordered)" },
@@ -30133,6 +30398,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "load-phases-goodsprings"
+source = "#2407: players' Goodsprings door and save loads took 20-37 s; a loading screen now logs, and a slow load reports, when each thing it waited for came in, its longest frame and what the game files gave under it (nvf_play::loading::LoadPhases, fnv_vfs::read_stats). Out of Doc Mitchell's house into Goodsprings, the heaviest door of a new game"
+note = "2026-11-15 on the bench (i9-14900K, RTX 4070, SATA SSD, files in the OS cache): the start 2.4 s, the door 2.5 s with 2,106 files (248 MB) read. The cap is the reports' slow-load limit (reports/anomaly.rs SLOW_LOAD_MS), far above it"
+areas = ["loading", "streaming"]
+paths = ["engine/nvf-play/src/loading.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/reports/mod.rs"]
+env = { NVFOREVER_HOME = "load-phases-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+order = [[
+  { re = 'loading screen phases: up [\d.]+ s; .*cells to draw .*; longest frame [\d.]+ s of \d+; read \d+ files, [\d.]+ MB, [\d.]+ s reading, [\d.]+ s queued for an archive', label = "the start's screen is timed" },
+  "GSDocMitchellHouseIntDoorREF activated",
+  { re = 'loading screen phases: up [\d.]+ s; the travel to go out .*actors to draw .*; read (?P<n>\d+) files', range = [100, 100000], label = "the door's screen is timed, the files of Goodsprings read under it" },
+]]
+expect = [
+  { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+]
+
+[[scenario]]
 name = "repconn-load-door-lock"
 source = "[observed: capture run15b_a, 2026-11-15] #2538: RocketLabBasement tunnel load door 0x000CE1AD has no XLOC but reads its partner 0x0008F97C as locked, level 255, no key; activation is refused (docs/spec-notes/cells-refs.md section 6)"
 note = "[design, #2538] Written without running the game. Start in the tunnel 130 units in front of the door, heading 225; aim and activate it. Require the Locked level-255 result and no teleport. Pitch 0 is provisional [hypothesis]."
@@ -30180,4 +30463,73 @@ expect = [
   { re = 'script: test aid calls GetDistance on GoodspringsSettler03Ref = (?P<n>[\d.]+)', count = 5, label = "all five watcher distances were read for diagnosis" },
   { re = 'alert: \S+ 00104F03 (Normal|Alert) → Combat: .*the player', label = "the fighter enters Combat with the player" },
   "detection summary",
+]
+
+[[scenario]]
+name = "legion-assassins-armed"
+source = "#2683 (crates/fnv-game/src/resurrect.rs; crates/fnv-sim/src/world.rs World::restock_inventory): the Legion hit squad is four placed references the shipped script resurrects for every visit (VFactionSquadListSCRIPT); a resurrected dead actor has the items of its own list made up again, so a squad whose bodies were looted comes armed the next time"
+note = "the squad's leader (VEFR02LegionThugLeaderCMRef 0x00163414, his weapons in leveled lists of his own item list) is set on the player at 6 s: he takes up a weapon. Killed at 9 s and stripped at 10 s (RemoveAllItems, as a player who loots the body bare), resurrected at 11 s as the squad script does: his own items are made up again, a weapon among them. Set on the player again at 13 s: he takes up a weapon again. (The squad's own quest keeps him disabled here; none of this needs him drawn)"
+areas = ["ai", "combat", "scripts"]
+paths = ["crates/fnv-game/src/resurrect.rs", "crates/fnv-sim/src/world.rs", "engine/nvforever/src/resurrect.rs", "crates/fnv-game/src/style_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4.5:moveto:VEFR02LegionThugLeaderCMRef:player:0:400:0,6:call:VEFR02LegionThugLeaderCMRef:StartCombat:player,9:kill:VEFR02LegionThugLeaderCMRef,10:call:VEFR02LegionThugLeaderCMRef:RemoveAllItems,11:call:VEFR02LegionThugLeaderCMRef:Resurrect,13:call:VEFR02LegionThugLeaderCMRef:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'style weapon: VEFR02LegionThugLeaderCMRef 0x00163414 takes up \w+ 0x[0-9A-F]{8}', label = "the fresh leader takes up a weapon" },
+  { re = 'resurrect: 0x00163414 has its own items made up again: .*\d+ Weap\w+.*; it carries', label = "resurrected after being stripped, his own items are made up again, a weapon among them" },
+  { re = 'style weapon: VEFR02LegionThugLeaderCMRef 0x00163414 takes up \w+ 0x[0-9A-F]{8}', label = "the resurrected leader takes up a weapon again" },
+]]
+
+[[scenario]]
+name = "gomorrah-suite-sconce-glow"
+source = "issue #2435: the Gomorrah Suites (Gomorrah03) wall sconces (NeoclassicalSconce, clutter/neoclassical/neoclassicalsconce.nif) drew their glow card NeoclassicalSconce:9 (unlit, ONE / ONE, no texture, vertex colour 0.34 at the bowl to black on its outline) as a flat pale board with a hard outline: the shader added the room's fog colour over the whole card, and the unlit vertex colours, made linear at the vertices, stayed bright almost to the black edge (docs/spec-notes/nif.md section 6 'Fog on added light', 'Unlit vertex colours as display values'); frames in target/smoke facing the sconce 0011A90A (gomorrah_sconce_near.png) and from the side (gomorrah_sconce_side.png)"
+areas = ["materials", "interiors"]
+paths = ["engine/nvf-assets/src/nif_material.wesl", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "6:5900:2250:6384", NVF_PLAY_TEST_LOOK = "6.5:90:8,9:50:8", NVF_PLAY_TEST_SHOTS = "8:gomorrah_sconce_near.png,10.5:gomorrah_sconce_side.png" }
+args = ["--play", "--cell", "Gomorrah03", "--pos=6015,1700,6384", "--heading", "0", "--no-voice", "--no-messages"]
+run_seconds = 12
+manual = "gomorrah_sconce_near.png: the wash of light above the bowl is brightest at the bowl and fades out towards its outline, without a pale flat board of even brightness; the room stays dark but readable"
+expect = [
+  { re = 'test aid: screenshot .*gomorrah_sconce_near\.png', label = "the frame facing the sconce is saved" },
+  { re = 'test aid: screenshot .*gomorrah_sconce_side\.png', label = "the frame from the side is saved" },
+]
+
+[[scenario]]
+name = "vats-classic-arrow-click"
+source = "#2657 (engine/nvf-play/src/vats_mode.rs read_keys; engine/nvf-play/src/tiles/vats_menu.rs VatsTiles::clicked): a click on the classic target screen is tested against the pointer's place at the click, by the boxes as last drawn, not against the hover of the frame before"
+note = "the Fists, no fight, two calm targets: Easy Pete and a Goodsprings settler are put 150 units in front of the player, 60 to either side, at 4 s and held. V at 8 s starts the screen on one of them. At 11 s the test aid puts the pointer on the right arrow and clicks in the same frame (the hover of the frame before has no arrow): the target changes and no attack is queued. V at 14 s leaves"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "engine/nvf-play/src/tiles/vats_menu.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:moveto:EasyPeteRef:player:-60:150:0,4:moveto:GoodspringsSettler03Ref:player:60:150:0,4.2:call:EasyPeteRef:SetRestrained:1,4.2:call:GoodspringsSettler03Ref:SetRestrained:1", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_KEYS = "8:v,14:v", NVF_PLAY_TEST_VATS_STYLE = "classic", NVF_PLAY_TEST_VATS_POINTER = "11:right:click" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+order = [[
+  { re = 'vats mode: classic: 2 targets, [0-9A-F]{8} selected', label = "V starts the screen with the two targets" },
+  { text = "NVF_PLAY_TEST_VATS_POINTER: the pointer comes onto the right arrow at", label = "the pointer comes onto the right arrow and clicks in the same frame" },
+  { text = "vats mode: classic: a click on the target screen: Target(1) (the hover of the frame before: arrow None)", label = "the click is on the arrow, though the hover has none yet" },
+  { re = 'vats mode: classic: target [12] of 2, [0-9A-F]{8}', label = "one target change" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 0 marks, 0 shots, 0 AP spent, 0 refused', label = "no attack queued" },
+]
+forbid = [
+  { text = "a click on the target screen: Queue", label = "the click queues no attack" },
+]
+
+[[scenario]]
+name = "house-screen-plays-only-its-own-clips"
+source = "#2747 (owner's tester 2026-11-15): Mr. House's penthouse screen swung about 90 degrees between his lines about Ranger Grant (INFO 0x001418A1): their speaker idles MrHouseTalkA/MrHouseTalkB play the pod's clips (creatures/NVMrHouse/IdleAnims/SpecialIdle_TalkA/B.kf), which key Bip01 Yaw a quarter turn about z and Bip01 Pelvis a quarter turn, the pod skeleton's rest pose; the screen's bones of those names rest unturned. A creature plays only clips from its own skeleton folder (engine/nvforever/src/idles.rs foreign_creature_clip)"
+note = "Lucky38MrHouseREF 0x001264C5 (base MrHouse, skeleton creatures/NVPenthoueMainComputer). The test aid asks the screen to play MrHouseTalkB at 9 s as a script's PlayIdle would; House's own face idle (NVPHMCHouseIdle, its own folder) still plays. Shot house_screen_still.png: the screen faces the room as placed"
+areas = ["idles", "actors", "creatures"]
+paths = ["engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_FACE = "6:001264C5", NVF_PLAY_TEST_GOTO = "7:-1290:5590:18905", NVF_PLAY_TEST_LOOK = "8:135:22", NVF_PLAY_TEST_SCRIPT = "9:play_idle:0x001264C5:MrHouseTalkB", NVF_PLAY_TEST_SHOTS = "12:house_screen_still.png" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+manual = "house_screen_still.png: the big screen faces the room with House's face on it, not turned or tipped"
+order = [[
+  { re = 'idle: Lucky38MrHouseREF plays NVPHMCHouseIdle .*\(Standing\)', label = "House's own face idle plays" },
+  { re = 'idle: Lucky38MrHouseREF does not play MrHouseTalkB \(Script\): its clip is made for the skeleton in creatures\\nvmrhouse', label = "the pod's talk clip is not played on the screen" },
+]]
+forbid = [
+  { re = 'idle: Lucky38MrHouseREF plays MrHouseTalk', label = "the screen never plays the pod's talk idles" },
 ]

@@ -56,7 +56,7 @@ class StreamlineNotice(unittest.TestCase):
         self.assertEqual(missing, [])
         self.assertIn("- alpha 1.0.0: MIT (https://example.invalid/alpha)", out)
         self.assertIn(
-            "- NVIDIA Streamline 2.14.16 (FFI declarations translated from its headers, in engine/nvforever/src/dlss/): MIT "
+            "- NVIDIA Streamline 2.14.16 (FFI declarations translated from its headers, in engine/nvforever/src/dlss/ and crates/nvf-dlss-files/): MIT "
             "(https://github.com/NVIDIA-RTX/Streamline)",
             out,
         )
@@ -98,6 +98,19 @@ class StreamlineNotice(unittest.TestCase):
                 text = out_file.read_text(encoding="utf-8")
                 self.assertIn("NVIDIA Streamline 2.14.16", text)
                 self.assertIn("Permission is hereby granted", text)
+
+
+
+class BundledFontLicences(unittest.TestCase):
+    def test_a_packages_font_licences_are_listed_with_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = package(Path(tmp) / "fonts-crate", "fonts-crate", "(MIT OR Apache-2.0) AND OFL-1.1", "MIT text")
+            fonts = Path(tmp) / "fonts-crate" / "fonts"
+            fonts.mkdir()
+            (fonts / "OFL.txt").write_text("SIL OPEN FONT LICENSE", encoding="utf-8")
+            (fonts / "Font.ttf").write_bytes(b"font data")
+            names = [n for n, _ in tpl.license_texts(pkg)]
+            self.assertEqual(names, ["LICENSE-MIT", "fonts/OFL.txt"])
 
 
 if __name__ == "__main__":

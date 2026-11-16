@@ -820,7 +820,7 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
 /// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
 /// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
-fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+pub(crate) fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
     if !g.is_teammate(me) {
         return 1.0;
     }
@@ -2669,7 +2669,7 @@ pub(crate) fn fight(
                         Decision::Throw(throw) => {
                             if let Some(throw) = npc_grenades::commit(throw, |weapon| g.world.remove_item(me, weapon, 1)) {
                                 let gr = throw.grenade;
-                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
+                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
                                 let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.free_count(gr.weapon));
                                 f.stats.grenades += 1;
@@ -2826,7 +2826,7 @@ pub(crate) fn fight(
                                 let actor_spread = shot_spread(&c.rules, &c.tuning, ws, &st, g.gun_wobble_off(me));
                                 g.other.jg9.spreads.insert(me, actor_spread);
                                 let cone = spread::cone_deg(actor_spread, 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
                                 f.stats.shot_offs.push(off.to_degrees());

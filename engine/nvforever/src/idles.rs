@@ -513,6 +513,8 @@ pub struct Stats {
     pub player_started: u32,
     pub not_drawn: u32,
     pub no_clip: u32,
+    /// Of those, idles whose clip is another creature's ([`foreign_creature_clip`]).
+    pub foreign_clips: u32,
     /// Drawn-weapon fidgets started on actors and on the player.
     pub actor_fidgets: u32,
     pub player_fidgets: u32,
@@ -1441,6 +1443,14 @@ pub fn drive(
                 continue;
             }
             let Ok((e, _, rig, slot, lo, _)) = actors.get_mut(drawn[&actor.0]) else { continue };
+            // Another creature's clip is not played (`foreign_creature_clip`, #2747).
+            if let Some(theirs) = file.as_deref().and_then(|f| foreign_creature_clip(&rig.skeleton, f)) {
+                st.stats.no_clip += 1;
+                st.stats.foreign_clips += 1;
+                info!("idle: {name} does not play {} ({source:?}): its clip is made for the skeleton in {theirs}, not this actor's", game.data.name(idle));
+                failed(st, "its clip is another creature's");
+                continue;
+            }
             let section = game.data.idles.get(&idle).map_or(0, |d| d.section);
             let holds = holds_in_place(source, section, &clip, lo.and_then(walk_clip));
             let bound = bind_clip(&rig.skel, clip);
@@ -1639,6 +1649,32 @@ fn weapon_out(game: &Game, actor: u32) -> bool {
     game.extra.get(&FormId(actor)).is_some_and(|e| e.weapon_out)
 }
 
+/// The creature folder (`creatures\<name>`) a clip lives in, when it is not the folder
+/// of `skeleton`, the creature skeleton that would play it (#2747).
+///
+/// An idle names its clip by path, and a dialogue response can name any idle for its
+/// speaker. Mr. House's lines about Ranger Grant (INFO 0x001418A1) give his penthouse
+/// screen (`creatures\nvpenthouemaincomputer`) the idles `MrHouseTalkA`/`MrHouseTalkB`,
+/// whose clips are the pod's (`creatures\nvmrhouse\idleanims\specialidle_talka.kf`)
+/// [observed: FalloutNV.esm, `fnvtool nif decode`]. The pod's clip keys `Bip01 Yaw` at a
+/// quarter turn about z and `Bip01 Pelvis` at a quarter turn on two axes, the pod
+/// skeleton's own rest pose for those bones; the screen's skeleton has bones of the same
+/// names resting at no turn, so played there the screen swung 90° and tipped. A
+/// creature's clips are made for the skeleton of their folder, so a creature plays only
+/// its own folder's clips [design; the owner: the monitors never move]. People
+/// (`characters\`) and clips outside `creatures\` are not judged here.
+fn foreign_creature_clip(skeleton: &str, clip: &str) -> Option<String> {
+    let creature = |p: &str| -> Option<String> {
+        let p = p.to_ascii_lowercase().replace('/', "\\");
+        let p = p.strip_prefix("meshes\\").unwrap_or(&p).to_string();
+        let mut parts = p.split('\\');
+        (parts.next()? == "creatures").then(|| parts.next().map(|n| format!("creatures\\{n}"))).flatten()
+    };
+    let own = creature(&skeleton_folder(skeleton)?)?;
+    let theirs = creature(clip)?;
+    (own != theirs).then_some(theirs)
+}
+
 /// The animation folder of a skeleton below `meshes\`
 /// (`meshes\characters\_male\skeleton.nif` → `characters\_male`).
 fn skeleton_folder(skeleton: &str) -> Option<String> {
@@ -1654,8 +1690,8 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     }
     let s = st.stats;
     info!(
-        "idle summary: {} idles asked for ({} by scripts, {} by packages' begin, end and change, {} from collections, {} by dialogue lines); {} started on actors, {} on the player; {} for actors not drawn, {} without a usable clip",
-        s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
+        "idle summary: {} idles asked for ({} by scripts, {} by packages' begin, end and change, {} from collections, {} by dialogue lines); {} started on actors, {} on the player; {} for actors not drawn, {} without a usable clip ({} of them another creature's)",
+        s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip, s.foreign_clips
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
     info!("holstered fidget summary: {} fidgets started on NPCs standing with their weapon away; {} NPCs looked at", s.holstered_fidgets, st.holstered.len());
@@ -1691,6 +1727,19 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creature_plays_only_its_own_folders_clips() {
+        let screen = r"meshes\creatures\NVPenthoueMainComputer\Skeleton.nif";
+        // The pod's talk clip on the penthouse screen (#2747).
+        assert_eq!(foreign_creature_clip(screen, r"meshes\creatures\NVMrHouse\IdleAnims\SpecialIdle_TalkA.kf").as_deref(), Some(r"creatures\nvmrhouse"));
+        // The screen's own clips, in a subfolder or not, in any case and either slash.
+        assert_eq!(foreign_creature_clip(screen, r"meshes\creatures\nvpenthouemaincomputer\idleanims\specialidle_housetalk01.kf"), None);
+        assert_eq!(foreign_creature_clip(screen, "meshes/Creatures/NVPenthoueMainComputer/talking.kf"), None);
+        // People and clips outside creatures\ are not judged.
+        assert_eq!(foreign_creature_clip(r"meshes\characters\_male\skeleton.nif", r"meshes\creatures\nvmrhouse\idleanims\specialidle_talka.kf"), None);
+        assert_eq!(foreign_creature_clip(screen, r"meshes\characters\_male\idleanims\talk.kf"), None);
+    }
 
     #[test]
     fn renderer_idle_path_reads_the_script_setter_override() {

@@ -38,7 +38,8 @@ type Objects = Arc<Vec<CollisionObject>>;
 /// sequences (`crate::doors`, [`AnimatedBodies`]), and for a model with collision the floors
 /// of its drawn geometry ([`DrawnFloors`]) and its node tree (to pose the objects,
 /// [`pose_stored`]), and its trigger volumes (phantoms on the Trigger layer, the traps'
-/// pressure boxes, `crate::script_trigger`); or why it could not be read.
+/// pressure boxes, `crate::script_trigger`, and on the Gas Trap layer, the gas clouds,
+/// `crate::gas_traps`); or why it could not be read.
 type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>, Option<Arc<NodeTree>>, Objects), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
@@ -97,7 +98,7 @@ impl ModelCache {
         self.read(data, path, times).ok().and_then(|(_, _, _, _, tree, _)| tree)
     }
 
-    /// A model's trigger volumes (phantoms on the Trigger layer), when it was read
+    /// A model's trigger volumes (phantoms on the Trigger and Gas Trap layers), when it was read
     /// already (by the cell loader); `None` while it was not.
     pub fn triggers(&self, path: &str) -> Option<Objects> {
         match self.slot(path).get() {
@@ -152,7 +153,11 @@ fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> M
     let t = Instant::now();
     let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, dec.as_ref().expect("decoded with the file"));
     let (water, rest): (Vec<CollisionObject>, Vec<CollisionObject>) = phantoms.into_iter().partition(|o| o.layer == fnv_phys::layers::WATER);
-    let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER).collect();
+    // The Gas Trap layer's phantoms are the gas clouds' volumes (`TrapGasFire01.NIF`: a
+    // sphere phantom on layer 24 and nothing solid [observed: `fnvtool nif decode`]):
+    // kept with the triggers, so walking in, shots and blasts reach their scripts
+    // (`crate::gas_traps`, #2687).
+    let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER || o.layer == fnv_phys::layers::GAS_TRAP).collect();
     let dec = dec.expect("decoded with the file");
     // Only a model with embedded sequences and a body physics does not move itself can
     // have collision that follows an animation.

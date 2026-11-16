@@ -598,6 +598,50 @@ impl TriggerShape {
     }
 }
 
+impl TriggerShape {
+    /// Whether the segment `a`–`b` passes through the volume (an end inside counts): a
+    /// shot's path through a gas cloud (`crate::gas_traps`).
+    pub fn crossed_by(&self, a: [f32; 3], b: [f32; 3]) -> bool {
+        let (a, b) = (self.local(a), self.local(b));
+        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        match self.kind {
+            TriggerKind::Sphere { radius } => {
+                let len2: f32 = d.iter().map(|v| v * v).sum();
+                let t = if len2 > 0.0 { (-(a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                let p = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t];
+                p.iter().map(|v| v * v).sum::<f32>() <= radius * radius
+            }
+            TriggerKind::Box { half_extents: h } => {
+                // Slabs: the part of the segment inside each pair of faces.
+                let (mut lo, mut hi) = (0.0f32, 1.0f32);
+                for i in 0..3 {
+                    if d[i].abs() < 1e-6 {
+                        if a[i].abs() > h[i] {
+                            return false;
+                        }
+                        continue;
+                    }
+                    let (t0, t1) = ((-h[i] - a[i]) / d[i], (h[i] - a[i]) / d[i]);
+                    lo = lo.max(t0.min(t1));
+                    hi = hi.min(t0.max(t1));
+                    if lo > hi {
+                        return false;
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    /// Whether a ball (centre `c`, `radius`) overlaps the volume: a blast reaching a gas
+    /// cloud (`crate::gas_traps`).
+    pub fn overlaps_ball(&self, c: [f32; 3], radius: f32) -> bool {
+        let r = radius.max(0.0);
+        // A capsule no taller than it is wide is its centre's ball.
+        self.touches(&Capsule { feet: [c[0], c[1], c[2] - r], radius: r, height: 2.0 * r })
+    }
+}
+
 /// Trigger transitions between two frames, per (trigger, actor) pair: entered, still
 /// inside (the entering frame included), left.
 #[derive(Debug, Clone, PartialEq)]

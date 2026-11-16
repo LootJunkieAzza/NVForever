@@ -269,6 +269,17 @@ are at the end.
   leave the area. Off: fire stays where it hits, as in the original.
 - Registered in `engine/nvf-play/src/grass_fire.rs`
 
+### `sound-cover`: Sounds of the world cover your noise
+
+- On the page: On: while a louder sound plays near you (machines, voices, shots, creatures),
+  the noise you make is not heard. Not in the original.
+- In full: On: when the noise you make (footsteps, your shots) is less than the loudest
+  sound of the world heard where you are (sound markers, machines' and creatures' loops,
+  other people's footsteps, shots and voices, radios), no one hears you; your Sneak still
+  counts against anyone who sees you. The sneak gauges' noise bar marks the cover with a
+  bright square. Off: detection is the original's. Not in the original (#2688).
+- Registered in `engine/nvf-play/src/sound_cover.rs`
+
 ## Display › Screen
 
 ### `resolution`: Resolution

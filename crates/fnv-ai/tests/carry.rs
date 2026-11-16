@@ -922,6 +922,54 @@ fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 
+/// A package's place that no door leads to (issue #2405: Gomez in the NCR safehouse's
+/// side room, a navmesh island, sent to the door by his Leave package; Malcolm Holmes
+/// sent back to his holding cell). In sight the package is set aside as before; out of
+/// sight the actor is put there and has arrived (docs/spec-notes/packages.md §11). A
+/// disabled door between the two still joins them: the actor stays (Loyal, #2566).
+#[test]
+fn out_of_sight_an_actor_is_put_at_a_place_no_door_leads_to() {
+    let f = fixture();
+    let actor = FormId(R_TRAVEL);
+    // Cells A and B, and no door between them.
+    let no_door = || {
+        let a = grid(1, [0.0, 0.0], 4, 0.0);
+        let b = grid(2, [5000.0, 5000.0], 3, 50.0);
+        NavGraph::assemble(&[(&a, Some(CELL_A), Some(A)), (&b, Some(CELL_B), Some(B))])
+    };
+    let out_of_sight = fnv_ai::FAR_PROCESS_SECONDS as f64 + 5.0;
+    // In the loaded area: set aside, where it stands.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav = no_door();
+    s.run(1.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(matches!(ev[1], AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B), "{ev:?}");
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Out of sight: put at the package's place in B, arrived, its goal met.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav = no_door();
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    s.run(out_of_sight);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::PutThere { package, from, to } if package.0 == P_TRAVEL_B && from.space == A && to.space == B)), "{ev:?}");
+    assert!(matches!(ev.last().unwrap(), AiEvent::Arrived { package, .. } if package.0 == P_TRAVEL_B), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Unreachable { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    assert_eq!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    assert!(s.game.extra[&actor].package_goal_met);
+    // The door there but disabled: no way, yet joined, so it stays and the package is set
+    // aside.
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.nav.sync_door_presence([(DOOR_A, false)]);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    s.run(out_of_sight);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::PutThere { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+}
+
 /// The obstacle poll is skipped while nothing that could change an obstacle's presence or
 /// the graph's obstacles happened since the last one (`Ai::obstacles_in_line`), and runs
 /// again after each such change: a script's Disable/Enable, a deletion, any reference
@@ -4262,6 +4310,72 @@ fn a_fighter_takes_the_incinerator_for_a_far_target_and_the_flamer_for_a_near_on
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "not before 3 s");
     s.run(3.0);
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(FLAMER)), "{:?}", s.events(R_SB_NOTHING));
+}
+
+#[test]
+fn a_cornered_fighter_with_an_explosive_weapon_takes_up_its_knife() {
+    // #2745: an incinerator (blast 150) with its target 100 units off and no gun that
+    // fires there: it steps back first (the engine's rule), then, still too close after
+    // `CORNERED_SECONDS`, holds the knife it carries though a knife is not its class.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(INCINERATOR, 1), (KNIFE, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(INCINERATOR)).unwrap();
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(1.0);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "not before it had time to step back");
+    s.run(3.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(KNIFE)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::RangeSwap { weapon, .. } if *weapon == FormId(KNIFE))), "{ev:?}");
+}
+
+#[test]
+fn a_cornered_fighter_with_only_an_explosive_weapon_fights_with_its_fists_until_clear() {
+    // #2745 (the Boomers in the Nellis barracks): nothing else carried, so it puts the
+    // incinerator away for its fists; no empty-hand rule takes it up again while the
+    // target is too close; with the target clear of the blast it holds it again, and the
+    // same when the fight ends.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let me = FormId(R_SB_NOTHING);
+    for (item, n) in [(INCINERATOR, 1), (ROUNDS, 5)] {
+        s.game.world.add_item(me, FormId(item), n).unwrap();
+    }
+    assert!(s.game.world.outfit(me).unwrap());
+    s.game.world.equip(me, FormId(INCINERATOR)).unwrap();
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(4.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert_eq!(s.game.held_weapon(me), None, "{ev:?}");
+    assert_eq!(s.game.rearms.put_away.get(&me), Some(&FormId(INCINERATOR)));
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::RangeFists { weapon, .. } if *weapon == FormId(INCINERATOR))), "{ev:?}");
+    // The empty-hand rules (re-arming's and the style's) leave its fists alone.
+    s.game.arm_by_style();
+    s.run(2.0);
+    assert_eq!(s.game.held_weapon(me), None, "{:?}", s.events(R_SB_NOTHING));
+    // The target 1,500 units off: clear of the blast, so the incinerator again.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0], feet[1] + 1500.0, 0.0]);
+    s.run(1.5);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "{:?}", s.events(R_SB_NOTHING));
+    assert!(s.game.rearms.put_away.is_empty());
+    // Cornered again, then the fight is over: it holds the incinerator once more.
+    let feet = s.feet(R_SB_NOTHING);
+    fighting(&mut s, R_SB_NOTHING, [feet[0] + 100.0, feet[1], 0.0]);
+    s.run(6.0);
+    assert_eq!(s.game.held_weapon(me), None, "{:?}", s.events(R_SB_NOTHING));
+    s.game.calm_rearm(me);
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)));
+    assert!(s.game.rearms.put_away.is_empty());
 }
 
 /// Stay-at locations given by an object, and a Guard that remains near what it guards

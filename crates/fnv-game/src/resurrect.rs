@@ -18,7 +18,16 @@
 //!   template they come from and the items themselves (`fnv_sim::World::reset_inventory`).
 //!   An actor with its own item list keeps what it carries, looted or given [observed:
 //!   capture rs1, 2026-10-17: Ringo given three Stimpaks, two taken from his corpse, one
-//!   left after ResurrectActor 0]. What scripts gave it otherwise stays (factions,
+//!   left after ResurrectActor 0], and the items of that list are made up again: the
+//!   list is rolled anew and what the actor has fewer of is added
+//!   (`fnv_sim::World::restock_inventory`, issue #2683) [hypothesis: the owner's "rerolls
+//!   any level list" read for an actor's own list; rs1 gave Ringo none of his own items
+//!   to lose, so it does not say. Design: made up, not replaced, so the given Stimpak of
+//!   rs1 stays]. The faction hit squads are four placed references the shipped script
+//!   resurrects for every visit (VFactionSquadListSCRIPT: `rActor01.Resurrect`), each
+//!   with its weapons in leveled lists of its own item list: without this the second
+//!   squad came with fists, its guns left beside the first one's bodies [observed: owner
+//!   playtest 2026-11-15]. What scripts gave it otherwise stays (factions,
 //!   packages, actor values set, essential, AI off, dispositions) [hypothesis: the quests
 //!   that resurrect companions and Yes Man rely on it].
 //! - **Where**: where its body lies [observed: rs1: Ringo's reference followed his
@@ -62,6 +71,8 @@ pub struct Resurrection {
     pub regenerated: bool,
     /// Its rolls after this one (`RefExtra::rolls`).
     pub rolls: u32,
+    /// How many items of its own list were made up again (module notes, #2683).
+    pub restocked: u32,
 }
 
 impl Game<'_> {
@@ -97,20 +108,28 @@ impl Game<'_> {
             self.script_looks.critical_changed.push(r);
         }
         self.remove_ash_pile(r);
+        let mut restocked = 0;
         if regenerated {
-            self.roll_again(r, rolls);
+            restocked = self.roll_again(r, rolls);
             self.stop_combat(r);
         }
-        self.resurrections.push(Resurrection { actor: r, animate, regenerated, rolls });
+        self.resurrections.push(Resurrection { actor: r, animate, regenerated, rolls, restocked });
     }
 
     /// Roll the carried items of `r` again when they come through a leveled pick (its
     /// base or a template in its Inventory chain is a leveled actor list); an actor with
-    /// its own item list keeps what it carries (module notes).
-    fn roll_again(&mut self, r: FormId, rolls: u32) {
-        let Some(base) = base_of(self, r) else { return };
+    /// its own item list keeps what it carries and has the items of that list made up
+    /// again (module notes): how many were added.
+    fn roll_again(&mut self, r: FormId, rolls: u32) -> u32 {
+        let Some(base) = base_of(self, r) else { return 0 };
         if self.data.template_sources_any_pick(base, |d| d.template_inventory).len() < 2 {
-            return;
+            let added = self.world.restock_inventory(r).unwrap_or_default();
+            if !added.is_empty() {
+                let said = |items: &[(FormId, i32)]| items.iter().map(|(i, n)| format!("{n} {}", self.data.name(*i))).collect::<Vec<_>>().join(", ");
+                let all: Vec<(FormId, i32)> = self.world.peek(r).and_then(|s| s.inventory.as_ref()).map(|inv| inv.iter().filter(|(_, n)| *n > 0).collect()).unwrap_or_default();
+                tracing::info!("resurrect: {r} has its own items made up again: {}; it carries {}", said(&added), said(&all));
+            }
+            return added.iter().map(|(_, n)| *n as u32).sum();
         }
         let source = self.data.template_source_at(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
         self.world.set_inventory_source(r, source);
@@ -119,6 +138,7 @@ impl Game<'_> {
         if !self.world.reset_inventory(r).unwrap_or(true) {
             let _ = self.world.clear_inventory_but_live(r);
         }
+        0
     }
 
     /// The engine found the body of resurrected `r` lying at `pos` (game units): the

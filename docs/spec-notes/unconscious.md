@@ -285,7 +285,13 @@ Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knoc
    for a negative force), plus `PUSH_RISE` = 220 units a second upwards (no more than the
    push's own speed); without a source, or with the source on the target, straight up
    [documented: the direction rules, §5.1; observed: the numbers, §5.5]. A push on an
-   actor already lying throws its body again and marks it pushed. An explosion throws the
+   actor already lying throws its body again and marks it pushed. An actor pushed and killed
+   by the same script (`PushActorAway` then `KillActor`: the Legion sniper and the Ranger
+   on Hoover Dam's tower, package 0x00164F88's end script) dies thrown: its death starts
+   the ragdoll with the push's velocity, though no hit killed it; the shove waits
+   `DEAD_SHOVE_KEPT` = 1 s of game time for the engine and is lost on an actor not
+   drawn (#2749) [design; whether the original's push carries a body killed in the same
+   frame further than a live one's is not captured]. An explosion throws the
    body away from the blast at `BLAST_KNOCKDOWN_SPEED` = 300 units a second plus
    `PUSH_LIFT` = 0.25 of that upwards [design].
 5. **Scripts**: GetKnockedState reads 0 while an actor pushed down lies, also once

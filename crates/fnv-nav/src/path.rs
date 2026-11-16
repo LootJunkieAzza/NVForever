@@ -97,6 +97,10 @@ pub struct PathParams {
     /// OnActivate block that called no `Activate` for it): closed to its paths as a
     /// locked door without the key is (`fnv_game::npc_doors`).
     pub refused_doors: Vec<u32>,
+    /// Load doors not in the world now ([`NavGraph::disabled_doors`]) may be used: only
+    /// for asking whether two places are joined by doors at all
+    /// ([`NavGraph::joined_by_doors`]), never for a walk.
+    pub through_disabled: bool,
 }
 
 impl Default for PathParams {
@@ -121,6 +125,7 @@ impl Default for PathParams {
             open_doors: Vec::new(),
             opens_doors: true,
             refused_doors: Vec::new(),
+            through_disabled: false,
         }
     }
 }
@@ -395,7 +400,7 @@ impl NavGraph {
     /// arrival is usable and the door is not locked, or the traveller holds its key or
     /// owns it, or may open locks.
     pub fn door_open(&self, d: &DoorEdge, p: &PathParams) -> bool {
-        if self.disabled_doors.contains(&d.door) || !self.usable(d.to) || !p.opens_doors || p.refused_doors.contains(&d.door) {
+        if (self.disabled_doors.contains(&d.door) && !p.through_disabled) || !self.usable(d.to) || !p.opens_doors || p.refused_doors.contains(&d.door) {
             return false;
         }
         match self.door_locks.get(&d.door) {
@@ -420,6 +425,21 @@ impl NavGraph {
     /// Whether `to` can be reached from `from` ([`NavGraph::door_route`]).
     pub fn can_reach(&self, from: Place, to: Place, p: &PathParams) -> bool {
         self.door_route(from, to, p).is_ok()
+    }
+
+    /// Whether any chain of load doors joins the walkable areas of `from` and `to`,
+    /// every door counted, locked or disabled (a script's state of the moment), for an
+    /// actor that opens doors: `Some(false)` when the data gives no door between them at
+    /// all (two navmesh islands of one cell, a holding cell no door leads to; the AI puts
+    /// its actors out of sight at such a place instead, packages.md §11), `None` when
+    /// either place has no navmesh near it.
+    pub fn joined_by_doors(&self, from: Place, to: Place) -> Option<bool> {
+        let any = PathParams { open_locked: true, through_disabled: true, ..PathParams::default() };
+        match self.door_route(from, to, &any) {
+            Ok(_) => Some(true),
+            Err(PathError::NoTriangle { .. }) => None,
+            Err(_) => Some(false),
+        }
     }
 
     /// Doors (triangle, index) from the area of `start` to the area of `goal`, leaving

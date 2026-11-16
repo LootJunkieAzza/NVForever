@@ -10,6 +10,7 @@ NVForever only reads the game's `Data` folder and never writes into the game fol
 | File | What it is |
 |---|---|
 | `nvforever(.exe)` | the game: opens on the main menu; `--explore` for the free-camera explorer |
+| `nvforever-launcher(.exe)` | the launcher: news, Continue / Main menu, the settings, the load order and the game folder without starting the game |
 | `nvf-viewer(.exe)` | the asset viewer: meshes, textures and animations from your data |
 | `fnvtool(.exe)` | the command-line tool: setup, paths, archive and plugin inspection as JSON |
 | `nvforever.cmd` / `.sh`, `nvf-viewer.cmd` / `.sh` | launchers that point the programs at `schemas/` beside them |

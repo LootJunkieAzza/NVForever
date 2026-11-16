@@ -259,6 +259,12 @@ pub struct ActorFire {
     /// The shot does no damage (a weapon use's Do No Damage, nvforever `use_weapon`):
     /// it flies, strikes and is seen and heard as any other.
     pub harmless: bool,
+    /// The actor an Always Hit weapon use fires at (nvforever `use_weapon`): the shot
+    /// passes every other actor's body and strikes this one, or the world [design: issue
+    /// #2738, Heck Gunderson's bodyguard stood in the Securitron's line and took
+    /// the six Do No Damage shots whose OnHit is to kill Heck; hypothesis: the original's
+    /// "always hit" strikes the target named whoever stands between, not captured].
+    pub sure: Option<FormId>,
 }
 
 /// An actor other than the player strikes `target` within its reach (combat AI): with
@@ -296,6 +302,8 @@ pub struct By {
     pub ammo: Option<FormId>,
     /// It does no damage ([`ActorFire::harmless`]).
     pub harmless: bool,
+    /// The only actor it can strike ([`ActorFire::sure`]).
+    pub sure: Option<FormId>,
     /// A marked shot of VATS mode (`crate::vats_mode`): its hit counts as a VATS attack
     /// (the critical chance bonus, docs/design/vats-mode.md §9.2).
     pub vats: bool,
@@ -1017,6 +1025,8 @@ struct Flying {
     speed_mult: f32,
     /// Where its flight ended without a hit (`ProjEvent::Expired`).
     ended_at: Option<V3>,
+    /// The gas clouds it has passed through, each hit once (`crate::gas_traps`, #2687).
+    gassed: Vec<FormId>,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -2245,7 +2255,7 @@ fn death_drops(
         if live && is_grenade(&c.forms, item) && sim.world.remove_item(actor, item, 1).is_ok() {
             let at = sim.world.peek(actor).map_or([0.0; 3], |s| s.pos);
             let origin = [at[0], at[1], at[2] + LIVE_DROP_HEIGHT];
-            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false });
+            fire.write(ActorFire { shooter: actor, weapon: item, origin, aim: [0.0, 0.0, -1.0], cone: 0.0, muzzle: None, harmless: false, sure: None });
             c.dropped_live.push(actor);
             stats.death_drops += 1;
             info!("combat: {actor} died holding its {} ({item}): it falls live (tweak)", item_name(&sim, item));
@@ -2664,6 +2674,9 @@ struct PhysView<'a> {
     /// The layers [`CombatWorld::ray`] passes: a shot's (`layers::shot_ignores`), or a
     /// melee swing's (`layers::melee_ignores`, [`PhysView::for_melee`]).
     passes: layers::LayerSet,
+    /// While set, the only actor a ray can strike ([`ActorFire::sure`]): every other
+    /// actor's hit volume is passed. Set round the step of such a shot.
+    only: std::cell::Cell<Option<ActorId>>,
 }
 
 impl PhysView<'_> {
@@ -2707,6 +2720,13 @@ impl CombatWorld for PhysView<'_> {
             }
         }
         f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
+        // A sure shot passes every actor but the one it is for.
+        if let Some(only) = self.only.get() {
+            f.exclude.extend(self.actors.iter().filter(|a| a.0 != only).map(|a| Key::Actor(a.0 as u32)));
+            if only != PLAYER {
+                f.exclude.extend(self.player);
+            }
+        }
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
         Some(WorldHit {
@@ -2833,7 +2853,7 @@ fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&
     let mut aims: HashMap<ActorId, Vec<V3>> = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     aims.extend(corpses.iter().map(|&(id, ..)| (id, phys.world.ragdoll_body_centers(id as u32))).filter(|(_, v)| !v.is_empty()));
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores() }
+    PhysView { q: phys.world.queries(), player, npcs, actors, corpses, aims, ghosts, passes: layers::shot_ignores(), only: std::cell::Cell::new(None) }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -3564,9 +3584,9 @@ pub(crate) fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, sure: None, vats: vats_shot.is_some(), sneaking: control.sneak };
                     let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
-                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -3763,13 +3783,20 @@ fn item_name(sim: &SimState, item: FormId) -> String {
     sim.name(item).map_or_else(|| item.to_string(), str::to_string)
 }
 
+/// In god mode (`tgm`) the player's weapon and armour lose no condition: firing, a swing,
+/// a hit taken or a hit on the weapon held [design: owner decision 2026-11-15, issue
+/// #2743]. Another actor's wear as ever.
+pub fn keeps_condition(actor: FormId, god: bool) -> bool {
+    god && actor == FormId::PLAYER_REF
+}
+
 /// A hit of `damage` (before armour) wears the armour `target` wears in `zone` (§17):
 /// the player's only. Another actor's armour keeps its condition [observed: Cook-Cook's
 /// armour stayed at health 85 and his DT at 13 through 60 hits, and the troopers' and
 /// Fiends' through theirs, AI observer campaign fight_stats_round 2026-10-19,
 /// npc-behaviour-compare.md §9].
 fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: FormId, zone: Zone, damage: f32) {
-    if target != FormId::PLAYER_REF {
+    if target != FormId::PLAYER_REF || keeps_condition(target, god_mode()) {
         return;
     }
     let worn: Vec<FormId> = worn_armor(&c.forms, sim, target).into_iter().map(|w| w.0).collect();
@@ -3818,6 +3845,9 @@ pub fn wear_weapon(
     points: f32,
     at: Option<V3>,
 ) -> Option<Wear> {
+    if keeps_condition(actor, god_mode()) {
+        return None;
+    }
     // The player's tweak: the companions' weapons do not wear [design: docs/design/tweaks.md].
     if actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_companion_item_damage && rt.game.is_teammate(actor)) {
         return None;
@@ -4640,6 +4670,33 @@ fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut S
     }
 }
 
+/// A gas cloud `r` reached by `attacker`'s `weapon` (`crate::gas_traps`, #2687): its
+/// OnHit and OnHitWith blocks, then OnMagicEffectHit for the weapon's object effect, as
+/// for a shot on any object; with `spark` (a gun fired inside it, a blast), a hit with
+/// `GasTrapDummy` too when none of those ran a block. Its scripts damage it, and its
+/// destruction stages burn it and set off its explosion (`Game::destruction_changes`).
+#[allow(clippy::too_many_arguments)]
+fn gas_hit(c: &Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, attacker: Option<FormId>, weapon: Option<FormId>, spark: bool, what: &str) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let attacker = attacker.filter(|a| *a != FormId(0));
+    let weapon = weapon.filter(|w| *w != FormId(0));
+    let items: Vec<FormId> = weapon.and_then(|w| c.forms.weapons.get(&w)).and_then(|w| w.enchantment).into_iter().collect();
+    let (ran, dummy) = with_world(rt, sim, |rt| {
+        let info = HitInfo { attacker, weapon, location: -1, critical: false, limb: None };
+        let ran = rt.game.hit_object(r, info) | rt.game.magic_effect_hits(r, &items, attacker);
+        if ran || !spark {
+            return (ran, false);
+        }
+        let dummy = HitInfo { weapon: Some(crate::gas_traps::GAS_TRAP_DUMMY), ..info };
+        (rt.game.hit_object(r, dummy), true)
+    });
+    info!(
+        "combat: {what} reaches gas cloud {r}{}{}",
+        if dummy { ", hit with GasTrapDummy" } else { "" },
+        if ran { ": its hit blocks ran" } else { ": no hit block ran" }
+    );
+}
+
 /// Destructible references whose collision overlaps a sphere, with their distance.
 fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
     let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
@@ -4747,7 +4804,7 @@ fn actor_attacks(
             }
         }
         let (tracer_chance, force) = projectile.map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, sure: s.sure, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let mut ps = projectile.map_or_else(Vec::new, |p| shot::fire_projectile(p, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand));
@@ -4770,7 +4827,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None, gassed: Vec::new() });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
                 if let Some(probe) = launch_probe.as_deref_mut() { probe.inserted(s, scripted, flying, &sim.world); }
@@ -4954,7 +5011,7 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId, muzzle: Option<[f32
     let [x, _, z] = rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
     let origin = muzzle.unwrap_or([pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }]);
-    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
+    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false, sure: None })
 }
 
 /// A door travel leaves the shots of the space left behind: what is in flight, the hits
@@ -5165,6 +5222,11 @@ fn fly(
     }
     // Shots whose flight ended this frame without a hit to deliver: their references go.
     let mut over: Vec<(FormId, f32)> = Vec::new();
+    // The gas clouds the shots pass through or leave from this frame (#2687): the
+    // cloud, the shot's source, whether the gun was fired inside it.
+    // Read with the world in the runtime (`with_world`): outside it, nothing is present.
+    let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::volumes(rt))).unwrap_or_default();
+    let mut gas_hits: Vec<(FormId, By, bool)> = Vec::new();
     {
         let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
@@ -5197,7 +5259,28 @@ fn fly(
             let ghost = move |to: V3| Ghost { id, proj, rref, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
+            let first = f.p.age == 0.0;
+            world.only.set(f.by.sure.map(|t| if t == FormId::PLAYER_REF { PLAYER } else { t.0 as ActorId }));
             let events = f.p.step(&world, dt);
+            world.only.set(None);
+            // Its way this frame, from the muzzle on the first, to where it stopped.
+            if !gas.is_empty() && !f.by.harmless {
+                let to = events
+                    .iter()
+                    .find_map(|e| match e {
+                        ProjEvent::Hit { point, .. } | ProjEvent::Explode { point, .. } | ProjEvent::Expired { point } => Some(*point),
+                        _ => None,
+                    })
+                    .unwrap_or(f.p.pos);
+                let from = if first { f.origin } else { before };
+                let inside = if first { crate::gas_traps::around(&gas, f.origin) } else { Vec::new() };
+                for r in crate::gas_traps::crossed(&gas, from, to) {
+                    if !f.gassed.contains(&r) {
+                        f.gassed.push(r);
+                        gas_hits.push((r, f.by, inside.contains(&r)));
+                    }
+                }
+            }
             // VATS mode's explosive ([`VatsBlast`]): gone off, coming, or flying off.
             if let Some(aim) = f.vats_aim {
                 if events.iter().any(|e| matches!(e, ProjEvent::Explode { .. })) {
@@ -5311,6 +5394,10 @@ fn fly(
             f.rref.map(|r| (r, left))
         }));
         c.flying.retain(|f| f.p.alive);
+    }
+    for (r, by, inside) in gas_hits {
+        let what = if inside { "a shot fired inside it" } else { "a shot through it" };
+        gas_hit(c, &mut sim, script.as_deref_mut(), r, Some(by.actor), Some(by.weapon), inside, what);
     }
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !over.is_empty()) {
         with_world(rt, &mut sim, |rt| {
@@ -5542,6 +5629,12 @@ fn fly(
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }
+        // The gas clouds it reaches go off (`crate::gas_traps`, #2687): a gas cloud's own
+        // explosion sets off the clouds beside it this way.
+        let gas = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| crate::gas_traps::in_blast(&crate::gas_traps::volumes(rt), at, x.radius))).unwrap_or_default();
+        for r in gas {
+            gas_hit(c, &mut sim, script.as_deref_mut(), r, cause.map(|c| c.actor), cause.map(|c| c.weapon), true, "a blast");
+        }
         // The player's tweak: things that can be taken stay where they lie [design: docs/design/tweaks.md].
         let keep_items = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.blasts_spare_items);
         let pushed = if keep_items {
@@ -5659,7 +5752,11 @@ fn fly(
                 stats.harmless_scripts += u32::from(ran);
                 if ran {
                     info!("combat: a harmless shot by {shooter} hits {target}: its hit blocks ran, no damage");
+                } else {
+                    info!("combat: a harmless shot by {shooter} hits {target} (part {:?}): no hit block of it ran", p.part);
                 }
+            } else {
+                info!("combat: a harmless shot by {shooter} hits no reference at ({:.0}, {:.0}, {:.0})", p.point[0], p.point[1], p.point[2]);
             }
             continue;
         }
@@ -6001,6 +6098,14 @@ mod tests {
     use super::*;
     use crate::phys::NpcBody;
 
+    /// #2743: god mode keeps the player's weapon and armour from wearing, nobody else's.
+    #[test]
+    fn god_mode_keeps_the_players_condition_only() {
+        assert!(keeps_condition(FormId::PLAYER_REF, true));
+        assert!(!keeps_condition(FormId::PLAYER_REF, false));
+        assert!(!keeps_condition(FormId(0x000F5704), true));
+    }
+
     #[test]
     fn shot_sounds_are_scaled_only_off_one() {
         set_weapon_volume(1.0, 0.5);
@@ -6242,7 +6347,7 @@ mod tests {
 
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
-        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false, sneaking: false };
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, sure: None, vats: false, sneaking: false };
         let info = blast_hit_info(Some(Cause::of(&by)));
         assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
         let none = blast_hit_info(None);

@@ -63,7 +63,20 @@ companion's dialogue quest.
      (`fnv_sim::World::reset_inventory`); a source with no items leaves it with none.
      An actor with its own item list keeps what it carries: items taken from the corpse
      stay taken, items given stay [observed: rs1, one Stimpak of three left after two
-     were looted];
+     were looted]. The items of its own list are made up again
+     (`fnv_sim::World::restock_inventory`, issue #2683): the list is rolled anew, its
+     leveled lists with it, and of each item the roll gives as many are added as the
+     actor has fewer; what it still carries is not doubled [hypothesis: the owner's
+     "rerolls any level list" read for an actor's own list; rs1 does not say, Ringo was
+     given the Stimpaks and lost none of his own items. Design: made up and not replaced,
+     so rs1's given Stimpak stays; observer check 197]. The faction hit squads need it:
+     four placed references that VFactionSquadListSCRIPT resurrects for every visit
+     (`rActor01.Resurrect`) [observed: the script's text], their weapons in leveled lists
+     of their own item lists [observed: `fnvtool esm decode`, VEFR02LegionThugLeaderCM's
+     CNTO VFactionSquadLegionLeaderWeapons]. Without it a squad whose bodies were looted
+     came back with fists [observed: owner playtest 2026-11-15]. A roll that gives other
+     items than the last one adds them to what was left, so an unlooted body can come
+     back with a little more than one roll's worth [design: accepted];
    - it leaves combat (`Game::stop_combat`) [hypothesis: a new actor starts calm; rs1
      read IsInCombat 0 after, but Ringo was never fighting].
    - What scripts set stays: factions, packages, actor values set or modified,

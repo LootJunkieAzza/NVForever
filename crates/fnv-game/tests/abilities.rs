@@ -658,3 +658,5 @@ fn player_speed_follows_speed_mult_at_once() {
     call(&mut g, P, MOD_AV, &[speed, ArgValue::Value(Value::Num(-100.0))]);
     assert_eq!(g.move_speed_mult(P), 0.5);
 }
+
+mod add_spell_reentrancy;

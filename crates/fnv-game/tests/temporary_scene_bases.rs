@@ -120,7 +120,7 @@ fn scene_clone_uses_its_preplacement_override_and_refuses_late_replacement() {
 }
 
 #[test]
-fn deleting_a_scene_clone_keeps_the_save_refusal_for_its_tombstone() {
+fn deleting_a_scene_clone_preserves_its_tombstone_through_the_save_boundary() {
     let f = fixture();
     let mut g = game(&f);
     let placed = place(&mut g, true);
@@ -131,8 +131,8 @@ fn deleting_a_scene_clone_keeps_the_save_refusal_for_its_tombstone() {
     assert_eq!(raw.sim.deleted_created.get(&placed), Some(&base));
     let source = "ref ownBase\nref ownPlaced\nBegin Function {}\nlet ownBase := TempCloneForm OwnedSceneBase 1\nlet ownPlaced := player.PlaceAtMe ownBase\nownPlaced.MarkForDelete\nSetFunctionValue ownPlaced\nEnd";
     let result = save_result(&f, source);
-    assert!(result["errors"]["action"].as_str().is_some_and(|error| error.contains("temporary cloned base")), "{result}");
-    assert!(result.get("bytes").is_none());
+    assert!(result.get("errors").is_none(), "{result}");
+    assert!(result["bytes"].as_u64().is_some_and(|n| n > 0));
 }
 
 #[test]
@@ -214,4 +214,191 @@ fn late_script_changes_to_a_placed_alias_or_original_are_refused() {
     }
     assert!(fnv_game::nvse::call(&mut g, &Default::default(), "setscript", None, &[XVal::Ref(0xD12), XVal::Ref(0xD13)]).unwrap().is_ok());
     assert_eq!(g.base_script(FormId(0xD13)), Some(FormId(0xD12)));
+}
+
+fn retired_query(g: &mut Game, body: &str) -> XVal {
+    g.run_query(&format!("ref ownBase\nref ownPlaced\nBegin Function {{}}\n{body}\nEnd"), Default::default()).unwrap()
+}
+
+fn retire_scene(g: &mut Game, local: bool, model: &str) -> (FormId, FormId) {
+    let XVal::Ref(id) = retired_query(g, &format!(
+        "let ownBase := TempCloneForm OwnedSceneBase {}\nSetModelPath \"{model}\" ownBase\nlet ownPlaced := player.PlaceAtMe ownBase\nownPlaced.MarkForDelete\nSetFunctionValue ownPlaced", u8::from(local)
+    )) else { panic!("real placed reference") };
+    let reference = FormId(id);
+    assert_ne!(id, 0);
+    let state = g.world.peek(reference).unwrap();
+    assert!(state.deleted());
+    (reference, state.base)
+}
+
+fn restore_scene<'a>(f: &'a Fixture, value: &serde_json::Value) -> Result<Game<'a>, String> {
+    let snapshot: fnv_game::game::GameSnapshot = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    let world = World::restore(&f.forms, &f.refs, &snapshot.sim)?;
+    Game::restore(&f.data, world, GameConfig { strict: true, ..Default::default() }, &snapshot)
+}
+
+#[test]
+fn retired_scene_roundtrip_keeps_tombstone_provenance_without_reviving_a_clone() {
+    for local in [false, true] {
+        let f = fixture();
+        let mut g = game(&f);
+        let (reference, alias) = retire_scene(&mut g, local, "owned\\retired.nif");
+        let before = g.world.snapshot();
+        // First changed consumer boundary: checked snapshot must admit this exact
+        // retired closure, not erase its reference or replace its base.
+        let snapshot = g.checked_snapshot().expect("retired scene provenance is reconstructible");
+        assert_eq!(snapshot.sim.deleted_created.get(&reference), Some(&alias));
+        assert!(!snapshot.sim.refs.contains_key(&reference));
+        assert_eq!(g.world.snapshot(), before, "saving must not mutate the running world");
+        assert_eq!(g.unclone(alias), FormId(0xD10), "the original running clone remains valid");
+        let json = serde_json::to_value(&snapshot).unwrap();
+        let key = alias.to_string();
+        assert_eq!(json["format"], "fnv.game.state/2-retired-scenes");
+        assert_eq!(json["retired_scene_bases"][&key]["original"], "0x00000D10");
+        assert_eq!(json["retired_scene_bases"][&key]["kind"], serde_json::json!([83, 84, 65, 84]));
+        assert_eq!(json["retired_scene_bases"][&key]["model_override"], "owned\\retired.nif");
+        let mut back = restore_scene(&f, &json).unwrap();
+        assert!(back.world.peek(reference).is_none());
+        assert_eq!(back.world.deleted_base(reference), Some(alias));
+        assert!(back.world.temporary_scene_base(alias).is_none(), "retired provenance is not a live scene base");
+        assert_eq!(back.unclone(alias), alias);
+        assert_eq!(retired_query(&mut back, &format!("SetFunctionValue (IsClonedForm (StringToRef \"{:08X}\"))", alias.0)), XVal::Num(0.0));
+        let repeated = serde_json::to_value(back.checked_snapshot().unwrap()).unwrap();
+        assert_eq!(repeated["retired_scene_bases"], json["retired_scene_bases"]);
+        let XVal::Ref(fresh) = retired_query(&mut back, &format!("SetFunctionValue (TempCloneForm OwnedSceneBase {})", u8::from(local))) else { panic!("fresh clone") };
+        assert!(fresh > alias.0, "the retired alias cannot be reassigned");
+        let placed = back.world.place(FormId(0xD13), None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert!(placed.0 > reference.0);
+        assert_eq!(back.world.deleted_base(reference), Some(alias));
+        assert_eq!(back.world.peek(placed).unwrap().base, FormId(0xD13));
+    }
+}
+
+#[test]
+fn retired_scene_preserves_empty_override_and_independent_original_metadata() {
+    let f = fixture(); let mut g = game(&f);
+    let (a, alias_a) = retire_scene(&mut g, true, "");
+    let (b, alias_b) = retire_scene(&mut g, true, "owned\\second.nif");
+    let snapshot = g.checked_snapshot().unwrap();
+    let json = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(json["retired_scene_bases"][alias_a.to_string()]["model_override"], "");
+    assert_eq!(json["retired_scene_bases"][alias_b.to_string()]["model_override"], "owned\\second.nif");
+    let mut back = restore_scene(&f, &json).unwrap();
+    assert_eq!(back.world.deleted_base(a), Some(alias_a));
+    assert_eq!(back.world.deleted_base(b), Some(alias_b));
+    assert_eq!(retired_query(&mut back, "SetFunctionValue (GetModelPath OwnedSceneBase)"), XVal::Str("owned\\original.nif".into()));
+    assert_eq!(retired_query(&mut back, "SetFunctionValue (GetModelPath OwnedOtherSceneBase)"), XVal::Str("owned\\other.nif".into()));
+}
+
+#[test]
+fn retired_scene_metadata_cannot_admit_a_live_or_unresolved_scene_alias() {
+    let f = fixture(); let mut g = game(&f);
+    let (_, retired) = retire_scene(&mut g, true, "owned\\retired.nif");
+    let live = place(&mut g, true);
+    assert_ne!(g.world.peek(live).unwrap().base, retired);
+    assert!(g.checked_snapshot().unwrap_err().contains("temporary cloned base"));
+    let mut g = game(&f);
+    let XVal::Ref(alias) = retired_query(&mut g, "SetFunctionValue (TempCloneForm OwnedSceneBase 1)") else { panic!("clone") };
+    let reference = g.world.place(FormId(0xD10), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    g.world.get(reference).unwrap().base = FormId(alias);
+    g.world.set_deleted(reference, true).unwrap();
+    assert!(g.checked_snapshot().unwrap_err().contains("temporary cloned base"), "an unadmitted alias must not acquire provenance from its ID alone");
+}
+
+#[test]
+fn retired_scene_format_and_malformed_provenance_fail_before_restore() {
+    let f = fixture(); let mut g = game(&f);
+    let (reference, alias) = retire_scene(&mut g, true, "owned\\retired.nif");
+    let valid = serde_json::to_value(g.checked_snapshot().unwrap()).unwrap();
+    let key = alias.to_string();
+    for case in 0..9 {
+        let mut value = valid.clone();
+        match case {
+            0 => value["format"] = "fnv.game.state/1".into(),
+            1 => value["clone_sequence_floor"] = 0.into(),
+            2 => value["clone_sequence_floor"] = u32::MAX.into(),
+            3 => value["retired_scene_bases"][&key]["original"] = key.clone().into(),
+            4 => value["retired_scene_bases"][&key]["kind"] = serde_json::json!([78, 80, 67, 95]),
+            5 => { value["sim"]["deleted_created"].as_object_mut().unwrap().remove(&reference.to_string()); },
+            6 => { value["retired_scene_bases"] = serde_json::json!({}); },
+            7 => value["retired_scene_bases"][&key]["original"] = "0x00000007".into(),
+            8 => value["sim"]["next_dynamic"] = reference.0.into(),
+            _ => unreachable!(),
+        }
+        assert!(restore_scene(&f, &value).is_err(), "malformed case {case} must refuse");
+    }
+    // Older readers admit only /1, so this record cannot be silently ignored.
+    assert_ne!(valid["format"], fnv_game::game::SNAPSHOT_FORMAT);
+    assert_eq!(serde_json::to_value(game(&f).checked_snapshot().unwrap()).unwrap()["format"], fnv_game::game::SNAPSHOT_FORMAT);
+}
+
+#[test]
+fn retired_scene_restore_refuses_authored_identity_collision_and_wrong_original() {
+    let mut f = fixture();
+    let (alias, json) = {
+        let mut g = game(&f);
+        let (_, alias) = retire_scene(&mut g, true, "owned\\retired.nif");
+        (alias, serde_json::to_value(g.checked_snapshot().unwrap()).unwrap())
+    };
+    // Exercise the actual loaded record-signature admission boundary; this is an
+    // adversarial GameData collision, not a claim about a winning plugin importer.
+    f.data.sigs.insert(alias, *b"STAT");
+    assert!(restore_scene(&f, &json).is_err());
+    f.data.sigs.remove(&alias);
+    f.data.sigs.insert(FormId(0xD10), *b"NPC_");
+    assert!(restore_scene(&f, &json).is_err());
+}
+
+#[test]
+fn retired_scene_sequence_reservation_and_exhaustion_do_not_reuse_old_ids() {
+    let f = fixture(); let mut g = game(&f);
+    let (_, alias) = retire_scene(&mut g, true, "owned\\retired.nif");
+    let XVal::Ref(later_unused) = retired_query(&mut g, "SetFunctionValue (TempCloneForm OwnedOtherSceneBase 1)") else { panic!("unused clone") };
+    let mut json = serde_json::to_value(g.checked_snapshot().unwrap()).unwrap();
+    let mut back = restore_scene(&f, &json).unwrap();
+    assert_eq!(back.unclone(FormId(later_unused)), FormId(later_unused), "unused temporary clones must not be resurrected");
+    let XVal::Ref(next) = retired_query(&mut back, "SetFunctionValue (TempCloneForm OwnedSceneBase 1)") else { panic!("next clone") };
+    assert!(next > later_unused && later_unused > alias.0);
+    json["clone_sequence_floor"] = (fnv_game::game::COMPILED_BASE - fnv_game::nvse_data::CLONE_BASE - 1).into();
+    let mut exhausted = restore_scene(&f, &json).unwrap();
+    let result = fnv_game::nvse::call(&mut exhausted, &Default::default(), "tempcloneform", None, &[XVal::Ref(0xD10), XVal::Num(0.0)]).unwrap();
+    assert!(result.unwrap_err().contains("identity space exhausted"));
+    assert_eq!(serde_json::to_value(exhausted.checked_snapshot().unwrap()).unwrap()["retired_scene_bases"], json["retired_scene_bases"]);
+}
+
+#[test]
+fn ordinary_unused_clone_carriers_still_restore_as_invalid_without_new_format() {
+    use fnv_script::vm::{ArrayKind, XKey};
+    let f = fixture(); let mut g = game(&f);
+    let alias = retired_query(&mut g, "SetFunctionValue (TempCloneForm OwnedSceneBase 1)");
+    let XVal::Ref(id) = alias else { panic!("clone") };
+    let array = g.ext.new_array(ArrayKind::List, vec![(XKey::Num(0.0), alias.clone())]);
+    g.ext.retain(&XVal::Array(array));
+    let json = serde_json::to_value(g.checked_snapshot().unwrap()).unwrap();
+    assert_eq!(json["format"], fnv_game::game::SNAPSHOT_FORMAT);
+    assert!(json.get("retired_scene_bases").is_none());
+    let back = restore_scene(&f, &json).unwrap();
+    assert_eq!(back.unclone(FormId(id)), FormId(id));
+    assert_eq!(back.ext.array(array).unwrap().get(&XKey::Num(0.0)), Some(&alias));
+}
+
+#[test]
+fn retired_alias_cannot_also_be_a_live_or_deleted_reference_identity() {
+    let f = fixture(); let mut g = game(&f);
+    let (_, alias) = retire_scene(&mut g, true, "owned\\retired.nif");
+    let ordinary = g.world.place(FormId(0xD13), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(g.world.peek(ordinary).unwrap().base, FormId(0xD13));
+    let valid = serde_json::to_value(g.checked_snapshot().unwrap()).unwrap();
+    let live = valid["sim"]["refs"][ordinary.to_string()].clone();
+    assert_eq!(live["base"], "0x00000D13");
+    assert!(restore_scene(&f, &valid).unwrap().world.peek(alias).is_none());
+    for deleted in [false, true] {
+        let mut malformed = valid.clone();
+        if deleted {
+            malformed["sim"]["deleted_created"][alias.to_string()] = "0x00000D13".into();
+        } else {
+            malformed["sim"]["refs"][alias.to_string()] = live.clone();
+        }
+        assert!(restore_scene(&f, &malformed).is_err(), "retired alias used as a reference key: deleted={deleted}");
+    }
 }

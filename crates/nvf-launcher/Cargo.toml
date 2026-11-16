@@ -1,0 +1,52 @@
+[package]
+name = "nvf-launcher"
+description = "NVForever's launcher: the project's news, Play/Continue and the settings of NVForever.ini in one window (#2708)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nvforever-launcher"
+path = "src/main.rs"
+
+[dependencies]
+fnv-install = { path = "../fnv-install" }
+fnv-save = { path = "../fnv-save" }
+# The languages NVForever's own words come in (the Language list), as the game reads them.
+fnv-util = { path = "../fnv-util" }
+# DLSS: NVIDIA's licence and the game's own download, checks and folder (src/dlss.rs, #2765).
+nvf-dlss-files = { path = "../nvf-dlss-files" }
+# A new install ID after "Delete them now" (src/reports.rs), as the game makes it.
+uuid = { version = "1", features = ["v4"] }
+serde.workspace = true
+serde_json.workspace = true
+# The window (docs/design/launcher.md): egui through eframe on OpenGL (glow), not wgpu, so
+# the launcher stays small and starts on any GPU driver. MIT/Apache-2.0. No `accesskit` (screen
+# readers) yet: on Linux it brings zbus/zvariant, unmaintained (RustSec), which deny.toml refuses.
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+# Pictures (the logo, the newest save's thumbnail, news images) through egui's image loader.
+egui_extras = { version = "0.37", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+# The news posts are Markdown (the site's and the release notes). MIT/Apache-2.0.
+egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark", "load-images"] }
+# The news: HTTPS through the system's TLS, as the player reports do (engine/nvforever/Cargo.toml).
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
+# The updater (docs/design/launcher.md "Updater", #2713): the release's SHA-256 check, its
+# Windows zip (deflate only: no AES, bzip2, lzma or zstd) and its Linux tar.gz. sha2 as
+# fnv-util has it; flate2 on zlib-rs as fnv-inflate has it. All MIT or MIT/Apache-2.0.
+sha2 = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tar = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+
+# The game-folder and program pickers, as the game's first start has them. MIT. Windows only:
+# on Linux rfd's portal backend brings zbus/zvariant (unmaintained, RustSec), so the folder
+# is typed there, as the game's own setup asks for it on Linux (`--data` or `[Game] Path`).
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
+# The displays and their modes for the Resolution and Monitor lists (src/display.rs):
+# EnumDisplayDevicesW / EnumDisplaySettingsW. The version winit already brings. MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

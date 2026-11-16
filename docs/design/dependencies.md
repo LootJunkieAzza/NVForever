@@ -31,6 +31,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `png` 0.18 (MIT/Apache-2.0), the version the engine already builds, and `qrcodegen` 1.8 (MIT) | fnv-game `image_files.rs` (#1008, SUP batch 5): CaptureScreenshot's PNG files and TextToQRCode's code (ext-sup5.md) |
 | — | `wgpu` 30 (`vulkan`) + `ash` 0.38, MIT/Apache-2.0, the versions Bevy already uses | nvforever `memory_budget.rs` (#1170): the GPU's `VK_EXT_memory_budget` through wgpu's Vulkan device (`Device::as_hal`); no wgpu patch |
 | — | `tracy-client` 0.19 (MIT/Apache-2.0; its `tracy-client-sys` 0.30.1 carries the Tracy 0.14.1 C++ client, BSD-3-Clause) with `tracing-tracy` 0.12 (MIT/Apache-2.0), through Bevy's `trace_tracy`, the versions Bevy 0.20.1 pins | optional, only in the engine's `tracy`/`tracy-memory` build features (#1329): Bevy's spans sent live to the Tracy profiler; built `ondemand` + `only-localhost`; never in release or CI builds (frame-rate-audit.md §1) |
+| — | `eframe`/`egui` 0.37 (glow, no accesskit), `egui_extras`, `egui_commonmark` 0.26, `image` 0.25, `ureq` 3 (native TLS), `rfd` 0.15 (Windows), all MIT/Apache-2.0; egui's fonts OFL-1.1 / Ubuntu Font Licence (deny.toml exception for `epaint_default_fonts` only) | `nvf-launcher` (#2708, docs/design/launcher.md): the launcher window, its news and the newest save's picture |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 

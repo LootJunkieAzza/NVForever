@@ -53,6 +53,10 @@ mod zip;
 #[cfg_attr(not(windows), allow(unused_imports))]
 pub use files::{DOWNLOAD_FILES, DownloadFile};
 
+/// The developer-only test address of the download (a local server; `fetch.rs`): the caller
+/// reads it, only for a developer's run, and gives it to [`start`].
+pub const TEST_URL_VAR: &str = "NVF_DLSS_DOWNLOAD_URL";
+
 /// The archive the files come from: the official asset of NVIDIA-RTX/Streamline's release
 /// v2.14.16 [documented: https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.16].
 pub const ASSET_URL: &str = "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.16/streamline-sdk-v2.14.16.zip";
@@ -68,8 +72,12 @@ pub const RELEASE_PAGE: &str = "https://github.com/NVIDIA-RTX/Streamline/release
 pub struct LicenceAccepted(());
 
 impl LicenceAccepted {
-    /// Made only by the dialog's accept button, after the licence was shown.
-    pub(crate) fn by_player() -> Self {
+    /// Made only by an I accept button the player clicked with the mouse while NVIDIA's
+    /// licence ([`crate::LICENCE`]) was shown. Public because two crates have such a button:
+    /// the game's dialog (`engine/nvforever/src/dlss_download/dialog.rs`) and the launcher's
+    /// licence window (`crates/nvf-launcher/src/app.rs`, `dlss_licence_window`); no other
+    /// caller may make one, and none does (each caller is the click's handler).
+    pub fn by_player() -> Self {
         Self(())
     }
 }
@@ -215,7 +223,7 @@ pub fn target_folder() -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
-        super::resolve_folder(std::env::var_os(super::ENV_DIR).as_deref(), exe_dir.as_deref()).map(|(folder, _)| folder)
+        crate::resolve_folder(std::env::var_os(crate::ENV_DIR).as_deref(), exe_dir.as_deref()).map(|(folder, _)| folder)
     }
     #[cfg(not(windows))]
     {
@@ -234,12 +242,15 @@ pub fn current() -> Option<Handle> {
 
 /// Starts the download on its own thread (`nvf-dlss-download`); the game goes on meanwhile.
 /// While one is running, its handle is returned instead of a second one starting.
-pub fn start(_accepted: LicenceAccepted) -> Handle {
+/// `test_url`: the developer-only address of a local test server (`NVF_DLSS_DOWNLOAD_URL`),
+/// which the caller gives only for a developer's run (the game: with `--data`); `None` for a
+/// player's.
+pub fn start(_accepted: LicenceAccepted, test_url: Option<String>) -> Handle {
     let mut current = CURRENT.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(running) = current.as_ref().filter(|s| !s.progress.lock().unwrap_or_else(PoisonError::into_inner).phase.finished()) {
         return Handle { shared: running.clone() };
     }
-    bevy::log::info!("DLSS download: licence accepted");
+    tracing::info!("DLSS download: licence accepted");
     let shared = Arc::new(Shared::new());
     *current = Some(shared.clone());
     drop(current);
@@ -252,7 +263,7 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
             let phase = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target_folder() {
                 Err(why) => Phase::Failed(Failure::Write(why)),
                 Ok(target) => {
-                    let mut source = fetch::Http::new();
+                    let mut source = fetch::Http::new(test_url);
                     run(&mut source, DOWNLOAD_FILES, &target, &worker, &install::signature_checks)
                 }
             }))
@@ -263,6 +274,9 @@ pub fn start(_accepted: LicenceAccepted) -> Handle {
             finish(&shared, Phase::Failed(Failure::Write(format!("the download thread did not start: {e}"))));
         }
     }
+    // Off Windows nothing is fetched, so the test address goes unused.
+    #[cfg(not(windows))]
+    let _ = test_url;
     #[cfg(not(windows))]
     finish(&shared, Phase::Failed(Failure::NotWindows));
     Handle { shared }
@@ -280,7 +294,7 @@ pub fn clean_up_at_start() {
             }
         });
         if let Err(e) = spawned {
-            bevy::log::warn!("DLSS download: the staging clean-up did not start: {e}");
+            tracing::warn!("DLSS download: the staging clean-up did not start: {e}");
         }
     }
 }
@@ -331,9 +345,9 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
 /// The end of a download: the phase set and its log line.
 fn finish(shared: &Shared, phase: Phase) {
     match &phase {
-        Phase::Done(folder) => bevy::log::info!("DLSS download: installed in {}; restart NVForever to use DLSS", folder.display()),
-        Phase::Failed(failure) => bevy::log::warn!("DLSS download: failed: {failure}; nothing written"),
-        Phase::Cancelled => bevy::log::info!("DLSS download: cancelled; nothing written"),
+        Phase::Done(folder) => tracing::info!("DLSS download: installed in {}; restart NVForever to use DLSS", folder.display()),
+        Phase::Failed(failure) => tracing::warn!("DLSS download: failed: {failure}; nothing written"),
+        Phase::Cancelled => tracing::info!("DLSS download: cancelled; nothing written"),
         _ => {}
     }
     shared.set_phase(phase);
@@ -466,7 +480,7 @@ fn run<S: RangeSource>(src: &mut S, files: &[DownloadFile], target: &Path, share
         Err(failure) => return Phase::Failed(failure),
     };
     for file in files.iter().filter(|file| !wanted.contains(file)) {
-        bevy::log::info!("DLSS download: {} already in the DLSS folder, kept and not fetched", file.name);
+        tracing::info!("DLSS download: {} already in the DLSS folder, kept and not fetched", file.name);
     }
     if wanted.is_empty() {
         return Phase::Done(target.to_path_buf());
@@ -510,7 +524,7 @@ fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target
         p.fetched = 0;
         p.to_fetch = to_fetch;
     });
-    bevy::log::info!("DLSS download: {} entries, {to_fetch} bytes to fetch from {}", selected.len(), src.describe());
+    tracing::info!("DLSS download: {} entries, {to_fetch} bytes to fetch from {}", selected.len(), src.describe());
     go_on()?;
     // The files, unpacked into the staging folder as they arrive.
     let mut staging = install::Staging::create(target)?;
@@ -556,7 +570,7 @@ fn fetch_and_install<S: RangeSource>(src: &mut S, files: &[DownloadFile], target
             written.sync_all().map_err(|e| Failure::Write(format!("{}: {e}", path.display())))?;
             drop(written);
             decode::verify(&decoded, entry.crc32, file)?;
-            bevy::log::info!("DLSS download: {} {} bytes, SHA-256 ok", file.name, decoded.size);
+            tracing::info!("DLSS download: {} {} bytes, SHA-256 ok", file.name, decoded.size);
             pos = data_end;
         }
         // The rest of the range (a data descriptor) is read too: the progress reaches its end,

@@ -953,6 +953,12 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         }
         return Ok((f.header, body_of(raw)?, None));
     }
+    // Retired aliases are reserved identities, not plugin-indexed records. This
+    // first persistence format supports identical/appended load orders only;
+    // refuse before the generic walker can remap or discard their provenance.
+    if raw.get("game").and_then(|g| g.get("retired_scene_bases")).is_some_and(|v| v.as_object().is_none_or(|m| !m.is_empty())) {
+        return Err(format!("{} contains retired temporary scene identities and cannot be loaded with a reordered or missing plugin list", path.display()));
+    }
     let missing = remap.missing();
     if !missing.is_empty() && current.len() > fnv_save::GONE_INDEX as usize {
         return Err(format!("{} was made with plugins that are not loaded now ({missing:?}) and the load order has 255 plugins: unload one to load it", path.display()));
@@ -988,6 +994,10 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     }
     Ok((f.header, body, Some(OrderChange { remap, missing })))
 }
+
+#[cfg(test)]
+#[path = "save/retired_scene_tests.rs"]
+mod retired_scene_tests;
 
 #[cfg(test)]
 mod tests {

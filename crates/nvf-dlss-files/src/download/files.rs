@@ -48,15 +48,15 @@ pub(super) const NGX_PINS: [(&str, u64, &str); 2] = [
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::preflight::{RELEASE_DLLS, UPDATER_NAME, parse_sha256};
+    use crate::{RELEASE_DLLS, UPDATER_NAME, parse_sha256};
     use super::*;
 
     #[test]
     fn the_download_is_the_loaders_four_files_then_frame_generation_in_order() {
         let names: Vec<&str> = DOWNLOAD_FILES.iter().map(|f| f.name).collect();
         assert_eq!(names.len(), 8);
-        assert_eq!(names[..4], super::super::super::FILES);
-        assert_eq!(names[4..], super::super::super::FG_FILES);
+        assert_eq!(names[..4], crate::FILES);
+        assert_eq!(names[4..], crate::FG_FILES);
     }
 
     #[test]

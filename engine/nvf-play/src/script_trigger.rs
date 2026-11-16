@@ -8,7 +8,11 @@
 //! A scripted reference whose *model* holds trigger volumes counts too: phantoms
 //! (`bhkSimpleShapePhantom`) on the Trigger layer (12), as in the bear trap, the
 //! tripwire and the pressure plate (`meshes\traps\beartrap01.nif` node "Trigger": a
-//! box 32 × 32 × 8 units half extents) [observed: `fnvtool nif decode`]. Each phantom
+//! box 32 × 32 × 8 units half extents) [observed: `fnvtool nif decode`], and phantoms on
+//! the Gas Trap layer (24), the gas clouds (`meshes\traps\trapgasfire01.nif`: one
+//! sphere, nothing solid [observed]; their scripts set them off when an actor walks in
+//! with a flamer, an incinerator or a Shishkebab drawn, or burning; shots and blasts:
+//! `crate::gas_traps`, #2687). Each phantom
 //! is the box of its shape's bounds in the model, scaled, turned and moved by the
 //! reference [hypothesis: the box shapes under a transform shape are what Havok tests;
 //! docs/spec-notes/traps.md §1]. The model is the one the physics cell loader read
@@ -76,6 +80,10 @@ pub struct Triggers {
     actors_by_cell: HashMap<FormId, Vec<FormId>>,
     /// (trigger, actor) pairs touching after the last frame.
     pub inside: BTreeSet<(FormId, FormId)>,
+    /// Of the candidates' volumes, those from Gas Trap-layer phantoms: the gas clouds
+    /// shots, blasts and guns fired inside set off (`crate::gas_traps`, #2687). Built
+    /// and dropped with [`Triggers::shapes`].
+    gas: HashMap<FormId, Vec<TriggerShape>>,
 }
 
 impl Triggers {
@@ -83,6 +91,12 @@ impl Triggers {
     /// view draws them, `crate::collision_view`).
     pub fn volumes(&self) -> impl Iterator<Item = &TriggerShape> {
         self.shapes.values().flat_map(|(_, v)| v.iter())
+    }
+
+    /// The gas clouds' volumes built so far, by reference (`crate::gas_traps`); a
+    /// reference disabled since is still listed: the caller asks whether it is present.
+    pub fn gas_volumes(&self) -> impl Iterator<Item = (FormId, &TriggerShape)> {
+        self.gas.iter().flat_map(|(r, v)| v.iter().map(move |s| (*r, s)))
     }
 }
 
@@ -143,8 +157,9 @@ fn lookup(play: &PlayWorld, rt: &Runtime, r: FormId, pose: Pose) -> Lookup {
     }
 }
 
-/// Each trigger object of a model as a box at the reference's pose: the bounds of its
-/// shape in the model, centred where they are, turned and scaled with the reference.
+/// Each trigger object of a model at the reference's pose: the bounds of its shape in
+/// the model, centred where they are, turned and scaled with the reference; a box, or a
+/// sphere for a sphere shape (the gas clouds', #2687).
 pub fn model_shapes(objects: &[fnv_collide::CollisionObject], pos: [f32; 3], rot: [f32; 9], scale: f32) -> Vec<TriggerShape> {
     objects
         .iter()
@@ -156,7 +171,11 @@ pub fn model_shapes(objects: &[fnv_collide::CollisionObject], pos: [f32; 3], rot
             let c = b.center().map(|v| v * scale);
             let rc = [rot[0] * c[0] + rot[1] * c[1] + rot[2] * c[2], rot[3] * c[0] + rot[4] * c[1] + rot[5] * c[2], rot[6] * c[0] + rot[7] * c[1] + rot[8] * c[2]];
             let half = b.extent().map(|v| v / 2.0);
-            Some(TriggerShape { pos: [pos[0] + rc[0], pos[1] + rc[1], pos[2] + rc[2]], rot, scale, kind: TriggerKind::Box { half_extents: half } })
+            let kind = match *o.shape {
+                fnv_collide::Shape::Sphere { .. } => TriggerKind::Sphere { radius: half[0].min(half[1]).min(half[2]) },
+                _ => TriggerKind::Box { half_extents: half },
+            };
+            Some(TriggerShape { pos: [pos[0] + rc[0], pos[1] + rc[1], pos[2] + rc[2]], rot, scale, kind })
         })
         .collect()
 }
@@ -215,6 +234,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
         // Moved, turned or rescaled since its volumes were built: build them again.
         if rt.triggers.shapes.get(&r).is_some_and(|(at, _)| *at != pose) {
             rt.triggers.shapes.remove(&r);
+            rt.triggers.gas.remove(&r);
             bevy::log::info!("script: trigger {} moved: its volumes follow", rt.game.data.name(r));
         }
         if rt.triggers.waiting.get(&r).is_some_and(|l| matches!(l, Lookup::Model(.., at) if *at != pose)) {
@@ -234,6 +254,12 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
                         let s = model_shapes(&objects, pos, rot, scale);
                         if !s.is_empty() {
                             bevy::log::info!("script: trigger {} has {} trigger volume(s) in its model", rt.game.data.name(r), s.len());
+                        }
+                        let gas: Vec<_> = objects.iter().filter(|o| o.layer == fnv_phys::layers::GAS_TRAP).cloned().collect();
+                        let gas = model_shapes(&gas, pos, rot, scale);
+                        if !gas.is_empty() {
+                            bevy::log::info!("script: {} has {} gas volume(s) in its model", rt.game.data.name(r), gas.len());
+                            rt.triggers.gas.insert(r, gas);
                         }
                         rt.triggers.shapes.insert(r, (at, s));
                     }

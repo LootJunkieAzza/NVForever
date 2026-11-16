@@ -770,7 +770,7 @@ fn play(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     (loc, state, paused, pw, table): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>, Res<TableStation>),
-    (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
+    (player, intro, mut cover): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>, Option<ResMut<crate::sound_cover::SoundCover>>),
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     // The sinks held with the radios: not those fading out after a stop (audio_out).
@@ -1078,9 +1078,16 @@ fn play(
     }
 
     let mut sounding: HashSet<u32> = HashSet::new();
+    let cover_now = std::time::Instant::now();
     for w in &wants {
         let gain = w.level * volume;
         sounding.insert(w.key);
+        // A radio at a place, heard at the listener (`crate::sound_cover`).
+        if let (Some(at), Some(cover), true) = (w.at, cover.as_deref_mut(), settings.play) {
+            let eye = player.eye();
+            let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
+            cover.note(Some(crate::sound_cover::SoundCover::key(crate::sound_cover::RADIO_KIND, u64::from(w.key))), w.level, d, crate::sound_cover::LOOP_HOLD, cover_now);
+        }
         if let Some(p) = radio.playing.get(&w.key) {
             if p.track == w.track {
                 p.level.store(gain.to_bits(), Ordering::Relaxed);

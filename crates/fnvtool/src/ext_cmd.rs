@@ -1,6 +1,7 @@
 //! `fnvtool ext …`: script-extender use in a load order (task N2 of
 //! docs/handoff/extender-core-tasks.md). Only names and counts are printed, never script
-//! text, so the output of a scan over someone's mods can be shared.
+//! text for scans. Runtime diagnostic detail and played-log messages can contain private
+//! text or paths and are emitted only with an explicit detail option.
 //!
 //! - **Functions**: every identifier of a unit's source (`SCTX`) that names a catalogue
 //!   function of family `extender` (name or alias, any case; `schemas/script/functions.json`),
@@ -66,6 +67,33 @@ pub enum ExtCmd {
         /// keep such output private.
         #[arg(long)]
         detail: bool,
+    },
+    /// Static call coverage over the game's compiled units (fnv.ext.connections/1).
+    /// Does not run scripts or placeholder probes. Named calls remain unchecked; a
+    /// registered handler does not prove its effect or native/mod compatibility.
+    Connections {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Only these plugin file names (case-insensitive); an unknown name is refused.
+        #[arg(id = "connections_selected_plugins", long = "plugin")]
+        selected_plugins: Vec<String>,
+    },
+    /// Read only an explicit played log; no game/profile scan. Bounded input and
+    /// retention; default output contains counts, never message text or file paths.
+    ModLog {
+        log: PathBuf,
+        #[arg(long)]
+        previous: Option<PathBuf>,
+        /// Include private log messages/paths in entries and the two-run difference.
+        #[arg(long)]
+        detail: bool,
+        /// Write the same JSON into a NEW file; existing files are never overwritten.
+        #[arg(long)]
+        summary: Option<PathBuf>,
     },
     /// Run one probe set's quests headless (tools/capture/ext-probes/<set>) and collect
     /// the EXTPROBE lines they print, as the in-game collector does (fnv.ext.probes/1).
@@ -151,6 +179,10 @@ pub enum ExtCmd {
         /// Also run the files of the game restart, then of a new game.
         #[arg(long)]
         run: bool,
+        /// Include private unit names and printed/error text in the new diagnostics.
+        /// Counts alone are included by default when --run is given.
+        #[arg(long, requires = "run")]
+        detail: bool,
         /// Leave the Data folder's loose files out (only the `--root` folders' files are
         /// read; the load order and its archives still are): a check whose result must not
         /// depend on what the player installed.
@@ -203,6 +235,49 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
             Ok(source_report(&data.source_units, order.plugins.iter().map(|p| p.name.clone()).collect(), detail))
         }
+        ExtCmd::Connections { lo, schema, functions, selected_plugins: selected } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let fjson: Value = serde_json::from_str(&std::fs::read_to_string(&fp)?)?;
+            let table = FunctionTable::load(&fp)?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let only: std::collections::BTreeSet<String> = selected.iter().map(|p| p.to_ascii_lowercase()).collect();
+            for name in &only {
+                anyhow::ensure!(order.plugins.iter().any(|p| p.name.eq_ignore_ascii_case(name)), "Selected plugin is not in the load order");
+            }
+            let refs = fnv_sim::RefTable::build(&order, &schema);
+            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let report = fnv_game::connections::check(&data, &only).map_err(anyhow::Error::msg)?;
+            Ok(json!({"schema": "fnv.ext.connections/1", "plugins": report, "executed": false,
+                "scope": "Compiled calls and static registrations only. Unchecked means no verdict; registration is not effect/native/mod acceptance."}))
+        }
+        ExtCmd::ModLog { log, previous, detail, summary } => {
+            let read = |p: &Path| -> anyhow::Result<crate::mod_log_digest::Digest> {
+                let f = std::fs::File::open(p).context("Cannot open explicit mod-log input")?;
+                crate::mod_log_digest::Digest::read(std::io::BufReader::new(f)).map_err(anyhow::Error::msg)
+            };
+            let now = read(&log)?;
+            // An explicitly supplied missing previous log is an error, not a clean run.
+            let before = previous.as_deref().map(read).transpose()?;
+            let mut doc = json!({"schema": "fnv.ext.mod_log/1", "detail": detail, "run": now.json(detail)});
+            if let Some(before) = &before { doc["changes"] = now.changes(before, detail); }
+            if let Some(path) = summary {
+                use std::io::Write;
+                let path = std::path::absolute(path)?;
+                fnv_install::guard_write(&path, None)?;
+                // A log-only command has no Data argument to remember at startup.
+                // Check only ancestors of its explicit output, not installed profiles.
+                for ancestor in path.ancestors().skip(1) {
+                    if let Ok(game) = fnv_install::GameInstall::open(ancestor) {
+                        fnv_install::guard_write(&path, Some(&game))?;
+                    }
+                }
+                let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).context("Summary requires a new output file")?;
+                f.write_all(serde_json::to_string_pretty(&doc)?.as_bytes())?;
+            }
+            Ok(doc)
+        }
         ExtCmd::Probes { lo, schema, functions, probes, probes_dir, frames, risky, save } => {
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let plans = probe_plans(&probes_dir.join(&probes), risky)?;
@@ -252,7 +327,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             Ok(doc)
         }
-        ExtCmd::ScriptRunner { lo, schema, functions, roots, run, no_data_files } => script_runner(&lo, &schema, functions, roots, run, no_data_files),
+        ExtCmd::ScriptRunner { lo, schema, functions, roots, run, detail, no_data_files } => script_runner(&lo, &schema, functions, roots, run, detail, no_data_files),
         ExtCmd::Queries { lo, schema, functions, steps, start_cell, save, trace, ini, config } => {
             // Mods' files as `script run` sees them: the Data folder (and its archives)
             // read-only, `--config` for Data\Config; nothing is written to disk.
@@ -431,7 +506,7 @@ pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Resu
 }
 
 /// `ext script-runner`: the Script Runner files of `roots` and Data, compiled (and run).
-fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool, no_data_files: bool) -> anyhow::Result<Value> {
+fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool, detail: bool, no_data_files: bool) -> anyhow::Result<Value> {
     use fnv_game::script_runner::{Moment, SrRun};
     let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
     let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins).ok());
@@ -473,6 +548,7 @@ fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, 
         g.new_game();
         let new_game = rows(g.run_script_runner(Moment::NewGame));
         doc["ran"] = json!({"restart": restart, "new_game": new_game});
+        doc["diagnostics"] = crate::runner_diagnostics::document(&g.events, detail);
     }
     Ok(doc)
 }
@@ -1009,4 +1085,75 @@ End
         assert!(cat.0.contains_key("sv_length"));
         assert!(!cat.0.contains_key("getav"));
     }
+    #[test]
+    fn connections_cli_filter_names_are_separate_from_positional_load_order() {
+        use clap::Parser;
+        for (flags, expected) in [
+            (vec![], vec![]),
+            (vec!["--plugin", "Missing.esp"], vec!["Missing.esp"]),
+            (vec!["--plugin", "first.esm", "--plugin", "Missing.esp"], vec!["first.esm", "Missing.esp"]),
+        ] {
+            let mut args = vec!["fnvtool", "ext", "connections", "owned-data", "First.esm", "Second.esp", "--schema", "owned-schema"];
+            args.extend(flags);
+            let cli = crate::Cli::try_parse_from(args).unwrap();
+            let crate::Cmd::Ext(ExtCmd::Connections { lo, selected_plugins, .. }) = cli.cmd else {
+                panic!("expected the real connections command");
+            };
+            assert_eq!(lo.data_dir, std::path::PathBuf::from("owned-data"));
+            assert_eq!(lo.plugins, vec!["First.esm", "Second.esp"]);
+            assert_eq!(selected_plugins, expected);
+        }
+    }
+
+    #[test]
+    fn connections_walks_actual_source_compiled_units_without_executing_them() {
+        let fp = root().join("schemas/script/functions.json");
+        let schema = Schema::load_dir(root().join("schemas/fnv")).unwrap();
+        let table = FunctionTable::load(&fp).unwrap();
+        let fjson: Value = serde_json::from_str(&std::fs::read_to_string(&fp).unwrap()).unwrap();
+        let source = "scn OwnedConnections\nstring_var ownedSourceSelection\nBegin GameMode\nif 0\nNvfDiagnosticOwnedMissing\nSv_Length \"owned\"\nendif\nEnd\n";
+        let header = record(b"TES4", 1, 0, &[sub(b"HEDR", [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat())]);
+        let bytes = [header, group(*b"SCPT", &script(0x800, &[0x1D, 0, 0, 0], &[], Some(source)))].concat();
+        let plugins = vec![Plugin::parse(&bytes, "OwnedDiagnostic.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+        // Exercise the normal Auto source path through a real extender declaration.
+        assert!(fnv_game::source_compile::declares_extender_vars(source));
+        assert_eq!(data.source_units.len(), 1, "{:?}", data.source_units);
+        assert_eq!(data.source_units[0].plugin, "OwnedDiagnostic.esm");
+        assert!(data.source_units[0].unknown_functions.iter().any(|name| name.eq_ignore_ascii_case("NvfDiagnosticOwnedMissing")), "{:?}", data.source_units);
+        assert!(data.source_units.iter().all(|u| u.error.is_none()), "{:?}", data.source_units);
+        let report = fnv_game::connections::check(&data, &Default::default()).unwrap();
+        let functions = &report[0].functions;
+        let absent = functions.iter().find(|f| f.name.eq_ignore_ascii_case("NvfDiagnosticOwnedMissing")).unwrap();
+        assert_eq!(absent.status, fnv_game::connections::Status::Unknown);
+        assert_eq!((absent.units, absent.calls), (1, 1));
+        let named = functions.iter().find(|f| f.name.eq_ignore_ascii_case("Sv_Length")).unwrap();
+        assert_eq!(named.status, fnv_game::connections::Status::Unchecked);
+        assert!(fnv_game::connections::check(&data, &std::collections::BTreeSet::from(["other.esp".into()])).unwrap().is_empty());
+    }
+
+    #[test]
+    fn runner_summary_consumes_real_vm_print_and_empty_reference_failure() {
+        let fp = root().join("schemas/script/functions.json");
+        let schema = Schema::load_dir(root().join("schemas/fnv")).unwrap();
+        let table = FunctionTable::load(&fp).unwrap();
+        let fjson: Value = serde_json::from_str(&std::fs::read_to_string(&fp).unwrap()).unwrap();
+        let plugins = vec![Plugin::parse(&plugin(), "OwnedDiagnostic.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let refs = fnv_sim::RefTable::build(&lo, &schema);
+        let forms = fnv_sim::FormStore::build(&lo, &schema);
+        let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+        let world = fnv_sim::World::new(&forms, &refs, Default::default());
+        let mut game = fnv_game::Game::new(&data, world, Default::default());
+        game.run_source("ref r\nPrintC \"authored-print-witness\"\nr.Disable\n", Default::default()).unwrap();
+        use fnv_game::trace::EventKind;
+        assert!(game.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("empty reference"))), "{:?}", game.events);
+        assert!(game.events.iter().any(|e| matches!(&e.kind, EventKind::ScriptPrint { text, .. } if text.contains("authored-print-witness"))), "{:?}", game.events);
+        let summary = crate::runner_diagnostics::summarize(&game.events, true).unwrap();
+        assert!(summary["counts"]["call_failed"].as_u64().unwrap() > 0);
+        assert!(summary["entries"].as_array().unwrap().iter().any(|r| r["kind"] == "printed" && r["words"].as_str().unwrap().contains("authored-print-witness")));
+    }
+
 }

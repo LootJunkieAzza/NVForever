@@ -16,6 +16,8 @@ fnv-dds.workspace = true
 fnv-vfs.workspace = true
 fnv-install.workspace = true
 fnv-util.workspace = true
+# The DLSS download, its checks and the DLSS folder, shared with the launcher (#2765).
+nvf-dlss-files.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true

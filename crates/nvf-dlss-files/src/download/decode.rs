@@ -88,7 +88,7 @@ pub(super) fn verify(decoded: &Decoded, crc32: u32, file: &DownloadFile) -> Resu
 
 /// Whether `digest` is the file's pinned SHA-256.
 pub(super) fn pin_matches(digest: &[u8; 32], file: &DownloadFile) -> bool {
-    super::super::preflight::parse_sha256(file.sha256).as_ref() == Some(digest)
+    crate::parse_sha256(file.sha256).as_ref() == Some(digest)
 }
 
 #[cfg(test)]

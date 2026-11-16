@@ -232,6 +232,14 @@ refused: points still to give out", the turns to Review ending "(sequence FastRi
 buttons, done 1 times". `NVF_PLAY_TEST_SHOTS` saves pictures of the pages to compare
 with the owner's.
 
+In a new game (`--new-game`, or New Game from the main menu) the machine is spawned
+hidden behind the start's loading screen and the first opening takes it [design, #2406:
+built in the frame the menu opened it was that frame's 79-319 ms, observed in
+docs/design/streaming-hitches.md §6]; the log says `vigor tester: made ready behind the
+loading screen in <ms> ms (508 parts)` and, on opening, `the machine made ready behind the
+loading screen is used`. A `--cell` start (the check above) still builds it on opening.
+Smoke: `vigor-tester-new-game`.
+
 ## 8. Open questions
 
 - The PC keys of the original menu (none in its file).
