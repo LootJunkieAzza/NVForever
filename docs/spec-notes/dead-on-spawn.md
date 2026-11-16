@@ -137,8 +137,12 @@ resting pose it feeds. Surveyed with a private script over FalloutNV.esm (not co
   the bone heights of a body spread 24 units (median), against 39 to 47 under the other
   orders and signs.
 - **Entry 0** is the root body, `Bip01 NonAccum`: its position is (0, 0, 0) within 0.05
-  units on 276 of the 278 [observed: 0x0015A878 and 0x0016A9AE have about 66 units, not
-  looked into]: the reference's position is where the pelvis lies. Its rotation is taken relative to the reference's rotation
+  units on 276 of the 278 [observed: 0x0015A878 and 0x0016A9AE have 66.33 units with every entry at the
+  skeleton's bind pose: the editor's standing pose, kept when nobody laid the corpse out.
+  ApocalypticMojave.esp's nine corpses by Cottonwood Cove carry the same, and stood
+  upright at rest until 2026-11-15 (owner frame `cottonwood-gore-pile`); since then an
+  entry 0 more than 33 units from the reference is refused and the corpse falls from its
+  death pose (`authored_pose::STANDING_ROOT`)]: the reference's position is where the pelvis lies. Its rotation is taken relative to the reference's rotation
   [hypothesis]: so read, 185 of the 278 bodies have their head behind where the reference
   faces (fallen backwards); read as a world rotation the heads point every way, and read
   under `Bip01`'s rotation (`XRGB`) they nearly all point to one side [observed].

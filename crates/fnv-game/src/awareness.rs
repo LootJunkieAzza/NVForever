@@ -962,7 +962,8 @@ impl Game<'_> {
     /// from the same base form, or with a faction in common [engineering choice: without
     /// it Very Aggressive creatures of one kind, neutral to each other, would fight].
     /// Since 2026-10-12 (combat-ai.md §12.4) never when the factions of either name the
-    /// other's an enemy, and a faction in common that names no reactions of its own (a
+    /// other's an enemy, unless they share a faction that names itself an ally or a friend
+    /// (2026-11-15), and a faction in common that names no reactions of its own (a
     /// utility faction: GeneralIdleFaction, voice and dialogue factions) counts only when
     /// one of the two has no faction that names reactions [design: NCR troopers and Fiends
     /// are both in GeneralIdleFaction, which names none, and their own factions,
@@ -1059,6 +1060,15 @@ impl Game<'_> {
     }
 
     fn kin_with(&self, a: FormId, b: FormId, fa: &KinFacts, fb: &KinFacts) -> bool {
+        // A faction in common that names itself an ally or a friend makes them allies,
+        // whatever their other factions say: allies cannot attack each other [documented:
+        // wiki Category:Factions]. FortVulpesInculta is in VCaesarsLegionFaction and in
+        // ArmorNCRFactionNVEnemy, which the Legion names an enemy, and nobody in Caesar's
+        // tent attacks him [owner 2026-11-15: they did, and Finger of Suspicion failed].
+        let allied = |f: &FormId| matches!(crate::functions::actor::reaction(self, *f, *f), 2 | 3);
+        if fa.factions.iter().any(|f| fb.factions.contains(f) && allied(f)) {
+            return true;
+        }
         if self.relation_in_round(a, b) == 1 || self.relation_in_round(b, a) == 1 {
             return false;
         }
