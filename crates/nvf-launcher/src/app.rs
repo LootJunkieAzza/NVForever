@@ -95,6 +95,9 @@ pub struct App {
     languages: Vec<crate::display::Choice>,
     /// "Delete them now": asking first, then the request's answer.
     reports_confirm: bool,
+    /// DLSS: what this PC has (read at start and after a download), and the licence open.
+    dlss: crate::dlss::Status,
+    dlss_licence: bool,
     reports_rx: Option<Receiver<Result<usize, String>>>,
     // News.
     news: Vec<(Post, Option<Arc<[u8]>>)>,
@@ -154,6 +157,8 @@ impl App {
                 EngineHome::user().map(|h| h.root).as_deref(),
             )),
             reports_confirm: false,
+            dlss: crate::dlss::Status::read(),
+            dlss_licence: false,
             reports_rx: None,
             news: Vec::new(),
             news_state: NewsState::Off,
@@ -184,6 +189,12 @@ impl App {
             // The "Delete them now" question, open (nothing is sent without its button).
             Ok("delete-reports") => {
                 app.reports_confirm = true;
+                Page::Settings
+            }
+            // NVIDIA's licence before Download DLSS, open (nothing is fetched without I accept).
+            Ok("dlss-licence") => {
+                app.dlss_licence = true;
+                app.tab = app.tabs.iter().position(|t| t == "Graphics").unwrap_or(0);
                 Page::Settings
             }
             // `settings:<tab>`: that tab of the Settings page.
@@ -463,6 +474,7 @@ impl eframe::App for App {
         self.test_shot(ctx);
         self.update_window(ctx, running);
         self.reports_window(ctx, running);
+        self.dlss_licence_window(ctx);
         egui::CentralPanel::default().frame(Frame::new().fill(theme::BG).inner_margin(Margin::symmetric(24, 16))).show(ui, |ui| match self.page {
             Page::Home => self.home_page(ui),
             Page::Settings => self.settings_page(ui),
@@ -869,6 +881,9 @@ impl App {
             ui.set_width(ui.available_width());
             match tab {
                 Some(tab) => {
+                    if tab == "Graphics" {
+                        self.dlss_card(ui);
+                    }
                     let rows: Vec<Row> = self.rows.iter().filter(|r| r.tab == tab).cloned().collect();
                     let mut heading: Option<Option<String>> = None;
                     for r in rows {
@@ -1085,6 +1100,122 @@ impl App {
         });
         if modal.should_close() {
             self.reports_confirm = false;
+        }
+    }
+
+    /// The DLSS card (src/dlss.rs): what DLSS needs, what this PC has, and the download.
+    fn dlss_card(&mut self, ui: &mut egui::Ui) {
+        use nvf_dlss_files::download;
+        let running = download::current().map(|h| h.progress()).filter(|p| !p.phase.finished());
+        let last = download::current().map(|h| h.progress()).filter(|p| p.phase.finished());
+        if matches!(last.as_ref().map(|p| &p.phase), Some(download::Phase::Done(_))) && !self.dlss.complete() {
+            self.dlss = crate::dlss::Status::read();
+        }
+        let s = self.dlss.clone();
+        let need = |ui: &mut egui::Ui, ok: bool, words: String| {
+            ui.horizontal(|ui| {
+                // A dot, green or red (the system font has no check marks).
+                let (dot, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
+                ui.painter().circle_filled(dot.center(), 4.5, if ok { GOOD } else { BAD });
+                ui.label(RichText::new(words).small());
+            });
+        };
+        ui.add_space(8.0);
+        card(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("NVIDIA DLSS").strong().size(17.0));
+            ui.label(RichText::new("An optional upscaler beside FSR 3.1 (and DLSS frame generation on RTX 40 or newer). NVForever ships no NVIDIA file: the four upscaling and four frame generation files come from NVIDIA's own Streamline release, under NVIDIA's licence.").small().color(WEAK));
+            ui.add_space(6.0);
+            need(ui, s.windows, "Windows".into());
+            let gpu = if s.gpus.is_empty() { "no graphics card named by Windows".to_string() } else { s.gpus.join(", ") };
+            need(ui, s.rtx(), format!("An NVIDIA RTX graphics card with a current driver ({gpu})"));
+            need(ui, s.upscaling == nvf_dlss_files::FILES.len(), format!("Upscaling files: {} of {}", s.upscaling, nvf_dlss_files::FILES.len()));
+            need(ui, s.frame_generation == nvf_dlss_files::FG_FILES.len(), format!("Frame generation files: {} of {}", s.frame_generation, nvf_dlss_files::FG_FILES.len()));
+            match &s.folder {
+                Ok(f) => ui.label(RichText::new(format!("In {}", f.display())).small().color(WEAK)),
+                Err(e) => ui.label(RichText::new(e.clone()).small().color(BAD)),
+            };
+            ui.add_space(6.0);
+            if let Some(p) = &running {
+                let (words, part) = crate::dlss::progress_words(p);
+                let bar = match part {
+                    Some(f) => egui::ProgressBar::new(f).text(words),
+                    None => egui::ProgressBar::new(0.0).animate(true).text(words),
+                };
+                ui.add(bar);
+                if ui.button("Cancel download").clicked() {
+                    if let Some(h) = download::current() {
+                        h.cancel();
+                    }
+                }
+                ui.ctx().request_repaint_after(Duration::from_millis(200));
+                return;
+            }
+            if let Some(p) = &last {
+                let (words, _) = crate::dlss::progress_words(p);
+                let ok = matches!(p.phase, download::Phase::Done(_));
+                ui.label(RichText::new(words).small().color(if ok { GOOD } else if matches!(p.phase, download::Phase::Cancelled) { WEAK } else { BAD }));
+                if ok {
+                    ui.label(RichText::new("Choose DLSS as the Upscaler below (or in the game's settings).").small().color(WEAK));
+                }
+            }
+            ui.horizontal_wrapped(|ui| {
+                if s.windows && s.folder.is_ok() && !s.complete() && ui.add(gold_button("Download DLSS…", true)).on_hover_text("Shows NVIDIA's licence first; nothing is downloaded before you accept it.").clicked() {
+                    self.dlss_licence = true;
+                }
+                if let Ok(f) = &s.folder {
+                    if ui.button("Open dlss folder").on_hover_text("To copy the files in by hand (docs/dlss.md).").clicked() {
+                        match nvf_dlss_files::create_dlss_folder(f) {
+                            Ok(()) => launch::open_folder(f),
+                            Err(e) => self.message = Some((format!("{}: {e}", f.display()), true)),
+                        }
+                    }
+                }
+                if ui.button("NVIDIA's release page").clicked() {
+                    launch::open_url(download::RELEASE_PAGE);
+                }
+                if ui.button("Check again").clicked() {
+                    self.dlss = crate::dlss::Status::read();
+                }
+            });
+        });
+        ui.add_space(4.0);
+    }
+
+    /// NVIDIA's licence before the download: I accept takes a mouse click only (as the game's
+    /// dialog: no key pressed by habit accepts a licence), Cancel closes with nothing done.
+    fn dlss_licence_window(&mut self, ctx: &egui::Context) {
+        if !self.dlss_licence {
+            return;
+        }
+        let modal = egui::Modal::new(egui::Id::unique("dlss-licence")).frame(Frame::window(&ctx.global_style()).inner_margin(Margin::symmetric(24, 20))).show(ctx, |ui| {
+            ui.set_width(640.0);
+            ui.label(RichText::new("NVIDIA's licence").size(20.0).strong().color(GOLD));
+            ui.add_space(6.0);
+            ui.label("Download DLSS fetches eight files from NVIDIA's Streamline 2.14.16 release on GitHub: the six sl.* files (MIT licence) and nvngx_dlss.dll and nvngx_dlssg.dll, under the licence below. Each file is checked against its pinned SHA-256 and NVIDIA's signatures, and nothing is written unless all pass; a file already in the dlss folder is kept.");
+            ui.add_space(6.0);
+            Frame::new().fill(theme::BG).corner_radius(4).inner_margin(Margin::same(10)).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, false]).show(ui, |ui| {
+                    ui.label(RichText::new(nvf_dlss_files::LICENCE).small().monospace());
+                });
+            });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                let accept = ui.add(gold_button("I accept", true)).on_hover_text("A mouse click only.");
+                if accept.clicked_by(egui::PointerButton::Primary) {
+                    nvf_dlss_files::download::start(nvf_dlss_files::download::LicenceAccepted::by_player(), None);
+                    self.dlss_licence = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.dlss_licence = false;
+                }
+                if ui.button("Open on GitHub").clicked() {
+                    launch::open_url(nvf_dlss_files::download::RELEASE_PAGE);
+                }
+            });
+        });
+        if modal.should_close() {
+            self.dlss_licence = false;
         }
     }
 

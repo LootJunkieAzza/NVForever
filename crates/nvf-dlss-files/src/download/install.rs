@@ -17,7 +17,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use super::super::preflight::UPDATER_NAME;
+use crate::UPDATER_NAME;
 use super::decode::pin_matches;
 use super::{DownloadFile, Failure};
 
@@ -50,7 +50,7 @@ impl Staging {
         guard_write(parent)?;
         guard_write(&dir)?;
         fs::create_dir_all(parent).map_err(|e| write_error(parent, &e))?;
-        remove_stale(parent, own, &crate::reports::upload::still_running);
+        remove_stale(parent, own, &crate::still_running);
         // This process's own leftover (one download runs at a time: `start`) is removed here.
         if fs::symlink_metadata(&dir).is_ok() {
             fs::remove_dir_all(&dir).map_err(|e| write_error(&dir, &e))?;
@@ -83,11 +83,11 @@ impl Drop for Staging {
 /// making anything: the start's clean-up (`super::clean_up_at_start`).
 pub(super) fn remove_stale_beside(target: &Path) {
     if let Err(why) = guard_write(target) {
-        bevy::log::warn!("DLSS download: staging clean-up refused: {why}");
+        tracing::warn!("DLSS download: staging clean-up refused: {why}");
         return;
     }
     if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
-        remove_stale(parent, std::process::id(), &crate::reports::upload::still_running);
+        remove_stale(parent, std::process::id(), &crate::still_running);
     }
 }
 
@@ -305,14 +305,14 @@ fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
 /// (`security::check_ngx`). Every handle is closed before returning, so the files can be moved.
 #[cfg(windows)]
 pub(super) fn signature_checks(dir: &Path, files: &[DownloadFile]) -> Result<(), Failure> {
-    use super::super::{preflight, security};
+    use crate::security;
     for file in files {
         let path = dir.join(file.name);
         if file.name.eq_ignore_ascii_case("sl.interposer.dll") {
             let accepted = security::check_interposer(&path).map_err(|refused| Failure::Signature { name: file.name, why: refused.why })?;
             drop(accepted);
         } else if file.name.to_ascii_lowercase().starts_with("nvngx_") {
-            let handle = preflight::open_shared_read(&path).map_err(|e| write_error(&path, &e))?;
+            let handle = crate::open_shared_read(&path).map_err(|e| write_error(&path, &e))?;
             security::check_ngx(&path, &handle).map_err(|why| Failure::Signature { name: file.name, why })?;
         }
     }
@@ -370,7 +370,7 @@ pub(super) mod tests {
         assert!(listing(&root).is_empty(), "neither the parent nor staging was created");
         assert!(matches!(Staging::create(&root.join("dlss")), Err(Failure::Write(_))));
         assert!(listing(&root).is_empty(), "a forbidden staging folder prevents all writes");
-        assert!(crate::dlss_download::create_dlss_folder(&target).is_err());
+        assert!(crate::create_dlss_folder(&target).is_err());
         assert!(listing(&root).is_empty(), "Open dlss folder creates nothing");
 
         let allowed = scratch("guard-source");

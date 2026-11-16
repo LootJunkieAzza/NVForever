@@ -2361,6 +2361,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-dlss-files"
+version = "0.7.0"
+dependencies = [
+ "flate2",
+ "fnv-install",
+ "fnv-util",
+ "tracing",
+ "ureq",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "nvf-launcher"
 version = "0.7.0"
 dependencies = [
@@ -2372,6 +2384,7 @@ dependencies = [
  "fnv-save",
  "fnv-util",
  "image",
+ "nvf-dlss-files",
  "rfd",
  "serde",
  "serde_json",

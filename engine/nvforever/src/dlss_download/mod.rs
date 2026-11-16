@@ -32,7 +32,7 @@
 //!   at a later start once that run has ended (`dlss::download::clean_up_at_start`), or when the
 //!   next download makes its own.
 //!
-//! Log lines start `DLSS download:` (the work's own lines, `dlss/download/`, too).
+//! Log lines start `DLSS download:` (the work's own lines, `nvf-dlss-files` `download/`, too).
 
 mod dialog;
 
@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 /// (`streamline-sdk-v2.14.16.zip`, `bin/x64/nvngx_dlss.license.txt`): NVIDIA's text, not under
 /// NVForever's licence, here only so the player can read it before accepting (LEGAL.md). Never
 /// edited; a test pins its SHA-256.
-pub(crate) const LICENCE: &str = include_str!("nvngx_dlss.license.txt");
+pub(crate) const LICENCE: &str = nvf_dlss_files::LICENCE;
 
 /// The choice's name, as the test aids and the log use it.
 pub(crate) const CHOICE: &str = "Download DLSS...";
@@ -268,8 +268,7 @@ pub(crate) fn open_dlss_folder() {
 
 /// [design] Folder opening follows the same install guard as the download, including overrides.
 pub(crate) fn create_dlss_folder(folder: &std::path::Path) -> std::io::Result<()> {
-    fnv_install::guard_write(folder, None).map_err(std::io::Error::other)?;
-    std::fs::create_dir_all(folder)
+    nvf_dlss_files::create_dlss_folder(folder)
 }
 
 /// The test aid's items (module notes).

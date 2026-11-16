@@ -217,7 +217,7 @@ pub(super) fn start(app: &mut App) {
         Err(refused) => {
             note(Level::WARN, format!("signature: {} not accepted: {}", FILES[0], refused.why));
             note(Level::INFO, "inactive: the interposer did not pass its checks; the stock Vulkan path");
-            set_loader_state(DlssState::Unavailable(refused.reason));
+            set_loader_state(DlssState::Unavailable(refused.reason.into()));
             return;
         }
     };

@@ -4642,6 +4642,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nvf-dlss-files"
+version = "0.7.0"
+dependencies = [
+ "flate2",
+ "fnv-install",
+ "fnv-util",
+ "tracing",
+ "ureq",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "nvf-play"
 version = "0.7.0"
 dependencies = [
@@ -4718,6 +4730,7 @@ dependencies = [
  "libc",
  "libloading",
  "nvf-assets",
+ "nvf-dlss-files",
  "nvf-play",
  "png",
  "rfd",

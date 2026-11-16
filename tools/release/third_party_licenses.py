@@ -53,7 +53,7 @@ class Notice:
 NOTICES = (
     Notice(
         name="NVIDIA Streamline 2.14.16",
-        what="FFI declarations translated from its headers, in engine/nvforever/src/dlss/",
+        what="FFI declarations translated from its headers, in engine/nvforever/src/dlss/ and crates/nvf-dlss-files/",
         licence="MIT",
         source="https://github.com/NVIDIA-RTX/Streamline",
         file=REPO / "engine" / "nvforever" / "src" / "dlss" / "LICENSE-MIT",

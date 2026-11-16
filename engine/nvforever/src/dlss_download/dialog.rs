@@ -133,7 +133,7 @@ impl Dialog {
         match (act, self.page) {
             (Act::Accept, Page::Licence) if now - self.opened_at < ACCEPT_ARMS_AFTER => return,
             (Act::Accept, Page::Licence) => {
-                self.download = Some(download::start(LicenceAccepted::by_player()));
+                self.download = Some(download::start(LicenceAccepted::by_player(), super::test_aid_value(download::TEST_URL_VAR)));
                 self.page = Page::Progress;
                 self.end_seen = false;
                 self.started_at = now;

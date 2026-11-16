@@ -14,6 +14,8 @@ fnv-install = { path = "../fnv-install" }
 fnv-save = { path = "../fnv-save" }
 # The languages NVForever's own words come in (the Language list), as the game reads them.
 fnv-util = { path = "../fnv-util" }
+# DLSS: NVIDIA's licence and the game's own download, checks and folder (src/dlss.rs, #2765).
+nvf-dlss-files = { path = "../nvf-dlss-files" }
 # A new install ID after "Delete them now" (src/reports.rs), as the game makes it.
 uuid = { version = "1", features = ["v4"] }
 serde.workspace = true

@@ -227,7 +227,7 @@ pub enum Unavailable {
     /// (docs/spec-notes/streamline.md, "NVIDIA's updater"), or could not be inspected.
     UpdaterInFolder,
     /// The interposer's signature did not verify, or it is not a tested build (its SHA-256,
-    /// `dlss/security.rs` `TESTED_INTERPOSERS`), or a DLL in the folder is not a file of the
+    /// `nvf-dlss-files` `security.rs` `TESTED_INTERPOSERS`), or a DLL in the folder is not a file of the
     /// tested release with its SHA-256 nor an `nvngx_*.dll` (`dlss/preflight.rs` `RELEASE_DLLS`).
     SignatureRejected,
     /// Streamline would not load or initialise (`LoadLibrary`, exports, `slInit`, the instance).
@@ -242,6 +242,17 @@ pub enum Unavailable {
     EvaluateFailed,
     /// FSR 3.1 cannot run here (not Vulkan, or the GPU lacks its formats and limits).
     FsrUnsupported,
+}
+
+/// A signature check's refusal (`nvf-dlss-files` `security`) as the reason DLSS is unavailable.
+#[cfg(windows)]
+impl From<nvf_dlss_files::security::Reason> for Unavailable {
+    fn from(r: nvf_dlss_files::security::Reason) -> Self {
+        match r {
+            nvf_dlss_files::security::Reason::StreamlineRefused => Unavailable::StreamlineRefused,
+            nvf_dlss_files::security::Reason::SignatureRejected => Unavailable::SignatureRejected,
+        }
+    }
 }
 
 impl Unavailable {

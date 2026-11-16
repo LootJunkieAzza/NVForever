@@ -16,7 +16,7 @@
 //! with: its SHA-256 must be one of [`TESTED_INTERPOSERS`] (today one, Streamline 2.14.16's)
 //! [design: the PR owner's decision after the review of #2206, 2026-11-12]. Both checks must
 //! pass ([`check_interposer`]); a file that fails either is refused with
-//! `Unavailable::SignatureRejected` and its hash in the log. This closes the open point below for
+//! `Reason::SignatureRejected` and its hash in the log. This closes the open point below for
 //! the tested build: a file carrying a copied NVIDIA nested signature is not byte-for-byte that
 //! build, so its hash differs. A new Streamline release needs its hash added here after it was
 //! tested.
@@ -138,9 +138,18 @@ use windows_sys::Win32::Security::WinTrust::{
 };
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
-use super::ffi::{get_proc, wide};
-use super::preflight::parse_sha256;
-use crate::upscaler::Unavailable;
+use crate::parse_sha256;
+use crate::win_ffi::{get_proc, wide};
+
+/// Why the game's DLSS is unavailable when a check refuses a file (its `upscaler::Unavailable`
+/// of the same names).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reason {
+    /// The file could not be opened for its checks.
+    StreamlineRefused,
+    /// Its signature, or its being a tested build, was refused.
+    SignatureRejected,
+}
 
 /// `szOID_CERT_STRONG_SIGN_OS_CURRENT` as an ANSI string: the header casts the ANSI macro to
 /// `LPSTR` (`sl_security.h:419`), and `CERT_STRONG_SIGN_PARA`'s `pszOID` is a `PSTR`; windows-sys
@@ -174,7 +183,7 @@ const STREAMLINE_PUBLIC_KEY: [u8; 411] = [
 
 /// The `sl.interposer.dll` builds NVForever was tested with: what each is, and its SHA-256 in
 /// hex. Only these are loaded (the module's "The tested build").
-pub(super) const TESTED_INTERPOSERS: [(&str, &str); 1] = [(
+pub const TESTED_INTERPOSERS: [(&str, &str); 1] = [(
     "Streamline 2.14.16",
     // `bin\x64\sl.interposer.dll` of NVIDIA's release archive `streamline-sdk-v2.14.16.zip`
     // [observed: the release zip's file and the tested bundle, 2026-11-12].
@@ -194,20 +203,20 @@ fn tested_list() -> String {
 /// The interposer, accepted by [`check_interposer`].
 /// It holds the file open, shared for reading only, until it is dropped: `win.rs` keeps it until
 /// Streamline is shut down.
-pub(super) struct Accepted {
+pub struct Accepted {
     /// The file's SHA-256 in hex.
-    pub(super) sha256: String,
+    pub sha256: String,
     /// The tested build it is.
-    pub(super) build: &'static str,
+    pub build: &'static str,
     /// The handle both checks read through.
     _file: File,
 }
 
 /// Why [`check_interposer`] refused the interposer: the reason the settings show, and the log's
 /// words.
-pub(super) struct Refused {
-    pub(super) reason: Unavailable,
-    pub(super) why: String,
+pub struct Refused {
+    pub reason: Reason,
+    pub why: String,
 }
 
 /// The interposer's two checks, both of which must pass: its signature
@@ -216,19 +225,19 @@ pub(super) struct Refused {
 ///
 /// The file is opened once ([`open_for_checks`]) and both checks read it through that handle; the
 /// handle stays open in the [`Accepted`] returned (the module's "One file, checked and loaded").
-pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
+pub fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
     let unreadable = |e: std::io::Error| Refused {
-        reason: Unavailable::StreamlineRefused,
+        reason: Reason::StreamlineRefused,
         why: format!("it could not be opened for its checks with writing, renaming and deleting it kept out: {e}"),
     };
     let file = open_for_checks(path).map_err(unreadable)?;
     let bytes = read_from_start(&file).map_err(unreadable)?;
     let digest = fnv_util::sha256::digest(&bytes);
     let sha256 = fnv_util::sha256::to_hex(&digest);
-    verify_embedded_signature(path, &file).map_err(|why| Refused { reason: Unavailable::SignatureRejected, why: format!("{why} (SHA-256 {sha256})") })?;
+    verify_embedded_signature(path, &file).map_err(|why| Refused { reason: Reason::SignatureRejected, why: format!("{why} (SHA-256 {sha256})") })?;
     let Some(build) = tested_build(&digest) else {
         return Err(Refused {
-            reason: Unavailable::SignatureRejected,
+            reason: Reason::SignatureRejected,
             why: format!("its SHA-256 {sha256} is not a tested build's (tested: {}); its signature passed", tested_list()),
         });
     };
@@ -237,7 +246,7 @@ pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
 
 /// The subject common name an `nvngx_*.dll`'s signer certificate must have (the module's "NGX's
 /// runtimes: signed by NVIDIA").
-pub(super) const NGX_SIGNER: &str = "NVIDIA Corporation";
+pub const NGX_SIGNER: &str = "NVIDIA Corporation";
 
 /// Whether a signer certificate's subject common name is [`NGX_SIGNER`]: exactly, as Windows
 /// returns it (no case folding, no trimming, no prefix or suffix).
@@ -249,7 +258,7 @@ fn is_nvidia_signer(common_name: &str) -> bool {
 /// its primary signature through `file`, the handle the folder pass holds on it, and that
 /// signature's signer named [`NGX_SIGNER`]. `path` is the same file's full path. The refusal's
 /// words name what failed, with the signer read when it is someone else.
-pub(super) fn check_ngx(path: &Path, file: &File) -> Result<(), String> {
+pub fn check_ngx(path: &Path, file: &File) -> Result<(), String> {
     let path_w = wide(path.as_os_str());
     let wintrust = system_library("wintrust.dll").ok_or("wintrust.dll did not load")?;
     // SAFETY: windows-sys's signature of `WinVerifyTrust`.
@@ -267,7 +276,7 @@ pub(super) fn check_ngx(path: &Path, file: &File) -> Result<(), String> {
 
 /// `path` opened for reading, sharing read access only (`preflight::open_shared_read`).
 fn open_for_checks(path: &Path) -> std::io::Result<File> {
-    super::preflight::open_shared_read(path)
+    crate::open_shared_read(path)
 }
 
 /// The whole file from its start, with the position put back at the start for the next reader

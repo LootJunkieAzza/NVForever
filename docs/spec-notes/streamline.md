@@ -42,7 +42,7 @@ words; no NVIDIA text or code is reproduced here beyond names.
   `WinVerifyTrust`, then compares the public key of the nested (secondary) signature's signer
   with a key it carries (`include/sl_security.h:134-459`, the key at `:274-301`). It does not
   show that the nested signature signs the file. NVForever's translation:
-  `engine/nvforever/src/dlss/security.rs`, whose comment holds the open point.
+  `crates/nvf-dlss-files/src/security.rs`, whose comment holds the open point.
 
 ## Loading and initialisation
 
