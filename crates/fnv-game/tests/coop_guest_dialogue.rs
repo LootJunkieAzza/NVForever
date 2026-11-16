@@ -545,6 +545,47 @@ fn a_line_starting_a_story_quest_makes_a_story_npc() {
     assert!(g.story_gate(cashier));
 }
 
+/// An NPC's own greet held for a far guest shows on the screens only at first, though it
+/// stays held; the host's own try to talk shows it again (owner, 2026-11-15: "WAITING FOR
+/// PLAYERS..." stayed up on the Strip while a Securitron's greet waited).
+#[test]
+fn an_npcs_held_greet_is_shown_only_at_first() {
+    let f = fixture_of(plugin_bytes_starting(false, "QCashier", Some("NVDLC02MQ01")));
+    let mut g = game(&f, false);
+    let cashier = FormId(CASHIER_REF);
+    let cell = Some(FormId(CELL));
+    g.world.get(cashier).unwrap().cell = cell;
+    let other = g.world.place(FormId::PLAYER_BASE, cell, [3000.0, 0.0, 0.0], [0.0; 3], 1).unwrap();
+    g.coop_actors.insert(other, "P2".into());
+    let shown = |g: &fnv_game::Game| g.coop_story_wait.as_ref().is_some_and(|w| w.shown(g.time));
+    assert!(g.story_gate_npc(cashier));
+    assert!(shown(&g));
+    // Its package asks every update: still held, no longer shown.
+    for _ in 0..20 {
+        g.time += 0.5;
+        assert!(g.story_gate_npc(cashier));
+    }
+    assert!(!shown(&g), "an NPC's greet held for 10 s is not on the screens");
+    // The host walks up and talks to it: shown again, and stays shown while asked.
+    assert!(g.story_gate(cashier));
+    assert!(shown(&g));
+    g.time += 0.5;
+    assert!(g.story_gate_npc(cashier));
+    assert!(shown(&g), "the host's own try keeps it shown");
+    // After a break, the NPC's greet alone is a new hold: shown at first only.
+    g.time += 10.0;
+    assert!(g.story_gate_npc(cashier));
+    assert!(shown(&g));
+    for _ in 0..20 {
+        g.time += 0.5;
+        assert!(g.story_gate_npc(cashier));
+    }
+    assert!(!shown(&g));
+    g.time += 0.5;
+    assert!(g.story_gate(cashier));
+    assert!(shown(&g));
+}
+
 /// A player alone, and a guest's own game, are never held.
 #[test]
 fn no_story_wait_alone_or_for_a_guest() {

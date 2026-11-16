@@ -820,6 +820,21 @@ impl Game<'_> {
     /// choice for the host (owner 2026-11-09: "It shouldn't be a choice the host should
     /// have to wait").
     pub fn story_gate(&mut self, actor: FormId) -> bool {
+        self.story_hold(actor, false)
+    }
+
+    /// [`Game::story_gate`] for an NPC's own force greet or Say To line (`fnv_ai`): held
+    /// the same way, but the hold is shown on the screens only for its first
+    /// [`NPC_WAIT_SHOWN`] seconds. The NPC's package asks again every update for as long
+    /// as a guest is away, so a banner would stay up through the host's normal play
+    /// (owner, 2026-11-15: "WAITING FOR PLAYERS..." on the Strip while the host played,
+    /// "it reads as a stuck co-op message"; a Strip Securitron's greet held for 16 s
+    /// while the guest stayed in Freeside).
+    pub fn story_gate_npc(&mut self, actor: FormId) -> bool {
+        self.story_hold(actor, true)
+    }
+
+    fn story_hold(&mut self, actor: FormId, by_npc: bool) -> bool {
         if self.coop_guest || self.coop_actors.is_empty() {
             self.coop_story_wait = None;
             return false;
@@ -832,7 +847,13 @@ impl Game<'_> {
             }
             return false;
         }
-        self.coop_story_wait = Some(StoryWait { actor, far, at: self.time });
+        // The same hold asked again keeps its start; the host's own try shows it again.
+        let since = match &self.coop_story_wait {
+            Some(w) if w.actor == actor && self.time - w.at <= NPC_WAIT_SHOWN && (by_npc || !w.by_npc) => w.since,
+            _ => self.time,
+        };
+        let by_npc = by_npc && self.coop_story_wait.as_ref().is_none_or(|w| w.actor != actor || w.by_npc || self.time - w.at > NPC_WAIT_SHOWN);
+        self.coop_story_wait = Some(StoryWait { actor, far, at: self.time, since, by_npc });
         true
     }
 
@@ -861,6 +882,23 @@ pub struct StoryWait {
     pub far: Vec<FormId>,
     /// When the talk was last asked for ([`Game::time`]).
     pub at: f64,
+    /// When this hold began ([`Game::time`]): asked again without a break, it keeps it.
+    pub since: f64,
+    /// Asked by the NPC's own greet, not the host's try to talk
+    /// ([`Game::story_gate_npc`]).
+    pub by_npc: bool,
+}
+
+/// How long (game seconds) a hold an NPC's greet asked for shows on the screens
+/// ([`Game::story_gate_npc`]) [design: long enough to read the banner once].
+pub const NPC_WAIT_SHOWN: f64 = 6.0;
+
+impl StoryWait {
+    /// Whether the screens show this hold at `now` ([`NPC_WAIT_SHOWN`]): always for the
+    /// host's own try to talk, only at first for an NPC's greet.
+    pub fn shown(&self, now: f64) -> bool {
+        !self.by_npc || now - self.since < NPC_WAIT_SHOWN
+    }
 }
 
 /// A story quest: the main quest's (by its Editor ID prefixes in FalloutNV.esm, as the

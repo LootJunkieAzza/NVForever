@@ -149,6 +149,12 @@ pub(super) fn syncing(
             info!("co-op: syncing: the host's answer came {:.1} s after the ask", now - st.asked.map_or(now, |(_, at)| at));
         }
     }
+    // A joining guest asks once it stands beside the host (`rejoin`): its own save's
+    // place is not where it plays.
+    if coop.join_trip {
+        st.settled = None;
+        return;
+    }
     if st.answered.is_none() && now - settled >= ASK_AFTER && st.asked.is_none_or(|(_, at)| now - at >= ASK_AGAIN) {
         // This game's digest first (the host sends back what its own save changed here),
         // then, on a later frame, the ask behind it on the same stream.
