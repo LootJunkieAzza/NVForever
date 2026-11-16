@@ -37,6 +37,9 @@ pub struct ScriptInput {
     pub held: BTreeSet<u16>,
     /// Each control's key and mouse button (`Bindings` in the engine).
     pub bindings: Vec<(Option<u16>, Option<u16>)>,
+    /// Selected-device control snapshot for event edges (control-input-events.md).
+    /// None lets headless runtimes derive it from held keys and their bindings.
+    pub event_controls: Option<u32>,
     pub disabled_keys: BTreeSet<u16>,
     pub disabled_controls: BTreeSet<u8>,
     /// Keys a script holds down (HoldKey) until ReleaseKey.
@@ -54,6 +57,16 @@ pub struct ScriptInput {
 }
 
 impl ScriptInput {
+    /// Control events include disabled inputs. This snapshot precedes callbacks and
+    /// deliberately does not apply getter/gameplay blocking policy.
+    pub(crate) fn controls_for_events(&self) -> u32 {
+        self.event_controls.unwrap_or_else(|| (0..CONTROLS).fold(0, |mask, c| {
+            let (key, mouse) = self.binding(c as i64);
+            let held = [key, mouse].into_iter().flatten().any(|k| self.held.contains(&k));
+            mask | (u32::from(held) << c)
+        })) & ((1u32 << CONTROLS) - 1)
+    }
+
     /// Each frame (`Game::tick`): last frame's HoldControl and ReleaseControl take effect.
     pub fn next_frame(&mut self) {
         for (code, hold) in std::mem::take(&mut self.control_holds) {

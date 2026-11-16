@@ -27,6 +27,9 @@ pub const BUTTON_HOVER: Color32 = Color32::from_rgb(0x2A, 0x31, 0x40);
 pub const BUTTON_ACTIVE: Color32 = Color32::from_rgb(0x33, 0x3B, 0x4D);
 /// The open page's button and the countdown: `--surface` with a touch of the accent.
 pub const SELECTED: Color32 = Color32::from_rgb(0x26, 0x25, 0x24);
+/// Selected text in a text box and a list's chosen item: the gold darkened until light text
+/// reads on it (`TEXT` 7.7:1; on `GOLD_DIM` it was 3.4:1).
+pub const SELECTION: Color32 = Color32::from_rgb(0x5A, 0x43, 0x18);
 /// `--text` and `--muted`.
 pub const TEXT: Color32 = Color32::from_rgb(0xE7, 0xE9, 0xEE);
 pub const WEAK: Color32 = Color32::from_rgb(0x9A, 0xA3, 0xB2);
@@ -48,8 +51,16 @@ pub fn apply(ctx: &egui::Context) {
     .into();
     style.spacing.item_spacing = egui::vec2(8.0, 8.0);
     style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    // Text is not selectable: a drag over a list (the Mods page) painted rows of gold
+    // selection. Text boxes keep their own selection.
+    style.interaction.selectable_labels = false;
     let v = &mut style.visuals;
     *v = egui::Visuals::dark();
+    // egui's dark theme thickens every glyph's edges (2c - c^2, about gamma 0.5), which suits
+    // light text on dark but leaves the dark text on the gold buttons jagged and heavy. One
+    // glyph atlas serves both, so a middle gamma: dark-on-gold edges smooth, light text still
+    // full (compared side by side at 4x).
+    v.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Gamma(0.75);
     v.panel_fill = PANEL;
     v.window_fill = PANEL;
     v.extreme_bg_color = BG;
@@ -57,8 +68,8 @@ pub fn apply(ctx: &egui::Context) {
     v.code_bg_color = BUTTON;
     v.override_text_color = Some(TEXT);
     v.hyperlink_color = GOLD;
-    v.selection.bg_fill = GOLD_DIM;
-    v.selection.stroke = Stroke::new(1.0, GOLD);
+    v.selection.bg_fill = SELECTION;
+    v.selection.stroke = Stroke::new(1.0, TEXT);
     for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
         w.corner_radius = CornerRadius::same(4);
     }

@@ -1092,6 +1092,65 @@ fn start_conversation_from_afar_walks_up_to_the_player_first() {
     assert!(matches!(walked, Some((away, true, Some(_))) if away <= 150.0), "{:?}", s.events());
     // Its greeting (the fixture's has no choices, so the conversation closes after it).
     assert!(s.game.walk_up_greets.is_empty());
+    s.run(15.0);
+    assert_eq!(s.game.events.iter().filter(|e| matches!(e.kind, fnv_game::trace::EventKind::DialogueStarted { .. })).count(), 1);
+}
+
+/// [design, #2724] Repeating StartConversation while walking must consume the pending
+/// greeting when the nearer call opens it (`Game::open_dialogue`), before AI resumes.
+#[test]
+fn start_conversation_repeated_during_a_walk_up_opens_exactly_once() {
+    use fnv_game::functions::Ctx;
+    use fnv_game::trace::EventKind;
+    use fnv_script::vm::{ArgValue, Value};
+
+    let f = fixture();
+    let player = [1100.0, 1100.0, 0.0];
+    let actor = FormId(R_IDLE);
+    let mut s = sim(&f, R_IDLE, player);
+    let opcode = s.game.data.table.by_name("StartConversation").unwrap();
+    let ctx = Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let args = [ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0))];
+    assert!(s.game.walk_up_far(actor));
+    let mut pending = false;
+    for _ in 0..80 {
+        s.game.call_function(&ctx, &args);
+        if s.game.dialogue.is_some() {
+            let away = flat(s.agent(R_IDLE).walker.feet, player);
+            assert!(pending, "a previous frame recorded the walk-up");
+            assert!(away > fnv_ai::goal::STANDARD_TALK_DISTANCE && away <= fnv_game::dialogue::WALK_UP_REACH, "opened at {away}");
+            assert!(s.game.walk_up_greets.is_empty(), "the opener consumes the walk-up");
+            break;
+        }
+        pending |= s.game.walk_up_pending(actor).is_some();
+        s.run(0.25);
+    }
+    assert_eq!(s.game.dialogue_actor(), Some(actor), "repeated calls opened the talk");
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::WalkUp { .. })));
+    s.run(30.0);
+    assert!(s.game.dialogue.is_none(), "the fixture's greeting ends");
+    assert!(s.game.walk_up_greets.is_empty());
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::WalkedUp { .. })), "no stale arrival after dialogue ends");
+    assert_eq!(s.game.events.iter().filter(|e| matches!(e.kind, EventKind::DialogueStarted { .. })).count(), 1);
+}
+
+/// [design, #2724] Both public openers consume only their actor's walk after success;
+/// a topic with no line leaves it pending (`Game::open_dialogue`).
+#[test]
+fn any_successful_player_conversation_opener_consumes_its_walk_up() {
+    let f = fixture();
+    for forced in [false, true] {
+        let mut s = sim(&f, R_IDLE, [1100.0, 1100.0, 0.0]);
+        let actor = FormId(R_IDLE);
+        assert!(s.game.walk_up_greet(actor, None));
+        assert!(s.game.walk_up_greet(FormId(R_WAIT), None));
+        let open = |g: &mut Game, topic| if forced { g.force_greet(actor, topic) } else { g.start_dialogue(actor, topic) };
+        assert!(open(&mut s.game, Some(FormId(0))).is_err());
+        assert_eq!(s.game.walk_up_pending(actor), Some(None));
+        open(&mut s.game, None).unwrap();
+        assert_eq!(s.game.walk_up_pending(actor), None);
+        assert_eq!(s.game.walk_up_pending(FormId(R_WAIT)), Some(None), "another actor's walk remains");
+    }
 }
 
 /// A StartConversation speaker the AI does not walk (not handed to it: its cell has not

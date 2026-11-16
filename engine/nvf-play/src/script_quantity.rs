@@ -37,6 +37,20 @@ pub struct ScriptQuantity {
     drawn: Option<(i32, i32)>,
 }
 
+impl ScriptQuantity {
+    /// [design, #2403 / file refs] Logical amount/limit, excluding the redraw cache.
+    pub fn progress(&self) -> Option<(i32, i32)> {
+        self.open
+    }
+
+    /// [design, #2403] Synthetic amount/redraw state for detector regressions.
+    #[cfg(feature = "report-test-support")]
+    #[doc(hidden)]
+    pub fn report_progress_fixture(step: usize) -> Self {
+        Self { open: Some((if step >= 1 { 2 } else { 1 }, 3)), drawn: (step >= 2).then_some((2, 3)) }
+    }
+}
+
 #[derive(Component)]
 struct QuantityRoot;
 

@@ -115,10 +115,18 @@ impl WorldData {
         self.index.cells.get(w.grid.get(&g)?)
     }
 
-    /// The LAND of the grid squares around `g` ([`crate::terrain::NEIGHBOURS`]): a cell's
-    /// texture layers are stitched to theirs along its edges.
-    pub fn neighbour_lands(&self, g: (i32, i32)) -> [Option<u32>; 4] {
-        crate::terrain::NEIGHBOURS.map(|(dx, dy)| self.grid_cell((g.0 + dx, g.1 + dy)).and_then(|c| c.land))
+    /// The LAND of grid square `g` and of the eight around it
+    /// (`fnv_world::land_surface::LandIds`): a cell's texture layers are stitched to its
+    /// side neighbours' ([`crate::terrain::NEIGHBOURS`]) and its smoothed surface reads
+    /// their heights along its edges (#2149).
+    pub fn land_ids(&self, g: (i32, i32)) -> fnv_world::land_surface::LandIds {
+        fnv_world::land_surface::land_ids(g, |n| self.grid_cell(n).and_then(|c| c.land))
+    }
+
+    /// The landscape surface of grid square `g` as this run draws and collides it (smoothed
+    /// or as stored, `nvf_play::smooth_terrain::spec`); `None` without landscape.
+    pub fn land_surface(&self, g: (i32, i32)) -> Option<fnv_world::land_surface::Surface> {
+        fnv_world::land_surface::load_surface(self.lo, self.schema, &self.land_ids(g), nvf_play::smooth_terrain::spec())
     }
 
     /// Whether a reference is enabled at the start of a game: not deleted, and its enable
@@ -491,7 +499,8 @@ const DESPAWN_PER_FRAME: usize = 400;
 /// half drawn (the LOD stands in for it meanwhile).
 #[derive(Debug)]
 pub struct CellSpawn {
-    entity: Entity,
+    /// The cell's entity (also read by terrain_lod.rs: a cell being spawned is alive).
+    pub entity: Entity,
     refs: Vec<u32>,
     /// Index of the next reference to spawn.
     next: usize,
@@ -597,12 +606,13 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
             let mut refs = cell.refs.clone();
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
-            let around = world.neighbour_lands(c);
+            let around = world.land_ids(c);
+            let (spec, draw) = (nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw());
             let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
             let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
                     models: cell_models(lo, schema, &refs, &hide),
-                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around)),
+                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around, spec, draw)),
                     ready: false,
                 }
             });
@@ -758,7 +768,7 @@ pub fn respecialize_late_meshes(
 }
 
 /// Log what streaming did at the exit (stress runs read it).
-pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>) {
+pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>, terrain: Option<Res<crate::terrain::TerrainCache>>) {
     if exit.read().last().is_none() {
         return;
     }
@@ -767,6 +777,14 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
+    // The smoke scenario `terrain-smoothing` reads it (#2149).
+    if let Some(t) = terrain {
+        // Cell draws counted over the run (a cell drawn again after it unloaded counts
+        // again), not the cells loaded now.
+        // Under 4 x 4 near, after the recipe: its redraws (terrain_lod.rs, #2676).
+        let levels = t.lod.as_ref().map_or(String::new(), |l| format!("; {}", l.summary()));
+        info!("terrain summary: {} cells drawn smoothed, {} on the stored triangles ({}){levels}", t.smoothed_cells, t.stored_cells, nvf_play::smooth_terrain::spec().describe());
+    }
     if s.billboards > 0 {
         info!("world: {} placed billboard nodes turn to the camera ({} references)", s.billboards, s.refs_billboards);
     }
@@ -1101,14 +1119,14 @@ fn begin_cell(
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
-            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.neighbour_lands(g)));
+            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.land_ids(g), nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw()));
             if let Some(prep) = prep {
-                let land = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
+                let (land, surface) = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
                 // Grass grows on the landscape's textures (grass.rs); the water surface
                 // is the one drawn below (`spawn_water`).
                 let ws = world.index.worldspaces.get(&world.world);
                 let water = c.has_water().then(|| c.water_surface(ws.and_then(|w| w.default_water_height))).flatten();
-                grass.spawn(commands, cell_e, world, land_id, &land, g, water, models);
+                grass.spawn(commands, cell_e, world, land_id, &land, &surface, g, water, models);
             }
         }
         if let Some(p) = world.persistent_by_grid.get(&g) {

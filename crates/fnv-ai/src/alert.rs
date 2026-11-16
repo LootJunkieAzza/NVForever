@@ -379,7 +379,7 @@ impl Ai {
             }
         }
         if !state.in_combat() || held {
-            game.rearms.calm(actor);
+            game.calm_rearm(actor);
             // A spectator running from a fight that came too close (`crate::social`).
             if !state.in_combat() && self.spectator_step(game, nav, actor, dt) {
                 return true;

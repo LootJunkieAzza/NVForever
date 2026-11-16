@@ -1587,6 +1587,14 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
         OpKind::Cos => finite_extra(y.to_radians().cos()),
         OpKind::Log => finite_extra(y.ln()),
         OpKind::Pow => finite_extra(x.powf(y)),
+        // [documented: ui-bit-test-operator.md] The argument selects one bit.
+        // Limit conversion to consecutive exactly representable nonnegative
+        // integers. Native signed/coercion/width behavior remains unobserved.
+        OpKind::BitTest => {
+            let valid = x.is_finite() && (0.0..=9_007_199_254_740_992.0).contains(&x)
+                && x.fract() == 0.0 && y.is_finite() && y >= 0.0 && y.fract() == 0.0;
+            Value::from_bool(valid && y <= 53.0 && (x as u64 & (1_u64 << y as u32)) != 0)
+        }
         // A whole number from 0 below the argument, the same for this tile and operator
         // every time [design: when the original draws is not known].
         OpKind::Rand => {

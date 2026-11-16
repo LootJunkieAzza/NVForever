@@ -573,6 +573,12 @@ All of it is in `GameSnapshot`.
   within 300 units of the player, never from afar; out of the loaded area (the low
   process) the walk-up waits. Without the AI (headless runners) the
   conversation opens at once, as before [design: the distances and the run].
+  [design, #2724] Any successful opening of a player conversation consumes that
+  speaker's pending walk-up, before the first line's result scripts run
+  (`Game::open_dialogue`). A repeated StartConversation that opens within 300 units,
+  another force greet, or the player's own opener therefore cannot leave an old
+  walk-up to greet again after the conversation. Refused opens and greetings that
+  do not open a conversation leave it pending; other speakers' walks are unchanged.
   [observed 2026-11-05] The Legion explorers about Nelson (nvNelsonExplorerBarkSCRIPT
   calls StartConversation Player once its GameMode runs) greeted from 10,099 units off.
   Now explorer 01 runs over and greets from 147 units (smoke

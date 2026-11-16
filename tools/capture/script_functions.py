@@ -252,6 +252,12 @@ def _item_mod_handler(flag):
 # Parameters where a page's argument table is missing or short: what the game took
 # [observed: the probe named] or what the page's own example passes [documented].
 PARAM_FIXES = {
+    # [documented: GECK wiki RemoveReputationExact, the reputation editor ID is
+    # a form operand, followed by the axis and fractional amount]. Source syntax
+    # only: this does not establish a native bytecode encoding.
+    "RemoveReputationExact": [{"name": "FactionID", "type": "editorID", "kind": "form"},
+                              {"name": "Fame/Infamy", "type": "int", "kind": "int"},
+                              {"name": "Amount", "type": "float", "kind": "float"}],
     # [documented: SetCursorTrait's example "SetCursorTrait 0 255"; the table lists the
     # trait only].
     "SetCursorTrait": [{"name": "iTrait", "type": "int", "kind": "int"},

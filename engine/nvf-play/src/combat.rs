@@ -3783,13 +3783,20 @@ fn item_name(sim: &SimState, item: FormId) -> String {
     sim.name(item).map_or_else(|| item.to_string(), str::to_string)
 }
 
+/// In god mode (`tgm`) the player's weapon and armour lose no condition: firing, a swing,
+/// a hit taken or a hit on the weapon held [design: owner decision 2026-11-15, issue
+/// #2743]. Another actor's wear as ever.
+pub fn keeps_condition(actor: FormId, god: bool) -> bool {
+    god && actor == FormId::PLAYER_REF
+}
+
 /// A hit of `damage` (before armour) wears the armour `target` wears in `zone` (§17):
 /// the player's only. Another actor's armour keeps its condition [observed: Cook-Cook's
 /// armour stayed at health 85 and his DT at 13 through 60 hits, and the troopers' and
 /// Fiends' through theirs, AI observer campaign fight_stats_round 2026-10-19,
 /// npc-behaviour-compare.md §9].
 fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: FormId, zone: Zone, damage: f32) {
-    if target != FormId::PLAYER_REF {
+    if target != FormId::PLAYER_REF || keeps_condition(target, god_mode()) {
         return;
     }
     let worn: Vec<FormId> = worn_armor(&c.forms, sim, target).into_iter().map(|w| w.0).collect();
@@ -3838,6 +3845,9 @@ pub fn wear_weapon(
     points: f32,
     at: Option<V3>,
 ) -> Option<Wear> {
+    if keeps_condition(actor, god_mode()) {
+        return None;
+    }
     // The player's tweak: the companions' weapons do not wear [design: docs/design/tweaks.md].
     if actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_companion_item_damage && rt.game.is_teammate(actor)) {
         return None;
@@ -6087,6 +6097,14 @@ mod tests {
 
     use super::*;
     use crate::phys::NpcBody;
+
+    /// #2743: god mode keeps the player's weapon and armour from wearing, nobody else's.
+    #[test]
+    fn god_mode_keeps_the_players_condition_only() {
+        assert!(keeps_condition(FormId::PLAYER_REF, true));
+        assert!(!keeps_condition(FormId::PLAYER_REF, false));
+        assert!(!keeps_condition(FormId(0x000F5704), true));
+    }
 
     #[test]
     fn shot_sounds_are_scaled_only_off_one() {

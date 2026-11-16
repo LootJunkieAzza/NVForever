@@ -4377,8 +4377,6 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
 dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
@@ -4639,6 +4637,19 @@ dependencies = [
  "fnv-nif",
  "fnv-vfs",
  "fnv-world",
+ "naga",
+]
+
+[[package]]
+name = "nvf-dlss-files"
+version = "0.7.0"
+dependencies = [
+ "flate2",
+ "fnv-install",
+ "fnv-util",
+ "tracing",
+ "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4718,6 +4729,7 @@ dependencies = [
  "libc",
  "libloading",
  "nvf-assets",
+ "nvf-dlss-files",
  "nvf-play",
  "png",
  "rfd",

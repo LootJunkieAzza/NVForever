@@ -1794,6 +1794,65 @@ fn say_to_done_follows_say_as_well_as_say_to() {
     assert_eq!(done(&h), 1.0);
 }
 
+// [documented: #2714, spooknik's 2026-11-15 comment] Roy's plain Say uses a
+// Conversation/Goodbye line without a target or continuation. [design, #2714]
+// Exercise that shape with this file's authored fixture; check engine pause/audio in
+// the roy-say-pause-resume smoke scenario, not by this headless menu-mode test.
+#[test]
+fn plain_say_resumes_after_mid_line_pauses_and_finishes_once() {
+    let mut f = fixture();
+    let line = f.data.infos.get_mut(&FormId(INFO_A)).unwrap();
+    line.info_type = fnv_game::data::topic_type::CONVERSATION;
+    line.flags |= fnv_game::data::info_flag::GOODBYE;
+    line.goodbye = true;
+    assert!(line.choices.is_empty() && line.follow_ups.is_empty());
+    let end = line.end.unwrap();
+    let opcode = f.data.table.by_name("Say").unwrap();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let ctx = Ctx { unit: "test".into(), opcode, on: Some(speaker), self_ref: Some(speaker), action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(TOPIC))]);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    let ends = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineEnded { info, .. } if info == FormId(INFO_A))).count();
+    let total = g.speech[0].remaining;
+    g.frames(40);
+    assert!(g.speech[0].remaining > 0.0 && g.speech[0].remaining < total);
+    for _ in 0..2 {
+        let held = g.speech[0].clone();
+        assert_eq!((held.speaker, held.info, held.target, held.conversation), (speaker, FormId(INFO_A), None, None));
+        assert_eq!(held.response, 0);
+        assert!(!held.say_to && !held.leads_on && !held.greeting && !held.farewell);
+        g.open_menu(fnv_game::game::menus::START);
+        g.frames(600);
+        assert!(g.is_talking(speaker));
+        // [design: nvf-play/script_hud.rs::subtitles, voice.rs::speech_response]
+        // Retained INFO/response and remaining time let the HUD keep this subtitle.
+        assert_eq!(g.speech.len(), 1);
+        assert_eq!((g.speech[0].info, g.speech[0].response, g.speech[0].remaining), (held.info, held.response, held.remaining));
+        assert_eq!((ends(&g), done(&g)), (0, 0.0));
+        assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 5.0);
+        assert_eq!(g.close_menu(), Some(fnv_game::game::menus::START));
+        g.frames(10);
+        assert!(g.is_talking(speaker));
+        assert!(g.speech[0].remaining < held.remaining);
+    }
+    let left = g.speech[0].remaining;
+    let frames_left = (left / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames_left - 1);
+    assert!(g.is_talking(speaker));
+    assert_eq!((ends(&g), done(&g)), (0, 0.0));
+    g.tick();
+    assert!(!g.is_talking(speaker) && g.speech.is_empty());
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    g.frames(600);
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.events.iter().filter(|e| matches!(&e.kind, EventKind::ResultScript { unit, on: Some(on) } if *on == speaker && *unit == f.data.unit(end).key())).count(), 1);
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. } | EventKind::ActorConversationStarted { .. })));
+}
+
 #[test]
 fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
     // docs/spec-notes/voice.md §8: the hook gives a response's length; a response it

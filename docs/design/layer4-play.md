@@ -113,7 +113,10 @@ worldspace asks for it: world.md §6).
 - Load collision for the cells around the player: terrain heights, references' collision
   objects read from the archives through `nvf_assets::GameData` and
   `fnv_collide::nif::collision_objects` (cache per model path), CollisionMarker
-  primitives, the worldspace's persistent references in those grid squares; skip
+  primitives, the worldspace's persistent references in those grid squares, and the
+  references placed in other squares whose bounds (base OBND, placed) reach into one
+  (`fnv_world::reach`, built once per worldspace; a reference held by several loaded
+  squares is in the world once, removed with the last) [design, #2795]; skip
   disabled/deleted references and those the simulation has removed. Unload with
   hysteresis. Interiors: the one cell. Same selection rules as `fnvtool phys cell`
   (crates/fnvtool/src/phys_cmd.rs `build`) — share code where sensible, do not diverge.
@@ -424,7 +427,10 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
     `first-person-body` (`--first-person-body`, player-body.md §1.5), `weapon-sway`
     (`--no-weapon-sway`, player-body.md §1.4a), `sun-shadows`
     (`--sun-shadows`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
-    (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`).
+    (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`),
+    `smooth-terrain` (a list since #2676: Off, 2 x 2, 4 x 4 (the default), 4 x 4 near;
+    `--smooth-terrain`, `--no-smooth-terrain`; #2149, takes effect at the next start:
+    `nvf_play::smooth_terrain`, docs/spec-notes/world.md §3 "Smoothing").
   - What switching while the game runs needed: grass switched off is hidden and cells
     loaded meanwhile are owed theirs (`grass.rs` `GrassOwed`), grown a cell a frame once
     it is on again; head tracking off lets heads ease back, and actors get their

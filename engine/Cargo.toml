@@ -35,6 +35,7 @@ fnv-nav = { path = "../crates/fnv-nav" }
 fnv-ai = { path = "../crates/fnv-ai" }
 fnv-install = { path = "../crates/fnv-install" }
 fnv-util = { path = "../crates/fnv-util" }
+nvf-dlss-files = { path = "../crates/nvf-dlss-files" }
 fnv-save = { path = "../crates/fnv-save" }
 infinitier_bik_decoder = "=0.0.14"
 fnv-voice = { path = "../crates/fnv-voice" }
@@ -73,3 +74,4 @@ gpu-allocator = { path = "vendor/gpu-allocator" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
 bevy_render = { path = "vendor/bevy_render" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
+naga = { path = "vendor/naga" }

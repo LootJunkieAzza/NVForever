@@ -139,7 +139,7 @@ impl Fixture {
         let mut phys = PhysState::default();
         let heights = vec![0.0; fnv_world::land::SIDE * fnv_world::land::SIDE];
         phys.world.add_terrain((0, 0), &heights);
-        phys.cells.insert(PhysCell::Exterior(0, 0), LoadedCell { refs: Vec::new(), heights: Some(heights) });
+        phys.cells.insert(PhysCell::Exterior(0, 0), LoadedCell { refs: Vec::new(), surface: Some(fnv_world::land_surface::Surface::stored(&heights)) });
         assert!(phys.place_player([1000.0, 1000.0, 0.0], 50.0, 100.0).is_some());
         let feet = phys.player.as_ref().unwrap().feet;
         app.insert_resource(phys).insert_resource(Player { feet, heading: 0.0, pitch: 0.0, eye_height: 70.0, body_eye: None, body_view: None, placed: None });

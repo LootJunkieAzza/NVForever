@@ -291,6 +291,10 @@ fn cycle(i: usize, by: i32, n: usize) -> usize {
 }
 
 impl Model {
+    /// [design, #2403 / file refs] Logical creator state, excluding undo bookkeeping.
+    pub(super) fn progress(&self) -> impl std::fmt::Debug + '_ {
+        (&self.look, self.tab, self.rows, self.groups, self.scroll, self.preset, self.on_actions, &self.view)
+    }
     pub fn new(data: Arc<Creator>, look: Look) -> Model {
         Model::of_kind(data, look, RaceMenu::Creator)
     }

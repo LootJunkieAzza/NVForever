@@ -42,6 +42,10 @@ is copied here; it is described.
 
 ## 2. Coverage
 
+The Mods page's physical key-event producer is tracked in
+[mcm-page-key-events.md](mcm-page-key-events.md). Its authored regressions do not
+qualify the installed MCM Extender wheel/search profile until executed.
+
 Status: **ok** (works as the guide says, by MCM's own files and scripts on NVForever's
 tree and functions), **fixed** (wrong before #2298, right now), **partly**, **open**.
 "MCM's" means the behaviour comes from MCM's files or scripts, which NVForever runs.

@@ -182,6 +182,27 @@ pub struct Words(pub Dictionary);
 #[derive(Resource, Default)]
 pub struct TerminalScreen(pub Option<Session>);
 
+/// [design, #2403] Synthetic hacking states for reports integration tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> TerminalScreen {
+    let dict = Dictionary::parse("AAAA\nAAAB\nAABA\nABAA\nBAAA\n");
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+    let mut h = Hacking::new(Puzzle::new(&dict, fnv_game::hacking::Difficulty::VeryEasy, 2, &mut rng).unwrap(), 0);
+    if step >= 1 {
+        h.cursor = 1;
+    }
+    if step >= 2 {
+        h.puzzle.attempts -= 1;
+        h.puzzle.log.push("Synthetic attempt".into());
+    }
+    if step >= 3 {
+        h.ended = Some(step as f32);
+        h.last_hover_focus = Some(Duration::from_secs(step as u64));
+    }
+    TerminalScreen(Some(Session { reference: FormId(41), base: FormId(42), page: Page::Hacking(h) }))
+}
+
 pub struct Session {
     pub reference: FormId,
     pub base: FormId,

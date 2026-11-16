@@ -56,7 +56,7 @@ class StreamlineNotice(unittest.TestCase):
         self.assertEqual(missing, [])
         self.assertIn("- alpha 1.0.0: MIT (https://example.invalid/alpha)", out)
         self.assertIn(
-            "- NVIDIA Streamline 2.14.16 (FFI declarations translated from its headers, in engine/nvforever/src/dlss/): MIT "
+            "- NVIDIA Streamline 2.14.16 (FFI declarations translated from its headers, in engine/nvforever/src/dlss/ and crates/nvf-dlss-files/): MIT "
             "(https://github.com/NVIDIA-RTX/Streamline)",
             out,
         )

@@ -426,7 +426,12 @@ impl Game<'_> {
             return false;
         }
         e.spells.push(spell);
+        // Conditions may read actor values, which sync listed abilities. The new
+        // spell is already listed but has no ActiveEffect until admission completes.
+        let syncing = self.syncing_effects;
+        self.syncing_effects = true;
         self.apply_magic_item(actor, spell, None, true);
+        self.syncing_effects = syncing;
         true
     }
 

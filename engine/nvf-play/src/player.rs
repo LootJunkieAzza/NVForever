@@ -18,6 +18,10 @@
 
 pub mod safe;
 
+#[cfg(test)]
+#[path = "player_control_event_tests.rs"]
+mod control_event_tests;
+
 use crate::bindings::{Bindings, Control, ControlInput};
 use crate::control::PlayerControl;
 use crate::phys::cells::Space;

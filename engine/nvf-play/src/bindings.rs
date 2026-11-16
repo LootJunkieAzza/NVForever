@@ -1255,6 +1255,16 @@ enum Ask {
     JustReleased,
 }
 
+/// Existing controller held-state rule, also used by script control events. No
+/// gameplay/script blocking is applied here (control-input-events.md).
+pub(crate) fn pad_binding_held(binding: Option<PadInput>, pads: &crate::pad::ActionPads, sticks: Option<&crate::pad::StickButtons>) -> bool {
+    match binding {
+        Some(PadInput::Button(b)) => pads.iter().any(|g| g.pressed(b)),
+        Some(PadInput::Stick(d)) => sticks.is_some_and(|s| s.pressed(d) && pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS)),
+        None => false,
+    }
+}
+
 impl ControlInput<'_, '_> {
     /// The free camera or a text field has the keys.
     pub fn suppressed(&self) -> bool {
@@ -1286,6 +1296,9 @@ impl ControlInput<'_, '_> {
     }
 
     fn pad_is(&self, c: Control, ask: Ask) -> bool {
+        if matches!(ask, Ask::Pressed) {
+            return pad_binding_held(self.bindings.pad(c), &self.pads, self.sticks.as_deref());
+        }
         match self.bindings.pad(c) {
             Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
                 Ask::Pressed => g.pressed(b),

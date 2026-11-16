@@ -469,6 +469,20 @@ pub(crate) fn presenters_released(world: &World) -> bool {
     world.get_resource::<Presenters>().is_none_or(|p| p.running.is_empty())
 }
 
+/// Every presenter stopped and joined at a run's end without Bevy's teardown (`dlss::end_now`,
+/// #2733): each presents what it was handed, then its thread ends and lets go of its window's
+/// surface ([documented: `fg_presenter.rs`, `Presenter::drop`]), so nothing presents or holds
+/// the swapchain while Streamline is shut down. Call it with the render thread idle (the render
+/// app taken back). Returns how many were stopped.
+#[cfg(windows)]
+pub(crate) fn stop_presenters(render_world: &mut World) -> usize {
+    let Some(mut presenters) = render_world.get_resource_mut::<Presenters>() else { return 0 };
+    let stopped = presenters.running.len();
+    // Each `Presenter::drop` closes its channel and joins its thread.
+    presenters.running.clear();
+    stopped
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn extract(
     mut commands: Commands,

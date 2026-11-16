@@ -1359,6 +1359,8 @@ pub struct Game<'a> {
     /// Effective CSTY edits and copy-time raw clone values; session only.
     pub(crate) combat_style_edits: crate::combat_style_session::CombatStyleEdits,
     pub(crate) clone_seq: u32,
+    /// Saved retired identities only; these do not participate in clone lookup.
+    pub(crate) retired_scene_bases: BTreeMap<FormId, RetiredSceneBase>,
     /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
     /// the engine's console takes them each frame.
     pub console_out: Vec<String>,
@@ -1953,7 +1955,17 @@ pub struct QueuedBox {
     pub serial: u64,
 }
 
-/// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
+/// Provenance of a deleted inert scene reference. This is not a live base record:
+/// temporary-clone getters remain invalid after restoration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetiredSceneBase {
+    pub original: FormId,
+    pub kind: [u8; 4],
+    pub model_override: Option<String>,
+}
+
+/// Snapshot of the Layer 5 state plus the world's. Ordinary saves remain `/1`;
+/// retired scene provenance requires `/2-retired-scenes`, which older readers explicitly reject.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
     pub format: String,
@@ -1970,6 +1982,10 @@ pub struct GameSnapshot {
     #[serde(default, skip_serializing_if = "crate::nvse_nx::NxVars::is_empty")]
     pub nx: crate::nvse_nx::NxVars,
     pub sim: Snapshot,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub retired_scene_bases: BTreeMap<FormId, RetiredSceneBase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clone_sequence_floor: Option<u32>,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
     pub extra: BTreeMap<FormId, RefExtra>,
@@ -2121,9 +2137,10 @@ impl GameSnapshot {
     /// Whether [`Game::restore`] and `World::restore` can take this snapshot: a load asks
     /// before it starts anything from the save (docs/design/save-load.md §6).
     pub fn check(&self) -> Result<(), String> {
-        if self.format != SNAPSHOT_FORMAT {
+        if self.format != SNAPSHOT_FORMAT && self.format != crate::retired_scene::FORMAT {
             return Err(format!("unsupported snapshot format {:?}", self.format));
         }
+        self.check_retired_scene_bases()?;
         self.sim.check()?;
         crate::coop::checked(self.coop.clone()).map_err(|e| e.to_string())?;
         self.rng_word_pos.parse::<u128>().map_err(|_| format!("bad rng_word_pos {:?}", self.rng_word_pos))?;
@@ -2467,6 +2484,7 @@ impl<'a> Game<'a> {
             nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
+            retired_scene_bases: BTreeMap::new(),
             playable_overrides: std::collections::HashMap::new(),
             player_magazine: None,
             console_out: Vec::new(),
@@ -4439,14 +4457,18 @@ impl<'a> Game<'a> {
     /// menu `code` (the pause menu's Mods page for the start menu, 1013): the `Begin
     /// MenuMode <code>` blocks of the running quests and of the references in loaded
     /// cells run, as under a side menu ([`Game::side_blocks`]), and `MenuMode <code>` is
-    /// true while they do; nothing else of a frame happens (no game time, no queued
-    /// events or OnLoad blocks, no AI) and the open menu is left as it is, so a menu a
+    /// true while they do. Physical key edges reach JIP handlers first (see
+    /// mcm-page-key-events.md); no game time, queued events, OnLoad blocks or AI run.
+    /// The open menu is left as it is, so a menu a
     /// block opens (ShowMessage, ShowTutorialMenu) stays open [design: issue #976 T11].
     pub fn page_tick(&mut self, code: u16) {
         self.frame += 1;
         self.temp_refs.clear();
         self.page_time += self.cfg.frame_seconds;
         let before = self.page_menu.replace(code);
+        // The page holds the world, but its wheel/search handlers still need physical
+        // edges, in the same menu context as its script blocks.
+        self.jip_keys();
         self.side_blocks(code);
         self.page_menu = before;
     }
@@ -6232,10 +6254,15 @@ impl<'a> Game<'a> {
             .iter()
             .map(|(&id, state)| (id, state.base))
             .chain(snapshot.sim.deleted_created.iter().map(|(&id, &base)| (id, base)))
-            .find(|(_, base)| self.clones.contains_key(base) || self.world.temporary_scene_base(*base).is_some());
+            .find(|(id, base)| {
+                (self.clones.contains_key(base) || self.world.temporary_scene_base(*base).is_some() || self.retired_scene_bases.contains_key(base))
+                    && (snapshot.sim.refs.contains_key(id) || !snapshot.retired_scene_bases.contains_key(base))
+            });
         if let Some((reference, base)) = unsupported {
             return Err(format!("saving reference {reference} of temporary cloned base {base} is not supported yet"));
         }
+        snapshot.check()?;
+        self.validate_retired_scene_bases(&snapshot)?;
         self.log_combat_style_snapshot_loss();
         Ok(snapshot)
     }
@@ -6254,8 +6281,12 @@ impl<'a> Game<'a> {
                 };
             }
         }
+        let retired_scene_bases = self.retired_scene_snapshot(&sim);
+        let clone_sequence_floor = (!retired_scene_bases.is_empty()).then_some(self.clone_seq);
         GameSnapshot {
-            format: SNAPSHOT_FORMAT.into(),
+            format: if retired_scene_bases.is_empty() { SNAPSHOT_FORMAT } else { crate::retired_scene::FORMAT }.into(),
+            retired_scene_bases,
+            clone_sequence_floor,
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
             // A created reference deleted since keeps no variables: its FormID is not
@@ -6323,6 +6354,9 @@ impl<'a> Game<'a> {
     pub fn restore(data: &'a GameData, world: World<'a>, cfg: GameConfig, s: &GameSnapshot) -> Result<Game<'a>, String> {
         s.check()?;
         let mut g = Game::new(data, world, cfg);
+        g.validate_retired_scene_bases(s)?;
+        g.retired_scene_bases = s.retired_scene_bases.clone();
+        g.clone_seq = s.clone_sequence_floor.unwrap_or(0);
         g.ext = s.ext.clone();
         for l in &s.lambdas {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
@@ -7044,6 +7078,11 @@ impl Host for Exec<'_, '_> {
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
+        if functions::player_source::handles(name) {
+            let source_ctx = Ctx { unit: self.unit.shared_key().clone(), opcode: 0, on: None, self_ref: self.ctx.self_ref,
+                action_ref: self.ctx.action_ref, quest: self.ctx.quest, inst: None, in_condition: false };
+            return functions::player_source::call(self.game, &source_ctx, on, name, args);
+        }
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;
         // Who calls: DisablePlayerControlsAlt keeps its locks by plugin, GetNthExplicitRef

@@ -128,8 +128,9 @@ runs only where the game fires it (`Game::jip_event`):
 | projectileimpact | a shot in flight hits anything, terrain included: `Game::projectile_impact`, on the shot's temporary reference; the filter is matched against its PROJ base | #1408 |
 | menuopen, menuclose | `Game::open_menu`, `Game::close_menu`, the menu under the tutorial menu closing, and a Pip-Boy page left for another [hypothesis: each page is a menu of its own code]. The dialogue menu (1009) is not reported | #1408 |
 | keydown, keyup | each frame, the keys and mouse buttons (256 + n) held by the player that changed since the last (`Game::jip_keys`), disabled keys included [documented] | #1408 |
+| controldown, controlup | the existing key-event frame entry point, comparing the selected-device 28-control snapshot; both JIP and colon-name handlers ([contract](control-input-events.md)) | authored engine controls, unrun |
 | crafting | the recipe menu made an item: once per output, with all of it (`Game::item_crafted`) [hypothesis: the page does not say how a recipe made several times is reported] | #1408 |
 | locationdiscover | the engine found a map marker, with the marker reference (`Game::challenge_marker_found`) | #1408 |
 
 Not fired yet: criticalhit, fireweapon, reloadweapon, animaction, playgroup,
-dialogtopic, fasttravel, pctargetchange, controldown/up, triggerdown/up.
+dialogtopic, fasttravel, pctargetchange, triggerdown/up.

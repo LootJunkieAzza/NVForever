@@ -67,6 +67,40 @@ pub struct LevelUpMenu {
     kit: Option<chargen::draw::Kit>,
 }
 
+impl LevelUpMenu {
+    /// [design, #2403 / file refs] Read-only page, list position and allocation
+    /// progress (`model::LevelUp`); hover and redraw flags do not count.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.open.as_ref().map(|m| (m.level, m.page, m.selected, m.scroll, &m.skills.spent, &m.perks, self.answered))
+    }
+}
+
+/// [design, #2403] Synthetic navigation/allocation states for reports tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> LevelUpMenu {
+    let mut m = LevelUp::new(2, rules::SkillSheet::new(vec![32, 33], vec![10, 10], vec![1, 1], 5), true);
+    if step >= 1 {
+        m.selected = 1;
+    }
+    if step >= 2 {
+        m.skills.spent[1] = 1;
+    }
+    if step >= 3 {
+        m.to_perks(rules::PerkSheet { perks: (1..=20).map(fnv_sim::FormId).collect(), available: vec![true; 20], chosen: Default::default(), count: 1 });
+    }
+    if step >= 4 {
+        m.scroll_by(1);
+    }
+    if step >= 5 {
+        m.perks.as_mut().unwrap().chosen.insert(fnv_sim::FormId(1));
+    }
+    if step >= 6 {
+        m.hover = Some(Part::Continue);
+    }
+    LevelUpMenu { open: Some(m), dirty: step != 6, ..Default::default() }
+}
+
 #[derive(Component)]
 struct LevelUpRoot;
 

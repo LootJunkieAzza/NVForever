@@ -369,7 +369,12 @@ package sends it through doors into other spaces, and stays until its package ch
 - **Drawing** is the travellers' (`nav::show_actor`, shared with `--npc-travel`): the
   actor is spawned while its space is the one drawn, placed at the walker's feet, and
   its locomotion blends walk, turn and idle from the speed. The cell streamer leaves
-  these actors to the module.
+  these actors to the module. The body it drives is the one it spawned (`actors::spawn_body`),
+  never one looked for under the world root: through a load door, the body left at the
+  door fades out (`door_fade.rs`) while the new one is spawned at the far side, often in
+  the same frame, and a scan then took the fading body, leaving the new one standing
+  undriven (#2461). A driven body that is gone is let go, looked for again, or drawn anew.
+  [design]
 - **Doors that open in place** are opened and waited for, as travellers do
   (`Ai::update_with`).
 - **Hours passed in the Wait menu** (`--play`; docs/spec-notes/wait-menu.md §7): for

@@ -1417,7 +1417,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `GetIsLAA == 0` showed "4GB patch missing" (TTW4GBMissingMessage)].
         "getislaa" => XVal::Num(1.0),
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
-        "getactivemenumode" => XVal::Num(g.menu.map_or(0.0, f64::from)),
+        "getactivemenumode" => XVal::Num(g.menu.or_else(|| g.menu_open(crate::game::menus::START).then_some(crate::game::menus::START)).map_or(0.0, f64::from)),
         // [observed: gaps3, 1]
         "getglobaltimemultiplier" => XVal::Num(g.ui.time_multiplier.unwrap_or(1.0)),
         // No water under the crosshair here [observed: gaps2, 0; hypothesis: the engine

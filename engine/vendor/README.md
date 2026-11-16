@@ -342,6 +342,35 @@ Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass
 is the crates.io package as published (its `examples` are kept: the manifest names them).
 Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
 the structure itself.
+
+## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's shader translator, for the Vulkan SPIR-V of `@builtin(sample_mask)` (#2413). Vulkan
+requires the `SampleMask` built-in to be an array of 32-bit integers
+[documented: Vulkan spec, "Built-In Variables", VUID-SampleMask-SampleMask-04359]; naga's
+SPIR-V back end declares it as a scalar `u32`, as WGSL writes it (open upstream as
+gfx-rs/wgpu#7311). The engine's prepass coverage (`nvf-assets/src/nif_material.rs`
+`prepass_coverage`, PR #2181) returns that built-in from the depth prepass. One change,
+each part marked by a comment starting `NVForever`:
+
+- `src/back/spv/mod.rs`: `Writer::sample_mask_vars`, the ids of the `SampleMask` varyings.
+- `src/back/spv/writer.rs`: `write_varying` declares a `SampleMask` input or output as
+  `OpTypeArray` of `u32` with length 1; `load_io_with_f16_polyfill` and
+  `store_io_with_f16_polyfill` load and store it through `sample_mask_element`, an
+  `OpAccessChain` to element 0. The WGSL side (`u32`) and every other varying are as
+  upstream.
+
+Why: on an Intel N150 (driver 32.0.101.7088, Vulkan) the game crashed in the driver's
+shader compiler (`igc64.dll`) while building `pbr_prepass_pipeline` with MSAA on (the
+default `--msaa 4`), 5 runs of 5 [observed]. Upstream naga's output fails `spirv-val` with
+VUID 04359 and the patched output passes [observed]; on the N150 the game then ran 60 s at
+`--msaa 4` with prepass coverage on, all 25 `pbr_prepass_pipeline` builds done
+[observed, 2026-11-13]. The coverage is worth keeping there: the opaque pass took 40.3 ms
+with it and 48.3 ms without, 1080p 4x MSAA [observed]. `nvf-assets/tests/sample_mask_spirv.rs`
+checks the declaration. The copy is the crates.io package as published; its own
+`.gitignore` lists `Cargo.lock`, which is kept here all the same, as for the other copies.
+Drop it when a naga release declares `SampleMask` as an array (gfx-rs/wgpu#7311 fixed).
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame

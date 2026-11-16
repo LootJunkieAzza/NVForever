@@ -1281,7 +1281,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-casino-bans", "No Casino Bans", "Winning big never bans the player from a casino. (Stewie's Tweaks bNoCasinoBans)", game.no_casino_bans);
         switch!(app, "loot-unconscious", "Search the Unconscious", "An unconscious actor can be searched like a dead one. (Stewie's Tweaks bLootUnconsciousVictims)", game.loot_unconscious);
         switch!(app, "revive-companions", "Revive Unconscious Companions", "Activating a knocked-out companion uses a Stimpak and gets them up at once. (Stewie's Tweaks bReviveUnconsciousCompanions)", game.revive_companions);
-        amount!(app, "revive-down-seconds", "Revive: Companions Stay Down", "With Revive Unconscious Companions, how long a knocked-out companion lies at least, in seconds; 0 keeps the usual 10 (and while a fight goes on near them). (Stewie's Tweaks bReviveUnconsciousCompanions, fUnconsciousTime)", 600.0, f32, game.revive_down_seconds);
+        amount!(app, "revive-down-seconds", "Revive: Companions Stay Down", "Least seconds a revivable companion stays down (and in a fight); 0 keeps 10. (Stewie's Tweaks bReviveUnconsciousCompanions, fUnconsciousTime)", 600.0, f32, game.revive_down_seconds);
         switch!(app, "pickpocket-worn", "Pickpocket Worn Items", "What an actor wears can be pickpocketed (never a child's). (Stewie's Tweaks bPickpocketWornItems)", game.pickpocket_worn_items);
         switch!(app, "no-sneak-criticals", "No Sneak Criticals", "The player's sneak attacks are not criticals. (Stewie's Tweaks bNoSneakAttacksCriticals)", game.no_sneak_criticals);
         switch!(app, "reload-when-empty", "Reload Only When Empty", "The player cannot reload a magazine that still has rounds. (Stewie's Tweaks bDisableReloadingNonEmptyClip)", game.reload_only_when_empty);
@@ -1316,11 +1316,11 @@ impl Plugin for TweaksPlugin {
         switch!(app, "show-poison-effects", "Show Weapon Poison Effects", "The Pip-Boy's weapon card names the poison on the weapon, its hits left and its effects. (Stewie's Tweaks bShowWeaponPoisonEffects)", game.show_poison_effects);
         switch!(app, "no-poison-confirm", "No Poison Confirmation", "A poison goes on the weapon at the first use, without asking for a second. (Stewie's Tweaks bNoPoisonConfirm)", game.no_poison_confirm);
         switch!(app, "map-summon-companions", "Summon Companions from the Map", "Clicking a companion's name on the World Map brings them to the player's side (every companion under the click). (Stewie's Tweaks bMapSelectableCompanions)", game.map_summon_companions);
-        switch!(app, "summon-unconscious", "Summon Companions: Knocked-Out Too", "Knocked-out companions can be summoned from the map too (they show only with Knocked-Out Companions on the Map). (Stewie's Tweaks bMapSelectableCompanions, bAllowSummonUnconsious)", game.summon_unconscious);
+        switch!(app, "summon-unconscious", "Summon Companions: Knocked-Out Too", "Knocked-out companions shown on the map can be summoned too. (Stewie's Tweaks bMapSelectableCompanions, bAllowSummonUnconsious)", game.summon_unconscious);
         switch!(app, "no-min-companion-distance", "Companions Near You on the Map", "The World Map names companions even when they are close to the player. (Stewie's Tweaks bNoMinCompanionMapDistance)", game.no_min_companion_distance);
         switch!(app, "map-unconscious-companions", "Knocked-Out Companions on the Map", "The World Map names knocked-out companions too, in red. (Stewie's Tweaks bMapShowUnconsciousCompanions)", game.map_unconscious_companions);
         switch!(app, "companions-location-font", "Companions in the Locations' Font", "The World Map writes companions' names in the font it names locations in. (Stewie's Tweaks bCompanionsUseLocationFontOnMap)", game.companions_location_font);
-        switch!(app, "map-door-kinds", "Exterior and Interior Door Icons", "On the local map, doors leading outside look different from doors leading in (Stewie's Tweaks' own pictures when installed, else interior doors are dimmer). (Stewie's Tweaks bInteriorExteriorMapDoorIcon)", game.map_door_kinds);
+        switch!(app, "map-door-kinds", "Exterior and Interior Door Icons", "Local map doors out look unlike doors in (Stewie's Tweaks' pictures if installed, else dimmer). (Stewie's Tweaks bInteriorExteriorMapDoorIcon)", game.map_door_kinds);
         switch!(app, "hostiles-prefer-player", "Hostiles Prioritize Player", "An enemy about to fight one of the player's companions may fight the player instead. (Stewie's Tweaks bHostilesPrioritizePlayer)", game.hostiles_prefer_player);
         part!(app, "prefer-player-start", "Hostiles Prioritize Player: Chance at the Start", "The chance an enemy turns to the player as its fight begins. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceStartCombat)", game.prefer_player_start);
         part!(app, "prefer-player-mid", "Hostiles Prioritize Player: Chance Mid-Fight", "The chance an enemy turns to the player when it picks a companion later in the fight. (Stewie's Tweaks bHostilesPrioritizePlayer, fSwapToPlayerChanceMidCombat)", game.prefer_player_mid);
@@ -1543,7 +1543,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-to-wait", "Hold to Wait", "The Wait key opens the menu when held half a second, not when tapped. (Stewie's Tweaks bHoldWaitKeyToShowMenu)", hold_to_wait);
         switch!(app, "no-sight-zoom", "No Iron Sight Zoom", "Aiming down iron sights does not zoom the view (scopes still do). (Stewie's Tweaks bDisableWeaponFOV)", no_sight_zoom);
         switch!(app, "hide-misc-quest", "Hide Quest Items in Misc", "The Pip-Boy's Misc list leaves quest items out. (Stewie's Tweaks bHideMiscQuestItems)", hide_misc_quest);
-        switch!(app, "tab-click-sorts", "Clicking the Tab Sorts", "In the Pip-Boy's item pages, clicking the tab already open sorts the list by name, then value, then weight, the most first. (Stewie's Tweaks bClickingActiveTabTogglesSorting)", tab_click_sorts);
+        switch!(app, "tab-click-sorts", "Clicking the Tab Sorts", "In the Pip-Boy's items, clicking the open tab sorts by name, value, then weight, most first. (Stewie's Tweaks bClickingActiveTabTogglesSorting)", tab_click_sorts);
         // ---- batch 16 ----
         switch!(app, "hotkey-toggles-in-hand", "Hotkey Draws and Holsters", "Pressing the hotkey of the weapon in hand draws or holsters it. (Stewie's Tweaks bHotkeyHolstersWeaponIfEquipped)", hotkey_toggles_in_hand);
         switch!(app, "no-interior-fog", "No Interior Fog", "Interiors have no fog (from the next room entered). (Stewie's Tweaks bDisableInteriorFog)", no_interior_fog);
@@ -1556,7 +1556,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-xp-meter-combat", "No XP Meter in Combat", "Experience gained in a fight shows once it is over, all together. (Stewie's Tweaks bNoXPBarInCombat)", no_xp_meter_in_combat);
         switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
         switch!(app, "skip-death-cam", "Skip Death Camera", "After you die, Left Alt goes straight to the end of the death camera: the screen black, ready to load. (Stewie's Tweaks bSkipDeathcamHotkey)", skip_death_cam);
-        amount!(app, "skip-death-cam-attack", "Skip Death Camera: By Attacking After", "With Skip Death Camera, attacking also skips it once this many seconds have passed since the death; 0 leaves attacking out. (Stewie's Tweaks bSkipDeathcamHotkey, fAttackDebounceTime)", 10.0, f32, skip_death_cam_attack);
+        amount!(app, "skip-death-cam-attack", "Skip Death Camera: By Attacking After", "Skip Death Camera: attacking skips it too, this long after death; 0: never. (Stewie's Tweaks bSkipDeathcamHotkey, fAttackDebounceTime)", 10.0, f32, skip_death_cam_attack);
         switch!(app, "help-is-console", "Console in the Pause Menu", "The pause menu has a Console entry where the original has Help: the game goes on with the console open. (Stewie's Tweaks bReplaceHelpWithConsole)", help_is_console);
         switch!(app, "heartbeat-fade", "Heartbeat Fades", "The low-health heartbeat fades away, and comes back at full strength each time you are hurt. (Stewie's Tweaks bHeatbeatSoundsFade)", heartbeat_fade);
         amount!(app, "heartbeat-fade-seconds", "Heartbeat Fades: Seconds", "How long the heartbeat takes to fade away. (Stewie's Tweaks bHeatbeatSoundsFade, fDuration)", 30.0, f32, heartbeat_fade_seconds);
@@ -1619,7 +1619,7 @@ impl Plugin for TweaksPlugin {
                 "tweak-kill-xp-per-level",
                 GROUP,
                 "Kill XP by Level",
-                "Kill experience gains this much for each level the target is above the player, and loses it below; 0% changes nothing. (Stewie's Tweaks bLevelDifferenceAffectsCombatXP)",
+                "Kill experience gains this per level the target is above you, loses it below; 0% is off. (Stewie's Tweaks bLevelDifferenceAffectsCombatXP)",
                 Slider {
                     get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (t.game.kill_xp_per_level * 5.0) as f32),
                     set: |w, v| {
@@ -1746,7 +1746,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "mark-nearby-places", "Mark Nearby Places", "Map markers within this many units of the player are marked on the map; 0 changes nothing. (Stewie's Tweaks bMarkNearbyLocationsOnMap)", 10000.0, f32, game.mark_nearby_places);
         switch!(app, "scale-ash-piles", "Ash Piles Fit the Body", "An ash pile takes the size of the actor it was (between half and twice). (Stewie's Tweaks bScaleAshpileSize)", game.scale_ash_piles);
         switch!(app, "pipboy-buzz", "Pip-Boy Buzz", "A short controller buzz on each Pip-Boy page or tab change (with rumble on). (Stewie's Tweaks bHapticPipboy)", pipboy_buzz);
-        switch!(app, "per-bullet-reload", "Per-Bullet Looping Reloads", "A weapon loaded a round at a time (a shotgun, a revolver) loads only as many rounds as Reload is pressed for, pressed again while it loads. (Stewie's Tweaks bPerBulletLoopingReloads)", game.per_bullet_reload);
+        switch!(app, "per-bullet-reload", "Per-Bullet Looping Reloads", "A shotgun, revolver or other round-at-a-time weapon loads as many rounds as Reload is pressed for. (Stewie's Tweaks bPerBulletLoopingReloads)", game.per_bullet_reload);
         amount!(app, "reload-rounds-per-press", "Per-Bullet Reloads: Rounds a Press", "Rounds each Reload press loads. (Stewie's Tweaks bPerBulletLoopingReloads)", 5.0, u32, game.reload_rounds_per_press);
         amount!(app, "reload-press-queue", "Per-Bullet Reloads: Most Queued", "The most rounds the presses can queue; 0 for no most. (Stewie's Tweaks bPerBulletLoopingReloads)", 20.0, u32, game.reload_press_queue);
         switch!(app, "reload-while-firing", "Reload While Firing", "A reload can start while the last shot's recovery still runs. (Stewie's Tweaks bReloadWhileFiring)", game.reload_while_firing);
@@ -1796,7 +1796,7 @@ impl Plugin for TweaksPlugin {
                 },
             ),
         );
-        amount!(app, "lockpick-force-near", "Force Lock Near the Sweet Spot", "Percent added to Force Lock with the pin on the sweet spot, less the further away, none at 90 degrees; 0 changes nothing. (Stewie's Tweaks bLockpickForceBonusNearSweetSpot)", 50.0, f32, game.lockpick_force_near_bonus);
+        amount!(app, "lockpick-force-near", "Force Lock Near the Sweet Spot", "Percent added to Force Lock at the sweet spot, less further off, none at 90 degrees; 0 is off. (Stewie's Tweaks bLockpickForceBonusNearSweetSpot)", 50.0, f32, game.lockpick_force_near_bonus);
         switch!(app, "contact-mines-player", "Contact Mines (Player)", "A mine the player stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bPlayer)", game.contact_mines_player);
         switch!(app, "contact-mines-npcs", "Contact Mines (Others)", "A mine anyone else stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bNPCs)", game.contact_mines_npcs);
         amount!(app, "sleep-heal-min-hours", "Sleep Healing Min Duration", "Hours a sleep must last before it restores Health and heals limbs; 0 heals from the first hour. (Stewie's Tweaks bSleepHealingMinDuration)", 12.0, u32, game.sleep_heal_min_hours);
@@ -1828,13 +1828,13 @@ impl Plugin for TweaksPlugin {
         switch!(app, "stats-xp-percent", "Experience as a Percentage", "The Stats page shows experience as how far through the level the player is, in percent. (Stewie's Tweaks bStatsMenuPercentageXP)", game.stats_xp_percent);
         switch!(app, "repair-same-first", "Repair List: Same Item First", "In the Pip-Boy repair list, parts that are the same item come first, the rest by name. (Stewie's Tweaks bSortPipboyRepairMenu)", game.repair_same_first);
         switch!(app, "repair-low-first", "Repair List: Low Condition First", "In the Pip-Boy repair list, parts in worse condition come first and the best at the bottom. (Stewie's Tweaks bInvertPipboyRepairMenuSorting)", game.repair_low_first);
-        switch!(app, "repair-kits-in-list", "Repair Kits in the Repair List", "A weapon's Pip-Boy repair list offers your Weapon Repair Kits too; one repairs that weapon as using the kit repairs the weapon in hand. (Stewie's Tweaks bUseWeaponRepairKitsInRepairMenu)", game.repair_kits_in_list);
-        switch!(app, "repair-preview", "Repair Items Preview", "Holding Alt while pressing R in the Pip-Boy's items opens the repair list as a preview: what could repair the item, also at full condition; nothing is used. (Stewie's Tweaks bRepairItemsPreview)", game.repair_preview);
-        amount!(app, "crippled-fall-pain", "Crippled Legs: Pain When Falling", "A fall of at least this many units with a crippled leg makes you cry out in pain; 0 turns it off. (Stewie's Tweaks bCrippledLimbsPlayPainSoundWhenFalling, fHeightThreshold)", 1000.0, f32, game.crippled_fall_pain);
+        switch!(app, "repair-kits-in-list", "Repair Kits in the Repair List", "A weapon's Pip-Boy repair list also offers Weapon Repair Kits, working as a kit does. (Stewie's Tweaks bUseWeaponRepairKitsInRepairMenu)", game.repair_kits_in_list);
+        switch!(app, "repair-preview", "Repair Items Preview", "Alt with R in the Pip-Boy's items previews what could repair the item, even at full; nothing is used. (Stewie's Tweaks bRepairItemsPreview)", game.repair_preview);
+        amount!(app, "crippled-fall-pain", "Crippled Legs: Pain When Falling", "Falls this high on a crippled leg make you cry out; 0 is off. (Stewie's Tweaks bCrippledLimbsPlayPainSoundWhenFalling, fHeightThreshold)", 1000.0, f32, game.crippled_fall_pain);
         switch!(app, "quantity-companion-cap", "Quantity Menu Respects Companion Carry Cap", "Giving a stack to a companion, the quantity menu goes no higher than what they can still carry. (Stewie's Tweaks bQuantityMenuRespectsCompanionCarryCap)", game.quantity_companion_cap);
         switch!(app, "armor-blocks-blood", "Armor Prevents Blood Decals", "A shot whose damage does not get through the target's Damage Threshold leaves no blood on them. (Stewie's Tweaks bArmorPreventsBloodDecals)", game.armor_blocks_blood);
         switch!(app, "embolden-tags", "Tag Skills in Bold", "The Pip-Boy's Skills list shows your tag skills in bold. (Stewie's Tweaks bEmboldenTagSkills)", game.embolden_tags);
-        switch!(app, "pickpocket-overhaul", "Pickpocket Overhaul", "The pickpocket chance counts the item's weight, the target's Perception and how well they see you, with your Agility, Luck and Sneak; the game's own lowest and highest chance still hold. (Stewie's Tweaks bPickpocketOverhaul)", game.pickpocket_overhaul);
+        switch!(app, "pickpocket-overhaul", "Pickpocket Overhaul", "Pickpocket odds count item weight, the target's Perception and sight, your Agility, Luck and Sneak. (Stewie's Tweaks bPickpocketOverhaul)", game.pickpocket_overhaul);
         amount!(app, "pp-base", "Pickpocket Overhaul: Base Chance", "The chance before the figures, in percent. (Stewie's Tweaks bPickpocketOverhaul, fBaseChance)", 100.0, f32, game.pp_base);
         amount!(app, "pp-agility", "Pickpocket Overhaul: Agility", "Tenths of a percent per point of your Agility. (fPlayerAgilityMult)", 50.0, f32, game.pp_agility);
         amount!(app, "pp-luck", "Pickpocket Overhaul: Luck", "Tenths of a percent per point of your Luck. (fPlayerLuckMult)", 50.0, f32, game.pp_luck);
@@ -1850,7 +1850,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-containers", "Hold to Activate: Containers and Bodies", "Searching containers and bodies needs the hold. (bContainers)", game.hold_containers);
         switch!(app, "hold-furniture", "Hold to Activate: Furniture", "Sitting, sleeping and other furniture need the hold. (bFurniture)", game.hold_furniture);
         switch!(app, "hold-water", "Hold to Activate: Water", "Drinking from a tap or puddle needs the hold. (bWater)", game.hold_water);
-        switch!(app, "quick-use", "Quick Use", "Holding Shift while taking an item uses it or puts it on at once: a weapon goes in hand, aid is taken; armour is only taken. (Stewie's Tweaks bQuickUse, bRealtimeQuickUse)", game.quick_use);
+        switch!(app, "quick-use", "Quick Use", "Shift-taking an item uses it: a weapon goes in hand, aid is taken; armour is only taken. (Stewie's Tweaks bQuickUse, bRealtimeQuickUse)", game.quick_use);
         switch!(app, "vats-throw-visibility", "V.A.T.S. Throwables Use Visibility", "With a thrown weapon (a knife, a spear; not a grenade) a V.A.T.S. part's chance is times how much of it is in sight. (Stewie's Tweaks bVATSThrowablesUseVisibility)", game.vats_throw_visibility);
         switch!(app, "quiet-followers", "Quiet Companions", "Companions do not call out that they are hurt, crippled or out of ammo. (Stewie's Tweaks bRemoveFollowerTopics)", game.quiet_followers);
         switch!(app, "crit-message-limb", "Critical Hit Messages Name the Limb", "The critical-hit message names the part you struck, as \"Critical hit on Easy Pete's torso\". (Stewie's Tweaks bCriticalHitMessagesIncludeLimbName)", game.crit_message_limb);
@@ -1861,7 +1861,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "character-radiation", "Character Radiation", "People and creatures take the radiation where they stand, as you do. (Stewie's Tweaks bCharacterRadiation)", game.character_radiation);
         switch!(app, "character-radiation-stages", "Character Radiation: Sickness Too", "With Character Radiation, their rads bring on radiation sickness's effects as yours do. (Stewie's Tweaks bCharacterRadiation, bAllowRadiationStages)", game.character_radiation_stages);
         switch!(app, "reallocate-skill-points", "Reallocate Skill Points on Level-Up", "In the level-up menu, the minus also takes back points you put into a skill at earlier levels, to spend again. (Stewie's Tweaks bReallocateSkillPointsOnLevelup)", game.reallocate_skill_points);
-        switch!(app, "local-map-reset-cells", "Local Map Shows Reset Areas", "Outdoors, the local map tints red the squares of the world that will reset the next time you come near them: their people who respawn are back and their containers refilled. (Stewie's Tweaks bLocalMapRespawnedCellIndicator)", game.local_map_reset_cells);
+        switch!(app, "local-map-reset-cells", "Local Map Shows Reset Areas", "Outdoors the local map tints red what resets when you next come near (people, containers). (Stewie's Tweaks bLocalMapRespawnedCellIndicator)", game.local_map_reset_cells);
         switch!(app, "hold-release-throws", "Hold and Release Throws", "A grenade or thrown weapon is wound up and held while you hold attack, and thrown when you let go. (Stewie's Tweaks bHoldAndReleaseThrowables)", game.hold_release_throws);
         switch!(app, "npcs-disarm-player", "Enemies Can Disarm You", "A hit that cripples one of your arms knocks the weapon from your hand to the ground, as yours does to them. (Stewie's Tweaks bNPCsCanDisarmPlayer)", game.npcs_disarm_player);
         switch!(app, "npcs-drop-live-grenades", "NPCs Drop Live Grenades", "Someone killed with a grenade in hand drops it live at their feet, where it goes off. (Stewie's Tweaks bNPCsDropLiveGrenades)", game.npcs_drop_live_grenades);
@@ -1915,7 +1915,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
         switch!(app, "vats-auto-head", "V.A.T.S. Starts on the Head", "In the classic V.A.T.S., a target's head is selected first rather than the part easiest to hit. (Stewie's Tweaks bVATSAutoTargetHead)", game.vats_auto_head);
         switch!(app, "vats-drops-disarmed-shots", "V.A.T.S. Drops Shots at a Lost Weapon", "Attacks queued in V.A.T.S. on someone's weapon are not played once they no longer hold it. (Stewie's Tweaks bVATSDequeueWeaponShotsOnDisarm)", game.vats_drops_disarmed_shots);
-        switch!(app, "vats-target-projectiles", "Target Projectiles in V.A.T.S.", "Grenades, rockets and other projectiles in flight can be marked in V.A.T.S. mode; a hit sets an explosive off where it is and ends any other. The chance counts only the distance and your skill. (Stewie's Tweaks bTargetProjectilesInVATS)", game.vats_target_projectiles);
+        switch!(app, "vats-target-projectiles", "Target Projectiles in V.A.T.S.", "V.A.T.S. can mark projectiles in flight: explosives go off, others end; odds: distance, skill. (Stewie's Tweaks bTargetProjectilesInVATS)", game.vats_target_projectiles);
         switch!(app, "vats-target-mines", "Target Projectiles: Mines Too", "With Target Projectiles in V.A.T.S., mines can be marked too, thrown or lying armed. (Stewie's Tweaks bTargetProjectilesInVATS, bMines)", game.vats_target_mines);
         switch!(app, "vats-target-own-projectiles", "V.A.T.S. Targets Your Own Projectiles", "With Target Projectiles in V.A.T.S., your own projectiles can be marked too. (Stewie's Tweaks bVATSTargetPlayerProjectiles)", game.vats_target_own_projectiles);
         switch!(app, "vats-ignore-non-explosive", "V.A.T.S. Ignores Non-Explosive Projectiles", "With Target Projectiles in V.A.T.S., only projectiles with an explosion can be marked. (Stewie's Tweaks bVATSIgnoreNonExplosiveProjectiles)", game.vats_ignore_non_explosive);
@@ -1965,7 +1965,7 @@ impl Plugin for TweaksPlugin {
         );
         switch!(app, "female-facial-hair", "Facial Hair for Women", "The character creator and the barber offer facial hair to a woman too. (Stewie's Tweaks bRaceMenuAllowFemaleFacialHair)", female_facial_hair);
         switch!(app, "terminal-password-prompt", "Show Use Password", "A locked terminal whose password note the player holds says so in its prompt until first opened. (Stewie's Tweaks bShowUsePasswordOnTerminalsWithNote)", game.terminal_password_prompt);
-        switch!(app, "lockpick-move-keys", "Lockpicking With the Movement Keys", "Picking a lock, the strafe keys move the pin (Shift faster, Ctrl slower) and Forward, Back or Jump turn the screwdriver. (Stewie's Tweaks bLockPickMenuKeyboardMovement)", game.lockpick_move_keys);
+        switch!(app, "lockpick-move-keys", "Lockpicking With the Movement Keys", "Lockpicking: strafe moves the pin (Shift fast, Ctrl slow), Forward, Back, Jump the driver. (Stewie's Tweaks bLockPickMenuKeyboardMovement)", game.lockpick_move_keys);
         switch!(app, "store-all", "Store All", "In a container, Shift with Take All puts everything listed on the player's side in it, but what is worn or a quest's. (Stewie's Tweaks bContainerMenuStoreAllHotkey)", store_all);
         switch!(app, "map-recentre-key", "Map Recentre Key", "C puts the Pip-Boy's local or world map back on the player after it was dragged. (Stewie's Tweaks bMapRecenterHotkey)", game.map_recentre_key);
         switch!(app, "map-marker-distance", "Map Marker Distance", "The World Map says how far the marker under the pointer is from the player. (Stewie's Tweaks bMapLocationDisplayDistance)", game.map_marker_distance);
@@ -1977,7 +1977,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "pick-locks-with-key", "Pick Locks Even With the Key", "Holding Shift, a lock the player has the key of opens the lockpicking game instead. (Stewie's Tweaks bPickLocksEvenWithKey)", pick_locks_with_key);
         switch!(app, "right-click-previous-category", "Right Click for the Previous Category", "In a container or a barter, a right click on a list's heading steps back to the previous category. (Stewie's Tweaks bRightClickChangesToPreviousContainerCategory)", right_click_previous_category);
         switch!(app, "mark-notes-unread", "Mark Notes Unread", "A right click on a note in the Pip-Boy marks it unread again. (Stewie's Tweaks bMarkNotesUnread)", game.mark_notes_unread);
-        switch!(app, "full-barter-total", "Barter Total Past the Merchant's Caps", "The barter figure shows the whole total even when it is more than the merchant's caps (the merchant still pays only what it has). (Stewie's Tweaks bShowBarterTotalWhenOverSellLimit)", full_barter_total);
+        switch!(app, "full-barter-total", "Barter Total Past the Merchant's Caps", "Barter shows the whole total past the merchant's caps, though it pays only those. (Stewie's Tweaks bShowBarterTotalWhenOverSellLimit)", full_barter_total);
         switch!(app, "compass-fade-left", "Compass Fades on the Left", "Marks on the compass fade toward its left end (quest marks stay whole), for a compass seen from its middle. (Stewie's Tweaks bCompassFadeLeftSide)", compass_fade_left);
         switch!(app, "custom-dead-zones", "Controller Dead Zones", "The sticks use the dead zones below instead of the game's (12% of a push); 0% takes every movement. (Stewie's Tweaks bDisableControllerDeadzones)", custom_dead_zones);
         part!(app, "left-dead-zone", "Left Stick Dead Zone", "The share of a push the left stick ignores, with Controller Dead Zones on. (Stewie's Tweaks iControllerDeadzone)", left_dead_zone);
@@ -1985,9 +1985,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "custom-trigger-dead-zones", "Trigger Dead Zones", "LT and RT count as pressed at the points below instead of three quarters down. (Stewie's Tweaks bControllerTriggerDeadzones)", custom_trigger_dead_zones);
         part!(app, "lt-dead-zone", "Left Trigger Press Point", "How far LT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneLT)", lt_dead_zone);
         part!(app, "rt-dead-zone", "Right Trigger Press Point", "How far RT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneRT)", rt_dead_zone);
-        switch!(app, "responsive-stick", "More Responsive Controller Aiming", "The right stick's turn grows in a straight line with the push past its dead zone instead of with its square, so small pushes answer at once. (Stewie's Tweaks bMoreResponsiveControllerAiming)", responsive_stick);
+        switch!(app, "responsive-stick", "More Responsive Controller Aiming", "Right-stick turning grows in a line past the dead zone, not squared: small pushes count. (Stewie's Tweaks bMoreResponsiveControllerAiming)", responsive_stick);
         switch!(app, "faster-pad-orbit", "Faster Controller Camera Circling", "With a controller, the camera circles the player twice as fast while Toggle POV is held. (Stewie's Tweaks bFasterControllerPOVRotate)", faster_pad_orbit);
-        switch!(app, "vanity-returns-first", "Vanity Camera Returns to First Person", "After the circling camera (idle, or Toggle POV held), a first-person view goes back to first person instead of staying third. (Stewie's Tweaks bVanityCamReturnsToFirstPerson)", vanity_returns_first);
+        switch!(app, "vanity-returns-first", "Vanity Camera Returns to First Person", "A first-person view comes back after the circling camera (idle, Toggle POV held). (Stewie's Tweaks bVanityCamReturnsToFirstPerson)", vanity_returns_first);
         add_setting(
             app,
             Setting::slider(
@@ -2013,7 +2013,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-output-file", "Console Output File", "Console lines are added to ConsoleOutput.txt in NVForever's folder from the start. (Stewie's Tweaks bUseConsoleOutputFile)", console_output_file);
         switch!(app, "console-text-shadow", "Console Text Shadow", "The console's lines are a darker green over a faint shadow, easier to read on a bright view. (Stewie's Tweaks bConsoleTextShadow)", console_text_shadow);
         switch!(app, "click-to-exit-loading", "Press to Leave Loading Screens", "A loading screen stays up once everything is in until a key or a button is pressed. (Stewie's Tweaks bClickToExitLoadScreens)", click_to_exit_loading);
-        switch!(app, "select-unavailable-radios", "Keep Stations Out of Range", "Stations the Pip-Boy has received stay on its list out of range; tuned to one, it plays once the station is received again. (Stewie's Tweaks bSelectUnavailableRadios)", game.select_unavailable_radios);
+        switch!(app, "select-unavailable-radios", "Keep Stations Out of Range", "Received stations stay on the Pip-Boy's list out of range; tuned to one, it plays once received again. (Stewie's Tweaks bSelectUnavailableRadios)", game.select_unavailable_radios);
         switch!(app, "radiation-radio-static", "Radiation Brings Radio Static", "Taking radiation brings static into the Pip-Boy's radio, more the faster the rads come. (Stewie's Tweaks bRadiationCausesRadioStatic)", game.radiation_radio_static);
         switch!(app, "barter-caps-change", "Barter Shows Caps After", "In a barter, each side's caps after the trade are shown beside its caps now. (Stewie's Tweaks bBarterShowCapsChange)", barter_caps_change);
         switch!(app, "no-self-meltdown", "No Self Meltdown Damage", "Blasts given off by the Meltdown perk hurt neither the player nor the companions. (Stewie's Tweaks bNoSelfMeltdownDamage)", game.no_self_meltdown);
@@ -2091,22 +2091,22 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-land-clip", "No Landing Animation", "Your character does not play a landing movement after a jump or a fall. (Stewie's Tweaks bRemoveLandingAnim)", no_land_clip);
         switch!(app, "hide-unmapped-places", "Compass: Only Mapped Places", "A place you have not found yet shows on the compass only if it is already marked on your map. (Stewie's Tweaks bHideInvisibleUndiscoveredLocations)", hide_unmapped_places);
         switch!(app, "vigor-review-first", "S.P.E.C.I.A.L. Machine: Straight to the Summary", "The machine that sets your S.P.E.C.I.A.L. opens on its last page, all seven at once, instead of one page each. (Stewie's Tweaks bSkipVigorTesterSpecialPages)", vigor_review_first);
-        amount!(app, "scope-delay", "Scope Delay (ms)", "How long, in milliseconds up to 1000, a scope waits after the view has zoomed before it covers the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
+        amount!(app, "scope-delay", "Scope Delay (ms)", "Milliseconds (to 1000) a scope waits once zoomed before covering the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
         switch!(app, "no-pointer-message-box", "No Pointer Over Message Boxes", "The mouse pointer is hidden while a message box is up; choose with the keys or the controller. (Stewie's Tweaks bHideCursorInMessageMenu)", no_pointer_in_message_box);
         switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with the number keys, the arrows, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
-        switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On the level-up skills page, the mouse wheel raises (up) or lowers (down) the skill under the pointer instead of scrolling the list. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
+        switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On level-up skills, the mouse wheel raises or lowers the skill under the pointer, not scrolling. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
         switch!(app, "compare-armor", "Compare Armor", "A piece of armour's DT in the Pip-Boy shows the difference from what you wear in the same places. (Stewie's Tweaks bCompareArmorStats)", game.compare_armor);
         switch!(app, "detailed-stats", "Detailed Stats", "In the Pip-Boy's stats, a raised or lowered value says by how much, as (+5) for (+), and values show past 10 and 100. (Stewie's Tweaks bMoreDetailedStatsMenu)", game.detailed_stats);
         switch!(app, "minigames-timescale", "Lockpicking Follows the Time Speed", "When a script speeds up or slows down time, the lock turns and the pick wears at that speed too. (Stewie's Tweaks bTimescaleAffectsMinigames)", game.minigames_timescale);
         switch!(app, "no-name-limit", "No Name Length Limit", "Your character's name may be longer than 24 letters. (Stewie's Tweaks bNoPlayerNameLimit)", game.no_name_limit);
         switch!(app, "seat-keeps-on-activate", "Activate Doesn't Stand Up", "Seated or lying down, the activate key no longer gets you up; a movement key does. (Stewie's Tweaks bActivatingDoesntStandUp)", seat_keeps_on_activate);
-        switch!(app, "plain-going-out", "Plain Screen Going Outside", "Going out of a building shows a plain black screen while the world loads, without a picture or a tip; loading a save is unchanged. (Stewie's Tweaks bNoExteriorLoadScreens)", plain_going_out);
+        switch!(app, "plain-going-out", "Plain Screen Going Outside", "Going outdoors loads behind a plain black screen, no picture or tip; loading a save is unchanged. (Stewie's Tweaks bNoExteriorLoadScreens)", plain_going_out);
         switch!(app, "mark-recurring-challenges", "Mark Repeating Challenges", "A challenge that starts again each time it is done says \"(repeats)\" beside its progress in the Pip-Boy. (Stewie's Tweaks bRecurringChallengeIndicator)", game.mark_recurring_challenges);
         switch!(app, "hide-hotkeyed-containers", "Hide Hotkeyed Items in Containers", "Things on a hotkey are not listed on your side of a container. (Stewie's Tweaks bHideHotkeyedItemsInContainers)", hide_hotkeyed_containers);
         switch!(app, "hide-hotkeyed-barter", "Hide Hotkeyed Items in Barter", "Things on a hotkey are not offered when trading. (Stewie's Tweaks bHideHotkeyedItemsInBarter)", hide_hotkeyed_barter);
         switch!(app, "hide-hotkeyed-repair", "Hide Hotkeyed Items in Repair", "Things on a hotkey are not offered as parts when repairing in the Pip-Boy. (Stewie's Tweaks bHideHotkeyedItemsInRepairLists)", hide_hotkeyed_repair);
         switch!(app, "map-zoom-at-pointer", "Map Zooms at the Pointer", "The mouse wheel zooms the Pip-Boy's maps in and out about the place under the pointer, not the middle. (Stewie's Tweaks bBetterMapZoom)", game.map_zoom_at_pointer);
-        switch!(app, "console-homes", "Console Homes", "The console gets sethome [name] (remember this spot), home [name] (go there), back (return from where home or back left) and delhome [name]; homes last until you quit. (Stewie's Tweaks bAddSetHomeCommand)", console_homes);
+        switch!(app, "console-homes", "Console Homes", "Console: sethome, home and delhome [name]; back undoes the last home or back. Kept until you quit. (Stewie's Tweaks bAddSetHomeCommand)", console_homes);
         add_setting(
             app,
             Setting::slider(
@@ -2140,10 +2140,10 @@ impl Plugin for TweaksPlugin {
         amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
         amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
         switch!(app, "npc-melee-part-damage", "Enemy Blows Hit Where They Land", "A melee or unarmed blow on you is multiplied by the body part it lands on (more on the head), as your own blows are. (Stewie's Tweaks bLocationalMeleeDamage)", game.npc_melee_part_damage);
-        switch!(app, "disarm-needs-skill", "Disarming Needs Skill", "Disarming a mine can fail, the more likely the further your Explosives and Perception fall short of what it asks; a failed try may set it off, less likely with more Luck. (Stewie's Tweaks bDisarmRequiresSkill)", game.disarm_needs_skill);
+        switch!(app, "disarm-needs-skill", "Disarming Needs Skill", "Mine disarming fails more the lower your Explosives and Perception, and may set it off (less with Luck). (Stewie's Tweaks bDisarmRequiresSkill)", game.disarm_needs_skill);
         amount!(app, "disarm-mult", "Disarm Chance Multiplier", "Multiplies the chance to disarm a mine (Disarming Needs Skill); 1 as the formula gives it. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_mult);
         amount!(app, "disarm-explode-mult", "Set-Off Chance Multiplier", "Multiplies the chance that a failed disarm sets the mine off (Disarming Needs Skill); 0 never. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_explode_mult);
-        switch!(app, "cap-skills-by-special", "Skills Capped by S.P.E.C.I.A.L.", "On leveling up a skill can be raised only as far as its base plus its governing attribute's share (and Luck's), up to the cap below. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_by_special);
+        switch!(app, "cap-skills-by-special", "Skills Capped by S.P.E.C.I.A.L.", "On leveling up a skill rises only to its base plus its attribute's share (and Luck's), up to the cap below. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_by_special);
         amount!(app, "skill-cap-base", "Skill Cap Base", "The part of every skill's cap before attributes (Skills Capped by S.P.E.C.I.A.L.). (Stewie's Tweaks bCapSkillsBySPECIAL)", 100.0, f64, game.skill_cap_base);
         amount!(app, "skill-cap-per-special", "Skill Cap per Attribute Point", "What each point of the governing attribute adds to a skill's cap. (Stewie's Tweaks bCapSkillsBySPECIAL)", 10.0, f64, game.skill_cap_per_special);
         amount!(app, "skill-cap-per-luck", "Skill Cap per Luck Point", "What each point of Luck adds to every skill's cap. (Stewie's Tweaks bCapSkillsBySPECIAL)", 10.0, f64, game.skill_cap_per_luck);
@@ -2152,29 +2152,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-breath", "Hold Breath Through a Scope", "Holding Shift while looking through a scope steadies it, costing Action Points while held; with none left the breath goes. (Stewie's Tweaks bScopeHoldBreath)", hold_breath);
         part!(app, "breath-sway", "Held Breath Sway", "How much a scope still sways while the breath is held, as a part of its usual sway. (Stewie's Tweaks bScopeHoldBreath)", breath_sway);
         amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
-        switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
+        switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "The mouse wheel zooms a scope in (up) and out, half to double the usual, reset each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
-        switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "With a controller, the D-pad's right takes out the next weapon on your hotkeys and its left the one before, instead of Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
-        switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With the controller as the input device, the keyboard and mouse still move you, look and act; the menus keep the controller's. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
-        switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second, the wait for a second tap. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
+        switch!(app, "dpad-cycles-hotkeys", "D-Pad Changes Weapon", "D-pad right takes out the next hotkeyed weapon, left the one before, not Ammo Swap and hotkey 4. (Stewie's Tweaks bWeaponCycleUpDownHotkeys)", dpad_cycles_hotkeys);
+        switch!(app, "keys-with-pad", "Keyboard and Mouse With a Controller", "With a controller, keyboard and mouse still work outside menus. (Stewie's Tweaks bAllowKeyboardAndMouseWithControllerConnected)", keys_with_pad);
+        switch!(app, "double-tap-ammo", "Double-Tap Reload Changes Ammo", "Tapping Reload twice quickly swaps the ammo type; one tap reloads after a third of a second. (Stewie's Tweaks bDoubleTapReloadToChangeAmmoType)", double_tap_ammo);
         switch!(app, "improved-weather", "Improved Weather", "A short fast travel keeps the weather instead of rolling a new one for the trip. (Stewie's Tweaks bImprovedWeather)", improved_weather);
         switch!(app, "vats-stop-following-dead", "V.A.T.S. Stops Following the Dead", "A kill camera stops turning after its target once it is dead, holding where it last saw it alive. (Stewie's Tweaks bVATSStopFollowingDeadTargets)", vats_stop_following_dead);
         switch!(app, "night-vision-toggle", "Night Vision Toggle", "With a night-vision scope up, the light's key (holding Tab, or its own key) switches the scope's night vision on and off. (Stewie's Tweaks bAddNightVisionToggle)", night_vision_toggle);
         switch!(app, "night-vision-off-first", "Night Vision Toggle: Off Until Switched On", "A night-vision scope gives no night vision until you switch it on. (bDisableVisionByDefault)", night_vision_off_first);
         switch!(app, "night-vision-by-day", "Night Vision Toggle: By Day Too", "A night-vision scope gives its night vision by day as well. (bAllowNightVisionDuringDay)", night_vision_by_day);
-        switch!(app, "kill-cam-outside-vats", "Kill Camera Outside V.A.T.S.", "Your kills outside V.A.T.S. can play a kill camera too, by the Kill camera setting's rules, no sooner than 20 seconds after the last. (Ours; Stewie's Tweaks bUseHitLocationInCinematicKillcams speaks of the original's)", kill_cam_outside_vats);
+        switch!(app, "kill-cam-outside-vats", "Kill Camera Outside V.A.T.S.", "Kills outside V.A.T.S. get kill cameras too (Kill camera rules), 20 s apart. (Ours; see Stewie's Tweaks bUseHitLocationInCinematicKillcams)", kill_cam_outside_vats);
         switch!(app, "kill-cam-hit-location", "Kill Camera Focuses on the Hit Location", "A kill camera looks at the part your shot struck: the head, the chest, the legs. (Stewie's Tweaks bUseHitLocationInCinematicKillcams)", kill_cam_hit_location);
         amount!(app, "weather-trip-distance", "Improved Weather: Short Trip", "How far a fast travel may go and keep the weather, in game units (about 4,100 to a cell). (Stewie's Tweaks bImprovedWeather, fFastTravelWeatherChangeDistanceThreshold)", 100000.0, f32, weather_trip_distance);
-        switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
+        switch!(app, "compass-pips-fade", "Fade Pips by Distance", "Compass marks fade with distance, over the range people and creatures could notice you. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
-        switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);
+        switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "Target health bars count Health raised by chems and effects: what a buffed enemy can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);
         amount!(app, "recent-dead-secs", "Recently Dead on the Compass (s)", "For how many seconds, up to 120, someone killed nearby stays on the compass, until you look at them; 0 none. (Stewie's Tweaks bRecentlyDeadNPCIndicator)", 120.0, f32, recent_dead_secs);
         switch!(app, "armor-sounds-3d", "Armour Rustle From the Body", "In third person your armour and clothing are heard from your character, not at the camera. (Stewie's Tweaks bArmorSoundsPlayIn3D)", armor_sounds_3d);
         switch!(app, "mine-blasts-heard", "Mine Blasts Are Heard", "A mine going off alerts the people near who would fight whoever laid it, or whoever set it off. (Stewie's Tweaks bNPCsDetectMineExplosions)", game.mine_blasts_heard);
         switch!(app, "blasts-spare-items", "Explosions Leave Items Be", "Explosions do not throw about things you can pick up, so loot stays where it lies. (Stewie's Tweaks bExplosionsDontPushTakeableItems)", game.blasts_spare_items);
         switch!(app, "grabbed-weighs", "Held Items Weigh", "An item you are holding up with the grab counts toward what you carry, so it can leave you overencumbered. (Stewie's Tweaks bEncumbranceIncludesGrabbedItems)", grabbed_weighs);
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
-        switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
+        switch!(app, "better-flycam", "Better Free Camera", "Free camera (tfc): Space rises, Ctrl sinks, Q flies on (S stops), Z and C turn; the wheel sets speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         switch!(app, "compass-quest-height", "Quest Marker Height", "A quest marker on the compass more than a storey above or below you has a short bar over or under it. (Stewie's Tweaks bCompassQuestHeightIndicator)", compass_quest_height);
         switch!(app, "compass-marker-height", "Your Marker's Height", "Your own map marker on the compass, more than a storey above or below you, has a short bar over or under it. (Stewie's Tweaks bPlacedMarkerHeightIndicator)", compass_marker_height);
@@ -2208,7 +2208,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-hud-needs", "Hide HUD Key: Hardcore Needs", "The Hide HUD key hides the Hardcore needs words. (Stewie's Tweaks iHideHUDKey)", hide_hud_needs);
         switch!(app, "hide-hud-sneak", "Hide HUD Key: Sneak", "The Hide HUD key hides the sneak word. (Stewie's Tweaks iHideHUDKey)", hide_hud_sneak);
         switch!(app, "hide-hud-on-load", "Hide HUD Key: Hidden After Loading", "A loaded save starts with the Hide HUD key's parts hidden. (Stewie's Tweaks iHideHUDKey)", hide_hud_on_load);
-        switch!(app, "grey-read-notes", "Dim Read Terminal Entries", "A terminal entry whose note the player has read is drawn dimmer from then on (entries read before it was switched on are not). (Stewie's Tweaks bTerminalGreyReadNotes)", grey_read_notes);
+        switch!(app, "grey-read-notes", "Dim Read Terminal Entries", "Terminal entries whose note you have read are drawn dimmer (not those read before this was on). (Stewie's Tweaks bTerminalGreyReadNotes)", grey_read_notes);
         switch!(app, "remember-item-places", "Remember Item List Places", "The Pip-Boy's item lists open on the row they were left on, each tab its own, and a save keeps them. (Stewie's Tweaks bRememberPipboyScrollPositions)", remember_item_places);
         amount!(app, "player-weapon-volume", "Your Weapon Volume", "How loud the player's shots are, in percent of the recorded sound; 100 changes nothing. (Stewie's Tweaks bScaleWeaponVolume)", 200.0, f32, player_weapon_volume);
         amount!(app, "npc-weapon-volume", "Others' Weapon Volume", "How loud other people's and creatures' shots are, in percent of the recorded sound; 100 changes nothing. (Stewie's Tweaks bScaleWeaponVolume)", 200.0, f32, npc_weapon_volume);
@@ -2217,8 +2217,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "marker-shift-removes", "No Question: Shift Removes", "With No Place Marker Question, Place Marker always puts the marker there; with Shift held it takes it away. (Stewie's Tweaks bPlaceMarkerShiftToReset)", game.marker_shift_removes);
         switch!(app, "marker-removed-on-it", "No Question: Remove When On It", "With No Place Marker Question, Place Marker always puts the marker there, and takes it away when the highlight box is on it. (Stewie's Tweaks bResetIfHovered)", game.marker_removed_on_it);
         amount!(app, "clear-marker-within", "Clear Marker When Near", "Your map marker goes when you come this near it, in game units (a door is about 100 across); 0 keeps it. (Stewie's Tweaks bClearNearbyPlayerMarker)", 2000.0, f32, clear_marker_within);
-        switch!(app, "place-marker-here-says", "Place Marker Here Says So", "The Place Marker Here key (on the Controls page, unbound until you bind it) puts your map marker where you stand; this shows a line in the corner when it does. (Stewie's Tweaks iPlaceMapMarkerAtPlayerPosKey)", place_marker_here_says);
-        switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "The Repeat Activate key (on the Controls page, unbound until you bind it), held, takes things again and again; off, it activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
+        switch!(app, "place-marker-here-says", "Place Marker Here Says So", "Place Marker Here (Controls page, unbound at first) marks the map where you stand; this says so. (Stewie's Tweaks iPlaceMapMarkerAtPlayerPosKey)", place_marker_here_says);
+        switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "Repeat Activate (Controls page, unbound at first), held, takes again and again; off, activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
         switch!(app, "objectives-on-arrival", "Objectives on Arrival", "Going through a door to a new place shows your active quest's open objectives again. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", objectives_on_arrival);
@@ -3006,6 +3006,20 @@ mod tests {
         assert_eq!(special_total(SPECIALS - 1), 70);
         assert_eq!(special_index(5), 0, "below the slider");
         assert_eq!(special_index(99), SPECIALS - 1, "above it");
+    }
+
+    /// #2377's budget for the Tweaks tab's rows: every note registered here within
+    /// `crate::settings::note_over_budget` (200 characters, no command-line switch), the
+    /// start's own check (`settings::check_notes`) kept clean.
+    #[test]
+    fn every_tweak_note_is_within_the_budget() {
+        let mut app = App::new();
+        TweaksPlugin.build(&mut app);
+        let settings = app.world().resource::<crate::settings::Settings>();
+        assert!(settings.list().len() > 500, "{}", settings.list().len());
+        for s in settings.list() {
+            assert_eq!(crate::settings::note_over_budget(s.note), None, "{}: {}", s.key, s.note);
+        }
     }
 
     #[test]

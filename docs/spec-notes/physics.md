@@ -1334,7 +1334,8 @@ it adds:
 
 Engineering choices, not game values: mouse look 0.0025 rad per mouse count, pitch
 limited to ±89°; physics loads the 3×3 exterior cells around the player (one more ring
-before unloading) or the one interior, at most one cell per frame, the player's own cell
+before unloading) or the one interior, each exterior square with the references placed in
+other squares whose bounds reach into it (below), at most one cell per frame, the player's own cell
 first, and the character waits while its cell is not loaded; the start drops the
 character on whatever a downward ray from the start eye finds (outdoors from far above if
 nothing; indoors the start moves to a door arrival, §6.7), on the hit's contact shell (§6.2); `Travel` puts the character where the arrival rule of
@@ -1352,6 +1353,25 @@ Goodsprings' 3×3 that gives 839
 references with collision against `fnvtool phys cell`'s 849 [observed: `nvforever --play`
 debug log: 18 references not in the world, the 8 that `fnvtool` also counts as Initially
 Disabled and 10 that the simulation disables through their enable parents].
+
+An exterior square holds the references its cell record lists, the worldspace's persistent
+references standing in it, and the references placed in another square whose bounds reach
+into it: the base record's OBND box, scaled, turned by the reference's rotation and moved
+to its position, against the 4,096-unit grid (`fnv_world::reach`, built once per
+worldspace, used by `fnvtool phys cell` too) [design, #2795]. HeliosPowerPlant (REFR
+0x000B0A0E, placed in square 5,-1) is HELIOS One's front plaza down to y -8801, in square
+5,-3; with only the references placed in the 3×3 a player in 5,-3 stood on the terrain
+under the plaza (z 5435-5464 against the plaza's 5476) [observed: `fnvtool phys cell`
+rays at radius 1 and 2, #2795]. A reference held by several loaded squares is in the world
+once, added with the first and removed with the last. That a base's OBND covers its
+model's collision is [hypothesis] (true of HeliosPowerPlant [observed: #2795]). Every
+square a box covers lists the reference, with a cell record there or not (physics loads
+squares without one too); nothing is cut. A box reaching more than 32 squares from its
+own (more likely a broken record: the largest buildings reach two or three) is kept as
+a rectangle the squares check by containment, and logged as a warning naming the
+reference and its squares [design, #2795]. The index's
+build time and size are logged (`physics: worldspace …: N references reach beyond their own
+square`) and not measured yet [hypothesis: well under a second for WastelandNV].
 
 Seen in NVForever, not in the game [observed]: walking east into the rock 0x000EDE82
 (layer Terrain) at about (-31043, -18055) the capsule jittered in place (about 85 units/s

@@ -76,6 +76,9 @@ trap models read with `fnvtool nif decode`, the placed references read from the 
   `WeapNVSingleShotgun` (0x000E393B) through `FireWeapon` from its own centre along its
   heading [observed: decompiled; documented: FireWeapon]. Shot, a tripwire springs (its
   OnHit), a bear trap closes.
+  In god mode the bear trap still closes on the player but its DamageActorValue on Health
+  and the leg does nothing (`functions::actor::god_keeps_whole`) [design, #2792]; the
+  rigged shotgun's shot is a hit, which god mode already keeps off.
 - The engine's `FireWeapon` now works on a reference nothing has moved (it took only
   references with run-time state, so the rigged shotgun never fired).
 

@@ -820,7 +820,7 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
 /// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
 /// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
-fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+pub(crate) fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
     if !g.is_teammate(me) {
         return 1.0;
     }

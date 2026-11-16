@@ -86,6 +86,11 @@ use std::path::{Path, PathBuf};
 use ash::vk;
 
 use crate::upscaler::Unavailable;
+/// The release's pins, NVIDIA's updater's name, the hash parser and the sharing open, shared
+/// with the download (`nvf-dlss-files`).
+pub(super) use nvf_dlss_files::{open_shared_read, RELEASE_DLLS, UPDATER_NAME};
+#[cfg(test)]
+use nvf_dlss_files::parse_sha256;
 
 #[cfg(windows)]
 use super::ffi::FEATURE_REQUIREMENT_VULKAN_SUPPORTED;
@@ -94,46 +99,11 @@ use super::ffi::FEATURE_REQUIREMENT_VULKAN_SUPPORTED;
 #[cfg(not(windows))]
 const FEATURE_REQUIREMENT_VULKAN_SUPPORTED: u32 = 1 << 2;
 
-/// NVIDIA's updater's name, which Streamline looks for beside the interposer [documented:
-/// `src/ota.cpp:206`].
-pub(super) const UPDATER_NAME: &str = "nvngx_update.exe";
 
-/// The DLLs of Streamline 2.14.16's release archive (`streamline-sdk-v2.14.16.zip`, `bin\x64`)
-/// and their SHA-256 in hex [observed: the official release zip, 2026-11-12]. Its
-/// `nvngx_dlss.dll` is left out on purpose: `nvngx_*.dll` are not pinned (the module comment).
-pub(super) const RELEASE_DLLS: [(&str, &str); 12] = [
-    ("NvLowLatencyVk.dll", "2a77dc3e1c724b7eea5755be0ae7423752e79a2459fae72181a9f00e3507e5d6"),
-    ("sl.common.dll", "38eea3b4209afc455636ea372b5933d65fcc13becec6c84d101dcfc4d8648f75"),
-    ("sl.deepdvc.dll", "2d493dccfefdc0580deb85afc65e70ae36adf77c6dd3c745c60623d9b8ac54f9"),
-    ("sl.directsr.dll", "e3bbaf3e5eb906a63b3f00413c2d1c4c585ab3a2ee1946fcfa9ee2d804001c8e"),
-    ("sl.dlss.dll", "18871eea87c90345da97d8109faa81ea7d5840e8d99b51b55b0e46cfa177f84e"),
-    ("sl.dlss_d.dll", "8dff36fd063094eb1f659e8d4dcd52c7423859a9c4a3df3796084c48412d60ac"),
-    ("sl.dlss_g.dll", "3ed9538df724993bea8a050195a6a78b9c8c8a566d5b05ade477aab3c390e90f"),
-    ("sl.interposer.dll", "b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf"),
-    ("sl.nis.dll", "f9f3873c00e2737b22df1bf7605d4fdc7978dbf2955df4e152c5b52aada13b79"),
-    ("sl.nvperf.dll", "dc5a820b97943c4d697a9ddec59b0dcde86ecadc093b401cf55980f7f89be43b"),
-    ("sl.pcl.dll", "5698c38e722318681f215c9fe68e45b9bedd51378acc699d8eee26e961e57770"),
-    ("sl.reflex.dll", "443577e869352436ff7ec8f4d9c90418d3e95368436ce219261e0f4f07a38122"),
-];
 
 /// The release that [`RELEASE_DLLS`] is.
 pub(super) const RELEASE: &str = "Streamline 2.14.16";
 
-/// 64 hex digits (either case) as 32 bytes; `None` for anything else. The one parser for the
-/// listed hashes here and in `security.rs`.
-pub(super) fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
-    let (pairs, rest) = hex.as_bytes().as_chunks::<2>();
-    if pairs.len() != 32 || !rest.is_empty() {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (byte, [high, low]) in out.iter_mut().zip(pairs) {
-        let high = char::from(*high).to_digit(16)?;
-        let low = char::from(*low).to_digit(16)?;
-        *byte = (high * 16 + low) as u8;
-    }
-    Some(out)
-}
 
 /// Why the folder refuses Streamline.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,24 +329,6 @@ where
     Ok(pinned)
 }
 
-/// `path` opened for reading, sharing read access only on Windows: no one can write, delete or
-/// rename the file while the handle is open (std's default shares all three; `share_mode`
-/// replaces it) [documented: Microsoft Learn, "CreateFileW function (fileapi.h)", dwShareMode].
-/// With `FILE_FLAG_OPEN_REPARSE_POINT`, a link is opened as itself, not followed ("normal reparse
-/// point processing will not occur"; same page, dwFlagsAndAttributes), so [`is_link`] on the
-/// handle sees it; a link then holds no file's bytes to hash or verify.
-pub(super) fn open_shared_read(path: &Path) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
-        options.share_mode(FILE_SHARE_READ);
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    options.open(path)
-}
 
 /// The DLSS folder itself opened, as itself if it is a link (`FILE_FLAG_OPEN_REPARSE_POINT`;
 /// `FILE_FLAG_BACKUP_SEMANTICS`, which a directory handle needs), sharing read and write but not

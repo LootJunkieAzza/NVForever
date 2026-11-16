@@ -925,6 +925,45 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<LockpickStats>) {
     );
 }
 
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> LockpickScreen {
+    let mut game = Picking::new(rules::Level::Easy, 50.0, 10, 0.5, Settings::default());
+    if step >= 1 {
+        game.set_pin(100.0);
+    }
+    if step >= 2 {
+        game.turn = 10.0;
+    }
+    if step >= 3 {
+        game.pins -= 1;
+    }
+    if step >= 4 {
+        game.phase = Phase::PinBroken { since: step as f32 };
+    }
+    LockpickScreen(Some(Session {
+        reference: FormId(42),
+        practice: true,
+        name: "Synthetic lock".into(),
+        game,
+        status: (step >= 5).then(|| "Synthetic status".into()),
+        opened: step as f32,
+        pin_clip: PinClip::In,
+        pin_since: step as f32,
+        ended: None,
+        help: (step >= 6).then(|| Help {
+            title: "Synthetic help".into(),
+            text: String::new(),
+            words: help::BoxWords { manual: String::new(), close: String::new(), close_hint: String::new() },
+        }),
+        words: Words { skill: String::new(), picks: String::new(), level: String::new(), exit: String::new(), force_hint: String::new(), exit_hint: String::new() },
+        leaving: (step >= 7).then_some((step as f32, "synthetic")),
+        moved: step as f32,
+        aid_torque_until: Some(step as f32),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

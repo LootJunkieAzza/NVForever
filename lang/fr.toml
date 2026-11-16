@@ -381,3 +381,7 @@ name = "Français"
 "Weapon wear" = "Usure de l'arme"
 "Fatigue" = "Fatigue"
 "Ammo effect" = "Effet de munition"
+# [design, #2149, #2676; engine/nvf-play/src/smooth_terrain.rs] The Smooth terrain row and its choices (2 x 2 and 4 x 4 read the same in every language).
+"Smooth terrain" = "Lisser le terrain"
+"4 x 4 near" = "4 x 4 proche"
+"Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares per landscape square, or 4 x 4 near you and 2 x 2 further. Drawing and collision share it. Applies at the next start." = "Lisse les marches de hauteur en gardant bosses et crêtes : 2 x 2 ou 4 x 4 par case, ou 4 x 4 près de vous et 2 x 2 plus loin. Affichage et collision le partagent. Au prochain démarrage."

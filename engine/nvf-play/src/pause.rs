@@ -1053,7 +1053,7 @@ impl PauseLook {
 /// What the keys have on the first page and in the quit question, and what Defaults goes
 /// back to (taken when the settings page is first shown).
 #[derive(Resource, Default)]
-struct PauseView {
+pub struct PauseView {
     main_selected: usize,
     confirm: Option<usize>,
     defaults: Option<Vec<f32>>,
@@ -1104,6 +1104,12 @@ struct PauseView {
 }
 
 impl PauseView {
+    /// [design, #2403] Read-only logical progress for the reports watchdog. Excludes
+    /// hover, dragging and render caches; the caller hashes this without sending text.
+    pub fn progress(&self) -> impl std::fmt::Debug + '_ {
+        (self.main_selected, self.confirm, self.scroll, self.scope, self.focus, self.keep_selected, self.delete_ask, self.dropdown, &self.search.query)
+    }
+
     /// The settings page's window's lines: as set this frame ([`PauseView::set_lines`]), else
     /// the layout's.
     fn lines(&self) -> usize {
@@ -4784,6 +4790,19 @@ fn finish_resume(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn report_progress_tracks_selection_and_confirmation_without_hover() {
+        let mut view = super::PauseView::default();
+        let first = format!("{:?}", view.progress());
+        view.report_hover = true;
+        assert_eq!(first, format!("{:?}", view.progress()));
+        view.main_selected = 1;
+        let selected = format!("{:?}", view.progress());
+        assert_ne!(first, selected);
+        view.confirm = Some(0);
+        assert_ne!(selected, format!("{:?}", view.progress()));
+    }
+
     #[test]
     fn the_console_entry_stands_where_help_was() {
         let labels: Vec<&str> = super::entries(true, true).iter().map(|e| e.label()).collect();

@@ -105,8 +105,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let original = if args.is_empty() { subject.and_then(|r| crate::functions::base_of(g, r)) } else { form(args, 0) };
             let Some(f) = original else { return Some(Ok(XVal::Ref(0))) };
             let local = args.get(1).is_some_and(XVal::truthy);
-            g.clone_seq += 1;
-            let id = FormId(if local { CLONE_LOCAL } else { CLONE_BASE } + g.clone_seq);
+            let id = match g.next_clone_identity(local) {
+                Ok(id) => id,
+                Err(error) => return Some(Err(error)),
+            };
             g.snapshot_combat_style(f, id);
             g.clones.insert(id, f);
             // A clone of an item goes into containers (MCM's list of mods, `World`).

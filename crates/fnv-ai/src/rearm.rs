@@ -12,7 +12,9 @@
 //!   found within the same reach (on the ground, on a body, in an unlocked container).
 //!   The best by rank, nearest on ties, becomes its fetch (`Rearms::fetches`). Before
 //!   looking, a weapon that does not fire at its target's distance gives way to a
-//!   carried one of its class that does (`Game::take_up_for_distance`).
+//!   carried one of its class that does (`Game::take_up_for_distance`); an explosive
+//!   weapon with its target too close for its blast, after a while, to one of any class
+//!   or to the fists (no fetch while it fights with them).
 //! - The fetch: it runs to each stop in turn (the nearer first), stands there for the
 //!   pick-up idle ([`PICKUP_SECONDS`]) and takes or copies the item (`Game::take_leg`);
 //!   after the last it holds the weapon it went for. A stop it has no way to, that is
@@ -101,9 +103,16 @@ impl Ai {
         });
         if let Some(at) = target_at {
             let distance = goal::dist(feet, at);
-            if let Some(weapon) = game.take_up_for_distance(actor, distance) {
-                self.log(game, actor, AiEvent::RangeSwap { weapon, distance });
+            match game.take_up_for_distance(actor, distance) {
+                Some(fnv_game::rearm::RangeSwap::Took(weapon)) => self.log(game, actor, AiEvent::RangeSwap { weapon, distance }),
+                Some(fnv_game::rearm::RangeSwap::PutAway(weapon)) => self.log(game, actor, AiEvent::RangeFists { weapon, distance }),
+                None => {}
             }
+        }
+        // Its fists by choice, for an explosive weapon put away (`Game::take_up_for_distance`):
+        // no fetch meanwhile, which would take it away from its target for another weapon.
+        if game.rearms.put_away.contains_key(&actor) {
+            return false;
         }
         let Some(found) = self.look_for_weapon(game, actor) else { return false };
         let first = found.legs[0];

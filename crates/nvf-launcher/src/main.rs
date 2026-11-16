@@ -7,10 +7,15 @@
 
 mod app;
 mod catalog;
+mod display;
+mod dlss;
 mod fonts;
 mod launch;
 mod news;
+mod reports;
 mod theme;
+mod ttw;
+mod update;
 
 const ICON: &[u8] = include_bytes!("../assets/icon-64.png");
 
@@ -19,6 +24,7 @@ fn main() -> eframe::Result {
         .with_title("NVForever Launcher")
         .with_inner_size([1180.0, 760.0])
         .with_min_inner_size([900.0, 560.0]);
+
     if let Ok(icon) = eframe::icon_data::from_png_bytes(ICON) {
         viewport = viewport.with_icon(icon);
     }

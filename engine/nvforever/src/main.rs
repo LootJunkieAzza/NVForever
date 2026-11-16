@@ -181,6 +181,8 @@ mod perf_overlay;
 mod occlusion;
 mod rooms;
 mod terrain;
+mod terrain_lod;
+mod terrain_wireframe;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
@@ -398,6 +400,16 @@ struct Args {
     /// docs/spec-notes/world.md §3 "Texture repeat"]).
     #[arg(long, default_value_t = 256.0)]
     terrain_tile: f32,
+    /// Draw and collide the landscape on its stored triangles, not smoothed (#2149,
+    /// `nvf_play::smooth_terrain`; the settings page's Smooth terrain row); the same as
+    /// `--smooth-terrain off`, and wins over it.
+    #[arg(long)]
+    no_smooth_terrain: bool,
+    /// How the landscape is smoothed: `off`, `2x2`, `4x4` (the default) or `4x4-near` (4 x 4
+    /// near the camera, 2 x 2 further; #2676, `nvf_play::smooth_terrain`). Once any setting is
+    /// saved, NVForever.ini's Smooth terrain row wins over this flag, as for every row.
+    #[arg(long, value_name = "off|2x2|4x4|4x4-near", value_parser = parse_smoothing)]
+    smooth_terrain: Option<nvf_play::smooth_terrain::Smoothing>,
     /// Do not draw models whose path contains any of these texts (diagnostics).
     #[arg(long, value_delimiter = ',')]
     hide: Vec<String>,
@@ -651,6 +663,10 @@ struct Args {
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
+    /// Draw the loaded landscape's triangle edges over it (terrain_wireframe.rs; the
+    /// settings page's Debug row Terrain wireframe).
+    #[arg(long)]
+    terrain_wireframe: bool,
     /// With --play: draw the developer markers of shots: a cross at each impact and a
     /// line from the muzzle along each hitscan shot (settings page: Developer).
     #[arg(long)]
@@ -944,6 +960,10 @@ fn parse_frame_generation(value: &str) -> Result<frame_gen::FrameGenKind, String
     frame_gen::FrameGenKind::parse(value).ok_or_else(|| format!("{value:?} is none of fsr, dlss, off"))
 }
 
+fn parse_smoothing(value: &str) -> Result<nvf_play::smooth_terrain::Smoothing, String> {
+    nvf_play::smooth_terrain::Smoothing::parse(value).ok_or_else(|| format!("{value:?} is none of off, 2x2, 4x4, 4x4-near"))
+}
+
 fn main() -> AppExit {
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
@@ -1167,6 +1187,9 @@ fn main() -> AppExit {
                     None => return fail(format!("no exterior cell {}", args.cell)),
                 },
             };
+            // A provisional camera seed 400 units over the stored centre vertex: the
+            // player is grounded later on the run's surface (`nvf_play::smooth_terrain`,
+            // fixed after the settings are read), at most its bound from this [design, #2149].
             let ground = world
                 .grid_cell(grid)
                 .and_then(|c| c.land)
@@ -1423,6 +1446,11 @@ fn main() -> AppExit {
     // PostStartup (settings.rs `upscaler_after_ini`). The DLSS loader runs for a DLSS choice or
     // when NVIDIA's four files are in the DLSS folder, so every later switch is live; the test
     // aid NVF_DLSS_PRELOAD=1 runs it always, =0 only for DLSS (upscaler.rs, "Start").
+    // Whether the landscape is smoothed (#2149): the command line's state, before any cell
+    // loads; with --play the INI may change it at PostStartup (nvf_play::settings
+    // `fix_smooth_terrain`), still before the first cell.
+    nvf_play::smooth_terrain::set_setting(if args.no_smooth_terrain { nvf_play::smooth_terrain::Smoothing::Off } else { args.smooth_terrain.unwrap_or(nvf_play::smooth_terrain::Smoothing::DEFAULT) });
+    nvf_play::smooth_terrain::fix();
     let start_upscaler = {
         let given = play.is_some().then(|| settings::given_switches(&args, &command_line()));
         let ini = given.as_ref().and_then(|_| settings::settings_text_at_start()).map(|text| settings::UpscalerIni::read(&text));
@@ -1544,6 +1572,9 @@ fn main() -> AppExit {
     .insert_resource(fly::AutoFly(args.auto_fly))
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen).with_origin(lod_origin))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
+    // The terrain wireframe (#2149), off unless asked for: it builds nothing while off.
+    .add_plugins(terrain_wireframe::TerrainWireframePlugin { on: args.terrain_wireframe })
+    .insert_resource(terrain_wireframe::WireSource::of_records(world.lo, world.schema, world.index))
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
@@ -1596,6 +1627,8 @@ fn main() -> AppExit {
     .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region.after(nvf_play::PlaySet::Physics), sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, world::note_other_cameras.after(world::stream))
+    // 4 x 4 near's redraws by distance (#2676): after streaming spawned this frame's cells.
+    .add_plugins(terrain_lod::TerrainLodPlugin)
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
@@ -1980,6 +2013,9 @@ fn main() -> AppExit {
         };
         app.add_systems(Update, summary);
     }
+    if play.is_none() {
+        app.add_systems(Startup, || info!("{}", nvf_play::smooth_terrain::describe()));
+    }
     if play.is_some() {
         settings::register(&mut app);
         dlss_download::add(&mut app);
@@ -2294,10 +2330,7 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     if g.take_weather_release() {
         sky.release_script_weather();
     }
-    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
-    if g.weather.shown != Some(shown) || g.weather.raining != raining {
-        g.set_shown_weather(shown, raining);
-    }
+    report_script_weather(g, &sky);
     // The scripts' wind and lightning (SetWindDirection, TriggerLightningFX;
     // `fnv_game::nvse_jip12`); their climate and moons: `worldspace::script_sky`.
     let wind = g.script_wind();
@@ -2307,6 +2340,16 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     if g.take_lightning() {
         sky.lightning_request = true;
     }
+}
+
+/// Publish this bridge pass's sky observation; clock/fade scheduling stays unchanged.
+fn report_script_weather(g: &mut fnv_game::Game<'_>, sky: &sky::SkyState) {
+    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
+    if g.weather.shown != Some(shown) || g.weather.raining != raining {
+        g.set_shown_weather(shown, raining);
+    }
+    // Progress changes even while the shown form and stable-rain flag do not.
+    g.set_shown_weather_sample(sky.fade, sky.weather.classification, sky.prev.is_none());
 }
 
 fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>, hold: Option<ResMut<nvf_play::pipboy::data::travel::WeatherHold>>) {

@@ -914,6 +914,37 @@ have no `.nif` of their name; which model each belongs to is [open].
 
 Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
 
+### 4.4 Hair outside an old-head race's list (#2714)
+
+[documented: issue #2714, spooknik's 2026-11-15 comment, record/archive audit at
+main 1790ab94a; supplied findings, not a new run or original-game observation]
+Roy is VFSRoyREF 0x0011365D, base VFSLocalVictim03 0x00113649. His race is
+CaucasianOldAged 0x000987DF, with `headold.nif`, but his HAIR is
+HairAfricanAmericanBase 0x000306BE (Buzz Cut): `hairbase.nif`, texture
+`hairafricanamericanbase.dds`, HCLR 192,192,192, and no hat. That HAIR is outside
+the race's HNAM list: 0x000987DA, 0x000987D8, 0x00044529, 0x00044528,
+0x00044527, 0x000987D9. The race's default male hair is HairBaldingOld.
+
+[documented: the same #2714 audit] Old-head alternatives include HairBaseOld
+0x00044528 (`hairbaseold.nif`, with `hairbaseoldnohat.egm` /
+`hairbaseoldhat.egm`) and HairAfricanAmericanBaseOld 0x000987D9
+(`hairafricanamericanbaseold.nif`). Of the 24 placed old-head NPCs surveyed,
+20 use an `…old.nif` hair. The exceptions are Roy (`hairbase.nif`),
+VNovacDoctorMerc2 (`hairraiderspike.nif`, no old version), DeadSlaveFemale
+(`hairbun.nif`) and Boomer05F (`hairfemaleb.nif`, under a hat).
+
+[design: `crates/fnv-actor/src/resolve.rs`, hair selection;
+`engine/nvforever/src/facegen.rs::FaceGenCache::morph`] NVForever keeps the
+NPC's selected HAIR model (race default only when no hair is selected), then
+uses that model's own applicable EGM, including per-shape files such as
+`hairbasenohat.egm`. It does not substitute an old-head model because the hair
+is outside HNAM. [hypothesis, #2714] A model fitted to `headhuman.nif` could
+leave a gap at the back of `headold.nif`; the original might keep that gap,
+substitute an old-head hair, or use the race default. Keep the current model
+provisionally; no hair resolution or morphing change is justified yet.
+Observer check [210](../handoff/observer-checks.md) compares Roy from behind
+and VNovacDoctorMerc2 to distinguish those alternatives [design, #2714].
+
 ## 5. CLI contract
 
 - `fnvtool actor forms <Data> <plugins…> --schema <dir>` → `fnv.actor.forms/1`:

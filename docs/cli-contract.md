@@ -580,3 +580,30 @@ containing `EXTPROBE|`. Output: the same document `tools/capture/ext_probes.py c
 writes from the original game's console (`rows` `{id, value}`, `files` with begin/end
 markers, `duplicates`), plus `runs` (`{quest, which, lines}` or `{…, error}`). The runaway
 loop and deep recursion run only with `--risky`.
+
+## Mod diagnostic commands
+
+`fnvtool ext connections <Data> <plugins>... --schema schemas/fnv [--plugin name]...`
+returns `fnv.ext.connections/1`: `executed: false`, and per-plugin `units`,
+`units_kept_bytes`, `unread_statements` and `functions` (`name`, optional `opcode`,
+`status`, optional `reason`, `units`, `calls`). Static registration and unchecked names
+are distinct. The command never invokes its callees.
+
+`fnvtool ext mod-log <log> [--previous <log>] [--detail] [--summary <new-file>]`
+returns `fnv.ext.mod_log/1`. `run` has `lines`, `invalid_utf8_lines` and ordered
+`sessions`; each session has `mod_log`, `exit_rows_present`, diagnostic `log_records`
+counts and separate `reported_exit_counts`. `changes` compares the final session of
+each input, naming their indexes and changed category record counts. Detailed output
+also includes private `entries` and `changes.new/gone` messages. Default JSON omits
+all messages and input paths. Summary files must not already exist.
+
+With `--run`, `ext script-runner` adds `diagnostics` (`fnv.ext.runner_diagnostics/1`)
+with category `counts` and grouped `entries`: `id`, `kind`, `trace_events`. `--detail`
+adds `unit` and `words`. `available` is true when the summary fits its bounds; otherwise
+`available: false`/`reason: retention_limit` omits counts/entries while preserving the
+existing command exit and compile/result rows. Trace counts may
+already be deduplicated by the runtime and are not total invocation counts.
+
+Limits, private-output boundaries, provenance and portable fixtures are described in
+[scoped mod diagnostics](handoff/mod-diagnostic-cli.md). No output is a native or
+full-profile compatibility verdict.

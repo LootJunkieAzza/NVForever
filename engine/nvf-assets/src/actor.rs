@@ -919,10 +919,6 @@ impl ActorCtx<'_, '_> {
             if props.hair {
                 mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
             }
-            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
-            if let Some(t) = missing {
-                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
-            }
             let cap = is_cap(&dec, shape);
             let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
             // In a shape with drawn partitions, only a cap body part (section caps 1xx,
@@ -933,6 +929,18 @@ impl ActorCtx<'_, '_> {
             }
             let partitions = Arc::new(partitions);
             let caps = partitions.iter().filter(|p| p.cap).count();
+            // A cap's texture alpha cuts up to half of its tip away (`MeatCapGore01.dds`,
+            // DXT3, tested GREATER 127: dismemberment.md §2.5), and through the cuts the
+            // hollow limb and the cap's far side were not drawn: the corpse showed the ground
+            // through the stump (owner, 2026-11-15). Caps are drawn from both sides, so the
+            // cuts show the cap's inside [design: the caps carry no NiStencilProperty].
+            if caps > 0 {
+                props.double_sided = true;
+            }
+            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+            if let Some(t) = missing {
+                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
+            }
             if !cap && caps > 0 && first_mixed_report(path, o.block) {
                 info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
             }
@@ -1254,26 +1262,52 @@ pub fn skin_weights(m: &Mesh) -> Option<SkinWeights<'_>> {
 /// and k > 0 a severed piece, and `side[j]` is the side joint j lies on. Every triangle
 /// gets vertices of its own whose weights on joints of other sides are dropped and the
 /// rest scaled back up to 1; a vertex left with no weight on its side is carried whole by
-/// `fallback[k]`, or keeps its weights when there is none. So no triangle is stretched
-/// between a piece and the body.
-pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>]) -> Mesh {
+/// `fallback[k]`, or keeps its weights when there is none. For the body, a vertex carried
+/// only by pieces goes to `above[s]`, the body's joint above the cut of the piece `s`
+/// carrying most of it, else to `fallback[0]` (a torso cap weighted to the gone limb's
+/// own bones stays at the cut it covers). So no triangle is stretched between a piece and
+/// the body.
+///
+/// `anchors[j]`, for a joint j of a piece, is a joint slot past the shape's own (the
+/// caller adds it to the shape's skin) that holds j's place on the body: the bone above
+/// the piece's cut, carrying the vertex where j had it. A body vertex keeps its weights on
+/// such a joint, moved to its anchor, so the stump, its torso cap and any other body
+/// triangle reaching into the piece stay where they were, held by one bone in every shape
+/// (#2677: a cap whose shape lacked the stump's bone was carried elsewhere, or off with
+/// the piece, and the stump stood open). Joints without an anchor go the old way above.
+pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>], above: &[Option<u16>], anchors: &[Option<u16>]) -> Mesh {
     let mut m = cpu.clone();
     let corner_side: Vec<u8> = groups.iter().flat_map(|(k, t)| std::iter::repeat_n(*k, t.len())).collect();
     m.insert_indices(Indices::U32(groups.iter().flat_map(|(_, t)| t.iter().copied()).collect()));
     m.duplicate_vertices();
     let Some((joints, weights)) = skin_weights(&m) else { return m };
     let (mut joints, mut weights) = (joints.to_vec(), weights.to_vec());
+    // An anchor slot lies past the shape's joints, on the body.
+    let side_of = |x: u16| side.get(x as usize).copied().unwrap_or(0);
     for ((&k, j), w) in corner_side.iter().zip(&mut joints).zip(&mut weights) {
+        let orig = *j;
+        if k == 0 {
+            for c in 0..4 {
+                if w[c] > 0.0 && side_of(j[c]) != 0 {
+                    if let Some(a) = anchors.get(j[c] as usize).copied().flatten() {
+                        j[c] = a;
+                    }
+                }
+            }
+        }
         let mut kept = *w;
         for c in 0..4 {
-            if side.get(j[c] as usize) != Some(&k) {
+            if side_of(j[c]) != k {
                 kept[c] = 0.0;
             }
         }
         let sum: f32 = kept.iter().sum();
+        let carrier = |s: usize| (0..4).filter(|&c| side_of(orig[c]) as usize == s).map(|c| w[c]).sum::<f32>();
+        let body_above = || (1..above.len()).filter(|&s| carrier(s) > 0.0).max_by(|&a, &b| carrier(a).total_cmp(&carrier(b))).and_then(|s| above[s]);
+        let to = if k == 0 { body_above().or(fallback.first().copied().flatten()) } else { fallback.get(k as usize).copied().flatten() };
         if sum > 1e-4 {
             *w = kept.map(|x| x / sum);
-        } else if let Some(f) = fallback.get(k as usize).copied().flatten() {
+        } else if let Some(f) = to {
             *j = [f, 0, 0, 0];
             *w = [1.0, 0.0, 0.0, 0.0];
         }
@@ -1294,6 +1328,9 @@ pub struct LimbShape {
     pub cpu: Arc<Mesh>,
     /// The bones it is skinned to, or the one it hangs from.
     pub bones: Vec<String>,
+    /// Its own inverse bind poses (skinned shapes), one per bone: a cut shape is given
+    /// these and its anchored copies (`sever_mesh`'s `anchors`).
+    pub binds: Option<Handle<SkinnedMeshInverseBindposes>>,
 }
 
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
@@ -1317,7 +1354,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                 Some((_, names)) => names.clone(),
                 None => vec![u.part.attach_bone().to_string()],
             };
-            let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones };
+            let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones, binds: s.skin.as_ref().map(|(b, _)| b.clone()) };
             let mesh = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
             let joints: Option<Vec<Entity>> =
@@ -1617,7 +1654,7 @@ mod tests {
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 4]);
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0]]));
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
-        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)]);
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)], &[], &[]);
         let (j, w) = skin_weights(&out).unwrap();
         assert_eq!(out.count_vertices(), 6);
         // The body's copies: all on joint 0.
@@ -1625,6 +1662,52 @@ mod tests {
         // The piece's copies of 1 and 2: all on joint 1; vertex 3 had nothing there, so
         // the fallback carries it.
         assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
+        assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn a_torso_cap_carried_by_the_gone_limb_stays_on_the_body_bone_above_its_cut() {
+        // Joints: 0 the pelvis, 1 the neck (body); 2 the right thigh (piece 1), 3 the head
+        // (piece 2). Like `republican_02.nif`'s torso cap 210, weighted ~92 % to the right
+        // thigh: vertex 0 all on the thigh, 1 mostly on it, 2 all on the head.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[2, 0, 0, 0], [2, 3, 0, 0], [3, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.7, 0.3, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let side = [0, 0, 1, 2];
+        // The body's triangle: the thigh's vertices go to the pelvis (above piece 1's
+        // cut), the head's to the neck (above piece 2's), not all to one bone.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![]), (2, vec![])], &side, &[Some(1), Some(2), Some(3)], &[None, Some(0), Some(1)], &[]);
+        let (j, w) = skin_weights(&out).unwrap();
+        assert_eq!((j[0], w[0]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[1], w[1]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[2], w[2]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        // Without a bone above a piece's cut, the body's fallback carries the vertex.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2])], &side, &[Some(1)], &[None, None, None], &[]);
+        let (j, _) = skin_weights(&out).unwrap();
+        assert!(j.iter().all(|j| j[0] == 1));
+    }
+
+    #[test]
+    fn a_body_vertex_on_a_gone_joint_keeps_its_weights_on_that_joints_anchor() {
+        // Joints: 0 the pelvis (body), 1 the thigh and 2 the calf (piece 1); anchors 3 and
+        // 4 hold the thigh's and the calf's places on the body. Vertex 0 half on the pelvis
+        // and half on the thigh, 1 on the thigh and the calf, 2 on the pelvis.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 1, 0, 0], [1, 2, 0, 0], [0, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[0.5f32, 0.5, 0.0, 0.0], [0.6, 0.4, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let side = [0, 1, 1];
+        let anchors = [None, Some(3), Some(4)];
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![0, 1, 2])], &side, &[Some(0), Some(1)], &[None, Some(0)], &anchors);
+        let (j, w) = skin_weights(&out).unwrap();
+        // The body's copies keep their weights, the piece's joints moved to their anchors.
+        assert_eq!((j[0], w[0]), ([0, 3, 0, 0], [0.5, 0.5, 0.0, 0.0]));
+        assert_eq!((j[1], w[1]), ([3, 4, 0, 0], [0.6, 0.4, 0.0, 0.0]));
+        assert_eq!((j[2], w[2]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        // The piece's copies are untouched by the anchors: only its own joints carry them.
+        assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
+        assert_eq!((j[4], w[4]), ([1, 2, 0, 0], [0.6, 0.4, 0.0, 0.0]));
         assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
     }
 

@@ -75,17 +75,17 @@ detail in the module notes of the file named.
   A file added after the second pass is not seen; with the default folder beside the program,
   whose own folder is searched first anyway, that adds no place an attacker could not already
   write to. (The second review of #2206.)
-- **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
+- **The signature** (`nvf-dlss-files` `security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
-- **The tested build** (`dlss/security.rs` `TESTED_INTERPOSERS`). The interposer's SHA-256 must
+- **The tested build** (`nvf-dlss-files` `security.rs` `TESTED_INTERPOSERS`). The interposer's SHA-256 must
   also be a tested build's, today only Streamline 2.14.16's
   (`b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf` [observed: the release
   zip's `bin\x64\sl.interposer.dll` and the tested bundle, 2026-11-12]). Both checks must pass;
   either failing is `SignatureRejected`, with the file's hash in the log. The hash comes from
   the `sha2` crate through `fnv_util::sha256`, already a dependency. A new Streamline release
   takes a new entry once it was tested. (The review of #2206; the PR owner's decision.)
-- **One file, checked and loaded** (`dlss/security.rs` `check_interposer`, `dlss/win.rs`). The
+- **One file, checked and loaded** (`nvf-dlss-files` `security.rs` `check_interposer`, `dlss/win.rs`). The
   interposer is opened once, sharing read access only, so no one can write, rename or delete it
   while the handle is open; its hash is read and `WinVerifyTrust` runs through that handle
   (`WINTRUST_FILE_INFO.hFile`), and the handle is held until Streamline is shut down.
@@ -320,7 +320,7 @@ detail in the module notes of the file named.
 
 ## Download (#2250)
 
-[design], code in `engine/nvforever/src/dlss/download/` (module notes there). The player can
+[design], code in `crates/nvf-dlss-files/src/download/` (module notes there). The player can
 fetch the eight upscaling and frame generation files from the settings (Download DLSS...,
 the dialog of #2250, extended by #2409) instead of
 copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
@@ -503,7 +503,7 @@ only where `NVF_DLSS_DIR` names a bundle.
 
 ## Open points
 
-- **The secondary signature is not bound to the file** (`dlss/security.rs`). The check verifies
+- **The secondary signature is not bound to the file** (`nvf-dlss-files` `security.rs`). The check verifies
   the primary signature against the file and compares the secondary signer's public key with
   Streamline's NVIDIA key, as Streamline's header does; nothing shows that the secondary
   signature signs this file [hypothesis: a file validly signed by someone else carrying a copy
