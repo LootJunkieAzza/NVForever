@@ -296,7 +296,10 @@ pub const REFERENCE_DIMMER: [f32; 4] = [1.65, 1.21, 1.3, 1.1];
 /// How much stronger the sun or moon is than the Mojave's at `hour`: `dimmer` (this
 /// world's blended sunlight dimmer) over [`REFERENCE_DIMMER`] blended the same way, so
 /// the Mojave's clear weather gives 1 [hypothesis: the dimmer scales the directional light
-/// directly; world.md §6 "Sunlight Dimmer"].
+/// directly; world.md §6 "Sunlight Dimmer"]. The reference has no high-noon entry of its
+/// own: NVWastelandClear's high-noon adapter is its day adapter (`NVWastelandIS`, both
+/// ×1.1) [observed: fnvtool esm decode], so the four times blended give the same value at
+/// every hour as [`cinematic_at`]'s keys do for that weather.
 pub fn sun_scale(dimmer: f32, c: &Climate, hour: f32) -> f32 {
     let [(k0, w0), (k1, w1)] = time_keys(c, hour, false);
     let r = |k: usize| REFERENCE_DIMMER.get(k).copied().unwrap_or(REFERENCE_DIMMER[3]);
@@ -367,7 +370,7 @@ mod tests {
         // A base without a tint (the Capital Wasteland's) takes the adapter's as it is.
         let plain = Cinematic { tint: [0.0; 3], tint_amount: 0.0, ..base };
         let p = plain.adapt(&night);
-        assert!((p.tint_amount - 0.6).abs() < 1e-6 && p.tint == [0.2, 0.5, 0.9]);
+        assert!((p.tint_amount - 0.6).abs() < 1e-6 && p.tint.iter().zip([0.2, 0.5, 0.9]).all(|(a, b)| (a - b).abs() < 1e-6));
         let sunset = Adapter { contrast: MultAdd { mult: 1.0, add: 0.3 }, ..Default::default() };
         assert!((base.adapt(&sunset).contrast - 1.4).abs() < 1e-6);
         // No tint in the adapter keeps the base tint.
