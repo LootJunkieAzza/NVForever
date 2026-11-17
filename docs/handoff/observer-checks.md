@@ -2309,3 +2309,6 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      already. This corrects check 122's reading of a lying view in the greeting. The
      begin idle counting as its sequence's first pick (`IdlePicker::after_begin`) gives
      this: one wake-up, upright before the greeting.
+
+## Answered 2026-11-16 (sky and grade, Capital Wasteland against the Mojave)
+

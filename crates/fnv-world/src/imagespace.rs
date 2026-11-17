@@ -109,12 +109,26 @@ impl Cinematic {
         }
     }
 
-    /// This grade with an adapter applied: each value × mult + add; an adapter tint gives
-    /// the colour and scales the base tint amount by its alpha, like the other
-    /// multipliers [hypothesis: replacing the amount outright made the Mojave night far
-    /// bluer than the owner's in-game screenshots].
+    /// This grade with an adapter applied: each value × mult + add. An adapter's tint is one
+    /// more tint beside the image space's own: the colours averaged by their amounts, the
+    /// larger amount kept, the rule for several modifiers' tints [documented: GECK wiki
+    /// "ImageSpace Modifiers"; hypothesis that a weather's adapter counts as one;
+    /// observed 2026-11-16, world.md §6 "Adapter tint": the tint amount that fits the
+    /// original's ground is 0.31 in the Capital Wasteland (base amount 0, adapter 0.314)
+    /// and 0.36 in the Mojave at noon (base 0.33, adapter 0.392), where scaling the base
+    /// amount by the adapter's alpha gave 0 and 0.13].
     pub fn adapt(&self, a: &Adapter) -> Cinematic {
-        let (tint, tint_amount) = a.tint.map_or((self.tint, self.tint_amount), |(c, alpha)| (c, self.tint_amount * alpha));
+        let (tint, tint_amount) = match a.tint {
+            None => (self.tint, self.tint_amount),
+            Some((c, alpha)) => {
+                let (wb, wa) = (self.tint_amount.max(0.0), alpha.max(0.0));
+                if wb + wa > 0.0 {
+                    (std::array::from_fn(|i| (self.tint[i] * wb + c[i] * wa) / (wb + wa)), wb.max(wa))
+                } else {
+                    (self.tint, 0.0)
+                }
+            }
+        };
         Cinematic {
             saturation: a.saturation.apply(self.saturation),
             contrast: a.contrast.apply(self.contrast),
@@ -263,10 +277,11 @@ pub fn weather_adapters(lo: &LoadOrder, schema: &Schema, w: &Weather) -> [Option
     std::array::from_fn(|i| f.get(&[i as u8, b'I', b'A', b'D']).as_ref().and_then(formid_of).and_then(|l| global(lo, pi, l)))
 }
 
-/// The grade at `hour`: the base image space with the weather's adapter for each of the
-/// four main times applied, blended like the weather colours (world.md §6).
+/// The grade at `hour`: the base image space with the weather's adapter for each time of
+/// day applied, blended like the weather colours (world.md §6): the high-noon adapter at
+/// 12:00 when the weather has one, never the midnight one ([`crate::sky::keys_at`]).
 pub fn cinematic_at(base: &Cinematic, adapters: &[Option<Adapter>; 6], c: &Climate, hour: f32) -> Cinematic {
-    let [(k0, w0), (k1, w1)] = time_keys(c, hour, false);
+    let [(k0, w0), (k1, w1)] = crate::sky::keys_at(c, hour, adapters[4].is_some());
     let at = |k: usize| adapters.get(k).copied().flatten().map_or(*base, |a| base.adapt(&a));
     let (a, b) = (at(k0 as usize), at(k1 as usize));
     a.lerp(&b, if w0 + w1 > 0.0 { w1 / (w0 + w1) } else { 0.0 })
@@ -281,7 +296,10 @@ pub const REFERENCE_DIMMER: [f32; 4] = [1.65, 1.21, 1.3, 1.1];
 /// How much stronger the sun or moon is than the Mojave's at `hour`: `dimmer` (this
 /// world's blended sunlight dimmer) over [`REFERENCE_DIMMER`] blended the same way, so
 /// the Mojave's clear weather gives 1 [hypothesis: the dimmer scales the directional light
-/// directly; world.md §6 "Sunlight Dimmer"].
+/// directly; world.md §6 "Sunlight Dimmer"]. The reference has no high-noon entry of its
+/// own: NVWastelandClear's high-noon adapter is its day adapter (`NVWastelandIS`, both
+/// ×1.1) [observed: fnvtool esm decode], so the four times blended give the same value at
+/// every hour as [`cinematic_at`]'s keys do for that weather.
 pub fn sun_scale(dimmer: f32, c: &Climate, hour: f32) -> f32 {
     let [(k0, w0), (k1, w1)] = time_keys(c, hour, false);
     let r = |k: usize| REFERENCE_DIMMER.get(k).copied().unwrap_or(REFERENCE_DIMMER[3]);
@@ -345,7 +363,14 @@ mod tests {
             ..Default::default()
         };
         let n = base.adapt(&night);
-        assert!((n.contrast - 1.32).abs() < 1e-6 && n.saturation == 1.1 && (n.tint_amount - 0.198).abs() < 1e-6);
+        // The adapter's tint beside the base's: the larger amount, the colours by amount.
+        assert!((n.contrast - 1.32).abs() < 1e-6 && n.saturation == 1.1 && (n.tint_amount - 0.6).abs() < 1e-6);
+        let mixed = |b: f32, a: f32| (b * 0.33 + a * 0.6) / 0.93;
+        assert!((n.tint[0] - mixed(1.0, 0.2)).abs() < 1e-6 && (n.tint[2] - mixed(0.0, 0.9)).abs() < 1e-6);
+        // A base without a tint (the Capital Wasteland's) takes the adapter's as it is.
+        let plain = Cinematic { tint: [0.0; 3], tint_amount: 0.0, ..base };
+        let p = plain.adapt(&night);
+        assert!((p.tint_amount - 0.6).abs() < 1e-6 && p.tint.iter().zip([0.2, 0.5, 0.9]).all(|(a, b)| (a - b).abs() < 1e-6));
         let sunset = Adapter { contrast: MultAdd { mult: 1.0, add: 0.3 }, ..Default::default() };
         assert!((base.adapt(&sunset).contrast - 1.4).abs() < 1e-6);
         // No tint in the adapter keeps the base tint.
