@@ -2312,3 +2312,23 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
 
 ## Answered 2026-11-16 (sky and grade, Capital Wasteland against the Mojave)
 
+222. **Why is our Capital Wasteland sky dark brown where the original's is pale green?**
+     (Owner 2026-11-16, Tale of Two Wastelands.) Answered [observed: 54 frames of the
+     original through `capture_frames.py`, the TTW game started from Mod Organizer 2's
+     "Tale of Two Wastelands" entry]: the adapter's tint was dropped where the base image
+     space has none, the high-noon colour column was not used, the dome's green weight
+     was read as the horizon colour, and Mojave-fitted daytime factors darkened and
+     warmed the sky. world.md section 6 "Sky and grade across two worldspaces" has the
+     figures. How to run it again: the capture plugin starts a queued job only after a
+     save has loaded, so a `coc` from the main menu is not enough; TTW's "missing
+     dependency" box pauses the game until it is clicked; the game can hang on its quit
+     line and has to be closed before the next run.
+     Sweep 2026-11-17 (27 worldspaces, world.md section 6 "Sweep of the other
+     worldspaces"): most match; Point Lookout, Anchorage, The Pitt's bridge and the
+     nuked Divide do not. To run a TTW capture: Mod Organizer 2 must be opened by the
+     owner first (started from a session it cannot launch the game: error 5), the
+     launch then goes through it (`moshortcut://:Tale of Two Wastelands`); the base
+     game's own load order has no add-ons, so their worldspaces need this route too.
+     Left to check: the sky level against "LUM Ramp No Tex" in a third worldspace
+     (Point Lookout, Zion, The Pitt); the Capital Wasteland's ground level; the sunrise
+     sky; the sky near the sun at noon.
