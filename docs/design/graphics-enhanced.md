@@ -738,7 +738,7 @@ casters, as it did. Changed [engineering choices]:
   between it and the sun, so walls and roofs still shade the arms; their shadows on the arms
   are finer than before.
 - **The sun's shadows default to 8,000 units in 3 cascades** (`sky::DEFAULT_SHADOW_DISTANCE`,
-  `DEFAULT_SHADOW_CASCADES`; `--shadow-distance` still sets the reach): 12.5-12.9 ms against
+  and then `DEFAULT_SHADOW_CASCADES`, since #2843 `CascadeLayout`; `--shadow-distance` still sets the reach): 12.5-12.9 ms against
   the old 19.0-20.8, about 7 ms (a third of the frame) saved; shadows off is 7.3-7.5. The first
   cascade, a twelfth of the reach, is now 667 units instead of 1,333, so shadows near the player
   are finer. Visible change: nothing farther than 8,000 units (about 114 m) casts a sun shadow;
@@ -746,6 +746,16 @@ casters, as it did. Changed [engineering choices]:
   (`C:\fnv-private\references\shadows_sun\shadow_limits_before_after.png`); at dusk the long
   shadows of distant rocks and buildings end nearer. The original casts no sun shadows from
   the world at all (world.md §6), so this is no further from its look.
+  **Proposed in #2843** [engineering choice: the contributor's proposal, for the
+  maintainer to decide]: Quality draws 4 cascades again, still to 8,000 units and
+  staggered (never more than two drawn in a frame), with far bounds at 0.0875, 0.25 and
+  0.625 of the distance (700, 2,000, 5,000) with 2048² maps, or 0.1875, 0.4375 and 0.875
+  with the middle two capped at 0.3 and 0.6 of the last bound (1,500, 3,500, 7,000 with
+  Longer shadows, 1,500, 2,400, 4,800 without, the latter not measured) and a blend band
+  of 0.4 with 4096² maps (the Shadow resolution row); Performance draws 3,
+  ending at 0.1875 and 0.5625 of it (1,500, 4,500), the third every fourth frame.
+  `--graphics-cycle cascades=<n>` keeps the layout above. The measurements and the
+  reasons: frame-rate-audit.md §12.
 - Finer shadows (§3.2) keep their 4096² maps and reach 1.5 × the distance, now 12,000
   (the 4096² maps went in #1367; the longer reach stays).
 

@@ -41,15 +41,21 @@ name = "primm-noon"
 group = "stand"
 args = ["--cell", "Primm", "--hour", "12"]
 
+# The Novac scenes run in a playthrough's quest state (the opening quest VCG00 ended): in the
+# new-game state a start here leaves Victor on his Goodsprings packages, the Novac quest
+# script hauls him back every 5 s and each time his 120,000-unit route is planned again, a
+# 26-39 ms frame every 5.00 s that no playthrough has (#2865).
 [[scenario]]
 name = "novac-morning"
 group = "stand"
 args = ["--cell", "Novac", "--hour", "7"]
+aids = { NVF_PLAY_TEST_CONSOLE = "0.5:SetStage VCG00 60;0.8:StopQuest VCG00;1.1:close" }
 
 [[scenario]]
 name = "novac-noon"
 group = "stand"
 args = ["--cell", "Novac", "--hour", "12"]
+aids = { NVF_PLAY_TEST_CONSOLE = "0.5:SetStage VCG00 60;0.8:StopQuest VCG00;1.1:close" }
 
 [[scenario]]
 name = "nipton-noon"
@@ -278,7 +284,7 @@ name = "turn-in-place-novac"
 group = "move"
 seconds = 60
 args = ["--cell", "Novac", "--hour", "12"]
-aids = { NVF_PLAY_TEST_LOOK = "16:45:0,18:90:0,20:135:0,22:180:0,24:225:0,26:270:0,28:315:0,30:0:0,32:45:0,34:90:0,36:135:0,38:180:0,40:225:0,42:270:0,44:315:0,46:0:0,48:45:0,50:90:0,52:135:0,54:180:0,56:225:0,58:270:0" }
+aids = { NVF_PLAY_TEST_CONSOLE = "0.5:SetStage VCG00 60;0.8:StopQuest VCG00;1.1:close", NVF_PLAY_TEST_LOOK = "16:45:0,18:90:0,20:135:0,22:180:0,24:225:0,26:270:0,28:315:0,30:0:0,32:45:0,34:90:0,36:135:0,38:180:0,40:225:0,42:270:0,44:315:0,46:0:0,48:45:0,50:90:0,52:135:0,54:180:0,56:225:0,58:270:0" }
 
 [[scenario]]
 name = "run-strip"

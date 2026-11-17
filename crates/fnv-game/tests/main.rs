@@ -148,3 +148,6 @@ fn every_test_file_is_built() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+mod preactivation_events;
+mod preactivation_mutation;

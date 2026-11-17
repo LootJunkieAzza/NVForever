@@ -1200,3 +1200,10 @@ mod wheel_hold_tests {
         assert!(!app.world().resource::<WheelHold>().held());
     }
 }
+
+#[cfg(test)]
+#[path = "menu/preactivation_tests.rs"]
+mod preactivation_tests;
+
+#[cfg(test)]
+mod preactivation_mutation_tests;

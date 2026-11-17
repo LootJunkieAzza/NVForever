@@ -5,8 +5,9 @@
 //! - **Ambient occlusion**: a screen-space pass on the depth prepass darkens creases,
 //!   corners and the ground under things (`ssao.rs`; works with the multisampled view).
 //! - **Longer shadows** (`fine-shadows`): the sun's shadows reach half as far again
-//!   (`SkyState::shadow_reach`), the first cascade as near. Their maps stay 2048² like
-//!   everyone's: 4096² cost about 2 ms at Novac (#1367; the owner chose the frame rate).
+//!   (`SkyState::shadow_reach`), the first cascade as near. Their maps are as large as
+//!   everyone's: 2048² by default (4096² cost about 2 ms at Novac, #1367; the owner chose
+//!   the frame rate), 4096² with the Shadow resolution row ([`SHADOW_RESOLUTIONS`], #2843).
 //! - **Bloom**: bright light (the sun and its glare, lamps, lit windows) glows into what
 //!   lies around it, thresholded on the tonemapped picture (`post.rs`).
 //!
@@ -320,11 +321,68 @@ impl Graphics {
     }
 }
 
-/// Shadow map side of every directional light, with longer shadows or without (Bevy's
-/// default). 4096² with longer shadows cost about 2.1 ms a frame at Novac and 0.65 ms at
-/// Goodsprings for edges hardly sharper near the player [observed 2026-11-03, RTX 4070,
-/// 1920x1080; owner's choice 2026-11-03, #1367: the smaller maps, for the frame rate].
+/// Shadow map side of every directional light by default, with longer shadows or without
+/// (Bevy's default). 4096² with longer shadows cost about 2.1 ms a frame at Novac and 0.65
+/// ms at Goodsprings for edges hardly sharper near the player [observed 2026-11-03, RTX
+/// 4070, 1920x1080; owner's choice 2026-11-03, #1367: the smaller maps, for the frame
+/// rate]. The Shadow resolution row ([`SHADOW_RESOLUTIONS`]) can choose 4096 in play
+/// [engineering choice: the contributor's proposal in #2843, for the maintainer to decide;
+/// observed 2026-11-16 with the cascades of that time: 0.2-0.3 ms a frame at Goodsprings,
+/// RTX 5070 Ti, 2560 × 1440 (docs/design/frame-rate-audit.md §12)], and the sun's Quality
+/// cascades are laid out for the side chosen (sky.rs `shadow_cascade_layout`).
 const SHADOW_MAP: usize = 2048;
+
+/// The settings page's Shadow resolution choices, in its order: the side of
+/// `DirectionalLightShadowMap`, [`SHADOW_MAP`] first [engineering choice, #2843]. Bevy
+/// keeps every directional light's cascades and every shadowed spot light's map as layers
+/// of one 32-bit depth texture of that side (the vendored bevy_pbr light.rs
+/// `prepare_lights`: as many layers as the most cascades any view's directional lights
+/// have, plus one per shadowed spot light), so the row sizes the sun's cascades, the
+/// first-person arms' shade light's cascade (player_body.rs) and the flashlight's shadow
+/// (flashlight.rs). By arithmetic a layer of 4096² takes 64 MiB against 16 MiB at 2048²:
+/// on Quality by day in first person, four sun cascades and the arms' one, about 240 MiB more; on Performance
+/// (three, no arms shade light) about 144 MiB more; with the flashlight on 48 MiB more
+/// again, and its shadow pass draws 4096² too. Not measured.
+pub const SHADOW_RESOLUTIONS: [(&str, usize); 2] = [("2048", 2048), ("4096", 4096)];
+
+/// The Shadow resolution row's choice now (an index into [`SHADOW_RESOLUTIONS`]; a side
+/// not among them reads as the first).
+pub fn shadow_resolution_choice(world: &World) -> usize {
+    let side = crate::sky::map_side(world.get_resource::<DirectionalLightShadowMap>());
+    SHADOW_RESOLUTIONS.iter().position(|&(_, s)| s == side).unwrap_or(0)
+}
+
+/// Choose Shadow resolution `i` of [`SHADOW_RESOLUTIONS`]: the maps change size now, and
+/// the sun gets the cascades laid out for the new side at once (Quality's layout follows
+/// the side: sky.rs `shadow_cascade_layout`; the moon's single cascade by night, nothing
+/// while the light is faded or the shadows are off), so no frame draws the new maps with
+/// the old bounds. Bevy makes new maps, `shadow_rate::hold_cascades` draws every cascade
+/// that frame, and the anchors of shadow_anchor.rs start afresh for the new texel size.
+/// `sun_shadow_quality` then sees the cascades put there and puts the same ones back. The
+/// resource is written only when the side changes.
+pub fn set_shadow_resolution_choice(world: &mut World, i: usize) {
+    let side = SHADOW_RESOLUTIONS[i.min(SHADOW_RESOLUTIONS.len() - 1)].1;
+    let mut map = world.get_resource_or_insert_with(|| DirectionalLightShadowMap { size: SHADOW_MAP });
+    if map.size == side {
+        return;
+    }
+    map.size = side;
+    let Some(want) = world.get_resource::<SkyState>().and_then(|sky| shadow_key_of(sky, side).wanted()) else { return };
+    let mut suns = world.query_filtered::<&mut CascadeShadowConfig, With<Sun>>();
+    for mut c in suns.iter_mut(world) {
+        *c = want.clone();
+    }
+}
+
+/// Say the shadow maps' side at the start and whenever it changes (the Shadow resolution
+/// row): `sun shadows: maps 2048 x 2048 texels`. PostUpdate, before Bevy builds the
+/// cascades and so before `sky::log_sun_cascades` says their bounds: the side is said
+/// before the bounds laid out for it.
+pub(crate) fn log_shadow_map(map: Option<Res<DirectionalLightShadowMap>>) {
+    if let Some(map) = map.filter(|m| m.is_changed()) {
+        info!("sun shadows: maps {0} x {0} texels", map.size);
+    }
+}
 /// With longer shadows they reach this many times `--shadow-distance`.
 pub const FINE_SHADOW_REACH: f32 = 1.5;
 
@@ -391,8 +449,8 @@ fn msaa_name(m: Msaa) -> &'static str {
 /// every `every` seconds of real time and then, with a cycle, switch to its next set of
 /// improvements (the first half second after a switch, when pipelines compile, is left
 /// out of the figures). A set may also change the sun's shadows: `no-sun-shadows`,
-/// `shadow-distance=<units>`, `cascades=<n>`, `shadow-thin=<ratio>` (otherwise as at the
-/// start).
+/// `shadow-distance=<units>`, `cascades=<n>` (n cascades in the spacing of before #2843:
+/// [`apply_shadow_step`]), `shadow-thin=<ratio>` (otherwise as at the start).
 #[derive(Clone, Default)]
 pub struct FrameTimes {
     pub every: f32,
@@ -407,7 +465,7 @@ pub struct CycleStep {
     pub no_sun_shadows: bool,
     /// `shadow-distance=<units>`.
     pub shadow_distance: Option<f32>,
-    /// `cascades=<n>`.
+    /// `cascades=<n>`: n cascades spaced as before #2843 (`sky::CascadeLayout::Spaced`).
     pub cascades: Option<usize>,
     /// `shadow-thin=<ratio>` (shadow_thin.rs).
     pub shadow_thin: Option<f32>,
@@ -476,7 +534,8 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin, crate::upscaler::prep::PrepPlugin, crate::fsr::FsrPlugin, crate::dlss::DlssPassPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
-            .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain());
+            .add_systems(Update, (crate::upscaler::follow_request, apply, sun_shadow_key.pipe(sun_shadow_quality).after(crate::sky::update_sky)).chain())
+            .add_systems(PostUpdate, log_shadow_map.before(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades));
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
@@ -485,9 +544,9 @@ impl Plugin for GraphicsPlugin {
             app.init_resource::<nvf_play::phys_load::PhysLoad>();
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
-            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, mut phys_load: ResMut<nvf_play::phys_load::PhysLoad>| {
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, crate::sky::CascadeLayout, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>, mut phys_load: ResMut<nvf_play::phys_load::PhysLoad>| {
                 let first = start_shadows.is_none();
-                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades, thin.ratio));
+                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_layout, thin.ratio));
                 if first {
                     if let Some(step) = ft.cycle.first() {
                         apply_shadow_step(&mut commands, &sky, start, step);
@@ -501,7 +560,7 @@ impl Plugin for GraphicsPlugin {
                     acc.3 += 1;
                 }
                 if acc.0 >= ft.every {
-                    info!("frame time: {:.2} ms mean, {:.1} ms slowest over {} frames; graphics: {}; sun shadows {}; sun at heading {:.0}, elevation {:.0}", acc.1 * 1e3 / acc.3.max(1) as f32, acc.2 * 1e3, acc.3, g.describe(), if sky.shadows { format!("to {:.0} in {} cascades", sky.shadow_distance, sky.shadow_cascades) } else { "off".into() }, sky.sun_heading(), sky.sun_elevation());
+                    info!("frame time: {:.2} ms mean, {:.1} ms slowest over {} frames; graphics: {}; sun shadows {}; sun at heading {:.0}, elevation {:.0}", acc.1 * 1e3 / acc.3.max(1) as f32, acc.2 * 1e3, acc.3, g.describe(), if sky.shadows { format!("to {:.0} in {} cascades", sky.shadow_distance, sky.shadow_layout.count()) } else { "off".into() }, sky.sun_heading(), sky.sun_elevation());
                     // The GPU's time in the passes that cost the most (ms, about the last
                     // second's average).
                     let mut passes: Vec<(String, f64)> = store
@@ -581,12 +640,16 @@ impl Plugin for GraphicsPlugin {
     }
 }
 
-/// The sun's shadows of a `--graphics-cycle` set: `start` (on, distance, cascades) as at
-/// the start, changed by the set's keys.
-fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize, f32), step: &CycleStep) {
+/// The sun's shadows of a `--graphics-cycle` set: `start` (on, distance, cascade layout,
+/// thinning) as at the start, changed by the set's keys. `cascades=<n>` asks for `n`
+/// cascades in the spacing every count had before #2843 (`sky::CascadeLayout::Spaced`),
+/// so that `cascades=3` still measures the 3 cascades of before against the modes'
+/// layouts; a set without it keeps the start's layout (Quality's, or Performance's with
+/// `--sun-shadows=performance`).
+fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, crate::sky::CascadeLayout, f32), step: &CycleStep) {
     let on = start.0 && !step.no_sun_shadows;
     let distance = step.shadow_distance.unwrap_or(start.1);
-    let cascades = step.cascades.unwrap_or(start.2);
+    let cascades = step.cascades.map_or(start.2, crate::sky::CascadeLayout::Spaced);
     let ratio = step.shadow_thin.unwrap_or(start.3);
     commands.queue(move |w: &mut World| {
         let mut thin = w.resource_mut::<crate::shadow_thin::ShadowThin>();
@@ -594,11 +657,11 @@ fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32,
             thin.ratio = ratio;
         }
     });
-    if on != sky.shadows || distance != sky.shadow_distance || cascades != sky.shadow_cascades {
+    if on != sky.shadows || distance != sky.shadow_distance || cascades != sky.shadow_layout {
         commands.queue(move |w: &mut World| {
             let mut sky = w.resource_mut::<SkyState>();
             sky.shadow_distance = distance;
-            sky.shadow_cascades = cascades;
+            sky.shadow_layout = cascades;
             crate::sky::set_shadows(w, on);
         });
     }
@@ -646,23 +709,47 @@ struct SunShadowKey {
     shadows: bool,
     distance: f32,
     reach: f32,
-    cascades: usize,
+    cascades: crate::sky::CascadeLayout,
+    /// The shadow maps' side (the Shadow resolution row): Quality's layout follows it.
+    map: usize,
 }
 
-/// The phase for the sun's height now (the day's indoors) and the shadow settings.
-fn sun_shadow_key(sky: Res<SkyState>) -> SunShadowKey {
+impl SunShadowKey {
+    /// The cascades the sun casts under this key: by day the settings' layout, by night the
+    /// moon's single cascade; none with the shadows off, a shadow distance of 0
+    /// (`crate::sky::casts_sun_shadows`) or the light faded at the horizon.
+    fn wanted(&self) -> Option<CascadeShadowConfig> {
+        match self.phase {
+            _ if !crate::sky::casts_sun_shadows(self.shadows, self.distance) => None,
+            SunShadows::Faded => None,
+            SunShadows::Moon => Some(crate::sky::shadow_cascades(MOON_SHADOW_DISTANCE.min(self.distance), 1.0, crate::sky::CascadeLayout::Spaced(1), self.map)),
+            SunShadows::Day => Some(crate::sky::shadow_cascades(self.distance, self.reach, self.cascades, self.map)),
+        }
+    }
+}
+
+/// The phase for the sun's height now (the day's indoors) and the shadow settings, with
+/// shadow maps `map` texels on a side.
+fn shadow_key_of(sky: &SkyState, map: usize) -> SunShadowKey {
     let indoors = sky.interior.is_some();
-    let (height, fade) = if indoors { (1.0, 1.0) } else { crate::sky::sun_height_and_fade(&sky) };
+    let (height, fade) = if indoors { (1.0, 1.0) } else { crate::sky::sun_height_and_fade(sky) };
     SunShadowKey {
         phase: SunShadows::at(indoors, height, fade),
         shadows: sky.shadows,
         distance: sky.shadow_distance,
         reach: sky.shadow_reach,
-        cascades: sky.shadow_cascades,
+        cascades: sky.shadow_layout,
+        map,
     }
 }
 
-/// The sun's shadow quality for the hour: by day the settings' cascades, reach and map size;
+/// [`shadow_key_of`] the sky now and the maps' side now.
+fn sun_shadow_key(sky: Res<SkyState>, map: Option<Res<DirectionalLightShadowMap>>) -> SunShadowKey {
+    shadow_key_of(&sky, crate::sky::map_side(map.as_deref()))
+}
+
+/// The sun's shadow quality for the hour: by day the settings' cascade layout, reach and
+/// map size (Quality's layout follows the Shadow resolution row's maps);
 /// by night the moon's cheaper ones ([`MOON_SHADOW_DISTANCE`]); none while the light is
 /// faded at the horizon. Applied when the phase or a shadow setting changes, and again when
 /// a sun is spawned (a worldspace switch makes a new one with the day's cascades) or someone
@@ -688,17 +775,15 @@ fn sun_shadow_quality(
         info!("sun shadows: {phase:?}");
     }
     *done = Some(key);
-    // A shadow distance of 0% (the menu overhaul) casts none.
-    let on = key.shadows && phase != SunShadows::Faded && key.distance > 0.0;
+    // None with the shadows off, the light faded or a shadow distance of 0% (the menu
+    // overhaul): [`SunShadowKey::wanted`].
+    let want = key.wanted();
+    let on = want.is_some();
     for (e, mut light, cascades) in &mut suns {
         if light.shadow_maps_enabled != on {
             light.shadow_maps_enabled = on;
         }
-        if on {
-            let want = match phase {
-                SunShadows::Moon => crate::sky::shadow_cascades(MOON_SHADOW_DISTANCE.min(key.distance), 1.0, 1),
-                _ => crate::sky::shadow_cascades(key.distance, key.reach, key.cascades),
-            };
+        if let Some(want) = want.clone() {
             match cascades {
                 Some(mut c) => *c = want,
                 None => {
@@ -729,6 +814,7 @@ fn apply(
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
     eye: Res<crate::eye_adapt::EyeCurve>,
     cutouts: Option<ResMut<nvf_assets::nif_material::BlendedCutouts>>,
+    map: Option<Res<DirectionalLightShadowMap>>,
     mut done: Local<Option<(Graphics, Msaa, bool, UpscalerChoice, Vec<Entity>)>>,
 ) {
     let cam_count = cams.iter().count();
@@ -864,7 +950,7 @@ fn apply(
     }
     for (e, light) in &suns {
         if light.shadow_maps_enabled && (reach_changed || first) {
-            commands.entity(e).insert(crate::sky::shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades));
+            commands.entity(e).insert(crate::sky::shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_layout, crate::sky::map_side(map.as_deref())));
         }
     }
     if !first {
@@ -1127,14 +1213,14 @@ mod tests {
 
     fn shadow_app(phase: SunShadows) -> App {
         let mut app = App::new();
-        app.insert_resource(TestKey(SunShadowKey { phase, shadows: true, distance: 8000.0, reach: 1.0, cascades: 3 }))
+        app.insert_resource(TestKey(SunShadowKey { phase, shadows: true, distance: 8000.0, reach: 1.0, cascades: crate::sky::CascadeLayout::Quality, map: 2048 }))
             .add_systems(Update, (|k: Res<TestKey>| k.0).pipe(sun_shadow_quality));
         app
     }
 
     /// A sun as `setup_sky` spawns it: shadows on, the day's cascades.
     fn spawn_day_sun(app: &mut App) -> Entity {
-        let day = crate::sky::shadow_cascades(8000.0, 1.0, 3);
+        let day = crate::sky::shadow_cascades(8000.0, 1.0, crate::sky::CascadeLayout::Quality, 2048);
         app.world_mut().spawn((Sun, DirectionalLight { shadow_maps_enabled: true, ..default() }, day)).id()
     }
 
@@ -1145,7 +1231,7 @@ mod tests {
     #[test]
     fn a_new_sun_or_new_cascades_get_the_phase_again() {
         let mut app = shadow_app(SunShadows::Moon);
-        let moon = crate::sky::shadow_cascades(MOON_SHADOW_DISTANCE, 1.0, 1).bounds;
+        let moon = crate::sky::shadow_cascades(MOON_SHADOW_DISTANCE, 1.0, crate::sky::CascadeLayout::Spaced(1), 2048).bounds;
         let first = spawn_day_sun(&mut app);
         app.update();
         assert_eq!(bounds(&app, first), moon);
@@ -1158,7 +1244,7 @@ mod tests {
         assert_eq!(bounds(&app, second), moon, "the new sun casts the moon's cascade");
 
         // sky::set_shadows(true) with nothing changed puts the day's cascades back.
-        app.world_mut().entity_mut(second).insert(crate::sky::shadow_cascades(8000.0, 1.0, 3));
+        app.world_mut().entity_mut(second).insert(crate::sky::shadow_cascades(8000.0, 1.0, crate::sky::CascadeLayout::Quality, 2048));
         app.update();
         assert_eq!(bounds(&app, second), moon, "someone else's cascades are replaced");
 
@@ -1177,6 +1263,109 @@ mod tests {
         assert!(!app.world().get::<DirectionalLight>(second).unwrap().shadow_maps_enabled);
     }
 
+    /// The Shadow resolution row's choices set the maps' side, and read back; a world
+    /// without the resource reads the first choice and gets one when a choice is made.
+    #[test]
+    fn shadow_resolution_choices_set_the_map_side() {
+        let mut world = World::new();
+        assert_eq!(shadow_resolution_choice(&world), 0);
+        set_shadow_resolution_choice(&mut world, 1);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 4096);
+        assert_eq!(shadow_resolution_choice(&world), 1);
+        set_shadow_resolution_choice(&mut world, 0);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, SHADOW_MAP);
+        assert_eq!(shadow_resolution_choice(&world), 0);
+        // Past the end: the last choice.
+        set_shadow_resolution_choice(&mut world, 9);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 4096);
+        assert_eq!(SHADOW_RESOLUTIONS[0].1, SHADOW_MAP, "the default first");
+    }
+
+    /// The Shadow resolution row puts the cascades laid out for the new side on the sun at
+    /// once, by day and by night; with the shadows off it leaves them alone.
+    #[test]
+    fn a_new_resolution_puts_its_cascades_on_the_sun_at_once() {
+        use crate::sky::CascadeLayout;
+        let mut world = World::new();
+        // The test build's derived default leaves the distance and reach at 0 (the game's
+        // SkyState starts at DEFAULT_SHADOW_DISTANCE and a reach of 1).
+        let mut sky = SkyState::default();
+        sky.shadows = true;
+        sky.shadow_distance = crate::sky::DEFAULT_SHADOW_DISTANCE;
+        sky.shadow_reach = 1.0;
+        // Indoors the sun casts the day's cascades whatever the hour.
+        sky.interior = Some(Default::default());
+        world.insert_resource(sky);
+        world.insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP });
+        let day = |map| crate::sky::shadow_cascades(crate::sky::DEFAULT_SHADOW_DISTANCE, 1.0, CascadeLayout::Quality, map);
+        let sun = world.spawn((Sun, DirectionalLight { shadow_maps_enabled: true, ..default() }, day(2048))).id();
+        let config = |w: &World| {
+            let c = w.get::<CascadeShadowConfig>(sun).unwrap();
+            (c.bounds.clone(), c.overlap_proportion)
+        };
+        set_shadow_resolution_choice(&mut world, 1);
+        assert_eq!(config(&world), (day(4096).bounds, day(4096).overlap_proportion));
+        set_shadow_resolution_choice(&mut world, 0);
+        assert_eq!(config(&world), (day(2048).bounds, day(2048).overlap_proportion));
+        // With the shadows off the map changes and the cascades stay.
+        world.resource_mut::<SkyState>().shadows = false;
+        set_shadow_resolution_choice(&mut world, 1);
+        assert_eq!(world.resource::<DirectionalLightShadowMap>().size, 4096);
+        assert_eq!(config(&world).0, day(2048).bounds);
+        // The key's cascades: none faded or off, the moon's single one by night.
+        let key = SunShadowKey { phase: SunShadows::Moon, shadows: true, distance: 8000.0, reach: 1.5, cascades: CascadeLayout::Quality, map: 4096 };
+        assert_eq!(key.wanted().unwrap().bounds, vec![MOON_SHADOW_DISTANCE]);
+        assert!(SunShadowKey { phase: SunShadows::Faded, ..key }.wanted().is_none());
+        assert!(SunShadowKey { shadows: false, phase: SunShadows::Day, ..key }.wanted().is_none());
+        // A shadow distance of 0 (the Shadow distance row's 0%) casts none, by day or night;
+        // its least step above 0 (a fifth of 8,000) casts the layout.
+        assert!(SunShadowKey { distance: 0.0, phase: SunShadows::Day, ..key }.wanted().is_none());
+        assert!(SunShadowKey { distance: 0.0, ..key }.wanted().is_none());
+        let short = SunShadowKey { distance: 1600.0, reach: 1.0, phase: SunShadows::Day, ..key };
+        assert_eq!(short.wanted().unwrap().bounds, crate::sky::shadow_cascades(1600.0, 1.0, CascadeLayout::Quality, 4096).bounds);
+        // Choosing a resolution at a distance of 0 leaves the cascades alone.
+        world.resource_mut::<SkyState>().shadows = true;
+        world.resource_mut::<SkyState>().shadow_distance = 0.0;
+        set_shadow_resolution_choice(&mut world, 0);
+        assert_eq!(config(&world).0, day(2048).bounds);
+    }
+
+    /// The Shadow resolution row changes the key's map size: Quality's layout follows it
+    /// without anything else changing, Performance's stays.
+    #[test]
+    fn quality_cascades_follow_the_map_size() {
+        use crate::sky::CascadeLayout;
+        let mut app = shadow_app(SunShadows::Day);
+        let sun = spawn_day_sun(&mut app);
+        app.update();
+        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, CascadeLayout::Quality, 2048).bounds);
+        app.world_mut().resource_mut::<TestKey>().0.map = 4096;
+        app.update();
+        let wide = crate::sky::shadow_cascades(8000.0, 1.0, CascadeLayout::Quality, 4096);
+        assert_eq!(bounds(&app, sun), wide.bounds);
+        assert_eq!(app.world().get::<CascadeShadowConfig>(sun).unwrap().overlap_proportion, wide.overlap_proportion);
+        app.world_mut().resource_mut::<TestKey>().0.cascades = CascadeLayout::Performance;
+        app.update();
+        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, CascadeLayout::Performance, 2048).bounds);
+    }
+
+    /// A shadow distance of 0 (the Shadow distance row's 0%) switches the sun's shadow maps
+    /// off and leaves its cascades; the row's least step above 0 brings them back.
+    #[test]
+    fn a_shadow_distance_of_zero_casts_none() {
+        use crate::sky::CascadeLayout;
+        let mut app = shadow_app(SunShadows::Day);
+        let sun = spawn_day_sun(&mut app);
+        app.world_mut().resource_mut::<TestKey>().0.distance = 0.0;
+        app.update();
+        assert!(!app.world().get::<DirectionalLight>(sun).unwrap().shadow_maps_enabled);
+        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, CascadeLayout::Quality, 2048).bounds);
+        app.world_mut().resource_mut::<TestKey>().0.distance = 1600.0;
+        app.update();
+        assert!(app.world().get::<DirectionalLight>(sun).unwrap().shadow_maps_enabled);
+        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(1600.0, 1.0, CascadeLayout::Quality, 2048).bounds);
+    }
+
     #[test]
     fn going_indoors_at_night_gives_the_day_shadows_back() {
         let mut app = shadow_app(SunShadows::Moon);
@@ -1186,7 +1375,7 @@ mod tests {
         // Indoors the key's phase is Day (SunShadows::at with indoors), whatever the hour.
         app.world_mut().resource_mut::<TestKey>().0.phase = SunShadows::at(true, -0.5, 1.0);
         app.update();
-        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, 3).bounds);
+        assert_eq!(bounds(&app, sun), crate::sky::shadow_cascades(8000.0, 1.0, crate::sky::CascadeLayout::Quality, 2048).bounds);
         // And back out into the night.
         app.world_mut().resource_mut::<TestKey>().0.phase = SunShadows::at(false, -0.5, 1.0);
         app.update();
