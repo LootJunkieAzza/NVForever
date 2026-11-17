@@ -22,7 +22,9 @@ pub mod ini;
 pub mod solver;
 pub mod xml;
 
+use bevy::camera::primitives::{Frustum, Sphere};
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, VisibilitySystems};
+use bevy::ecs::batching::BatchingStrategy;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
@@ -159,6 +161,38 @@ pub struct SmpRig {
     pub label: String,
     /// How often the system blew up and was started over.
     pub blowups: u32,
+    /// This frame's step, gathered before the systems step in parallel ([`simulate`]).
+    job: Option<Job>,
+}
+
+/// What one system's step reads from the world, gathered serially so the steps can run
+/// in parallel: every system's step touches only its own rig.
+struct Job {
+    driven: Vec<Affine3A>,
+    capsules: Vec<Capsule>,
+    /// A generated layer that keeps outside the actor's other garments.
+    under: bool,
+    ground: Option<f32>,
+    scale: f32,
+}
+
+/// The middle of an actor above its root and the reach of its cloth from there (game
+/// units at scale 1), the sphere tested against the view [design: a standing actor is
+/// about 128 units tall; the margin covers a coat's tails and hair blown out].
+const ACTOR_MID: f32 = 64.0;
+const ACTOR_REACH: f32 = 100.0;
+
+/// Whether an actor's cloth is simulated this frame: within `range` of the eye and its
+/// sphere in the view. Farther or unseen cloth holds its last pose on the actor, as in
+/// photo mode, and goes on from there when it comes back [design: owner's pick
+/// 2026-11-17 for the Strip's cost; whether the original simulates far actors is not
+/// known, docs/spec-notes/smp-physics.md].
+fn in_view(root: Vec3, scale: f32, eye: Option<Vec3>, view: Option<&Frustum>, range: f32) -> bool {
+    let Some(eye) = eye else { return true };
+    if root.distance(eye) > range {
+        return false;
+    }
+    view.is_none_or(|f| f.intersects_sphere(&Sphere { center: (root + Vec3::Y * ACTOR_MID * scale).into(), radius: ACTOR_REACH * scale }, true))
 }
 
 fn lower_index(skel: &PreparedSkeleton) -> HashMap<String, usize> {
@@ -452,7 +486,7 @@ fn rig_from_xml(commands: &mut Commands, e: Entity, cand: &SmpCandidate, shape: 
     // The skin now binds to every slot.
     let joints: Vec<Entity> = (0..names.len()).map(|s| entities[index[s]]).collect();
     commands.entity(e).insert((Transform::IDENTITY, SkinnedMesh { inverse_bindposes: bind_handle.clone(), joints }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: false, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: false, label, blowups: 0, job: None })
 }
 
 /// The rig the generator makes for a shape with no SMP data (hair models, Qwib's
@@ -583,7 +617,7 @@ fn rig_generated(
     let (capsules, bone_r) = fit_capsules(&cand.skel, &rest_pts, 1.0);
     commands.entity(cand.nodes[0]).add_child(e);
     commands.entity(e).insert((Mesh3d(new_mesh), Transform::IDENTITY, SkinnedMesh { inverse_bindposes: new_binds, joints: entities.clone() }, DynamicSkinnedMeshBounds));
-    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: true, label, blowups: 0 })
+    Some(SmpRig { root: cand.nodes[0], entities, made, rig, state: State::default(), nodes: cand.nodes.clone(), capsules, bone_r, last_root: None, held_at: None, generated: true, label, blowups: 0, job: None })
 }
 
 /// The bones' and the actors' transforms; not the cameras, which `simulate` reads too.
@@ -600,14 +634,16 @@ fn cloth_held(photo: bool, paused: bool, state: Option<nvf_play::PlayState>) -> 
 /// What holds the cloth still ([`cloth_held`]): photo mode, the pause menu, the play state.
 type HoldState<'w> = (Option<Res<'w, nvf_play::photo_mode::PhotoMode>>, Option<Res<'w, nvf_play::pause::Paused>>, Option<Res<'w, bevy::prelude::State<nvf_play::PlayState>>>);
 
-/// Step every system on its actor's pose and write its bones back.
+/// Step every system on its actor's pose and write its bones back: what each step reads
+/// is gathered first, the steps run in parallel (each touches only its own rig), and the
+/// bones are written back after.
 #[allow(clippy::too_many_arguments)]
 fn simulate(
     time: Res<Time>,
     (photo, paused, play): HoldState<'_>,
     mut cache: ResMut<SmpCache>,
     sky: Option<Res<crate::sky::SkyState>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&Frustum>), With<Camera3d>>,
     mut rigs: Query<&mut SmpRig>,
     mut transforms: Placed<'_, '_>,
     mut reported: Local<bool>,
@@ -616,7 +652,8 @@ fn simulate(
     let dt = if held { 0.0 } else { time.delta_secs() };
     cache.time += dt;
     let settings = cache.settings();
-    let eye = cameras.iter().filter(|(c, _)| c.is_active).map(|(_, g)| g.translation()).next().unwrap_or(Vec3::ZERO);
+    let camera = cameras.iter().find(|(c, _, _)| c.is_active).map(|(_, g, f)| (g.translation(), f));
+    let eye = camera.map_or(Vec3::ZERO, |c| c.0);
     // Collision for the nearest actors within range.
     let mut by_root: Vec<(Entity, f32)> = Vec::new();
     for rig in &rigs {
@@ -657,21 +694,25 @@ fn simulate(
             }
         }
     }
-    let mut steps = 0usize;
+    // Gather: what each step reads from the world.
+    let (mut steps, mut away) = (0usize, 0usize);
     for mut rig in &mut rigs {
         let rig = &mut *rig;
+        rig.job = None;
         let Ok((_, root_g)) = transforms.get(rig.root) else { continue };
         let root = root_g.affine();
         let scale = root.matrix3.x_axis.length();
-        let driven: Vec<Affine3A> = rig.entities.iter().zip(&rig.rig.bones).map(|(e, b)| if b.driven { transforms.get(*e).map(|(_, g)| g.affine()).unwrap_or(root) } else { Affine3A::IDENTITY }).collect();
-        if held {
+        let pos = Vec3::from(root.translation);
+        let seen = in_view(pos, scale, camera.map(|c| c.0), camera.and_then(|c| c.1), settings.collision_distance);
+        if held || !seen {
             // Nothing moves and nothing is written: the bones keep their places under
             // the actor (whose pose photo mode holds in co-op).
             rig.held_at.get_or_insert(root);
+            away += usize::from(!held);
             continue;
         }
+        let driven: Vec<Affine3A> = rig.entities.iter().zip(&rig.rig.bones).map(|(e, b)| if b.driven { transforms.get(*e).map(|(_, g)| g.affine()).unwrap_or(root) } else { Affine3A::IDENTITY }).collect();
         // Teleports and fast turns start over.
-        let pos = Vec3::from(root.translation);
         if let Some(at) = rig.held_at.take() {
             // Running again: the held cloth goes on from where the actor is now.
             rig.state.carry(root * at.inverse(), &driven);
@@ -689,33 +730,46 @@ fn simulate(
         rig.last_root = Some((pos, fwd));
         if !settings.enabled {
             rig.state.reset(&rig.rig, &driven);
-        } else {
-            let collide = settings.collisions && colliding.contains(&rig.root);
-            let capsules: Vec<Capsule> = if collide {
-                rig.capsules
-                    .iter()
-                    .map(|c| {
-                        // A capsule whose node is gone keeps its place in the list, off.
-                        let ends = transforms.get(rig.nodes[c.a]).ok().zip(transforms.get(rig.nodes[c.b]).ok());
-                        ends.map_or(Capsule { a: Vec3::ZERO, b: Vec3::ZERO, r: 0.0 }, |(a, b)| Capsule { a: a.1.transform_point(c.a_off), b: b.1.transform_point(c.b_off), r: c.r * scale })
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let none = Vec::new();
-            let under = if rig.generated && collide { under.get(&rig.root).unwrap_or(&none) } else { &none };
-            let env = Env { gravity, wind, capsules: &capsules, bone_r: &rig.bone_r, under, ground: (collide && settings.ground).then_some(root.translation.y), scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
-            if rig.state.step(&rig.rig, &driven, &env, dt) {
-                rig.blowups += 1;
-                // The first and then every hundredth: a mesh that keeps blowing up is a bug.
-                if rig.blowups % 100 == 1 {
-                    warn!("smp: {}: blew up, started over at rest ({} times)", rig.label, rig.blowups);
-                }
-            }
-            steps += 1;
+            continue;
         }
-        let inv_root = root.inverse();
+        let collide = settings.collisions && colliding.contains(&rig.root);
+        let capsules: Vec<Capsule> = if collide {
+            rig.capsules
+                .iter()
+                .map(|c| {
+                    // A capsule whose node is gone keeps its place in the list, off.
+                    let ends = transforms.get(rig.nodes[c.a]).ok().zip(transforms.get(rig.nodes[c.b]).ok());
+                    ends.map_or(Capsule { a: Vec3::ZERO, b: Vec3::ZERO, r: 0.0 }, |(a, b)| Capsule { a: a.1.transform_point(c.a_off), b: b.1.transform_point(c.b_off), r: c.r * scale })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        rig.job = Some(Job { driven, capsules, under: rig.generated && collide, ground: (collide && settings.ground).then_some(root.translation.y), scale });
+        steps += 1;
+    }
+    // Step, one system a task: they differ in size, so one each balances best.
+    let none = Vec::new();
+    rigs.par_iter_mut().batching_strategy(BatchingStrategy::fixed(1)).for_each(|mut rig| {
+        let rig = &mut *rig;
+        let Some(job) = rig.job.take() else { return };
+        let under = if job.under { under.get(&rig.root).unwrap_or(&none) } else { &none };
+        let env = Env { gravity, wind, capsules: &job.capsules, bone_r: &rig.bone_r, under, ground: job.ground, scale: job.scale, iterations: settings.iterations, min_fps: settings.min_fps, max_substeps: settings.max_substeps };
+        if rig.state.step(&rig.rig, &job.driven, &env, dt) {
+            rig.blowups += 1;
+            // The first and then every hundredth: a mesh that keeps blowing up is a bug.
+            if rig.blowups % 100 == 1 {
+                warn!("smp: {}: blew up, started over at rest ({} times)", rig.label, rig.blowups);
+            }
+        }
+    });
+    // Write back every system that ran (held ones keep their bones where they are).
+    for rig in &rigs {
+        if rig.held_at.is_some() {
+            continue;
+        }
+        let Ok((_, root_g)) = transforms.get(rig.root) else { continue };
+        let inv_root = root_g.affine().inverse();
         for &i in &rig.made {
             let Some(w) = rig.state.world.get(i).copied() else { continue };
             if let Ok((mut t, mut g)) = transforms.get_mut(rig.entities[i]) {
@@ -726,7 +780,7 @@ fn simulate(
     }
     if steps > 0 && !*reported {
         *reported = true;
-        info!("smp: simulating {steps} system(s), {} actor(s) colliding", colliding.len());
+        info!("smp: simulating {steps} system(s), {} actor(s) colliding, {away} system(s) held far or out of view", colliding.len());
     }
 }
 
@@ -794,6 +848,26 @@ mod tests {
 
     /// Photo mode, the pause menu, menus and loading screens hold the cloth; play and
     /// dialogue run it.
+    #[test]
+    fn cloth_runs_only_near_and_in_view() {
+        // A camera at the origin looking down -z (Bevy's default), 60 degrees wide.
+        use bevy::camera::CameraProjection;
+        let clip = PerspectiveProjection { fov: 1.05, aspect_ratio: 1.0, near: 1.0, far: 100_000.0, ..default() }.get_clip_from_view();
+        let view = Frustum(bevy::shape::ViewFrustum::from_clip_from_world_custom_far(&clip, &Vec3::ZERO, &Vec3::Z, 100_000.0));
+        let eye = Some(Vec3::ZERO);
+        let ahead = Vec3::new(0.0, -64.0, -500.0);
+        assert!(in_view(ahead, 1.0, eye, Some(&view), 1500.0));
+        // Behind the camera, and ahead but past the range.
+        assert!(!in_view(Vec3::new(0.0, -64.0, 500.0), 1.0, eye, Some(&view), 1500.0));
+        assert!(!in_view(Vec3::new(0.0, -64.0, -2000.0), 1.0, eye, Some(&view), 1500.0));
+        // Just off the edge of the view, its cloth's reach still in it.
+        assert!(in_view(Vec3::new(330.0, -64.0, -500.0), 1.0, eye, Some(&view), 1500.0));
+        // Beside the camera (the player in first person): its sphere holds the eye.
+        assert!(in_view(Vec3::new(0.0, -100.0, 10.0), 1.0, eye, Some(&view), 1500.0));
+        // No camera: everything runs.
+        assert!(in_view(Vec3::new(0.0, 0.0, 9000.0), 1.0, None, None, 1500.0));
+    }
+
     #[test]
     fn the_cloth_stands_still_in_photo_mode_and_menus() {
         use nvf_play::PlayState::*;

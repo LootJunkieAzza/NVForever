@@ -68,6 +68,15 @@ Not FSMP's Bullet rigid bodies: a position-based solver of our own on the same d
   the last frame's pose and this one's over the steps.
 - A system whose point gets farther than 6 rest lengths from its parent, or not finite,
   starts over at rest.
+- Only actors within `fCollisionDistance` of the camera whose sphere (64 units above the
+  root, radius 100, times the actor's scale) is in the view are simulated. The others'
+  cloth holds its last pose on the actor, as in photo mode, and goes on from there when
+  they come back [design: owner's pick 2026-11-17, for the cost of a Strip crowd; NV
+  SMP's INI keeps physics without collision beyond that range, so a far actor's cloth
+  may differ from the original's, which is not checked against the original game].
+- The systems step in parallel, one task each; what a step reads (the driven pose, the
+  body capsules, the garments under a poncho) is gathered first and the bones are
+  written back after, so the result is the same as stepping them one by one.
 
 ## 4. Collision
 
@@ -83,8 +92,8 @@ Not FSMP's Bullet rigid bodies: a position-based solver of our own on the same d
   "Ground": flat at the feet, approximate on slopes]; off with `bGround=0` or a shape's
   `no-collide-with-tag ground`.
 - Only the `iMaxActors` actors nearest the camera within `fCollisionDistance` collide;
-  the others keep their physics without collision [documented: INI comments]. The
-  player is nearest the camera.
+  the others keep their physics without collision [documented: INI comments]; here those
+  past the range hold still (§3). The player is nearest the camera.
 - Not built: cloth against cloth, impact sounds (`<impact-sound>`), the jitter filter.
 
 ## 5. Settings: `NVSMPPhysics.ini`
