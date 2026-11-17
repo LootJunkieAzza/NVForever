@@ -63,7 +63,8 @@ many were not.
 First the whole run: minutes of play, hitches, the peak VRAM (at a 2 s check), the peak
 working set (of the samples) and machine RAM share, the loading and paused time. Then a line
 for each place with frames, the slowest by its 99th percentile first, at most
-`SUMMARY_PLACES` (8): minutes, frames, median, 95th and 99th percentile, the share of frames
+`SUMMARY_PLACES` (8), a worldspace or interior marked so (the main menu and `no world` named
+alone): minutes, frames, median, 95th and 99th percentile, the share of frames
 over 33 ms, the hitches, and the share of frames in each of the player reports' buckets
 (`reports/summary.rs` `BUCKETS_MS`: 0, 8, 12, 16.7, 25, 33, 50, 100 ms); the percentiles are
 read from those buckets, interpolated inside one, as the session summaries' are.
@@ -78,15 +79,21 @@ The `hint:` applies these in order, with the thresholds named in `perf_log.rs` [
   Look for `memory budget: near a budget, caches pressed` lines and hitches: textures and
   models are let go early and loaded again.
 - **Frame cap**: a rate within 3 % under the cap is held there (`held at the frame cap`).
-- **Vsync**: with vsync on (Vertical sync or Variable refresh), a frame mean within 5 % of
+- **Vsync**: with plain Vertical sync and frame generation off, a frame mean within 5 % of
   one refresh is held at the refresh rate (`held at the refresh rate by vsync`). Within 5 %
-  of two, three or four refreshes, frames miss a refresh and wait for the next: FIFO
-  presentation shows a frame only at a vertical blank [documented: docs/spec-notes/display-sync.md
-  §1, Bevy presents vsync as FIFO relaxed or FIFO], so on a 60 Hz screen a 20 ms frame shows
-  for 33 ms and the rate falls to 30, or to 20 (`vsync holds it at 1/2 of the refresh rate`).
-  What took more than a refresh is then named as below; turning vsync off or Variable refresh
-  shows the rate the game makes. A wait for the window's image near the whole frame with vsync
-  on is the display's time, not the GPU's.
+  of two, three or four refreshes, frames miss a refresh and wait for the next: with vsync
+  and no variable refresh a frame that misses a 60 Hz refresh shows for 33 ms [observed:
+  docs/spec-notes/display-sync.md §1, #1082: Primm's 18-19 ms frames came out at 41-44 fps],
+  so the rate falls towards 30, or 20 (`vsync holds it at 1/2 of the refresh rate`). Bevy
+  presents vsync as FIFO relaxed where the surface offers it, else FIFO [documented: same
+  note §1]; FIFO relaxed shows a late frame at once instead of waiting, so the fall is
+  clearest under FIFO, and the start's `frame pace: … vsync presents as …` line says which
+  mode this machine uses. What took more than a refresh is then named as below; turning
+  vsync off or Variable refresh shows the rate the game makes. Under Variable refresh no
+  refresh fraction is read: the screen refreshes when the frame is ready [same note §1]; nor
+  with frame generation running, whose `fps` is the game's frames, not the frames shown.
+  A wait for the window's image near the whole frame with vsync on is the display's time,
+  not the GPU's.
 - **Main thread (CPU)**: the main span 75 % of the frame or more (of a refresh, under vsync's
   fraction): the game's own systems. `game N cores` near 1 or more while the machine's CPU
   use is low is the same picture: one thread holds the frame.

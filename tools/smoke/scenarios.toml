@@ -108,6 +108,8 @@ sep = ","
 shift = "all"
 [timed.NVF_PLAY_TEST_AUDIO_REOPEN]
 sep = ","
+[timed.NVF_PLAY_TEST_STALL]
+sep = ","
 
 
 # ------------------------------------------------------------------ checks before every push

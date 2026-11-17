@@ -281,6 +281,9 @@ struct LineFacts {
     usage: Option<Usage>,
     upscale: Option<String>,
     frame_gen: String,
+    /// Frame generation presents frames between the game's (then `fps` is the game's frames,
+    /// not the frames shown).
+    generating: bool,
     cap: u32,
     sync: DisplaySync,
     refresh_hz: Option<f32>,
@@ -383,7 +386,10 @@ fn refreshes(mean_ms: f32, hz: f32) -> Option<u32> {
 /// the refresh rate with vsync, is held there and nothing else is said; otherwise the part of
 /// the frame that took the most, when it took [`BUSY_SHARE`] of it (of a refresh, when vsync
 /// holds the rate at a half, a third or a quarter of the refresh rate, which is then said
-/// too): the main thread, the render thread's own work (its span less the wait), or the GPU
+/// too). The refresh is weighed only with plain vsync and frame generation off: a
+/// variable-refresh screen refreshes when the frame is ready (docs/spec-notes/display-sync.md
+/// §1), and with frame generation the game's frame rate is not the rate shown. The parts:
+/// the main thread, the render thread's own work (its span less the wait), or the GPU
 /// (its time, its use over [`GPU_BUSY_PERCENT`], or with vsync off a wait for the window's
 /// image over [`WAIT_SHARE`] of the frame). `unclear` when none.
 fn hint(f: &LineFacts) -> String {
@@ -400,7 +406,7 @@ fn hint(f: &LineFacts) -> String {
         return done(parts, format!("held at the frame cap ({} fps)", f.cap));
     }
     let vsync = f.sync.vsync();
-    let k = if vsync { f.refresh_hz.and_then(|hz| refreshes(fr.mean_ms, hz)) } else { None };
+    let k = if f.sync == DisplaySync::Vsync && !f.generating { f.refresh_hz.and_then(|hz| refreshes(fr.mean_ms, hz)) } else { None };
     if k == Some(1) {
         return done(parts, "held at the refresh rate by vsync".to_string());
     }
@@ -491,10 +497,16 @@ fn place_text(p: &PlaceRun) -> String {
             None => format!("{lo}+ {:.0}%", share(h[i])),
         })
         .collect();
+    // The kind for worldspaces and interiors only: the main menu and "no world" are named
+    // as they are.
+    let kind = match p.key {
+        PlaceKey::World(_) => " (worldspace)",
+        PlaceKey::Interior(_) => " (interior)",
+        PlaceKey::MainMenu | PlaceKey::Nowhere => "",
+    };
     format!(
-        "perf summary: {} ({}): {:.1} min, {total} frames, median {} ms, p95 {} ms, p99 {} ms, over 33 ms {:.1}%, hitches {}; frames by ms {}",
+        "perf summary: {}{kind}: {:.1} min, {total} frames, median {} ms, p95 {} ms, p99 {} ms, over 33 ms {:.1}%, hitches {}; frames by ms {}",
         p.place.name,
-        if p.place.interior { "interior" } else { "worldspace" },
         p.secs / 60.0,
         pct(0.5),
         pct(0.95),
@@ -574,12 +586,13 @@ impl LineInputs<'_, '_> {
         })
     }
 
-    fn frame_gen(&self) -> String {
+    /// Frame generation's text for the line, and whether it runs.
+    fn frame_gen(&self) -> (String, bool) {
         match self.fg.as_ref().map_or(FrameGenKind::Off, |f| f.kind) {
-            FrameGenKind::Off => "off".to_string(),
-            FrameGenKind::Fsr if self.fg_usable.as_ref().is_some_and(|u| u.0) => "FSR 3.1, running".to_string(),
-            FrameGenKind::Dlss if self.dlssg.as_ref().is_some_and(|d| d.on) => format!("DLSS {}x, running", self.dlssg.as_ref().map_or(1, |d| d.frames) + 1),
-            k => format!("{} chosen, not running", k.name()),
+            FrameGenKind::Off => ("off".to_string(), false),
+            FrameGenKind::Fsr if self.fg_usable.as_ref().is_some_and(|u| u.0) => ("FSR 3.1, running".to_string(), true),
+            FrameGenKind::Dlss if self.dlssg.as_ref().is_some_and(|d| d.on) => (format!("DLSS {}x, running", self.dlssg.as_ref().map_or(1, |d| d.frames) + 1), true),
+            k => (format!("{} chosen, not running", k.name()), false),
         }
     }
 }
@@ -704,6 +717,7 @@ fn write_line(log: &mut PerfLog, frame: &FrameInputs, line: &LineInputs, why: Wh
     let budget = frame.budget.as_deref();
     let pace = line.pace.as_deref().copied().unwrap_or(FramePace { sync: DisplaySync::Vsync, cap: 0 });
     let refresh = line.refresh.as_deref().copied().unwrap_or_default();
+    let (frame_gen, generating) = line.frame_gen();
     let p = &log.period;
     let facts = LineFacts {
         why,
@@ -722,7 +736,8 @@ fn write_line(log: &mut PerfLog, frame: &FrameInputs, line: &LineInputs, why: Wh
         ram_share: budget.and_then(|b| b.ram_share),
         usage,
         upscale: line.upscale.read().as_ref().map(upscale_text),
-        frame_gen: line.frame_gen(),
+        frame_gen,
+        generating,
         cap: effective_cap(effective_cap(pace.cap, refresh.vrr_cap), line.fg_cap.as_ref().map_or(0, |c| c.0)),
         sync: pace.sync,
         refresh_hz: refresh.millihertz.map(|m| m as f32 / 1000.0),
@@ -803,6 +818,7 @@ mod tests {
             usage: Some(Usage { cpu: Some(23.0), gpu: Some(97.0), gpu_game: false, cores: Some(1.42), ram_mb: Some(5_325) }),
             upscale: Some("DLSS Quality  1280x720 -> 1920x1080  model Default".to_string()),
             frame_gen: "off".to_string(),
+            generating: false,
             cap: 0,
             sync: DisplaySync::Off,
             refresh_hz: Some(60.0),
@@ -873,8 +889,18 @@ mod tests {
         // Vsync at half the refresh rate (30 fps on 60 Hz): said, and what missed the refresh.
         let half = LineFacts { sync: DisplaySync::Vsync, frame: fr(30.0), main_ms: Some(18.0), render_ms: Some(30.0), wait_ms: Some(20.0), gpu_ms: Err("x"), usage: None, ..facts() };
         assert_eq!(hint(&half), "vsync holds it at 1/2 of the refresh rate; main thread (CPU)");
-        let third = LineFacts { sync: DisplaySync::Variable, frame: fr(20.0), main_ms: Some(8.0), gpu_ms: Ok(19.0), ..half.clone() };
+        let third = LineFacts { frame: fr(20.0), main_ms: Some(8.0), gpu_ms: Ok(19.0), ..half.clone() };
         assert_eq!(hint(&third), "vsync holds it at 1/3 of the refresh rate; GPU");
+        // Variable refresh: no refresh fraction, a slow frame does not wait for the next
+        // refresh; the part that holds the frame is weighed against the frame.
+        let vrr = LineFacts { sync: DisplaySync::Variable, main_ms: Some(26.0), ..half.clone() };
+        assert_eq!(hint(&vrr), "main thread (CPU)");
+        let vrr_gpu = LineFacts { sync: DisplaySync::Variable, frame: fr(20.0), main_ms: Some(8.0), gpu_ms: Ok(45.0), ..half.clone() };
+        assert_eq!(hint(&vrr_gpu), "GPU");
+        assert_eq!(hint(&LineFacts { sync: DisplaySync::Variable, frame: fr(60.0), ..facts() }), "GPU", "not held at the refresh rate by vsync");
+        // Frame generation: the game's frames are not the frames shown, so no refresh reading.
+        let generated = LineFacts { generating: true, main_ms: Some(26.0), ..half.clone() };
+        assert_eq!(hint(&generated), "main thread (CPU)");
         // The frame cap.
         let capped = LineFacts { cap: 60, frame: fr(59.4), ..facts() };
         assert_eq!(hint(&capped), "held at the frame cap (60 fps)");
@@ -961,7 +987,7 @@ mod tests {
                 secs += f64::from(ms) / 1000.0;
             }
         }
-        PlaceRun { key: PlaceKey::Nowhere, place, secs, hitches }
+        PlaceRun { key: if interior { PlaceKey::Interior(0) } else { PlaceKey::World(0) }, place, secs, hitches }
     }
 
     #[test]
@@ -985,6 +1011,14 @@ mod tests {
         assert_eq!(lines.last().map(String::as_str), Some("perf summary: 2 more places not listed"));
         // Nothing read: the first line alone, without the peaks.
         assert_eq!(summary_lines(&PerfLog::default()), ["perf summary: 0.0 min of play, 0 hitches over 250 ms; left out 0.0 s loading, 0.0 s paused"]);
+        // The main menu and "no world" carry no kind.
+        let mut menus = PerfLog::default();
+        for (key, name) in [(PlaceKey::MainMenu, "main menu"), (PlaceKey::Nowhere, "no world")] {
+            menus.places.push(PlaceRun { key, ..place(name, false, &[(10.0, 1)], 0) });
+        }
+        let lines = summary_lines(&menus);
+        assert!(lines[1].starts_with("perf summary: main menu: 0.0 min, 1 frames"), "{}", lines[1]);
+        assert!(lines[2].starts_with("perf summary: no world: 0.0 min, 1 frames"), "{}", lines[2]);
     }
 
     #[test]
