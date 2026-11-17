@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::panic::Location;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::OnceLock;
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -263,6 +264,8 @@ pub struct Tile {
     pub name: String,
     pub parent: Option<TileId>,
     pub children: Vec<TileId>,
+    /// Value-generation dependency for an expression's structural childcount fallback.
+    children_changed: u64,
     pub traits: Vec<Trait>,
     pub templates: Vec<Template>,
     /// False once unloaded: [`Ui::tile`] answers such a tile for an id kept past its
@@ -281,6 +284,7 @@ impl Tile {
             name: String::new(),
             parent: None,
             children: Vec::new(),
+            children_changed: 0,
             traits: Vec::new(),
             templates: Vec::new(),
             live: false,
@@ -331,6 +335,9 @@ pub struct Ui {
     /// given a trait or a template): what a source names may have changed, so the sources
     /// a trait read last are no longer known.
     shape: u64,
+    /// First descendant of each name in each root's file order. Shape changes
+    /// invalidate the index; trait value writes leave name resolution unchanged.
+    named_sources: OnceLock<HashMap<TileId, HashMap<String, TileId>>>,
     /// This tree's number, in every [`TileId`] it makes ([`Ui::new`]).
     tree: u32,
     /// The shape when [`Ui::update`] last ran, the updates in a row that found it changed,
@@ -384,6 +391,9 @@ pub struct Ui {
     /// Passes the last [`Ui::update`] made, for the tests.
     #[cfg(test)]
     pub(crate) passes: usize,
+    /// Nodes walked to resolve named expression sources, for work-bound controls.
+    #[cfg(test)]
+    pub(crate) named_source_visits: std::sync::atomic::AtomicUsize,
 }
 
 impl Ui {
@@ -482,6 +492,7 @@ impl Ui {
     /// worked out at the next update.
     fn reshape(&mut self) {
         self.shape += 1;
+        self.named_sources.take();
         self.reshaped_by = self.op;
     }
 
@@ -539,7 +550,11 @@ impl Ui {
             }
         };
         if let Some(p) = parent {
-            self.tile_mut(p).children.push(id);
+            self.gen += 1;
+            let changed = self.gen;
+            let parent = self.tile_mut(p);
+            parent.children.push(id);
+            parent.children_changed = changed;
         }
         if self.tile(id).origin.mod_added() {
             self.count_mod_tile(id, true);
@@ -831,7 +846,11 @@ impl Ui {
             gone.push(t);
         }
         if let Some(p) = self.tile(id).parent {
-            self.tile_mut(p).children.retain(|&c| c != id);
+            self.gen += 1;
+            let changed = self.gen;
+            let parent = self.tile_mut(p);
+            parent.children.retain(|&c| c != id);
+            parent.children_changed = changed;
         }
         self.roots.retain(|&r| r != id);
         self.dirty = true;
@@ -1456,14 +1475,24 @@ impl Ui {
 
     /// The first tile of that name under `root`, in file order.
     fn find_named(&self, root: TileId, name: &str) -> Option<TileId> {
-        let mut stack = vec![root];
-        while let Some(t) = stack.pop() {
-            if t != root && self.tile(t).name.eq_ignore_ascii_case(name) {
-                return Some(t);
+        let roots = self.named_sources.get_or_init(|| {
+            let mut roots = HashMap::new();
+            for &root in &self.roots {
+                let mut names = HashMap::new();
+                let mut stack = vec![root];
+                while let Some(t) = stack.pop() {
+                    #[cfg(test)]
+                    self.named_source_visits.fetch_add(1, Ordering::Relaxed);
+                    if t != root {
+                        names.entry(self.tile(t).name.to_ascii_lowercase()).or_insert(t);
+                    }
+                    stack.extend(self.tile(t).children.iter().rev().copied());
+                }
+                roots.insert(root, names);
             }
-            stack.extend(self.tile(t).children.iter().rev().copied());
-        }
-        None
+            roots
+        });
+        roots.get(&root)?.get(&name.to_ascii_lowercase()).copied()
     }
 
     fn read_trait(&self, me: TileId, src: &Src, name: &str, deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
@@ -1474,6 +1503,13 @@ impl Ui {
                 *deps = (*deps).max(tr.changed);
                 sources.push((t, k as u32));
                 tr.value.clone()
+            }
+            // [design: menu-xml.md §6.1] Explicit list counts keep precedence.
+            // Do not insert a trait: absence also guards pause-column initialization.
+            None if name.eq_ignore_ascii_case("childcount") => {
+                let tile = self.tile(t);
+                *deps = (*deps).max(tile.children_changed);
+                Value::Num(tile.children.len() as f64)
             }
             // A trait not there reads 0 [hypothesis].
             None => Value::default(),
@@ -1559,6 +1595,25 @@ fn finite_extra(value: f64) -> Value {
     Value::Num(if value.is_finite() { value } else { 0.0 })
 }
 
+/// Exact nonnegative integer mapping (mcm-rgb-integer-consumers.md); native edge
+/// behaviour is not inferred.
+/// Unsupported inputs keep the accumulator, as ignored tags previously did.
+fn integer_extra(kind: OpKind, acc: Value, arg: Value) -> Value {
+    const EXACT_LIMIT: u64 = 1_u64 << 53;
+    let integer = |value: &Value| match value {
+        Value::Num(n) if n.is_finite() && (0.0..=EXACT_LIMIT as f64).contains(n) && n.fract() == 0.0 => Some(*n as u64),
+        _ => None,
+    };
+    let (Some(x), Some(y)) = (integer(&acc), integer(&arg)) else { return acc };
+    let result = match kind {
+        OpKind::BitAnd => Some(x & y),
+        OpKind::ShiftLeft if y <= 53 && x <= (EXACT_LIMIT >> y as u32) => Some(x << y as u32),
+        OpKind::ShiftRight if y <= 53 => Some(x >> y as u32),
+        _ => None,
+    };
+    result.map(|value| Value::Num(value as f64)).unwrap_or(acc)
+}
+
 fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
     let (x, y) = (acc.num(), a.num());
     let num = Value::Num;
@@ -1595,6 +1650,7 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
                 && x.fract() == 0.0 && y.is_finite() && y >= 0.0 && y.fract() == 0.0;
             Value::from_bool(valid && y <= 53.0 && (x as u64 & (1_u64 << y as u32)) != 0)
         }
+        OpKind::BitAnd | OpKind::ShiftLeft | OpKind::ShiftRight => integer_extra(kind, acc, a),
         // A whole number from 0 below the argument, the same for this tile and operator
         // every time [design: when the original draws is not known].
         OpKind::Rand => {

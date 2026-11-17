@@ -202,6 +202,16 @@ pub fn build(ui: &mut Ui) {
             string(ui, tile, text);
         }
     }
+    if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
+        // [design] Materialize the local alpha already used by the renderer when this
+        // engine-created ammo copy omits it. Hover UI consumers read this trait before
+        // forwarding it to their own text; an absent trait otherwise reads -999.
+        // A template's explicit alpha, including an expression or zero, wins. Later
+        // script writes remain untouched because this runs only when copies are built.
+        if ui.tile(tile).trait_index("alpha").is_none() {
+            num(ui, tile, "alpha", 255.0);
+        }
+    }
     if let Some(tile) = find(ui, "HitPoints/justify_left_text") {
         // The left-text template starts hidden [documented: hudtemplates.xml];
         // showing this label through alpha/visible is a hypothesis [hypothesis: hud.md §14.6].

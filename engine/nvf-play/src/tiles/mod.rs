@@ -52,6 +52,8 @@ pub mod inventory_menu;
 pub mod item_card;
 pub mod item_mod_menu;
 pub mod layout;
+#[cfg(test)]
+mod quick_loot_hud_alpha_tests;
 pub mod list;
 pub mod map_menu;
 pub mod menus;

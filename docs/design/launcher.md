@@ -18,13 +18,23 @@ without the launcher is the same as before.
   2026-11-16), with the same categories and rows in the same order, the Tweaks tab's
   groups too (as "Group › Category" headings). The game writes its page beside the INI at every start
   (`settings-menu.json`, `nvf_settings_layout::menu`, `engine/nvf-play/src/settings_menu.rs`):
-  each row's label and note as the page shows them, and its kind (switch, slider and its
-  steps' words, list and its choices). The launcher shows that file while its version is the
-  launcher's (`src/catalog.rs`). Rows are hidden and greyed as the game's page does it, by
+  each row's label and note as the page shows them, its kind (switch, slider and its
+  steps' words, list and its choices) and its default (the value the game takes while the INI
+  has none). Only a player's start writes it: a run given a switch a row names (`--no-voice`,
+  `--graphics-only`, …) leaves the file there as it is, and so does a run with fewer rows than
+  the same build's file there (a module missing that run); the log says
+  `settings: menu for the launcher not written: …` with the reason. The launcher shows that
+  file while its version and its table stamp (`nvf_settings_layout::layout_stamp`, a hash of
+  the tabs, categories, rows and rules) are the launcher's (`src/catalog.rs`): dev builds
+  between releases share a version, the stamp keeps one from showing another build's rows.
+  Rows are hidden and greyed as the game's page does it, by
   the same tables (`nvf_settings_layout::SHOWN_WITH`, `NEEDS`, `NEEDS_CHOICE`, the
   controller's rows by `[Controls] Input Device`), live as rows are changed on the page; a
-  greyed row keeps its value and says why ("Greyed out: Needs Sun Shadows."), a tab whose
-  rows are all hidden says what shows them. Greying the game decides from the machine (the
+  greyed row keeps its value and says why ("Greyed out: Needs Sun Shadows."). A rule's row
+  the INI does not hold yet counts as the game's default for it (the menu file's); with no
+  default known (the built-in copy) the rule holds, so the launcher never greys or hides a row
+  the game may not. No tab the launcher shows can have every row hidden (only the game's
+  Controls tab can). Greying the game decides from the machine (the
   GPU, DLSS's files, a run's command line) is the game's alone; a choice that is an action, not a value (Download DLSS… on
   the Upscaler row), is not in it. A row whose INI value the game's row takes is drawn from the
   game's row before the launcher's own lists (`src/display.rs`), which stay for the rows the INI
@@ -35,7 +45,7 @@ without the launcher is the same as before.
   `docs/settings-reference.md` (a test in the game holds the reference to the table; a
   Tweaks row is shown there by its key, only while the INI holds it). A row with no kind
   from the game goes by the value in the INI: `1`/`0` a switch, `0.50` a
-  slider (as a percentage, or the step's words for Difficulty), anything else text; Kill camera, V.A.T.S. style and the Display rows (Resolution as a Window and a Full screen
+  slider (as a percentage, or the step's words for Difficulty; the words can be typed into it too), anything else text; Kill camera, V.A.T.S. style and the Display rows (Resolution as a Window and a Full screen
   list of the chosen display's sizes, Monitor from the displays Windows lists, Display sync,
   Frame rate limit; `src/display.rs`, words and values the game's)
   get their choices as a list (a test checks the engine still has them). A

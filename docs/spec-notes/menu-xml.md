@@ -708,6 +708,21 @@ marked]:
 
 A trait that is not there reads 0 [hypothesis].
 
+[design] Named expression sources keep their existing precedence: the first
+descendant in file order, then a menu of that name, then a bare built-in source
+such as `parent` or `me`. `Ui::find_named` indexes the first descendant of each
+case-insensitive name once per tree shape. Making, unloading, renaming or otherwise
+reshaping tiles invalidates that index; value writes reuse it. The index contains
+only the current loaded tree, so menu reloads and reused slots cannot retain old
+IDs. The fallback order and expression/write-override rules are unchanged.
+
+Owned synthetic controls call `Ui::update` with bare-source expressions on many
+rows, bound total name-lookup node visits to linear work, and report fixed-workload
+times without using wall time as a pass threshold. Separate controls retain
+named-before-built-in precedence, nested duplicate order, another-menu fallback,
+unloading, injection and menu reload. These are core implementation checks, not
+original-game captures or a measured installed-mod frame-rate result.
+
 ### 4.3 `onlyif`
 
 `onlyif` never comes first: 196 are last in their list and 99 in the middle, always
@@ -772,6 +787,56 @@ that also have operators; observer check §8 item 3].
 
 Vanilla, 2026-10-26: 3,529 tiles, 40,583 traits, 19,541 with operators, over the 49
 menus; every menu settles [observed: fnvtool ui menus; loading all 49 takes 0.4 s].
+
+### 6.1 Structural `childcount` in expressions
+
+[observed: installed Vanilla UI Plus menu XML, 2026-11-17] Its StartMenu
+verification reads `childcount` on a diagnostic container and expects four.
+That container includes the same two-image fragment twice. The ordinary
+list-item fragment adds traits, with no child tiles. MCM's injected fragment
+separately declares its registration trait. Successful injection therefore
+does not by itself satisfy the structural verification expression. No menu
+XML or displayed warning text is included here.
+
+[design] When an expression reads an absent `childcount` trait on a resolved
+tile, read the number of direct child tiles. Includes, injected tiles and
+instantiated templates contribute their actual children; template definitions,
+traits and grandchildren do not. Existing explicit XML or code traits take
+precedence, including zero. Keep `Tile::get` and trait-presence APIs unchanged:
+the pause-menu column uses an absent explicit `childcount` as its initialization
+sentinel. This fallback does not add a trait or implement structural
+`GetUIFloat` queries.
+
+[design] A per-tile value-generation stamp records actual child insertion and
+removal. Expression reads depend on that stamp as well as the existing tree
+shape invalidation, so an empty injected child updates its readers even when
+no ordinary trait changed. Unrelated expression values written from outside
+retain their existing lifetime policy. Count lookup takes constant time and
+does not allocate.
+
+[design] Independently authored CPU controls cover repeated includes and a
+UIO-injected registration trait through the real load/update consumer, empty
+children, nested children, template instantiation, removal, slot reuse and menu
+reload, plus explicit zero/nonzero overrides and retained neighboring values.
+These controls do not establish original-game parity or complete UIO/VUI
+compatibility.
+
+[design: CPU validation record, 2026-11-17] Normal locked release Cargo builds
+of `fnv-ui` produced the baseline and candidate library-test executables. The
+same three fixtures failed at their intended numeric assertions with the
+accepted implementation and passed with this fallback. All 116 unchanged
+baseline controls passed; all 119 candidate controls passed, with none ignored.
+Candidate package-wide strict Clippy passed. Both compile controllers retained
+a failure from their unchanged descendant-shutdown deadline despite Cargo
+exiting zero. The emitted images were subsequently verified and executed in
+fresh contained jobs, with exact source/index/mtime seals and unchanged image
+hashes. These historical results qualify this package's CPU behavior. Hosted
+whole-workspace and engine checks for each published source revision are recorded
+separately in [PR #2858](https://github.com/LootJunkieAzza/NVForever/pull/2858);
+they do not change the local controller results or transfer automatically to
+later revisions. Native parity, rendered installed-menu and complete sentinel
+acceptance remain unqualified; structural script getter queries remain outside
+this change.
 
 ## 7. How mods change menus
 

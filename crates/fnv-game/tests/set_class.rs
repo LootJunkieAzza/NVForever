@@ -13,6 +13,9 @@ use fnv_script::FunctionTable;
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use serde_json::Value as Json;
 
+#[path = "common/set_class_receivers.rs"]
+mod receiver_tests;
+
 const CLASS_A: u32 = 0x900;
 const CLASS_B: u32 = 0x901;
 const NPC: u32 = 0x902;
