@@ -2385,6 +2385,7 @@ dependencies = [
  "fnv-util",
  "image",
  "nvf-dlss-files",
+ "nvf-settings-layout",
  "rfd",
  "serde",
  "serde_json",
@@ -2395,6 +2396,14 @@ dependencies = [
  "windows-sys 0.61.2",
  "winresource",
  "zip",
+]
+
+[[package]]
+name = "nvf-settings-layout"
+version = "0.7.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

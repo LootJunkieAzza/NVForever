@@ -1,10 +1,62 @@
-# The settings page: tabs, headings and rows (#1953)
+# The settings page: tabs, categories and rows (#1953, the menu overhaul)
 
 The pause menu's settings page (`engine/nvf-play/src/pause.rs`) shows every registered
 setting (`engine/nvf-play/src/settings.rs`) and the controls of
-`engine/nvf-play/src/bindings.rs`. Since #1953 it shows them in seven tabs with headings,
+`engine/nvf-play/src/bindings.rs`. Since #1953 it shows them in eight tabs (seven until NVF Features, 2026-11-15) with headings,
 from a table that only says where each row is drawn. This note is the page's model; the
 code's module notes say the same at their own level.
+
+## 0. Adding or changing a row: the rules (the menu overhaul, 2026-11-15)
+
+The owner reorganised the page on 2026-11-15, tab by tab (the menu overhaul). Every row
+added or changed later keeps to these rules; the checks named fail CI or log a warning when
+one is broken. Read §1–§4 for how the page works.
+
+1. **Place the row** in `crates/nvf-settings-layout/src/lib.rs` `SECTIONS` (the table the
+   pause menu and the launcher share, re-exported as `nvf_play::settings_layout`; the
+   launcher's Settings page follows it and the game's `settings-menu.json`,
+   docs/design/launcher.md), and list it in `docs/settings-reference.md` under the same tab
+   and category (a test fails while it is missing or elsewhere): its tab, its
+   category (heading) and its position. A row the table does not name falls to its group's
+   tab with no heading (and a Tweaks row to the group Other); the layout tests list every
+   row there is (`KNOWN`), so a new row fails them until it is placed.
+2. **Tabs**: Gameplay, Display, Audio, Controls, Graphics, NVF Features, Tweaks, Debug.
+   Display holds the screen, the frame rate, upscaling, anti-aliasing, frame generation and
+   latency; Graphics holds what the picture shows (shadows, lighting and effects, water,
+   detail and distance). No Graphics row or preset touches a Display row.
+3. **NVF Features** holds only what the owner named (`NVF_FEATURES_KEYS`: Advanced Movement,
+   Grass Fires). A bigger gameplay change is *offered* to the owner for that tab; never put a
+   row there without the owner's word (`settings_layout::check` refuses another key).
+4. **Within a category**: the main switch first; a row that only matters with another right
+   after it; otherwise lists, then switches, then sliders. No row is indented: every label is
+   on the left edge.
+5. **7 or fewer values are a list**, never a slider (`settings::LIST_MOST`,
+   `few_step_slider`): the renderer's rows' test and the start's log
+   (`settings: N sliders checked, 0 with 7 or fewer values`) say so. A slider is for a
+   quantity of many steps (volumes, distances, field of view). When a slider becomes a list,
+   its `load` still takes the older number (`settings::choice_of`, `nearest`).
+6. **A row that cannot apply** is greyed with its value kept and the reason in its note:
+   name it in `settings_layout::NEEDS` (the row, the row it needs on, why) or `NEEDS_CHOICE`
+   (the row, a list row and the choices it needs, why). Hide it instead, by
+   `settings_layout::SHOWN_WITH` (the row, the list row that stands for it, the choices it
+   shows with), only where the owner asked. These three tables are in the crate the
+   launcher shares (`crates/nvf-settings-layout`), so its Settings page hides and greys
+   the same rows: a rule that other rows' values decide goes in them, not in code.
+   `set_disabled_status` and `settings::set_shown_when` are for what the INI cannot say
+   (the GPU, missing files, a run's command line); the launcher cannot follow those. The
+   rows hidden so far, where the owner asked: the upscaler's own rows (Upscaling Mode, DLSS
+   Model, FSR Library, Anti-Aliasing), Generated Frames, the colour channels unless Custom,
+   the controller rows, and Advanced Movement's categories while its Global Toggle is off.
+7. **Words**: write the label in sentence case; the page shows it in Title Case in English,
+   and so in another language until its file has a line for it (`pause::on_page`: the short words a, an, the, and, but, or, nor, for, so, yet, as,
+   at, by, in, of, off, on, per, to, via stay lower case inside a label). A word written with
+   a capital stays as written ("Close In on the Speaker", "HUD", "Pip-Boy"). States are
+   On/Off. Under a category, leave out what the heading already says ("Mirrored reflections"
+   under Water). The note: what the row does in one or two sentences, at most 200
+   characters (§10).
+8. **Categories** are open by default and stay as the player leaves them (`[UI]
+   SettingsCategories`); the Tweaks tab's are closed by default and it shows one group at a
+   time by its Category row.
 
 ## 1. The registry stays as it is
 
@@ -31,6 +83,48 @@ INI's (`GivenSwitches`, `apply_stored`, `after_ini`), as #1382 has it.
 
 ## 2. The layout table
 
+**Since the menu overhaul (2026-11-15)** the table is `SECTIONS` (`crates/nvf-settings-layout`
+since 2026-11-16, shared with the launcher) and the
+tables below are its earlier state, kept for #1953's history. Eight tabs: **Gameplay,
+Display, Audio, Controls, Graphics, NVF Features, Tweaks, Debug**, each a run of categories
+in the owner's order (`dev` plan of 2026-11-15; `docs/settings-reference.md` lists every row
+in it). What a category is on the page:
+
+- its heading takes a line and the keys can choose it ([`settings_view::RowId::Heading`]):
+  Enter, A or a click open or close it, Left closes, Right opens; Page Up/Down go from
+  category to category (its first row while open, else its heading);
+- open, its rows follow and an empty line after them (`ViewEntry::Gap`); closed, only its
+  heading with its row count, no empty line;
+- the Controls tab's own rows are named in the table by `controls:` and their name, beside
+  the registered rows of their category (Input Device and Button Style under Input);
+- the Tweaks tab's categories carry their group (`Placement::subgroup`); its first row,
+  Category, picks the group shown (`docs/design/settings-tweaks-layout.md`).
+
+The search and the Changed list keep #1953's crumbs over their rows (`ViewEntry::Crumb`),
+every category open, nothing to choose but the rows.
+
+**The value cell** [design: the overhaul]: every row's value is drawn in one cell, the list's
+box; a list's words, a switch's On/Off, a binding and a greyed value share one centre; a
+slider's meter lies between its two arrows, its number right-aligned after them at the
+cell's right end. The note sits an empty line under the window (no rule); one soft dark
+column runs behind the list, its titles and the note from the view's top to its bottom;
+"Report a Bug" and the version sit, in the small print, under the pause column's last entry
+after an empty line; the window holds 11 lines, Previous/Next Category under the note at its
+left. A category's title shows its row count at the right, without brackets, while it is hovered
+or chosen. Back says "Back" alone with the keyboard. The game's own font draws the menus by
+default; in the sharp letters (`menu-font` Sharp) the column, the categories and the tab rail
+are bold, every
+line has a soft dark glow; the arrows and the scroll bar are drawn shapes
+(`engine/nvf-play/src/menu_shapes.rs`), and they, the list boxes and the hover and selection
+boxes have the glow too; the selection box is drawn under a row and takes no room, so nothing
+moves when a row is chosen [design: owner 2026-11-15, second and third tests]. The quit
+question is two columns of three lines, centred in the view: "Warning", what is lost and the
+question at the left, the answers (bold) at the right. The load page's band reaches as far past
+the saves' right side as past their left, with the same dark column; the sliders' meters and
+the scroll bar have the glow too (fourth build).
+
+The earlier tables (#1953):
+
 Seven tabs, the original's four categories first: **Gameplay, Display, Audio, Controls,
 Graphics, Tweaks, Debug** [design: #1953; the original's Settings opens Gameplay, Display,
 Audio and Controls, observed in the original's pause menu, 2026-11-09].
@@ -40,15 +134,18 @@ Audio and Controls, observed in the original's pause menu, 2026-11-09].
 | Gameplay | Game | `difficulty`, `hardcore`, `kill-camera`, `vats-style`, `vats-slowdown`, `reload-slows`, `UsePipBoy` |
 | Gameplay | Saving | `autosave-travel`, `autosave-fast-travel`, `autosave-wait`, `autosave-sleep`, `autosave-scripts` |
 | Gameplay | Dialogue | `menu-pause`, `dialogue-goodbye-hint`, `dialogue-look`, `dialogue-recentre`, `dialogue-zoom`, `lip-sync` |
-| Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-sway`, `head-bob`, `weapon-lower`, `field-of-view`, `viewmodel-field-of-view` |
+| Gameplay | Camera | `detached-camera`, `true-iron-sights`, `first-person-body`, `weapon-lower`, `field-of-view`, `viewmodel-field-of-view` |
 | Gameplay | World | `grass-fire` (#2662), `sound-cover` (#2688) |
 | Display | Screen | `resolution`, `borderless`, `monitor`, `display-sync`, `frame-cap`, `physics-rate`, `ui-scale`, `menu-scale` |
 | Display | Interface | `hud-colour`, `hud-red`, `hud-green`, `hud-blue`, `pipboy-colour`, `pipboy-red`, `pipboy-green`, `pipboy-blue`, `language`, `dynamic-crosshair`, `crosshair-style`, `sneak-gauges` |
 | Display | Performance | `fps-counter`, `fps-counter-fps`, `fps-counter-low`, `fps-counter-graph`, `fps-counter-split`, `fps-counter-cpu`, `fps-counter-gpu`, `fps-counter-vram`, `fps-counter-ram`, `fps-counter-loaded`, `fps-counter-upscaling` |
 | Audio | (none) | `volume-master`, `volume-music`, `volume-footstep`, `volume-voice`, `volume-effects`, `volume-radio`, `music`, `voice`, `reverb`, `voice-reverb` |
 | Controls | (none) | the Controls tab's own rows (§4), then `button-style`, `aim-assist`, `aim-slowdown`, `aim-lock` |
+| NVF Features | Advanced Movement | `advanced-movement` (the Global Toggle), `movement-weight` (a dropdown, 25-100 %) |
+| NVF Features | Gameplay (after an empty line) | `movement-inertia`, `weapon-handling`, `advanced-recoil` |
+| NVF Features | Visual Only (after an empty line) | `weapon-inertia`, `animation-smoothing`, `camera-motion` (player-body.md §1.4a.3) |
 | Graphics | Quality | `quality` (#1966; only when the install has its preset files: docs/spec-notes/quality-presets.md) |
-| Graphics | Picture | `enhanced` (#1966), `grade`, `sun-shadows`, `upscaler`, `upscaler-quality`, `dlss-model`, `fsr-library`, `frame-generation`, `frame-generation-frames`, `anti-aliasing`, `latency-reduction`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `terrain-height-blend` (#2550), `terrain-anti-tiling` (#2551), `light-shafts`, `water-reflections`, `water-mirror`, `smooth-terrain` (#2149) |
+| Graphics | Picture | `enhanced` (#1966; removed by the overhaul), `grade`, `sun-shadows`, `upscaler`, `upscaler-quality`, `dlss-model`, `fsr-library`, `frame-generation`, `frame-generation-frames`, `anti-aliasing`, `latency-reduction`, `shadow-filter`, `ambient-occlusion`, `fine-shadows`, `bloom`, `glow`, `eye-adaptation`, `neon-glow`, `sharpen`, `anisotropic`, `terrain-height-blend` (#2550), `terrain-anti-tiling` (#2551), `light-shafts`, `water-reflections`, `water-mirror`, `smooth-terrain` (#2149) |
 | Graphics | Distance | `distant-lod`, `grass`, `object-distance`, `actor-distance`, `item-distance`, `shadow-distance`, `grass-distance` |
 | Graphics | World | `head-tracking`, `foot-ik`, `sky-clock` |
 | Tweaks | (none) | none named yet |
@@ -63,7 +160,7 @@ world.md §3 "Smoothing"]. 4 x 4 near draws 4 × 4 near the camera and 2 × 2 fu
 surface [design, #2676]; the INI's older on/off reads as 4 x 4 and Off.
 
 The table names every row the registry can hold [documented: `settings_layout.rs::SECTIONS`],
-118 with #1966's `quality` and `enhanced`,
+118 with #1966's `quality`, the overhaul's `menu-font` (#1966's `enhanced` is gone),
 #2014's nine `fps-counter-*` rows, #2242's `fps-counter-upscaling`, #2317's
 `frame-generation-frames`, #2550's `terrain-height-blend`, #2662's `grass-fire`, #2551's `terrain-anti-tiling`, #2688's `sound-cover`, and #2149's `smooth-terrain` and `terrain-wireframe` (`KNOWN` in
 `settings_layout.rs`); a test keeps
@@ -76,10 +173,10 @@ original puts the HUD and Pip-Boy colours and the crosshair in its Display categ
 1. Each section takes the rows of its keys that are registered; a missing optional row
    (lip sync without lip data, the draw distances without `DrawDistances`, …) is left
    out, a section left with none is dropped.
-2. All seven tabs are there, an empty one too (Tweaks today).
+2. All eight tabs are there, an empty one too (Tweaks today).
 3. **A row the table does not name** keeps the group it registered with as its tab, with
    no heading, after the tab's named rows, in registry order. A group that is none of the
-   seven becomes a tab of its own after Debug, in the order such groups first appear in
+   eight becomes a tab of its own after Debug, in the order such groups first appear in
    the registry. No group is renamed: an unnamed `Sound` row shows under a `Sound` tab,
    not under Audio.
 4. Every registered row is listed exactly once.
@@ -124,7 +221,7 @@ registrations nor `resolve_layout`'s interface change for it.
 | Action | Keyboard | Controller | Pointer |
 |---|---|---|---|
 | Row before/after (round the ends, headings passed) | Up/Down, W/S | D-pad Up/Down | moving onto a row |
-| First row under the heading before/after (round) | Page Up/Page Down | LB/RB | "Previous heading", "Next heading" over the rows |
+| The category before/after (its first row while open, else its heading; round) | Page Up/Page Down | LB/RB | "Previous Category", "Next Category" over the rows |
 | Tab before/after (round) | Shift+Tab or F1 / Tab | LT/RT | a click on a tab |
 | Keys onto the rail and back | F6 | Y | — |
 | On the rail: line before/after; take it | Up/Down; Enter | D-pad; A | a click |
@@ -142,7 +239,7 @@ Ctrl+F opens the search (§6).
 [documented: `options_container` `_number_of_visible_items` 9], and so did this page until
 #2377. Now the count comes from the layout (`pause::window_lines`): as many lines as fit
 between the rows' top (`OPTIONS_TOP`) and a three-line note (`NOTE_LINES`) that ends above
-"Report a bug" at the bottom left (`REPORT_TOP`), 12 today. It is worked out in one place and
+the view's bottom margin (`NOTE_BOTTOM`; before the menu overhaul "Report a bug" at the bottom left), 12 today. It is worked out in one place and
 carried as a value (`PauseView::lines`, `Drawn::lines`) to the drawing, the keys, the
 pointer, the wheel, the scroll bar and the inspect aid, so a later layout can make it
 depend on the view; the `settings_view` functions (`follow`, `window_first`,
@@ -196,8 +293,10 @@ alike, so the search and the Changed list act on their rows the same way, drawn 
 same `row_line`.
 
 [design, #2200; `settings_view.rs::ControlRow::rows`] The Controls tab lists Input Device,
-Automatic Input Switching (default ON), the 29 controls, Invert Y, the device's sensitivity
-and Vertical Sensitivity, and with a controller Rumble, then the four controller rows.
+Automatic Input Switching (default ON), the 29 controls, Invert Y, the device's sensitivity,
+Vertical Sensitivity and Aim Sensitivity (the look while aiming down the sights or through a
+scope, following the aim's zoom; 100% as unzoomed; owner 2026-11-15), and with a controller
+Rumble, then the four controller rows.
 Automatic Input Switching selects and saves Input Device on fresh use only when the old
 device was idle at frame start and has no release in that frame. Release its buttons and
 return sticks/triggers to neutral, then press again on a later frame. Only the switching
@@ -314,7 +413,7 @@ once, in the page's order of the rows shown. Its note then begins with what it s
 edited through the device in use: acting on it switches the device, and the row is then
 listed as itself.
 
-The search's line takes the place of the "Previous heading" and "Next heading" links, the
+The search's line takes the place of the "Previous Category" and "Next Category" links, the
 rows' whole width; Page Up/Down (LB/RB) still go from heading to heading of the results.
 
 **On the results** the keys act as on the row's own tab (Enter, Left/Right, Delete, a

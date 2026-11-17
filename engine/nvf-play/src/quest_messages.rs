@@ -259,7 +259,7 @@ pub fn layout(n: &QuestNotice, label_font: &Font, title_font: &Font) -> Vec<Piec
             let line = title_font.lines(&name.trim().to_uppercase(), None).into_iter().next().unwrap_or_default();
             let width = line.width.max(1.0);
             for p in &line.glyphs {
-                let one = Line { glyphs: vec![Placed { code: p.code, x: 0.0 }], width: title_font.glyph(p.code).advance() };
+                let one = Line { glyphs: vec![Placed { code: p.code, ch: p.ch, x: 0.0 }], width: title_font.glyph(p.code).advance() };
                 out.push(Piece::Text { set: Set { line: one, x: TEXT_X + TITLE_X + p.x, base: TITLE_BASE }, title: true, from: SWEEP * p.x / width });
             }
         }

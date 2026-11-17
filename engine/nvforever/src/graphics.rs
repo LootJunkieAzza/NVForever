@@ -688,7 +688,8 @@ fn sun_shadow_quality(
         info!("sun shadows: {phase:?}");
     }
     *done = Some(key);
-    let on = key.shadows && phase != SunShadows::Faded;
+    // A shadow distance of 0% (the menu overhaul) casts none.
+    let on = key.shadows && phase != SunShadows::Faded && key.distance > 0.0;
     for (e, mut light, cascades) in &mut suns {
         if light.shadow_maps_enabled != on {
             light.shadow_maps_enabled = on;

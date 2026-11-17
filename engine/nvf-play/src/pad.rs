@@ -1812,7 +1812,7 @@ mod tests {
         for g in glyphs.iter_mut().take(127).skip(33) {
             *g = fnv_font::Glyph { uv: [0.0, 0.0, 1.0, 1.0], width: 4.0, height: 4.0, before: 0.0, after: 1.0, ascent: 4.0 };
         }
-        let font = fnv_font::Font { size: 8.0, texture: String::new(), glyphs };
+        let font = fnv_font::Font { size: 8.0, texture: String::new(), glyphs, extra: Default::default() };
         let tex = vec![255u8; 4 * 4 * 4];
         let face = FontImage { font: &font, tex: &tex, tex_w: 4, tex_h: 4 };
         for g in Glyph::LABELED {
@@ -1853,7 +1853,7 @@ mod tests {
         for g in glyphs.iter_mut().take(127).skip(33) {
             *g = fnv_font::Glyph { uv: [0.25, 0.5, 0.75, 1.0], width: 2.0, height: 2.0, before: 0.0, after: 1.0, ascent: 2.0 };
         }
-        let font = fnv_font::Font { size: 4.0, texture: String::new(), glyphs };
+        let font = fnv_font::Font { size: 4.0, texture: String::new(), glyphs, extra: Default::default() };
         let mut tex = vec![0u8; 8 * 8 * 4];
         for y in 4..8 {
             tex[((y * 8 + 5) * 4 + 3) as usize] = 255;

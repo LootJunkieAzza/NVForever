@@ -156,3 +156,43 @@ fn ordinary_filters_layers_root_and_marker_neighbors_remain_visible() {
     });
     files.unchanged();
 }
+
+#[test]
+fn model_queries_keep_file_fallback_until_a_reference_tree_is_published() {
+    use common::model_has_block::{with_game as with_model_game, has, tree, FIRST};
+    let files = Files::new();
+    let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = reads.clone();
+    // The existing file query consumes length-prefixed strings; these authored
+    // bytes characterize that fallback without claiming complete NIF parsing.
+    let name = b"FileBlock";
+    let bytes = [(name.len() as u32).to_le_bytes().as_slice(), name].concat();
+    assert!(!mod_files::nif_has_name(&bytes, ""), "the established file helper rejects an empty name");
+    mod_files::update_roots(|roots| roots.reader = Some(std::sync::Arc::new(move |path| {
+        seen.lock().unwrap().push(path.to_string());
+        (path == "meshes\\Owned/base.nif").then(|| bytes.clone())
+    })));
+    with_model_game(|game| {
+        assert_eq!(has(game, "OwnedModel", "FileBlock"), XVal::Num(1.0));
+        assert_eq!(has(game, "OwnedRefA", "FileBlock"), XVal::Num(1.0));
+        assert_eq!(has(game, "OwnedRefA", "fileblock"), XVal::Num(0.0));
+        assert_eq!(has(game, "OwnedRefA", "Absent"), XVal::Num(0.0));
+        let before_empty = reads.lock().unwrap().len();
+        assert_eq!(has(game, "OwnedModel", ""), XVal::Num(0.0));
+        assert_eq!(has(game, "OwnedRefA", ""), XVal::Num(0.0));
+        assert_eq!(reads.lock().unwrap().len(), before_empty + 2, "base and cold empty queries retain their existing file consumer");
+        let before = reads.lock().unwrap().len();
+        game.scene.set_tree(FIRST, tree("SceneBlock"));
+        assert_eq!(has(game, "OwnedRefA", "SceneBlock"), XVal::Num(1.0));
+        assert_eq!(has(game, "OwnedRefA", "FileBlock"), XVal::Num(0.0));
+        game.scene.set_tree(FIRST, Vec::new());
+        assert_eq!(has(game, "OwnedRefA", "FileBlock"), XVal::Num(0.0), "an empty published tree is authoritative");
+        assert_eq!(reads.lock().unwrap().len(), before, "published queries do not read the base file");
+        game.scene.forget(FIRST);
+        assert_eq!(has(game, "OwnedRefA", "FileBlock"), XVal::Num(1.0), "retain cold fallback after unload");
+        game.world.set_deleted(FIRST, true).unwrap();
+        assert_eq!(has(game, "OwnedRefA", "FileBlock"), XVal::Num(1.0), "retain the previous deleted-reference file lookup");
+        assert_eq!(has(game, "57005", "FileBlock"), XVal::Num(0.0));
+    });
+    files.unchanged();
+}

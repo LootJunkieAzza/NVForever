@@ -295,7 +295,7 @@ impl Plugin for DialogueLookPlugin {
             Setting {
                 key: "dialogue-look",
                 group: crate::pause::GROUP_MENUS,
-                label: "Turn to each other in dialogue",
+                label: "Turn to Each Other",
                 note: "On: at the start of a conversation the actor turns to the player and the view turns to the actor.",
                 switches: "--no-dialogue-look",
                 get: |w| w.resource::<LookSettings>().enabled,
@@ -308,8 +308,8 @@ impl Plugin for DialogueLookPlugin {
             Setting {
                 key: "dialogue-recentre",
                 group: crate::pause::GROUP_MENUS,
-                label: "Bring the view back when choices appear",
-                note: "On: when choices appear the view returns to the speaker (with the close-up off). Needs \"Turn to each other in dialogue\".",
+                label: "Bring the View Back on Choices",
+                note: "On: when choices appear the view returns to the speaker (with the close-up off). Needs \"Turn to Each Other\".",
                 switches: "--dialogue-recentre",
                 get: |w| w.resource::<LookSettings>().recentre_on_choices,
                 set: |w, on| w.resource_mut::<LookSettings>().recentre_on_choices = on,
@@ -321,7 +321,7 @@ impl Plugin for DialogueLookPlugin {
             Setting {
                 key: "dialogue-zoom",
                 group: crate::pause::GROUP_MENUS,
-                label: "Close in on the speaker in dialogue",
+                label: "Close In on the Speaker",
                 note: "On: in a conversation the view closes in on the speaker, the background out of focus; the mouse moves only the cursor. Off: you can look around.",
                 switches: "--no-dialogue-zoom",
                 get: |w| w.resource::<ZoomSettings>().enabled,

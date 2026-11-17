@@ -264,3 +264,35 @@ in a collision-free fixture. The separate controller-query/gameplay successor,
 baseline failure, native ordering/synthetic input and original Enhanced Movement1.43
 acceptance remain open.
 Contract: [Control input events](spec-notes/control-input-events.md).
+
+### ModelHasBlock published-reference queries
+
+**Partly.** Source-compiled queries use exact names from an available reference
+scene publication, retaining base/cold file fallback and the existing empty-name
+result. A paired CPU run on identical fixtures gave five first-positive-lookup
+assertion failures with accepted runtime at `2b1d5704`, then five passes and zero
+ignored at `f3dc3a14`; 917 integration and four file tests remained filtered.
+The tested candidate runtime blob is
+`d4db1ebd1764d1ac6a6745f43d06cab8de98b467`; this documentation successor
+retains it and the tested fixture blobs. Engine publication/acquisition,
+physical armor changes, native timing/view policy, installed Titans, rendered
+output and full mod compatibility remain unqualified.
+Contract and scope: [ModelHasBlock reference models](spec-notes/nif-player-model-selection.md#modelhasblock-and-published-reference-models).
+
+ModelHasBlock CI follow-up: hosted PR #2827 merge `43776f84` failed before tests
+because shared fixture imports were unresolved in the library's own test crate;
+Core Clippy was skipped. The earlier five target-specific passes remain scoped
+to integration/file consumers. A test-only self-crate alias addresses that
+compilation context without changing runtime or fixture bodies; its compilation,
+execution and hosted core results are pending.
+
+### Live projectile position and source consumers
+
+[design] Canonical SetPos requests on active shots reach actual flight position
+before engine publication. Canonical Shot.source reaches blast causes, settled
+World ownership and visual attribution. Existing velocity, age, travelled distance,
+fuse, collision shooter and resolved-hit policy remain intact. Six authored
+source-to-physical-consumer controls and one internal queue/restore control remain
+UNRUN. Native behavior and original B42 Quickthrow3.1b initialization, input, bones,
+animation, throw/inventory/detonation and full lifecycle acceptance remain open.
+Contract: [Projectile launch/session traits](spec-notes/projectile-launch-session-traits.md).

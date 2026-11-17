@@ -79,20 +79,53 @@ pub fn highlight(node: Node) -> impl Bundle {
     (Node { border: UiRect::all(u(LINE)), ..node }, BorderColor::all(line), BackgroundColor(fill))
 }
 
-/// The fonts of the menus: font 7 for the entries, font 3 for small print.
+/// The fonts of the menus: font 7 for the entries, font 3 for small print; the titles (the
+/// column's entries, the categories, the tab rail) in `title`, font 7 too, bold in the vector
+/// font ([`Faces::sharp`]).
+#[derive(Clone)]
 pub struct Faces {
     pub entry: Face,
+    pub title: Face,
     pub small: Face,
 }
 
 impl Faces {
     pub fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Faces {
-        Faces { entry: face(FONT, plain_font(36.0, 17.0), data, images, bc), small: face(SMALL_FONT, plain_font(24.0, 11.0), data, images, bc) }
+        let entry = face(FONT, plain_font(36.0, 17.0), data, images, bc);
+        Faces { title: entry.clone(), entry, small: face(SMALL_FONT, plain_font(24.0, 11.0), data, images, bc) }
     }
 
     /// Stand-in fonts (tests).
     pub fn plain() -> Faces {
-        Faces { entry: Face { font: plain_font(36.0, 17.0), image: None }, small: Face { font: plain_font(24.0, 11.0), image: None } }
+        let entry = Face { font: plain_font(36.0, 17.0), image: None, vector: None };
+        Faces { title: entry.clone(), entry, small: Face { font: plain_font(24.0, 11.0), image: None, vector: None } }
+    }
+
+    /// These faces in the vector font `font` (`crate::vector_font`, its metrics `m`): the
+    /// entries regular and the titles bold at [`crate::vector_font::ENTRY_EM`], the small
+    /// print at [`crate::vector_font::SMALL_EM`], each line as far apart as its game font's.
+    pub fn sharp(&self, m: &crate::vector_font::Metrics, font: Handle<bevy::text::Font>) -> Faces {
+        use crate::vector_font::{face, BOLD, ENTRY_EM, REGULAR, SMALL_EM};
+        Faces {
+            entry: face(m, font.clone(), ENTRY_EM, REGULAR, self.entry.font.size),
+            title: face(m, font.clone(), ENTRY_EM, BOLD, self.title.font.size),
+            small: face(m, font, SMALL_EM, REGULAR, self.small.font.size),
+        }
+    }
+}
+
+/// Where an entry's words stand in its [`ITEM`]-high line: the game's fonts at [`BASE`]; the
+/// vector font with its capitals in the line's middle (their box hugs them evenly) [design:
+/// owner 2026-11-15, second test: "the selection boxes do not fit well"].
+pub fn entry_base(face: &Face) -> f32 {
+    base_in(face, ITEM)
+}
+
+/// [`entry_base`] in a line `h` high (the game's fonts at [`BASE`]'s share of it).
+pub fn base_in(face: &Face, h: f32) -> f32 {
+    match &face.vector {
+        Some(_) => (h + face.font.glyph(b'H').ascent) / 2.0,
+        None => h * BASE / ITEM,
     }
 }
 

@@ -28,12 +28,19 @@
 //! held cascade for up to three frames. Test aid `NVF_PLAY_TEST_SHADOW_STAGGER=0` draws
 //! every cascade every frame.
 //!
+//! A held cascade is kept as the sun's cascades stand after they are snapped to a grid
+//! anchored near the camera and stretched toward the sun (shadow_anchor.rs
+//! `cascade_edits`, which schedules [`hold_cascades`] after those two), so it is given back
+//! exactly as its map was drawn. Without the anchoring the sun light's turn with the clock
+//! made the shadows shimmer, strongest on the frames a held cascade is drawn again
+//! (docs/design/frame-rate-audit.md §11).
+//!
 //! What it costs and saves: docs/design/frame-rate-audit.md §9 and §10.
 
 use crate::fly::FlyCam;
 use crate::sky::SkyState;
 use bevy::ecs::entity::EntityHashMap;
-use bevy::light::{Cascades, DirectionalLight, DirectionalLightShadowMap, NotShadowCaster, SimulationLightSystems};
+use bevy::light::{Cascades, DirectionalLight, DirectionalLightShadowMap, NotShadowCaster};
 use bevy::pbr::HoldDirectionalShadowMaps;
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResourcePlugin;
@@ -211,12 +218,21 @@ fn staggered() -> bool {
 /// The cascades not drawn this frame ([`PERFORMANCE_SCHEDULE`], [`STAGGERED_SCHEDULE`]): give
 /// the directional lights back those cascades as the frame that drew them had them, and
 /// have the renderer keep their maps (module notes). Runs after Bevy has built this
-/// frame's cascades and before it fits the lights' frusta to them.
-fn hold_cascades(
+/// frame's cascades, after they are anchored and stretched toward the sun, and before Bevy
+/// fits the lights' frusta to them (shadow_anchor.rs `cascade_edits` schedules it).
+///
+/// Only lights casting shadows count. Bevy does not rebuild the cascades of a light casting
+/// none, and draws no maps for it: nothing of it is kept or given back, so the first frame
+/// it casts again (Sun shadows switched back on, the sun or moon past the horizon's fade)
+/// finds nothing kept for it and draws every cascade. (Before, a light casting no shadows
+/// was kept and given back like the others; when it cast again with the same layout a held
+/// frame gave it the cascades of the frame its shadows went off, read against maps drawn
+/// before then, or, with a new shadow texture, drawn with those stale matrices.)
+pub(crate) fn hold_cascades(
     on: Res<PerformanceShadows>,
     map: Option<Res<DirectionalLightShadowMap>>,
     mut hold: ResMut<HoldDirectionalShadowMaps>,
-    mut lights: Query<(Entity, &mut Cascades), With<DirectionalLight>>,
+    mut all_lights: Query<(Entity, &DirectionalLight, &mut Cascades)>,
     mut kept: Local<EntityHashMap<Cascades>>,
     mut frame: Local<u64>,
     mut said: Local<Option<bool>>,
@@ -229,20 +245,28 @@ fn hold_cascades(
     } else {
         &[]
     };
+    let lights: Vec<(Entity, &Cascades)> = all_lights.iter().filter(|(_, l, _)| l.shadow_maps_enabled).map(|(e, _, c)| (e, c)).collect();
     let count = lights.iter().flat_map(|(_, c)| c.cascades.values().map(Vec::len)).max().unwrap_or(0);
     // A new map size makes new maps: nothing to keep.
     let same_maps = !map.is_some_and(|m| m.is_changed());
     let mut mask = held_mask(schedule, *frame, count);
-    if mask != 0 && !(same_maps && same_layout(&kept, &lights.iter().collect::<Vec<_>>())) {
+    if mask != 0 && !(same_maps && same_layout(&kept, &lights)) {
         mask = 0;
     }
     if mask == 0 {
         kept.clear();
         if !schedule.is_empty() {
-            kept.extend(lights.iter().map(|(e, c)| (e, c.clone())));
+            kept.extend(lights.iter().map(|(e, c)| (*e, (*c).clone())));
         }
     } else {
-        for (light, mut cascades) in &mut lights {
+        // A light that stopped casting while another casts on: forget what it kept.
+        if kept.len() != lights.len() {
+            kept.retain(|e, _| lights.iter().any(|(l, _)| l == e));
+        }
+        for (light, directional, mut cascades) in &mut all_lights {
+            if !directional.shadow_maps_enabled {
+                continue;
+            }
             let Some(k) = kept.get_mut(&light) else { continue };
             for (view, list) in cascades.cascades.iter_mut() {
                 let Some(kl) = k.cascades.get_mut(view) else { continue };
@@ -285,10 +309,8 @@ impl Plugin for ShadowRatePlugin {
             .insert_resource(CascadesBeforePerformance(self.performance.then_some(crate::sky::DEFAULT_SHADOW_CASCADES)))
             .init_resource::<HoldDirectionalShadowMaps>()
             .add_plugins(ExtractResourcePlugin::<HoldDirectionalShadowMaps>::default())
-            .add_systems(
-                PostUpdate,
-                hold_cascades.after(SimulationLightSystems::UpdateDirectionalLightCascades).before(SimulationLightSystems::UpdateLightFrusta),
-            )
+            // `hold_cascades` runs with the other edits of the cascades, in their order
+            // (shadow_anchor.rs `cascade_edits`).
             .add_systems(Update, far_trees_cast_no_shadow);
     }
 }
@@ -351,6 +373,44 @@ mod tests {
         // More cascades than the schedule: those are drawn every frame.
         assert_eq!(held_mask(&PERFORMANCE_SCHEDULE, 1, 3), 0b011);
         assert_eq!(held_mask(&[], 1, 3), 0);
+    }
+
+    /// A light casting no shadows is neither kept nor given back, and the first frame it
+    /// casts again draws every cascade, whatever the frame's place in the schedule.
+    #[test]
+    fn a_light_casting_again_draws_every_cascade_first() {
+        let mut world = World::new();
+        world.insert_resource(PerformanceShadows(true));
+        world.init_resource::<HoldDirectionalShadowMaps>();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(hold_cascades);
+        let view = world.spawn_empty().id();
+        let sun = world.spawn(DirectionalLight { shadow_maps_enabled: true, ..default() }).id();
+        // Frame `k`'s cascades, told apart by their texel size.
+        let built = |k: f32| {
+            let mut c = Cascades::default();
+            c.cascades.insert(view, vec![Cascade { texel_size: k, ..default() }; 2]);
+            c
+        };
+        let mut run = |world: &mut World, k: u32, casting: bool| {
+            world.get_mut::<DirectionalLight>(sun).unwrap().shadow_maps_enabled = casting;
+            world.entity_mut(sun).insert(built(k as f32));
+            schedule.run(world);
+            let texels: Vec<f32> = world.get::<Cascades>(sun).unwrap().cascades[&view].iter().map(|c| c.texel_size).collect();
+            (world.resource::<HoldDirectionalShadowMaps>().0, texels)
+        };
+        // Performance: frame 1 draws (nothing kept yet), 2 draws, 3 holds both.
+        assert_eq!(run(&mut world, 1, true), (0, vec![1.0, 1.0]));
+        assert_eq!(run(&mut world, 2, true), (0, vec![2.0, 2.0]));
+        assert_eq!(run(&mut world, 3, true), (0b11, vec![2.0, 2.0]));
+        // Shadows off: its cascades left alone, nothing held, on held frames too.
+        for k in 4..=6 {
+            assert_eq!(run(&mut world, k, false), (0, vec![k as f32; 2]), "frame {k}");
+        }
+        // Casting again on a frame that would hold: drawn, then held as usual.
+        assert_eq!(run(&mut world, 7, true), (0, vec![7.0, 7.0]));
+        assert_eq!(run(&mut world, 8, true), (0, vec![8.0, 8.0]));
+        assert_eq!(run(&mut world, 9, true), (0b11, vec![8.0, 8.0]));
     }
 
     #[test]

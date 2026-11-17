@@ -1,10 +1,12 @@
 //! Independent menu scale, retaining the effective legacy UI size on migration.
 //! Policy and limits: docs/spec-notes/hud-menu-scale.md (#2519).
-use crate::settings::{self, Setting, Slider};
+use crate::settings::{self, Setting};
 use bevy::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const KEY: &str = "menu-scale";
+/// The older slider's choices (50% to 100% in 5% steps), as an INI may still keep its part.
+#[cfg(test)]
 const CHOICES: usize = 11;
 static DRAW_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
 
@@ -41,16 +43,43 @@ fn legacy_menu(value: &str) -> Vec<(&'static str, String)> {
 
 pub fn register(app: &mut App, group: &'static str) {
     app.init_resource::<MenuScale>();
-    settings::add_setting(app, Setting::slider(
-        KEY, group, "Menu scale",
-        "Size of the main, pause and other menus, independent of HUD scale. Takes effect at the next start.",
-        Slider::choice(CHOICES, |w| part(w.resource::<MenuScale>().0), |w, v| w.resource_mut::<MenuScale>().0 = of_part(v), |v| format!("{:.0}%", of_part(v) * 100.0)),
-    ));
+    // A list of 50% to 100% in steps of 10% [design: the menu overhaul, owner 2026-11-15];
+    // an older slider's part (and the older ui-scale's split) loads as the choice nearest it.
+    settings::add_choice_list(
+        app,
+        Setting { key: KEY, group, label: "Menu scale", note: "Size of the main, pause and other menus, independent of HUD scale. Takes effect at the next start.", switches: "", get: |_| false, set: |_, _| {}, slider: None },
+        settings::ChoiceList {
+            names: |_| list_names(),
+            chosen: |w| list_names()[settings::nearest(&LIST, w.resource::<MenuScale>().0)].clone(),
+            pick: take,
+            save: |w| list_names()[settings::nearest(&LIST, w.resource::<MenuScale>().0)].clone(),
+            load: take,
+            ask_keep: false,
+        },
+    );
     // Synthesize only the missing menu value before ordinary settings loading.
     // store() writes both registered rows on any edit, freezing this initial value
     // even when the player changes only the HUD. An explicit menu key always wins.
     settings::set_older_key(app, KEY, "ui-scale");
     settings::set_older_split(app, "ui-scale", legacy_menu);
+}
+
+/// The Menu Scale row's choices [design: the menu overhaul].
+const LIST: [f32; 6] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+fn list_names() -> Vec<String> {
+    LIST.iter().map(|s| format!("{:.0}%", s * 100.0)).collect()
+}
+
+/// The menu scale `text` names (or an older slider's part stands for).
+fn take(w: &mut World, text: &str) -> bool {
+    match settings::choice_of(text, &list_names(), |v| settings::nearest(&LIST, of_part(v))) {
+        Some(i) => {
+            w.resource_mut::<MenuScale>().0 = LIST[i];
+            true
+        }
+        None => false,
+    }
 }
 
 pub(crate) fn publish(scale: f32) { DRAW_SCALE.store(fit(scale).to_bits(), Ordering::Relaxed); }

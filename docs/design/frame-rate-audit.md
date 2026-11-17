@@ -1126,7 +1126,8 @@ cascade keeps its map and the matrices of the frame that drew it
 5.78 → 5.42 ms, Novac 7.02 → 6.34, Primm 6.70 → 6.21. Screenshots against every frame:
 0.26 % and 0.61 % of pixels over 24/255 at Goodsprings and Novac (two runs drawing every
 frame: 0.20 % and 0.42 %; NPCs' shadows move). Performance keeps its schedule, both
-cascades every other frame.
+cascades every other frame. What a held cascade did to the shadows' shimmer under the
+sun's turn, and the fix: §11.
 
 A cache of static casters (#2063's proposal) was prototyped and measured, and not adopted
 [observed 2026-11-10, branch `perf/shadow-cache-prototype`, commit 056695cf3]: cascades
@@ -1156,3 +1157,44 @@ The owner's settings (SMAA, Sun shadows on Performance), the branch before these
 
 Every outdoor scene measured but the Strip (unchanged within noise) is now over 175 a
 second, Primm over 180.
+
+## 11. Shadow shimmer under a turning sun (#2833, 2026-11-16)
+
+Players reported the sun's shadows shimmering while they stood still. Bevy places each
+cascade (`bevy_light` `calculate_cascade`) on a grid of whole texels in the light's axes,
+so that the edges stand still while the camera moves under a still light; that grid runs
+through the world's origin. The sun light turns a little every frame with the clock (sky.rs
+`aim_sun`, `SkyState::sun_light_hour`), and a turn of `dθ` slides the grid under a camera
+`d` units from the origin by `d × dθ`: about 2.5 units, four texels of the nearest
+cascade, a frame at 70,000 units out with a game day of 48 minutes. Every frame then
+samples every edge at a new fraction of a texel. The staggered schedule (§10) turns this
+into a pulse: a held cascade keeps the matrices it was drawn with and stands still, and
+changes all at once on the frame it is drawn again.
+
+The fix (nvforever shadow_anchor.rs) [engineering choice]: after Bevy builds the cascades,
+each cascade of the sun and of the arms' shade light is moved across the light by at most
+about a texel, toward the middle of its slice, onto a grid through an anchor near the
+cascade's middle. The anchor stays put until the cascade's middle is more than 512 texels
+from it on some world axis (up to about 887 texels in a straight line) and then moves by
+whole texels in the light's axes. The grid then slides by the distance from the anchor
+times `dθ`: at most about 0.03 texel a frame at the cascade's middle and 0.07 at its edge,
+against several texels a frame on the origin's grid.
+Then the cascades are stretched toward the sun and the held ones given back, in that order
+(shadow_anchor.rs `cascade_edits`). Test aid `NVF_PLAY_TEST_SHADOW_ANCHOR=0` leaves the grid
+through the origin.
+
+[observed 2026-11-16: Goodsprings' start view standing still, 1280 × 720, vertical sync
+at 60 Hz, `--no-actors --no-grass`; the mean change of luma (of 255) between consecutive
+frames over the ground and the house]
+
+| Sun shadows, hour | Grid through the origin | Anchored |
+|---|---|---|
+| Quality, 09:00 | 0.02 / 0.10 alternating (0.10 on the frames the middle cascade is drawn; 0.10 every frame with `NVF_PLAY_TEST_SHADOW_STAGGER=0`) | 0.01, staggered or not |
+| Quality, 09:00, the sun light held still | 0.02-0.03 | |
+| Quality, 07:00 | 0.114 | 0.012 |
+| Performance, 07:00 | 0.25 / 0.00 alternating (0.127) | 0.013 |
+
+Anchored, about 90 % of the change between frames is gone, below what is left with the
+light held still on the origin's grid; the pulse at half the frame rate is gone with it.
+The anchoring is a few matrices per cascade a frame; its frame time was not measured
+separately.

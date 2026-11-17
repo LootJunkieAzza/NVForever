@@ -1067,13 +1067,14 @@ pub(crate) fn dlss_pass(
 /// defaults, with `WgpuSettings::adapter_name` set to the checked NVIDIA GPU when the loader
 /// pinned one. Without a pin it is `RenderPlugin::default()`. `main` sets it on
 /// `DefaultPlugins`, after [`DlssInitPlugin`] has run.
+///
+/// Both carry the GPU allocator's block sizes for this machine's GPU budget
+/// (memory_budget.rs, #2754).
 pub fn render_plugin() -> bevy::render::RenderPlugin {
     let adapter_name = adapter_pin();
-    if adapter_name.is_none() {
-        return bevy::render::RenderPlugin::default();
-    }
+    let memory_hints = crate::memory_budget::hints_at_start();
     bevy::render::RenderPlugin {
-        render_creation: bevy::render::settings::WgpuSettings { adapter_name, ..default() }.into(),
+        render_creation: bevy::render::settings::WgpuSettings { adapter_name, memory_hints, ..default() }.into(),
         ..default()
     }
 }

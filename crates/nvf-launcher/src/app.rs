@@ -1,11 +1,12 @@
 //! The launcher's window: Home (news), Settings, Mods and Game folder pages beside a bar
 //! that starts the game.
 
-use crate::catalog::{self, Kind, Row};
+use crate::catalog::{self, Catalog, Kind, Row};
 use crate::launch::{self, Start};
 use crate::news::{self, Post, Source};
 use crate::theme::{self, BAD, CARD, GOLD, GOOD, LINE, WEAK};
 use crate::update::{self, Msg, Phase};
+use nvf_settings_layout::menu;
 use eframe::egui::{self, load::Bytes, Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, Sense, Stroke, Vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use fnv_install::{guard_write, ini_get, ini_pairs, ini_set, plugins, write_whole, Config, EngineHome, GameInstall};
@@ -75,8 +76,10 @@ pub struct App {
     ini_text: String,
     message: Option<(String, bool)>,
     // Settings.
+    /// The game's settings menu (src/catalog.rs): its rows, its tabs' names and the words shown.
     rows: Vec<Row>,
     tabs: Vec<String>,
+    tab_labels: Vec<String>,
     tab: usize,
     words: HashMap<&'static str, &'static [&'static str]>,
     lists: HashMap<&'static str, &'static [&'static str]>,
@@ -134,14 +137,15 @@ impl App {
             cc.egui_ctx.set_zoom_factor(z);
         }
         let home = EngineHome::user();
-        let rows = catalog::rows();
+        let menu = Catalog::load(home.as_ref().map(EngineHome::config_file).as_deref());
         let mut app = App {
             page: Page::Home,
             home,
             ini_text: String::new(),
             message: None,
-            tabs: catalog::tabs(&rows),
-            rows,
+            tabs: menu.tab_names(),
+            tab_labels: menu.tabs.iter().map(|(_, l)| l.clone()).collect(),
+            rows: menu.rows,
             tab: 0,
             words: catalog::step_words(),
             lists: catalog::list_choices(),
@@ -200,8 +204,7 @@ impl App {
             // `settings:<tab>`: that tab of the Settings page.
             Ok(p) if p.starts_with("settings:") => {
                 let tab = &p["settings:".len()..];
-                // "other": the tab after the listed ones (the keys the reference does not list).
-                app.tab = app.tabs.iter().position(|t| t.eq_ignore_ascii_case(tab)).unwrap_or(if tab.eq_ignore_ascii_case("other") { app.tabs.len() } else { 0 });
+                app.tab = app.tabs.iter().position(|t| t.eq_ignore_ascii_case(tab)).unwrap_or(0);
                 Page::Settings
             }
             _ => Page::Home,
@@ -272,6 +275,14 @@ impl App {
         self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         self.stored = ini_pairs(&self.ini_text, "Settings").into_iter().collect();
         self.edits.clear();
+        // The game writes its menu at each start (src/catalog.rs): the page follows it, on the
+        // same tab.
+        let menu = Catalog::load(self.ini_path().as_deref());
+        let on = self.tabs.get(self.tab).cloned();
+        self.tabs = menu.tab_names();
+        self.tab_labels = menu.tabs.iter().map(|(_, l)| l.clone()).collect();
+        self.rows = menu.rows;
+        self.tab = on.and_then(|on| self.tabs.iter().position(|t| *t == on)).unwrap_or(0);
         self.game_edit = Config::from_ini(&self.ini_text).game_dir.map(|p| p.display().to_string()).unwrap_or_default();
         let configured = ini_get(&self.ini_text, LAUNCHER, "Exe").filter(|s| !s.is_empty()).map(PathBuf::from);
         self.exe = launch::find_game(configured.as_deref());
@@ -735,6 +746,77 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     resp
 }
 
+/// Whether `rule` holds for its row's INI value `value` (its choice's name `name`), the row
+/// of kind `kind` (`None`: built in, by the value).
+fn rule_holds(rule: &menu::Rule, kind: Option<&menu::Kind>, value: &str, name: &str) -> bool {
+    if !rule.choices.is_empty() {
+        return rule.choices.iter().any(|c| c.eq_ignore_ascii_case(name));
+    }
+    match kind {
+        Some(menu::Kind::List { choices }) => choices.first().is_none_or(|c| c.name != name),
+        Some(menu::Kind::Slider { .. }) => value.parse::<f32>().is_ok_and(|v| v >= 0.5),
+        // A switch, or a row with no kind (built in): off as `0`, a list's Off, or no value.
+        _ => !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("off")),
+    }
+}
+
+/// Whether the INI's value `v` is one the game's row kind `kind` takes (else the page goes by
+/// the value, as for a row with no kind).
+fn menu_fits(kind: &menu::Kind, v: &str) -> bool {
+    match kind {
+        menu::Kind::Switch => matches!(v.trim(), "0" | "1"),
+        menu::Kind::Slider { .. } => v.trim().parse::<f32>().is_ok(),
+        menu::Kind::List { choices } => choices.iter().any(|c| c.name == v),
+    }
+}
+
+/// The control for a row of kind `kind` (the game's menu file, src/catalog.rs), drawn as the
+/// page draws the other rows; the new value when it changed.
+fn menu_control(ui: &mut egui::Ui, key: &str, kind: &menu::Kind, v: &str, control_w: f32) -> Option<String> {
+    match kind {
+        menu::Kind::Switch => {
+            let mut on = v.trim() == "1";
+            toggle(ui, &mut on).changed().then(|| if on { "1" } else { "0" }.to_string())
+        }
+        menu::Kind::Slider { min, step, steps } => {
+            // A part of 0..1 whatever the file says (a hand edit, a broken write).
+            let min = &if min.is_finite() { min.clamp(0.0, 1.0) } else { 0.0 };
+            let mut f: f32 = v.trim().parse().unwrap_or(*min);
+            // No egui steps: egui counts them from the range's start, the game from 0
+            // (`Slider::fit`), so a value of the game's would move by being drawn. A value the
+            // player moves is fitted as the game fits it; one drawn stays as the INI has it.
+            let s = egui::Slider::new(&mut f, *min..=1.0).clamping(egui::SliderClamping::Edits);
+            let s = if steps.is_empty() {
+                s.custom_formatter(|x, _| format!("{:.0}%", x * 100.0)).custom_parser(|s| s.trim().trim_end_matches('%').parse::<f64>().ok().map(|x| x / 100.0))
+            } else {
+                let steps = steps.clone();
+                s.custom_formatter(move |x, _| menu::Step::nearest(&steps, x as f32).unwrap_or_default().to_string())
+            };
+            ui.add_sized([control_w, 20.0], s).changed().then(|| part_text(game_fit(f, *min, *step)))
+        }
+        menu::Kind::List { choices } => {
+            let shown = choices.iter().find(|c| c.name == v).map_or(v.to_string(), |c| c.label.clone());
+            let mut picked = None;
+            egui::ComboBox::from_id_salt(key).width(control_w - 8.0).selected_text(shown).show_ui(ui, |ui| {
+                for c in choices {
+                    if ui.selectable_label(c.name == v, &c.label).clicked() && c.name != v {
+                        picked = Some(c.name.clone());
+                    }
+                }
+            });
+            picked
+        }
+    }
+}
+
+/// `v` brought into `min..=1` and onto a step of `step` from 0, to the thousandth, as the game
+/// fits a slider's value (engine/nvf-play/src/settings.rs, `Slider::fit`).
+fn game_fit(v: f32, min: f32, step: f32) -> f32 {
+    let step = step.max(1e-3);
+    let v = (v.clamp(min, 1.0) / step).round() * step;
+    ((v * 1000.0).round() / 1000.0).clamp(min, 1.0)
+}
+
 /// A slider part (`0.50`) as the INI keeps it: to the thousandth, at least two places.
 fn part_text(v: f32) -> String {
     let s = format!("{:.3}", v.clamp(0.0, 1.0));
@@ -862,12 +944,7 @@ impl App {
                 .color(WEAK),
         );
         ui.horizontal_wrapped(|ui| {
-            let mut tabs = self.tabs.clone();
-            let others = self.other_keys();
-            if !others.is_empty() {
-                tabs.push("Other".into());
-            }
-            for (i, t) in tabs.iter().enumerate() {
+            for (i, t) in self.tab_labels.clone().iter().enumerate() {
                 let on = self.tab == i;
                 let b = egui::Button::new(RichText::new(t).strong().color(if on { theme::ON_GOLD } else { theme::TEXT })).fill(if on { GOLD } else { Color32::TRANSPARENT }).stroke(Stroke::NONE);
                 if ui.add(b).clicked() {
@@ -879,54 +956,60 @@ impl App {
         let tab = self.tabs.get(self.tab).cloned();
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            match tab {
-                Some(tab) => {
-                    if tab == "Graphics" {
-                        self.dlss_card(ui);
-                    }
-                    let rows: Vec<Row> = self.rows.iter().filter(|r| r.tab == tab).cloned().collect();
-                    let mut heading: Option<Option<String>> = None;
-                    for r in rows {
-                        if let Some(colour) = crate::display::colour_of_part(&r.key) {
-                            if !self.current(colour).is_some_and(|c| c.eq_ignore_ascii_case(crate::display::CUSTOM)) {
-                                continue;
-                            }
-                        }
-                        if heading.as_ref() != Some(&r.heading) {
-                            if let Some(h) = &r.heading {
-                                ui.add_space(8.0);
-                                ui.label(RichText::new(h.to_uppercase()).small().strong().color(theme::GOLD_TEXT));
-                            }
-                            heading = Some(r.heading.clone());
-                        }
-                        self.setting_row(ui, &r.key, &r.label, &r.note);
-                    }
+            if let Some(tab) = tab {
+                if tab == "Graphics" {
+                    self.dlss_card(ui);
                 }
-                None => {
-                    for k in self.other_keys() {
-                        self.setting_row(ui, &k, &k, "");
+                // A row with no words built in (a Tweaks row before the game wrote its menu) only
+                // while the INI holds it.
+                let rows: Vec<Row> = self.rows.iter().filter(|r| r.tab == tab && (!r.unlisted || self.stored.contains_key(&r.key))).cloned().collect();
+                let mut heading: Option<Option<String>> = None;
+                let mut hidden_by: Vec<menu::Rule> = Vec::new();
+                for r in rows {
+                    // The game's rules: hidden while the row it goes with is not on its
+                    // choice, greyed (with the game's reason) while a row it needs is off.
+                    if let Some(rule) = r.shown_with.as_ref().filter(|rule| !self.holds(rule)) {
+                        if !hidden_by.contains(rule) {
+                            hidden_by.push(rule.clone());
+                        }
+                        continue;
                     }
+                    let greyed = r.needs.iter().find(|rule| !self.holds(rule)).map(|rule| rule.why.clone());
+                    if let Some(colour) = crate::display::colour_of_part(&r.key) {
+                        if !self.current(colour).is_some_and(|c| c.eq_ignore_ascii_case(crate::display::CUSTOM)) {
+                            continue;
+                        }
+                    }
+                    if heading.as_ref() != Some(&r.heading) {
+                        if let Some(h) = &r.heading {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(h.to_uppercase()).small().strong().color(theme::GOLD_TEXT));
+                        }
+                        heading = Some(r.heading.clone());
+                    }
+                    self.setting_row(ui, &r.key, &r.label, &r.note, r.kind.as_ref(), greyed.as_deref());
+                }
+                // Every row of the tab hidden (the Controls tab with keyboard and mouse):
+                // what shows them, not an empty page.
+                if heading.is_none() && !hidden_by.is_empty() {
+                    let with: Vec<String> = hidden_by.iter().map(|rule| format!("{}: {}", self.row_label(&rule.parent), rule.choices.join(" or "))).collect();
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(format!("The game shows this tab's rows here with {}.", with.join("; "))).small().color(WEAK));
                 }
             }
         });
     }
 
-    /// `[Settings]` keys the reference does not list (rows of a later build, the editor's).
-    fn other_keys(&self) -> Vec<String> {
-        self.stored
-            .keys()
-            .filter(|k| !self.rows.iter().any(|r| &r.key == *k))
-            .filter(|k| crate::display::superseded_by(k).is_none_or(|newer| !self.stored.contains_key(newer)))
-            .cloned()
-            .collect()
-    }
-
-    fn setting_row(&mut self, ui: &mut egui::Ui, key: &str, label: &str, note: &str) {
+    fn setting_row(&mut self, ui: &mut egui::Ui, key: &str, label: &str, note: &str, kind: Option<&menu::Kind>, greyed: Option<&str>) {
         let stored = self.stored.get(key).cloned();
         let value = self.edits.get(key).cloned().or_else(|| stored.clone());
         Frame::new().fill(CARD).corner_radius(4).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
+                // Greyed as the game greys it: shown, its value kept, not changed here.
+                if greyed.is_some() {
+                    ui.disable();
+                }
                 let control_w = 260.0;
                 // Resolution's two lists carry their names to the left: room for them.
                 let column_w = if key == "resolution" { control_w + 90.0 } else { control_w };
@@ -936,6 +1019,9 @@ impl App {
                     ui.label(RichText::new(if changed { format!("{label}  •") } else { label.to_string() }).strong().color(if changed { GOLD } else { theme::TEXT }));
                     if !note.is_empty() {
                         ui.label(RichText::new(note).small().color(WEAK));
+                    }
+                    if let Some(why) = greyed {
+                        ui.label(RichText::new(format!("Greyed out: {why}")).small().color(WEAK));
                     }
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -961,6 +1047,11 @@ impl App {
                     }
                     let new = if key == "resolution" {
                         self.resolution_control(ui, &v, control_w)
+                    } else if let Some(kind) = kind.filter(|k| menu_fits(k, &v)) {
+                        // The game's own row (its menu file) whenever the INI's value is one it
+                        // takes: before the launcher's lists below, which are copies that can
+                        // drift (Frame Rate Limit became a list of names in the overhaul).
+                        menu_control(ui, key, kind, &v, control_w)
                     } else if let Some(choices) = self.display_choices(key) {
                         let at = crate::display::chosen(key, &choices, &v);
                         let shown = at.map_or(v.clone(), |i| choices[i].label.clone());
@@ -1224,6 +1315,33 @@ impl App {
     /// The value of `key` as the page shows it now: an unsaved change, else the INI's.
     fn current(&self, key: &str) -> Option<String> {
         self.edits.get(key).or_else(|| self.stored.get(key)).cloned()
+    }
+
+    /// The words the page shows for row `key` (the Input Device row by its own name).
+    fn row_label(&self, key: &str) -> String {
+        if key == nvf_settings_layout::DEVICE_ROW {
+            return "Input Device".into();
+        }
+        self.rows.iter().find(|r| r.key == key).map_or(key.to_string(), |r| r.label.clone())
+    }
+
+    /// Whether the game's rule `rule` holds for the values on the page now (the INI's, or the
+    /// changes not saved yet): its row on, or on one of its choices. As the game: a switch on,
+    /// a list past its first choice; the input device from `[Controls]`.
+    fn holds(&self, rule: &menu::Rule) -> bool {
+        let value = if rule.parent == nvf_settings_layout::DEVICE_ROW {
+            ini_get(&self.ini_text, "Controls", "Input Device").unwrap_or_default()
+        } else {
+            self.current(&rule.parent).unwrap_or_default()
+        };
+        let kind = self.rows.iter().find(|r| r.key == rule.parent).and_then(|r| r.kind.as_ref());
+        // The choice's name: the INI keeps some lists by another word (frame generation
+        // `dlss`), which the launcher's own list names.
+        let name = match kind {
+            Some(menu::Kind::List { choices }) if choices.iter().any(|c| c.name == value) => value.clone(),
+            _ => self.display_choices(&rule.parent).and_then(|l| l.into_iter().find(|c| c.stored == value)).map_or(value.clone(), |c| c.label),
+        };
+        rule_holds(rule, kind, value.trim(), name.trim())
     }
 
     /// The list for a Display row the game keeps as a choice (src/display.rs); `None` for
@@ -1841,6 +1959,222 @@ mod tests {
         assert_eq!(part_text(1.0 / 3.0), "0.333");
         assert_eq!(part_text(1.2), "1.00");
         assert_eq!(part_text(0.25), "0.25");
+    }
+
+    /// The launcher's controls drawn with no window (egui headless), the pointer driven by
+    /// events as a player's mouse would: what each frame's control returned and where its
+    /// words were drawn.
+    struct Headless {
+        ctx: egui::Context,
+        time: f64,
+    }
+
+    type Words = Vec<(String, egui::Pos2)>;
+
+    impl Headless {
+        fn new() -> Headless {
+            Headless { ctx: egui::Context::default(), time: 0.0 }
+        }
+
+        /// One frame with `events`: the control's answer and the frame's words with their middles.
+        fn frame(&mut self, events: Vec<egui::Event>, kind: &menu::Kind, v: &str) -> (Option<String>, Words) {
+            self.time += 0.1;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 600.0))),
+                time: Some(self.time),
+                focused: true,
+                events,
+                ..Default::default()
+            };
+            let mut got = None;
+            let out = self.ctx.run_ui(input, |ui| got = menu_control(ui, "row", kind, v, 260.0));
+            let mut words = Vec::new();
+            for c in &out.shapes {
+                collect_words(&c.shape, &mut words);
+            }
+            out.drop_without_applying_deltas();
+            (got, words)
+        }
+
+        /// Frames with no input until the layout settles; every answer they gave.
+        fn idle(&mut self, kind: &menu::Kind, v: &str) -> Vec<String> {
+            (0..3).filter_map(|_| self.frame(Vec::new(), kind, v).0).collect()
+        }
+
+        /// A press at `from`, a move to `to`, a release: every answer on the way.
+        fn drag(&mut self, kind: &menu::Kind, v: &str, from: egui::Pos2, to: egui::Pos2) -> Vec<String> {
+            let press = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            let steps = [
+                vec![egui::Event::PointerMoved(from)],
+                vec![press(from, true)],
+                vec![egui::Event::PointerMoved(from.lerp(to, 0.5))],
+                vec![egui::Event::PointerMoved(to)],
+                vec![press(to, false)],
+                vec![],
+            ];
+            steps.into_iter().filter_map(|e| self.frame(e, kind, v).0).collect()
+        }
+
+        fn click(&mut self, kind: &menu::Kind, v: &str, at: egui::Pos2) -> Vec<String> {
+            self.drag(kind, v, at, at)
+        }
+
+        /// The middle of the words `w` as drawn now.
+        fn find(&mut self, kind: &menu::Kind, v: &str, w: &str) -> egui::Pos2 {
+            let (_, words) = self.frame(Vec::new(), kind, v);
+            words.iter().filter(|(t, _)| t == w).map(|(_, p)| *p).max_by(|a, b| a.y.total_cmp(&b.y)).unwrap_or_else(|| panic!("{w:?} not drawn: {words:?}"))
+        }
+    }
+
+    fn collect_words(s: &egui::Shape, out: &mut Words) {
+        match s {
+            egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.pos + t.galley.rect.center().to_vec2())),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| collect_words(s, out)),
+            _ => {}
+        }
+    }
+
+    fn slider(min: f32, step: f32, words: &[&str]) -> menu::Kind {
+        let steps = words.iter().enumerate().map(|(i, w)| menu::Step { value: min + i as f32 * step, label: w.to_string() }).collect();
+        menu::Kind::Slider { min, step, steps }
+    }
+
+    fn kill_camera() -> menu::Kind {
+        let c = |name: &str, label: &str| menu::Choice { name: name.into(), label: label.into() };
+        menu::Kind::List { choices: vec![c("Last enemy", "Last Enemy"), c("Every kill", "Every Kill"), c("Off", "Off")] }
+    }
+
+    /// Opening a tab changes nothing: no row's control answers without the player.
+    #[test]
+    fn a_drawn_row_changes_nothing() {
+        let cases = [
+            (menu::Kind::Switch, "1"),
+            (menu::Kind::Switch, "0"),
+            // Off the slider's own grid but on the game's (steps from 0): the bug of ee6450871.
+            (menu::Kind::Slider { min: 0.1, step: 0.05, steps: vec![] }, "0.35"),
+            (menu::Kind::Slider { min: 0.05, step: 1.0 / 30.0, steps: vec![] }, "0.333"),
+            // Out of the range (an older build's value): kept, not clamped by drawing it.
+            (menu::Kind::Slider { min: 0.2, step: 0.1, steps: vec![] }, "0.10"),
+            (menu::Kind::Slider { min: 0.0, step: 0.1, steps: vec![] }, "1.50"),
+            (slider(0.0, 0.25, &["Very Easy", "Easy", "Normal", "Hard", "Very Hard"]), "0.75"),
+            (kill_camera(), "Last enemy"),
+        ];
+        for (kind, v) in cases {
+            assert_eq!(Headless::new().idle(&kind, v), Vec::<String>::new(), "{kind:?} at {v}");
+        }
+    }
+
+    #[test]
+    fn a_slider_dragged_to_its_ends_is_the_games_first_and_last_value() {
+        let kind = menu::Kind::Slider { min: 0.1, step: 0.05, steps: vec![] };
+        let rail = egui::Pos2::new(20.0, 10.0);
+        let mut h = Headless::new();
+        h.idle(&kind, "0.35");
+        assert_eq!(h.drag(&kind, "0.35", rail, egui::Pos2::new(2000.0, 10.0)).last().map(String::as_str), Some("1.00"));
+        let mut h = Headless::new();
+        h.idle(&kind, "0.35");
+        assert_eq!(h.drag(&kind, "0.35", rail, egui::Pos2::new(-500.0, 10.0)).last().map(String::as_str), Some("0.10"), "its start, not 0");
+        // Moved part of the way: onto a step of the game's (from 0), to the thousandth.
+        let mut h = Headless::new();
+        h.idle(&kind, "0.35");
+        let got = h.drag(&kind, "0.35", rail, egui::Pos2::new(63.0, 10.0));
+        let last = got.last().expect("moved");
+        let v: f32 = last.parse().unwrap();
+        assert!((0.1..=1.0).contains(&v) && ((v / 0.05).round() * 0.05 - v).abs() < 1e-4, "{last} is not on a step of 0.05");
+    }
+
+    #[test]
+    fn a_slider_shows_the_games_words_for_its_steps() {
+        let kind = slider(0.0, 0.25, &["Very Easy", "Easy", "Normal", "Hard", "Very Hard"]);
+        let mut h = Headless::new();
+        h.idle(&kind, "0.75");
+        h.find(&kind, "0.75", "Hard");
+        let got = h.drag(&kind, "0.75", egui::Pos2::new(20.0, 10.0), egui::Pos2::new(-500.0, 10.0));
+        assert_eq!(got.last().map(String::as_str), Some("0.00"));
+        h.find(&kind, "0.00", "Very Easy");
+    }
+
+    #[test]
+    fn a_list_shows_the_games_words_and_keeps_the_choices_name() {
+        let kind = kill_camera();
+        let mut h = Headless::new();
+        h.idle(&kind, "Last enemy");
+        let shown = h.find(&kind, "Last enemy", "Last Enemy");
+        assert!(h.click(&kind, "Last enemy", shown).is_empty(), "opening the list changes nothing");
+        let every = h.find(&kind, "Last enemy", "Every Kill");
+        assert_eq!(h.click(&kind, "Last enemy", every), ["Every kill"], "the INI keeps the name, not the words");
+        // The chosen one picked again: no change.
+        let mut h = Headless::new();
+        h.idle(&kind, "Last enemy");
+        let shown = h.find(&kind, "Last enemy", "Last Enemy");
+        h.click(&kind, "Last enemy", shown);
+        let item = h.find(&kind, "Last enemy", "Last Enemy");
+        assert!(item.y > shown.y, "the open list's own line");
+        assert!(h.click(&kind, "Last enemy", item).is_empty(), "the chosen one picked again");
+    }
+
+    #[test]
+    fn a_switch_clicked_flips() {
+        for (from, to) in [("0", "1"), ("1", "0")] {
+            let mut h = Headless::new();
+            h.idle(&menu::Kind::Switch, from);
+            assert_eq!(h.click(&menu::Kind::Switch, from, egui::Pos2::new(20.0, 10.0)), [to]);
+        }
+    }
+
+    /// A menu file the game did not write as it should (a hand edit, a broken write) draws
+    /// and answers without a panic, and a moved slider stays a value the game reads.
+    #[test]
+    fn odd_rows_draw_and_answer_without_a_panic() {
+        let c = |n: &str| menu::Choice { name: n.into(), label: n.into() };
+        let kinds = [
+            menu::Kind::Slider { min: 2.0, step: 0.1, steps: vec![] },
+            menu::Kind::Slider { min: -1.0, step: -0.5, steps: vec![] },
+            menu::Kind::Slider { min: 0.0, step: 0.0, steps: vec![] },
+            menu::Kind::Slider { min: 0.0, step: 0.5, steps: vec![menu::Step { value: 0.0, label: String::new() }] },
+            menu::Kind::List { choices: vec![] },
+            menu::Kind::List { choices: vec![c("A"), c("A"), c("")] },
+        ];
+        for kind in &kinds {
+            for v in ["0.5", "abc", "", "A", "1e9", "-3"] {
+                let mut h = Headless::new();
+                h.idle(kind, v);
+                let got = h.drag(kind, v, egui::Pos2::new(20.0, 10.0), egui::Pos2::new(2000.0, 10.0));
+                if let (menu::Kind::Slider { .. }, Some(n)) = (kind, got.last()) {
+                    let x: f32 = n.parse().unwrap_or_else(|_| panic!("{kind:?} at {v}: {n} is not a number"));
+                    assert!(x.is_finite() && (0.0..=1.0).contains(&x), "{kind:?} at {v}: {n} out of 0..1");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_games_rules_hold_as_the_game_has_them() {
+        let rule = |parent: &str, choices: &[&str]| menu::Rule { parent: parent.into(), choices: choices.iter().map(|c| c.to_string()).collect(), why: String::new() };
+        let c = |n: &str| menu::Choice { name: n.into(), label: n.into() };
+        let shadows = menu::Kind::List { choices: vec![c("Off"), c("Performance"), c("Quality")] };
+        // A row it needs on: a switch on, a list past its first choice.
+        assert!(rule_holds(&rule("glow", &[]), Some(&menu::Kind::Switch), "1", "1"));
+        assert!(!rule_holds(&rule("glow", &[]), Some(&menu::Kind::Switch), "0", "0"));
+        assert!(!rule_holds(&rule("sun-shadows", &[]), Some(&shadows), "Off", "Off"));
+        assert!(rule_holds(&rule("sun-shadows", &[]), Some(&shadows), "Quality", "Quality"));
+        // Built in (no kind): by the value.
+        assert!(!rule_holds(&rule("sun-shadows", &[]), None, "Off", "Off"));
+        assert!(!rule_holds(&rule("glow", &[]), None, "", ""));
+        assert!(rule_holds(&rule("glow", &[]), None, "1", "1"));
+        // On one of its choices, by name (the frame generation's `dlss` named DLSS).
+        assert!(rule_holds(&rule("frame-generation", &["DLSS"]), None, "dlss", "DLSS"));
+        assert!(!rule_holds(&rule("upscaler", &["FSR 3.1", "DLSS"]), None, "Off", "Off"));
+        assert!(rule_holds(&rule(nvf_settings_layout::DEVICE_ROW, &["Controller"]), None, "controller", "controller"));
+    }
+
+    #[test]
+    fn a_moved_slider_is_fitted_as_the_game_fits_it() {
+        // Steps from 0 as the game counts them, not from the slider's start.
+        assert_eq!(part_text(game_fit(0.52, 0.1, 0.05)), "0.50");
+        assert_eq!(part_text(game_fit(0.01, 0.1, 0.05)), "0.10", "not below the start");
+        assert_eq!(part_text(game_fit(0.34, 0.0, 1.0 / 30.0)), "0.333");
+        assert_eq!(part_text(game_fit(2.0, 0.0, 0.25)), "1.00");
     }
 
     #[test]

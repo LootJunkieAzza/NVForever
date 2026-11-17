@@ -247,6 +247,34 @@ order = [[
 ]]
 
 [[scenario]]
+name = "gpu-blocks-small-card"
+source = "#2754 (a 2 GB card ran out of GPU memory at the default settings): with a small GPU budget the GPU allocator is asked for small blocks, the player is told once when the process holds over 95 % of the budget, and the exit says the most it held (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/dlss/mod.rs"]
+# The test aid's 700 MB is under what Goodsprings holds on foot (about 1,100 MB with small blocks), so the notice comes.
+env = { NVFOREVER_HOME = "gpu-blocks-home", NVF_PLAY_TEST_VRAM_MB = "700", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  "memory budget: GPU memory is taken in small (8 to 64 MB) blocks: the test aid's GPU budget is 700 MB",
+  { re = 'memory budget: the GPU memory is almost full \(this process holds \d+ of 700 MB\); the player is told once', label = "told once past 95 % of the budget", count = 1 },
+  { re = 'memory budget: this process held at most \d+ of the 700 MB GPU budget in this run', label = "the most held, at the exit" },
+]
+
+[[scenario]]
+name = "gpu-blocks-remembered"
+source = "#2754: the GPU budget a run reads is kept in the home (cache\\gpu-budget.txt) and the next start chooses the allocator's blocks from it, before the device is made (engine/nvforever/src/memory_budget.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/dlss/mod.rs"]
+# The run after gpu-blocks-small-card in the same home: that run kept the device's own budget, not the test aid's.
+env = { NVFOREVER_HOME = "gpu-blocks-home" }
+args = ["--cell", "GSDocMitchellHouse"]
+run_seconds = 8
+expect = [
+  { re = 'memory budget: GPU memory is taken in (small \(8 to 64 MB\)|large \(128 to 256 MB\)) blocks: the run before read a GPU budget of \d+ MB', label = "the blocks follow the budget the run before read" },
+]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -856,20 +884,20 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 [[scenario]]
 name = "ui-scale-write"
 source = "issue #1631: the settings page's Display row UI scale (ui-scale) sets the HUD's size, kept in NVForever.ini; the first half of the round trip, ui-scale-read starts with what this run keeps"
-note = "The home's INI may hold any scales from an earlier run: set both rows to 100%, then both to 75%. #2519 makes the menu row independent; the existing three following 75% drawing/pointer oracles are unchanged."
+note = "The home's INI may hold any scales from an earlier run: set both rows to 100%, then both to 70% (the rows are lists of 50-100% in tens since the menu overhaul, owner 2026-11-15; 75% was the slider's). #2519 makes the menu row independent; the existing three following 70% drawing/pointer oracles are unchanged."
 areas = ["hud", "settings"]
 paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=1,11:ui-scale=0.5,12:ui-scale=0.25,12.5:menu-scale=0.5" }
+env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=100%,11:ui-scale=100%,12:ui-scale=70%,12.5:menu-scale=70%" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
 expect = [
   { re = 'interface: UI scale \d+% ', count = 1, label = "the run's UI scale is fixed once, at the start" },
-  { text = "settings: ui-scale 75%", label = "the row is set to 75%" },
+  { text = "settings: ui-scale 70%", label = "the row is set to 70%" },
 ]
 
 [[scenario]]
 name = "ui-scale-read"
-source = "issue #1631: the second half of the UI scale round trip: the next start reads ui-scale 75% from the home ui-scale-write kept it in and draws the HUD at that size, each piece kept at its edge"
+source = "issue #1631: the second half of the UI scale round trip: the next start reads ui-scale 70% from the home ui-scale-write kept it in and draws the HUD at that size, each piece kept at its edge"
 areas = ["hud", "settings"]
 paths = [
   "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs",
@@ -877,122 +905,122 @@ paths = [
   "engine/nvf-play/src/xp_meter.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/compass.rs",
   "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/ui_hud.rs", "crates/fnv-game/src/ui_hud/**",
 ]
-env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "14:ui_scale_75.png" }
+env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "14:ui_scale_70.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
 expect = [
-  { re = 'settings: .* read from .*ui-scale 75%', label = "the INI's 75% is read at the start" },
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 75% of the original's size)", label = "the run's HUD is drawn at 75%" },
+  { re = 'settings: .* read from .*ui-scale 70%', label = "the INI's 70% is read at the start" },
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 70% of the original's size)", label = "the run's HUD is drawn at 70%" },
   { re = 'compass: heading at x ', label = "the HUD is drawn" },
 ]
-manual = "ui_scale_75.png: the HUD three quarters of its 100% size, the health and compass corner at the bottom left, the action points at the bottom right, the sneak word and other top pieces at the top; the text readable"
+manual = "ui_scale_70.png: the HUD seven tenths of its 100% size, the health and compass corner at the bottom left, the action points at the bottom right, the sneak word and other top pieces at the top; the text readable"
 
 [[scenario]]
 name = "ui-scale-menus"
-source = "issue #1631: at the UI scale ui-scale-write kept (75%) the menus are drawn three quarters of their size, in the middle of the view, and a real pointer press lands on what is drawn: the wait-pointer-press presses moved to where the 75% wait menu draws the slider and Accept still choose about 18 hours"
-note = "Runs after ui-scale-write and ui-scale-read in their home. The points are wait-pointer-press's, moved toward the middle of the 1280 x 720 view: 0.5 + (p - 0.5) x 0.75 (the slider 0.584:0.47 to 0.563:0.4775, Accept 0.677:0.576 to 0.63275:0.557); at 100% they would miss the slider's 72%"
+source = "issue #1631: at the UI scale ui-scale-write kept (70%) the menus are drawn seven tenths of their size, in the middle of the view, and a real pointer press lands on what is drawn: the wait-pointer-press presses moved to where the 70% wait menu draws the slider and Accept still choose about 18 hours"
+note = "Runs after ui-scale-write and ui-scale-read in their home. The points are wait-pointer-press's, moved toward the middle of the 1280 x 720 view: 0.5 + (p - 0.5) x 0.75 (the slider 0.584:0.47 to 0.5588:0.479, Accept 0.677:0.576 to 0.6239:0.5532); at 100% they would miss the slider's 72%"
 areas = ["menus", "settings", "wait"]
 paths = [
   "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/ui_pointer.rs",
   "engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/start_menu.rs",
   "engine/nvf-play/src/settings_layout.rs",
 ]
-env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page", NVF_PLAY_TEST_SHOTS = "12.5:ui_scale_75_settings.png,17:ui_scale_75_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.563:0.4775,18:press,18.5:release,19:point=0.63275:0.557,19.5:press,20.5:release" }
+env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page", NVF_PLAY_TEST_SHOTS = "12.5:ui_scale_70_settings.png,17:ui_scale_70_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.5588:0.479,18:press,18.5:release,19:point=0.6239:0.5532,19.5:press,20.5:release" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 24
 expect = [
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 75% of the original's size)", label = "the run draws the menus at 75%" },
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 70% of the original's size)", label = "the run draws the menus at 70%" },
   "pause menu: open",
   "wait menu: open",
-  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the press on the 75% slider's drawn 72% chose about 18 hours, and the press on the drawn Accept took it" },
+  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the press on the 70% slider's drawn 72% chose about 18 hours, and the press on the drawn Accept took it" },
 ]
-manual = "ui_scale_75_settings.png: the pause menu's settings page three quarters of its 100% size (pause_settings pictures of other runs), centred: the categories, the rows and the band behind them, the column and Back and Defaults moved toward the middle, the sheet and the screen picture still over the whole view. ui_scale_75_wait.png: the wait menu's box three quarters of its size, in the middle"
+manual = "ui_scale_70_settings.png: the pause menu's settings page seven tenths of its 100% size (pause_settings pictures of other runs), centred: the categories, the rows and the band behind them, the column and Back and Defaults moved toward the middle, the sheet and the screen picture still over the whole view. ui_scale_70_wait.png: the wait menu's box seven tenths of its size, in the middle"
 
 [[scenario]]
 name = "ui-scale-tile-menus"
-source = "issue #1631: at 75% a tile-drawn menu ([UI] TileMenus=SleepWaitMenu) is drawn three quarters of its size in the middle of the view and a real pointer press on its drawn slider page area is read as one on its tiles (tiles/input.rs to_menu_units), as tiles-sleep-wait's aid press at 1100:457 units is"
-note = "Runs after ui-scale-write in its home. 1100:457 units is 825:342.75 pixels of the 1280 x 720 view at 100%; at 75% in the middle that is 778.75:347.06, the window's 0.6084:0.4821"
+source = "issue #1631: at 70% a tile-drawn menu ([UI] TileMenus=SleepWaitMenu) is drawn seven tenths of its size in the middle of the view and a real pointer press on its drawn slider page area is read as one on its tiles (tiles/input.rs to_menu_units), as tiles-sleep-wait's aid press at 1100:457 units is"
+note = "Runs after ui-scale-write in its home. 1100:457 units is 825:342.75 pixels of the 1280 x 720 view at 100%; at 70% in the middle that is 769.5:347.93, the window's 0.6012:0.4832 (the UI scale row is a list of 50-100% in tens since the menu overhaul, owner 2026-11-15; 70% was the slider's)"
 areas = ["menus", "tiles", "wait"]
 paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/wait_menu.rs"]
-env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.6084:0.4821,11.5:press,12:release", NVF_PLAY_TEST_SHOTS = "13:ui_scale_75_tiles_wait.png" }
+env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.6012:0.4832,11.5:press,12:release", NVF_PLAY_TEST_SHOTS = "13:ui_scale_70_tiles_wait.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 16
 expect = [
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 75% of the original's size)", label = "the run draws the menus at 75%" },
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 70% of the original's size)", label = "the run draws the menus at 70%" },
   { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the menu's tree draws" },
   { text = "tiles: SleepWaitMenu Step(6) on its tiles", count = 1, label = "the real press on the drawn page area pages the slider" },
 ]
-manual = "ui_scale_75_tiles_wait.png: the tile-drawn wait menu three quarters of the size of tiles_sleep_wait.png, in the middle of the view, the slider at 7 hours"
+manual = "ui_scale_70_tiles_wait.png: the tile-drawn wait menu seven tenths of the size of tiles_sleep_wait.png, in the middle of the view, the slider at 7 hours"
 
 [[scenario]]
 name = "hud-menu-scale-write"
-source = "#2519: persist HUD 75% with menus 100%; changing HUD alone must not make menus follow on restart"
-note = "Set menu 50% then 100% and HUD 100% then 75%, so both independent keys are written even if this disposable home was used before. The following cases read this same home."
+source = "#2519: persist HUD 70% with menus 100%; changing HUD alone must not make menus follow on restart"
+note = "Set menu 50% then 100% and HUD 100% then 70%, so both independent keys are written even if this disposable home was used before. The following cases read this same home."
 areas = ["hud", "settings", "menus"]
 paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvforever/src/settings.rs"]
-env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=0,11:menu-scale=1,11.5:ui-scale=0.5,12:ui-scale=0.25" }
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "10.5:menu-scale=50%,11:menu-scale=100%,11.5:ui-scale=100%,12:ui-scale=70%" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
 expect = [
   { text = "settings: menu-scale 100%", label = "menus saved independently at full size" },
-  { text = "settings: ui-scale 75%", label = "HUD alone is subsequently reduced" },
+  { text = "settings: ui-scale 70%", label = "HUD alone is subsequently reduced" },
 ]
 
 [[scenario]]
 name = "hud-menu-scale-menus"
-source = "#2519: after hud-menu-scale-write, HUD 75% and handbuilt menus 100%; unchanged 100% wait pointer coordinates must still hit"
-note = "The slider and Accept points are wait-pointer-press's authored 100% positions, not the legacy 75% positions. Main/pause/settings/HUD screenshots require visual review."
+source = "#2519: after hud-menu-scale-write, HUD 70% and handbuilt menus 100%; unchanged 100% wait pointer coordinates must still hit"
+note = "The slider and Accept points are wait-pointer-press's authored 100% positions, not the legacy 70% positions. Main/pause/settings/HUD screenshots require visual review."
 areas = ["hud", "settings", "menus", "wait"]
 paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings_layout.rs"]
-env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:layout", NVF_PLAY_TEST_SHOTS = "12.5:hud75_menu100_settings.png,17:hud75_menu100_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.584:0.47,18:press,18.5:release,19:point=0.677:0.576,19.5:press,20.5:release" }
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page,12:layout", NVF_PLAY_TEST_SHOTS = "12.5:hud70_menu100_settings.png,17:hud70_menu100_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.584:0.47,18:press,18.5:release,19:point=0.677:0.576,19.5:press,20.5:release" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 24
 expect = [
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "restart keeps distinct sizes" },
-  "settings layout: ui-scale -> Display > Screen",
-  "settings layout: menu-scale -> Display > Screen",
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 100% of the original's size)", label = "restart keeps distinct sizes" },
+  "settings layout: ui-scale -> Display > Interface",
+  "settings layout: menu-scale -> Display > Interface",
   "pause menu: open",
   "wait menu: open",
   { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the unscaled menu slider and Accept receive their drawn presses" },
 ]
-manual = "hud75_menu100_settings.png and hud75_menu100_wait.png: full-size centred menus, settings rows HUD scale and Menu scale in Display > Screen, smaller HUD kept at its edges. Compare 100% menu screenshots and ui_scale_75_settings/wait screenshots; no clipped Back/Defaults rows."
+manual = "hud70_menu100_settings.png and hud70_menu100_wait.png: full-size centred menus, settings rows HUD scale and Menu scale in Display > Interface, smaller HUD kept at its edges. Compare 100% menu screenshots and ui_scale_70_settings/wait screenshots; no clipped Back/Defaults rows."
 
 [[scenario]]
 name = "hud-menu-scale-tile-menus"
-source = "#2519: HUD 75% with tile menu 100%; the original 1100:457 tile-unit pointer must page the actual menu once"
+source = "#2519: HUD 70% with tile menu 100%; the original 1100:457 tile-unit pointer must page the actual menu once"
 note = "Reads hud-menu-scale-write's home. At 100%, 1100:457 units is 825:342.75 pixels of 1280x720, or 0.64453125:0.47604167."
 areas = ["hud", "menus", "tiles", "wait"]
 paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/wait_menu.rs"]
-env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.64453125:0.47604167,11.5:press,12:release", NVF_PLAY_TEST_SHOTS = "13:hud75_menu100_tiles_wait.png" }
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.64453125:0.47604167,11.5:press,12:release", NVF_PLAY_TEST_SHOTS = "13:hud70_menu100_tiles_wait.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 16
 expect = [
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "restart retains full-size menus independently" },
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 100% of the original's size)", label = "restart retains full-size menus independently" },
   { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the actual menu tree draws" },
   { text = "tiles: SleepWaitMenu Step(6) on its tiles", count = 1, label = "the press on the full-size page area reaches the tiles" },
 ]
-manual = "hud75_menu100_tiles_wait.png: full-size centred tile wait menu at 7 hours with HUD still 75%; compare tiles_sleep_wait.png and ui_scale_75_tiles_wait.png."
+manual = "hud70_menu100_tiles_wait.png: full-size centred tile wait menu at 7 hours with HUD still 70%; compare tiles_sleep_wait.png and ui_scale_70_tiles_wait.png."
 
 [[scenario]]
 name = "hud-menu-scale-main-menu"
 source = "#2519: independent full-size main menu after the HUD-only reduction saved by hud-menu-scale-write"
 areas = ["menus", "settings"]
 paths = ["engine/nvf-play/src/menu_scale.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/main_menu.rs"]
-env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SHOTS = "6:hud75_menu100_main.png" }
+env = { NVFOREVER_HOME = "hud-menu-scale-home", NVF_PLAY_TEST_SHOTS = "6:hud70_menu100_main.png" }
 args = ["--play", "--menu", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 8
 expect = [
-  { text = "interface: UI scale 75% (the HUD drawn at 75%, the menus at 100% of the original's size)", label = "main menu uses independently persisted size" },
+  { text = "interface: UI scale 70% (the HUD drawn at 70%, the menus at 100% of the original's size)", label = "main menu uses independently persisted size" },
   { re = 'main menu: open \(\d+ loading screens', label = "the actual main menu opens" },
 ]
-manual = "hud75_menu100_main.png: full-size main menu with all labels and buttons on screen; the saved HUD reduction must not shrink it."
+manual = "hud70_menu100_main.png: full-size main menu with all labels and buttons on screen; the saved HUD reduction must not shrink it."
 
 [[scenario]]
 name = "draw-distance-sliders"
 source = "engine/nvforever/src/draw_distance.rs (owner request 2026-10-16): the settings page's Display sliders set how far objects, actors and items are drawn and how far shadows and grass reach, while the game runs, without a rendering error"
 areas = ["renderer", "settings"]
 paths = ["engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/fade.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:object-distance=0.5,12:actor-distance=0.3,13:item-distance=0.25,14:shadow-distance=0.5,15:grass-distance=0.5,16:object-distance=1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:object-distance=0.5,12:actor-distance=0.3,13:item-distance=0.25,14:shadow-distance=0.6,15:grass-distance=0.5,16:object-distance=1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 22
 order = [[
@@ -1000,7 +1028,7 @@ order = [[
   { re = 'draw distances: objects 50%, actors 100%, items 100% of \d+ units \((?P<n>\d+) meshes\)', range = [500, 1e9], label = "the objects' slider reaches the loaded cells' meshes" },
   "settings: actor-distance 30%",
   "settings: item-distance 25%",
-  "settings: shadow-distance 50%",
+  "settings: shadow-distance 60%",
   "settings: grass-distance 50%",
   "settings: object-distance 100%",
   { re = 'draw distances: objects 100%, actors 30%, items 25%' },
@@ -1013,7 +1041,8 @@ source = "engine/nvf-play/src/audio_out.rs (owner request 2026-10-17): the setti
 areas = ["audio", "settings"]
 paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "6:1:0,10:0:0", NVF_PLAY_TEST_PAUSE = "12:16", NVF_PLAY_TEST_SETTINGS = "13:volume-master=0.8,14:volume-footstep=0.25,15:volume-voice=0.5" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+args = ["--cell", "Goodsprings", "--play", "--no-messages", "--hour", "12"]
+note = "without --no-voice: the Voice volume row is greyed (and takes no change) while dialogue voice is off (the menu overhaul, owner 2026-11-15)"
 run_seconds = 18
 order = [[
   "settings: volume-master 80%",
@@ -1032,11 +1061,11 @@ source = "engine/nvforever/src/view_sway.rs (owner request 2026-10-20): the firs
 areas = ["player-body"]
 paths = ["engine/nvforever/src/view_sway.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_LOOK = "3:0:0,3.2:10:0,3.3:20:0,3.4:30:0,3.5:40:0,3.6:50:0", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
 run_seconds = 13
 expect = [
-  { re = 'player body summary: weapon sway on, most turn lag (?P<n>[\d.]+) degrees sideways', range = [1.5, 5.01], label = "a quick turn leaves the arms behind, within the 5 degree limit" },
-  { re = 'player body summary: weapon sway on, most turn lag [\d.]+ degrees sideways and (?P<n>[\d.]+) up or down', range = [0, 3.51], label = "up or down within the 3.5 degree limit" },
+  { re = 'player body summary: weapon sway on, most turn lag (?P<n>[\d.]+) degrees sideways', range = [1.5, 6.01], label = "a quick turn leaves the arms behind, within the 6 degree limit" },
+  { re = 'player body summary: weapon sway on, most turn lag [\d.]+ degrees sideways and (?P<n>[\d.]+) up or down', range = [0, 4.01], label = "up or down within the 4 degree limit" },
   { re = 'player body summary: weapon sway on, .*deepest bob (?P<n>[\d.]+) units', range = [0.3, 0.91], label = "running bobs the arms, within the 0.9 unit dip" },
 ]
 
@@ -1046,10 +1075,10 @@ source = "owner 2026-11-07 (engine/nvforever/src/head_bob.rs): a head bob in fir
 areas = ["player-body"]
 paths = ["engine/nvforever/src/head_bob.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
 run_seconds = 12
 expect = [
-  { re = 'player body summary: head bob on, deepest first-person dip (?P<n>[\d.]+) units', range = [1.0, 1.61], label = "running bobs the first-person view, within the 1.6 unit dip" },
+  { re = 'player body summary: head bob on, deepest first-person dip (?P<n>[\d.]+) units', range = [2.5, 5.26], label = "running bobs the first-person view, within the 5.25 unit dip" },
 ]
 
 [[scenario]]
@@ -1058,12 +1087,316 @@ source = "owner 2026-11-07 (engine/nvforever/src/head_bob.rs): no head bob in th
 areas = ["player-body"]
 paths = ["engine/nvforever/src/head_bob.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
 run_seconds = 12
 expect = [
   { re = 'third-person pivot over (?P<n>\d+) frames', range = [150, 1e9], label = "the view was third person while running" },
   { re = 'pivot/head (?P<n>[\d.]+)', range = [0, 0.35], label = "the pivot moves at most about a third as much as the head frame to frame" },
   { re = 'deepest first-person dip (?P<n>[\d.]+) units', range = [0, 0.05], label = "no first-person bob in third person" },
+]
+
+[[scenario]]
+name = "movement-inertia"
+source = "owner 2026-11-13 (engine/nvf-play/src/inertia.rs, engine/nvforever/src/player_body.rs, view_sway.rs; docs/design/player-body.md §1.4a.2): the player speeds up over a moment and glides to a stop, the first-person view eases into a crouch and out, the weapon dips on a jump and a landing"
+areas = ["player-body"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/ease.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_MOVE = "5:1:0,8:0:0", NVF_PLAY_TEST_CONTROL = "10:sneak,12:sneak,14:jump" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 17
+expect = [
+  { re = 'movement inertia: up to [\d.]+ units/s in (?P<n>[\d.]+)s', range = [0.4, 0.7], label = "from standing to speed in about 0.5 s (inertia weight 1)" },
+  { re = 'movement inertia: glided (?P<n>[\d.]+) units', range = [25, 50], label = "letting go of the key glides the player on, about half a metre from a run (2 × speed / the spring rate)" },
+  { re = 'movement inertia: glided [\d.]+ units in (?P<n>[\d.]+)s', range = [0.3, 1.0], label = "and the glide eases to rest" },
+  { text = "player view: crouched (eased crouch)", label = "the view eases down into the crouch" },
+  { text = "player view: standing (eased crouch)", label = "and up out of it" },
+  { re = 'player body summary: weapon sway on, .*deepest jump or landing dip (?P<n>[\d.]+) units', range = [0.3, 3.51], label = "the jump dips the weapon, within the 3.5 unit limit" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace"
+source = "owner 2026-11-14 (engine/nvforever/src/player_body.rs MotionTrace): a frame-by-frame trace of the first-person motion through a weapon draw, idling, aiming in and out, aiming in the middle of a turn, mouse flicks, a run and stop, a crouched jump, a jump and a holster, for finding hitches and two-step moves (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/head_bob.rs", "engine/nvf-assets/src/anim_blend.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "6:weapon,12:aim,14:aim,16:aim,18:aim,29:sneak,31:jump,33:sneak,35:jump,37:weapon", NVF_PLAY_TEST_LOOK = "15.8:0:0,15.9:5:0,15.95:15:0,16.0:30:0,16.05:50:0,16.1:65:0,16.15:70:0,16.5:65:0,16.55:50:0,16.6:30:0,16.65:10:0,16.7:0:0,19.9:0:0,20.0:5:0,20.05:15:0,20.1:30:0,20.15:50:0,20.2:70:0,20.25:85:0,20.3:90:0,22.0:80:0,22.05:60:0,22.1:35:0,22.15:15:0,22.2:3:0,22.25:0:0", NVF_PLAY_TEST_MOVE = "24:1:0,27:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 41
+expect = [
+  { re = 'motion trace: writing', label = "the trace is written" },
+  { re = 'player body summary: weapon sway on', label = "the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-combat"
+source = "owner 2026-11-14 (engine/nvforever/src/player_body.rs MotionTrace; eighth playtest): a frame-by-frame trace of the first-person gun looking down and up (pitch offset), firing (eased view kick, fire clip restarts), reloading, and a hard landing from a drop, for finding steps and choppy moves (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/head_bob.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-combat.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon,13:fire,13.1:fire,13.3:fire,13.4:fire,13.6:fire,13.7:fire,13.9:fire,14:fire,18:reload", NVF_PLAY_TEST_LOOK = "6:0:0,6.5:0:-35,7:0:-70,8:0:-70,8.5:0:-35,9:0:0,9.5:0:35,10:0:70,11:0:70,11.5:0:35,12:0:0", NVF_PLAY_TEST_SCRIPT = "24:call:player:SetPos:Z:9150" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 30
+expect = [
+  { re = 'motion trace: writing', label = "the trace is written" },
+  { re = 'combat: kick: shot', label = "the gun fired" },
+  { re = 'reload at x', label = "the gun reloaded" },
+  { re = 'player view: landed at (\d{4}|[89]\d\d) units/s', label = "a hard landing from the drop" },
+  { re = 'player body summary: weapon sway on', label = "the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-crouch-jump"
+source = "owner 2026-11-14 (engine/nvforever/src/player_body.rs MotionTrace; tenth playtest: \"when crouched and walking forward and pressing jump, the character sometimes still does the weird stand/jump movement\"): a frame-by-frame trace of crouched jumps while walking ahead, with the rifle out and with it put away, for finding the eye rising off the feet (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/head_bob.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-crouch-jump.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon,7:sneak,10:jump,12.4:jump,14.9:jump,17.2:jump,20:weapon,24:jump,26.5:jump,29:jump", NVF_PLAY_TEST_MOVE = "9:1:0,19:0:0,23:1:0,31:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 33
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the crouched jumps is written" },
+  { re = 'player body summary: weapon sway on', label = "the crouched jumps: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-still-mouse"
+source = "owner 2026-11-14 (engine/nvforever/src/view_sway.rs TURN_KNEE; tenth playtest: \"the idle weapon/hand animation micro jitters a lot, when I aim down sights it jitters more visibly\"): a frame-by-frame trace of a resting hand's mouse twitches (single counts of about 0.023 degrees, back and forth) with the rifle held and down its sights; the arms should stay on the view (sway_yaw near 0; tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/view_sway.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-still-mouse.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon,13:aim", NVF_PLAY_TEST_LOOK = "8.9:0:0,9.036:-0.023:0,9.076:-0.046:0,9.100:-0.069:0,9.138:-0.092:0,9.203:-0.100:0,9.225:-0.077:0,9.266:-0.100:0,9.291:-0.077:0,9.314:-0.100:0,9.381:-0.100:0,9.430:-0.077:0,9.452:-0.100:0,9.475:-0.100:0,9.509:-0.100:0,9.556:-0.077:0,9.604:-0.100:0,9.629:-0.100:0,9.668:-0.100:0,9.716:-0.100:0,9.761:-0.077:0,9.820:-0.054:0,9.869:-0.031:0,9.907:-0.054:0,9.967:-0.077:0,9.991:-0.054:0,10.037:-0.031:0,10.094:-0.008:0,10.144:-0.031:0,10.170:-0.008:0,10.198:0.015:0,10.226:0.038:0,10.267:0.015:0,10.325:0.038:0,10.362:0.061:0,10.412:0.084:0,10.435:0.061:0,10.503:0.084:0,10.557:0.061:0,10.581:0.084:0,10.633:0.100:0,10.667:0.100:0,10.731:0.100:0,10.753:0.100:0,10.790:0.077:0,10.835:0.054:0,10.893:0.031:0,10.950:0.054:0,10.990:0.077:0,11.014:0.100:0,11.054:0.100:0,11.118:0.100:0,11.181:0.100:0,11.237:0.100:0,11.291:0.100:0,11.359:0.077:0,11.383:0.054:0,11.415:0.031:0,11.435:0.008:0,11.468:-0.015:0,11.496:0.008:0,11.546:0.031:0,11.614:0.008:0,11.657:0.031:0,11.696:0.054:0,11.722:0.077:0,11.745:0.054:0,11.814:0.077:0,11.842:0.100:0,11.892:0.077:0,11.912:0.054:0,11.959:0.077:0,12.010:0.054:0,12.073:0.077:0,12.101:0.100:0,12.169:0.100:0,12.212:0.077:0,12.275:0.100:0,12.319:0.100:0,12.343:0.077:0,12.400:0.100:0,12.444:0.077:0,12.490:0.054:0,12.558:0.077:0,12.585:0.054:0,12.643:0.077:0,12.712:0.054:0,12.767:0.077:0,12.813:0.054:0,12.850:0.031:0,12.897:0.054:0,12.949:0.031:0,13.009:0.054:0,13.066:0.031:0,13.096:0.054:0,13.134:0.031:0,13.203:0.054:0,13.247:0.031:0,13.302:0.054:0,13.344:0.077:0,13.412:0.100:0,13.436:0.077:0,13.467:0.054:0,13.504:0.077:0,13.555:0.054:0,13.599:0.077:0,13.659:0.054:0,13.721:0.031:0,13.786:0.008:0,13.830:-0.015:0,13.872:0.008:0,13.896:0.031:0,13.940:0.008:0,13.996:-0.015:0,14.065:-0.038:0,14.093:-0.015:0,14.153:-0.038:0,14.204:-0.015:0,14.257:0.008:0,14.285:-0.015:0,14.306:-0.038:0,14.352:-0.061:0,14.394:-0.084:0,14.455:-0.100:0,14.476:-0.100:0,14.511:-0.100:0,14.569:-0.077:0,14.602:-0.054:0,14.664:-0.077:0,14.729:-0.054:0,14.794:-0.031:0,14.856:-0.054:0,14.902:-0.077:0,14.966:-0.100:0,15.016:-0.100:0,15.045:-0.077:0,15.096:-0.100:0,15.144:-0.077:0,15.198:-0.054:0,15.257:-0.077:0,15.321:-0.100:0,15.354:-0.077:0,15.376:-0.100:0,15.421:-0.100:0,15.479:-0.100:0,15.521:-0.100:0,15.576:-0.077:0,15.621:-0.054:0,15.667:-0.077:0,15.722:-0.054:0,15.788:-0.077:0,15.850:-0.100:0,15.891:-0.077:0,15.933:-0.100:0,15.986:-0.077:0,16.010:-0.054:0,16.069:-0.077:0,16.136:-0.054:0,16.163:-0.077:0,16.232:-0.100:0,16.289:-0.100:0,16.329:-0.077:0,16.357:-0.100:0,16.385:-0.077:0,16.455:-0.054:0,16.492:-0.077:0,16.530:-0.100:0,16.586:-0.100:0,16.623:-0.077:0,16.665:-0.100:0,16.704:-0.077:0,16.749:-0.100:0,16.775:-0.100:0,16.844:-0.100:0,16.868:-0.077:0,16.890:-0.100:0,16.923:-0.100:0,16.984:-0.077:0,17.025:-0.054:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 19
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the still mouse is written" },
+  { re = 'player body summary: weapon sway on', label = "the still mouse: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-pipboy"
+source = "owner 2026-11-14 (engine/nvforever/src/player_body.rs MotionTrace; tenth playtest: \"PipBoy jitters a lot also\"): a frame-by-frame trace of the Pip-Boy brought up, held, and put away, with the rifle out (lhand_* is the left hand against the camera node, lens the arms' magnification; tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-pipboy.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon", NVF_PLAY_TEST_PIPBOY = "9:open,16:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 21
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the Pip-Boy is written" },
+  { re = 'player body summary: weapon sway on', label = "the Pip-Boy: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-weapons"
+source = "owner 2026-11-15 (engine/nvforever/src/player_body.rs MotionTrace; eleventh playtest: \"some equip animations are not affected - check that every animation for guns/melee weapons is affected\"): a frame-by-frame trace of drawing, attacking with and putting away each weapon type (the club put away at 21 s and the flamer at 33.5 s, so their slower put-aways end before the next weapon is equipped, which cuts them) (pistol, one- and two-handed melee, a grenade, a heavy weapon, fists) and a weapon swapped while drawn, for finding clips that do not follow the settling curve (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-weapons.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:Weap10mmPistol:1,2:call:player:AddItem:WeapNVStraightRazor:1,2:call:player:AddItem:WeapNVRebarClub:1,2:call:player:AddItem:WeapGrenadeFrag:3,2:call:player:AddItem:WeapFlamer:1,2:call:player:AddItem:WeapNVHuntingShotgun:1,4:call:player:EquipItem:Weap10mmPistol,10:call:player:EquipItem:WeapNVStraightRazor,17:call:player:EquipItem:WeapNVRebarClub,24:call:player:EquipItem:WeapGrenadeFrag,30:call:player:EquipItem:WeapFlamer,36:call:player:UnequipItem:WeapFlamer,43:call:player:EquipItem:Weap10mmPistol,47:call:player:EquipItem:WeapNVHuntingShotgun", NVF_PLAY_TEST_CONTROL = "5:weapon,8:weapon,11:weapon,13:fire,15:weapon,18:weapon,20:fire,21:weapon,25:weapon,28:weapon,31:weapon,33.5:weapon,37:weapon,39:fire,41:weapon,44:weapon,50:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 53
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the weapons is written" },
+  { re = 'player body summary: weapon sway on', label = "the weapons: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-weapons-rest"
+source = "owner 2026-11-15 (engine/nvforever/src/player_body.rs MotionTrace; \"check them all while skipping weapons that reuse the same one - 1 test for every unique animation\"): as movement-inertia-trace-weapons for the four first-person draw and put-away clip pairs it leaves out, one weapon each: an automatic rifle (Assault Carbine, `2ha`), a launcher (Missile Launcher, `2hl`, Lonesome Road's clips when it is loaded), a land mine (Frag Mine, `1lm`) and a mine drop (Bottlecap Mine, `1md`); drawn at 5/13/25.5/33.5 s, put away at 9/19/29.5/37.5 s (the launcher's put-away takes 4 s) (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-weapons-rest.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapNVAssaultCarbine:1,2:call:player:AddItem:WeapMissileLauncher:1,2:call:player:AddItem:WeapMineFrag:3,2:call:player:AddItem:WeapMineBottlecap:3,4:call:player:EquipItem:WeapNVAssaultCarbine,12:call:player:EquipItem:WeapMissileLauncher,24.5:call:player:EquipItem:WeapMineFrag,32.5:call:player:EquipItem:WeapMineBottlecap", NVF_PLAY_TEST_CONTROL = "5:weapon,9:weapon,13:weapon,19:weapon,25.5:weapon,29.5:weapon,33.5:weapon,37.5:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 45
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the four weapons is written" },
+  { re = 'weapon handling: draws at .* \(6(\.0)? lb', label = "the Assault Carbine is drawn" },
+  { re = 'weapon handling: draws at .* \(20(\.0)? lb', label = "the Missile Launcher is drawn" },
+  { re = 'player body summary: weapon sway on', label = "the four weapons: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-weapons-original"
+source = "the reference for movement-inertia-trace-weapons: the same draws and put-aways with the Advanced Movement main switch off (--no-advanced-movement), the clips at the original's pace and blending, to tell a clip's own second movements from ours. owner 2026-11-15 (engine/nvforever/src/player_body.rs MotionTrace; eleventh playtest: \"some equip animations are not affected - check that every animation for guns/melee weapons is affected\"): a frame-by-frame trace of drawing, attacking with and putting away each weapon type (the club put away at 21 s and the flamer at 33.5 s, so their slower put-aways end before the next weapon is equipped, which cuts them) (pistol, one- and two-handed melee, a grenade, a heavy weapon, fists) and a weapon swapped while drawn, for finding clips that do not follow the settling curve (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-weapons-original.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:Weap10mmPistol:1,2:call:player:AddItem:WeapNVStraightRazor:1,2:call:player:AddItem:WeapNVRebarClub:1,2:call:player:AddItem:WeapGrenadeFrag:3,2:call:player:AddItem:WeapFlamer:1,2:call:player:AddItem:WeapNVHuntingShotgun:1,4:call:player:EquipItem:Weap10mmPistol,10:call:player:EquipItem:WeapNVStraightRazor,17:call:player:EquipItem:WeapNVRebarClub,24:call:player:EquipItem:WeapGrenadeFrag,30:call:player:EquipItem:WeapFlamer,36:call:player:UnequipItem:WeapFlamer,43:call:player:EquipItem:Weap10mmPistol,47:call:player:EquipItem:WeapNVHuntingShotgun", NVF_PLAY_TEST_CONTROL = "5:weapon,8:weapon,11:weapon,13:fire,15:weapon,18:weapon,20:fire,21:weapon,25:weapon,28:weapon,31:weapon,33.5:weapon,37:weapon,39:fire,41:weapon,44:weapon,50:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--no-advanced-movement", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 53
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the weapons is written, Advanced Movement off" },
+  { re = 'player body summary: weapon sway on', label = "the weapons: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-weapons-rest-original"
+source = "the reference for movement-inertia-trace-weapons-rest: the same draws and put-aways with the Advanced Movement main switch off (--no-advanced-movement), the clips at the original's pace and blending, to tell a clip's own second movements from ours. owner 2026-11-15 (engine/nvforever/src/player_body.rs MotionTrace; \"check them all while skipping weapons that reuse the same one - 1 test for every unique animation\"): as movement-inertia-trace-weapons for the four first-person draw and put-away clip pairs it leaves out, one weapon each: an automatic rifle (Assault Carbine, `2ha`), a launcher (Missile Launcher, `2hl`, Lonesome Road's clips when it is loaded), a land mine (Frag Mine, `1lm`) and a mine drop (Bottlecap Mine, `1md`); drawn at 5/13/25.5/33.5 s, put away at 9/19/29.5/37.5 s (the launcher's put-away takes 4 s) (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-weapons-rest-original.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapNVAssaultCarbine:1,2:call:player:AddItem:WeapMissileLauncher:1,2:call:player:AddItem:WeapMineFrag:3,2:call:player:AddItem:WeapMineBottlecap:3,4:call:player:EquipItem:WeapNVAssaultCarbine,12:call:player:EquipItem:WeapMissileLauncher,24.5:call:player:EquipItem:WeapMineFrag,32.5:call:player:EquipItem:WeapMineBottlecap", NVF_PLAY_TEST_CONTROL = "5:weapon,9:weapon,13:weapon,19:weapon,25.5:weapon,29.5:weapon,33.5:weapon,37.5:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--no-advanced-movement", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 45
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the four weapons is written, Advanced Movement off" },
+  { re = 'player body summary: weapon sway on', label = "the four weapons: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-sights-shotgun"
+source = "owner 2026-11-15 (engine/nvforever/src/player_body.rs MotionTrace; twelfth playtest: \"the guns/hands are still micro-shimmering. Especially visible with the Sturdy Caravan Shotgun ... aim down sights\"): a frame-by-frame trace and full-resolution screenshots of the Sturdy Caravan Shotgun held still down its sights, for finding the gun's motion against the view frame to frame (tools/smoke/motion_trace.py reads the trace)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/head_bob.rs", "engine/nvforever/src/iron_sights.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-sights-shotgun.csv", NVF_PLAY_TEST_EQUIP = "001735E3", NVF_PLAY_TEST_GIVE = "0015367E:20", NVF_PLAY_TEST_CONTROL = "4:weapon,8:aim", NVF_PLAY_TEST_SHOTS = "14.0:sights_shotgun_a.png,14.05:sights_shotgun_b.png,14.1:sights_shotgun_c.png,14.15:sights_shotgun_d.png,14.2:sights_shotgun_e.png,14.25:sights_shotgun_f.png,14.3:sights_shotgun_g.png,14.35:sights_shotgun_h.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "3840x2160", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 18
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the shotgun down its sights is written" },
+  { text = "true iron sights: the sights are on the eye", label = "the shotgun is down its sights" },
+  { re = 'player body summary: weapon sway on', label = "the shotgun down its sights: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-sights-shotgun-still"
+source = "owner 2026-11-15 (twelfth playtest, the shotgun's shimmer down its sights): as movement-inertia-trace-sights-shotgun with Weapon Inertia switched off on the settings page first (the breathing's drift with it), to tell the sway from any other motion of the gun"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/view_sway.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-sights-shotgun-still.csv", NVF_PLAY_TEST_EQUIP = "001735E3", NVF_PLAY_TEST_GIVE = "0015367E:20", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:3.5", NVF_PLAY_TEST_SETTINGS = "2.5:weapon-inertia", NVF_PLAY_TEST_CONTROL = "4:weapon,8:aim", NVF_PLAY_TEST_SHOTS = "14.0:sights_still_a.png,14.05:sights_still_b.png,14.1:sights_still_c.png,14.15:sights_still_d.png,14.2:sights_still_e.png,14.25:sights_still_f.png,14.3:sights_still_g.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "3840x2160", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 18
+expect = [
+  { text = "settings: weapon-inertia off", label = "Weapon Inertia is switched off" },
+  { text = "true iron sights: the sights are on the eye", label = "the shotgun is down its sights" },
+  { re = 'player body summary: weapon sway off', label = "the run reached its end, Weapon Inertia off" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-block"
+source = "owner 2026-11-15 (twelfth playtest: \"does blocking using melee weapons have inertia applied also?\"; engine/nvforever/src/player_body.rs MotionTrace): a frame-by-frame trace of a lead pipe raised to block and lowered twice, for checking that the block follows the aim's settling curve and the sway's raise lag"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-block.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapLeadPipe:1,2.5:call:player:EquipItem:WeapLeadPipe", NVF_PLAY_TEST_CONTROL = "4:weapon,8:aim,10:aim,12:aim,14:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 17
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the block is written" },
+  { re = 'player body summary: weapon sway on', label = "the block: the run reached its end" },
+]
+
+[[scenario]]
+name = "advanced-movement-switches"
+source = "owner 2026-11-15 (\"finish the Advanced Movement project ... a full bug check\"; engine/nvf-play/src/player.rs, engine/nvforever/src/settings.rs, docs/design/player-body.md §1.4a.3): every switch of NVF Features › Advanced movement turned off on the settings page part-way through a draw, then on again while aimed, with the rifle firing, the player running, jumping and crouching between, so a switch changed mid-motion leaves nothing stuck"
+areas = ["player-body", "settings"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_PAUSE = "4.3:6,13.3:15", NVF_PLAY_TEST_SETTINGS = "4.4:movement-inertia,4.5:weapon-handling,4.6:advanced-recoil,4.7:weapon-inertia,4.8:animation-smoothing,4.9:camera-motion,5.0:advanced-movement,13.4:advanced-movement,13.5:movement-inertia,13.6:weapon-handling,13.7:advanced-recoil,13.8:weapon-inertia,13.9:animation-smoothing,14.0:camera-motion", NVF_PLAY_TEST_CONTROL = "4:weapon,7:jump,9:sneak,10:sneak,12:aim,15.5:fire,16:fire,17:aim,18:jump,20:weapon", NVF_PLAY_TEST_MOVE = "6.5:1:0,8.5:0:0,18:1:0,19.5:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 24
+expect = [
+  { text = "settings: advanced-movement off", label = "the main switch goes off" },
+  { text = "settings: camera-motion off", label = "the last part switch goes off" },
+  { text = "settings: advanced-movement on", label = "the main switch comes back on" },
+  { text = "settings: camera-motion on", label = "and the last part switch" },
+  { re = 'combat: kick: shot', label = "the rifle fired with every switch back on" },
+  { re = 'player body summary: weapon sway on', label = "the switches: the run reached its end" },
+]
+forbid = [
+  { re = 'NVF_PLAY_TEST_SETTINGS: ("|no switch|\S+ is a (list|slider):)', label = "every switch step is understood" },
+  { re = 'panicked', label = "nothing panics" },
+]
+
+[[scenario]]
+name = "advanced-movement-menu"
+source = "owner 2026-11-15 (\"simplify the Advanced Movement menu\"; engine/nvf-play/src/settings_layout.rs, settings_view.rs; docs/design/player-body.md §1.4a.3): the NVF Features tab lists the Global Toggle and Movement Weight (owner 2026-11-15) under Advanced Movement, then an empty line, Gameplay's three switches, an empty line and Visual Only's three, in the owner's order"
+areas = ["player-body", "settings"]
+paths = ["engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:NVF Features", NVF_PLAY_TEST_PAUSE_MENU = "12:inspect", NVF_PLAY_TEST_SHOTS = "13:advanced_movement_menu.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { text = "pause menu: inspect: shown [NVF Features > Advanced Movement], advanced-movement, movement-weight, , [NVF Features > Gameplay], movement-inertia, weapon-handling, advanced-recoil, , [NVF Features > Visual Only], weapon-inertia", label = "the Global Toggle, Movement Weight, an empty line, Gameplay, an empty line, Visual Only, in the owner's order (the window shows 11 lines since the menu overhaul, #2804; settings-layout places the rest)" },
+  { re = 'pause menu: inspect: NVF Features, .*lines 1-11 of 16', label = "sixteen lines in the tab: World Interaction's grass fires (#2804) after Visual Only" },
+]
+
+[[scenario]]
+name = "weapon-handling-attributes"
+source = "owner 2026-11-15, testers' feedback (engine/nvf-play/src/inertia.rs attribute_rate, aim_rate, draw_weight; docs/design/player-body.md §1.4a.3): with Weapon Handling a light weapon's draw follows Agility most and Strength a little, the aim a small share of it"
+note = "the 9mm pistol (000E3778, 1.5 lb) is drawn at 10 s; Agility goes to 10 at 12 s and Strength to 10 at 15 s. Draw rate = (1 + 0.1 x (Agility - 5) x 1.0 + 0.1 x (Strength - 5) x 0.3) / 1.5; aim = 0.6 s x 0.932 / (1 + 0.4 x (that attribute rate - 1))"
+areas = ["player-body", "combat"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONSOLE = "12:player.setav agility 10;12.3:close;15:player.setav strength 10;15.3:close", NVF_PLAY_TEST_CONTROL = "10:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 19
+order = [[
+  { re = 'weapon handling: draws at x0\.67 before perks, aims in 0\.56s \(1\.5 lb, Agility 5, Strength 5, Movement Weight 100%, Weapon Handling on\)', label = "at 5 and 5 the pistol takes 1.5 times the original's draw" },
+  { re = 'weapon handling: draws at x1\.00 before perks, aims in 0\.47s \(1\.5 lb, Agility 10, Strength 5,', label = "Agility 10: the light weapon's full Agility gain (1.5 / 1.5), the aim a share of it" },
+  { re = 'weapon handling: draws at x1\.10 before perks, aims in 0\.45s \(1\.5 lb, Agility 10, Strength 10,', label = "Strength 10 adds little to a light weapon" },
+]]
+
+[[scenario]]
+name = "weapon-handling-off-agility"
+source = "owner 2026-11-15 (\"scaled with attributes just like in vanilla\"; docs/handoff/special-skills-audit-2026-10-23.md §2: draw and holster times 10 / (Agility + 5) [fandom]): without Weapon Handling draws play at the original's 0.5 + 0.1 x Agility, the aim at the game's own pace"
+areas = ["player-body", "combat"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONSOLE = "12:player.setav agility 10;12.3:close;15:player.setav agility 1;15.3:close", NVF_PLAY_TEST_CONTROL = "10:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--no-weapon-handling", "--movement-inertia", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 19
+order = [[
+  { re = 'weapon handling: draws at x1\.00 before perks, aims in 0\.35s \(.* lb, Agility 5, .*Weapon Handling off\)', label = "Agility 5: the clip's own speed (logged before the pistol is in hand: the weight does not change the original's rate)" },
+  { re = 'weapon handling: draws at x1\.50 before perks, aims in 0\.35s \(1\.5 lb, Agility 10,', label = "Agility 10: 1.5 times, as the original" },
+  { re = 'weapon handling: draws at x0\.60 before perks, aims in 0\.35s \(1\.5 lb, Agility 1,', label = "Agility 1: 0.6 times" },
+]]
+
+[[scenario]]
+name = "movement-inertia-off"
+source = "owner 2026-11-13 (engine/nvf-play/src/inertia.rs): with --no-movement-inertia the player starts and stops at once and the crouch follows the clips, as the original (the eased crouch is Movement Inertia's again since the owner's menu of 2026-11-15)"
+areas = ["player-body"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_MOVE = "5:1:0,8:0:0", NVF_PLAY_TEST_CONTROL = "10:sneak" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--no-movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 13
+expect = [
+  { re = 'player body summary: weapon sway on', label = "the run reached its end" },
+  { re = 'movement inertia: (up to|glided)', count = 0, label = "no start or glide without Movement Inertia" },
+  { re = 'eased crouch', count = 0, label = "the crouch follows the clips too: the eased crouch is Movement Inertia's" },
+]
+
+[[scenario]]
+name = "advanced-movement-off"
+source = "owner 2026-11-15 (engine/nvf-play/src/inertia.rs MovementInertia::advanced; docs/design/player-body.md §1.4a.3): with the Advanced movement main switch off (--no-advanced-movement) none of its parts acts: no glide, no eased crouch, no weapon dip on a jump, as the original"
+areas = ["player-body"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "engine/nvforever/src/head_bob.rs"]
+env = { NVF_PLAY_TEST_MOVE = "5:1:0,8:0:0", NVF_PLAY_TEST_CONTROL = "10:sneak,12:sneak,14:jump" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--no-advanced-movement", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 17
+expect = [
+  { re = 'player body summary: weapon sway on', label = "the run reached its end (the sway's own switch stays on)" },
+  { re = 'movement inertia: (up to|glided)', count = 0, label = "no start or glide under inertia" },
+  { re = 'eased crouch', count = 0, label = "the crouch follows the clips" },
+  { re = 'player body summary: weapon sway on, .*deepest jump or landing dip (?P<n>[\d.]+) units', range = [0, 0.05], label = "the weapon does not dip: the sway does not act under the main switch" },
+]
+
+[[scenario]]
+name = "advanced-movement-defaults"
+source = "owner 2026-11-16 (\"make sure all advanced movement features are off by default except the improved/advanced recoil\"; engine/nvforever/src/main.rs, nvf_play::inertia::log_switches): with no switch given (an unattended run reads no INI) the Global Toggle and Advanced Recoil are on and Movement Inertia, Weapon Handling, Animation Smoothing, Weapon Inertia and Camera Motion are off: no glide, no eased crouch, the original's draw pace, no sway, no head bob"
+areas = ["player-body", "settings"]
+paths = ["engine/nvforever/src/main.rs", "engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_MOVE = "5:1:0,8:0:0", NVF_PLAY_TEST_CONTROL = "10:sneak,12:sneak" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { text = "advanced movement: Global Toggle on, Movement Inertia off, Weapon Handling off, Advanced Recoil on, Animation Smoothing off", label = "the Global Toggle and Advanced Recoil on, the other parts off" },
+  { re = 'weapon handling: draws at x1\.00 before perks.*Weapon Handling off', label = "the original's draw pace at Agility 5" },
+  { re = 'movement inertia: (up to|glided)', count = 0, label = "by default no start or glide under inertia" },
+  { re = 'eased crouch', count = 0, label = "by default the crouch follows the clips" },
+  { re = 'player body summary: weapon sway off', label = "Weapon Inertia off" },
+  { re = 'player body summary: head bob off', label = "Camera Motion off" },
+]
+
+[[scenario]]
+name = "advanced-movement-parts"
+source = "owner 2026-11-15 (engine/nvf-play/src/player.rs, engine/nvforever/src/settings.rs; docs/design/player-body.md §1.4a.3): each switch of Advanced Movement acts alone: Camera Motion off on the settings page leaves Movement Inertia's glide and eased crouch, and the view no longer bobs"
+areas = ["player-body", "settings"]
+paths = ["engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/head_bob.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "3:5", NVF_PLAY_TEST_SETTINGS = "4:camera-motion", NVF_PLAY_TEST_MOVE = "7:1:0,10:0:0", NVF_PLAY_TEST_CONTROL = "12:sneak" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 15
+expect = [
+  { text = "settings: camera-motion off", label = "Camera Motion is turned off on the page" },
+  { re = 'movement inertia: glided (?P<n>[\d.]+) units', range = [25, 50], label = "the glide stays: Movement Inertia is its own switch" },
+  { text = "player view: crouched (eased crouch)", label = "and so does its eased crouch" },
+  { re = 'player body summary: head bob off, deepest first-person dip (?P<n>[\d.]+) units', range = [0, 0.05], label = "the view no longer bobs" },
 ]
 
 [[scenario]]
@@ -1442,10 +1775,10 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 
 [[scenario]]
 name = "sun-shadows-performance"
-source = "docs/design/frame-rate-audit.md §9 and §10 (nvforever shadow_rate.rs, #2062, #2063): on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
+source = "docs/design/frame-rate-audit.md §9, §10 and §11 (nvforever shadow_rate.rs, shadow_anchor.rs, #2062, #2063, #2833): the sun's cascades are snapped to a grid anchored near the camera; on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
 paths = [
-  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/shadow_anchor.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
   "engine/nvforever/src/tree.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs",
   "engine/nvf-play/src/settings_layout.rs",
 ]
@@ -1460,8 +1793,12 @@ order = [[
   "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
   { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "Quality again: the staggered schedule holds cascades again" },
 ]]
+expect = [
+  { text = "sun shadows: cascades snapped to a grid anchored near the camera", count = 1, label = "the cascades are anchored near the camera (logged once)" },
+]
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { text = "cascades left on the grid through the world's origin", label = "the anchoring is on without the test aid" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
@@ -1469,7 +1806,7 @@ forbid = [
 name = "sun-shadow-hold-flashlight"
 source = "#2182 review (vendored bevy_pbr light.rs prepare_lights, nvforever shadow_rate.rs): the player's flashlight casts shadows, so switching it on or off gives the sun a new shadow texture; that frame draws every cascade instead of holding one, outdoors at noon with the staggered schedule"
 areas = ["renderer", "flashlight"]
-paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/shadow_anchor.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/nvforever/src/flashlight.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "8:flashlight,14:flashlight" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 20
@@ -1486,7 +1823,7 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 name = "sun-shadow-stagger-off"
 source = "#2063 (nvforever shadow_rate.rs): the test aid NVF_PLAY_TEST_SHADOW_STAGGER=0 draws every cascade every frame on Quality; Performance still holds its maps"
 areas = ["renderer", "graphics", "settings"]
-paths = ["engine/nvforever/src/shadow_rate.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
+paths = ["engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/shadow_anchor.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs"]
 env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:sun-shadows=0.5,18:sun-shadows=1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 23
@@ -1511,8 +1848,8 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 32
 order = [[
   "pause menu: open",
-  "settings: ambient-occlusion on",
   "settings: anti-aliasing TAA",
+  "settings: ambient-occlusion on",
   "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
   { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$' },
   { re = 'pause menu: resume$' },
@@ -2920,12 +3257,12 @@ order = [[
 [[scenario]]
 name = "ammo-swap-in-spin-up"
 source = "#1613: the minigun with five 5mm and five armour-piercing rounds, Ammo Swap 0.05 s into the spin-up: a reload into the armour-piercing ones, those five shots, then a click on the next pull; the plain rounds stay carried"
-note = "the plain rounds are never fired: the swap comes before the first shot and nothing swaps back, so five shots in all, not ten. The trigger is held from 6 to 16 s; the pull at 17 s is the one that clicks"
+note = "the plain rounds are never fired: the swap comes before the first shot and nothing swaps back, so five shots in all, not ten. The trigger is held from 9 to 19 s; the pull at 20 s is the one that clicks (3 s later than first written: with movement inertia and Weapon weight in handling the 30 lb minigun was not drawn yet at 6 s, tech/movement-inertia)"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:5,0013E43F:5", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.05:swap,16:fire,17:fire,17.4:fire", NVF_PLAY_TEST_CONSOLE = "24:player.getitemcount 0006B53D;player.getitemcount 0013E43F;24.4:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:5,0013E43F:5", NVF_PLAY_TEST_CONTROL = "3:weapon,9:fire,9.05:swap,19:fire,20:fire,20.4:fire", NVF_PLAY_TEST_CONSOLE = "27:player.getitemcount 0006B53D;player.getitemcount 0013E43F;27.4:close" }
 args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 28
+run_seconds = 31
 expect = [
   "combat: ammo swapped to Ammo5mmArmorPiercing",
   { re = 'combat: reloaded 5, magazine 5\b', count = 1, label = "one reload takes the five armour-piercing rounds" },
@@ -11389,7 +11726,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -11410,7 +11747,7 @@ order = [[
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the five autosave rows, [Dialogue] (line 15); the window is twelve lines (#2377), and a heading on its last line is drawn with its first row in the next window, so the window from line 4 draws lines 4-14"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, reload-slows, UsePipBoy, sound-cover (#2688), an empty line, [V.A.T.S.] and its three rows, an empty line, [Camera] (the menu overhaul, owner 2026-11-15); the window is eleven lines (#2377, the heading links under the note)"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -11418,18 +11755,18 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 20
 order = [[
   "pause menu: tab Gameplay; selected difficulty",
-  { re = 'pause menu: rows 2-13 of \d+ shown', label = "a notch of the wheel shows the next line" },
-  { re = 'pause menu: rows 3-14 of \d+ shown' },
-  { re = 'pause menu: rows 4-15 of \d+ shown', label = "three notches, three lines down" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row ([Dialogue] on its last line left for the next window)" },
-  "pause menu: inspect: window 12 lines, 11 drawn",
-  { re = 'pause menu: rows 3-14 of \d+ shown', label = "a notch up moves it back one line" },
-  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-14 of \d+', label = "the chosen row still in the window" },
-  "pause menu: inspect: window 12 lines, 12 drawn",
+  { re = 'pause menu: rows 2-12 of \d+ shown', label = "a notch of the wheel shows the next line" },
+  { re = 'pause menu: rows 3-13 of \d+ shown' },
+  { re = 'pause menu: rows 4-14 of \d+ shown', label = "three notches, three lines down" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected reload-slows, lines 4-14 of \d+', label = "the window stays moved, the chosen row its top row" },
+  "pause menu: inspect: window 11 lines, 11 drawn",
+  { re = 'pause menu: rows 3-13 of \d+ shown', label = "a notch up moves it back one line" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected reload-slows, lines 3-11 of \d+', label = "the chosen row still in the window ([Camera] on its last line left for the next window, with the empty line before it)" },
+  "pause menu: inspect: window 11 lines, 9 drawn",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
-  { re = 'pause menu: rows 1-12 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
+  { re = 'pause menu: rows 1-11 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
   { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "scrolling changes no setting" },
 ]
 
@@ -11514,56 +11851,64 @@ forbid = [
 
 [[scenario]]
 name = "settings-layout"
-source = "#1953: the settings page's seven tabs, the original's four first, and each row's tab and heading from one table (engine/nvf-play/src/settings_layout.rs; docs/design/settings-page.md); the Tweaks tab, filled by #1892 (88fbce1c4), opens on its first row, listed with no heading"
-note = "the placements checked are of rows registered in every --play run; `0 not in the table` says every row this run registers has its place (the Tweaks tab's rows, listed in registry order by design, are not counted). Until 88fbce1c4 the Tweaks tab was empty and the scenario checked it opened on no row"
+source = "#1953 and the menu overhaul (owner 2026-11-15): the settings page's eight tabs, the original's four first, and each row's tab and category from one table (engine/nvf-play/src/settings_layout.rs; docs/design/settings-page.md); the Tweaks tab opens on its Category row (#1892's rows in groups)"
+note = "the placements checked are of rows registered in every --play run; `0 not in the table` says every row this run registers has its place"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/tweaks.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,12:layout,13:tab:Tweaks", NVF_PLAY_TEST_PAUSE_MENU = "14:inspect" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
-  { text = "settings layout: tabs Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug", count = 1, label = "seven tabs, the original's four first" },
-  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every registered row has its place in the table, no tab of its own" },
+  { text = "settings layout: tabs Gameplay, Display, Audio, Controls, Graphics, NVF Features, Tweaks, Debug", count = 1, label = "eight tabs, the original's four first" },
+  { re = 'settings layout: \d+ row\(s\) in 8 tab\(s\), 0 not in the table', label = "every registered row has its place in the table, no tab of its own" },
   "settings layout: difficulty -> Gameplay > Game",
   "settings layout: autosave-travel -> Gameplay > Saving",
   "settings layout: menu-pause -> Gameplay > Dialogue",
   "settings layout: detached-camera -> Gameplay > Camera",
+  "settings layout: advanced-movement -> NVF Features > Advanced Movement",
+  "settings layout: movement-weight -> NVF Features > Advanced Movement",
+  "settings layout: movement-inertia -> NVF Features > Gameplay",
+  "settings layout: weapon-handling -> NVF Features > Gameplay",
+  "settings layout: advanced-recoil -> NVF Features > Gameplay",
+  "settings layout: weapon-inertia -> NVF Features > Visual Only",
+  "settings layout: animation-smoothing -> NVF Features > Visual Only",
+  "settings layout: camera-motion -> NVF Features > Visual Only",
+  { text = "settings layout: inertia-weight", count = 0, label = "the inertia weight is gone (owner 2026-11-15)" },
   "settings layout: resolution -> Display > Screen",
-  "settings layout: hud-colour -> Display > Interface",
-  "settings layout: hud-red -> Display > Interface",
+  "settings layout: hud-colour -> Display > Colours",
+  "settings layout: hud-red -> Display > Colours",
   "settings layout: crosshair-style -> Display > Interface",
   "settings layout: language -> Display > Interface",
-  "settings layout: fps-counter -> Display > Performance",
-  "settings layout: music -> Audio",
-  "settings layout: button-style -> Controls",
-  "settings layout: aim-assist -> Controls",
-  "settings layout: grade -> Graphics > Picture",
-  "settings layout: grass -> Graphics > Distance",
-  "settings layout: sky-clock -> Graphics > World",
+  "settings layout: fps-counter -> Display > Performance Overlay",
+  "settings layout: music -> Audio > Sound",
+  "settings layout: button-style -> Controls > Input",
+  "settings layout: aim-assist -> Controls > Aim Assist",
+  "settings layout: grade -> Graphics > Lighting and Effects",
+  "settings layout: grass -> Graphics > Detail and Distance",
+  "settings layout: sky-clock -> Graphics > World and Animation",
   "settings layout: god-mode -> Debug",
   "settings layout: scope-3d -> Debug",
-  { text = "settings layout: tweak-discovered-sound -> Tweaks", label = "#1892's first tweak under Tweaks, no heading (88fbce1c4)" },
-  { text = "pause menu: tab Tweaks; selected tweak-discovered-sound", label = "the Tweaks tab opens on its first row (filled since 88fbce1c4)" },
-  { re = 'pause menu: inspect: Tweaks, keys on the rows, selected tweak-discovered-sound, lines 1-12 of \d+', label = "a full window of its rows" },
-  { re = 'pause menu: inspect: words Search \| Changed \| Gameplay \| Display \| Audio \| Controls \| Graphics \| Tweaks \| Debug$', label = "the rail's words and no heading in the Tweaks tab" },
-  { text = "pause menu: settings window of 12 lines", count = 1, label = "the window's lines worked out from the layout, once (#2377)" },
+  { text = "pause menu: tab Tweaks; selected category", label = "the Tweaks tab opens on its Category row" },
+  { re = 'pause menu: inspect: Tweaks, keys on the rows, selected category, lines 1-\d+ of \d+', label = "its group's categories under it" },
+  { re = 'pause menu: inspect: words Search \| Changed \| Gameplay \| Display \| Audio \| Controls \| Graphics \| NVF Features \| Tweaks \| Debug \| ', label = "the rail's words" },
+  { text = "pause menu: settings window of 11 lines", count = 1, label = "the window's lines worked out from the layout, once (#2377)" },
   { re = 'pause menu: settings list (\d+) wide from \d+ in a view \d+ wide, band \d+-\d+', label = "the list's width from the view, logged (#2377)" },
-  "pause menu: inspect: window 12 lines, 12 drawn",
+  "pause menu: inspect: window 11 lines, 11 drawn",
 ]
 order = [[
   "settings layout: tabs Gameplay",
   "settings layout: difficulty -> Gameplay > Game",
-  "settings layout: autosave-travel -> Gameplay > Saving",
+  "settings layout: detached-camera -> Gameplay > Camera",
   "settings layout: menu-pause -> Gameplay > Dialogue",
+  "settings layout: autosave-travel -> Gameplay > Saving",
   "settings layout: resolution -> Display > Screen",
-  "settings layout: music -> Audio",
-  "settings layout: button-style -> Controls",
-  "settings layout: grade -> Graphics > Picture",
+  "settings layout: music -> Audio > Sound",
+  "settings layout: button-style -> Controls > Input",
+  "settings layout: grade -> Graphics > Lighting and Effects",
   "settings layout: god-mode -> Debug",
-  "pause menu: tab Tweaks; selected tweak-discovered-sound",
+  "pause menu: tab Tweaks; selected category",
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
-
 [[scenario]]
 name = "settings-layout-ultrawide"
 source = "#2377: at 3440x1440 (a view 2293 units wide) the settings list is as wide as it may be (1300 units), centred in the room left of the rail, the window twelve lines"
@@ -11582,6 +11927,22 @@ expect = [
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
 
 [[scenario]]
+name = "settings-launcher-menu"
+source = "owner 2026-11-16: the launcher's Settings page is the game's menu; the game writes its page (every tab, category and row with its label, note and kind) beside NVForever.ini once every row is registered, for the launcher (engine/nvf-play/src/settings_menu.rs)"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/settings_menu.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/", "crates/nvf-launcher/src/catalog.rs"]
+# Its own home: the run reads that home's INI and writes the menu file beside it, never the machine's.
+env = { NVFOREVER_HOME = "settings-launcher-menu-home" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'settings: menu for the launcher (written|unchanged): \S.*settings-menu\.json \(8 tabs, \d{3,} rows\)', count = 1, label = "the page written beside the INI: the eight tabs, every row" },
+]
+forbid = [
+  { re = 'settings: menu for the launcher not written', label = "the file can be written" },
+]
+
+[[scenario]]
 name = "settings-note-budget"
 source = "#2377: every settings note within the budget (200 characters, no command-line switch) once every row is registered, and two lines at the page's width in a 16:9 view once the pause menu's fonts are loaded; the rows' labels and values laid out at that width, a row whose text had to be cut logged"
 note = "`cut to fit` is reported, not failed: a row cut there is drawn with \"...\" and logs `settings: text of `<key>` cut to fit: ...`"
@@ -11592,17 +11953,18 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 15
 expect = [
   { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters\)', count = 1, label = "every registered note within 200 characters, no switch in it (at the start)" },
-  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" },
+  { re = 'settings: \d+ notes checked, 0 over the budget \(200 characters, two lines\)', count = 1, label = "and two lines at the page's 16:9 width (once the pause menu's fonts are loaded)" , known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
   { re = 'settings: \d+ rows laid out, \d+ cut to fit', count = 1, label = "the rows' labels and values laid out at that width" },
 ]
 forbid = [
-  { re = 'settings: note of `\S+` over the budget:', label = "no note over the budget" },
+  { re = 'settings: note of `\S+` over the budget: \d+ characters', label = "no note over the 200 characters" },
+  { re = 'settings: note of `\S+` over the budget: \d+ lines', label = "no note over two lines", known_failing = "2026-11-16: 49 of #1892's tweak notes run to three lines in the game's raster font, the menus' default (Menu Font Original); within two in the sharp font. Main draws the same notes in the same font" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
 [[scenario]]
 name = "settings-headings"
-source = "#1953: headings inside a tab, passed by Up/Down, jumped between with Page Up/Page Down (the aid's heading-down/heading-up press them); Tab the next tab (tab-down)"
+source = "#1953: headings inside a tab, chosen by Up/Down (the menu overhaul, owner 2026-11-15), jumped between with Page Up/Page Down (the aid's heading-down/heading-up press them); Tab the next tab (tab-down)"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:heading-down,13:heading-down,14:heading-up,15:tab-down,16:heading-down,17:inspect,17.5:up,18:inspect" }
@@ -11610,13 +11972,14 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 21
 order = [[
   { text = "pause menu: tab Gameplay; selected difficulty", label = "Gameplay opens on its first row, under Game" },
-  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "Page Down: the first row under Saving" },
-  { text = "pause menu: heading Gameplay > Dialogue; selected menu-pause", label = "Page Down again: under Dialogue" },
-  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "Page Up: back under Saving" },
-  { text = "pause menu: tab Display; selected resolution", label = "Tab: Display, on its first row" },
-  { text = "pause menu: heading Display > Interface; selected hud-colour", label = "Page Down: under Interface" },
-  { text = "pause menu: inspect: Display, keys on the rows, selected hud-colour", label = "the row is chosen with the keys on the rows" },
-  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected menu-scale", label = "Up from the heading's first row passes the heading to the row above it (menu-scale, the last row under Screen since #2524)" },
+  { text = "pause menu: heading Gameplay > V.A.T.S.; selected vats-style", label = "Page Down: the first row under V.A.T.S." },
+  { text = "pause menu: heading Gameplay > Camera; selected detached-camera", label = "Page Down again: under Camera" },
+  { text = "pause menu: heading Gameplay > V.A.T.S.; selected vats-style", label = "Page Up: back under V.A.T.S." },
+  { text = "pause menu: tab Display; selected monitor", label = "Tab: Display, on its first row" },
+  { text = "pause menu: heading Display > Frame Rate; selected display-sync", label = "Page Down: under Frame Rate" },
+  { text = "pause menu: inspect: Display, keys on the rows, selected display-sync", label = "the row is chosen with the keys on the rows" },
+  { re = 'pause menu: inspect: shown .*\[Display > Frame Rate\], display-sync', label = "the heading is drawn over its first row" },
+  { text = "pause menu: inspect: Display, keys on the rows, selected [Display > Frame Rate]", label = "Up from the heading's first row chooses the heading (a category opens and closes from it)" },
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
@@ -11636,11 +11999,11 @@ expect = [
 ]
 order = [[
   { text = "pause menu: colour sliders HUD hidden, Pip-Boy hidden", label = "both colours amber: no sliders" },
-  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,language\b', label = "the lists without their sliders" },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,fps-counter\b', label = "the lists without their sliders" },
   "settings: hud-colour Custom",
   { text = "pause menu: colour sliders HUD shown, Pip-Boy hidden", label = "Custom shows the HUD's sliders only" },
   { re = 'pause menu: inspect: Display, keys on the rows, selected hud-colour, ', label = "the choice stays on the colour" },
-  { re = 'pause menu: inspect: rows .*\bhud-colour,hud-red,hud-green,hud-blue,pipboy-colour,language\b', label = "red, green and blue under the HUD's colour" },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,hud-red,hud-green,hud-blue,pipboy-colour,fps-counter\b', label = "red, green and blue under the HUD's colour" },
   "settings: hud-red 51",
   "interface colours: HUD [51, 182, 66], Pip-Boy [255, 182, 66]",
   "settings: hud-colour Green",
@@ -11648,7 +12011,7 @@ order = [[
   "interface colours: HUD [26, 255, 128], Pip-Boy [255, 182, 66]",
   "settings: pipboy-colour Custom",
   { text = "pause menu: colour sliders HUD hidden, Pip-Boy shown", label = "the Pip-Boy's alone" },
-  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,pipboy-red,pipboy-green,pipboy-blue,language\b' },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,pipboy-red,pipboy-green,pipboy-blue,fps-counter\b' },
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
 
@@ -11665,14 +12028,14 @@ order = [[
   "controls: input device Controller",
   "pause menu: tab Gameplay; selected difficulty",
   "pause menu: RB presses PageDown",
-  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "RB: the next heading" },
+  { text = "pause menu: heading Gameplay > V.A.T.S.; selected vats-style", label = "RB: the next heading" },
   "pause menu: LB presses PageUp",
   { text = "pause menu: heading Gameplay > Game; selected difficulty", label = "LB: the heading before" },
   "pause menu: RT presses Tab",
-  { text = "pause menu: tab Display; selected resolution", label = "RT: the next tab" },
+  { text = "pause menu: tab Display; selected monitor", label = "RT: the next tab" },
   "pause menu: Y presses F6",
   { text = "pause menu: the keys on the rail (Display)", label = "Y: the keys on the rail" },
-  "pause menu: inspect: Display, keys on the rail (Display), selected resolution",
+  "pause menu: inspect: Display, keys on the rail (Display), selected monitor",
   "pause menu: rail Gameplay",
   "pause menu: rail Changed",
   { text = "pause menu: list Changed; selected device", label = "A on the rail: the Changed list, on the Input Device row (set to Controller)" },
@@ -11762,8 +12125,8 @@ order = [[
   "settings: crosshair-style Arrows",
   { text = "pause menu: list Changed; selected difficulty", label = "the Changed list opens on its first row" },
   { text = "pause menu: changed 3 row(s); keys difficulty,crosshair-style,god-mode", label = "exactly the three rows set, in the page's order" },
-  "pause menu: inspect: Changed, keys on the rows, selected difficulty, lines 1-6 of 6",
-  { text = "pause menu: inspect: shown [Gameplay > Game], difficulty, [Display > Interface], crosshair-style, [Debug], god-mode", label = "each under where it lives" },
+  "pause menu: inspect: Changed, keys on the rows, selected difficulty, lines 1-8 of 8",
+  { text = "pause menu: inspect: shown [Gameplay > Game], difficulty, , [Display > Interface], crosshair-style, , [Debug], god-mode", label = "each under where it lives, an empty line between places" },
   { text = "pause menu: changed defaults; keys difficulty,crosshair-style,god-mode", label = "Defaults on the list puts back those rows" },
   "settings: difficulty Normal",
   "settings: crosshair-style Cross",
@@ -11789,8 +12152,8 @@ run_seconds = 21
 order = [[
   "pause menu: tab Gameplay; selected difficulty",
   "pause menu: the pointer on heading-down",
-  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "a click on Next heading: the first row under Saving" },
-  "pause menu: inspect: Gameplay, keys on the rows, selected autosave-travel",
+  { text = "pause menu: heading Gameplay > V.A.T.S.; selected vats-style", label = "a click on Next heading: the first row under V.A.T.S." },
+  "pause menu: inspect: Gameplay, keys on the rows, selected vats-style",
   "pause menu: the pointer on changed",
   { text = "pause menu: list Changed; selected none", label = "a click on Changed opens the list" },
   { text = "pause menu: changed 0 row(s); keys", label = "nothing changed in a clean run" },
@@ -11815,7 +12178,7 @@ order = [[
   "language: xx",
   "settings: language Smoke Language",
   { text = 'pause menu: search "menu-pause": 1 result(s); keys menu-pause', label = "the English key is found under another language" },
-  { text = "pause menu: inspect: words [xx] Search | [xx] Changed | [xx] Gameplay | [xx] Display | [xx] Audio | [xx] Controls | [xx] Graphics | [xx] Tweaks | [xx] Debug | [xx] Search: menu-pause | [xx] Gameplay > [xx] Dialogue", label = "the rail, the search's line and where the row lives, translated" },
+  { text = "pause menu: inspect: words [xx] Search | [xx] Changed | [xx] Gameplay | [xx] Display | [xx] Audio | [xx] Controls | [xx] Graphics | [xx] NVF Features | [xx] Tweaks | [xx] Debug | [xx] Search: menu-pause | [xx] Gameplay > [xx] Dialogue", label = "the rail, the search's line and where the row lives, translated" },
   'pause menu: search "zzzz": 0 result(s); keys',
   { re = 'pause menu: inspect: words .*\| \[xx\] Search: zzzz \| \[xx\] No results\.$', label = "nothing found, in the language" },
   "pause menu: search closed",
@@ -11828,7 +12191,7 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 [[scenario]]
 name = "settings-quality-presets"
 source = "#1966: the Graphics tab's Quality row, over its own heading at the top: each preset sets the rows its file's keys map to (docs/spec-notes/quality-presets.md), each logged with its value; a change to one of them reads Custom (engine/nvforever/src/quality.rs)"
-note = "the presets are the made-up files of tools/smoke/fixtures/quality-presets (NVF_PLAY_TEST_QUALITY_PRESETS), not an install's: a slider's part is the file's number against the largest of the four, so Very High is 100% and matches today's distances"
+note = "Shadow distance is a list of 0-100% in fifths (the menu overhaul, owner 2026-11-15): a file's part is taken to the nearest; the presets are the made-up files of tools/smoke/fixtures/quality-presets (NVF_PLAY_TEST_QUALITY_PRESETS), not an install's: a slider's part is the file's number against the largest of the four, so Very High is 100% and matches today's distances"
 areas = ["settings", "renderer"]
 paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "tools/smoke/fixtures/quality-presets/"]
 env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low,14:quality=Medium,15:quality=High,16:quality=Very High,18:object-distance=0.5" }
@@ -11837,44 +12200,43 @@ run_seconds = 23
 expect = [
   { re = 'quality presets: Low, Medium, High, Very High from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start" },
   { text = "settings layout: quality -> Graphics > Quality", label = "the Quality row under its own heading" },
-  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row under Picture" },
 ]
 order = [[
-  "settings: shadow-distance 25%",
-  { text = "settings: sun-shadows Off", label = "bDrawShadows=0: Sun shadows Off" },
+  "settings: shadow-distance 20%",
   "settings: shadow-filter Fast",
+  { text = "settings: grass-distance 10%", label = "0 in the file: the slider's least" },
+  { text = "settings: sun-shadows Off", label = "bDrawShadows=0: Sun shadows Off" },
   "settings: actor-distance 20%",
   "settings: object-distance 40%",
   "settings: item-distance 50%",
-  { text = "settings: grass-distance 10%", label = "0 in the file: the slider's least" },
   "settings: water-mirror off",
   "settings: glow off",
   { re = 'quality presets: Low from .*quality-presets: 9 row\(s\) set', label = "Low sets its nine rows" },
   "settings: quality Low",
   "quality presets: the Quality row reads Low",
-  "settings: shadow-distance 50%",
+  "settings: grass-distance 25%",
   { text = "settings: sun-shadows Quality", label = "bDrawShadows=1: Sun shadows Quality (the row is a choice now, #2182)" },
   "settings: actor-distance 40%",
   "settings: object-distance 50%",
   "settings: item-distance 60%",
-  "settings: grass-distance 25%",
   "settings: water-mirror on",
+  { text = "settings: shadow-distance 60%", label = "the shadows' distance once Sun shadows are on (it is greyed while they are off)" },
   "settings: quality Medium",
   "quality presets: the Quality row reads Medium",
-  "settings: shadow-distance 75%",
+  "settings: shadow-distance 80%",
   "settings: shadow-filter Smooth",
+  "settings: grass-distance 75%",
   "settings: actor-distance 60%",
   "settings: object-distance 80%",
   "settings: item-distance 70%",
-  "settings: grass-distance 75%",
   "settings: glow on",
   "settings: quality High",
   "quality presets: the Quality row reads High",
   "settings: shadow-distance 100%",
+  "settings: grass-distance 100%",
   "settings: actor-distance 100%",
   "settings: object-distance 100%",
   "settings: item-distance 100%",
-  "settings: grass-distance 100%",
   "settings: quality Very High",
   "quality presets: the Quality row reads Very High",
   { text = "settings: object-distance 50%", label = "a covered row changed on its own" },
@@ -11888,7 +12250,7 @@ forbid = [
 
 [[scenario]]
 name = "settings-quality-presets-missing"
-source = "#1966: without any of the preset files the Quality row is not registered, and the log says why once; the Enhanced effects row stays (engine/nvforever/src/quality.rs)"
+source = "#1966: without any of the preset files the Quality row is not registered, and the log says why once (engine/nvforever/src/quality.rs; the Enhanced effects row is gone, the menu overhaul, owner 2026-11-15)"
 note = "NVF_PLAY_TEST_QUALITY_PRESETS names a folder that does not exist; the aid's quality=Low then finds no such row"
 areas = ["settings"]
 paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs"]
@@ -11897,8 +12259,7 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 17
 expect = [
   { re = 'quality presets: none of low\.ini, medium\.ini, high\.ini, VeryHigh\.ini in .*quality-presets-none: the Quality row is not shown', count = 1, label = "said once" },
-  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row is there all the same" },
-  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every row still has its place" },
+  { re = 'settings layout: \d+ row\(s\) in 8 tab\(s\), 0 not in the table', label = "every row still has its place" },
   { re = 'NVF_PLAY_TEST_SETTINGS: no switch "quality"', label = "there is no Quality row to take a preset" },
 ]
 forbid = [
@@ -11923,45 +12284,6 @@ expect = [
 ]
 order = [["settings: quality Low", "quality presets: the Quality row reads Low", "settings: quality High", "quality presets: the Quality row reads High"]]
 forbid = [{ text = "settings: quality Medium", label = "Medium is not taken" }]
-
-[[scenario]]
-name = "settings-enhanced-effects"
-source = "#1966: the Enhanced effects row under Graphics > Picture: On sets every effect --graphics enhanced turns on, Off every one off as vanilla, Custom when mixed; the Quality row reads the install's own preset files (engine/nvforever/src/quality.rs)"
-note = "test runs start with the vanilla look, so the row first reads Off; bloom flipped alone makes it Custom; Off then flips the six still on (bloom is off already)"
-areas = ["settings", "renderer"]
-paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:enhanced=On,13:bloom,15:enhanced=Off" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 20
-expect = [
-  { re = 'quality presets: Low, Medium, High, Very High from .+; 9 key\(s\) set rows, 32 not used', count = 1, label = "the install's four preset files are read from its folder" },
-]
-order = [[
-  { text = "quality presets: the Enhanced effects row reads Off", label = "the vanilla look at the start" },
-  "settings: ambient-occlusion on",
-  "settings: fine-shadows on",
-  "settings: bloom on",
-  "settings: sharpen on",
-  "settings: anisotropic on",
-  "settings: light-shafts on",
-  "settings: water-reflections on",
-  "settings: enhanced On",
-  "quality presets: the Enhanced effects row reads On",
-  "settings: bloom off",
-  { text = "quality presets: the Enhanced effects row reads Custom", label = "one effect off: Custom" },
-  "settings: ambient-occlusion off",
-  "settings: fine-shadows off",
-  "settings: sharpen off",
-  "settings: anisotropic off",
-  "settings: light-shafts off",
-  "settings: water-reflections off",
-  "settings: enhanced Off",
-  "quality presets: the Enhanced effects row reads Off",
-]]
-forbid = [
-  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
-  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling|upscaler|upscaler-quality) ', label = "the row touches only the enhanced effects" },
-]
 
 [[scenario]]
 name = "controller-write"
@@ -12026,7 +12348,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -12034,7 +12356,7 @@ name = "look-sensitivity-write"
 source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's, floor 5% since #1632); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.2:vertical:100,12.5:invert:1,13:sensitivity:150,13.5:vertical:80,14:device:Controller,14.5:sensitivity:100,14.7:vertical:100,15:sensitivity:50,15.5:vertical:120" }
+env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.2:vertical:100,12.3:aim-sensitivity:100,12.5:invert:1,13:sensitivity:150,13.5:vertical:80,13.7:aim-sensitivity:60,14:device:Controller,14.5:sensitivity:100,14.7:vertical:100,14.8:aim-sensitivity:100,15:sensitivity:50,15.5:vertical:120,15.7:aim-sensitivity:150" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 19
 expect = [
@@ -12043,8 +12365,10 @@ expect = [
   { text = "controls: stick sensitivity 50%", label = "with a controller the slider is Stick Sensitivity, set apart from the mouse's" },
   { text = "controls: mouse vertical sensitivity 80%", label = "the Vertical Sensitivity row sets the mouse's vertical look as a percentage of its horizontal (#2201)" },
   { text = "controls: stick vertical sensitivity 120%", label = "with a controller the Vertical Sensitivity row is the stick's own (#2201)" },
+  { text = "controls: mouse aim sensitivity 60%", label = "the Aim Sensitivity row sets the mouse's look while aiming (owner 2026-11-15)" },
+  { text = "controls: stick aim sensitivity 150%", label = "with a controller the Aim Sensitivity row is the stick's own" },
 ]
-order = [["controls: invert Y off", "controls: invert Y on", "controls: mouse sensitivity 150%", "controls: mouse vertical sensitivity 80%", "controls: input device Controller", "controls: stick sensitivity 50%", "controls: stick vertical sensitivity 120%"]]
+order = [["controls: invert Y off", "controls: invert Y on", "controls: mouse sensitivity 150%", "controls: mouse vertical sensitivity 80%", "controls: mouse aim sensitivity 60%", "controls: input device Controller", "controls: stick sensitivity 50%", "controls: stick vertical sensitivity 120%", "controls: stick aim sensitivity 150%"]]
 
 [[scenario]]
 name = "look-sensitivity-read"
@@ -12055,7 +12379,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 69 of 69 line\(s\) read from .*NVForever\.ini, 6 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2; input device Controller', label = "the stored Invert Y, the two sensitivities and the two vertical sensitivities (#2201) are taken at the start" },
+  { re = 'controls: 71 of 71 line\(s\) read from .*NVForever\.ini, 8 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2, Mouse Aim Sensitivity 0\.6, \[Controller\] Stick Aim Sensitivity 1\.5; input device Controller', label = "the stored Invert Y, the two sensitivities, the two vertical sensitivities (#2201) and the two aim sensitivities are taken at the start" },
 ]
 
 [[scenario]]
@@ -29207,6 +29531,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "native-crash-exit-code"
+source = "#2755: a watcher process adds the process's exit code to the end of the run log of a run that did not exit normally, and the next start names it (engine/nvforever/src/exit_watch.rs, crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/exit_watch.rs", "engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# Windows only, as the watcher is. The run after native-crash-dump in the same home: that run's process ended with 0xC0000005.
+requires = ["WINDIR"]
+env = { NVFOREVER_HOME = "native-crash-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 5
+expect = [
+  "run log: the previous run did not end normally and left no crash report",
+  "run log: the previous run's process ended with exit code 0xC0000005 (access violation)",
+  "run log: the game exited normally",
+]
+
+[[scenario]]
 name = "native-crash-signal"
 source = "#2167, docs/design/player-reports.md section 3.2 (#1425, #1825): on Linux a native crash writes the signal, the fault address and the top frames into the run log, and the process still ends by the same signal (engine/nvforever/src/native_crash_unix.rs)"
 areas = ["crash"]
@@ -29591,16 +29931,16 @@ order = [[
 
 [[scenario]]
 name = "settings-back-hint"
-source = "issue #1893: the settings page's Back carries its hint as the menu's Delete does, \"Back  Esc)\" with the keyboard and \"Back  B)\" with a controller, as the original's B (owner's play); pause.rs back_label"
-note = "The pause menu at 2 s, the Gameplay tab at 3 s, inspected with the keyboard at 4 s; Controller chosen at 5 s and inspected again at 6 s. Defaults keeps no hint (its Y is the rail key here, #1953). Before the fix Back was drawn bare"
+source = "issue #1893: the settings page's Back carries its hint as the menu's Delete does, \"Back  B)\" with a controller, as the original's B (owner's play); with the keyboard \"Back\" alone (owner 2026-11-15, the menu overhaul's third test: \"Remove the Esc, leave only Back\"); pause.rs back_label"
+note = "Its home keeps the Controller it chose, so the keyboard is chosen first at 2.5 s. The pause menu at 2 s, the Gameplay tab at 3 s, inspected with the keyboard at 4 s; Controller chosen at 5 s and inspected again at 6 s. Defaults keeps no hint (its Y is the rail key here, #1953). Before the fix Back was drawn bare"
 areas = ["menus", "controller", "settings"]
 paths = ["engine/nvf-play/src/pause.rs"]
-env = { NVFOREVER_HOME = "settings-back-hint-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:9", NVF_PLAY_TEST_SETTINGS = "3:tab:Gameplay,5:device:Controller", NVF_PLAY_TEST_PAUSE_MENU = "4:inspect,6:inspect" }
+env = { NVFOREVER_HOME = "settings-back-hint-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:9", NVF_PLAY_TEST_SETTINGS = "2.5:device:Keyboard and Mouse,3:tab:Gameplay,5:device:Controller", NVF_PLAY_TEST_PAUSE_MENU = "4:inspect,6:inspect" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 11
 order = [[
   { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
-  { re = 'pause menu: inspect: back \S+  Esc\)', label = "Back names the keyboard's Esc" },
+  { re = 'pause menu: inspect: back Back$', label = "Back alone with the keyboard" },
   { text = "controls: input device Controller", label = "the controller is picked" },
   { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
 ]]

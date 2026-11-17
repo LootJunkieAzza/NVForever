@@ -564,7 +564,9 @@ impl<'a> Gen<'a> {
             let idx = v.index;
             return Some(self.ref_index(RefSlot::Local(idx), name));
         }
-        let f = self.form(name)?;
+        // The observed bare five-digit receiver uses the same file-local lookup as
+        // a short form argument (script-compiler.md §4). Other widths stay unchanged.
+        let f = self.form(name).or_else(|| if name.len() == 5 { self.short_form_id(name) } else { None })?;
         Some(self.ref_index(RefSlot::Form(f.form), name))
     }
 

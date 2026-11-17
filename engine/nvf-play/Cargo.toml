@@ -22,6 +22,8 @@ fnv-save.workspace = true
 infinitier_bik_decoder = { workspace = true, optional = true }
 fnv-install.workspace = true
 fnv-util.workspace = true
+# The settings page's tabs, categories and row order, shared with the launcher (settings_layout.rs).
+nvf-settings-layout.workspace = true
 fnv-combat.workspace = true
 fnv-actor.workspace = true
 fnv-voice.workspace = true

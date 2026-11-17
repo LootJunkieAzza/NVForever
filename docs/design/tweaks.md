@@ -453,7 +453,7 @@ unless the player binds them, so nothing changes until then.
 | Shift to Talk While Sneaking | `bTalkWhileSneakingIfShiftIsHeld` | `activate::shift_talks` sets a switch read by `actor_action_in`, which then offers Talk |
 | No Active Quest From New Objectives / After Completing One | `bDontSetQuestWhenObjectivesAdded`, `bDontSetQuestWhenCompletingObjectives` | `pipboy::data` stops picking the first quest under way by itself; either switch does it, as NVForever has no separate objective-added moment there |
 | Hide Read Notes | `bHideReadNotes` | `pipboy::data` leaves out notes `Game::note_read` says are read, but for the one on screen |
-| Console Key | `iConsoleKey` | `tweaks::CONSOLE_KEYS` (the original's `` ` `` first, then keys nothing else takes) read by `console::toggle` |
+| Console Key | `iConsoleKey` | a key binding, `bindings::Control::Console` (`` ` `` by default, rebound on Controls > Additional Features like any control) read by `console::toggle` [design: owner 2026-11-16] |
 | Tab Closes Terminals | `bTabClosesTerminals` | `terminal::keys` sends Exit on Tab |
 | Tab Goes Back in the Pause Menu | `bTabBackInStartMenu` | `pause::choose`: Tab is Back on the main page's question and the load list; Settings and Controls keep Tab for their tabs |
 | Fast Travel From Anywhere | `bAllowUnsafeFastTravel` | `pipboy::data::travel::tweak_checks` drops the place refusal (Can't Travel From Here, Can't Fast Travel) |
@@ -545,7 +545,7 @@ unless the player binds them, so nothing changes until then.
 | (already so) | `bDisplayItemEffectTotals` | `Game::aid_preview` counts an effect over time whole, so the EFFECTS figure is the total; the per-second breakdown is not shown |
 | Map Zooms at the Pointer | `bBetterMapZoom` | `pipboy::data::take_input` adds a drag of the pointer's offset from `MAP_MID` times (1 − growth) after a wheel zoom, so the place under it stays (both maps; the world map's edge clamp still applies) |
 | Console Homes | `bAddSetHomeCommand` | `console::typing` takes `sethome`, `home`, `back` and `delhome` (an optional name, "home" without one) while `Console::homes_on`; the homes are travels kept for the session, not saved |
-| Screenshot Key | `iScreenshotKey` | nvforever `keys` takes the picture on `tweaks::screenshot_key`: F12, Print Screen, F11, Scroll Lock or Pause (`SCREENSHOT_KEYS`, keys nothing else takes) |
+| Screenshot Key | `iScreenshotKey` | a key binding, `bindings::Control::Screenshot` (F12 by default, rebound on Controls > Additional Features); nvforever `keys` takes the picture on it [design: owner 2026-11-16] |
 | Shift Screenshot Hides the HUD | `bShiftScreenshotHidesMenus` | with Shift held, nvforever `keys` sets `MenusHidden` (what `tm` sets), takes the picture three frames later and puts it back after six; an open menu stays in the picture |
 | Console Lines Name Their Plugin | `bModConsolePrintsIncludeName` | the script runner's `print` puts `[plugin]` (the unit key's first part) before the line; the base game's scripts too |
 | Weapon Requirements Matter | `bWeaponRequirementsMatter` | `Game::weapon_requirement_unmet` compares the weapon's DNAM Strength and skill requirements with the player's values now; the Pip-Boy (`menu.rs`) and the hotkeys (`weapon_wheel::read`, not for the weapon already equipped) refuse with "Needs <stat> <n>." |
@@ -1212,7 +1212,7 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
-| `iConsoleKey` | done |  | 1 | Console Key (a choice of six keys) |
+| `iConsoleKey` | done |  | 1 | Console Key (a key binding, Controls > Additional Features) |
 | `iDisableCollisionKey` | done |  | 1 | a Controls key: No Collision (held) |
 | `iDropEquippedWeaponKey` | done |  | 1 | Drop Weapon key (Controls page; not a quest item or one that can't be dropped) |
 | `iEquipLastWeaponKey` | done |  | 4 | Last Weapon key (Controls page; the weapon before the one now, put away) |
@@ -1233,7 +1233,7 @@ game's Data folder, read-only).
 | `iRadioVolumeDownKey` | done |  | 1 | Radio Volume Down key |
 | `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
 | `iRepeatActivateKey` | done |  | 2 | Repeat Activate key (Controls page) and Repeat Activate Takes Only |
-| `iScreenshotKey` | done |  | 1 | Screenshot Key (a choice of five) |
+| `iScreenshotKey` | done |  | 1 | Screenshot Key (a key binding, Controls > Additional Features) |
 | `iSkipRadioSongKey` | done |  | 1 | Skip Radio Song key (not a script's conversation) |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |

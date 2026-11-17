@@ -48,12 +48,20 @@ pub const SIGHTS_IN_SECONDS: f32 = 0.35;
 pub const SIGHTS_OUT_SECONDS: f32 = 0.3;
 
 /// The share of the way (0–1, not eased) after `dt` seconds, going up while `aimed`.
+/// (With movement inertia the gun moves along the settling curve over the aim's times
+/// instead: `nvf_play::ease::Settled`, `nvf_play::inertia::AIM_IN_SECONDS`.)
 pub fn step(share: f32, aimed: bool, dt: f32) -> f32 {
+    step_over(share, aimed, dt, SIGHTS_IN_SECONDS, SIGHTS_OUT_SECONDS)
+}
+
+/// [`step`] over `rise` seconds up and `fall` down (Weapon Handling's pace, nvf_play
+/// `inertia::MovementInertia::aim_seconds`).
+pub fn step_over(share: f32, aimed: bool, dt: f32, rise: f32, fall: f32) -> f32 {
     let dt = dt.clamp(0.0, 0.25);
     if aimed {
-        (share + dt / SIGHTS_IN_SECONDS).min(1.0)
+        (share + dt / rise.max(1e-3)).min(1.0)
     } else {
-        (share - dt / SIGHTS_OUT_SECONDS).max(0.0)
+        (share - dt / fall.max(1e-3)).max(0.0)
     }
 }
 

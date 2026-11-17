@@ -73,14 +73,101 @@ pub struct Layer {
     pub ease: f32,
     /// Seconds to fade in (ease 0 to 1); fading out takes [`Self::fade_out`].
     pub fade_in: f32,
+    /// The fade is taken through [`settle`] instead of straight ([`Self::shown_ease`]): the
+    /// first-person arms' clips with movement inertia (nvforever `player_body.rs`).
+    pub smooth: bool,
     /// Playback speed multiplier (Loop and Once).
     pub rate: f32,
     seen: bool,
     /// Not asked for at the last [`Animator::end`]: fading out.
     leaving: bool,
+    /// Each bound track's rotation as the last [`Animator::pose`] blended it (on its side of
+    /// the sphere), so the next frame's stays on the same side: kept continuous, a clip's
+    /// rotation never flips sign against the others it is blended with.
+    aligned: Vec<Option<Vec4>>,
+}
+
+/// How sharp [`settle`]'s start is: the curve is a critically damped spring's step
+/// response over `SETTLE_SHARPNESS` of its time constants.
+const SETTLE_SHARPNESS: f32 = 6.0;
+
+/// The settling curve of 0–1 [design: the owner's seventh playtest, 2026-11-14: "we
+/// should not have any linear curves - everything should be a smooth spring with a slow
+/// finish"]: the step response of a critically damped spring, scaled to arrive at 1. It
+/// leaves 0 without a jolt, is quick early (over half the way in the first third of the
+/// time) and very slow at the end (the last quarter of the time covers a twentieth). It
+/// arrives at rest: the spring's last bit of speed (about a tenth of the average) is taken
+/// out over the end by `x²(x − 1)`, which leaves the start and the middle as they were and
+/// keeps the curve rising; a fade or a move that stopped at the spring's own end lost that
+/// speed in one frame, a visible stop (the trace `movement-inertia-trace-weapons`: the
+/// 10mm pistol's hold coming in at the draw's end, 9 units/s to 1 in a frame) [design: the
+/// owner, 2026-11-15, "pistol drawing animation is not smooth at all", "make the aiming
+/// down sights animation smoother at the end - same time length"].
+pub fn settle(x: f32) -> f32 {
+    let k = SETTLE_SHARPNESS;
+    let x = x.clamp(0.0, 1.0);
+    let norm = 1.0 - (1.0 + k) * (-k).exp();
+    let spring = (1.0 - (1.0 + k * x) * (-k * x).exp()) / norm;
+    let end_speed = k * k * (-k).exp() / norm;
+    spring - end_speed * x * x * (x - 1.0)
+}
+
+/// [`settle`] at `x` with its first and second derivatives (its speed and its pull).
+pub fn settle_slopes(x: f32) -> (f32, f32, f32) {
+    let k = SETTLE_SHARPNESS;
+    let x = x.clamp(0.0, 1.0);
+    let norm = 1.0 - (1.0 + k) * (-k).exp();
+    let end_speed = k * k * (-k).exp() / norm;
+    let e = (-k * x).exp();
+    let speed = k * k * x * e / norm - end_speed * (3.0 * x * x - 2.0 * x);
+    let pull = k * k * e * (1.0 - k * x) / norm - end_speed * (6.0 * x - 2.0);
+    (settle(x), speed, pull)
+}
+
+/// The `x` at which [`settle`] is `y` (by halving; `settle` only rises).
+pub fn settle_inv(y: f32) -> f32 {
+    let y = y.clamp(0.0, 1.0);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if settle(mid) < y {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
 }
 
 impl Layer {
+    /// The fade as the blend takes it: straight, or ([`Self::smooth`]) through [`settle`]:
+    /// coming in it follows the curve; going out it follows the curve's mirror, so two
+    /// layers of a priority crossing over the same time share the bones by the curve
+    /// itself, quick at first and slow at the end.
+    /// Fading out (no longer wanted).
+    pub fn is_leaving(&self) -> bool {
+        self.leaving
+    }
+
+    pub fn shown_ease(&self) -> f32 {
+        match (self.smooth, self.leaving) {
+            (false, _) => self.ease,
+            (true, false) => settle(self.ease),
+            (true, true) => 1.0 - settle(1.0 - self.ease),
+        }
+    }
+
+    /// Start to leave or to come back (`leaving`), keeping a smooth layer's shown fade
+    /// where it is: the coming-in and going-out curves differ, so the fade's place on
+    /// the other curve is found.
+    fn set_leaving(&mut self, leaving: bool) {
+        if self.smooth && leaving != self.leaving {
+            let shown = self.shown_ease();
+            self.ease = if leaving { 1.0 - settle_inv(1.0 - shown) } else { settle_inv(shown) };
+        }
+        self.leaving = leaving;
+    }
+
     /// The time within the clip the layer samples, given the animator's phase.
     pub fn sample_time(&self, phase: f32) -> f32 {
         let c = &self.clip;
@@ -123,6 +210,8 @@ struct Contribution {
     ease: f32,
     layer: u16,
     track: u16,
+    /// Its place in the layer's `bound` (and `aligned`).
+    slot: u16,
 }
 
 /// A node outside the skeleton that clips drive by name: a part of the weapon model
@@ -156,6 +245,122 @@ pub struct Animator {
     /// The clip whose end gives the extra nodes their rest poses ([`Self::set_extra_rest`]).
     extra_rest: Option<Arc<Clip>>,
     scratch: Vec<Contribution>,
+    /// Loop seams smoothed ([`Self::smooth_seams`]); `None`: the pose as the clips give it.
+    seams: Option<Seams>,
+    /// A looped clip, or the synced phase, wrapped round in the last [`Self::advance`].
+    wrapped: bool,
+    /// The pose jumps at the next [`Self::advance`] for another reason ([`Self::smooth_jump`]).
+    jumped: bool,
+    /// The last [`Self::advance`]'s seconds.
+    last_dt: f32,
+    /// The last [`Self::pose`] eased across a loop's seam or a jump (for a motion trace).
+    pub seamed: bool,
+    /// Each node's rotation in the last [`Self::pose`], the side of the sphere this frame's
+    /// rotations are blended on (`pose`).
+    last_rotations: Vec<Quat>,
+}
+
+/// Inertialization of loop seams [design: the owner's sixth playtest, 2026-11-14: "the
+/// idle gun holding animation does not look smooth, small hitching in it"; the trace showed
+/// the first-person hand's motion turning back in one frame each time the idle clip looped
+/// (its last keys do not run on into its first): Daniel Holden's inertialization,
+/// theorangeduck.com]. When a loop wraps, the pose carries on from where it was going for
+/// that frame; the difference to the clips' pose (an offset, and its rate) then dies away on
+/// a critically damped spring, so the seam's jump and its turn of direction become one
+/// smooth curve. Translation and rotation; scale is the clips'.
+#[derive(Debug, Clone, Default)]
+struct Seams {
+    omega: f32,
+    /// The pose shown last frame and its rates (translation, rotation as scaled axis per s).
+    shown: Vec<Transform>,
+    vel_t: Vec<Vec3>,
+    vel_r: Vec<Vec3>,
+    /// The clips' pose last frame.
+    raw: Vec<Transform>,
+    /// The offsets dying away (translation, rotation as scaled axis) and their rates.
+    off_t: Vec<(Vec3, Vec3)>,
+    off_r: Vec<(Vec3, Vec3)>,
+    /// An offset was set at a wrap last frame; its rate is set this frame, once the clips'
+    /// rate after the seam is known.
+    pending: bool,
+    active: bool,
+}
+
+/// `dt` seconds of a critically damped spring at rest `0` (value, rate), exact.
+fn decay(v: Vec3, r: Vec3, omega: f32, dt: f32) -> (Vec3, Vec3) {
+    let b = r + omega * v;
+    let k = (-omega * dt).exp();
+    ((v + b * dt) * k, (b - omega * (v + b * dt)) * k)
+}
+
+/// The rotation taking `b` to `a`, as a scaled axis (the shorter way).
+fn rot_diff(a: Quat, b: Quat) -> Vec3 {
+    let mut d = a * b.inverse();
+    if d.w < 0.0 {
+        d = -d;
+    }
+    d.to_scaled_axis()
+}
+
+impl Seams {
+    /// Take the clips' pose `raw` after `dt` seconds (`wrapped`: a loop wrapped round in
+    /// them) and give the pose to show in its place.
+    // The loops walk the node index through several arrays of the same length at once.
+    #[allow(clippy::needless_range_loop)]
+    fn smooth(&mut self, raw: &mut [Transform], wrapped: bool, dt: f32) {
+        let n = raw.len();
+        if self.shown.len() != n {
+            // The first pose, or the skeleton changed: start from the clips'.
+            *self = Seams { omega: self.omega, shown: raw.to_vec(), vel_t: vec![Vec3::ZERO; n], vel_r: vec![Vec3::ZERO; n], raw: raw.to_vec(), off_t: vec![(Vec3::ZERO, Vec3::ZERO); n], off_r: vec![(Vec3::ZERO, Vec3::ZERO); n], ..Seams::default() };
+            return;
+        }
+        if dt <= 0.0 {
+            raw.copy_from_slice(&self.shown);
+            return;
+        }
+        if wrapped {
+            // Carry on from where the pose was going; the clips' pose jumped: offset it.
+            for i in 0..n {
+                let s = self.shown[i];
+                let t = s.translation + self.vel_t[i] * dt;
+                let q = (Quat::from_scaled_axis(self.vel_r[i] * dt) * s.rotation).normalize();
+                self.off_t[i] = (t - raw[i].translation, Vec3::ZERO);
+                self.off_r[i] = (rot_diff(q, raw[i].rotation), Vec3::ZERO);
+            }
+            (self.pending, self.active) = (true, true);
+        } else if self.active {
+            for i in 0..n {
+                if self.pending {
+                    // The offsets' rates: the pose's own rate less the clips' after the seam.
+                    let rt = (raw[i].translation - self.raw[i].translation) / dt;
+                    let rr = rot_diff(raw[i].rotation, self.raw[i].rotation) / dt;
+                    self.off_t[i].1 = self.vel_t[i] - rt;
+                    self.off_r[i].1 = self.vel_r[i] - rr;
+                }
+                self.off_t[i] = decay(self.off_t[i].0, self.off_t[i].1, self.omega, dt);
+                self.off_r[i] = decay(self.off_r[i].0, self.off_r[i].1, self.omega, dt);
+            }
+            self.pending = false;
+        }
+        let clips = raw.to_vec();
+        if self.active {
+            let mut most = 0.0f32;
+            for i in 0..n {
+                raw[i].translation += self.off_t[i].0;
+                raw[i].rotation = (Quat::from_scaled_axis(self.off_r[i].0) * raw[i].rotation).normalize();
+                most = most.max(self.off_t[i].0.length()).max(self.off_r[i].0.length() * 10.0);
+            }
+            if !self.pending && most < 1e-5 {
+                self.active = false;
+            }
+        }
+        for i in 0..n {
+            self.vel_t[i] = (raw[i].translation - self.shown[i].translation) / dt;
+            self.vel_r[i] = rot_diff(raw[i].rotation, self.shown[i].rotation) / dt;
+        }
+        self.shown.copy_from_slice(raw);
+        self.raw = clips;
+    }
 }
 
 /// Where `clip` leaves the node named `name` at its end (`bind` fills what the track
@@ -176,7 +381,24 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new(), seams: None, wrapped: false, jumped: false, last_dt: 0.0, seamed: false, last_rotations: Vec::new() }
+    }
+
+    /// Smooth the seams of looping clips: at a wrap the pose carries on and eases onto the
+    /// clips' over about `seconds` (95%); `None` leaves the pose as the clips give it.
+    pub fn smooth_seams(&mut self, seconds: Option<f32>) {
+        match (seconds, self.seams.as_mut()) {
+            (Some(s), Some(seams)) => seams.omega = 4.743_864_6 / s.max(1e-3),
+            (Some(s), None) => self.seams = Some(Seams { omega: 4.743_864_6 / s.max(1e-3), ..Seams::default() }),
+            (None, _) => self.seams = None,
+        }
+    }
+
+    /// The pose jumps at the next [`Self::advance`] (a clip started again from its start, a
+    /// fire clip at each shot): with [`Self::smooth_seams`] on it eases across the jump as
+    /// across a loop's seam, the new clip's own motion on top; otherwise nothing.
+    pub fn smooth_jump(&mut self) {
+        self.jumped = self.seams.is_some();
     }
 
     /// Replace the nodes outside the skeleton that clips drive by name (none: an empty
@@ -345,9 +567,11 @@ impl Animator {
             target: weight,
             ease,
             fade_in,
+            smooth: false,
             rate: 1.0,
             seen: true,
             leaving: false,
+            aligned: Vec::new(),
         });
         self.layers.len() - 1
     }
@@ -356,7 +580,7 @@ impl Animator {
     /// from here on, keeping their weights.
     pub fn end(&mut self) {
         for l in &mut self.layers {
-            l.leaving = !l.seen;
+            l.set_leaving(!l.seen);
         }
     }
 
@@ -423,7 +647,15 @@ impl Animator {
     /// faded out are dropped.
     pub fn advance(&mut self, dt: f32, sync_rate: f32) {
         let (mut len_sum, mut w_sum) = (0.0, 0.0);
+        self.last_dt = dt;
+        self.wrapped = std::mem::take(&mut self.jumped);
         for l in &mut self.layers {
+            // A shown looping clip about to wrap round (for `smooth_seams`).
+            let len = l.clip.length();
+            if matches!(l.mode, Mode::Loop) && l.ease > 0.0 && len > 0.0 && l.clip.cycle_type == 0 {
+                let next = l.time + dt * l.rate * l.clip.frequency;
+                self.wrapped |= (next / len).floor() != (l.time / len).floor();
+            }
             if l.leaving {
                 let down = if l.fade_out <= 0.0 { 1.0 } else { dt / l.fade_out };
                 l.ease = (l.ease - down).max(0.0);
@@ -443,7 +675,9 @@ impl Animator {
         }
         self.layers.retain(|l| l.ease > 0.0 || !l.leaving);
         if w_sum > 1e-6 && len_sum > 1e-6 {
-            self.phase = (self.phase + dt * sync_rate * w_sum / len_sum).rem_euclid(1.0);
+            let next = self.phase + dt * sync_rate * w_sum / len_sum;
+            self.wrapped |= next >= 1.0;
+            self.phase = next.rem_euclid(1.0);
         }
     }
 
@@ -451,15 +685,35 @@ impl Animator {
     pub fn pose(&mut self) {
         let skel = &self.skel;
         self.scratch.clear();
-        for (li, l) in self.layers.iter().enumerate() {
+        for (li, l) in self.layers.iter_mut().enumerate() {
             if l.ease <= 0.0 {
+                l.aligned.clear();
                 continue;
             }
-            for &(bone, track, priority) in &l.bound {
-                self.scratch.push(Contribution { bone, priority: (l.sequence_priority, priority), weight: l.weight * l.ease, ease: l.ease, layer: li as u16, track });
+            l.aligned.resize(l.bound.len(), None);
+            let ease = l.shown_ease();
+            // A fade that shows as nothing adds nothing. A leaving smooth layer's last frame
+            // (its fade a hair over 0, the settling curve rounding it to none) alone in its
+            // priority group shared 0 ÷ 0 below, and the bones it drives took their bind pose
+            // for that frame: the left arm flung out for one frame of the grenade's put-away
+            // [observed: the trace `movement-inertia-trace-weapons`, 2026-11-16].
+            if ease <= 0.0 || ease.is_nan() {
+                continue;
+            }
+            for (slot, &(bone, track, priority)) in l.bound.iter().enumerate() {
+                self.scratch.push(Contribution { bone, priority: (l.sequence_priority, priority), weight: l.weight * ease, ease, layer: li as u16, track, slot: slot as u16 });
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
+        // Each clip's rotation of a bone is blended on the side of the sphere it was on last
+        // frame (`Layer::aligned`); one just come in, on the side of the bone's last pose.
+        // Taken by the first clip's side each frame, two clips whose rotations of a bone
+        // passed half a turn apart while they crossed over flipped the blend to the other way
+        // round in one frame (the straight razor's put-away over the idle: the upper arm, a
+        // jump of the hand of 34 units) [observed: the trace `movement-inertia-trace-weapons`,
+        // 2026-11-15].
+        self.last_rotations.clear();
+        self.last_rotations.extend(self.locals.iter().map(|l| l.rotation));
         // Bones without tracks: the bind pose, or their own rest pose; held nodes: the
         // identity; extra nodes: their place in their model.
         self.locals.clone_from(&skel.locals);
@@ -477,7 +731,7 @@ impl Animator {
             // The bone's rest pose (set above).
             let bind = self.locals[bone];
             let (mut t, mut q, mut s) = (Vec3::ZERO, Vec4::ZERO, 0.0f32);
-            let mut first: Option<Vec4> = None;
+            let first: Option<Vec4> = self.last_rotations.get(bone).map(|r| Vec4::from(*r));
             let mut free = 1.0f32;
             while i < self.scratch.len() && self.scratch[i].bone as usize == bone {
                 // One priority group.
@@ -503,12 +757,15 @@ impl Animator {
                     t += f * track.translation.sample(time).map_or(bind.translation, Vec3::from_array);
                     let r = track.rotation_after(time, l.cycles()).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w));
                     let mut v = Vec4::from(r);
-                    let reference = *first.get_or_insert(v);
+                    let reference = l.aligned.get(c.slot as usize).copied().flatten().or(first).unwrap_or(v);
                     if v.dot(reference) < 0.0 {
                         v = -v;
                     }
                     q += f * v;
                     s += f * track.scale.sample(time).map_or(bind.scale.x, |[x]| x);
+                    if let Some(a) = self.layers[c.layer as usize].aligned.get_mut(c.slot as usize) {
+                        *a = Some(v);
+                    }
                 }
             }
             if free > 1e-6 {
@@ -527,6 +784,12 @@ impl Animator {
                 self.locals[bone] = posed;
             }
         }
+        self.seamed = self.wrapped && self.seams.is_some();
+        if let Some(s) = self.seams.as_mut() {
+            s.smooth(&mut self.locals, self.wrapped, self.last_dt);
+            // A pose asked for again without time passing is not a second seam.
+            self.wrapped = false;
+        }
     }
 
     /// Node `i`'s local transform from the layers `pick` accepts alone, at their times,
@@ -537,7 +800,7 @@ impl Animator {
         let (mut t, mut q, mut s, mut sum) = (Vec3::ZERO, Vec4::ZERO, 0.0f32, 0.0f32);
         let mut first: Option<Vec4> = None;
         for l in self.layers.iter().filter(|l| l.ease > 0.0 && pick(l)) {
-            let w = (l.weight * l.ease).max(1e-4);
+            let w = (l.weight * l.shown_ease()).max(1e-4);
             for &(_, track, _) in l.bound.iter().filter(|b| b.0 as usize == i) {
                 let track = &l.clip.tracks[track as usize].1;
                 let time = l.sample_time(self.phase);
@@ -660,6 +923,60 @@ mod tests {
     }
 
     #[test]
+    fn a_leaving_layer_shown_as_nothing_leaves_the_pose_to_the_others() {
+        let mut a = animator();
+        let base = clip(&[("A", [10.0, 0.0, 0.0], 10)], 1.0);
+        let top = clip(&[("A", [20.0, 0.0, 0.0], 30)], 1.0);
+        a.want(&base, 0, 1.0, Mode::Loop, 0.0);
+        a.want(&top, 1, 1.0, Mode::Loop, 0.0);
+        // Its fade a hair over nothing, on the way out along the settling curve: shown as 0.
+        let l = &mut a.layers[1];
+        l.smooth = true;
+        l.set_leaving(true);
+        l.ease = 1e-9;
+        assert_eq!(l.shown_ease(), 0.0, "the fade shows as nothing");
+        a.pose();
+        assert_eq!(a.locals[2].translation, Vec3::new(10.0, 0.0, 0.0), "the base takes the bone, not its bind pose");
+    }
+
+    /// A clip turning node `name` about z by `angle` (radians), at a priority.
+    fn turning(name: &str, angle: f32, priority: i32) -> Arc<Clip> {
+        let c = clip(&[(name, [0.0; 3], priority)], 1.0);
+        let mut c = Arc::into_inner(c).expect("a new clip");
+        let q = Quat::from_rotation_z(angle);
+        c.tracks[0].1 = Arc::new(TransformTrack { translation: Channel::Static(None), rotation: Channel::Static(Some([q.w, q.x, q.y, q.z])), euler: None, scale: Channel::Static(None), per_cycle: None });
+        Arc::new(c)
+    }
+
+    #[test]
+    fn two_clips_crossing_half_a_turn_apart_blend_without_a_flip() {
+        // A holds the bone still; B turns it on from 120° to 240°, both at one priority: the
+        // blend follows B's turn by its share and never flips round. B a new layer each frame (no history: the side of the bone's last pose), then one
+        // layer whose clip turns on (its own last side), down to a quarter share.
+        for (kept, share) in [(false, 1.0), (true, 1.0), (true, 0.27)] {
+            let mut a = animator();
+            a.want(&turning("A", 0.0, 10), 0, 1.0, Mode::Loop, 0.0);
+            let mut last: Option<Quat> = None;
+            for k in 0..=60 {
+                let b = turning("A", (120.0 + 2.0 * k as f32).to_radians(), 10);
+                if kept && k > 0 {
+                    a.layers[1].clip = b;
+                } else {
+                    a.restart(&b, 1, 1.0, Mode::Loop, 0.0);
+                }
+                a.layers[1].weight = share;
+                a.layers[0].weight = 1.0 - share * 0.5;
+                a.pose();
+                let now = a.locals[2].rotation;
+                if let Some(l) = last {
+                    assert!(l.angle_between(now).to_degrees() < 3.0, "kept {kept}, share {share}: the blend jumped {}° at {}°", l.angle_between(now).to_degrees(), 120 + 2 * k);
+                }
+                last = Some(now);
+            }
+        }
+    }
+
+    #[test]
     fn script_sequence_priority_is_independent_of_bone_priority_and_fades_out() {
         let mut a = animator();
         let base = clip(&[("A", [10.0,0.0,0.0], 200)],1.0);
@@ -711,6 +1028,147 @@ mod tests {
         new.pose();
         assert_eq!(new.locals[2].translation, Vec3::new(10.0, 0.0, 0.0));
         assert_eq!(new.layers[0].time, old.layers[0].time);
+    }
+
+    #[test]
+    fn a_clip_started_again_eases_across_its_jump_when_asked() {
+        // A fire clip that kicks from 0 to 1 over its 0.2 seconds, started again from its
+        // start every 0.15 seconds, as by rapid fire.
+        let fire = |smooth: bool| {
+            let mut a = animator();
+            a.smooth_seams(smooth.then_some(0.1));
+            use fnv_nif::anim::{Key, KeyKind, Keys};
+            let key = |time: f32, x: f32| Key { time, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+            let base = clip(&[("A", [0.0, 0.0, 0.0], 30)], 0.2);
+            let kick = TransformTrack { translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.0), key(0.2, 1.0)] }), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None };
+            let x = Arc::new(Clip { tracks: vec![("A".to_string(), Arc::new(kick))], ..(*base).clone() });
+            let mut xs = Vec::new();
+            for frame in 0..60 {
+                if frame % 9 == 0 {
+                    a.restart(&x, 70, 1.0, Mode::Once, 0.0);
+                    a.smooth_jump();
+                }
+                a.advance(1.0 / 60.0, 1.0);
+                a.pose();
+                xs.push(a.locals[2].translation.x);
+            }
+            xs.windows(2).skip(1).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max)
+        };
+        assert!(fire(false) > 0.6, "each start snaps back: {}", fire(false));
+        assert!(fire(true) < 0.15, "eased across: {}", fire(true));
+    }
+
+    #[test]
+    fn a_smoothed_loop_seam_carries_on_and_eases_onto_the_clip() {
+        // A loop that runs from 0 up to 1 over a second and starts again at 0: a jump and a
+        // turn of direction at every wrap.
+        let saw = |smooth: Option<f32>| {
+            let mut a = animator();
+            a.smooth_seams(smooth);
+            use fnv_nif::anim::{Key, KeyKind, Keys};
+            let key = |time: f32, x: f32| Key { time, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+            let base = clip(&[("A", [0.0, 0.0, 0.0], 30)], 1.0);
+            let ramp = TransformTrack { translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.0), key(1.0, 1.0)] }), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None };
+            let x = Arc::new(Clip { tracks: vec![("A".to_string(), Arc::new(ramp))], ..(*base).clone() });
+            let mut xs = Vec::new();
+            for _ in 0..180 {
+                a.begin();
+                a.want(&x, 0, 1.0, Mode::Loop, 0.0);
+                a.end();
+                a.advance(1.0 / 60.0, 1.0);
+                a.pose();
+                xs.push(a.locals[2].translation.x);
+            }
+            xs
+        };
+        let raw = saw(None);
+        let biggest_raw = raw.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+        assert!(biggest_raw > 0.9, "the clip itself jumps back at the seam: {biggest_raw}");
+        let smooth = saw(Some(0.25));
+        let biggest = smooth.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+        assert!(biggest < 0.1, "no jump when smoothed: {biggest}");
+        // Half a second after each seam the pose is the clip's again.
+        for (k, (s, r)) in smooth.iter().zip(&raw).enumerate() {
+            if k % 60 >= 45 && k > 60 {
+                assert!((s - r).abs() < 0.02, "frame {k}: {s} against {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_smooth_crossover_shares_the_bones_by_one_eased_curve() {
+        let mut a = animator();
+        let x = clip(&[("A", [0.0, 0.0, 0.0], 30)], 1.0);
+        let y = clip(&[("A", [1.0, 0.0, 0.0], 30)], 1.0);
+        a.begin();
+        a.want(&x, 0, 1.0, Mode::Loop, 0.0);
+        a.end();
+        a.advance(0.1, 1.0);
+        // Cross over to y over 0.4 s, both smooth, the leaving one over the same time.
+        a.begin();
+        a.want(&y, 0, 1.0, Mode::Loop, 0.4);
+        a.end();
+        for l in &mut a.layers {
+            (l.smooth, l.fade_out) = (true, 0.4);
+        }
+        let mut shares = Vec::new();
+        for _ in 0..8 {
+            a.advance(0.05, 1.0);
+            a.pose();
+            shares.push(a.locals[2].translation.x);
+            a.begin();
+            a.want(&y, 0, 1.0, Mode::Loop, 0.4);
+            a.end();
+        }
+        // y's share follows the settling curve of the time: quick first, slow at the end.
+        for (k, s) in shares.iter().enumerate() {
+            let t = (k + 1) as f32 * 0.05 / 0.4;
+            assert!((s - settle(t)).abs() < 1e-3, "{k}: {s} against {}", settle(t));
+        }
+        assert!(shares[2] > 0.6 && shares[5] > 0.95 && shares[5] < 1.0, "{shares:?}");
+    }
+
+    #[test]
+    fn the_settling_curve_is_quick_first_and_slow_last_and_inverts() {
+        assert_eq!(settle(0.0), 0.0);
+        assert!((settle(1.0) - 1.0).abs() < 1e-6);
+        assert!(settle(0.02) < 0.01, "no jolt at the start");
+        assert!(settle(0.33) > 0.5 && 1.0 - settle(0.75) < 0.06);
+        for y in [0.0, 0.1, 0.5, 0.9, 0.99, 1.0] {
+            assert!((settle(settle_inv(y)) - y).abs() < 1e-4, "{y}");
+        }
+    }
+
+    #[test]
+    fn a_smooth_layer_turning_back_mid_fade_keeps_its_place() {
+        let mut a = animator();
+        let x = clip(&[("A", [0.0, 0.0, 0.0], 30)], 1.0);
+        let y = clip(&[("A", [1.0, 0.0, 0.0], 30)], 1.0);
+        a.begin();
+        a.want(&x, 0, 1.0, Mode::Loop, 0.0);
+        a.end();
+        a.advance(0.1, 1.0);
+        let ask = |a: &mut Animator, c: &Arc<Clip>| {
+            a.begin();
+            a.want(c, 0, 1.0, Mode::Loop, 0.4);
+            a.end();
+            for l in &mut a.layers {
+                (l.smooth, l.fade_out) = (true, 0.4);
+            }
+        };
+        // Towards y for a while, then back to x: the pose carries on from where it is.
+        ask(&mut a, &y);
+        for _ in 0..4 {
+            a.advance(0.05, 1.0);
+            ask(&mut a, &y);
+        }
+        a.pose();
+        let before = a.locals[2].translation.x;
+        ask(&mut a, &x);
+        a.advance(1e-4, 1.0);
+        a.pose();
+        let after = a.locals[2].translation.x;
+        assert!(before > 0.5 && (after - before).abs() < 0.01, "{before} then {after}");
     }
 
     #[test]

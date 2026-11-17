@@ -5,7 +5,7 @@
 //! made after the settings are read, and again for a loaded save).
 
 use crate::script::ScriptState;
-use crate::settings::{add_setting, choice_index, choice_part, Setting, Slider};
+use crate::settings::{add_choice_list, choice_index, choice_of, ChoiceList, Setting};
 use bevy::prelude::*;
 use fnv_game::difficulty::{Difficulty, LEVELS};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,16 +28,38 @@ pub struct DifficultyPlugin;
 impl Plugin for DifficultyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, sync.in_set(crate::PlaySet::Input));
-        add_setting(
+        // A list of the five levels [design: the menu overhaul, owner 2026-11-15: a row of 7
+        // or fewer values is a list]; the INI's older slider number still loads.
+        add_choice_list(
             app,
-            Setting::slider(
-                "difficulty",
-                crate::pause::GROUP_MENUS,
-                "Difficulty",
-                "How hard the fights are: from Very Easy (your hits do double damage, you take half) to Very Hard (half and double); Normal as they are.",
-                Slider::choice(LEVELS.len(), |_| choice_part(level().code(), LEVELS.len()), |_, v| set_level(LEVELS[choice_index(v, LEVELS.len())]), |v| LEVELS[choice_index(v, LEVELS.len())].name().to_string()),
-            ),
+            Setting {
+                key: "difficulty",
+                group: crate::pause::GROUP_MENUS,
+                label: "Difficulty",
+                note: "How hard the fights are: from Very Easy (your hits do double damage, you take half) to Very Hard (half and double); Normal as they are.",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList { names: |_| names(), chosen: |_| level().name().to_string(), pick: |_, n| take_level(n), save: |_| level().name().to_string(), load: |_, t| take_level(t), ask_keep: false },
         );
+    }
+}
+
+/// The levels' names, in order.
+fn names() -> Vec<String> {
+    LEVELS.iter().map(|d| d.name().to_string()).collect()
+}
+
+/// The level `text` names (or an older slider's number stands for); false: none.
+fn take_level(text: &str) -> bool {
+    match choice_of(text, &names(), |v| choice_index(v, LEVELS.len())) {
+        Some(i) => {
+            set_level(LEVELS[i]);
+            true
+        }
+        None => false,
     }
 }
 

@@ -32,6 +32,10 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+// Shared test fixtures use the same crate name in library and integration tests.
+#[cfg(test)]
+extern crate self as fnv_game;
+
 pub mod abilities;
 pub mod activate_choices;
 pub mod actor_values;

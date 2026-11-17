@@ -478,17 +478,18 @@ fn toggle(
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
-    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (tweaks, bindings, mouse): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<crate::bindings::Bindings>>, crate::pad::ActionButtons<MouseButton>),
 ) {
     let keys = keys.snapshot();
-    // The player's tweak: another key opens the console [design: docs/design/tweaks.md].
-    let key = crate::tweaks::console_key(tweaks.as_deref());
+    let mouse = mouse.snapshot();
+    // The Console binding (Controls > Additional Features), ` unless the player rebinds it.
+    let pressed = crate::bindings::binding_just_pressed(bindings.as_deref(), crate::bindings::Control::Console, |k| keys.just_pressed(k), |m| mouse.just_pressed(m));
     let by_aid = aid.0.first().is_some_and(|(t, _)| time.world_secs().is_some_and(|now| *t <= now));
     if !c.open {
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
         let world = *state.get() == PlayState::Playing || (free_cam.holds_world() && *state.get() == PlayState::Menu);
         let free = world && active.0.is_none() && !loading.active();
-        if free && (keys.just_pressed(key) || by_aid || c.open_asked) {
+        if free && (pressed || by_aid || c.open_asked) {
             c.open = true;
             c.open_asked = false;
             // Already `Menu` under the free camera: no change of state, which would close it.
@@ -498,7 +499,7 @@ fn toggle(
         }
         return;
     }
-    if keys.any_just_pressed([key, KeyCode::Escape]) {
+    if pressed || keys.just_pressed(KeyCode::Escape) {
         close(&mut c, &mut next, &mut commands, &roots);
     }
 }

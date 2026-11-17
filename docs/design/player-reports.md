@@ -136,6 +136,16 @@ Not in it: save names, character name, screenshots, typed console text (console
 
 ### 3.2 Crash report (automatic when opted in)
 
+[documented: `engine/nvforever/src/crash.rs`] Local panic reports keep the established
+`crash-<UTC second>-<pid>.txt` name. Concurrent or successive panics using that same
+name preserve the first report and its recorder/snapshot sidecars. Each later panic
+still logs its own thread, message and location, and says that the earlier report was
+preserved. A later second can produce another report; the collector's existing latest
+report selection is unchanged. This preserves same-name panic evidence only: earlier
+GPU errors remain in the run log and structured events, and the panic report does not
+establish a GPU failure's cause. Report write errors are still logged, and sidecar
+collection is still attempted when writing the text fails.
+
 [design] When a session ends `panic` or `native`, the next start sends with its summary:
 
 - the panic report that `crash.rs` already writes (already redacted), now with the
@@ -177,6 +187,28 @@ Not in it: save names, character name, screenshots, typed console text (console
   a Linux `native` end is log-only (`native-nofile`) until a Linux dump pipeline exists;
   nothing new is uploaded. (`native-nofile` is a server-side report kind: nothing in this
   repo implements it yet — planned, and its home is the reports service, not the engine.)
+
+**A run that just stops** (#2755) [documented: `engine/nvforever/src/exit_watch.rs`,
+`crash.rs`]: 13 sessions on 0.7.0 ended mid-play with no panic, no dump and no line. The
+exception filter does not see a stack overflow (it returns at once: no stack to write
+with), a fail-fast or abort (no handler runs; Rust's abort on a failed allocation is one),
+a crash after a driver replaced the filter, or the process being ended from outside. What
+tells them apart is the process's exit code, which only another process can read:
+
+- At its start the game starts a watcher: the same executable with `--watch-exit <pid>
+  <run log>`, no window, which waits for the game's process, reads its exit code and, when
+  it is not 0, adds a line to the end of that run's log: `run log: the process ended with
+  exit code 0xC00000FD (stack overflow)`. Codes named: `0xC00000FD` stack overflow,
+  `0xC0000409` fail-fast, `0xC0000005` access violation, `0xC0000374` heap corruption,
+  `0xC0000017` no memory, `0xC000013A` console closed, 1 an error exit or ended from
+  outside, 101 a panic in the main thread. Windows only; `NVF_EXIT_WATCH=0` turns it off.
+- The line is part of the run log, so it is in the log sent with the crash, and the next
+  start repeats it (`run log: the previous run's process ended with exit code …`).
+- An allocation that fails writes `out of memory: an allocation of N bytes failed` into
+  the run log before Rust aborts (the game's global allocator, crash.rs).
+- [design, not built] The summary carries no `exit_code` field yet: the server's schema
+  check would have to know it first. Until then the dashboard can split `native` ends by
+  the log's line.
 
 The crash is grouped server-side by a **signature**: for panics, the message with numbers
 stripped plus the top 3 frames inside NVForever's own crates; for dumps, the faulting

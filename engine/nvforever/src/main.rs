@@ -27,6 +27,7 @@ mod activators;
 mod fos_start;
 mod reports;
 mod native_crash;
+mod exit_watch;
 #[cfg(target_os = "linux")]
 mod native_crash_unix;
 mod nif_mirror;
@@ -155,6 +156,7 @@ mod head_bob;
 mod view_sway;
 mod weapon_lower;
 mod setup;
+mod shadow_anchor;
 mod shadow_probe;
 mod shadow_rate;
 mod shadow_thin;
@@ -759,14 +761,58 @@ struct Args {
     /// alone as the original does; a switch of the settings page (player_body.rs).
     #[arg(long, requires = "play")]
     first_person_body: bool,
+    /// Weapon Inertia: the first-person arms and weapon lag behind turns and steps, bob,
+    /// breathe and recoil (view_sway.rs); off unless given (the owner, 2026-11-16: Advanced
+    /// Movement's parts off by default but Advanced Recoil); a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_weapon_sway")]
+    weapon_sway: bool,
     /// Keep the first-person arms and weapon still while turning and moving: no sway or
-    /// bob (view_sway.rs); a switch of the settings page.
+    /// bob (view_sway.rs), the default; a switch of the settings page.
     #[arg(long, requires = "play")]
     no_weapon_sway: bool,
+    /// Camera Motion: in first person the view bobs with each step, breathes and jolts when
+    /// hit (head_bob.rs); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_head_bob")]
+    head_bob: bool,
     /// No head bob in first person: the camera stays still while walking and running
-    /// (head_bob.rs); a switch of the settings page.
+    /// (head_bob.rs), the default; a switch of the settings page.
     #[arg(long, requires = "play")]
     no_head_bob: bool,
+    /// No advanced movement: none of the settings page's Advanced movement switches acts
+    /// (inertia, eased crouch, smooth weapon animations, weapon sway, head bob, the breath,
+    /// soft recoil, landing weight, hit jolt; nvf_play::inertia::MovementInertia::advanced),
+    /// as in the original; the main switch of that section.
+    #[arg(long, requires = "play")]
+    no_advanced_movement: bool,
+    /// Movement Inertia: speeding up, gliding to a stop, an eased crouch, landings that dip
+    /// (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_movement_inertia")]
+    movement_inertia: bool,
+    /// No movement inertia: full speed at once and an instant stop (nvf_play::inertia), the
+    /// default; a switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_movement_inertia: bool,
+    /// Weapon Handling: drawing, putting away and aiming take longer by the weapon's weight
+    /// and the attributes (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_weapon_handling")]
+    weapon_handling: bool,
+    /// No Weapon Handling: drawing, putting away and aiming keep the game's own timing,
+    /// whatever the weapon weighs (nvf_play::inertia), the default; a switch of the settings
+    /// page.
+    #[arg(long, requires = "play")]
+    no_weapon_handling: bool,
+    /// Animation Smoothing: the first-person clips ease in and settle softly
+    /// (nvf_play::inertia); off unless given; a switch of the settings page.
+    #[arg(long, requires = "play", conflicts_with = "no_animation_smoothing")]
+    animation_smoothing: bool,
+    /// No Animation Smoothing: the original's clips (nvf_play::inertia), the default; a
+    /// switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_animation_smoothing: bool,
+    /// No Advanced Recoil: the whole kick of a shot stays, as in the original
+    /// (nvf_play::inertia); a switch of the settings page (on by default).
+    #[arg(long, requires = "play")]
+    no_advanced_recoil: bool,
     /// Keep the first-person weapon up against walls and friendly actors close ahead
     /// (weapon_lower.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
@@ -970,7 +1016,15 @@ fn parse_smoothing(value: &str) -> Result<nvf_play::smooth_terrain::Smoothing, S
     nvf_play::smooth_terrain::Smoothing::parse(value).ok_or_else(|| format!("{value:?} is none of off, 2x2, 4x4, 4x4-near"))
 }
 
+/// Every allocation goes through crash.rs's allocator, which logs a failed one (#2755).
+#[global_allocator]
+static ALLOCATOR: crash::SaysWhenEmpty = crash::SaysWhenEmpty;
+
 fn main() -> AppExit {
+    // Started as this run's exit watcher (exit_watch.rs): wait for the game's process, no game.
+    if exit_watch::run_if_watcher() {
+        return AppExit::Success;
+    }
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
@@ -1570,6 +1624,9 @@ fn main() -> AppExit {
     // Small objects far away cast no sun shadows (shadow_thin.rs).
     .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
     .add_plugins(shadow_rate::ShadowRatePlugin { performance: performance_shadows })
+    // The sun's cascades snapped to a grid anchored near the camera, then reached toward the sun
+    // behind the player's body (sky::SUN_REACH_BACK) and held, in that order (shadow_anchor.rs).
+    .add_plugins(shadow_anchor::ShadowAnchorPlugin)
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling, planes_off: args.no_occlusion_planes, planes_outdoors: args.occlusion_planes_outdoors })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
@@ -1673,12 +1730,10 @@ fn main() -> AppExit {
     .init_resource::<actor_materials::PlayerRigMaterials>()
     .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))
-    // The sun's cascades reach behind the player's body (sky::SUN_REACH_BACK).
     // Only the sun's casters that can shade the view's slice of each cascade (#1378).
     // Placed models' and effect models' billboard nodes face the camera (#2549).
     .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
-    .add_systems(PostUpdate, sky::reach_toward_sun.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(bevy::light::SimulationLightSystems::UpdateLightFrusta))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
@@ -1783,8 +1838,17 @@ fn main() -> AppExit {
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             // The Vigor Tester's machine: its camera and lights, the room behind it.
             app.add_plugins(vigor_view::VigorViewPlugin);
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, head_bob: !args.no_head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin, grass_fire_fx::GrassFireFxPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: args.weapon_sway, head_bob: args.head_bob, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin, grass_fire_fx::GrassFireFxPlugin));
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
+            // Advanced Movement's parts are off unless switched on, Advanced Recoil on under
+            // the Global Toggle [design: the owner, 2026-11-16, "make sure all advanced
+            // movement features are off by default except the improved/advanced recoil"].
+            let mut inertia = nvf_play::inertia::MovementInertia::switched(args.movement_inertia);
+            inertia.weapon_handling = args.weapon_handling;
+            inertia.smooth = args.animation_smoothing;
+            inertia.recoil = !args.no_advanced_recoil;
+            inertia.advanced = !args.no_advanced_movement;
+            app.insert_resource(inertia);
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
@@ -2262,7 +2326,7 @@ fn keys(
     input: nvf_play::pad::ActionButtons<KeyCode>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    (tweaks, bindings): (Option<Res<nvf_play::tweaks::TweakSettings>>, Option<Res<nvf_play::bindings::Bindings>>),
     mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
     mut held: Local<Option<(u8, bool, std::path::PathBuf)>>,
 ) {
@@ -2287,11 +2351,16 @@ fn keys(
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    // The screenshot key (F12, or the player's Screenshot Key tweak, docs/design/tweaks.md):
+    // The Screenshot binding (F12 unless the player rebinds it, Controls > Additional Features):
     // a shot in the home's screenshots folder at the first free number, through the write
     // guard. It went to the working folder unguarded, and the count restarted at 1 each
     // run, over the last run's shots [#1987].
-    if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
+    // Without the game's bindings (the viewer), F12.
+    let shot = match bindings.as_deref() {
+        Some(b) => nvf_play::bindings::binding_just_pressed(Some(b), nvf_play::bindings::Control::Screenshot, |k| input.just_pressed(k), |_| false),
+        None => input.just_pressed(KeyCode::F12),
+    };
+    if shot {
         let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
         let path = fnv_install::first_unused(&dir, "nvforever-", "png");
         let ready = fnv_install::guard_write(&path, None)

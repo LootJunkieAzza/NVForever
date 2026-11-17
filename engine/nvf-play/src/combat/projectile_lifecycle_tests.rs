@@ -20,6 +20,10 @@ fn lifecycle_projectile(id: FormId, name: &str, flags: u16, kind: u16, range: f3
 }
 
 fn lifecycle_plugin(flags: u16, kind: u16, range: f32) -> fnv_esm::Plugin {
+    lifecycle_plugin_with_explosion(flags, kind, range, vec![0; 52])
+}
+
+fn lifecycle_plugin_with_explosion(flags: u16, kind: u16, range: f32, explosion_data: Vec<u8>) -> fnv_esm::Plugin {
     let header = record(b"TES4", 1, 0, &[sub(b"HEDR", [1.34f32.to_le_bytes(), 0u32.to_le_bytes(), 0x1000u32.to_le_bytes()].concat())]);
     let player = record(b"NPC_", 0, FormId::PLAYER_BASE.0, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
     let weapons = [weapon(GUN, "OwnedGun", Some(AMMO), PROJ), weapon(NEIGHBOR_GUN, "NeighborGun", None, NEIGHBOR)].concat();
@@ -28,12 +32,16 @@ fn lifecycle_plugin(flags: u16, kind: u16, range: f32) -> fnv_esm::Plugin {
     let projectiles = [lifecycle_projectile(PROJ, "OwnedProjectile", flags, kind, range), lifecycle_projectile(NEIGHBOR, "NeighborProjectile", flags, kind, range)].concat();
     // ExplosionData is thirteen four-byte fields. A zero-radius/damage authored
     // explosion still reaches the real explosion counter without hitting an actor.
-    let explosion = record(b"EXPL", 0, BLAST.0, &[sub(b"EDID", z("OwnedExplosion")), sub(b"DATA", vec![0; 52])]);
+    let explosion = record(b"EXPL", 0, BLAST.0, &[sub(b"EDID", z("OwnedExplosion")), sub(b"DATA", explosion_data)]);
     fnv_esm::Plugin::parse(&[header, group(b"NPC_", &player), group(b"WEAP", &weapons), group(b"AMMO", &ammo), group(b"PROJ", &projectiles), group(b"EXPL", &explosion), group(b"CELL", &cell)].concat(), "OwnedLifecycle.esm".into()).unwrap()
 }
 
 fn lifecycle_app(flags: u16, kind: u16, range: f32) -> App {
-    let plugins = Box::leak(vec![lifecycle_plugin(flags, kind, range)].into_boxed_slice());
+    lifecycle_app_from(lifecycle_plugin(flags, kind, range), flags)
+}
+
+fn lifecycle_app_from(plugin: fnv_esm::Plugin, flags: u16) -> App {
+    let plugins = Box::leak(vec![plugin].into_boxed_slice());
     let state = ScriptState::over_plugins(plugins);
     let game = &state.rt.as_ref().unwrap().game;
     let (forms, refs) = (game.world.forms, game.world.placed);
@@ -73,6 +81,12 @@ fn lifecycle_app(flags: u16, kind: u16, range: f32) -> App {
     assert!(c.forms.explosions.contains_key(&BLAST));
     a
 }
+
+#[path = "projectile_live_edits_tests.rs"]
+mod live_edits_tests;
+
+#[path = "projectile_position_queue_tests.rs"]
+mod position_queue_tests;
 
 fn step(a: &mut App, seconds: f64) {
     a.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f64(seconds));

@@ -2,6 +2,8 @@
 //! §2), shared by the function tests. No game data.
 #![allow(dead_code)]
 
+pub mod model_has_block;
+
 use fnv_esm::raw::{write_subrecords, Subrecord};
 
 pub fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {

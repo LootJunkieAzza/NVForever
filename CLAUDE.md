@@ -154,6 +154,20 @@ without `--data` that must start like a player's sets `NVF_REPORTS=0`.
 - Comment on the issue that a pull request is under way (link it). Leaving work
   unfinished: say so in the draft's description and on the issue, or close it.
 
+## Settings rows: keep the page's system
+
+Adding or changing a row of the settings page (the pause menu's Settings): follow
+`docs/design/settings-page.md` §0 (the owner's menu overhaul, 2026-11-15). In short: place
+it in `crates/nvf-settings-layout/src/lib.rs` `SECTIONS` (tab, category, position; the
+launcher's Settings page follows the same table, so list the row in
+`docs/settings-reference.md` under the same tab and category too); a row
+of 7 or fewer values is a list, never a slider; a row that cannot apply is greyed
+(`settings_layout::NEEDS`, `NEEDS_CHOICE`), hidden only where §0 says (`SHOWN_WITH`; these
+tables are shared with the launcher, so a rule other rows decide goes in them, not in code); labels in sentence case (the page
+shows Title Case); notes within 200 characters. **NVF Features** holds only what the owner
+named: for a bigger gameplay change, *recommend* that tab to the owner and never move a row
+there without their word. The layout, notes and slider checks fail when a row breaks this.
+
 ## Commits
 
 End commit messages with the session's attribution lines and sign them off

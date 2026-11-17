@@ -18,13 +18,19 @@
 //! where the camera was (worldspace or interior, cell, position; [`note_place`], kept
 //! every frame) and the name of the run log; the panic is logged too, and the console gets
 //! the words Rust's default hook prints, redacted (the default hook is not called: it would
-//! print the home folder).
+//! print the home folder). If several panics share a second and process id, the first
+//! report and its optional sidecars keep that name; later panics are still logged.
 //!
 //! **Structured events** (events_log.rs): the same events at `info` and up, as JSON lines
 //! with where and when they happened, in `events-<UTC time>-<pid>.jsonl` beside the run log.
 //!
 //! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
 //! (native_crash.rs) and a line in the run log, and the run log check above still names them.
+//!
+//! **A run that just stops** (no panic, no dump: a stack overflow, an abort, the process
+//! ended from outside): a watcher process adds the process's exit code to the end of the run
+//! log (exit_watch.rs, #2755), and an allocation that fails says so in the log first
+//! ([`SaysWhenEmpty`]).
 //!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
@@ -249,6 +255,8 @@ pub fn install(data: &Path, previous_running: bool) {
     match File::create(&path) {
         Ok(f) => {
             let _ = RUN_LOG.set(RunLog { path: path.clone(), writer: Mutex::new(Some(LineWriter::new(f))) });
+            // How this process ends, when nothing in it sees that (exit_watch.rs).
+            crate::exit_watch::start(&path);
         }
         Err(e) => eprintln!("run log: {}: {e}", redact(&path.display().to_string())),
     }
@@ -263,11 +271,87 @@ pub fn install(data: &Path, previous_running: bool) {
     crate::native_crash::install(&dir, &run_stamp);
     crate::events_log::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
-    let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
+    let unclean = previous.filter(|_| !previous_running).and_then(|p| {
+        let text = std::fs::read_to_string(&p).ok().filter(|t| ended_abnormally(t))?;
+        let exit = crate::exit_watch::said(&text).map(str::to_string);
+        Some((p, exit))
+    });
     let _ = UNCLEAN.set(unclean);
 }
 
-static UNCLEAN: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// The run before this one, when it did not end normally: its log, and what the log says
+/// of its process's exit code (exit_watch.rs).
+static UNCLEAN: OnceLock<Option<(PathBuf, Option<String>)>> = OnceLock::new();
+
+/// Lines an allocation failure may write (a loop of failing allocations must not fill the log).
+const ALLOC_FAIL_LINES: u32 = 4;
+/// Allocations that failed in this run.
+static ALLOC_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The system allocator, which says in the run log when it has no memory to give (#2755).
+/// Rust aborts when an allocation fails and its caller cannot go on: on Windows that is a
+/// fail-fast, which no exception filter sees (native_crash.rs), so the run log just stopped.
+/// Rust's own "memory allocation of N bytes failed" goes to the console only.
+pub struct SaysWhenEmpty;
+
+// SAFETY: every call goes to the system allocator unchanged; a null answer is only noted.
+unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        // SAFETY: the caller's contract is System's.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc_zeroed(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
+        if p.is_null() {
+            alloc_failed(new_size);
+        }
+        p
+    }
+}
+
+/// An allocation of `size` bytes failed: a line in the run log, written straight to the
+/// file. Nothing here allocates (there is no memory), and the log's lock is never waited on
+/// (the failing allocation can be the log's own).
+fn alloc_failed(size: usize) {
+    if ALLOC_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= ALLOC_FAIL_LINES {
+        return;
+    }
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        let t = now_secs();
+        let (y, m, d) = civil_from_days((t / 86_400) as i64);
+        let s = t % 86_400;
+        let _ = writeln!(
+            f,
+            "{y:04}{m:02}{d:02}-{:02}{:02}{:02} ERROR nvforever::crash: out of memory: an allocation of {size} bytes failed (the process aborts when its caller cannot go on without it)",
+            s / 3600,
+            s / 60 % 60,
+            s % 60
+        );
+        let _ = f.flush();
+    }
+}
 
 /// Test aid `NVF_PLAY_TEST_PANIC=<seconds>`: a thread of its own ("nvf-test-panic")
 /// panics that long after the first frame (when the camera's place is known), so the
@@ -438,6 +522,22 @@ fn report_text(thread: &str, message: &str, location: &str, place: &str, command
     )
 }
 
+/// Write one panic report and its optional sidecars. `false` means an earlier report
+/// already owns this name; its evidence must stay together.
+fn write_panic_report(path: &Path, text: &str, sidecars: impl FnOnce()) -> std::io::Result<bool> {
+    let result = match File::options().write(true).create_new(true).open(path) {
+        Ok(mut file) => file.write_all(redact(text).as_bytes()),
+        // Reserve the report name before collecting sidecars: concurrent or reentrant
+        // panics must not replace the report or the context belonging to it.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_file() => return Ok(false),
+        Err(e) => Err(e),
+    };
+    // As before, try the sidecars even if the text could not be written.
+    sidecars();
+    result?;
+    Ok(true)
+}
+
 fn set_hook() {
     std::panic::set_hook(Box::new(move |info| {
         // A broken model, texture or animation: caught, and that file counts as failed
@@ -461,23 +561,27 @@ fn set_hook() {
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
         let written = LOG_DIR.get().map(|dir| {
-            let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
-            // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
-            if crate::reports::active().is_some() {
-                let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
-                let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
-                match (rec.is_ok(), snap.is_ok()) {
-                    (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
-                    (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
-                    (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
-                    (false, false) => {}
+            let when = stamp(now_secs());
+            let path = dir.join(format!("crash-{when}-{}.txt", std::process::id()));
+            let result = write_panic_report(&path, &text, || {
+                // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
+                if crate::reports::active().is_some() {
+                    let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{when}-{}.jsonl", std::process::id())));
+                    let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{when}-{}.json", std::process::id())));
+                    match (rec.is_ok(), snap.is_ok()) {
+                        (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
+                        (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
+                        (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
+                        (false, false) => {}
+                    }
                 }
-            }
-            (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
+            });
+            (result, path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
         match &written {
-            Some((Ok(p), _)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; crash report written to {}", p.display()),
+            Some((Ok(true), p)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; crash report written to {}", p.display()),
+            Some((Ok(false), p)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; earlier crash report preserved at {}", p.display()),
             Some((Err(e), p)) => error!("panic on thread '{thread}' at {location}: {message}; the crash report could not be written to {}: {e}", p.display()),
             None => error!("panic on thread '{thread}' at {location}: {message} (no logs folder for a crash report)"),
         }
@@ -509,8 +613,12 @@ pub fn report_start(mut commands: Commands) {
     if let Some(p) = crate::events_log::path() {
         info!("events log: {}", p.display());
     }
-    if let Some(Some(p)) = UNCLEAN.get() {
+    if let Some(Some((p, exit))) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
+        match exit {
+            Some(e) => warn!("run log: the previous run's process ended with exit code {e}"),
+            None => warn!("run log: the previous run's exit code was not recorded"),
+        }
     }
     commands.insert_resource(bevy::render::error_handler::RenderErrorHandler(render_error));
 }
@@ -536,6 +644,10 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
         }
     }
     error!("render: {:?} GPU error, the game stops: {}", error.ty, error.description);
+    if matches!(error.ty, ErrorType::OutOfMemory) {
+        // The player must see why the game closes (#2754); none in unattended runs.
+        tell_player_at_start("The graphics card ran out of memory, so NVForever has to close. Lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.", false);
+    }
     main.write_message(AppExit::error());
     RenderErrorPolicy::StopRendering
 }
@@ -590,6 +702,104 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ReportDir(PathBuf);
+
+    impl ReportDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!("nvf-panic-report-test-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for ReportDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn same_second_panics_preserve_the_first_report_and_sidecars() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        let recorder = dir.0.join("recorder-20261116-120000-42.jsonl");
+        let snapshot = dir.0.join("snapshot-20261116-120000-42.json");
+        let first = report_text("render worker", "first panic", "first.rs:1:1", "cell", "command", None, "first backtrace");
+        let later = report_text("readback worker", "later panic", "later.rs:2:2", "cell", "command", None, "later backtrace");
+        let write_sidecars = |text: &str| {
+            std::fs::write(&recorder, text).unwrap();
+            std::fs::write(&snapshot, text).unwrap();
+        };
+        assert!(write_panic_report(&path, &first, || write_sidecars("first context")).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), redact(&first));
+        assert!(!write_panic_report(&path, &later, || write_sidecars("later context")).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), redact(&first));
+        assert_eq!(std::fs::read_to_string(&recorder).unwrap(), "first context");
+        assert_eq!(std::fs::read_to_string(&snapshot).unwrap(), "first context");
+        // A later second still gets its own report with the established name.
+        let next = dir.0.join("crash-20261116-120001-42.txt");
+        assert!(write_panic_report(&next, &later, || {}).unwrap());
+        assert_eq!(std::fs::read_to_string(next).unwrap(), redact(&later));
+    }
+
+    #[test]
+    fn concurrent_panics_keep_one_complete_report_with_its_sidecars() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        let sidecar = dir.0.join("snapshot-20261116-120000-42.json");
+        let barrier = std::sync::Barrier::new(4);
+        let winners = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4).map(|i| {
+                let (path, sidecar, barrier) = (&path, &sidecar, &barrier);
+                scope.spawn(move || {
+                    let text = format!("panic {i}\n{}", "backtrace\n".repeat(1000));
+                    barrier.wait();
+                    write_panic_report(path, &text, || std::fs::write(sidecar, &text).unwrap()).unwrap()
+                })
+            }).collect();
+            handles.into_iter().map(|h| usize::from(h.join().unwrap())).sum::<usize>()
+        });
+        assert_eq!(winners, 1);
+        let report = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(report, std::fs::read_to_string(sidecar).unwrap());
+        assert!((0..4).any(|i| report == format!("panic {i}\n{}", "backtrace\n".repeat(1000))));
+    }
+
+    #[test]
+    fn a_reentrant_report_attempt_preserves_the_reserved_report() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        assert!(write_panic_report(&path, "first", || {
+            assert!(!write_panic_report(&path, "nested", || panic!("a collision must not collect sidecars again")).unwrap());
+        }).unwrap());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "first");
+    }
+
+    #[test]
+    fn a_report_io_error_is_not_a_preserved_report() {
+        let dir = ReportDir::new();
+        let absent = dir.0.join("missing").join("crash-20261116-120000-42.txt");
+        let mut collected = false;
+        assert_eq!(write_panic_report(&absent, "panic", || collected = true).unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(collected, "failure to write the text must still try to collect the sidecars");
+        // A directory occupying the name is an error, not an earlier report.
+        let sidecar = dir.0.join("snapshot-20261116-120000-42.json");
+        assert!(write_panic_report(&dir.0, "panic", || std::fs::write(&sidecar, "context").unwrap()).is_err());
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), "context");
+    }
+
+    /// #2755: an allocation the system cannot give is noted (and, with a run log, written).
+    #[test]
+    fn a_failed_allocation_is_noted() {
+        let before = ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed);
+        let layout = std::alloc::Layout::from_size_align(isize::MAX as usize - 4095, 4096).unwrap();
+        // SAFETY: a non-zero size; the null answer is not used.
+        let p = unsafe { std::alloc::GlobalAlloc::alloc(&SaysWhenEmpty, std::hint::black_box(layout)) };
+        assert!(p.is_null(), "no system gives half the address space");
+        assert!(ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed) > before);
+    }
 
     /// #2203: a system reading AppExit in Last after `ExitSystems` sees the exit Bevy writes
     /// when the last window closes (here: no window at all) in that same, final frame.

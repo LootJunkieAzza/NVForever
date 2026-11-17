@@ -2034,11 +2034,11 @@ impl GameData {
         // of a unit only what `source_compile::apply` leaves alone.
         let table = std::mem::take(&mut d.table);
         if long_way {
-            let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
+            let recompiled = crate::source_compile::compile_picked(lo, schema, &table, &units);
             d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
-            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
+            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, schema, &table, &units) });
             // In form order, as one list read all at once was.
             let mut unit_reads: HashMap<u32, Box<Read>> = unit_reads.into_iter().collect();
             // The reads run a slice at a time inside the loop below: their time is summed here,

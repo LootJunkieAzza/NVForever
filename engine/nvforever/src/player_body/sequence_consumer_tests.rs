@@ -208,6 +208,14 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
 
 fn neutral_frame(dt: f32) -> Frame {
     Frame {
+        inertia: false,
+        crouch_jump: false,
+        aim_fade: None,
+        stance_fade: None,
+        move_fade: None,
+        land_stretch: None,
+        hands_pace: None,
+        equip_at: None,
         dt,
         stance: Stance::Stand,
         dirs: None,

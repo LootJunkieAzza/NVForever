@@ -39,7 +39,8 @@ LICENSE_FILE = re.compile(r"^(licen[sc]e|copying|unlicense|notice)", re.IGNORECA
 
 @dataclass(frozen=True)
 class Notice:
-    """Code in NVForever's own sources translated from a source that is no Cargo package."""
+    """Code in NVForever's own sources translated from a source that is no Cargo package, or a
+    file built into the program from one (the menus' font)."""
 
     name: str
     what: str
@@ -57,6 +58,13 @@ NOTICES = (
         licence="MIT",
         source="https://github.com/NVIDIA-RTX/Streamline",
         file=REPO / "engine" / "nvforever" / "src" / "dlss" / "LICENSE-MIT",
+    ),
+    Notice(
+        name="Roboto Condensed (variable font, weight axis)",
+        what="the menus' sharp letters, engine/nvf-play/assets/fonts/, built into nvforever",
+        licence="OFL-1.1",
+        source="https://github.com/google/fonts/tree/main/ofl/robotocondensed",
+        file=REPO / "engine" / "nvf-play" / "assets" / "fonts" / "OFL.txt",
     ),
 )
 

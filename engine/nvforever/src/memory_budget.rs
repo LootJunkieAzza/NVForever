@@ -41,6 +41,26 @@
 //! [`MemoryBudget`] (`vram_use_mb`, `ram_share`) for the performance overlay's VRAM and
 //! RAM rows (`perf_overlay`, issue #1868), which do not read them again.
 //!
+//! **The GPU allocator's blocks** (#2754: a 2 GB GeForce GT 1030 ran out of GPU memory at
+//! the default settings). wgpu takes GPU memory from the driver in blocks and hands parts
+//! of them out; by default a block is 128 to 256 MB ("favor performance"), or 8 to 64 MB
+//! when asked to favour memory [documented: wgpu-hal 30.0.1 `src/lib.rs`,
+//! `AllocationSizes::from_memory_hints`; wgpu-types `MemoryHints`]. What the process holds
+//! of the budget is the blocks, not what is in them: in Goodsprings at 1280x800 the default
+//! blocks held 1,408 MB for 822 MB in use [observed: this machine, `stress sample`'s `gpu
+//! allocated` and `gpu reserved`, 2026-11-16], and the GT 1030's log read 1,430 of its
+//! 1,520 MB at ten minutes. So on a card with less than [`LARGE_BLOCKS_VRAM_MB`] of budget
+//! the small blocks are asked for ([`hints_for`]). The hint is given when the device is
+//! made, before any budget can be read, so the budget is the one **the run before** read,
+//! kept in `<home>\cache\gpu-budget.txt` (a number of MB); a first run, which has none,
+//! takes the small blocks [design: a card that turns out large gets the large blocks from
+//! its second run]. `NVF_GPU_BLOCKS=large` or `small` says which instead, and
+//! `NVF_PLAY_TEST_VRAM_MB` counts as the remembered budget.
+//!
+//! **Told once** [design, #2754]: the first time this process holds over
+//! [`TELL_SHARE`] of the GPU budget the player gets a corner message that the graphics
+//! memory is almost full, and the log a line.
+//!
 //! Test aids, since there is no small machine to test on: `NVF_PLAY_TEST_VRAM_MB=<MB>` and
 //! `NVF_PLAY_TEST_RAM_MB=<MB>` take the GPU budget and the RAM as at most that (the RAM's
 //! free part shrinks by what was taken off).
@@ -72,6 +92,86 @@ pub const PRESSED: KeepLimits = MIN_LIMITS;
 /// The least the scaled limits go to [design].
 const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 
+/// A GPU budget under this (or not known yet) takes the allocator's small blocks [design:
+/// the 4 GB card in #2754 reached 0.95 of its budget; a 6 GB card reads a budget under
+/// 6 GB, so this takes it too].
+pub const LARGE_BLOCKS_VRAM_MB: u64 = 6 * 1024;
+/// The share of the GPU budget held at which the player is told, once a run [design:
+/// past the 0.85 that presses the caches, before the 1.0 where allocations may fail].
+pub const TELL_SHARE: f64 = 0.95;
+/// What the player is told (a corner message).
+pub const TELL_TEXT: &str = "Graphics memory is almost full. If the game stutters or stops, lower the graphics settings.";
+/// Says which blocks to ask for (`large` or `small`), whatever the budget.
+pub const BLOCKS_ENV: &str = "NVF_GPU_BLOCKS";
+
+/// Which blocks the GPU allocator is asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blocks {
+    /// wgpu's default, 128 to 256 MB a block.
+    Large,
+    /// 8 to 64 MB a block.
+    Small,
+}
+
+/// The blocks for a GPU budget of `vram_mb` (the run before's; `None` on a first run) and
+/// what [`BLOCKS_ENV`] says.
+pub fn hints_for(vram_mb: Option<u64>, said: Option<&str>) -> Blocks {
+    match said.map(str::trim) {
+        Some("large") => Blocks::Large,
+        Some("small") => Blocks::Small,
+        _ if vram_mb.is_some_and(|mb| mb >= LARGE_BLOCKS_VRAM_MB) => Blocks::Large,
+        _ => Blocks::Small,
+    }
+}
+
+/// Where the GPU budget is kept from run to run, in NVForever's home.
+fn remembered_file() -> Option<std::path::PathBuf> {
+    let root = fnv_install::EngineHome::default_root()?;
+    Some(fnv_install::EngineHome::new(root).cache().join("gpu-budget.txt"))
+}
+
+/// A remembered budget's text: a number of MB over 0.
+fn parse_remembered(text: &str) -> Option<u64> {
+    text.trim().parse::<u64>().ok().filter(|mb| *mb > 0)
+}
+
+/// What the start decided, said in the log once it is up.
+static BLOCKS_AT_START: std::sync::OnceLock<(Blocks, String)> = std::sync::OnceLock::new();
+
+/// The memory hint for the device about to be made (the module notes' "blocks"). Called
+/// once, before the renderer starts.
+pub fn hints_at_start() -> bevy::render::settings::MemoryHints {
+    let said = std::env::var(BLOCKS_ENV).ok();
+    let aid = std::env::var("NVF_PLAY_TEST_VRAM_MB").ok().and_then(|v| parse_remembered(&v));
+    let kept = remembered_file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| parse_remembered(&t));
+    let blocks = hints_for(aid.or(kept), said.as_deref());
+    let why = match (said.as_deref().map(str::trim), aid, kept) {
+        (Some(s @ ("large" | "small")), _, _) => format!("{BLOCKS_ENV}={s}"),
+        (_, Some(mb), _) => format!("the test aid's GPU budget is {mb} MB"),
+        (_, None, Some(mb)) => format!("the run before read a GPU budget of {mb} MB"),
+        (_, None, None) => "no GPU budget is known from a run before".to_string(),
+    };
+    let _ = BLOCKS_AT_START.set((blocks, why));
+    match blocks {
+        Blocks::Large => bevy::render::settings::MemoryHints::Performance,
+        Blocks::Small => bevy::render::settings::MemoryHints::MemoryUsage,
+    }
+}
+
+/// Keep the budget the device gave for the next run's start.
+fn remember(budget_mb: u64) {
+    let Some(file) = remembered_file() else { return };
+    if fnv_install::guard_write(&file, None).is_err() {
+        return;
+    }
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(&file, format!("{budget_mb}\n")) {
+        warn!("memory budget: the GPU budget could not be kept for the next run ({e})");
+    }
+}
+
 /// What was read at the start (MB, test aids applied), and whether the caches are pressed.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct MemoryBudget {
@@ -91,13 +191,17 @@ pub struct MemoryBudget {
     /// The limits the budgets give, when not pressed.
     pub base: KeepLimits,
     pub pressed: bool,
+    /// The player was told the GPU memory is almost full (once a run).
+    told: bool,
+    /// The most of the GPU budget this process held at a check, MB.
+    vram_peak_mb: u64,
 }
 
 pub struct MemoryBudgetPlugin;
 
 impl Plugin for MemoryBudgetPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MemoryBudget>().add_systems(Startup, read_budgets).add_systems(Update, watch_use);
+        app.init_resource::<MemoryBudget>().add_systems(Startup, read_budgets).add_systems(Update, watch_use).add_systems(Last, say_peak);
     }
 }
 
@@ -414,10 +518,19 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         if let Some(detail) = &v.detail {
             info!("memory budget: {detail}");
         }
+        // The device's own budget, not the test aid's: the next run's blocks follow it.
+        remember(v.budget_mb);
+    }
+    if let Some((blocks, why)) = BLOCKS_AT_START.get() {
+        let size = match blocks {
+            Blocks::Large => "large (128 to 256 MB)",
+            Blocks::Small => "small (8 to 64 MB)",
+        };
+        info!("memory budget: GPU memory is taken in {size} blocks: {why}");
     }
     let vram_use_mb = vram.as_ref().ok().and_then(|v| v.used_mb.map(|used| (used, vram_mb.unwrap_or(v.budget_mb))));
     let ram_in_use = ram.map(|r| ram_share(r, aid_ram));
-    *budget = MemoryBudget { vram_mb, vram_use_mb, ram_share: ram_in_use, aid_vram, aid_ram, base, pressed: false };
+    *budget = MemoryBudget { vram_mb, vram_use_mb, ram_share: ram_in_use, aid_vram, aid_ram, base, pressed: false, told: false, vram_peak_mb: vram_use_mb.map_or(0, |u| u.0) };
     commands.insert_resource(base);
 }
 
@@ -429,6 +542,7 @@ fn watch_use(
     adapter: Option<Res<RenderAdapterInfo>>,
     mut budget: ResMut<MemoryBudget>,
     mut limits: ResMut<KeepLimits>,
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
     mut last: Local<f64>,
 ) {
     let now = real.elapsed_secs_f64();
@@ -445,7 +559,16 @@ fn watch_use(
     budget.ram_share = ram.map(|r| ram_share(r, budget.aid_ram));
     let mut shares = Vec::new();
     if let Some((b, used)) = gpu {
-        shares.push((used as f64 / b.max(1) as f64, GPU_PRESSURE));
+        let share = used as f64 / b.max(1) as f64;
+        shares.push((share, GPU_PRESSURE));
+        budget.vram_peak_mb = budget.vram_peak_mb.max(used);
+        if share > TELL_SHARE && !budget.told {
+            budget.told = true;
+            warn!("memory budget: the GPU memory is almost full (this process holds {used} of {b} MB); the player is told once");
+            if let Some(c) = corner.as_mut() {
+                c.push(TELL_TEXT.to_string().into());
+            }
+        }
     }
     if let Some(r) = ram {
         shares.push((ram_share(r, budget.aid_ram), RAM_PRESSURE));
@@ -466,8 +589,34 @@ fn watch_use(
     );
 }
 
+/// At the exit: the most of the GPU budget the run held.
+fn say_peak(mut exit: MessageReader<AppExit>, budget: Res<MemoryBudget>) {
+    if exit.read().next().is_none() {
+        return;
+    }
+    if let Some((_, b)) = budget.vram_use_mb {
+        info!("memory budget: this process held at most {} of the {b} MB GPU budget in this run", budget.vram_peak_mb);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// #2754: small blocks under 6 GB of budget and on a first run; the variable wins.
+    #[test]
+    fn the_allocators_blocks_follow_the_remembered_budget() {
+        use super::{hints_for, parse_remembered, Blocks};
+        assert_eq!(hints_for(Some(1819), None), Blocks::Small);
+        assert_eq!(hints_for(Some(3600), None), Blocks::Small);
+        assert_eq!(hints_for(Some(7300), None), Blocks::Large);
+        assert_eq!(hints_for(None, None), Blocks::Small, "a first run");
+        assert_eq!(hints_for(Some(1819), Some("large")), Blocks::Large);
+        assert_eq!(hints_for(Some(7300), Some(" small ")), Blocks::Small);
+        assert_eq!(hints_for(Some(7300), Some("other")), Blocks::Large);
+        assert_eq!(parse_remembered("1819\n"), Some(1819));
+        assert_eq!(parse_remembered("0"), None);
+        assert_eq!(parse_remembered("lots"), None);
+    }
+
     use super::*;
 
     #[test]

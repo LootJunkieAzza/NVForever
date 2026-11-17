@@ -358,6 +358,7 @@ pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
     g.world.get(r).map_err(|e| e.to_string())?.cell = cell;
     placed_by_script(g, r, true);
+    g.projectile_placed_by_script(r, pos);
     none()
 }
 

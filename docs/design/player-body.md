@@ -117,19 +117,422 @@ decode` of the clips and `_1stperson\skeleton.nif`]. The executable names
 view by code [hypothesis; the values are not known]. NVForever's sway
 (`engine/nvforever/src/view_sway.rs`) [design, constants tuned by eye]:
 
-- Turn lag: the arms keep their aim and catch the view up with a 0.11 s time constant,
-  at most 5° sideways and 3.5° up or down, the weapon tilting a little into the lag.
+Since the movement-inertia work (owner, 2026-11-13: the gun "moves with the direction
+using a ramp curve - slow start, ramps up to a faster movement then smoothly slows") the
+weapon hangs from the view on critically damped springs (`nvf_play::ease::Spring`,
+solved exactly per frame, so alike at any frame rate): it follows a change slowly at
+first, faster, then settles without overshoot, and its own motion never jumps. The view
+itself turns exactly as the mouse says.
+
+- Turn lag: the head turns first and the body with the arms follows (the owner's
+  playtest of 2026-11-13: "the human body rotates its head first, then the lower body
+  catches up"). Driven by the view's turn **rate**, not the angle turned (as Source's
+  `CalcViewModelLag` and spring-based first-person rigs: a research pass of the same
+  day): each frame's turn asks for a lag of rate × 0.12 s; a first spring averages that,
+  a tanh bends the average towards 6° sideways and 4° up or down, and a second spring
+  follows it (bending each frame's rate first lost most of an uneven turn: a 90° flick
+  traced at 0.7°, now 5.6°); both springs at 0.6 × 0.5 s (0.35 s until the seventh playtest: "slower ramp up and slow smooth ramp down"), one constant rate out and back (Daniel Holden's
+  "double spring": the pair also smooths the acceleration, which a lone spring jumps at
+  each uneven mouse frame; second research pass, 2026-11-14). A fast turn builds the lag
+  up gently, the arms never pass the limit, and when the view stops they start back at
+  once and rest on the view without swinging past it; the weapon tilts a little into the
+  lag. History: 0.11 s, 5° and 3.5° on an angle-driven spring in the first build
+  ("whips" with the view); 0.3 s and 12°/6° in the second (reached the limit at once,
+  then "waited"); a rate filter with separate build and release times and separate out
+  and back springs in the third and fourth ("transitions between different spring
+  values … quick ramps in speed and a delay", the fifth playtest). Since the ninth
+  playtest ("there is still a delay between the mouse stop and the player hands
+  returning … make the curve continuous so the hand never reach the maximum point"): the
+  lag asked for is rate × 0.15 s, the first spring only averages it over 0.06 s, the limit
+  is `x / (1 + |x| / limit)` (no flat top: a faster turn always asks a little more), and
+  the second spring takes 0.4 s × 1.2 (`view_sway::TURN_WEIGHT`, the owner's "1.2x for
+  mouse movement reactions"). The first of the two 0.3 s springs had held up to 14 times
+  the limit during a fast flick, which the tanh hid while it drained: about 0.2 s of
+  standing still at the limit. The trace after: the arms start back within 0.05 s of the
+  view stopping and are on it about 0.5 s later. Since the tenth playtest ("the idle
+  weapon/hand animation micro jitters a lot, when I aim down sights it jitters more
+  visibly") a slow averaged rate asks for less: the lag is × `r² / (r² + 0.1²)` of the
+  averaged rate `r` (radians/s; `view_sway::TURN_KNEE`). A hand resting on the mouse sends
+  single counts now and then, and the arms had swum against the view up to 0.05° with them
+  (about 1.7 px at 2160 lines: trace `movement-inertia-trace-still-mouse`, the tenth build);
+  now 0.001°. A flick is as before; a slow 8°/s turn lags 0.7° instead of 1°. Screenshots
+  50 ms apart held still (aimed, Pip-Boy up; with and without DLSS, at Goodsprings'
+  x = -71680 and indoors near the origin) moved at most 0.02 px: the drawing itself does
+  not shake.
 - Bob: a dip at each footfall and one sideways swing a stride, at the phase of the
   movement clips (the footstep keys), growing with the ground speed to a run's
   (300 units/s): 0.9 units down, 0.6 across, 1.2° of tilt. Sneaking 60 %, down the sights
   20 % (the turn lag 35 %), none in the air.
-- Starting, stopping and strafing leave the weapon a little behind (at most 1.2 units)
-  and lean it into a strafe (1.5° at a run).
+- Movement lag: a sprung hand pushed by the body's acceleration (spring rate 3.8/s; 10/s
+  until the fourth playtest, "the gun slides to the sides too quick", 4.5/s until the
+  seventh, "make the gun return to the default position smoother"): starting,
+  stopping, strafing and turning while running leave the weapon a little behind (a
+  sudden change of 344 units/s would peak at 1.7 units; shown at most 1.2) and a steady
+  pace brings it back; behind it also drops half a unit per unit and tips the muzzle
+  1.2° per unit ("a bit of inertia to front and back movement"); it leans into a strafe
+  (1.5° at a run) on a spring settling in 0.6 s.
+- The hand's and the head's pushes take the body's velocities through a short spring
+  first (0.12 s; `nvf_play::ease::Pushed`), whose rate is the acceleration that pushes:
+  a take-off threw the gun 3.5 units within two frames (peak 39 units/s), now 22.
+- Jumps and landings: the same hand pushed by a take-off and a landing (4/s; 12/s, 7/s
+  and 5.5/s before, softer each time): each dips the weapon about 2.3 units, more the
+  harder the landing (shown at most 3.5 units; 2 before the fifth playtest, "jumping is
+  not noticeable"); the muzzle tips 1° per unit of dip. Only a take-off (leaving the
+  ground going up) and a landing push (`nvf_play::ease::carried_push`): in the air the
+  body and the hand fall alike, and with the softer springs the fall's steady push had
+  kept growing. Until the tenth playtest gravity's share was taken out of each change of
+  speed in the air instead; a fall not quite free (down a slope's face, about 10% under
+  gravity) still pushed, and walking off a slope counted its whole speed as a push.
+- In the air the muzzle tips down 6° (tenth playtest: "when jumping the muzzle of the gun
+  should point more towards the ground, but only the muzzle if possible"), turning about
+  the grip (`view_sway::GRIP_PIVOT`, the right hand's place in the view, about 10 right,
+  15.7 ahead and 14.6 down) so the gun's back end stays put; from the take-off (rising
+  faster than 100 units/s) or once in the air, on two springs of 0.15 s each (× the
+  weights), none down the sights.
+- The first-person landing clip (it moves `Camera1st`: the view dips about 6 units and
+  stands up again, the standing up in 0.4 s at the clip's own pace [observed: the motion
+  trace; the head's own landing spring gives 2 of the 8 units]) is played by its
+  place along the settling curve over 1.8 × its length
+  (`inertia::LAND_STRETCH`): the dip comes as fast as before (0.3 s), the standing up
+  takes 0.7 s and slows to its end (seventh playtest: "make landing after jumping
+  smoother - the little stand up to normal position after the camera dips"). Since the
+  eighth ("fall-scaled landing") the stretch grows with the fall speed, 1.8 up to 350
+  units/s (a hop) to 3.2 from 900 (`inertia::land_stretch`), and a hard landing pushes the
+  head's and the hand's springs up to 1.6 × as hard (`inertia::hard_landing`; the most
+  shown 9 and 6 units, were 5 and 3.5): a hop lands as before, a drop at about 1,000
+  units/s dips the view about 13 units and the gun 6 and stands up over 1.3 s (trace,
+  smoke `movement-inertia-trace-combat`).
+- **The settling curve** (seventh playtest: "we should not have any linear curves -
+  everything should be a smooth spring with a slow finish"): `anim_blend::settle`, a
+  critically damped spring's step response made to end at 1 (`1 - (1 + 6x)e^(-6x)`,
+  normalised): no jolt at the start, more than half the way in the first third of the
+  time, the last quarter of the time for the last 5 %. With movement inertia every
+  first-person clip fade follows it (`anim_blend::Layer::smooth`; a layer leaving runs it
+  mirrored, and one turned back mid-fade carries on from where it is shown), and so do
+  the true iron sights, the aim zoom, the draw and holster clips and the landing clip
+  (`nvf_play::ease::Settled`, a timeline along the curve that turns back without a jump).
+  Standing, walking and running clips cross over 0.45 s (`inertia::MOVE_FADE_SECONDS`;
+  their own times are about 0.2 s, straight), the standing and sneaking ones 1.0 s down
+  and 1.1 s up.
+- No turn clips in first person with movement inertia: starting and ending with the turn
+  rate, they cut into the hold and the aim ("aiming down sight during [a turn] … the
+  animation resets and kinda skips"); the turn lag above is the arms' turn.
+- The calmer shares down the sights and sneaking (bob, lag, breathing, recoil) come and
+  go on springs settling in 0.5 s (`view_sway::STANCE_SHARE_SECONDS`), the head's too:
+  switched at once they stepped the hand the frame the stance changed (0.37 units at an
+  aim's end in the trace).
+- Aiming and blocking (sixth playtest: "points the gun and then put it to the eye level
+  in 2 different movements"; a motion trace showed the 0.35 s blend ending, the sights
+  clip's own rise carrying on for 0.25 s, and the sway's aim lag adding a settle bump):
+  the aim and block clips cross over along the settling curve (below; a smootherstep
+  until the seventh playtest, which read as "linear") over 0.6 s in and 0.55 s out, the
+  leaving clip over the same time, and the true iron sights and the aim zoom
+  (`nvf_play::aim_zoom`) move over exactly those times on the same curve, so going down
+  the sights and back is one motion each, fast at first and slow to its end; the aim
+  adds no lag of its own any more. The clips are not changed.
+- Weapon switching: drawing and putting away (6 units, smoothed by a spring settling in
+  0.25 s) push a spring (8/s): the gun trails and settles (shown at most 1.5 units); with
+  Weapon Handling the draw and holster clips take 1.5 (light) to 2.4 (heavy) times the
+  original's time at Agility and Strength 5 (`inertia::draw_weight`; 2.2 to 3.3 times
+  until testers found it "like pulling out a concrete slab", 2026-11-15), the attributes
+  then speeding them up by the weapon's class (§1.4a.3, Attributes), played by their place
+  along the settling curve (`Frame::equip_at`), and the game's readiness waits for them
+  (the moment the weapon changes hands is found through the curve's inverse). Over the
+  last 65 % of that time the clip hands the arms over to the pose that follows (the hold
+  after a draw, the arms down after a holster, which is under the put-away clip all
+  through it) along the settling curve, while it still slows (`EQUIP_HANDOVER_FROM`); the
+  clip starts at once, the arms easing across the step to its first pose; the trail push
+  follows the draw's own progress. Played out first and faded after, the draw's last pose
+  (3 units off the hold) made a second movement once the arms had nearly stopped, the
+  holster ended in a snap onto the arms-down pose, and the step at the draw's end pushed
+  the gun 1.4 units down and back (ninth playtest: "they slow down but then the animation
+  speeds up and player character grabs the gun quickly"; the trace). The hold
+  clip is asked for through the draw, under the draw clip: asked for only after it, it
+  was still fading in while the draw clip faded out, the arms-down idle showed through
+  and the gun went down and came up again (seventh playtest: "starts pulling out the
+  gun then quickly retracts it and pulls it out quickly again"). An equip clip leaving
+  takes the movement clips' 0.45 s.
+- Draw hitches (owner, 2026-11-15: "pistol drawing animation is not smooth at all, it
+  hitches multiple times"; the trace `movement-inertia-trace-weapons` with its layers' file
+  `<trace>.layers`, each frame's layers, fades and seams):
+  - The hold fades in under the draw at its own pace and shares a priority with the draw
+    clip on the spine and the arms. A draw that let go faster left the two short of the
+    whole (98.7 %), and the arms-down idle under them showed through: the arms sagged
+    towards it and came back (both hands half a unit, 56-92 units/s, then a second
+    movement). The draw clip now keeps whatever the hold has not yet taken, while drawing
+    and after it (its own fade-out would drop its last share in one frame), and is gone
+    when the hold is whole.
+  - The settling curve (`anim_blend::settle`) arrives at rest: the spring's last tenth of
+    its speed is taken out over its end, so a fade or a move along it no longer stops
+    dead (the hold's fade-in ended at 9 units/s, then 1 in a frame). The aim, the zoom and
+    the iron sights run on it too: same times, a softer end (owner, same day).
+  - The holstered weapon's clip, cut when the weapon changes hands, is eased across in
+    first person (`Animator::smooth_jump`); the flamer's arms stepped from 7 to 86 units/s.
+  - A clip's motion (`ClipMotion`) is measured on the arms only, not the `Weapon` node: the
+    flamer swinging off the back while the hands held still all but stopped the playback,
+    and the hands with it (147 to 19 units/s, then off again).
+- Every first-person draw and put-away, one weapon per clip pair (owner, 2026-11-16: "1 test
+  for every unique animation"): the eleven clip prefixes, each shared by every weapon of its
+  animation type (`h2h` 62 weapons, `1hm` 51, `2hm` 43, `1hp` 108, `2hr` 64, `2ha` 57, `2hh` 22,
+  `2hl` 41, `1gt` 34, `1lm` 7, `1md` 7; no weapon has clips of its own; Lonesome Road
+  replaces the launcher's). Traces `movement-inertia-trace-weapons` and `-rest` (Assault
+  Carbine, Missile Launcher, Frag Mine, Bottlecap Mine), each against its `-original` twin
+  (the main switch off: the clips at the original's pace and blending), counting the
+  separate movements of each hand:
+  - `ClipMotion` measures the hands as the eye sees them: both hands' moves and turns in the
+    `Camera1st` node's space, the clip's tracks posed through the skeleton (its bind pose
+    where the clip has none). Summed bone by bone, a turn of the upper arm, which swings the
+    hand over a long arm, counted as little as one of the wrist, and the playback raced
+    through it: the razor's draw made two pushes (390 and 360 units/s) where the original
+    makes one, the frag mine's ended with a flick (16, 38, 15 units/s). Now the razor's is one
+    push, the flick gone, and the razor's put-away key jump is no longer one (none of the
+    clips has a jump of the hands).
+  - `anim_blend::Animator::pose` leaves out a layer whose fade shows as nothing: a leaving
+    smooth layer's last frame (its fade a hair over 0, the settling curve rounding it to
+    none) alone in its priority group shared 0 ÷ 0, and the bones it drove took their bind
+    pose for that frame (the left arm flung 45 units out and back during the grenade's
+    put-away; it depends on where the frames fall, so it came and went between runs).
+  - On screen no clip makes more movements than the original's, several fewer. The ones
+    left where the original has fewer happen with the hands out of view (80-140° off the
+    line of sight): the fists' put-away (a second push once the hands are below and behind
+    the camera), the pistol's put-away left hand, the rebar club's draw (the clip's own dip,
+    the original's too), the Bottlecap Mine's left hand (eased where the original snaps).
+    The change of holstered weapon moves the arms behind the view in one frame, as the
+    original does.
+- **Weapon weight in handling** (part of Weapon Handling since 2026-11-15, §1.4a.3:
+  `--no-weapon-handling`, key `weapon-handling`; eighth playtest: "weapon weight slows handling"): with
+  movement inertia the hand-back after a reload or an attack takes `inertia::handling` of
+  the WEAP record's weight times as long: 0.85 for 1 lb and under, 1 for a 3 lb pistol
+  (the 10mm pistol the times were tuned with), 1.5 from 20 lb, smoothly between; the draw
+  and holster `inertia::draw_weight` (above), the aim (and its zoom) `inertia::aim_weight`
+  (0.9 to 1.35, 1 for the pistol), both with the attributes (§1.4a.3). The sway's springs
+  keep their own weight part (Weapon Inertia's, below).
+- Loop seams of the arms' clips (sixth playtest: "small hitching" in the idle): the trace
+  showed the hand turning back in one frame each time the idle looped (every 2.46 s with
+  a 10mm pistol). With movement inertia the first-person animator smooths its seams by
+  inertialization (`anim_blend` `Seams`, Daniel Holden's technique): at a wrap the pose
+  carries on where it was going and the difference dies away on a critically damped
+  spring over 0.3 s. The trace after: the hand's worst jolt at
+  idle 4 × the background, was 77 ×.
+- Recoil on the gun (owner, 2026-11-14): each shot of a gun or launcher (`1hp`, `2hr`,
+  `2ha`, `2hh`, `2hl`) sets springs (11/s; 16/s until the ninth playtest, "slower
+  ending") moving that peak at 1.2 units back, 1.6° up
+  and up to 0.5° aside, for strength 0.7 (light) to 1.3 (20 lb and over); rapid fire
+  builds to a plateau (shown at most 3 units, 5°); 60 % down the sights. The view's own
+  kick is the game's size, but with soft recoil it comes in over 0.16 s (0.1 s in the
+  eighth build;
+  `inertia::KICK_EASE_SECONDS`, `combat::ease_kick`): an exponential,
+  most of it the first frames, the rest softly, so the view no longer jumps to each
+  shot's new point in one frame (eighth playtest: "fast start, slow end … the jump is not
+  instant to the next recoil point"), and 40 % of each kick then settles back down on a
+  critically damped spring over 0.6 s (`inertia::KICK_BACK_SHARE`,
+  `combat::ease_back`): it starts gently while the kick still rises and ends slowly, so the
+  gun rises and comes back down a little (ninth playtest: "make the gun smoothly return
+  down a bit so the recoil does not just force the whole camera up"); with movement
+  inertia the climb is 60 % of the original's. The fire clip starts again
+  at once at each shot and the arms ease across the step back to its start
+  (`Animator::smooth_jump`, the loop seams' inertialization below): its kick shows whole,
+  with no snap between shots.
+- Reloads (eighth playtest: "try improving reloads with springs"): with movement inertia
+  a reload's, a jam's and each round's clip starts at once and the arms ease across the
+  step to it as across a loop seam (the clip's own motion untouched); at its end the arms
+  go back to the hold over 0.4 s along the settling curve (an attack's over 0.3 s; both ×
+  × the handling below). The trace of a 10mm pistol reload: no step at its start or end,
+  the hand settling back onto the hold over about 0.7 s. Since the ninth playtest
+  ("reloads - do not see any difference") the sway also leans the gun over for the reload:
+  down 1.6 units, in 0.8, the muzzle 5° down and 9° of roll, on two springs in a row of
+  0.3 s each (× the weight), out again as the reload ends.
+- Walking ahead (ninth playtest: "make the gun point to the ground more when walking
+  forward, just a bit"): the muzzle tips down 3° and the gun drops 0.5 units, full from
+  150 units/s ahead, on two springs settling in about 0.6 s; none down the sights or
+  backing up.
+- The gun with the view's pitch (eighth playtest): looking straight down the gun comes up
+  1.4 units and back 1.8 towards the eye, its muzzle 2.5° up; looking straight up it drops
+  1 unit and goes out 0.6, the muzzle 1.5° down; with the sine of the pitch between, none
+  down the sights (the share fades with the sights' spring), so the arms are not bolted
+  to the eyes.
+- Blows taken (owner: "damage screenshake"): each hit on the player sets the hand's
+  springs moving down, back and aside by turns (stronger for a bigger share of health);
+  the camera's place gets the same on the head's springs (§1.4a.1); its rotation never.
+- Breathing: standing still (below 20 units/s, on the ground) a figure of eight 0.18
+  units wide and half as high every 4 s, fading in over 0.8 s; 35 % down the sights and
+  sneaking. Out of breath (§1.4a.1) up to 2.2 × faster and larger, moving too.
+- Weapon weight (part of Weapon Inertia since 2026-11-15, §1.4a.3; a switch of its own,
+  `weapon-weight-sway`, before): a weapon in hand of up to 3 lb sways as above; from
+  20 lb its springs are 1.5 × slower and its sway, limits and breathing 1.5 × larger,
+  smoothly between (`view_sway::heft`, the WEAP record's weight) [design, the owner].
 - It turns and moves `Bip01 Translate` about the eye in the view's frame, after the
   clips are blended, so the camera does not move; it fades out (0.15 s) under the
   Pip-Boy, while an idle drives the view and in third person.
-- A switch, on by default: `--no-weapon-sway`, "Weapon sway" on the settings page (key
-  `weapon-sway`). The exit summary gives the most turn lag and the deepest bob.
+- A switch, off by default since 2026-11-16 (`--weapon-sway` / `--no-weapon-sway`), Weapon Inertia on the settings page (key
+  `weapon-inertia`, "Weapon sway" and `weapon-sway` until 2026-11-15). The exit summary gives the most turn lag, the deepest bob and the
+  deepest jump or landing dip.
+
+### 1.4a.2 Movement inertia and the eased crouch (owner, 2026-11-13)
+
+The original's player is at full speed from the first loop and stops dead (physics.md
+§6.3). With the "Movement inertia" switch (key `movement-inertia`, `--movement-inertia` / `--no-movement-inertia`,
+off by default since 2026-11-16) [design]:
+
+- On the ground the player's velocity, walking or running, rides a critically damped
+  spring towards the keys' velocity: 95 % of a new, faster speed in 0.5 s, down to 5 % of
+  it in 0.25 s (half the start) when the keys are let go (or the brake before a turn
+  back), the last of the glide easing out; a run glides about 36 units, half a metre.
+  History, all the owner's playtests of 2026-11-13: 0.12 s / 0.2 s (felt like nothing),
+  then 0.5 s / 0.9 s (stopping "feels like … sliding on ice"), then the stop at half the
+  start
+  (`engine/nvf-play/src/inertia.rs`, applied in
+  `player::step` before the character controller, so `fnv_phys`, people and the parity
+  checks are untouched). The air keeps the game's air control; the landing speed
+  profile (physics.md §6.4.1) is left out: a landing lands into the inertia.
+- Landing compression (owner, 2026-11-14): a landing faster than 350 units/s takes up to
+  60 % of the ground speed (all of it from 900 units/s, smoothly between); the spring
+  builds it up again. A hop (about 290) keeps its speed.
+- A crouched jump in first person stays crouched: the weapons' jump and landing clips
+  stand the body up (only the unarmed ones have sneaking variants), which drew the view
+  40 units up mid-jump and back down after ("looks like the character stands and then
+  jumps", the fifth playtest). While sneaking with movement inertia on, the first-person
+  rig plays no jump or landing clip, and the crouched walk plays on through the air. The
+  fifth build kept the sneaking jump clips, but the unarmed one stands the view up too
+  (the eye 118 units over the feet instead of 78), and dropping the walk for the idle
+  0.15 s into the air lifted it 9 units ("sometimes still", the tenth playtest; trace
+  `movement-inertia-trace-crouch-jump`). A drop off a ledge still eases the view down
+  over it (physics' step lift, `nvf_play::phys::step_lift`), up to about 10 units behind.
+- The Pip-Boy with movement inertia on: its clip is played into its hold at the `Hit` key
+  (0.33 s) and out of it along a cubic that keeps the clip's own speed at the far ends and
+  has none at the hold (`player_body::pipboy_clip_time`), in the clip's own time. Held at
+  the key as it was, the arm stopped dead still moving about 28 units/s and set off at
+  speed going down (tenth playtest: "PipBoy jitters a lot also"; trace
+  `movement-inertia-trace-pipboy`: held up, the arm does not move at all).
+- While the body glides with no key held, or brakes against the keys, the movement
+  clips follow the way it slides (walking or running as it last moved); detection,
+  power attacks and scripts still read the keys.
+- First person: the view sinks into a crouch over 1.0 s and rises over 1.1 s (0.35 s /
+  0.4 s at first, then 0.5 s / 0.55 s after "slow down the last bit", then doubled: "make
+  the 2x slower crouch and stand up speed the default"), instead of the clips' straight
+  0.2 s cross-fade. Since the seventh playtest ("crouching makes the hand with a gun
+  hitch") the standing and sneaking clips themselves cross over that long along the
+  settling curve (§1.4a), so the view and the arms change stance in one motion; before,
+  a separate module moved the arms rig by the difference between an eased eye height and
+  the clips' quick cross-fade, and the arms' own change of hold still took 0.2 s.
+- The times above are the ones in use; an "Inertia weight" dropdown (0.5, 1, 1.5, 2)
+  scaled them, the weapon's springs and the head bob's until the owner's eleventh
+  playtest (2026-11-15: "remove the inertia weight option - current default will be the
+  one we use"): 1. The switches are §1.4a.3.
+
+### 1.4a.3 Advanced Movement: Gameplay and Visual Only (owner, 2026-11-15)
+
+First "create new section under Settings and name it 'NVF Features' ... add on/off toggle
+for all features" (fourteen switches), then "simplify the Advanced Movement menu - too many
+option. We should merge some similar toggles together and add 2 categories - toggles for
+purely visual change and toggle for changes that affect gameplay", with the names and order
+the owner gave. The settings page's NVF Features tab (after the original's four tabs;
+settings-page.md) [design]:
+
+| Heading | Key | Switch | What it covers |
+|---|---|---|---|
+| Advanced Movement | `advanced-movement` | Global Toggle | Over every switch below (`--no-advanced-movement`, `MovementInertia::advanced`): off, none acts, as in the original; each keeps its own choice |
+| | `movement-weight` | Movement Weight | A dropdown, 25 % / 50 % / 75 % / 100 % (`MovementInertia::weight`, 100 % by default): Movement Inertia's times (start, stop, crouch, the landing's stand-up and lost speed) at that share, so 25 % is four times as quick; of Weapon Handling's draw, holster, aim and hand-back only the time over the original's is cut, so a weapon is never quicker than the original's at the same attributes (owner, 2026-11-15) |
+| *(an empty line)* | | | |
+| Gameplay | `movement-inertia` | Movement Inertia | The ground speed's springs (starting, gliding to a stop, braking before turning back; the movement clips following a glide); the first-person stance cross-over (1.0 s / 1.1 s) and crouched jumps staying crouched; the view's take-off and landing dip, deeper for a higher fall (`hard_landing`), the longer landing clip (`land_stretch`) and the speed a hard landing takes (`MovementInertia::land`) (`--no-movement-inertia`) |
+| | `weapon-handling` | Weapon Handling | The slower draw and holster (`draw_weight`: 1.5 to 2.4 times the original's) and aim (0.6 s / 0.55 s for a pistol, `aim_weight`), heavier weapons slower still, Agility and Strength by the weapon's class (`attribute_rate`, `aim_rate`); off, the game's own timing with its Agility rate (`--no-weapon-handling`, `MovementInertia::handles`, `equip_rate`, `aim_seconds`) |
+| | `advanced-recoil` | Advanced Recoil | The view's kick eased in and 40 % settling back (`nvf_play::combat`), the view's nudge back from a shot (head bob's springs) |
+| *(an empty line)* | | | |
+| Visual Only | `weapon-inertia` | Weapon Inertia | The arms' lag, steps, bob, jump and landing dip, the muzzle tip in the air, the breathing drift, the gun's recoil springs, the weapon's weight in all of it (§1.4a); `--no-weapon-sway`, a saved `weapon-sway` read as it |
+| | `animation-smoothing` | Animation Smoothing | Every first-person clip fade on the settling curve, the draw and holster played by their motion along it, eased starts and slow returns of attacks, reloads and jams, the aim's cross-over, the true iron sights' and the zoom's curve, the loop seams, the Pip-Boy's ease; at Weapon Handling's pace, else at the game's own (the aim at the true iron sights' 0.35 s / 0.3 s), so it changes the look only |
+| | `camera-motion` | Camera Motion | The head bob and the head's lag from the body's acceleration (§1.4a.1), the breathing camera, out of breath (the view's and the gun's breath faster and deeper after running), a blow's jolt of the view and the gun; `--no-head-bob`, a saved `head-bob` read as it |
+
+The empty lines are `settings_layout::Section::gap` (`ViewEntry::Gap`), used only here, so
+the other tabs' lines are as they were. Smoke: `advanced-movement-menu` (the tab's lines in
+this order), `advanced-movement-switches` (every switch off part-way through a draw and on
+again while aimed), `advanced-movement-parts` (Camera Motion off: Movement Inertia's glide
+and eased crouch stay, the view no longer bobs), `advanced-movement-off` (the Global Toggle
+off), `movement-inertia-off`, `weapon-handling-attributes`, `weapon-handling-off-agility`.
+
+**Attributes** (owner, 2026-11-15, after testers' reports: "the weapon draw speed is kinda
+brutal ... im at agility 10", "movement speed seems lower"; `MovementInertia::equip_rate`,
+`aim_seconds`, kept from the player's current Agility and Strength by `combat::perk_speed`):
+
+- Draws and holsters play at the original's Agility rate, 0.5 + 0.1 × Agility (1 at 5,
+  1.5 at 10, 0.6 at 1) [documented: Fallout Wiki, Agility (Fallout: New Vegas), the draw
+  and holster times 10 / (Agility + 5), as the reload's; special-skills-audit-2026-10-23
+  §2], times the Equip Speed perks; with Advanced Movement off too. Logged `weapon
+  handling: draws at x<rate>, aims in <s>s (<lb> lb, Agility <a>, Strength <s>, ...)`.
+- With Weapon Handling each point of Agility or Strength from 5 adds or takes the
+  original's tenth times its share for the weapon's class (`weight_class`: light to 3 lb,
+  medium 8 to 10 lb, heavy from 18 lb, blended between): Agility 1 / 0.6 / 0.3 for light /
+  medium / heavy, Strength 0.3 / 0.6 / 1 (`attribute_rate`, never under 0.6, the original's Agility 1 rate, so two low attributes cost no more than one). A light
+  weapon at Agility 10 gains as the original's does, a heavy one at Strength 10 as well. The handled time is never shorter than the original's at the same Agility, and Movement Weight cuts only the part over it.
+- The aim (and the block's cross-over, which runs on it) takes 40 % of that gain or loss
+  (`aim_rate`: 1.26 at most, 0.84 at least), so a light weapon at 10 and 10 still takes
+  0.43 s, more than the original's 0.35 s [design: "do not make the min-max difference
+  huge"]. Without Weapon Handling the aim is the game's own, as the original's.
+- The ground speed is the original's: its run speed does not depend on Agility
+  (ext-last-core.md §4), and the inertia reaches the keys' full speed (344 units/s running,
+  measured in the smoke runs' `movement inertia: up to` lines); what felt slower was the
+  half-second start, which Movement Weight now shortens.
+
+Every weapon type's draw and holster (owner, same day: "some equip animations are not
+affected - check that every animation for guns/melee weapons is affected, they can use the
+same curve"; trace `movement-inertia-trace-weapons`: the 10mm pistol, the straight razor,
+the rebar club, a frag grenade, the flamer, the fists, a swap while drawn):
+
+- A draw or holster clip is played by how far its motion has got, not by its clock
+  (`player_body::ClipMotion`: the hands' moves and turns as the eye sees them, below), so the motion as a whole follows the settling curve. The fists' draw has its arm
+  up in its first fifth: played by its clock along the curve it still came up at
+  980 units/s in 0.1 s; now at most 330. The weapon changes hands where the curve reaches
+  the motion done at the clip's own key.
+- A key jump inside a clip (a step its keys take at once) is eased across
+  (`Animator::smooth_jump`); measured on the hands, none of the first- or third-person draw
+  and put-away clips has one (2026-11-16; summed by bone, the razor's put-away had one).
+- The hand-over to the hold or the arms down at a draw's or holster's end starts with no
+  speed and no pull (`handover_share`, `6u⁵ − 15u⁴ + 10u³` from 35 % of the time): along the
+  settling curve's sharp start, the nearly stopped arms set off again at 350 units/s within
+  two frames (the fists', the 10mm pistol's holster; now about 150 and 50 at most).
+- The last quarter of a draw or a put-away (owner, 2026-11-16: "make the last 25% of the
+  equip and holster animations smoother without changing their timing"), same times:
+  - The hand-over's speed goes as `u³(1 − u)⁴` (`70u⁴ − 224u⁵ + 280u⁶ − 160u⁷ + 35u⁸`), not
+    `6u⁵ − 15u⁴ + 10u³`: it is quickest a little before its middle and has 15 % left at the
+    last quarter, not 29 % taken at nine tenths of its top speed and braked there. The 10mm
+    pistol's put-away came into its last quarter at 105 units/s and stopped within 0.16 s;
+    now 74, tapering off (the Assault Carbine's 124 to 76).
+  - The draw's place along its time (`equip_curve`) is the settling curve up to 75 % and
+    then a quintic carrying on from it that comes to rest with no speed and no pull: the
+    settling curve stops while still braking.
+  - The traces `movement-inertia-trace-weapons` and `-rest` give the club, flamer and
+    launcher put-aways (2 s and 4 s with Weapon Handling) their whole time: equipping the
+    next weapon part-way cut them, a 26 to 114 units/s kick at the cut.
+- The blend keeps each clip's rotation of a bone on the side of the sphere it was on last
+  frame (`anim_blend::Layer::aligned`): taken from the first clip's side each frame, the
+  straight razor's put-away over the idle blended the upper arm the long way round for a
+  while and then flipped, a 34-unit jump of the hand. This is in the shared animator, so
+  every actor's clips blend this way.
+
+A melee block follows the aim's settling curve too (raised and lowered in about 0.5 s
+each; trace `movement-inertia-trace-block`), slower with Weapon Handling.
+
+The shimmer of a held gun down its sights (the owner's twelfth playtest, the Sturdy
+Caravan Shotgun) is mostly the drawing, not the motion [observed: traces
+`movement-inertia-trace-sights-shotgun` and `-still` at 3840x2160]. With Weapon Inertia
+and the breathing camera off the gun does not move against the view at all, yet its
+pixels shift about 0.33 px a step at Goodsprings (x = -71680, where single-precision
+coordinates step by 0.008 units), 0.14 px at the world's origin and 0.05 px indoors. The
+cure would be drawing relative to a point near the player (a render origin); the owner
+left it out of this work (2026-11-15).
+
+Switching a part off or on while it acts leaves nothing stuck (smoke
+`advanced-movement-switches`): a draw or holster goes on at its rate, the zoom goes on
+from where it is, and a placement by the game starts the ground velocity from rest
+however near (`MovementInertia::check_game_placed`).
+
+The Global Toggle and Advanced Recoil are on by default; Movement Inertia, Weapon Handling,
+Animation Smoothing, Weapon Inertia and Camera Motion are off (each turned on by its own
+switch, `--movement-inertia`, `--weapon-handling`, `--animation-smoothing`, `--weapon-sway`,
+`--head-bob`, or on the page) [design: the owner, 2026-11-16, "make sure all advanced movement
+features are off by default except the improved/advanced recoil"]. A saved choice in the INI
+stays. At the start and at each change the log says which of the switches kept in
+`MovementInertia` are on (`advanced movement: Global Toggle on, ...`; smoke
+`advanced-movement-defaults`). Until 2026-11-16 all were on by default.
 
 ### 1.4a.1 The camera's bob: first person yes, third person no (owner, 2026-11-07)
 
@@ -140,13 +543,41 @@ bobbed; the third-person camera's pivot was the walking body's head bone, which 
 and falls with each stride. Now (`engine/nvforever/src/head_bob.rs`) [design, constants
 tuned by eye]:
 
-- First person: the whole arms rig (camera node, arms and weapon together) dips 1.6
-  units at each footfall and swings 0.5 across once a stride, at the movement clip's
+- First person: the whole arms rig (camera node, arms and weapon together) dips 5
+  units (about 7.5 cm; 5 until the sixth playtest, "increase headbob by 5%") at each footfall and swings 1.89 across once a stride (1.6 and 0.5
+  until the owner's fourth playtest, "there is no headbob even with it on": the log
+  showed a 1.5-unit dip, about 2 cm; 3 and 1 in the fourth build, "way too little" at
+  the fifth), at the movement clip's
   phase, growing with the ground speed to a run's; sneaking 60 %, down the sights 25 %,
   none in the air, under the Pip-Boy or while an idle drives the view. The arms' own bob
   (§1.4a) comes on top. A switch registered in the settings page's Display group and
-  shown under Gameplay › Camera (`head-bob`, `--no-head-bob`; settings-page.md), on by
-  default.
+  shown under NVF Features › Advanced movement (Gameplay › Camera until 2026-11-13, then
+  Gameplay › Advanced Inertia until 2026-11-15; `head-bob`,
+  `--head-bob` / `--no-head-bob`; settings-page.md), off by default since 2026-11-16.
+- Head inertia (owner's playtest of 2026-11-13: "we should add inertia to it"): the
+  stride's bob passes through a critically damped spring settling in 0.12 s, so it
+  rounds off; the body's acceleration leaves the head behind as it speeds up and lets it
+  lean on as it slows (spring 9/s; a sudden change of 344 units/s would peak at 1 unit,
+  shown at most 1.5); take-offs and landings dip it (spring 4/s; 8/s and 5.5/s before, about 2 units for a
+  standing jump's landing, more for a harder one, shown at most 5; 1.2 and 3 before the
+  fifth playtest). A shot nudges the camera back (12 units/s on that spring per unit of
+  strength) and a blow taken jolts it down, back and aside (45 units/s per unit of
+  punch; the nudge is Advanced Recoil's, the jolt Camera Motion's, §1.4a.3). Only the camera's
+  place moves, never its rotation; halved down the sights. The exit summary gives the deepest take-off or
+  landing dip, the most gun recoil and the most out of breath.
+- Breathing camera (owner, 2026-11-13: "camera moves on its own to simulate breathing -
+  smooth, slow and only a little"; a switch of its own, `breathing-camera`, until it became
+  part of Camera Motion on 2026-11-15, §1.4a.3): the whole arms rig rises and falls 1.2 units
+  (about 1.7 cm; 0.5, "almost not noticeable", before the fifth playtest) once every
+  4.5 s on a sine, with 0.3 units forward and back a quarter breath behind; all of it
+  standing still, 40 % moving, half down the sights, none in the air or under the
+  Pip-Boy, fading over a second. Position only. The research of 2026-11-14 notes that
+  slow whole-view motion at 0.2–0.4 Hz is the band most likely to cause motion sickness
+  (Loughborough, `repository.lboro.ac.uk` …9346865): hence the switch.
+- Out of breath (owner, 2026-11-14): running above 250 units/s winds the player over
+  12 s, standing recovers over 10 s and walking over 20 s, each jump takes 0.06; winded,
+  the camera's and the gun's breathing are up to 2.2 × faster and larger, while moving
+  too.
 - Third person: the pivot's height above the feet is the head's through two
   first-order lags of 0.25 s: a run's stride bob is cut to about an eighth, a crouch
   still lowers the camera (90 % in a second); a change over 40 units in a frame goes

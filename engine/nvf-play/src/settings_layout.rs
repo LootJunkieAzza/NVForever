@@ -1,168 +1,67 @@
-//! Where the settings page shows each row: its tab, and the heading it stands under in that
-//! tab (#1953; docs/design/settings-page.md). Presentation only: a row keeps the key, the
-//! label, the note, the default and the group it registered with (`crate::settings`), and
-//! the registry keeps its order, which the values, the INI and the test aids go by. This
-//! table only says where the page draws it [design].
+//! Where the settings page shows each row: its tab, and the category (a heading) it stands
+//! under in that tab (#1953, the menu overhaul; docs/design/settings-page.md). Presentation
+//! only: a row keeps the key, the note, the default and the group it registered with
+//! (`crate::settings`), and the registry keeps its order, which the values, the INI and the
+//! test aids go by. This table only says where the page draws it [design].
 //!
-//! **Seven tabs, the original's four categories first** [design: #1953; the original's
+//! **Eight tabs, the original's four categories first** [design: #1953; the original's
 //! Settings opens Gameplay, Display, Audio and Controls, observed in the original's pause
-//! menu, 2026-11-09]: Gameplay, Display, Audio, Controls, then Graphics, Tweaks and Debug
-//! ([`TAB_ORDER`]). Each tab lists [`SECTIONS`] in order, a dim heading over each named
-//! one.
+//! menu, 2026-11-09; the owner's menu overhaul, 2026-11-15]: Gameplay, Display, Audio,
+//! Controls, then Graphics, NVF Features, Tweaks and Debug ([`TAB_ORDER`]). Each tab lists
+//! its [`SECTIONS`] in order, each a **category**: a heading the player can open and close,
+//! an empty line after each open one ([`ResolvedLayout::tab_entries`]).
+//!
+//! **The Controls tab's own rows** (`crate::settings_view::ControlRow`: the input device,
+//! each control's key or button, Invert Y, the sensitivities, Rumble) are named here too, by
+//! [`CONTROL_PREFIX`] and their name (`controls:device`, `controls:bind:Jump`), beside the
+//! registered rows of the same category (Button Style under Input) [design: the overhaul].
+//!
+//! **NVF Features** holds only what the owner names (`NVF_FEATURES_KEYS`, a test keeps
+//! it so) [design: owner 2026-11-15: "do not move any feature there without my say so"].
 //!
 //! **A row the table does not name** stays under the group it registered with, used as its
 //! tab with no heading, after the tab's named rows, in registry order; a group that is
-//! none of the seven tabs becomes a tab of its own after Debug, in the order such groups
-//! first appear in the registry ([`resolve_layout`]) [design: #1953, so #1892's Tweaks rows
-//! show under Tweaks without it naming them here]. No group is renamed for an unnamed row
-//! (a `Sound` row the table does not name shows under a `Sound` tab, not under Audio).
+//! none of the tabs becomes a tab of its own after Debug ([`resolve_layout`]). The engine's
+//! own rows are all named (a test keeps it so); the fallback is for what a later change
+//! adds before it places its row.
 //!
-//! [`Placement::subgroup`] is kept for the Tweaks tab's own list of groups (#1953 point 4,
-//! a later change): every section here has none.
+//! [`Placement::subgroup`] is the Tweaks tab's group (Gameplay, Combat, … as Stewie's
+//! Tweaks sorts them): the tab shows one group at a time, chosen by its Category row
+//! (`crate::settings_view`), its categories closed until opened [design: owner 2026-11-15].
+//! Every row #1892 registers (`tweak-<key>`) has its group and category here already
+//! ([`group_section`]; the list for the owner's review: docs/design/settings-tweaks-layout.md):
+//! the group the plugin's catalogue gives its INI key, and in a category the lists first,
+//! then the switches, then the sliders, each by label, a row that only matters with
+//! another right after that one [design: owner 2026-11-15].
 //!
-//! What a row's visibility is (the colour sliders only for Custom, the controller rows
-//! only with a controller) is not here: the page decides it each frame
-//! (`crate::settings_view`), so a hidden row keeps its tab and heading.
+//! What a row's visibility is (the colour sliders only for Custom, the controller rows only
+//! with a controller, a row its module hides) is not here: the page decides it each frame
+//! (`crate::settings_view`), so a hidden row keeps its tab and category.
+
+// The table itself (the tabs, categories, row order, NEEDS) is in crates/nvf-settings-layout,
+// shared with the launcher so its Settings page has the game's menus [design: owner
+// 2026-11-16]; this module applies it to the rows a run registers.
+pub use nvf_settings_layout::*;
 
 use crate::settings::Setting;
 
-/// Where a row is shown: its tab, the later Tweaks list's group, the heading over it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Placement {
-    pub tab: &'static str,
-    /// The Tweaks tab's group (#1953 point 4) [design: reserved; `None` throughout].
-    pub subgroup: Option<&'static str>,
-    pub heading: Option<&'static str>,
+
+/// One line of a section: a registered row (its index in the registry) or a Controls row
+/// (its name after [`CONTROL_PREFIX`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutItem {
+    Setting(usize),
+    Control(&'static str),
 }
 
-impl Placement {
-    /// A tab of its own, with no heading.
-    pub const fn tab(tab: &'static str) -> Placement {
-        Placement { tab, subgroup: None, heading: None }
-    }
-
-    /// Its tab, group and heading in English joined by " > " (`Gameplay > Dialogue`), as
-    /// the log names it.
-    pub fn path(&self) -> String {
-        [Some(self.tab), self.subgroup, self.heading].into_iter().flatten().collect::<Vec<_>>().join(" > ")
-    }
-}
-
-/// A run of rows under one heading.
-pub struct Section {
-    pub placement: Placement,
-    pub keys: &'static [&'static str],
-}
-
-/// The tabs, in the order the page lists them [design: #1953].
-pub const TAB_ORDER: [&str; 7] = ["Gameplay", "Display", "Audio", "Controls", "Graphics", "Tweaks", "Debug"];
-/// The tab whose first rows are the controls' keys and buttons (`crate::bindings`), drawn
-/// by the page itself before this table's rows.
-pub const CONTROLS_TAB: &str = "Controls";
-/// The tab #1892's tweaks register under.
-pub const TWEAKS_TAB: &str = "Tweaks";
-
-const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'static [&'static str]) -> Section {
-    Section { placement: Placement { tab, subgroup: None, heading }, keys }
-}
-
-/// Every named row's tab and heading, in the order the page shows them [design: #1953's
-/// table; the colours' red, green and blue each after their colour].
-pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
-    section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
-    section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
-    section("Gameplay", Some("Reports"), &["send-reports", "reports-delete"]),
-    section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view", "viewmodel-field-of-view"]),
-    // After the tab's other headings, so the rows above keep their places (#2662).
-    section("Gameplay", Some("World"), &["grass-fire", "sound-cover"]),
-    section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "physics-rate", "ui-scale", "menu-scale"]),
-    section(
-        "Display",
-        Some("Interface"),
-        &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue", "language", "dynamic-crosshair", "crosshair-style", "sneak-gauges"],
-    ),
-    section(
-        "Display",
-        Some("Performance"),
-        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded", "fps-counter-upscaling"],
-    ),
-    section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
-    section("Controls", None, &CONTROLLER_KEYS),
-    // The quality presets over the rows they set, under a heading of their own; the
-    // enhanced look as a whole first under Picture [design: #1966].
-    section("Graphics", Some("Quality"), &["quality"]),
-    section(
-        "Graphics",
-        Some("Picture"),
-        &[
-            "enhanced",
-            "grade",
-            "sun-shadows",
-            "upscaler",
-            "upscaler-quality",
-            "dlss-model",
-            "fsr-library",
-            "frame-generation",
-            "frame-generation-frames",
-            "anti-aliasing",
-            "latency-reduction",
-            "shadow-filter",
-            "ambient-occlusion",
-            "fine-shadows",
-            "bloom",
-            "glow",
-            "eye-adaptation",
-            "neon-glow",
-            "sharpen",
-            "anisotropic",
-            "terrain-height-blend",
-            "terrain-anti-tiling",
-            "light-shafts",
-            "water-reflections",
-            "water-mirror",
-            "smooth-terrain",
-        ],
-    ),
-    section("Graphics", Some("Distance"), &["distant-lod", "grass", "object-distance", "actor-distance", "item-distance", "shadow-distance", "grass-distance"]),
-    section("Graphics", Some("World"), &["head-tracking", "foot-ik", "sky-clock"]),
-    section("Debug", None, &["overlay", "hit-markers", "god-mode", "navmesh", "terrain-wireframe", "scope-3d"]),
-];
-
-/// The Controls tab's rows that are shown only while the input device is a controller
-/// (`crate::bindings::InputDevice`), after the controls' own [design: #1953].
-pub const CONTROLLER_KEYS: [&str; 4] = ["button-style", "aim-assist", "aim-slowdown", "aim-lock"];
-
-/// Whether row `key` is shown only with a controller ([`CONTROLLER_KEYS`]).
-pub fn controller_only(key: &str) -> bool {
-    CONTROLLER_KEYS.contains(&key)
-}
-
-/// The table's faults: a key named twice, a tab not in [`TAB_ORDER`], a reserved group set.
-pub fn check(sections: &[Section]) -> Result<(), String> {
-    let mut seen: Vec<&str> = Vec::new();
-    for s in sections {
-        if !TAB_ORDER.contains(&s.placement.tab) {
-            return Err(format!("{}: not one of the tabs", s.placement.tab));
-        }
-        if s.placement.subgroup.is_some() {
-            return Err(format!("{}: a group is for the Tweaks list, not yet", s.placement.path()));
-        }
-        for k in s.keys {
-            if seen.contains(k) {
-                return Err(format!("{k}: placed twice"));
-            }
-            seen.push(k);
-        }
-    }
-    Ok(())
-}
-
-/// A section of the registered rows: its place and its rows (indices in the registry).
+/// A section of the rows: its place and its lines in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedSection {
     pub placement: Placement,
+    /// Its registered rows (indices in the registry), in order.
     pub rows: Vec<usize>,
+    /// Its lines in order: the registered rows and the Controls rows among them.
+    pub items: Vec<LayoutItem>,
 }
 
 /// A tab and its sections.
@@ -172,11 +71,44 @@ pub struct ResolvedTab {
     pub sections: Vec<ResolvedSection>,
 }
 
-/// One line of a tab as the table gives it: a heading or a registered row.
+/// The Tweaks tab's group for rows the table does not place in one yet (a tweak added after
+/// the table was written): listed last, so such a row is never out of sight [design].
+pub const UNGROUPED: &str = "Other";
+
+impl ResolvedTab {
+    /// The Tweaks tab's groups, in the table's order, and [`UNGROUPED`] last while a row of
+    /// the tab has none (no groups on another tab).
+    pub fn subgroups(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for g in self.sections.iter().filter_map(|s| s.placement.subgroup) {
+            if !out.contains(&g) {
+                out.push(g);
+            }
+        }
+        if !out.is_empty() && self.sections.iter().any(|s| s.placement.subgroup.is_none()) {
+            out.push(UNGROUPED);
+        }
+        out
+    }
+}
+
+/// One line of a tab as the table gives it: a category's heading, a registered row, a
+/// Controls row, or the empty line after an open category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutEntry {
     Heading(Placement),
     Setting(usize),
+    Control(&'static str),
+    Gap,
+}
+
+impl From<LayoutItem> for LayoutEntry {
+    fn from(i: LayoutItem) -> LayoutEntry {
+        match i {
+            LayoutItem::Setting(i) => LayoutEntry::Setting(i),
+            LayoutItem::Control(c) => LayoutEntry::Control(c),
+        }
+    }
 }
 
 /// The table applied to the registered rows ([`resolve_layout`]).
@@ -190,24 +122,30 @@ pub struct ResolvedLayout {
     unnamed: usize,
 }
 
-/// The table applied to `list`, the registry in its order (module notes): the seven tabs
-/// (an empty one too), each named section with the rows registered (a missing optional row
-/// left out, a section left with none dropped), then each tab's unnamed rows, then the
-/// unnamed groups' tabs. Every registered row is in it once.
+/// The table applied to `list`, the registry in its order (module notes): the tabs (an
+/// empty one too), each named section with the rows registered and its Controls rows (a
+/// missing optional row left out, a section left with none dropped), then each tab's
+/// unnamed rows, then the unnamed groups' tabs. Every registered row is in it once.
 pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
     let index: std::collections::HashMap<&str, usize> = list.iter().enumerate().map(|(i, s)| (s.key, i)).collect();
     let mut placements: Vec<Option<Placement>> = vec![None; list.len()];
     let mut tabs: Vec<ResolvedTab> = TAB_ORDER.iter().map(|&name| ResolvedTab { name, sections: Vec::new() }).collect();
     for s in SECTIONS {
-        let rows: Vec<usize> = s.keys.iter().filter_map(|k| index.get(k).copied()).filter(|&i| placements[i].is_none()).collect();
-        if rows.is_empty() {
+        let mut items = Vec::new();
+        for k in s.keys {
+            if let Some(c) = k.strip_prefix(CONTROL_PREFIX) {
+                items.push(LayoutItem::Control(c));
+            } else if let Some(&i) = index.get(k).filter(|&&i| placements[i].is_none()) {
+                placements[i] = Some(s.placement);
+                items.push(LayoutItem::Setting(i));
+            }
+        }
+        if items.is_empty() {
             continue;
         }
-        for &i in &rows {
-            placements[i] = Some(s.placement);
-        }
+        let rows = items.iter().filter_map(|i| if let LayoutItem::Setting(i) = i { Some(*i) } else { None }).collect();
         if let Some(t) = tabs.iter_mut().find(|t| t.name == s.placement.tab) {
-            t.sections.push(ResolvedSection { placement: s.placement, rows });
+            t.sections.push(ResolvedSection { placement: s.placement, rows, items });
         }
     }
     // The unnamed rows, by tab, in registry order: one section after each tab's named ones.
@@ -235,7 +173,8 @@ pub fn resolve_layout(list: &[Setting]) -> ResolvedLayout {
     let count = unnamed.iter().filter(|(t, _)| tabs[*t].name != TWEAKS_TAB).map(|(_, r)| r.len()).sum();
     for (t, rows) in unnamed {
         let placement = Placement::tab(tabs[t].name);
-        tabs[t].sections.push(ResolvedSection { placement, rows });
+        let items = rows.iter().map(|&i| LayoutItem::Setting(i)).collect();
+        tabs[t].sections.push(ResolvedSection { placement, rows, items });
     }
     ResolvedLayout { tabs, placements: placements.into_iter().map(|p| p.unwrap_or(Placement::tab(""))).collect(), unnamed: count }
 }
@@ -255,6 +194,11 @@ impl ResolvedLayout {
         self.placements.get(i).copied()
     }
 
+    /// The place of the Controls row named `name` (after [`CONTROL_PREFIX`]).
+    pub fn control_placement(&self, name: &str) -> Option<Placement> {
+        self.tabs.iter().flat_map(|t| &t.sections).find(|s| s.items.iter().any(|i| matches!(i, LayoutItem::Control(c) if *c == name))).map(|s| s.placement)
+    }
+
     /// How many registered rows the table does not name, leaving out the Tweaks tab's
     /// ([`TWEAKS_TAB`]), which #1892 lists in registry order without naming them here
     /// [design: #1953, #1892].
@@ -268,22 +212,50 @@ impl ResolvedLayout {
         self.tabs.iter().flat_map(|t| t.sections.iter().flat_map(|s| s.rows.iter().copied()))
     }
 
-    /// Tab `name`'s lines: each section's heading (when it has one and a row `visible`
-    /// says is shown) over those rows. A hidden row keeps its place for when it shows.
-    pub fn tab_entries(&self, name: &str, visible: impl Fn(usize) -> bool) -> Vec<LayoutEntry> {
+    /// The section at `p`.
+    pub fn section(&self, p: &Placement) -> Option<&ResolvedSection> {
+        self.tab(p.tab)?.sections.iter().find(|s| s.placement == *p)
+    }
+
+    /// Tab `name`'s lines (of its group `subgroup` on the Tweaks tab; `None`: every
+    /// section): each category with a line `visible` says is shown, its heading (when it has
+    /// one) and, while `open` says it is open, those lines; after each open category with
+    /// another after it, an empty line [design: the overhaul]. A category whose lines are all
+    /// hidden is left out, heading too; a hidden line keeps its place for when it shows.
+    pub fn tab_entries(&self, name: &str, subgroup: Option<&str>, visible: impl Fn(LayoutItem) -> bool, open: impl Fn(&Placement) -> bool) -> Vec<LayoutEntry> {
         let mut out = Vec::new();
         let Some(t) = self.tab(name) else { return out };
-        for s in &t.sections {
-            let rows: Vec<usize> = s.rows.iter().copied().filter(|&i| visible(i)).collect();
-            if rows.is_empty() {
+        let mut after_open = false;
+        let of_group = |s: &&ResolvedSection| match subgroup {
+            None => true,
+            Some(UNGROUPED) => s.placement.subgroup.is_none(),
+            g => s.placement.subgroup == g,
+        };
+        for s in t.sections.iter().filter(of_group) {
+            let items: Vec<LayoutItem> = s.items.iter().copied().filter(|&i| visible(i)).collect();
+            if items.is_empty() {
                 continue;
             }
-            if s.placement.heading.is_some() {
+            if after_open {
+                out.push(LayoutEntry::Gap);
+            }
+            let headed = s.placement.heading.is_some();
+            let shows = !headed || open(&s.placement);
+            if headed {
                 out.push(LayoutEntry::Heading(s.placement));
             }
-            out.extend(rows.into_iter().map(LayoutEntry::Setting));
+            if shows {
+                out.extend(items.into_iter().map(LayoutEntry::from));
+            }
+            after_open = shows;
         }
         out
+    }
+
+    /// How many of the category at `p`'s lines `visible` says are shown (what its heading
+    /// counts while chosen).
+    pub fn shown_count(&self, p: &Placement, visible: impl Fn(LayoutItem) -> bool) -> usize {
+        self.section(p).map_or(0, |s| s.items.iter().filter(|&&i| visible(i)).count())
     }
 }
 
@@ -305,26 +277,41 @@ mod tests {
         s.list().to_vec()
     }
 
+    /// A tab's lines, every category open, every line shown: `[Heading]`, keys, `@control`,
+    /// and "" for an empty line.
     fn keys(list: &[Setting], l: &ResolvedLayout, tab: &str) -> Vec<String> {
-        l.tab_entries(tab, |_| true)
+        lines(list, l, tab, |_| true)
+    }
+
+    fn lines(list: &[Setting], l: &ResolvedLayout, tab: &str, open: impl Fn(&Placement) -> bool) -> Vec<String> {
+        l.tab_entries(tab, None, |_| true, open)
             .into_iter()
             .map(|e| match e {
                 LayoutEntry::Heading(p) => format!("[{}]", p.heading.unwrap_or("")),
                 LayoutEntry::Setting(i) => list[i].key.to_string(),
+                LayoutEntry::Control(c) => format!("@{c}"),
+                LayoutEntry::Gap => String::new(),
             })
             .collect()
     }
 
-    /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
-    /// quality and enhanced rows, #2014's counter rows, the two VATS rows and #2198's Upscaler
-    /// and Upscaling mode rows in place of the one upscaling row, its DLSS model row and #2169's
-    /// FSR library row, #2242's upscaling counter row, #2317's Generated frames row, the viewmodel
-    /// field of view row, the menu scale row, the Physics rate row, #2550's Terrain height blending
-    /// row, #2551's terrain anti-tiling row, #2662's Grass fires row, #2688's sound cover row,
-    /// #2149's Smooth terrain row and its Debug row Terrain wireframe), by the group it registers
-    /// with.
-    const KNOWN: [(&str, &str); 118] = [
+    /// Every row the registry can hold today (upstream main be6db0948: #1966's quality row
+    /// (its enhanced row removed by the menu overhaul), #2014's counter rows, the VATS rows,
+    /// #2198's upscaler rows, #2169's FSR library row, #2242's upscaling counter row, #2317's
+    /// Generated frames row, the field of view rows, the menu scale and Physics rate rows,
+    /// #2662's grass fires, #2550's terrain height blending, #2551's terrain anti-tiling,
+    /// #2688's sound cover, #2149's smooth terrain and its Debug row terrain wireframe, the
+    /// overhaul's menu font, and the Advanced Movement rows of tech/movement-inertia, Weapon
+    /// Inertia and Camera Motion in place of weapon sway and head bob), by the group it
+    /// registers with.
+    const KNOWN: [(&str, &str); 124] = [
         ("detached-camera", "Gameplay"),
+        ("advanced-movement", "Gameplay"),
+        ("movement-weight", "Gameplay"),
+        ("movement-inertia", "Gameplay"),
+        ("weapon-handling", "Gameplay"),
+        ("advanced-recoil", "Gameplay"),
+        ("animation-smoothing", "Gameplay"),
         ("sound-cover", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -365,6 +352,7 @@ mod tests {
         ("pipboy-green", "Interface"),
         ("pipboy-blue", "Interface"),
         ("language", "Interface"),
+        ("menu-font", "Interface"),
         ("head-tracking", "World"),
         ("foot-ik", "World"),
         ("sky-clock", "World"),
@@ -372,8 +360,8 @@ mod tests {
         ("borderless", "Display"),
         ("monitor", "Display"),
         ("first-person-body", "Display"),
-        ("weapon-sway", "Display"),
-        ("head-bob", "Display"),
+        ("weapon-inertia", "Display"),
+        ("camera-motion", "Display"),
         ("weapon-lower", "Display"),
         ("sun-shadows", "Display"),
         ("grass", "Display"),
@@ -421,11 +409,10 @@ mod tests {
         ("anisotropic", "Graphics"),
         ("terrain-height-blend", "Graphics"),
         ("terrain-anti-tiling", "Graphics"),
+        ("smooth-terrain", "Graphics"),
         ("light-shafts", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-mirror", "Graphics"),
-        ("smooth-terrain", "Graphics"),
-        ("enhanced", "Graphics"),
         ("quality", "Graphics"),
         ("volume-master", "Sound"),
         ("volume-music", "Sound"),
@@ -444,23 +431,192 @@ mod tests {
         ("reports-delete", "Reports"),
     ];
 
+    /// What every tweak's key starts with (#1892's `tweaks.rs`: `concat!("tweak-", $key)`).
+    const TWEAK_PREFIX: &str = "tweak-";
+
+    /// Every row #1892 registers under Tweaks (PR head 25bc53a28, `engine/nvf-play/src/tweaks.rs`),
+    /// in its order, without [`TWEAK_PREFIX`]: what the table places ahead of it.
+    const TWEAK_ROWS: &str = "\
+        discovered-sound level-sound-every-a level-sound-a level-sound-every-b level-sound-b xp-multiplier \
+        no-xp-messages no-karma-messages no-quest-failed no-location-popup no-objective-popup disable-fast-travel \
+        midair-fast-travel fast-travel-enemies fast-travel-encumbered no-red-crosshair hide-enemy-markers \
+        no-sneak-label no-reputation-messages no-combat-music no-loading-tips no-explosion-blur no-chem-wore-off \
+        kill-cam-exit-key skip-skill-page no-empty-book-message recipe-caps weapon-ammo-use book-effects \
+        deselect-hotkeys map-remembers terminal-number-keys faster-hacking dialogue-music dialogue-radio \
+        console-skips-player holster-real-time power-armor-no-screen-blood no-red-crosshair-cloaked \
+        god-mode-quiet-landing console-compress-repeats console-timestamps living-anatomy-dr sync-categories \
+        perks-per-level special-points pick-without-skill hack-without-skill no-terminal-lockout no-casino-bans \
+        loot-unconscious revive-companions revive-down-seconds pickpocket-worn no-sneak-criticals reload-when-empty \
+        no-travel-time power-armor-fall weightless-armor weightless-aid weightless-ammo weightless-weapons \
+        weightless-misc weightless-worn-armor show-poison-effects no-poison-confirm map-summon-companions \
+        summon-unconscious no-min-companion-distance map-unconscious-companions companions-location-font \
+        map-door-kinds hostiles-prefer-player prefer-player-start prefer-player-mid prefer-player-detection \
+        equip-broken-items keep-broken-equipped hardcore-tweaks hardcore-ammo-weight hardcore-essential-companions \
+        hardcore-sleep-heals weightless-worn-power-armor no-travel-crippled-leg wait-only-seated kill-reward-ap \
+        jump-ap-cost run-ap-cost no-selling custom-skill-points skill-point-base skill-points-per-int \
+        no-unconscious-message no-voice-filter no-skip-dialogue lockpick-mouse no-max-casino-bet no-aiming-slowdown \
+        repeat-jumping hold-to-sneak vats-entry-ap power-attack-ap quest-marker-reach scope-zoom-time drop-key \
+        no-container-after-pick no-door-after-pick mark-unvisited-doors no-exit-hacking no-grab-owned agility-speed \
+        auto-unlock-terminals auto-unlock-margin weapons-unhurt-by-hits god-mode-no-jams knockdown-by-strength \
+        drowning-drains-ap aiming-draws-weapon walk-angle crippled-leg-jump aid-at-full-health grabbing-is-theft \
+        vendor-lists key-name no-skill-tags no-npc-addiction pickpocket-fleeing full-reload-swaps melee-reach \
+        repair-xp repair-caps-container no-wear-on-dead encumbered-ap-regen light-step-companions no-player-stagger \
+        ready-does-not-draw jam-reload-pace no-hotkeys-reloading wading-pace sleep-on-chairs stealing-no-alarm \
+        no-companion-kill-xp no-disarm-companions no-self-explosion-damage sneak-criticals-melee teammates-meltdown \
+        speed-scales-jump no-tutorials no-knockdown-god show-current-skill min-splatter xp-sound-at-cap hold-to-wait \
+        no-sight-zoom hide-misc-quest tab-click-sorts hotkey-toggles-in-hand no-interior-fog mark-unspoken \
+        no-caps-added subtitle-names compass-pips-danger neutral-foes-compass sneak-label-standing no-xp-meter-combat \
+        no-limb-indicator skip-death-cam skip-death-cam-attack help-is-console heartbeat-fade heartbeat-fade-seconds \
+        terminal-fade terminal-fade-seconds containers-show-ammo descriptive-marker-added no-grenade-indicator \
+        grenade-indicator-harmless grenade-indicator-destructibles keep-acting-notes hide-completed-quests \
+        hide-marker-reputation no-show-quest-location hide-trait-ranks hide-quest-item-figures single-item-figures \
+        mark-other-ammo show-fame-infamy take-all-confirm take-all-confirm-min repair-all-confirm repair-all-threshold \
+        take-all-stays hide-equipped-barter hide-equipped-containers title-case-categories no-right-click-drop \
+        quiet-undiscovered repair-any-armor sort-misc-stats effect-time-left perk-plugin-names item-added-seconds \
+        pipboy-12-hour notes-of-all-quests aim-turn-x aim-turn-y pickpocket-after-caught wait-anywhere radio-music \
+        radio-talk camera-wheel-pov quiet-hotkeys detached-beams god-mode-off-on-load no-stealth-shimmer-pipboy \
+        quiet-teammate-steps no-weapon-hotkeys pipboy-opens-items hide-crosshair-reloading kill-xp-per-level \
+        key-xp-share password-xp-share invert-x nearest-unfound discovered-in-corner power-armor-radiation \
+        power-armor-limbs fall-height-endurance invert-title-wheel armor-condition armor-visible-below armor-red-below \
+        armor-flash-below armor-in-weapon-place scale-explosion-shake explosion-shake toggle-device hud-fatigue \
+        key-repeat-accel key-repeat-delay key-repeat-mult key-repeat-delay-alt key-repeat-mult-alt precise-rad-meter \
+        rad-decimals compass-doors compass-doors-exterior compass-doors-interior compass-doors-fade detected-by-whom \
+        detected-names quest-text-in-menus continue-shows-save auto-continue hide-ammo-label barter-by-kind \
+        barter-water-unscaled barter-sell-armor barter-sell-weapon barter-sell-aid barter-sell-ammo barter-sell-misc \
+        barter-sell-weapon-mod barter-buy-armor barter-buy-weapon barter-buy-aid barter-buy-ammo barter-buy-misc \
+        barter-buy-weapon-mod free-item-price skip-easy-locks skip-lock-margin pick-up-disarmed npc-weapons-whole \
+        lethal-knockdowns duplicate-binds crippling-never-disarms no-spin-up god-mode-free-crafting pov-follows-weapon \
+        kill-cam-chance subtitle-distance sneak-criticals-head compare-weapons warn-encumbrance mark-nearby-places \
+        scale-ash-piles pipboy-buzz per-bullet-reload reload-rounds-per-press reload-press-queue reload-while-firing \
+        semi-auto-queue repair-scales-crafting no-healing-in-combat power-attack-if-blocking breath-regain \
+        vats-hip-fire pickpocket-caught-detects agility-jump lockpick-force-near contact-mines-player \
+        contact-mines-npcs sleep-heal-min-hours barter-repair-discount armor-condition-penalty vats-ignores-companions \
+        no-pipboy-in-combat frenzy-kill-xp free-wild-wasteland stats-xp-percent repair-same-first repair-low-first \
+        repair-kits-in-list repair-preview crippled-fall-pain quantity-companion-cap armor-blocks-blood embolden-tags \
+        pickpocket-overhaul pp-base pp-agility pp-luck pp-sneak pp-perception pp-detection pp-value pp-weight pp-worn \
+        pp-free-items pp-reward-xp hold-activate hold-containers hold-furniture hold-water quick-use \
+        vats-throw-visibility quiet-followers crit-message-limb no-dehydration-messages no-sleep-messages need-icons \
+        repair-at-workbench character-radiation character-radiation-stages reallocate-skill-points \
+        local-map-reset-cells hold-release-throws npcs-disarm-player npcs-drop-live-grenades water-shows-h2o no-respec \
+        weapon-impacts robots-heal-with-scrap robot-heal-base robot-heal-per-repair robot-heal-expert \
+        no-weapon-move-penalty unequip-broken-armor hide-crosshair-first hide-crosshair-third no-skill-books-at-max \
+        red-hp-below red-ap-below weapon-cnd-red-below weapon-cnd-flash-below blackjack-total player-pain-gap \
+        pause-on-load swap-ammo-holstered slots-hold-to-spin no-auto-continue-dialogue shift-talks-sneaking \
+        no-quest-set-on-objective no-quest-set-on-complete hide-read-notes tab-closes-terminals \
+        tab-back-in-pause unsafe-fast-travel vats-auto-head vats-drops-disarmed-shots vats-target-projectiles \
+        vats-target-mines vats-target-own-projectiles vats-ignore-non-explosive vats-burst-stops-on-kill \
+        repair-needs-weapon-skill date-style hide-unknown-names vats-keeps-holstered no-hotkey-wheel ammo-label-under \
+        companion-pip female-facial-hair terminal-password-prompt lockpick-move-keys store-all map-recentre-key \
+        map-marker-distance quantity-shows-price quantity-shows-weight hide-empty-reputation quick-load-in-menus \
+        preview-perks pick-locks-with-key right-click-previous-category mark-notes-unread full-barter-total \
+        compass-fade-left custom-dead-zones left-dead-zone right-dead-zone custom-trigger-dead-zones lt-dead-zone \
+        rt-dead-zone responsive-stick faster-pad-orbit vanity-returns-first horizontal-look vats-shift-ignores-friends \
+        remember-console-history console-output-file console-text-shadow click-to-exit-loading \
+        select-unavailable-radios radiation-radio-static barter-caps-change no-self-meltdown max-level \
+        standing-sneak-attacks no-companion-item-damage modding-needs-skill planting-needs-skill travel-costs-bottle \
+        jump-swims-up armor-sinks remember-pin-health force-spares-lock no-condition-damage-penalty \
+        no-condition-damage-buffer crit-ignores-fire-rate crit-damage-scale npc-dr-ignores-condition \
+        npc-dt-ignores-condition explosion-radius-buff npcs-sneak-crit-player fatal-crits-gib fall-deaths-dismember \
+        splash-torso-gib npcs-drop-holstered npcs-earn-casings first-person-vats no-ammo-casings crosshair-when-aiming \
+        move-during-vats-camera stack-figures seated-wide no-turn-clip no-land-clip hide-unmapped-places \
+        vigor-review-first scope-delay no-pointer-message-box no-pointer-dialogue levelup-wheel compare-armor \
+        detailed-stats minigames-timescale no-name-limit seat-keeps-on-activate plain-going-out \
+        mark-recurring-challenges hide-hotkeyed-containers hide-hotkeyed-barter hide-hotkeyed-repair \
+        map-zoom-at-pointer console-homes shift-screenshot-hides print-plugin-names \
+        weapon-requirements-matter console-model-details back-pace strafe-pace hack-no-single-chars \
+        hack-no-repeat-words hack-dud-when-full hack-spare-guessed run-overencumbered over-run-ap over-jump-ap \
+        npc-melee-part-damage disarm-needs-skill disarm-mult disarm-explode-mult cap-skills-by-special skill-cap-base \
+        skill-cap-per-special skill-cap-per-luck skill-cap-most cap-skills-spare-tagged hold-breath breath-sway \
+        breath-ap scope-wheel-zoom wheel-cycles-hotkeys dpad-cycles-hotkeys keys-with-pad double-tap-ammo \
+        improved-weather vats-stop-following-dead night-vision-toggle night-vision-off-first night-vision-by-day \
+        kill-cam-outside-vats kill-cam-hit-location weather-trip-distance compass-pips-fade compass-places-fade \
+        buffed-health-bars recent-dead-secs armor-sounds-3d mine-blasts-heard blasts-spare-items grabbed-weighs \
+        usable-ammo-first better-flycam recent-markers-red compass-quest-height compass-marker-height hud-marker-name \
+        hud-region-names move-during-pipboy-raise region-borders-message-only marker-name-angle \
+        marker-name-hide-unfound marker-name-units hide-hud-compass hide-hud-ammo hide-hud-needs hide-hud-sneak \
+        hide-hud-on-load grey-read-notes remember-item-places player-weapon-volume npc-weapon-volume \
+        keep-fall-height-on-load no-marker-popup marker-shift-removes marker-removed-on-it clear-marker-within \
+        place-marker-here-says repeat-activate-takes-only hi-res-npc-weapons empty-reload-swaps-ammo \
+        objectives-on-arrival objectives-gap sleep-in-owned-beds power-armor-no-training";
+
+    /// [`TWEAK_ROWS`] as keys, under the Tweaks tab's group.
+    fn tweak_rows() -> Vec<(&'static str, &'static str)> {
+        TWEAK_ROWS.split_whitespace().map(|k| (&*Box::leak(format!("{TWEAK_PREFIX}{k}").into_boxed_str()), TWEAKS_TAB)).collect()
+    }
+
+    /// Whether `key` is one of [`TWEAK_ROWS`].
+    fn is_tweak(key: &str) -> bool {
+        key.strip_prefix(TWEAK_PREFIX).is_some_and(|k| TWEAK_ROWS.split_whitespace().any(|r| r == k))
+    }
+
+    /// Stewie's Tweaks' groups as the Tweaks tab lists them [design: owner 2026-11-15].
+    const TWEAK_GROUPS: [&str; 8] = ["Gameplay", "Combat", "Quality of Life", "HUD", "Menus", "Hotkeys", "Cheats", "Misc"];
+
     #[test]
     fn the_table_names_each_key_once_in_one_of_the_tabs() {
         assert_eq!(check(SECTIONS), Ok(()));
-        let twice = [section("Gameplay", None, &["a"]), section("Debug", None, &["a"])];
+        let twice = [section("Gameplay", Some("A"), &["a"]), section("Debug", None, &["a"])];
         assert!(check(&twice).unwrap_err().contains("placed twice"));
         let odd = [section("Sound", None, &["a"])];
         assert!(check(&odd).is_err());
-        // Every row there is has its place in the table, and the table names no other.
-        let named: Vec<&str> = SECTIONS.iter().flat_map(|s| s.keys.iter().copied()).collect();
+        let unasked = [section(NVF_FEATURES_TAB, Some("New"), &["a-big-change"])];
+        assert!(check(&unasked).unwrap_err().contains("owner named"), "NVF Features only by the owner's word");
+        let control = [section("Gameplay", Some("A"), &["controls:device"])];
+        assert!(check(&control).is_err());
+        let headless = [section("Gameplay", Some("A"), &["a"]), section("Gameplay", None, &["b"])];
+        assert!(check(&headless).is_err());
+        // Every row there is has its place in the table; the table names no other but the
+        // Controls tab's own rows and #1892's tweaks, each of those on the Tweaks tab.
+        let named: Vec<&str> = SECTIONS.iter().flat_map(|s| s.keys.iter().copied()).filter(|k| !k.starts_with(CONTROL_PREFIX)).collect();
         for (k, _) in KNOWN {
             assert!(named.contains(&k), "{k} has no place");
         }
-        assert_eq!(named.len(), KNOWN.len());
+        for k in &named {
+            assert!(KNOWN.iter().any(|(n, _)| n == k) || is_tweak(k), "{k} is placed but no row has it");
+        }
+        for s in SECTIONS {
+            for k in s.keys.iter().filter(|k| k.starts_with(TWEAK_PREFIX)) {
+                assert_eq!(s.placement.tab, TWEAKS_TAB, "{k} is a tweak");
+            }
+        }
+    }
+
+    /// docs/settings-reference.md is the launcher's copy of the rows' labels and notes until
+    /// the game has written its menu (`crate::settings_menu`): it lists every row the game has
+    /// (but the Tweaks tab's and the Controls tab's own), each under the tab and category the
+    /// table places it in, and no row the game does not have [design: owner 2026-11-16].
+    #[test]
+    fn the_reference_has_every_row_where_the_page_shows_it() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/settings-reference.md")).unwrap();
+        let mut listed: Vec<(String, String, Option<String>)> = Vec::new();
+        let (mut tab, mut heading) = (String::new(), None);
+        for line in text.lines() {
+            if let Some(h) = line.strip_prefix("## ") {
+                if h.contains("the tab's own rows") {
+                    break;
+                }
+                let mut parts = h.split('›').map(str::trim);
+                tab = parts.next().unwrap_or_default().to_string();
+                heading = parts.next().map(str::to_string);
+            } else if let Some((key, _)) = line.strip_prefix("### `").and_then(|h| h.split_once('`')) {
+                listed.push((key.to_string(), tab.clone(), heading.clone()));
+            }
+        }
+        let list = registry(&KNOWN);
+        let l = resolve_layout(&list);
+        for (key, tab, heading) in &listed {
+            let i = list.iter().position(|s| s.key == key).unwrap_or_else(|| panic!("{key}: in the reference, but the game has no such row"));
+            let p = l.placement_of(i).unwrap();
+            assert_eq!((p.tab, p.heading), (tab.as_str(), heading.as_deref()), "{key}: the reference places it under {tab} › {heading:?}, the page under {}", p.path());
+        }
+        for (k, _) in KNOWN {
+            let p = l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap();
+            assert!(p.tab == TWEAKS_TAB || listed.iter().any(|(n, _, _)| n == k), "{k} ({}) is not in docs/settings-reference.md", p.path());
+        }
     }
 
     #[test]
-    fn the_seven_tabs_come_first_with_every_row_once_in_the_tables_order() {
+    fn the_tabs_come_first_with_every_row_once_in_the_tables_order() {
         let list = registry(&KNOWN);
         let l = resolve_layout(&list);
         assert_eq!(l.tab_names(), TAB_ORDER, "no group is a tab of its own: every row is named");
@@ -469,40 +625,54 @@ mod tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
-        let gameplay = keys(&list, &l, "Gameplay");
-        assert_eq!(gameplay[gameplay.len() - 3..], ["[World]", "grass-fire", "sound-cover"]);
-        assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
-        assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
+        assert_eq!(keys(&list, &l, "Gameplay")[..11], ["[Game]", "difficulty", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "vats-style", "vats-slowdown", "kill-camera"]);
+        assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "", "[Sound]", "music", "voice", "reverb", "voice-reverb"]);
+        assert_eq!(keys(&list, &l, "Controls")[..6], ["[Input]", "@device", "button-style", "@automatic-input", "@rumble", ""]);
+        assert_eq!(
+            keys(&list, &l, NVF_FEATURES_TAB),
+            ["[Advanced Movement]", "advanced-movement", "movement-weight", "", "[Gameplay]", "movement-inertia", "weapon-handling", "advanced-recoil", "", "[Visual Only]", "weapon-inertia", "animation-smoothing", "camera-motion", "", "[World Interaction]", "grass-fire"]
+        );
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "terrain-wireframe", "scope-3d"]);
         assert!(keys(&list, &l, "Tweaks").is_empty(), "an empty tab is still a tab");
         let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
         assert_eq!(at("menu-pause"), "Gameplay > Dialogue");
-        assert_eq!(at("head-bob"), "Gameplay > Camera");
-        assert_eq!(at("hud-red"), "Display > Interface");
-        assert_eq!(at("sky-clock"), "Graphics > World");
-        assert_eq!(at("quality"), "Graphics > Quality");
-        assert_eq!(at("enhanced"), "Graphics > Picture");
-        assert_eq!(at("terrain-height-blend"), "Graphics > Picture", "beside the texture filtering (#2550)");
-        assert_eq!(at("terrain-anti-tiling"), "Graphics > Picture", "beside terrain height blending (#2551)");
-        assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
-        assert_eq!(at("button-style"), "Controls");
+        assert_eq!(at("hud-red"), "Display > Colours");
+        assert_eq!(at("upscaler"), "Display > Upscaling and Anti-Aliasing");
+        assert_eq!(at("sky-clock"), "Graphics > World and Animation");
+        assert_eq!(at("grass-fire"), "NVF Features > World Interaction");
+        assert_eq!(at("button-style"), "Controls > Input");
+        assert_eq!(at("terrain-anti-tiling"), "Graphics > Detail and Distance", "beside terrain height blending (#2551)");
+        assert_eq!(at("sound-cover"), "Gameplay > Game", "#2688");
+        assert_eq!(l.control_placement("bind:Jump").unwrap().path(), "Controls > Movement");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);
         assert!(list.iter().zip(&again).all(|(a, b)| a.key == b.key && a.group == b.group && a.label == b.label && a.note == b.note));
     }
 
     #[test]
-    fn a_missing_row_and_an_empty_heading_are_left_out() {
-        // No lip sync, no player body; no head tracking, foot IK or sky clock at all.
-        let list = registry(&[("difficulty", "Gameplay"), ("menu-pause", "Gameplay"), ("head-bob", "Display"), ("god-mode", "Debug")]);
+    fn a_closed_category_keeps_its_heading_and_an_empty_line_follows_only_an_open_one() {
+        let list = registry(&KNOWN);
         let l = resolve_layout(&list);
-        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "[Dialogue]", "menu-pause", "[Camera]", "head-bob"]);
+        let closed = |p: &Placement| p.heading != Some("V.A.T.S.") && p.heading != Some("Camera");
+        let g = lines(&list, &l, "Gameplay", closed);
+        assert_eq!(g[..10], ["[Game]", "difficulty", "hardcore", "reload-slows", "UsePipBoy", "sound-cover", "", "[V.A.T.S.]", "[Camera]", "[Dialogue]"]);
+        let p = l.placement_of(list.iter().position(|s| s.key == "vats-style").unwrap()).unwrap();
+        assert_eq!(l.shown_count(&p, |_| true), 3);
+        assert_eq!(l.shown_count(&p, |i| i != LayoutItem::Setting(list.iter().position(|s| s.key == "vats-slowdown").unwrap())), 2);
+    }
+
+    #[test]
+    fn a_missing_row_and_an_empty_category_are_left_out() {
+        // No lip sync, no player body; no head tracking, foot IK or sky clock at all.
+        let list = registry(&[("difficulty", "Gameplay"), ("menu-pause", "Gameplay"), ("field-of-view", "Display"), ("god-mode", "Debug")]);
+        let l = resolve_layout(&list);
+        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "", "[Camera]", "field-of-view", "", "[Dialogue]", "menu-pause"]);
         assert!(keys(&list, &l, "Graphics").is_empty());
-        // A hidden row hides its heading when it is the section's only one, and keeps its place.
+        // A hidden row hides its category when it is the only one, and keeps its place.
         let hidden = list.iter().position(|s| s.key == "menu-pause").unwrap();
-        let shown: Vec<_> = l.tab_entries("Gameplay", |i| i != hidden);
+        let shown = l.tab_entries("Gameplay", None, |i| i != LayoutItem::Setting(hidden), |_| true);
         assert!(!shown.iter().any(|e| matches!(e, LayoutEntry::Heading(p) if p.heading == Some("Dialogue"))));
+        assert_ne!(shown.last(), Some(&LayoutEntry::Gap), "no empty line at the end");
         assert_eq!(l.placement_of(hidden).unwrap().path(), "Gameplay > Dialogue");
     }
 
@@ -511,10 +681,10 @@ mod tests {
         let list = registry(&[("difficulty", "Gameplay"), ("new-switch", "Gameplay"), ("odd-sound", "Sound"), ("x1", "Mods"), ("volume-master", "Sound"), ("x2", "Extras"), ("x3", "Mods")]);
         let l = resolve_layout(&list);
         // After Debug, in the order the groups first appear in the registry; Sound is not Audio.
-        assert_eq!(l.tab_names()[7..], ["Sound", "Mods", "Extras"]);
-        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "new-switch"]);
+        assert_eq!(l.tab_names()[8..], ["Sound", "Mods", "Extras"]);
+        assert_eq!(keys(&list, &l, "Gameplay"), ["[Game]", "difficulty", "", "new-switch"]);
         assert_eq!(keys(&list, &l, "Sound"), ["odd-sound"]);
-        assert_eq!(keys(&list, &l, "Audio"), ["volume-master"]);
+        assert_eq!(keys(&list, &l, "Audio"), ["[Volume]", "volume-master"]);
         assert_eq!(keys(&list, &l, "Mods"), ["x1", "x3"]);
         let new = list.iter().position(|s| s.key == "new-switch").unwrap();
         assert_eq!(l.placement_of(new), Some(Placement::tab("Gameplay")));
@@ -523,10 +693,10 @@ mod tests {
 
     #[test]
     fn hundreds_of_unnamed_tweaks_keep_the_registrys_order() {
-        // #1892 registers its tweaks under Tweaks without naming them here.
+        // A tweak the table does not name yet: under Tweaks, in the order registered.
         let names: Vec<&'static str> = (0..650)
             .map(|i| {
-                let n: &'static str = Box::leak(format!("tweak-{i:03}").into_boxed_str());
+                let n: &'static str = Box::leak(format!("tweak-x{i:03}").into_boxed_str());
                 n
             })
             .collect();
@@ -541,5 +711,63 @@ mod tests {
         assert!(shown.iter().zip(&names).all(|(a, b)| a == b), "in the order registered");
         assert_eq!(l.ordered_settings().count(), list.len());
         assert_eq!(l.unnamed(), 0, "the Tweaks tab's rows are listed by design, not counted as left out of the table");
+    }
+
+    #[test]
+    fn every_tweak_of_1892_has_its_group_and_category() {
+        let tweaks = tweak_rows();
+        // 560 less the console and screenshot keys, bindings since 2026-11-16 (Controls).
+        assert_eq!(tweaks.len(), 558);
+        let mut rows: Vec<(&'static str, &'static str)> = KNOWN.to_vec();
+        rows.extend(&tweaks);
+        let list = registry(&rows);
+        let l = resolve_layout(&list);
+        assert_eq!(l.unnamed(), 0, "every tweak named");
+        assert_eq!(l.tab_names(), TAB_ORDER);
+        let t = l.tab(TWEAKS_TAB).unwrap();
+        for s in &t.sections {
+            assert!(s.placement.subgroup.is_some() && s.placement.heading.is_some(), "{}: a group and a heading", s.placement.path());
+            assert!(s.placement.closed_by_default());
+        }
+        assert_eq!(t.sections.iter().map(|s| s.rows.len()).sum::<usize>(), tweaks.len(), "the tweaks, and only they, on the tab");
+        let at = |k: &str| l.placement_of(list.iter().position(|s| s.key == k).unwrap()).unwrap().path();
+        assert_eq!(at("tweak-no-xp-messages"), "Tweaks > HUD > Messages");
+        assert_eq!(at("tweak-weightless-ammo"), "Tweaks > Cheats > Weight");
+        assert_eq!(at("tweak-weightless-worn-armor"), "Tweaks > Gameplay > Weight");
+        // A row that only matters with another comes right after it.
+        let next = |k: &str| list[l.ordered_settings().skip_while(|&i| list[i].key != k).nth(1).unwrap()].key;
+        assert_eq!(next("tweak-take-all-confirm"), "tweak-take-all-confirm-min");
+        assert_eq!(next("tweak-revive-companions"), "tweak-revive-down-seconds");
+        // The engine's own tabs are as they were.
+        assert_eq!(keys(&list, &l, "Audio"), keys(&registry(&KNOWN), &resolve_layout(&registry(&KNOWN)), "Audio"));
+    }
+
+    #[test]
+    fn the_tweaks_tab_lists_stewies_eight_groups_in_order_one_at_a_time() {
+        let list = registry(&tweak_rows());
+        let l = resolve_layout(&list);
+        let t = l.tab(TWEAKS_TAB).unwrap();
+        assert_eq!(t.subgroups(), TWEAK_GROUPS);
+        // Each group's categories together, in the table's order.
+        let mut runs: Vec<&str> = t.sections.iter().filter_map(|s| s.placement.subgroup).collect();
+        runs.dedup();
+        assert_eq!(runs, TWEAK_GROUPS, "no group split by another");
+        // One group at a time, its categories closed: only their headings.
+        let hotkeys = l.tab_entries(TWEAKS_TAB, Some("Hotkeys"), |_| true, |_| false);
+        let headings: Vec<&str> = hotkeys.iter().filter_map(|e| if let LayoutEntry::Heading(p) = e { p.heading } else { None }).collect();
+        assert_eq!(headings, ["Hide HUD Key", "Other Keys"]);
+        assert_eq!(hotkeys.len(), 2, "closed: no rows, no empty line");
+        // No other tab has a group.
+        assert!(l.tabs.iter().filter(|t| t.name != TWEAKS_TAB).all(|t| t.subgroups().is_empty()));
+        // A tweak the table does not place yet: under the last group, Other, never out of sight.
+        let mut rows = tweak_rows();
+        rows.push(("tweak-new-one", "Tweaks"));
+        let list = registry(&rows);
+        let l = resolve_layout(&list);
+        let t = l.tab(TWEAKS_TAB).unwrap();
+        assert_eq!(t.subgroups().last(), Some(&UNGROUPED));
+        let other = l.tab_entries(TWEAKS_TAB, Some(UNGROUPED), |_| true, |_| true);
+        assert_eq!(other, [LayoutEntry::Setting(list.iter().position(|s| s.key == "tweak-new-one").unwrap())]);
+        assert!(l.tab_entries(TWEAKS_TAB, Some("Hotkeys"), |_| true, |_| true).iter().all(|e| *e != other[0]));
     }
 }

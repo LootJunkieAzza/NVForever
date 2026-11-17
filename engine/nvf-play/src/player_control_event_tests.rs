@@ -20,6 +20,8 @@ fn app() -> App {
         .init_resource::<crate::pad::StickButtons>()
         .init_resource::<PlayerControl>()
         .init_resource::<MoveIntent>()
+        // `step` takes the Advanced Movement switches; their default is what ships.
+        .init_resource::<crate::inertia::MovementInertia>()
         .init_resource::<crate::furniture::PlayerSeat>()
         .init_resource::<Time>()
         .init_resource::<PhysState>()

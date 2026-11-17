@@ -870,7 +870,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // "projectilenode" 0 where "ProjectileNode" is 1].
         "modelhasblock" => {
             let (Some(f), want) = (form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
-            let found = model_of(g, f).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|bytes| crate::mod_files::nif_has_name(&bytes, &want));
+            // A published reference tree includes instance-only nodes absent from
+            // MODL. Its exact-name answer, even for an empty tree, is authoritative
+            // (nif-player-model-selection.md, ModelHasBlock). Keep file fallback for
+            // base forms and references awaiting their first publication.
+            let reference = f == FormId::PLAYER_REF || g.world.placed.get(f).is_some() || g.world.peek(f).is_some();
+            let published = if reference { g.scene.tree(f).map(|nodes| !want.is_empty() && nodes.iter().any(|node| node.name == want)) } else { None };
+            let found = published.unwrap_or_else(|| model_of(g, f).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|bytes| crate::mod_files::nif_has_name(&bytes, &want)));
             XVal::Num(f64::from(u8::from(found)))
         }
         _ => return None,

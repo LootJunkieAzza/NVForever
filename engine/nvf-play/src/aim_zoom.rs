@@ -24,6 +24,10 @@
 //!   Scope from Mod with an Increase Zoom mod on) at full zoom in first person puts its
 //!   scope up ([`Scope`]); nvforever `scope_view.rs` draws the MOD3 picture, the night
 //!   vision and the sway, the arms rig and the crosshair go meanwhile.
+//! - **The look while aiming** [design: owner 2026-11-15]: the Controls tab's Aim
+//!   Sensitivity scales the mouse's and the right stick's turn by the zoom's own eased share
+//!   ([`AimZoom::share`], `crate::player::aim_scale`): the chosen speed at the full zoom
+//!   (down the sights, or a scope up), the unzoomed look with no zoom, in step between.
 
 use bevy::prelude::*;
 
@@ -53,6 +57,11 @@ pub struct AimZoom {
     main: f32,
     /// The vertical field of view this module last set.
     applied: Option<f32>,
+    /// With movement inertia: the zoom's progress along the settling curve, the same curve
+    /// and times as the aim clips' cross-over and the true iron sights (`crate::inertia`).
+    settled: crate::ease::Settled,
+    /// The zoom ran along the settling curve last frame (Smooth weapon animations on).
+    settled_on: bool,
     /// The full zoom has been reported (smoke tests read the line).
     told: bool,
     /// How long the zoom has been full, seconds (the Scope Delay tweak).
@@ -75,14 +84,42 @@ impl AimZoom {
     pub fn base(&self) -> Option<f32> {
         self.base
     }
+
+    /// How far the view is zoomed for the aim, eased as the field of view moves
+    /// ([`zoom_share`] of [`AimZoom::blend`]): 0 unzoomed, 1 at the full zoom. The look's
+    /// Aim Sensitivity follows it (`crate::player::aim_scale`).
+    pub fn share(&self) -> f32 {
+        zoom_share(self.blend)
+    }
+}
+
+/// `blend` (0–1) eased in and out: the share of the way from the unzoomed field of view to
+/// the zoomed one ([`zoomed_fov`]).
+pub fn zoom_share(blend: f32) -> f32 {
+    let b = blend.clamp(0.0, 1.0);
+    b * b * (3.0 - 2.0 * b)
 }
 
 /// The field of view (vertical, radians) for `base`, the weapon's `sight` and `blend`
 /// (0–1), eased in and out.
 pub fn zoomed_fov(base: f32, sight: f32, blend: f32) -> f32 {
-    let b = blend.clamp(0.0, 1.0);
-    let s = b * b * (3.0 - 2.0 * b);
-    base + (sight - base) * s
+    base + (sight - base) * zoom_share(blend)
+}
+
+/// The `blend` at which the straight zoom has taken the view `share` of the way (by
+/// halving; [`zoom_share`] only rises).
+fn zoom_share_inv(share: f32) -> f32 {
+    let share = share.clamp(0.0, 1.0);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if zoom_share(mid) < share {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
 }
 
 /// The gun in hand is lined up with the eye down its sights (true iron sights, set by
@@ -183,6 +220,7 @@ pub(crate) fn zoom(
     mut scope: ResMut<Scope>,
     lens: Res<Scope3d>,
     talk: Option<Res<crate::dialogue_zoom::DialogueZoom>>,
+    inertia: Option<Res<crate::inertia::MovementInertia>>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     scroll: Option<Res<bevy::input::mouse::AccumulatedMouseScroll>>,
@@ -217,11 +255,35 @@ pub(crate) fn zoom(
         z.sight = Some(vertical_fov(deg));
     }
     z.aimed = sight.is_some();
-    // The player's tweak times a scope's zoom its own way [design: docs/design/tweaks.md].
-    let secs = if scope.on { ZOOM_SECONDS * tweaks.as_ref().map_or(1.0, |t| t.scope_zoom_time).max(0.1) } else { ZOOM_SECONDS };
-    let step = time.delta_secs().min(0.25) / secs;
+    // The player's tweak times a scope's zoom its own way [design: docs/design/tweaks.md]:
+    // a share of whichever time the zoom takes (the game's, or Weapon Handling's).
+    let scope_time = if scope.on { tweaks.as_ref().map_or(1.0, |t| t.scope_zoom_time).max(0.1) } else { 1.0 };
     let was = z.blend;
-    z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
+    // With smooth weapon animations the zoom runs along the settling curve over the aim's
+    // times; without, straight over ZOOM_SECONDS and eased by `zoomed_fov`.
+    // Smooth weapon animations switched on or off part-way through a zoom: the other way
+    // goes on from where the view is, instead of from the start (review, 2026-11-15).
+    let settled = inertia.as_deref().filter(|i| i.smooth_hands()).map(|i| {
+        if !z.settled_on {
+            let at = zoom_share(z.blend);
+            z.settled.place(at, sight.is_some());
+        }
+        // Weapon Handling's pace (heavier weapons come up slower), else the game's.
+        let v = z.settled.step(sight.is_some(), time.delta_secs().min(0.25), i.aim_seconds(true) * scope_time, i.aim_seconds(false) * scope_time);
+        // `blend` stays the progress the rest reads: 1 only when fully in, 0 only when out.
+        z.blend = if z.settled.is_up() { 1.0 } else if z.settled.is_down() { 0.0 } else { v.clamp(1e-4, 1.0 - 1e-4) };
+        v
+    });
+    if settled.is_none() {
+        if z.settled_on {
+            z.blend = zoom_share_inv(z.settled.value());
+        }
+        // Weapon Handling's pace for the straight zoom too, else the game's.
+        let seconds = inertia.as_deref().filter(|i| i.handles()).map_or(ZOOM_SECONDS, |i| i.aim_seconds(sight.is_some())) * scope_time;
+        let step = time.delta_secs().min(0.25) / seconds;
+        z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
+    }
+    z.settled_on = settled.is_some();
     // The scope: up at full zoom in first person, down as soon as the aim is let go.
     let scoped = sight.filter(|_| !control.third_person_view()).and_then(|(w, deg)| {
         let stats = combat.as_deref()?.player_stats(w)?;
@@ -268,7 +330,11 @@ pub(crate) fn zoom(
         return;
     }
     let (Some(base), Some(target)) = (z.base, z.sight) else { return };
-    let fov = zoomed_fov(base, base + (target - base) * z.main, z.blend);
+    let goal = base + (target - base) * z.main;
+    let fov = match settled {
+        Some(v) => base + (goal - base) * v,
+        None => zoomed_fov(base, goal, z.blend),
+    };
     if let Projection::Perspective(p) = &mut *proj {
         p.fov = fov;
     }
@@ -299,6 +365,20 @@ mod tests {
         assert!((zoomed_fov(base, sight, 0.5) - (base + sight) / 2.0).abs() < 1e-6);
         // Slow at the ends: the first tenth covers less than a tenth of the way.
         assert!(base - zoomed_fov(base, sight, 0.1) < (base - sight) * 0.1);
+    }
+
+    #[test]
+    fn a_zoom_changing_curves_part_way_goes_on_from_where_it_is() {
+        // Straight to the settling curve: the same share of the way, either direction.
+        for (blend, up) in [(0.3, true), (0.8, false), (1.0, true), (0.0, false)] {
+            let mut s = crate::ease::Settled::default();
+            s.place(zoom_share(blend), up);
+            assert!((s.value() - zoom_share(blend)).abs() < 1e-4, "{blend} {up}: {}", s.value());
+        }
+        // And back: the straight zoom's blend for the share the settling curve had.
+        for share in [0.0, 0.2, 0.5, 0.93, 1.0] {
+            assert!((zoom_share(zoom_share_inv(share)) - share).abs() < 1e-4, "{share}");
+        }
     }
 
     #[test]

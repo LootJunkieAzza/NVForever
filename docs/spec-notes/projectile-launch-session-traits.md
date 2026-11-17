@@ -1,5 +1,59 @@
 # Session projectile traits at initial shot creation
 
+## Live position edits and source attribution
+
+[documented: GECK wiki [SetPos](https://geckwiki.com/index.php/SetPos)] The
+calling reference moves on the specified world axis. [documented: GECK wiki
+[SetProjectileRefSource](https://geckwiki.com/index.php?title=SetProjectileRefSource)]
+The new live-projectile source is the attacker considered by a hit target.
+[observed: installed B42 Quickthrow3.1b original script demand, 2026-11-16] The
+original quest polls its configured key, launches through a proxy creature, then
+walks live projectile references. Its height correction uses SetPos; knives retain
+that flight while an explosive may fire a replacement from the corrected pose.
+It changes source before subsequent grenade/mine/knife outcomes. Original source
+and assets remain private and are not copied into the tests.
+
+[design] A successful canonical SetPos on an active engine shot queues its complete
+position for the actual flight consumer. Consume the latest queued position once
+before publishing the next physical position. Preserve velocity, age, travelled
+distance, fuse, visual offset and launch data. Do not turn a reference's SetAngle
+into an inferred trajectory edit. Pending resolved hits retain their existing
+policy; position requests for them do not retarget those hits. Nonfinite positions
+are not admitted to physical flight, without changing the canonical setter's
+existing conversion/result behavior. Retirement clears queued position edits;
+the per-live-shot queue is session state, not new save data.
+
+[design] Before flight/detonation outcomes, read canonical Shot.source into the
+existing flight attribution. Explosion causes, settled ownership and published
+visual ownership then use the new source. Preserve the projectile's original
+physical shooter/collision exclusion, remote-detonation admission and direct-hit
+source recheck: attacker attribution alone does not establish those native policies.
+Missing session rows do not become implicit source0 edits. Use source identity
+accepted by the existing setter; add no new actor-only admission restriction.
+
+[hypothesis] Native timing, live-projectile SetPos response and source changes on
+collision exclusion/remote-detonation ownership still require permitted capture.
+The mapped engine behavior above is not a native parity claim. Tests must retain
+the old-consumer failure and corrected success through real source calls, emitted
+flights, world/visual movement, actual blast/settled outputs, neighbor and retirement
+controls, and the current pending-hit/save/unload boundaries. Original installed
+initialization, skeleton/animation, physical input, inventory, cook/return features,
+world rendering and complete Quickthrow lifecycle remain separate acceptance.
+
+[design: authored, unrun] Six independent live-edit controls extend the existing
+portable lifecycle fixture without changing its default records. They reach real
+source SetPos, flight and visual movement with a live neighbor; real timed blast
+effects and an ActorHit attacker; natural terrain settling and the existing mines
+consumer's placed World owner; null-source/non-shot admission, deletion and travel;
+retained resolved-hit point/due time; and nonfinite position rejection at flight.
+The separate candidate-only queue control reaches successful source requests,
+missing-runtime delivery, deletion and actual checked_snapshot/restore_save.
+It inspects the new queue and is not identical-baseline instrumentation. For the
+old-consumer comparison, run the identical six live-edit bodies and fixture
+refactor on accepted main, omitting only the new internal-queue module declaration;
+do not add a fake production API or weaken their assertions. No test execution is
+claimed here.
+
 [documented: public main da13f4f8a65cb56d9f4f38823d79a0126ff9467b, crates/fnv-game/src/nvse_jip7.rs num_field/set_field; crates/fnv-combat/src/data.rs CombatForms/projectiles; engine/nvf-play/src/combat.rs fire/actor_attacks] Existing Game setters retain session field overrides, while the original physical launch reads imported typed CombatForms records. Getter readback alone does not establish new-shot velocity or carried impact force. The existing trait mapping identifies speed as2 and impact force as9; portable schemas/catalogue define ammo/weapon projectile selection.
 
 [hypothesis] Resolve the selected ammo/weapon projectile for each new shot. Clearing the ammo projectile falls back to the weapon's. Resolve a temporary PROJ form through the existing original-form relationship, keep the requested identity and its own overrides before inherited original overrides, and copy only supported speed/impact-force values into a per-shot record. Preserve finite signed values including zero; refuse nonfinite or nonrepresentable f32 overrides. Leave typed caches, unrelated forms and existing flights unchanged.

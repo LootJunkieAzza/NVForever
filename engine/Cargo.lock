@@ -4677,10 +4677,19 @@ dependencies = [
  "fnv-world",
  "infinitier_bik_decoder",
  "nvf-assets",
+ "nvf-settings-layout",
  "png",
  "rand_chacha",
  "rand_core 0.9.5",
  "rodio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nvf-settings-layout"
+version = "0.7.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

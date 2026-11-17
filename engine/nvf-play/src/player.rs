@@ -383,6 +383,79 @@ impl Plugin for PlayerPlugin {
                     .after(crate::phys::PhysSystems),
             )
             .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
+        app.init_resource::<crate::inertia::MovementInertia>().add_systems(Update, (crate::inertia::follow_weapon, crate::inertia::log_switches));
+        // The Advanced Movement section's switches kept here (NVF Features; Weapon Inertia and
+        // Camera Motion are nvforever's `settings.rs`): the Global Toggle, then Gameplay's and
+        // Animation Smoothing [design: the owner, 2026-11-15, the menu's names and order].
+        type Inertia = crate::inertia::MovementInertia;
+        let switch = |key, label, note, switches, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: crate::pause::GROUP_MENUS, label, note, switches, get, set, slider: None };
+        for s in [
+            switch(
+                "advanced-movement",
+                "Global Toggle",
+                "On: the switches below shape how your character, view and weapon move. Off: none of them acts, as in the original; each keeps its own choice.",
+                "--no-advanced-movement",
+                |w| w.resource::<Inertia>().advanced,
+                |w, on| w.resource_mut::<Inertia>().advanced = on,
+            ),
+            switch(
+                "movement-inertia",
+                "Movement Inertia",
+                "On: you speed up, glide to a stop and brake before turning; crouching eases and landings dip and slow you by the fall. Off: as in the original.",
+                "--movement-inertia --no-movement-inertia",
+                |w| w.resource::<Inertia>().on,
+                |w, on| w.resource_mut::<Inertia>().on = on,
+            ),
+            switch(
+                "weapon-handling",
+                "Weapon Handling",
+                "On: drawing, putting away and aiming a weapon take a moment longer, and longer still for heavier weapons. Off: the original's timing.",
+                "--weapon-handling --no-weapon-handling",
+                |w| w.resource::<Inertia>().weapon_handling,
+                |w, on| w.resource_mut::<Inertia>().weapon_handling = on,
+            ),
+            switch(
+                "advanced-recoil",
+                "Advanced Recoil",
+                "On: a shot's kick eases the view up and part of it settles back down, and the view nudges back. Off: the whole kick stays, as in the original.",
+                "--no-advanced-recoil",
+                |w| w.resource::<Inertia>().recoil,
+                |w, on| w.resource_mut::<Inertia>().recoil = on,
+            ),
+            switch(
+                "animation-smoothing",
+                "Animation Smoothing",
+                "On: in first person drawing, aiming, attacks, reloads and the Pip-Boy ease in and settle softly, taking no longer. Off: the original's clips.",
+                "--animation-smoothing --no-animation-smoothing",
+                |w| w.resource::<Inertia>().smooth,
+                |w, on| w.resource_mut::<Inertia>().smooth = on,
+            ),
+        ] {
+            crate::settings::add_setting(app, s);
+        }
+        // Under the Global Toggle: how heavy all of it is [design: the owner, 2026-11-15,
+        // "add it as Movement Weight under the global toggle ... a dropdown with 25-100%"].
+        crate::settings::add_choice_list(
+            app,
+            crate::settings::Setting {
+                key: "movement-weight",
+                group: crate::pause::GROUP_MENUS,
+                label: "Movement Weight",
+                note: "How heavy it all feels: 100% as made; lower makes speeding up, stopping and crouching quicker and cuts the extra time drawing and aiming take.",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList {
+                names: |_| crate::inertia::MOVEMENT_WEIGHTS.iter().map(|(_, n)| n.to_string()).collect(),
+                chosen: |w| crate::inertia::movement_weight_name(w.resource::<Inertia>().weight()).to_string(),
+                pick: movement_weight_pick,
+                save: |w| crate::inertia::movement_weight_name(w.resource::<Inertia>().weight()).to_string(),
+                load: movement_weight_pick,
+                ask_keep: false,
+            },
+        );
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -396,6 +469,17 @@ impl Plugin for PlayerPlugin {
                 slider: None,
             },
         );
+    }
+}
+
+/// The Movement Weight dropdown's choice, by its name or its number.
+fn movement_weight_pick(w: &mut World, name: &str) -> bool {
+    match crate::inertia::movement_weight_by_name(name) {
+        Some(weight) => {
+            w.resource_mut::<crate::inertia::MovementInertia>().weight = weight;
+            true
+        }
+        None => false,
     }
 }
 
@@ -846,7 +930,7 @@ pub(crate) fn mouse_look(
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
-    assist: Option<Res<crate::aim_assist::AimAssistState>>,
+    (assist, aim): (Option<Res<crate::aim_assist::AimAssistState>>, Option<Res<crate::aim_zoom::AimZoom>>),
     (talk, switches, mut mouse_guard): (
         Option<Res<crate::dialogue_zoom::DialogueZoom>>,
         Option<Res<crate::script_switches::ScriptSwitches>>,
@@ -919,6 +1003,10 @@ pub(crate) fn mouse_look(
     }
     // A conversation's zoom as it eases out: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
+    // The Controls tab's Aim Sensitivity of the device in use, as far as the view is zoomed
+    // for the aim (down the sights or through a scope; `crate::aim_zoom`): the hip look is
+    // left as it is.
+    let s = s * aim_scale(bindings.aim_sensitivity(), aim.as_deref().map_or(0.0, crate::aim_zoom::AimZoom::share));
     let inv = bindings.invert_y;
     // The player's tweak: left and right at their own speed [design: docs/design/tweaks.md].
     let delta = Vec2::new(delta.x * tweaks.as_ref().map_or(1.0, |t| t.horizontal_look as f32), delta.y);
@@ -987,6 +1075,15 @@ impl DialogueMouseGuard {
 /// #2201]; 1 leaves it exactly as it is.
 pub fn vertical_scaled(delta: Vec2, vertical: f32) -> Vec2 {
     Vec2::new(delta.x, delta.y * vertical)
+}
+
+/// What the look's radians per count are multiplied by for `aim`, the Controls tab's Aim
+/// Sensitivity of the device in use, with the view `zoomed` of the way to the aim's zoom
+/// (`crate::aim_zoom::AimZoom::share`: 0 unzoomed, 1 down the sights or through a scope)
+/// [design: owner 2026-11-15]. Exactly 1 unzoomed, and at an Aim Sensitivity of 1 (the
+/// look as before); `aim` at the full zoom, in step with the zoom between.
+pub fn aim_scale(aim: f32, zoomed: f32) -> f32 {
+    1.0 + (aim - 1.0) * zoomed.clamp(0.0, 1.0)
 }
 
 /// Radians per unit of the right stick's turn (a look speed of 1000 turns a radian a
@@ -1246,7 +1343,7 @@ fn step(
     (limbs, pace, perk_pace, reload_pace, stat_pace): Paces,
     (turbo, mut load, mut rate): Meters,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
-    (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
+    (mut blocks, noclip, mut inertia): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>, ResMut<crate::inertia::MovementInertia>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
@@ -1294,6 +1391,7 @@ fn step(
         p.prev_feet = at;
         p.player_lift.reset();
         player.feet = at;
+        inertia.reset();
         return;
     }
     if noclip.0 && phys.player.is_some() {
@@ -1326,6 +1424,7 @@ fn step(
             player.placed = None;
         }
         p.player_lift.reset();
+        inertia.reset();
         let feet = c.feet;
         player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
         return;
@@ -1355,6 +1454,8 @@ fn step(
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
     let c = p.player.as_mut().expect("placed");
+    inertia.check_game_placed(player.placed);
+    inertia.check_placed(c.feet);
     // The clip's travel owed, spread over this frame's steps (none: kept for the next).
     let carry = if n > 0 { lunge.owed.map(|o| o / (n as f32 * dt)) } else { [0.0; 2] };
     if n > 0 {
@@ -1420,11 +1521,15 @@ fn step(
                 _ => k,
             };
             let [x, y] = velocity(&intent, player.heading, *speeds);
+            let key = [x * k, y * k];
+            // On the ground the velocity speeds up and slows down (`crate::inertia`); in
+            // the air the controller's own rules take the keys' velocity.
+            let [x, y] = if inertia.ground() && c.grounded { inertia.step(key, intent.walk, dt) } else { key };
             // An attack's clip carries the player (`Lunge`).
             if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            [x * k + carry[0], y * k + carry[1], 0.0]
+            [x + carry[0], y + carry[1], 0.0]
         };
         // A blow's knockback pushes the player back (`crate::combat::Knockback`), walking,
         // swimming or not, so it never waits to push later (review of #1219).
@@ -1506,6 +1611,19 @@ fn step(
             c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed * agility;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        if inertia.ground() {
+            // A landing lands into the inertia, not the game's landing speed profile; a
+            // hard one takes speed out of it (Landing weight).
+            c.since_landing = None;
+            if let Some(speed) = s.landed_speed.filter(|_| inertia.landing_weight()) {
+                inertia.land(speed);
+            }
+        }
+        if !inertia.ground() || !c.grounded || c.swimming || d.auto_walk > 0.0 {
+            // Off the ground, in the water or switched off: the spring takes what the
+            // character did, so the ground picks up from there.
+            inertia.follow(c.velocity);
+        }
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
         p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_footing && crate::phys::step_lift::footing(c), dt);
@@ -1548,6 +1666,13 @@ fn step(
     if let Some(from) = lunge.from.filter(|_| !lunge.carrying) {
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
+    }
+    inertia.end_frame(c.feet, c.grounded && !c.swimming);
+    for r in std::mem::take(&mut inertia.reports) {
+        match r {
+            crate::inertia::Report::Started { seconds, speed } => info!("movement inertia: up to {speed:.0} units/s in {seconds:.2}s"),
+            crate::inertia::Report::Stopped { seconds, distance, speed } => info!("movement inertia: glided {distance:.1} units in {seconds:.2}s from {speed:.0} units/s"),
+        }
     }
     let feet = c.feet;
     player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
@@ -1756,6 +1881,7 @@ mod tests {
                 .init_resource::<crate::furniture::PlayerSeat>()
                 .init_resource::<NoClip>()
                 .init_resource::<Lunge>()
+                .init_resource::<crate::inertia::MovementInertia>()
                 .add_message::<crate::rumble::Landed>()
                 .add_message::<crate::falls::Fell>()
                 .add_systems(Update, step);
@@ -1794,6 +1920,57 @@ mod tests {
             assert_eq!(h, h1);
             assert!(((p - 0.1) - (p1 - 0.1) / 2.0).abs() < 1e-6, "{p} {p1}");
         }
+    }
+
+    /// Owner 2026-11-15: the Aim Sensitivity scales the look by how far the view is zoomed
+    /// for the aim (`crate::aim_zoom::AimZoom::share`); unzoomed (the hip look), and at 100%,
+    /// the look is exactly as before.
+    #[test]
+    fn the_aim_sensitivity_scales_the_look_only_while_zoomed_for_the_aim() {
+        use bevy::input::mouse::AccumulatedMouseMotion;
+        use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+        for zoomed in [0.0, 0.25, 0.5, 1.0] {
+            assert_eq!(aim_scale(1.0, zoomed), 1.0, "100%: as before");
+        }
+        for aim in [crate::bindings::SENSITIVITY_LEAST, 0.5, 1.5, crate::bindings::SENSITIVITY_MOST] {
+            assert_eq!(aim_scale(aim, 0.0), 1.0, "unzoomed: as before");
+            assert!((aim_scale(aim, 1.0) - aim).abs() < 1e-6, "{aim}");
+        }
+        assert!((aim_scale(0.5, 0.5) - 0.75).abs() < 1e-6, "in step with the zoom");
+        // The zoom's share as the field of view moves: none at rest, all at the full zoom.
+        let mut z = crate::aim_zoom::AimZoom::default();
+        assert_eq!(z.share(), 0.0);
+        z.blend = 1.0;
+        assert_eq!(z.share(), 1.0);
+        // Through the look system: the mouse's turn this frame at an Aim Sensitivity `aim`
+        // with the aim's zoom at `blend`.
+        let turned = |aim: f32, blend: f32| {
+            let mut app = App::new();
+            let mut zoom = crate::aim_zoom::AimZoom::default();
+            zoom.blend = blend;
+            let mut b = Bindings::game_defaults();
+            b.aim = [aim, 1.0];
+            app.insert_resource(State::new(PlayState::Playing))
+                .insert_resource(Time::<()>::default())
+                .insert_resource(b)
+                .insert_resource(zoom)
+                .init_resource::<crate::control::ControlLocks>()
+                .init_resource::<PlayerControl>()
+                .init_resource::<crate::furniture::PlayerSeat>()
+                .insert_resource(AccumulatedMouseMotion { delta: Vec2::new(80.0, 20.0) })
+                .insert_resource(Player { heading: 1.0, pitch: 0.0, eye_height: 112.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
+                .add_systems(Update, mouse_look);
+            app.world_mut().spawn((PrimaryWindow, CursorOptions { grab_mode: CursorGrabMode::Confined, ..default() }));
+            app.update();
+            let p = app.world().resource::<Player>();
+            (p.heading - 1.0, p.pitch)
+        };
+        let hip = turned(1.0, 0.0);
+        assert!(hip.0 > 0.0 && hip.1 < 0.0, "{hip:?}");
+        assert_eq!(turned(0.5, 0.0), hip, "unzoomed the Aim Sensitivity does nothing");
+        assert_eq!(turned(1.0, 1.0), hip, "at 100% the zoomed look is as before");
+        let half = turned(0.5, 1.0);
+        assert!((half.0 - hip.0 / 2.0).abs() < 1e-6 && (half.1 - hip.1 / 2.0).abs() < 1e-6, "both axes half as far: {half:?} {hip:?}");
     }
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {

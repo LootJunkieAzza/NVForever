@@ -1266,6 +1266,13 @@ pub struct Combat {
     kick_rng: SplitMix,
     /// The bloom has just shrunk away; logged with the crosshair cone.
     kick_just_settled: bool,
+    /// The view's kick still to come (pitch, heading; radians): with soft recoil a
+    /// shot's kick comes over a moment instead of in one frame ([`ease_kick`]).
+    kick_left: [f32; 2],
+    /// The share of the kicks the view settles back down by (pitch, heading; radians), and
+    /// how far it has, on springs ([`ease_back`]).
+    kick_back_goal: [f32; 2],
+    kick_back: [crate::ease::Spring; 2],
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
@@ -1981,7 +1988,17 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
 /// The player's Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …,
 /// perk-entry-points.md §8): their factor on the player's movement, walking and running
 /// alike, their conditions (armour, sneaking) asked every frame (`crate::player::PerkSpeed`).
-fn perk_speed(c: Res<Combat>, mut anim: ResMut<WeaponAnim>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>) {
+fn perk_speed(c: Res<Combat>, mut anim: ResMut<WeaponAnim>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>, inertia: Option<ResMut<crate::inertia::MovementInertia>>) {
+    // The player's Agility and Strength for the draw's and the aim's pace (the original's
+    // Agility rate, Weapon Handling's classes: `crate::inertia::MovementInertia::equip_rate`).
+    if let Some(mut inertia) = inertia {
+        let mut read = |code| actor_av(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, code).filter(|v| v.is_finite()).unwrap_or(5.0);
+        let (agility, strength) = (read(fnv_game::actor_values::AGILITY), read(fnv_game::actor_values::STRENGTH));
+        if inertia.agility != agility || inertia.strength != strength {
+            inertia.agility = agility;
+            inertia.strength = strength;
+        }
+    }
     // The Equip Speed perks (Quick Draw) on the weapon in hand: the draw and holster
     // clips play that much faster (`WeaponAnim::equip_rate`, perk-entry-points.md §10).
     if let Some(weapon) = c.weapon {
@@ -2412,6 +2429,9 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flinch_rng: SplitMix(3),
         kick_rng: SplitMix(5),
         kick_just_settled: false,
+        kick_left: [0.0; 2],
+        kick_back_goal: [0.0; 2],
+        kick_back: [crate::ease::Spring::default(); 2],
         spent_rng: SplitMix(4),
     });
 }
@@ -3134,6 +3154,77 @@ fn weapon_sounds(
     }
 }
 
+/// Turn the view by this frame's share of a kick `left` (pitch, heading; radians) and give
+/// what is still to come and how far the view turned (less than asked at the pitch limit).
+/// With `seconds` (soft recoil) the share follows an exponential that has 95 % of the
+/// kick in by then: fastest at once, slower and slower to the end, never past it; a frame
+/// of no time shows none. Without, all of it at once.
+fn ease_kick(player: &mut Player, left: [f32; 2], seconds: Option<f32>, dt: f32) -> ([f32; 2], [f32; 2]) {
+    if left == [0.0; 2] {
+        return (left, [0.0; 2]);
+    }
+    let share = match seconds {
+        Some(s) if s > 0.0 => 1.0 - (-3.0 * dt.max(0.0) / s).exp(),
+        _ => 1.0,
+    };
+    let rest = left.map(|v| v * (1.0 - share));
+    // The last thousandth of a degree comes at once.
+    let (share, rest) = if rest[0].abs() + rest[1].abs() < 2e-5 { (1.0, [0.0; 2]) } else { (share, rest) };
+    let before = player.pitch;
+    player.pitch = (player.pitch + left[0] * share).clamp(-MAX_PITCH, MAX_PITCH);
+    player.heading += left[1] * share;
+    (rest, [player.pitch - before, left[1] * share])
+}
+
+/// With soft recoil, a share of the view's turn by a kick (`turned`, pitch and heading) to
+/// settle back down by ([`ease_back`]): of the turn the view made, so a kick lost at the
+/// pitch limit does not bring the view down after it (review, 2026-11-15).
+fn kick_back(goal: &mut [f32; 2], turned: [f32; 2], soft: bool) {
+    if soft {
+        goal[0] += crate::inertia::KICK_BACK_SHARE * turned[0];
+        goal[1] += crate::inertia::KICK_BACK_SHARE * turned[1];
+    }
+}
+
+/// Settle the view back down by the kicks' returning share `goal` (pitch, heading; radians)
+/// on critically damped springs over `seconds` (95 %): it starts gently while the kick
+/// still rises, and ends slowly. Without `seconds` (soft recoil off) nothing returns
+/// and what was still to return is dropped.
+fn ease_back(player: &mut Player, goal: &mut [f32; 2], back: &mut [crate::ease::Spring; 2], seconds: Option<f32>, dt: f32) {
+    let Some(s) = seconds else {
+        *goal = [0.0; 2];
+        *back = [crate::ease::Spring::default(); 2];
+        return;
+    };
+    if *goal == [0.0; 2] {
+        return;
+    }
+    let omega = crate::ease::omega_for(s);
+    for k in 0..2 {
+        let before = back[k].value;
+        back[k].step(goal[k], omega, dt);
+        let d = back[k].value - before;
+        if k == 0 {
+            player.pitch = (player.pitch - d).clamp(-MAX_PITCH, MAX_PITCH);
+        } else {
+            player.heading -= d;
+        }
+    }
+    // Settled: what has returned is spent.
+    if (0..2).all(|k| (goal[k] - back[k].value).abs() < 2e-5 && back[k].rate.abs() < 1e-4) {
+        for k in 0..2 {
+            let rest = goal[k] - back[k].value;
+            if k == 0 {
+                player.pitch = (player.pitch - rest).clamp(-MAX_PITCH, MAX_PITCH);
+            } else {
+                player.heading -= rest;
+            }
+        }
+        *goal = [0.0; 2];
+        *back = [crate::ease::Spring::default(); 2];
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn fire(
     time: Res<Time>,
@@ -3151,11 +3242,20 @@ pub(crate) fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
-    (mut hud, mut vats, lens_sway, mut scaled): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>, MessageWriter<ScaledSound>),
+    (mut hud, mut vats, lens_sway, inertia, mut scaled): (Option<ResMut<HudMessage>>, Option<ResMut<crate::vats_mode::VatsMode>>, Option<Res<crate::aim_zoom::LensSway>>, Option<Res<crate::inertia::MovementInertia>>, MessageWriter<ScaledSound>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // The view's kick of the last shots, with soft recoil, comes in over a moment.
+    let soft = inertia.as_deref().is_some_and(|i| i.soft_recoil());
+    let kick_seconds = soft.then_some(crate::inertia::KICK_EASE_SECONDS);
+    let pending = std::mem::take(&mut c.kick_left);
+    let turned;
+    (c.kick_left, turned) = ease_kick(&mut player, pending, kick_seconds, dt);
+    kick_back(&mut c.kick_back_goal, turned, soft);
+    let back_seconds = soft.then_some(crate::inertia::KICK_BACK_SECONDS);
+    ease_back(&mut player, &mut c.kick_back_goal, &mut c.kick_back, back_seconds, dt);
     // Where the gun points: the view, turned by a 3D scope's sway (the view itself sways
     // otherwise).
     let gun_dir = lens_sway.as_deref().map_or_else(|| player.look_dir(), |s| s.look_dir(player.heading, player.pitch));
@@ -3612,8 +3712,13 @@ pub(crate) fn fire(
                 if vats_shot.is_none() && !c.no_spread && !c.self_ammo {
                     let rng = &mut c.kick_rng;
                     let kick = c.kick.shot(&c.tuning, &w, cycle.timing.interval, &mut || rng.next_f32());
-                    player.pitch = (player.pitch + kick.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
-                    player.heading += kick.yaw_deg.to_radians();
+                    // With soft recoil its first share shows this frame, the rest over the
+                    // next ones; otherwise all at once, as the original.
+                    let left = c.kick_left;
+                    let (rest, turned) = ease_kick(&mut player, [kick.pitch_deg.to_radians(), kick.yaw_deg.to_radians()], kick_seconds, dt);
+                    c.kick_left = [rest[0] + left[0], rest[1] + left[1]];
+                    // A share of the turn the view then settles back down by (soft recoil).
+                    kick_back(&mut c.kick_back_goal, turned, soft);
                     info!(
                         "combat: kick: shot {} in a row, bloom {:.2}, crosshair cone now {:.2} deg, view up {:.2} deg, sideways {:.2} deg",
                         c.kick.burst,
@@ -5083,6 +5188,23 @@ fn retire_deleted_shots(c: &mut Combat, game: &mut fnv_game::game::Game<'_>) {
     }
 }
 
+/// Apply explicit source edits before the next physical publication/outcome.
+/// Position never comes back from ordinary engine world writes, avoiding a
+/// flight -> World -> flight feedback loop. Attribution does not change the
+/// physical shooter used for collision/remote-detonation admission.
+fn sync_live_projectile_edits(c: &mut Combat, game: &mut fnv_game::game::Game<'_>) {
+    let positions = std::mem::take(&mut game.gaps.projs.position_sets);
+    for f in &mut c.flying {
+        let Some(r) = f.rref else { continue };
+        if let Some(source) = game.gaps.projs.shots.get(&r).map(|s| s.source) {
+            f.by.actor = source;
+        }
+        if let Some(at) = positions.get(&r).filter(|at| at.iter().all(|v| v.is_finite())) {
+            f.p.pos = *at;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -5106,7 +5228,10 @@ fn fly(
     let dt = time.delta_secs();
     let c = &mut *c;
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        with_world(rt, &mut sim, |rt| retire_deleted_shots(c, &mut rt.game));
+        with_world(rt, &mut sim, |rt| {
+            retire_deleted_shots(c, &mut rt.game);
+            sync_live_projectile_edits(c, &mut rt.game);
+        });
     }
     // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
     // stage changes) and what burns down (self-damage).
@@ -6112,6 +6237,33 @@ mod tests {
         assert_eq!((shot_gain(true), shot_gain(false)), (None, Some(0.5)));
         set_weapon_volume(1.0, 1.0);
         assert_eq!(shot_gain(false), None);
+    }
+
+    #[test]
+    fn a_soft_kick_returns_a_share_of_the_turn_the_view_made() {
+        let mut player = Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None };
+        let kick = [0.02, 0.01];
+        // Free to rise: it comes in over a few frames, all of it, and 40 % of it returns.
+        let (mut left, mut goal, mut turned_sum) = (kick, [0.0; 2], [0.0; 2]);
+        for _ in 0..120 {
+            let turned;
+            (left, turned) = ease_kick(&mut player, left, Some(crate::inertia::KICK_EASE_SECONDS), 1.0 / 60.0);
+            kick_back(&mut goal, turned, true);
+            turned_sum = [turned_sum[0] + turned[0], turned_sum[1] + turned[1]];
+        }
+        assert!(left == [0.0; 2] && (turned_sum[0] - kick[0]).abs() < 1e-6 && (player.pitch - kick[0]).abs() < 1e-6);
+        assert!((goal[0] - crate::inertia::KICK_BACK_SHARE * kick[0]).abs() < 1e-6);
+        // At the pitch limit the view cannot rise: nothing of the pitch returns after it.
+        let mut player = Player { pitch: MAX_PITCH, ..player };
+        let mut goal = [0.0; 2];
+        let (_, turned) = ease_kick(&mut player, kick, None, 1.0 / 60.0);
+        kick_back(&mut goal, turned, true);
+        assert_eq!((player.pitch, goal[0]), (MAX_PITCH, 0.0));
+        assert!((goal[1] - crate::inertia::KICK_BACK_SHARE * kick[1]).abs() < 1e-6, "the sideways part still turned");
+        // Soft recoil off: nothing returns.
+        let mut goal = [0.0; 2];
+        kick_back(&mut goal, [0.02, 0.01], false);
+        assert_eq!(goal, [0.0; 2]);
     }
 
     #[test]

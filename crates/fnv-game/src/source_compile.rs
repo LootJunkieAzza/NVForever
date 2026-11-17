@@ -19,11 +19,11 @@
 //! `NVF_COMPILE_SOURCE` overrides it.
 
 use crate::data::Compiled;
-use fnv_esm::LoadOrder;
+use fnv_esm::{LoadOrder, Schema};
 use fnv_script::compile::{compile, env::LoadOrderIndex, Seed};
 use fnv_script::ir::{Arg, Expr, Stmt, Token};
 use fnv_script::table::CONSOLE_OPCODE_BASE;
-use fnv_script::unit::UnitOwner;
+use fnv_script::unit::{read_record, ReadIssues, ScriptUnit, UnitOwner};
 use fnv_script::{decode, FunctionTable, Program};
 use fnv_sim::extract::Issues;
 use rayon::prelude::*;
@@ -177,7 +177,7 @@ impl Recompiled {
 /// Compile from source the units the mode picks, changing nothing yet, so the rest of the
 /// build can run meanwhile ([`apply`] puts the results in). The build's other steps read
 /// only what this leaves alone (see [`crate::data::Compiled::new`]).
-pub(crate) fn compile_picked(lo: &LoadOrder<'_>, table: &FunctionTable, units: &[Compiled]) -> Recompiled {
+pub(crate) fn compile_picked(lo: &LoadOrder<'_>, schema: &Schema, table: &FunctionTable, units: &[Compiled]) -> Recompiled {
     let m = mode();
     if m == Mode::Never {
         return Recompiled(Vec::new());
@@ -196,9 +196,39 @@ pub(crate) fn compile_picked(lo: &LoadOrder<'_>, table: &FunctionTable, units: &
     if picked.is_empty() {
         return Recompiled(Vec::new());
     }
-    // Indexing the load order reads every record: done only when a unit needs it. The index
-    // reads only the scripts among the units ([`LoadOrderIndex::build`]).
-    let scripts: Vec<fnv_script::ScriptUnit> = units.iter().filter(|c| matches!(c.unit.owner, UnitOwner::Script { .. })).map(|c| c.unit.clone()).collect();
+    // Execution holds only winning units. A compiling plugin can instead see an earlier
+    // master's script variables, so the name index needs every SCPT version (§4 of
+    // script-compiler.md). These metadata units never enter the execution list.
+    let mut scripts = Vec::new();
+    for (pi, plugin) in lo.plugins.iter().enumerate() {
+        let versions: Vec<ScriptUnit> = lo.records[pi]
+            .par_iter()
+            .filter(|r| r.header.sig == *b"SCPT")
+            .filter_map(|r| {
+                let form = lo.to_global(pi, r.header.form_id)?;
+                let mut issues = ReadIssues::default();
+                let mut read = read_record(r, &plugin.name, &|local| lo.to_global(pi, local), schema, &mut issues);
+                // An empty or unreadable override supplies no variables. Retain that
+                // fact, or the index would expose an older version through it.
+                let mut unit = read.pop().unwrap_or_else(|| ScriptUnit {
+                    plugin: plugin.name.clone(),
+                    owner: UnitOwner::Script { form },
+                    kind: fnv_script::ScriptKind::Object,
+                    header: Default::default(),
+                    variables: Vec::new(),
+                    refs: Vec::new(),
+                    has_scda: false,
+                    bytes: Vec::new(),
+                    source: None,
+                });
+                unit.bytes = Vec::new();
+                unit.refs = Vec::new();
+                unit.source = None;
+                Some(unit)
+            })
+            .collect();
+        scripts.extend(versions);
+    }
     let ix = LoadOrderIndex::build(lo, &scripts);
     tracing::info!("script build: source compile: load order indexed: {:.0} ms", clock.elapsed().as_secs_f64() * 1e3);
     let results = picked

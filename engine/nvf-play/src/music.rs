@@ -1268,7 +1268,7 @@ impl Plugin for MusicPlugin {
             crate::settings::Setting {
                 key: "music",
                 group: crate::pause::GROUP_MENUS,
-                label: "Music",
+                label: "Play Music",
                 note: "On: the music of the place you are in plays. Off: it is silent and goes on unheard.",
                 switches: "--no-music",
                 get: |w| w.resource::<MusicSettings>().play,
