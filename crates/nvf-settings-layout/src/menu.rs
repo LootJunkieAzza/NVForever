@@ -3,8 +3,9 @@
 //! 2026-11-16: the launcher's settings must always be the game's, so it never names a menu
 //! the game does not have]. The game writes it from its own registry and the table in this
 //! crate (`engine/nvf-play/src/settings_menu.rs`); the launcher shows it while its
-//! [`Menu::version`] is the launcher's own (an update brings a new game that has not run
-//! yet: the launcher then shows its built-in copy of the table, `crates/nvf-launcher/src/catalog.rs`).
+//! [`Menu::version`] and [`Menu::layout`] are the launcher's own (an update brings a new game
+//! that has not run yet, a dev build another table: the launcher then shows its built-in copy
+//! of the table, `crates/nvf-launcher/src/catalog.rs`).
 //!
 //! The words are as the page shows them in the game's language (Title Case in English). The
 //! Controls tab's own rows (bindings, sensitivities, kept in `[Controls]`) are not in it: the
@@ -20,6 +21,10 @@ pub const MENU_FILE: &str = "settings-menu.json";
 pub struct Menu {
     /// The game's version (the workspace's), which the launcher compares with its own.
     pub version: String,
+    /// The table's stamp ([`crate::layout_stamp`]), which the launcher compares with its own:
+    /// dev builds between releases share a version. Empty in a file written before it.
+    #[serde(default)]
+    pub layout: String,
     pub tabs: Vec<Tab>,
 }
 
@@ -52,6 +57,11 @@ pub struct Row {
     pub label: String,
     pub note: String,
     pub kind: Kind,
+    /// The value the game takes while the INI has none, as the INI would keep it (`1`,
+    /// `0.50`, a list's choice by name); empty when the run did not say. The launcher reads
+    /// a rule's parent missing from the INI as this.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default: String,
     /// Shown only while this holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shown_with: Option<Rule>,
@@ -133,6 +143,13 @@ impl Step {
     pub fn nearest(steps: &[Step], v: f32) -> Option<&str> {
         steps.iter().min_by(|a, b| (a.value - v).abs().total_cmp(&(b.value - v).abs())).map(|s| s.label.as_str())
     }
+
+    /// The value of the step whose words are `text` (typed into the slider: any case, spaces
+    /// around), else `text` as a number; `None`: neither.
+    pub fn parse(steps: &[Step], text: &str) -> Option<f32> {
+        let t = text.trim();
+        steps.iter().find(|s| s.label.trim().eq_ignore_ascii_case(t)).map(|s| s.value).or_else(|| t.parse::<f32>().ok().filter(|v| v.is_finite()))
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +160,7 @@ mod tests {
     fn the_file_reads_back_as_written() {
         let m = Menu {
             version: "0.7.0".into(),
+            layout: crate::layout_stamp(),
             tabs: vec![Tab {
                 name: "Gameplay".into(),
                 label: "Gameplay".into(),
@@ -150,13 +168,14 @@ mod tests {
                     group: None,
                     heading: Some("Game".into()),
                     rows: vec![
-                        Row { key: "hardcore".into(), label: "Hardcore Mode".into(), note: "On: …".into(), kind: Kind::Switch, shown_with: None, needs: vec![] },
-                        Row { key: "difficulty".into(), label: "Difficulty".into(), note: "".into(), kind: Kind::Slider { min: 0.0, step: 0.25, steps: vec![Step { value: 0.0, label: "Very Easy".into() }, Step { value: 0.25, label: "Easy".into() }] }, shown_with: None, needs: vec![] },
+                        Row { key: "hardcore".into(), label: "Hardcore Mode".into(), note: "On: …".into(), kind: Kind::Switch, default: "0".into(), shown_with: None, needs: vec![] },
+                        Row { key: "difficulty".into(), label: "Difficulty".into(), note: "".into(), kind: Kind::Slider { min: 0.0, step: 0.25, steps: vec![Step { value: 0.0, label: "Very Easy".into() }, Step { value: 0.25, label: "Easy".into() }] }, default: String::new(), shown_with: None, needs: vec![] },
                         Row {
                             key: "vats-slowdown".into(),
                             label: "V.A.T.S. Time Slowdown".into(),
                             note: "".into(),
                             kind: Kind::List { choices: vec![Choice { name: "100% (full stop)".into(), label: "100% (Full Stop)".into() }] },
+                            default: "100% (full stop)".into(),
                             shown_with: None,
                             needs: crate::needs("vats-slowdown").into_iter().map(|r| Rule::of(r, str::to_string)).collect(),
                         },
@@ -170,6 +189,10 @@ mod tests {
         assert_eq!(m.rows().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["hardcore", "difficulty", "vats-slowdown"]);
         assert!(text.contains("\"parent\": \"vats-style\"") && !text.contains("shown_with"), "only the rules a row has: {text}");
         assert_eq!(Menu::parse("{\"version\": 1}"), None);
+        assert!(text.contains("\"default\": \"0\"") && text.matches("\"default\"").count() == 2, "a default only where the run said: {text}");
+        // A file written before the stamp and the defaults: read, its stamp empty.
+        let older = Menu::parse("{\"version\": \"0.7.0\", \"tabs\": [{\"name\": \"Gameplay\", \"label\": \"Gameplay\", \"categories\": [{\"rows\": [{\"key\": \"hardcore\", \"label\": \"H\", \"note\": \"\", \"kind\": {\"type\": \"switch\"}}]}]}]}").unwrap();
+        assert_eq!((older.layout.as_str(), older.rows().next().map(|r| r.default.as_str())), ("", Some("")));
     }
 
     #[test]
@@ -199,5 +222,27 @@ mod tests {
         assert_eq!(Step::nearest(&s, 0.4), Some("Half"));
         assert_eq!(Step::nearest(&s, 0.9), Some("Full"));
         assert_eq!(Step::nearest(&[], 0.9), None);
+        // Typed into the slider: its words, else a number.
+        assert_eq!(Step::parse(&s, " half "), Some(0.5));
+        assert_eq!(Step::parse(&s, "FULL"), Some(1.0));
+        assert_eq!(Step::parse(&s, "0.25"), Some(0.25));
+        assert_eq!((Step::parse(&s, "Most"), Step::parse(&s, "NaN"), Step::parse(&[], "Half")), (None, None, None));
+    }
+
+    #[test]
+    fn the_tables_stamp() {
+        let stamp = crate::layout_stamp();
+        assert_eq!(stamp.len(), 16, "{stamp}");
+        assert!(stamp.chars().all(|c| c.is_ascii_hexdigit()), "{stamp}");
+        assert_eq!(stamp, crate::layout_stamp(), "the same table, the same stamp");
+        // A row moved to another category, or renamed: another stamp.
+        let (a, b) = (crate::section("Gameplay", Some("Game"), &["difficulty", "hardcore"]), crate::section("Gameplay", Some("V.A.T.S."), &["vats-style"]));
+        let moved = (crate::section("Gameplay", Some("Game"), &["difficulty"]), crate::section("Gameplay", Some("V.A.T.S."), &["hardcore", "vats-style"]));
+        let renamed = (crate::section("Gameplay", Some("Game"), &["difficulty", "hardcore-mode"]), crate::section("Gameplay", Some("V.A.T.S."), &["vats-style"]));
+        let of = |(x, y): (crate::Section, crate::Section)| crate::stamp_of(&[x, y]);
+        let base = of((a, b));
+        assert_ne!(base, of(moved));
+        assert_ne!(base, of(renamed));
+        assert_ne!(base, stamp);
     }
 }

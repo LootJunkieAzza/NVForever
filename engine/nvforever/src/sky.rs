@@ -178,13 +178,10 @@ pub struct SkyDisplay {
     pub glare_texture: Option<Handle<Image>>,
 }
 
-/// Daylight on the sky (sky.wesl). By day the original game's sky and clouds are darker
-/// and warmer than the weather colours through the image-space grade would give, while at
-/// dusk and at night they match [observed: screenshots of the original game,
-/// docs/spec-notes/world.md §6 "Sky colours"]. Modelled as: linear colour × `scale` plus
-/// a share of the sunlight colour, both growing as the sun rises [hypothesis, fitted to
-/// those screenshots; the mechanism in the game is not known (eye adaptation and bloom
-/// are candidates)].
+/// What the sky's parts take besides their own colour (sky.wesl): the sky level, linear
+/// colour × `scale` ([`SkyState::sky_scale`]: the image space's "LUM Ramp No Tex")
+/// [hypothesis, fitted to two worldspaces, docs/spec-notes/world.md §6 "Sky level"], and
+/// the sun. `glow` adds nothing to the colour now (its fourth figure is still read).
 ///
 /// The sun is drawn into the same colours, before the tonemapper inverse: the sun texture
 /// and the glare texture spread over angular squares centred on the sun (SUN_SIZE_DEG,
@@ -1212,8 +1209,9 @@ fn find_weather(world: &WorldData, name: &str) -> Option<u32> {
     })
 }
 
-/// The atmosphere dome, with each vertex's elevation (degrees) and sky-upper weight kept
-/// from creation: the colours are recomputed from these.
+/// The atmosphere dome, with each vertex's weights of the horizon, sky-lower and sky-upper
+/// colours (the mesh's vertex colour: red, green, blue) kept from creation: the colours
+/// are recomputed from these ([`dome_color`]).
 #[derive(Component)]
 pub struct SkyDome(Vec<[f32; 3]>);
 
@@ -1329,7 +1327,8 @@ fn sky_mesh(s: &SkyShape, colors: Vec<[f32; 4]>) -> Mesh {
 
 /// Fallback dome: a sphere (game space, z up) with weights from height, in the sky
 /// mesh's channels (red horizon, green sky-lower, blue sky-upper): sky-lower to sky-upper
-/// over the lower half of the upper hemisphere, the horizon colour below the horizon.
+/// over the lower half of the upper hemisphere, sky-lower to the horizon colour just below
+/// the horizon.
 fn fallback_dome() -> SkyShape {
     let mut sphere = Sphere::new(NIF_SKY_RADIUS).mesh().uv(48, 24);
     let pos: Vec<[f32; 3]> = match sphere.attribute(Mesh::ATTRIBUTE_POSITION) {
@@ -1344,7 +1343,9 @@ fn fallback_dome() -> SkyShape {
                 let t = (y / 0.5).clamp(0.0, 1.0).sqrt();
                 [0.0, 1.0 - t, t, 1.0]
             } else {
-                [1.0, 0.0, 0.0, 1.0]
+                // Sky-lower turns to the horizon colour over the first fifth below the horizon.
+                let t = (-y / 0.2).clamp(0.0, 1.0);
+                [t, 1.0 - t, 0.0, 1.0]
             }
         })
         .collect();

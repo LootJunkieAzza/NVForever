@@ -3223,7 +3223,7 @@ already talking takes over at once, same topic or another; nothing is queued or 
 
 ## Answered 2026-11-16 (sky and grade, Capital Wasteland against the Mojave)
 
-220. **Why is our Capital Wasteland sky dark brown where the original's is pale green?**
+222. **Why is our Capital Wasteland sky dark brown where the original's is pale green?**
      (Owner 2026-11-16, Tale of Two Wastelands.) Answered [observed: 54 frames of the
      original through `capture_frames.py`, the TTW game started from Mod Organizer 2's
      "Tale of Two Wastelands" entry]: the adapter's tint was dropped where the base image

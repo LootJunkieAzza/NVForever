@@ -1298,7 +1298,7 @@ impl PageFonts for FontKit<'_> {
 /// zoom changed on the same file writes the sizes again [design: as
 /// `tile-repair-menu-1468:engine/nvf-play/src/tiles/repair_menu.rs::write_file_sizes`]. A picture
 /// of an atlas has no file of its own.
-fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (String, f64)>, texels: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
+pub(super) fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (String, f64)>, texels: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
     let mut due = Vec::new();
     let mut stack = vec![menu];
     while let Some(t) = stack.pop() {
@@ -1311,7 +1311,7 @@ fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (Strin
             continue;
         }
         let name = tile.get("filename").map(|v| v.text().trim().to_string()).unwrap_or_default();
-        if name.is_empty() {
+        if name.is_empty() || super::runtime_images::is_runtime(&name) {
             continue;
         }
         let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);

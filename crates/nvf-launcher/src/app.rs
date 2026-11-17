@@ -760,6 +760,18 @@ fn rule_holds(rule: &menu::Rule, kind: Option<&menu::Kind>, value: &str, name: &
     }
 }
 
+/// The part of 0..1 that `text`, typed into a slider of the evenly spread `words`, stands
+/// for: one of the words (any case), else a number; `None`: neither.
+fn word_part(words: &[String], text: &str) -> Option<f64> {
+    let t = text.trim();
+    let n = words.len();
+    match words.iter().position(|w| w.trim().eq_ignore_ascii_case(t)) {
+        Some(i) if n > 1 => Some(i as f64 / (n - 1) as f64),
+        Some(_) => Some(0.0),
+        None => t.parse::<f64>().ok().filter(|v| v.is_finite()),
+    }
+}
+
 /// Whether the INI's value `v` is one the game's row kind `kind` takes (else the page goes by
 /// the value, as for a row with no kind).
 fn menu_fits(kind: &menu::Kind, v: &str) -> bool {
@@ -789,8 +801,10 @@ fn menu_control(ui: &mut egui::Ui, key: &str, kind: &menu::Kind, v: &str, contro
             let s = if steps.is_empty() {
                 s.custom_formatter(|x, _| format!("{:.0}%", x * 100.0)).custom_parser(|s| s.trim().trim_end_matches('%').parse::<f64>().ok().map(|x| x / 100.0))
             } else {
-                let steps = steps.clone();
-                s.custom_formatter(move |x, _| menu::Step::nearest(&steps, x as f32).unwrap_or_default().to_string())
+                let (shown, typed) = (steps.clone(), steps.clone());
+                // Typed into it: a step's words (any case), else a number.
+                s.custom_formatter(move |x, _| menu::Step::nearest(&shown, x as f32).unwrap_or_default().to_string())
+                    .custom_parser(move |t| menu::Step::parse(&typed, t).map(f64::from))
             };
             ui.add_sized([control_w, 20.0], s).changed().then(|| part_text(game_fit(f, *min, *step)))
         }
@@ -964,14 +978,12 @@ impl App {
                 // while the INI holds it.
                 let rows: Vec<Row> = self.rows.iter().filter(|r| r.tab == tab && (!r.unlisted || self.stored.contains_key(&r.key))).cloned().collect();
                 let mut heading: Option<Option<String>> = None;
-                let mut hidden_by: Vec<menu::Rule> = Vec::new();
                 for r in rows {
                     // The game's rules: hidden while the row it goes with is not on its
                     // choice, greyed (with the game's reason) while a row it needs is off.
-                    if let Some(rule) = r.shown_with.as_ref().filter(|rule| !self.holds(rule)) {
-                        if !hidden_by.contains(rule) {
-                            hidden_by.push(rule.clone());
-                        }
+                    // No tab the launcher shows has only hidden rows (only the game's own
+                    // Controls tab can), so a tab is never left empty by them.
+                    if r.shown_with.as_ref().is_some_and(|rule| !self.holds(rule)) {
                         continue;
                     }
                     let greyed = r.needs.iter().find(|rule| !self.holds(rule)).map(|rule| rule.why.clone());
@@ -988,13 +1000,6 @@ impl App {
                         heading = Some(r.heading.clone());
                     }
                     self.setting_row(ui, &r.key, &r.label, &r.note, r.kind.as_ref(), greyed.as_deref());
-                }
-                // Every row of the tab hidden (the Controls tab with keyboard and mouse):
-                // what shows them, not an empty page.
-                if heading.is_none() && !hidden_by.is_empty() {
-                    let with: Vec<String> = hidden_by.iter().map(|rule| format!("{}: {}", self.row_label(&rule.parent), rule.choices.join(" or "))).collect();
-                    ui.add_space(8.0);
-                    ui.label(RichText::new(format!("The game shows this tab's rows here with {}.", with.join("; "))).small().color(WEAK));
                 }
             }
         });
@@ -1087,9 +1092,11 @@ impl App {
                             let s = match words {
                                 Some(words) => {
                                     let n = words.len();
-                                    egui::Slider::new(&mut f, 0.0..=1.0).step_by(1.0 / (n - 1) as f64).custom_formatter(move |x, _| {
-                                        words[((x * (n - 1) as f64).round() as usize).min(n - 1)].clone()
-                                    })
+                                    let typed = words.clone();
+                                    egui::Slider::new(&mut f, 0.0..=1.0)
+                                        .step_by(1.0 / (n - 1) as f64)
+                                        .custom_formatter(move |x, _| words[((x * (n - 1) as f64).round() as usize).min(n - 1)].clone())
+                                        .custom_parser(move |t| word_part(&typed, t))
                                 }
                                 None => egui::Slider::new(&mut f, 0.0..=1.0).custom_formatter(|x, _| format!("{:.0}%", x * 100.0)).custom_parser(|s| {
                                     s.trim().trim_end_matches('%').parse::<f64>().ok().map(|x| x / 100.0)
@@ -1317,24 +1324,22 @@ impl App {
         self.edits.get(key).or_else(|| self.stored.get(key)).cloned()
     }
 
-    /// The words the page shows for row `key` (the Input Device row by its own name).
-    fn row_label(&self, key: &str) -> String {
-        if key == nvf_settings_layout::DEVICE_ROW {
-            return "Input Device".into();
-        }
-        self.rows.iter().find(|r| r.key == key).map_or(key.to_string(), |r| r.label.clone())
-    }
-
     /// Whether the game's rule `rule` holds for the values on the page now (the INI's, or the
     /// changes not saved yet): its row on, or on one of its choices. As the game: a switch on,
-    /// a list past its first choice; the input device from `[Controls]`.
+    /// a list past its first choice; the input device from `[Controls]`. A parent the INI does
+    /// not hold yet is the game's default for it (its menu file); with none known, the rule
+    /// holds: the launcher neither greys nor hides a row on a guess the game may not share.
     fn holds(&self, rule: &menu::Rule) -> bool {
+        let parent = self.rows.iter().find(|r| r.key == rule.parent);
         let value = if rule.parent == nvf_settings_layout::DEVICE_ROW {
             ini_get(&self.ini_text, "Controls", "Input Device").unwrap_or_default()
         } else {
-            self.current(&rule.parent).unwrap_or_default()
+            match self.current(&rule.parent).or_else(|| parent.and_then(|r| r.default.clone())) {
+                Some(v) => v,
+                None => return true,
+            }
         };
-        let kind = self.rows.iter().find(|r| r.key == rule.parent).and_then(|r| r.kind.as_ref());
+        let kind = parent.and_then(|r| r.kind.as_ref());
         // The choice's name: the INI keeps some lists by another word (frame generation
         // `dlss`), which the launcher's own list names.
         let name = match kind {
@@ -2166,6 +2171,10 @@ mod tests {
         assert!(rule_holds(&rule("frame-generation", &["DLSS"]), None, "dlss", "DLSS"));
         assert!(!rule_holds(&rule("upscaler", &["FSR 3.1", "DLSS"]), None, "Off", "Off"));
         assert!(rule_holds(&rule(nvf_settings_layout::DEVICE_ROW, &["Controller"]), None, "controller", "controller"));
+        // Typed into a slider of words: the word's part, else a number.
+        let words: Vec<String> = ["Low", "Medium", "High"].map(String::from).to_vec();
+        assert_eq!((word_part(&words, " high "), word_part(&words, "medium"), word_part(&words, "0.25")), (Some(1.0), Some(0.5), Some(0.25)));
+        assert_eq!((word_part(&words, "Ultra"), word_part(&["Only".to_string()], "only")), (None, Some(0.0)));
     }
 
     #[test]

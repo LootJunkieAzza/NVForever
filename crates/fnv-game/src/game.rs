@@ -1053,6 +1053,9 @@ pub mod menus {
     /// `Begin MenuMode 1` block (the crippled-limb tutorial) runs while the Pip-Boy is
     /// open [observed in the masters].
     pub const PIPBOY: u16 = 1;
+    /// Title-screen group, distinct from pause menu 1013 [documented: GECK MenuMode
+    /// block/function pages]. Admitted during the existing startup frames only.
+    pub const TITLE: u16 = 4;
     /// The Pip-Boy's ITEMS page, the inventory [documented: GECK wiki GetSelectedItemRef,
     /// "Inventory Menu (1002)"; GetMenuItemListRefs, "1002 Pip-Boy Inventory Menu"].
     pub const INVENTORY: u16 = 1002;
@@ -3799,7 +3802,10 @@ impl<'a> Game<'a> {
         };
         // `Begin MenuMode 1` runs for any of the Pip-Boy's menus (`menus::answers`).
         if block.event == event::MENU_MODE && !matches!(params[0], Arg::Ref(_)) {
-            return menus::answers(want.num() as u16, subject.num() as u16);
+            // Group 4 belongs to startup, not every pause page sharing code 1013
+            // (script-language.md, Title-start MenuMode group 4).
+            return (self.start_frames && want.num() == f64::from(menus::TITLE) && subject.num() == f64::from(menus::START))
+                || menus::answers(want.num() as u16, subject.num() as u16);
         }
         match (want.as_form(), subject.as_form()) {
             // A form list as the parameter accepts any of its members [hypothesis, fit
@@ -4052,6 +4058,7 @@ impl<'a> Game<'a> {
         self.small_tick();
         self.vheyes_tick();
         self.knvse_tick();
+        self.advance_first_person_menu_clock();
         // kNVSE's AnimGroupOverride folders: which hold for each actor.
         self.anim_folders_tick();
         // ppNVSE's CallLoop functions due (`crate::nvse_pp`).
@@ -4253,6 +4260,7 @@ impl<'a> Game<'a> {
             return;
         }
         let any = self.start_frames;
+        let title = any && code == menus::START;
         let subject = Some(Value::Num(code as f64));
         let data = self.data;
         let wants = |script: FormId| {
@@ -4270,7 +4278,7 @@ impl<'a> Game<'a> {
                         None | Some([]) if any => return b.event == event::MENU_MODE,
                         _ => return false,
                     };
-                    b.event == event::MENU_MODE && c == code as f64
+                    b.event == event::MENU_MODE && (c == code as f64 || (title && c == f64::from(menus::TITLE)))
                 })
             })
         };
@@ -4335,6 +4343,8 @@ impl<'a> Game<'a> {
     /// no shipped script has a `MenuMode 1013` block [observed: fnvtool script decompile
     /// of the masters]. MenuMode blocks for any menu run in these frames too (side_blocks),
     /// the masters' included. NVForever runs it once when a game starts.
+    /// These frames also admit the title-screen group 4, preserving the existing
+    /// 1013/no-argument blocks. Ordinary held pause pages gain no title context.
     pub fn came_through_start_menu(&mut self, frames: u32, dt: f64) {
         let keep = self.cfg.frame_seconds;
         self.cfg.frame_seconds = dt;
@@ -4446,7 +4456,8 @@ impl<'a> Game<'a> {
 
     pub fn menu_open(&self, code: u16) -> bool {
         let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
-        open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
+        (code == menus::TITLE && self.start_frames && self.page_menu == Some(menus::START))
+            || open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
     }
 
     /// A menu code that holds beside the open menu: the loading menu (1007) under a

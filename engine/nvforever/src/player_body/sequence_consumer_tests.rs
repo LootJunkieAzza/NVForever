@@ -255,6 +255,17 @@ fn pose(
     samples: &[crate::script_sequences::Sample],
     dt: f32,
 ) {
+    pose_frame(world, target, samples, &neutral_frame(dt), dt, None);
+}
+
+fn pose_frame(
+    world: &mut World,
+    target: &mut OwnedRig,
+    samples: &[crate::script_sequences::Sample],
+    frame: &Frame,
+    sequence_dt: f32,
+    pipboy: Option<f32>,
+) {
     let mut state =
         SystemState::<(ResMut<ActorParts>, ModelCtx, Query<&mut Transform>)>::new(world);
     {
@@ -268,14 +279,15 @@ fn pose(
         // is not an admission failure: actual Transform application precedes it.
         let _ = pose_rig(
             &mut target.rig,
-            &neutral_frame(dt),
+            frame,
             &[],
             Posed {
                 root: Transform::from_xyz(target.root_x, 0.0, 0.0),
                 look_pitch: 0.0,
                 special: &special,
                 sequences: samples,
-                pipboy: None,
+                sequence_dt,
+                pipboy,
                 sway: SwayPose::NONE,
                 sights: None,
             },
@@ -485,5 +497,75 @@ fn prepared_public_sequence_reaches_real_pose_and_releases_to_the_underlying_cli
         pose(app.world_mut(), &mut first, &[], 0.125);
         app.update();
         assert_pose(&app, &first, 10.0); // Underlying clip, not bind x=5.
+    }
+}
+
+#[test]
+fn device_menu_sequence_moves_and_blends_with_holstered_or_drawn_hands_and_a_held_world() {
+    const SELF_TEST: &str = "player_body::sequence_consumer_tests::device_menu_sequence_moves_and_blends_with_holstered_or_drawn_hands_and_a_held_world";
+    const CHILD: &str = "NVF_QA_DEVICE_MENU_SEQUENCE_CHILD";
+    if std::env::var(CHILD).as_deref() != Ok("1") {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([SELF_TEST, "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output().unwrap();
+        assert!(output.status.success(), "isolated device menu consumer failed:\n{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        return;
+    }
+    let args: Vec<_> = std::env::args().collect();
+    assert!(args.iter().any(|arg| arg == "--exact") && args.iter().any(|arg| arg == SELF_TEST));
+    let _availability = Availability::install();
+    // The prepared-sample seam exercises the real tiered pose and fade consumer.
+    // It does not load a weapon model, project a screen or execute installed mods.
+    for (smooth, phase) in [false, true].into_iter().flat_map(|smooth| [WeaponPhase::Holstered, WeaponPhase::Drawn].map(|phase| (smooth, phase))) {
+        let (mut app, _files) = crate::outfits::tests::asset_fixture();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        let forms = Box::leak(Box::new(crate::outfits::tests::actor_forms(vec![])));
+        let refs = Box::leak(Box::default());
+        let mut game = crate::outfits::tests::game(fnv_sim::World::new(forms, refs, Default::default()));
+        game.cfg.frame_seconds = 0.125;
+        game.senses.first_person = true;
+        let mut first = authored_rig(app.world_mut(), View::First, 100.0);
+        let mut third = authored_rig(app.world_mut(), View::Third, 200.0);
+        first.rig.animator.smooth_seams(smooth.then_some(0.1));
+        third.rig.animator.smooth_seams(smooth.then_some(0.1));
+        let ordinary = Arc::new(ClipInfo::new("authored-device-hold".into(), authored_clip(2, false), None));
+        first.rig.clips.insert(ClipKey::PipBoy(false), Some(ordinary));
+        let clip = authored_clip(2, true);
+        clip.check().unwrap();
+        let mut frame = neutral_frame(0.0);
+        frame.hands.phase = phase;
+        frame.hands.in_hand = phase == WeaponPhase::Drawn;
+        frame.drawn = (phase == WeaponPhase::Drawn).then_some(UNARMED);
+        // A Pip-Boy hold and the idle have already reached their ordinary pose.
+        pose(app.world_mut(), &mut first, &[], 0.25);
+        pose(app.world_mut(), &mut third, &[], 0.25);
+        app.update();
+        assert_pose(&app, &first, 10.0);
+        assert_eq!(scalar_query(&mut game, &format!("SetFunctionValue (PlayerREF.ActivateAnim \"{OWNED_PATH}\" 1 1 1 1 0.25)")), XVal::Num(1.0));
+        game.menu = Some(fnv_game::game::menus::INVENTORY);
+        let held = game.time;
+        for _ in 0..4 {
+            game.tick();
+            pose_frame(app.world_mut(), &mut first, &prepared(&game, &clip), &frame, 0.125, Some(nvf_play::pipboy::HOLD_SECONDS));
+            pose_frame(app.world_mut(), &mut third, &[], &frame, 0.0, None);
+            app.update();
+        }
+        assert_eq!(game.time, held, "device menu must keep the world held");
+        assert_pose(&app, &first, 30.0);
+        assert_pose(&app, &third, 10.0);
+        let layer = first.rig.animator.layers.iter().find(|layer| layer.tag & 0x4000_0000 != 0).unwrap();
+        assert_eq!((layer.sequence_priority, layer.ease), (1, 1.0));
+        assert!(first.rig.animator.layers.iter().filter(|layer| layer.tag == TAG_IDLE).all(|layer| layer.time == 0.25), "ordinary clip time must stay held");
+
+        assert_eq!(scalar_query(&mut game, &format!("SetFunctionValue (PlayerREF.DeactivateAnim \"{OWNED_PATH}\" 0.25)")), XVal::Num(1.0));
+        for _ in 0..3 {
+            game.tick();
+            pose_frame(app.world_mut(), &mut first, &prepared(&game, &clip), &frame, 0.125, Some(nvf_play::pipboy::HOLD_SECONDS));
+            app.update();
+        }
+        assert_pose(&app, &first, 10.0);
+        assert!(!first.rig.animator.layers.iter().any(|layer| layer.tag & 0x4000_0000 != 0), "deactivation releases the visible menu pose while world time is held");
+        assert!(game.anim_paths.sequences.is_empty());
     }
 }

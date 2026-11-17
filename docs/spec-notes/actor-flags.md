@@ -87,7 +87,7 @@ is within it. The engine's appearance resolve (`fnv_actor::resolve`) and the gam
 list with 0 draws nothing for it, so its picks are unchanged. Every list in FalloutNV.esm
 has 0, so nothing changes in vanilla.
 
-## 7. Classes (CLAS): nothing to build
+## 7. Classes (CLAS) and SetClass admission
 
 Auto-calc NPCs (2,283 in the master) carry the attributes and skills the editor
 calculated in their own DNAM and ACBS. The wiki gives no formula ("The level and class of
@@ -95,6 +95,48 @@ the NPC is used to determine the final values" [documented: Stats Tab - NPC]), s
 stored values stand. The class's services already serve Autocalc Service (vendor-services).
 The Guard flag has no documented effect besides the NVSE GetClassFlag. Tag skills,
 attributes and the Guard flag are not decoded.
+
+`actor.SetClass class` changes the actor's class; the page also requires recalculation
+for actors with Auto-calc stats [documented:
+[SetClass](https://geckwiki.com/index.php?title=SetClass), catalogue entry]. Recalculation
+remains open: class/level-dependent attributes and skills must be measured before a
+numeric policy can be implemented. `DuplicateNPCStats` likewise requires class, level,
+and recalculated stats, with Auto-calc stats on the documentation's "target actor"
+[documented:
+[DuplicateNPCStats](https://geckwiki.com/index.php?title=DuplicateNPCStats), catalogue entry].
+It has no implementation; the target's identity and recalculation inputs need a probe.
+Copying a class alone would not satisfy that contract.
+
+NVForever's existing SetClass policy is retained: the calling reference's base receives
+the class override, ahead of its Traits template; references sharing that base see the
+override, and the override is saved [hypothesis: this sharing and lifetime have not been
+captured in the original]. Its real service-category consumer is `Game::services` for
+Autocalc Service actors (vendor-services.md). Auto-calc stats and Autocalc Service are
+separate flags; exercising the latter does not demonstrate stat recalculation.
+
+An omitted source-call receiver still selects the calling reference. An explicit empty
+or non-form receiver is already refused by `fnv-script::vm::host_function` before the
+host bridge runs: the query reports `setclass called on no reference`. Preserve that
+error and the existing class state; there is no established source-call fallback to
+implicit self at this boundary [documented: NVForever's existing VM admission; native
+refusal behavior remains unobserved].
+
+A nonzero unknown FormID or a nonactor form reaches the host. SetClass gives 0, changes
+no class override, and the next statement runs [hypothesis: NVForever admission policy;
+native invalid-actor behavior is unprobed]. Actor admission resolves a placed LVLN/LVLC
+using its seed and encounter level without following any template field, then retains
+SetClass's existing base override key and Traits precedence. This avoids rejecting
+valid leveled actors or attaching classes to nonactors. The source VM refusal controls
+and independently reachable nonactor controls are separate, so an earlier empty-ref
+error cannot prevent the nonactor boundary from being exercised. Actual service
+selection, placed NPC/creature, template and JSON restore controls remain in
+`tests/common/set_class_receivers.rs`; these are authored controls, not original-game
+observations. Large numeric source controls use decimal-point literals with source-local
+value readback because integer-only tokens saturate before receiver admission.
+
+`tools/capture/actor_state_observers.py` generates read-only snapshots for controlled
+original-game comparisons. The capture protocol is in its help text; no results have
+been collected for the new comparisons.
 
 ## 8. Special Combat (FACT flag bit 2)
 

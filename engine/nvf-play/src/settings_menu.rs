@@ -10,13 +10,23 @@
 //! `settings: menu for the launcher written: <path> (<tabs> tabs, <rows> rows)` (`unchanged`
 //! when the file there is the same). A run with no
 //! settings file (`SettingsFile(None)`) writes none.
+//!
+//! The file is the page of a player's start, so a run that is not one leaves the file there
+//! as it is (`settings: menu for the launcher not written: …`) [design: #2830 review]: a run
+//! given a switch a row names (`--no-voice`, `--graphics-only`: the row's state, or its
+//! module, is the command line's then, `GivenSwitches`), and a run with fewer rows than the
+//! file there from the same build (version and table stamp: a module missing this run).
+//!
+//! Each row carries its default (the state before the INI was read, `StartStates`,
+//! `StartChoices`: no switch a row names was given, so the defaults), which the launcher
+//! goes by while the INI does not hold that row.
 
 use bevy::prelude::*;
 use fnv_util::words::tr;
 use nvf_settings_layout::menu::{self, Menu};
 
 use crate::pause::on_page;
-use crate::settings::{Settings, SettingsFile, Slider};
+use crate::settings::{GivenSwitches, Settings, SettingsFile, Slider, StartChoices, StartStates};
 use crate::settings_layout::resolve_layout;
 
 /// The most steps a slider's words are listed for (the field of view's are some 100).
@@ -42,7 +52,7 @@ pub fn menu_of(world: &World, settings: &Settings) -> Menu {
             tabs.push(menu::Tab { name: t.name.to_string(), label: on_page(t.name), categories });
         }
     }
-    Menu { version: env!("CARGO_PKG_VERSION").to_string(), tabs }
+    Menu { version: env!("CARGO_PKG_VERSION").to_string(), layout: nvf_settings_layout::layout_stamp(), tabs }
 }
 
 fn row(world: &World, settings: &Settings, i: usize) -> menu::Row {
@@ -69,7 +79,32 @@ fn row(world: &World, settings: &Settings, i: usize) -> menu::Row {
     let words = |w: &'static str| tr(w).to_string();
     let shown_with = nvf_settings_layout::shown_with(s.key).map(|r| menu::Rule::of(r, words));
     let needs = nvf_settings_layout::needs(s.key).into_iter().map(|r| menu::Rule::of(r, words)).collect();
-    menu::Row { key: s.key.to_string(), label: on_page(s.label), note: tr(s.note).to_string(), kind, shown_with, needs }
+    menu::Row { key: s.key.to_string(), label: on_page(s.label), note: tr(s.note).to_string(), kind, default: default(world, settings, i), shown_with, needs }
+}
+
+/// Row `i`'s state before the INI was read, as the INI keeps it; empty when not known (no
+/// `crate::settings::apply_stored` this run).
+fn default(world: &World, settings: &Settings, i: usize) -> String {
+    if settings.choices(i).is_some() {
+        let start = world.get_resource::<StartChoices>();
+        start.and_then(|c| c.0.iter().find(|(r, _)| *r == i)).map(|(_, t)| t.clone()).unwrap_or_default()
+    } else {
+        let start = world.get_resource::<StartStates>();
+        start.and_then(|s| s.0.get(i)).map(|&v| settings.list()[i].stored_text(v)).unwrap_or_default()
+    }
+}
+
+/// Why this run's page is not a player's start, so not one for the launcher (module notes);
+/// `None`: it is.
+fn not_a_players_start(world: &World, settings: &Settings, m: &Menu, file: &std::path::Path) -> Option<String> {
+    if let Some(given) = world.get_resource::<GivenSwitches>() {
+        if let Some(first) = settings.list().iter().find_map(|s| given.named_in(s.switches)) {
+            return Some(format!("{first} on the command line sets a row"));
+        }
+    }
+    let old = std::fs::read_to_string(file).ok().and_then(|t| Menu::parse(&t))?;
+    let (had, has) = (old.rows().count(), m.rows().count());
+    (old.version == m.version && old.layout == m.layout && has < had).then(|| format!("{has} rows, the same build's file there has {had} (a module missing this run)"))
 }
 
 /// The values `slider` reaches (`Slider::fit`) and the words the page shows for each, when
@@ -103,6 +138,10 @@ pub fn write_menu(world: &World) {
     let (tabs, rows) = (m.tabs.len(), m.rows().count());
     if std::fs::read_to_string(&file).is_ok_and(|t| t == text) {
         info!("settings: menu for the launcher unchanged: {} ({tabs} tabs, {rows} rows)", file.display());
+        return;
+    }
+    if let Some(why) = not_a_players_start(world, settings, &m, &file) {
+        info!("settings: menu for the launcher not written: {why}; {} left as it is", file.display());
         return;
     }
     // Through the same gatekeeper as the INI beside it (`settings::write`): never into the
@@ -151,7 +190,7 @@ mod tests {
         let app = app();
         let w = app.world();
         let m = menu_of(w, w.resource::<Settings>());
-        assert_eq!(m.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!((m.version.as_str(), m.layout.clone()), (env!("CARGO_PKG_VERSION"), nvf_settings_layout::layout_stamp()));
         let tabs: Vec<&str> = m.tabs.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(tabs, ["Gameplay", "Display", "Audio"], "in the table's order, a tab with no rows left out");
         let g = &m.tabs[0];
@@ -197,6 +236,51 @@ mod tests {
         std::fs::remove_file(&file).unwrap();
         write_menu(app.world());
         assert!(!file.exists(), "no settings file: no menu");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_row_carries_its_default() {
+        let mut app = app();
+        app.world_mut().resource_mut::<Part>().0 = 0.75;
+        crate::settings::apply_stored(app.world_mut());
+        app.world_mut().resource_mut::<Part>().0 = 0.25;
+        let w = app.world();
+        let m = menu_of(w, w.resource::<Settings>());
+        let at = |k: &str| m.rows().find(|r| r.key == k).unwrap().default.clone();
+        assert_eq!((at("difficulty"), at("hardcore"), at("vats-style"), at("volume-master")), ("0.75".into(), "0".into(), "Classic".into(), "1.00".into()), "the states before the INI");
+        let none = self::app();
+        assert_eq!(menu_of(none.world(), none.world().resource::<Settings>()).rows().next().map(|r| r.default.clone()), Some(String::new()), "not known: empty");
+    }
+
+    #[test]
+    fn only_a_players_start_writes_it() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-menu-start-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(menu::MENU_FILE);
+        // A switch a row names: the row's state is the command line's, the file stays.
+        let mut app = app();
+        add_setting(&mut app, setting("voice", "Audio", "Dialogue voice").with_switches("--no-voice"));
+        app.insert_resource(SettingsFile(Some(dir.join("NVForever.ini"))));
+        app.insert_resource(GivenSwitches { given: vec!["--no-voice".into()], win: false });
+        write_menu(app.world());
+        assert!(!file.exists(), "a switch a row names: not written");
+        // Other switches (the world, the data folder), a test run's too: written.
+        app.insert_resource(GivenSwitches { given: vec!["--play".into(), "--data".into()], win: true });
+        write_menu(app.world());
+        let full = Menu::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(full.rows().count(), 8);
+        // A run of the same build with a module missing: fewer rows, the file stays.
+        let mut less = self::app();
+        less.insert_resource(SettingsFile(Some(dir.join("NVForever.ini"))));
+        write_menu(less.world());
+        assert_eq!(Menu::parse(&std::fs::read_to_string(&file).unwrap()), Some(full.clone()), "fewer rows of the same build: kept");
+        // Another build's file (an older version, or another table): replaced.
+        let older = Menu { layout: "0000000000000000".into(), ..full };
+        std::fs::write(&file, older.to_text()).unwrap();
+        write_menu(less.world());
+        assert_eq!(Menu::parse(&std::fs::read_to_string(&file).unwrap()).map(|m| m.rows().count()), Some(7), "another build's: replaced");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

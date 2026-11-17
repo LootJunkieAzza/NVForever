@@ -407,3 +407,29 @@ compiled by the game, so plain `set`/`if` statements in a job behave as vanilla.
    (truncated or not; 32-bit float spacing) (§2.4).
 8. **Constant globals and plugin defaults** across a save/load: Layer 7, needs a save the
    owner allows.
+
+### Title-start MenuMode group 4
+
+- [documented] The MenuMode block and function accept group 4 for the JIP title-screen
+  main menu. Group 4 is distinct from ordinary pause menu 1013, and start-enabled
+  quest scripts can run at the title screen. Sources:
+  <https://geckwiki.com/index.php?title=MenuMode> and
+  <https://geckwiki.com/index.php/MenuMode_%28Function%29>.
+- [design] NVForever's existing `came_through_start_menu` startup frames admit
+  source-compiled group-4 blocks as well as their retained 1013 and unparameterized
+  blocks. `MenuMode 4` is true during that temporary startup context. A normal
+  pause menu or held pause page does not acquire the title context. There is no
+  global 4-to-1013 alias and no new command registration.
+- [design] Retain the existing `GetGameRestarted` consumption and session policy,
+  startup-before-load-event ordering, unfiltered MenuMode query/page behavior,
+  game clocks, input/timer handling and save format. This adds no new persistent
+  state. The engine's startup/preload simulation remains its existing consumer.
+- [hypothesis] Live title-screen execution and native startup/session timing have
+  not been measured for this change. Original Helmet Overlay/Titans execution,
+  UI initialization and final rendering remain unqualified.
+
+Four core integration controls use start-enabled QUST/SCPT records, ordinary Auto source
+selection and the real startup method. They cover a startup-registered load-event
+recipient, retained no-argument/1013/pause/page/gameplay admission, group-4 queries,
+repeated startup frames and save/restore context lifetime. Source registration
+alone does not establish mod support.

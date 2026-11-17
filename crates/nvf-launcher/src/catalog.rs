@@ -5,7 +5,9 @@
 //! - **The game's menu file** (`settings-menu.json` beside `NVForever.ini`,
 //!   `nvf_settings_layout::menu`): the page as the game laid it out at its last start, every
 //!   tab, category and row with its label, note and kind (switch, slider and its steps' words,
-//!   list and its choices). Used while its version is the launcher's ([`Catalog::from_menu`]).
+//!   list and its choices). Used while its version and table stamp are the launcher's
+//!   ([`Catalog::from_menu`]; dev builds between releases share a version, the stamp tells
+//!   their tables apart).
 //! - **Built in** ([`Catalog::built_in`]), before the game has written one (a first start, a
 //!   game older than the file, an update not started yet): the tabs, categories and row order
 //!   from the game's own table (`nvf_settings_layout::SECTIONS`, the crate the game's pause
@@ -43,6 +45,9 @@ pub struct Row {
     pub note: String,
     /// How it changes, from the game's menu file; `None` (built in): by the INI's value.
     pub kind: Option<menu::Kind>,
+    /// The value the game takes while the INI has none (the game's menu file); `None`: not
+    /// known (built in, or a file written before it had them).
+    pub default: Option<String>,
     /// Built in, with no words in the reference (a Tweaks row): shown only while the INI
     /// holds it, labelled by its key.
     pub unlisted: bool,
@@ -62,7 +67,8 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// The game's menu beside `ini` when it is this launcher's version, else the built-in one.
+    /// The game's menu beside `ini` when it is this launcher's version and table, else the
+    /// built-in one.
     pub fn load(ini: Option<&Path>) -> Catalog {
         ini.and_then(|p| std::fs::read_to_string(p.with_file_name(menu::MENU_FILE)).ok())
             .and_then(|t| Menu::parse(&t))
@@ -70,10 +76,12 @@ impl Catalog {
             .unwrap_or_else(Catalog::built_in)
     }
 
-    /// The game's menu `m`, when it is version `version`'s.
+    /// The game's menu `m`, when it is version `version`'s and of this launcher's table
+    /// (`nvf_settings_layout::layout_stamp`).
     pub fn from_menu(m: &Menu, version: &str) -> Option<Catalog> {
-        // Not this version's, or with no row (a broken write): the built-in copy.
-        if m.version != version || m.rows().next().is_none() {
+        // Not this version's, another build's table (or a file from before the stamp), or
+        // with no row (a broken write): the built-in copy.
+        if m.version != version || m.layout != nvf_settings_layout::layout_stamp() || m.rows().next().is_none() {
             return None;
         }
         let mut rows = Vec::new();
@@ -97,6 +105,7 @@ impl Catalog {
                         heading: heading.clone(),
                         note: r.note.clone(),
                         kind: Some(r.kind.clone()),
+                        default: (!r.default.is_empty()).then(|| r.default.clone()),
                         unlisted: false,
                         shown_with,
                         needs,
@@ -129,7 +138,7 @@ impl Catalog {
                 let english = |w: &'static str| w.to_string();
                 let shown_with = nvf_settings_layout::shown_with(k).map(|r| menu::Rule::of(r, english));
                 let needs = nvf_settings_layout::needs(k).into_iter().map(|r| menu::Rule::of(r, english)).collect();
-                rows.push(Row { key: k.to_string(), label, tab: p.tab.to_string(), heading: heading.clone(), note, kind: None, unlisted, shown_with, needs });
+                rows.push(Row { key: k.to_string(), label, tab: p.tab.to_string(), heading: heading.clone(), note, kind: None, default: None, unlisted, shown_with, needs });
             }
         }
         let tabs = TAB_ORDER.iter().filter(|t| LAUNCHER_TABS.contains(t) && rows.iter().any(|r| r.tab == **t)).map(|t| (t.to_string(), t.to_string())).collect();
@@ -160,7 +169,7 @@ pub fn parse(text: &str) -> Vec<Row> {
             in_note = false;
             if let Some((key, rest)) = h.split_once('`') {
                 let label = rest.trim_start_matches(':').trim().to_string();
-                out.push(Row { key: key.to_string(), label, tab: tab.clone(), heading: heading.clone(), note: String::new(), kind: None, unlisted: false, shown_with: None, needs: Vec::new() });
+                out.push(Row { key: key.to_string(), label, tab: tab.clone(), heading: heading.clone(), note: String::new(), kind: None, default: None, unlisted: false, shown_with: None, needs: Vec::new() });
             }
         } else if let Some(n) = line.strip_prefix("- On the page:") {
             if let Some(r) = out.last_mut() {
@@ -244,7 +253,7 @@ mod tests {
         let t = "# S\n\n## Gameplay › Game\n\n### `difficulty`: Difficulty\n\n- On the page: How hard the\n  fights are.\n- In full: more\n  words.\n- Registered in x\n\n## Audio\n\n### `music`: Music\n\n- On the page: Plays it.\n\n## Controls › the tab's own rows\n\n### `x`: X\n";
         let r = parse(t);
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0], Row { key: "difficulty".into(), label: "Difficulty".into(), tab: "Gameplay".into(), heading: Some("Game".into()), note: "How hard the fights are.".into(), kind: None, unlisted: false, shown_with: None, needs: vec![] });
+        assert_eq!(r[0], Row { key: "difficulty".into(), label: "Difficulty".into(), tab: "Gameplay".into(), heading: Some("Game".into()), note: "How hard the fights are.".into(), kind: None, default: None, unlisted: false, shown_with: None, needs: vec![] });
         assert_eq!((r[1].tab.as_str(), r[1].heading.as_deref(), r[1].note.as_str()), ("Audio", None, "Plays it."));
     }
 
@@ -277,15 +286,21 @@ mod tests {
         }
     }
 
-    /// The launcher never shows a row the game's table does not place, nor in another tab or
-    /// category than the game's [design: owner 2026-11-16].
     /// The launcher's tabs are the game's: each one still in its table, in its order.
     #[test]
     fn the_launchers_tabs_are_tabs_of_the_game() {
         let at: Vec<usize> = LAUNCHER_TABS.iter().map(|t| TAB_ORDER.iter().position(|o| o == t).unwrap_or_else(|| panic!("{t}: no longer a tab of the game"))).collect();
         assert!(at.windows(2).all(|w| w[0] < w[1]), "in the game's order");
+        // Each has a row no rule hides, so the page never leaves one of them empty (only the
+        // game's Controls tab can be, and the launcher does not show it).
+        let c = Catalog::built_in();
+        for t in LAUNCHER_TABS {
+            assert!(c.rows.iter().any(|r| r.tab == t && r.shown_with.is_none()), "{t}: every row can be hidden");
+        }
     }
 
+    /// The launcher never shows a row the game's table does not place, nor in another tab or
+    /// category than the game's [design: owner 2026-11-16].
     #[test]
     fn every_reference_row_is_where_the_game_places_it() {
         for r in parse(REFERENCE) {
@@ -296,9 +311,10 @@ mod tests {
 
     fn game_menu(version: &str) -> Menu {
         use menu::{Category, Kind as K, Row as R, Tab};
-        let row = |key: &str, kind: K| R { key: key.into(), label: key.to_uppercase(), note: "n".into(), kind, shown_with: None, needs: vec![] };
+        let row = |key: &str, kind: K| R { key: key.into(), label: key.to_uppercase(), note: "n".into(), kind, default: "1".into(), shown_with: None, needs: vec![] };
         Menu {
             version: version.into(),
+            layout: nvf_settings_layout::layout_stamp(),
             tabs: vec![
                 Tab { name: "Gameplay".into(), label: "Gameplay".into(), categories: vec![Category { group: None, heading: Some("Game".into()), rows: vec![row("hardcore", K::Switch)] }] },
                 Tab {
@@ -324,18 +340,19 @@ mod tests {
         more.tabs.insert(1, audio);
         let c2 = Catalog::from_menu(&more, env!("CARGO_PKG_VERSION")).unwrap();
         assert_eq!((c2.tab_names(), c2.rows.len()), (vec!["Gameplay".to_string(), TWEAKS_TAB.to_string()], 2));
-        let only_audio = Menu { version: more.version.clone(), tabs: vec![more.tabs[1].clone()] };
+        let only_audio = Menu { tabs: vec![more.tabs[1].clone()], ..more.clone() };
         assert_eq!(Catalog::from_menu(&only_audio, env!("CARGO_PKG_VERSION")), None, "nothing the launcher shows: built in");
         assert_eq!(c.rows[1].heading.as_deref(), Some("Combat › In Combat"));
-        assert_eq!((c.rows[1].label.as_str(), c.rows[1].kind.clone()), ("TWEAK-NO-COMBAT-MUSIC", Some(menu::Kind::Switch)));
+        assert_eq!((c.rows[1].label.as_str(), c.rows[1].kind.clone(), c.rows[1].default.as_deref()), ("TWEAK-NO-COMBAT-MUSIC", Some(menu::Kind::Switch), Some("1")));
         // The game's rules: from the file, else (a file without them) the shared table.
         let mut with_rules = game_menu(env!("CARGO_PKG_VERSION"));
-        with_rules.tabs[0].categories[0].rows.push(menu::Row { key: "shadow-distance".into(), label: "S".into(), note: "n".into(), kind: menu::Kind::Switch, shown_with: None, needs: vec![] });
+        with_rules.tabs[0].categories[0].rows.push(menu::Row { key: "shadow-distance".into(), label: "S".into(), note: "n".into(), kind: menu::Kind::Switch, default: String::new(), shown_with: None, needs: vec![] });
         with_rules.tabs[0].categories[0].rows.push(menu::Row {
             key: "vats-slowdown".into(),
             label: "V".into(),
             note: "n".into(),
             kind: menu::Kind::Switch,
+            default: String::new(),
             shown_with: None,
             needs: vec![menu::Rule { parent: "vats-style".into(), choices: vec!["Classic".into()], why: "Nur klassisch.".into() }],
         });
@@ -344,8 +361,14 @@ mod tests {
         assert_eq!(at("shadow-distance").needs.iter().map(|r| (r.parent.as_str(), r.why.as_str())).collect::<Vec<_>>(), [("sun-shadows", "Needs Sun Shadows.")]);
         assert_eq!(at("vats-slowdown").needs[0].why, "Nur klassisch.", "the file's words win");
         assert_eq!(at("hardcore").needs, vec![]);
+        assert_eq!(at("shadow-distance").default, None, "no default in the file: not known");
         assert_eq!(Catalog::from_menu(&m, "0.0.1"), None, "another version's menu: built in");
-        let empty = Menu { version: env!("CARGO_PKG_VERSION").into(), tabs: vec![] };
+        // The same version from a build of another table (dev builds share a version), or a
+        // file from before the stamp: built in.
+        for layout in ["0123456789abcdef", ""] {
+            assert_eq!(Catalog::from_menu(&Menu { layout: layout.into(), ..m.clone() }, env!("CARGO_PKG_VERSION")), None, "{layout:?}");
+        }
+        let empty = Menu { tabs: vec![], ..m.clone() };
         assert_eq!(Catalog::from_menu(&empty, env!("CARGO_PKG_VERSION")), None, "no row: built in, not an empty page");
         let dir = std::env::temp_dir().join(format!("nvf-launcher-menu-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

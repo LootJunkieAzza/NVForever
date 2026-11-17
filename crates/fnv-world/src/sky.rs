@@ -509,17 +509,6 @@ pub fn global_value(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<f32> {
 /// middle of sunrise, day from its end, high noon at 12 h, day until sunset begins, the
 /// sunset colour in its middle, night from its end, midnight at 24 h. Without the
 /// six-time layout, midnight and high noon fall back to night and day].
-/// The keys the game blends at `hour` for a colour set or adapter list with (`six`) or
-/// without the two extra times: [`time_keys`] with high noon, and night where it has
-/// midnight [observed 2026-11-16, base game, FalloutNV.esm's WastelandClear, whose high-noon
-/// and midnight columns are black: the picture is black at 12:06 and its level by the hour
-/// follows the line from day at sunrise end (08:00) to high noon at 12:00 and back to day
-/// at sunset begin (18:00); from 21:00 to 05:00 the sky stays (13, 14, 11), so midnight is
-/// not blended in. world.md §6 "High noon"].
-pub fn keys_at(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
-    time_keys(c, hour, six).map(|(t, w)| (if t == TimeOfDay::Midnight { TimeOfDay::Night } else { t }, w))
-}
-
 pub fn time_keys(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
     use TimeOfDay::*;
     let (mid, noon) = if six { (Midnight, HighNoon) } else { (Night, Day) };
@@ -545,6 +534,17 @@ pub fn time_keys(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
         }
     }
     [(Night, 1.0), (Night, 0.0)]
+}
+
+/// The keys the game blends at `hour` for a colour set or adapter list with (`six`) or
+/// without the two extra times: [`time_keys`] with high noon, and night where it has
+/// midnight [observed 2026-11-16, base game, FalloutNV.esm's WastelandClear, whose high-noon
+/// and midnight columns are black: the picture is black at 12:06 and its level by the hour
+/// follows the line from day at sunrise end (08:00) to high noon at 12:00 and back to day
+/// at sunset begin (18:00); from 21:00 to 05:00 the sky stays (13, 14, 11), so midnight is
+/// not blended in. world.md §6 "High noon"].
+pub fn keys_at(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
+    time_keys(c, hour, six).map(|(t, w)| (if t == TimeOfDay::Midnight { TimeOfDay::Night } else { t }, w))
 }
 
 impl Weather {
@@ -614,9 +614,11 @@ impl Weather {
 /// high-noon column the picture's level at 10:06, 11:06 and 11:36 is 0.54, 0.21 and 0.08
 /// of the day's, the day key's weights 0.475, 0.225 and 0.1; blended in linear light they
 /// would show as 0.71, 0.51 and 0.35]. A six-time set uses its high-noon column and never
-/// its midnight one ([`keys_at`]); in 29 of the 90 six-time weathers high noon is black
-/// [observed, `crates/fnv-world/examples/weather_dump.rs --survey`], and those go black
-/// at noon in the original too.
+/// its midnight one ([`keys_at`]). In 29 of the 90 six-time weathers high noon is black
+/// [observed, `crates/fnv-world/examples/weather_dump.rs --survey`]; the base game's own
+/// `WastelandClear` is one and goes black at noon in the original [observed], the others
+/// would too [hypothesis: only that one was looked at]. The Mojave's climate
+/// (`NVWastelandClear`, `NVWastelandClearNight`) has high-noon colours of its own.
 fn blend(set: Option<&Vec<[u8; 3]>>, c: &Climate, hour: f32) -> [f32; 3] {
     let Some(set) = set else { return [0.0; 3] };
     let mut bytes = [0.0f32; 3];

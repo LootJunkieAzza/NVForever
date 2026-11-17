@@ -1542,3 +1542,33 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   view, else on the view's edge 90 pixels in, turned so the point faces it
   [hypothesis: all of the placing; observer check 190]. Not the player's own grenade in
   its first 0.5 s. The Tweaks tab's three grenade-indicator switches (tweaks.md).
+
+
+### Hover text consumers of the ammo copy's alpha
+
+[documented] [GetUIFloatAlt](https://geckwiki.com/index.php?title=GetUIFloatAlt)
+returns -999 for a missing trait. It reads the named local trait; this contract does
+not substitute an inherited opacity or a new generic default.
+
+[design] The engine-created `ActionPoints/justify_right_text:1` ammo copy now
+materializes its local alpha only when the loaded template omits that trait. The
+value is the existing renderer's omitted-alpha fallback, 255. Explicit template
+values or expressions, including zero, remain authoritative. This happens only at
+copy creation, including a menu rebuild, and does not overwrite subsequent script
+writes. Parent alpha and visibility continue to control actual rendered pieces.
+No foreign tile or missing UI path acquires a fabricated trait.
+
+[hypothesis] A hover controller which copies that ammo alpha into its own title and
+row alpha can otherwise forward the missing sentinel into an explicit negative
+alpha: actual layout clamps it to zero while an independent backdrop remains
+visible. This isolates one consumer boundary; earlier blank-bar screenshots do not
+identify the current build or prove every missing label has this cause. Ordinary
+inventory, crosshair events and the original installed controller's full execution
+remain separate acceptance work. Native default/property publication parity has
+not been observed.
+
+[design] Three authored `nvf-play` controls run real HUD copy creation, compiled
+GetUIFloatAlt/SetUIFloatAlt forwarding and actual tile layout with nonempty title
+and row strings. They cover omitted alpha, explicit zero/expression and later
+foreign hiding, parent opacity/visibility and the missing-path sentinel. They are
+unexecuted at authoring; actual results are qualified by their exact executed head.
