@@ -17,8 +17,8 @@
 //! snapping steadies nothing: the shadows shimmer while the player stands still. The
 //! cascades held on the staggered schedule (shadow_rate.rs) keep the matrices they were
 //! drawn with, so a held cascade does not shimmer, and the shimmer comes as a pulse on the
-//! frames a farther cascade is drawn again: at half the frame rate for the middle cascade
-//! on Quality, and for both cascades on Performance.
+//! frames a farther cascade is drawn again: at half the frame rate for the second cascade
+//! on Quality and the first two on Performance, at a quarter for the farther ones.
 //!
 //! **What.** [`anchor_cascades`] moves each cascade of the sun and of the first-person
 //! arms' shade light (player_body.rs `ArmsShade`, which turns with the sun) across the
@@ -32,9 +32,9 @@
 //! [`ANCHOR_REACH_TEXELS`] texels of it on every world axis (so up to about 887 texels
 //! away in a straight line); past that it moves by whole texels in the light's axes, which
 //! keeps the grid where it was in that frame ([`pick_anchor`]). A cascade of another texel
-//! size takes a fresh anchor: the moon's single cascade by night, Performance's second
-//! cascade (the first covers the same slice in both modes, has the same texel and keeps
-//! its anchor), a view whose frustum changed. The anchors of cascades no longer built (a
+//! size takes a fresh anchor: the moon's single cascade by night, the cascades of the other
+//! Sun shadows mode (their slices differ: `sky::shadow_cascade_layout`), every cascade
+//! after a change of Shadow resolution (the map's side), a view whose frustum changed. The anchors of cascades no longer built (a
 //! light or view gone, fewer cascades, a light casting no shadows) are forgotten. Test aid `NVF_PLAY_TEST_SHADOW_ANCHOR=0` leaves the
 //! cascades on Bevy's grid through the origin, for measuring against.
 //!
@@ -60,8 +60,8 @@
 //! unit, a few hundredths of the nearest cascade's texel. That error changes from frame to
 //! frame with the light's turn under either snapping; it is the floor, and well below what
 //! a filtered shadow edge can show. The anchoring itself is worked out in 64-bit floats.
-//! What it costs: a few matrices per cascade a frame (three cascades for the sun and one
-//! for the arms' light per view).
+//! What it costs: a few matrices per cascade a frame (four cascades for the sun on Quality,
+//! three on Performance, and one for the arms' light, per view).
 
 use crate::player_body::ArmsShade;
 use crate::sky::Sun;

@@ -34,8 +34,12 @@ use nvf_assets::NifMaterial;
 use nvf_play::RefVisual;
 use std::collections::HashMap;
 
-/// Within this many units of the camera everything casts: the sun's first cascade
-/// (a twelfth of the 8,000-unit default reach) and the arms' shade light lie inside it.
+/// Within this many units of the camera everything casts, the arms' shade light's reach
+/// among it. Chosen when the sun's first cascade ended at a twelfth of the 8,000-unit
+/// default reach (667) and so lay inside it; with the layouts of #2843 the first cascade
+/// ends at 700 on Quality with 2048² maps but at 1,500 on Performance and on Quality with
+/// 4096², so there it reaches past this distance and may lose small far casters near its
+/// edge when thinning is on (off by default, [`DEFAULT_RATIO`]).
 pub const NEAR: f32 = 1000.0;
 
 /// The default ratio of bounding radius to distance below which a far object casts

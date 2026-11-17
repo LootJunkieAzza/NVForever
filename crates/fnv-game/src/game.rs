@@ -5441,6 +5441,14 @@ impl<'a> Game<'a> {
         if !self.activation_goes_on(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
+        if mode == ActMode::Hand {
+            if !self.pre_activation_allows(actor, target) {
+                return Ok(serde_json::json!({"result": "prevented"}));
+            }
+            if !self.activation_goes_on(actor, target) {
+                return Ok(serde_json::json!({"result": "destroyed"}));
+            }
+        }
         // The player's Disable Character Respec tweak: the activator that offers to remake
         // the character on leaving the start (VCG04ActivatorScript) does nothing
         // [observed: FalloutNV.esm SCPT 0x001164A4 shows the offer, MESG 0x001164A1; design:
@@ -5471,7 +5479,43 @@ impl<'a> Game<'a> {
     /// the target's action reference.
     fn activation_begins(&mut self, actor: FormId, target: FormId) -> bool {
         self.activation_heard(actor, target);
-        self.activation_goes_on(actor, target)
+        self.activation_goes_on(actor, target) && self.pre_activation_allows(actor, target) && self.activation_goes_on(actor, target)
+    }
+
+    /// Regular activation only: after OnActivate observers and before a block or
+    /// default action. An explicit numeric SetFunctionValue 0 prevents activation;
+    /// a void callback keeps the ordinary Call result without becoming a veto.
+    /// See docs/spec-notes/preactivation-events.md.
+    fn pre_activation_allows(&mut self, actor: FormId, target: FormId) -> bool {
+        use fnv_script::vm::XVal;
+        const EVENT: &str = "ShowOff:OnPreActivate";
+        let mut handlers: Vec<_> = self.handlers.iter().filter(|h| h.event.eq_ignore_ascii_case(EVENT)).cloned().collect();
+        if handlers.is_empty() { return true; }
+        handlers.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
+        // A callback may unregister an array-filtered later callback. Keep the
+        // dispatch snapshot's filters alive while its current allowed flag changes.
+        for handler in &handlers {
+            for (_, filter) in &handler.filters { self.ext.retain(filter); }
+        }
+        self.event_names.push(EVENT.into());
+        let door_run = self.npc_door_run.take();
+        let mut allowed = true;
+        for handler in &handlers {
+            let args = vec![XVal::Ref(actor.0), XVal::Num(if allowed { 1.0 } else { 0.0 })];
+            if !self.handler_matches(handler, &args, Some(target)) { continue; }
+            let ctx = RunCtx { self_ref: Some(target), action_ref: Some(actor), ..RunCtx::default() };
+            match self.run_function(&handler.func, Some(Value::Ref(target.0)), args, None, ctx) {
+                Ok(XVal::Num(value)) if self.udf_value_set && value == 0.0 => allowed = false,
+                Ok(_) => {},
+                Err(error) => self.handler_failed(format!("event handler for {EVENT}"), error),
+            }
+        }
+        self.npc_door_run = door_run;
+        self.event_names.pop();
+        for handler in &handlers {
+            for (_, filter) in &handler.filters { self.ext.release(filter); }
+        }
+        allowed
     }
 
     /// The extender's OnActivate handlers hear `actor` activating `target` (the target

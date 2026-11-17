@@ -37,7 +37,7 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.shadows = from.shadows;
     s.shadow_distance = from.shadow_distance;
     s.shadow_reach = from.shadow_reach;
-    s.shadow_cascades = from.shadow_cascades;
+    s.shadow_layout = from.shadow_layout;
     s.grade = from.grade;
     s.time_scale = from.time_scale;
     s.clock_running = from.clock_running;
