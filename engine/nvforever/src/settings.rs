@@ -9,8 +9,11 @@
 //! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--radius`; the volumes
 //! are the Sound tab, `nvf_play::audio_out::register_settings`)
 //! and the test aids. The draw distances are sliders here, each a part of the
-//! command line's distance (`draw_distance.rs`); the field of view, the frame-rate cap and the
-//! anti-aliasing and shadow-filter choices are sliders whose steps are the choices.
+//! command line's distance (`draw_distance.rs`), and the field of view a slider of whole
+//! degrees; a row of 7 or fewer values (the frame-rate cap, the shadow distance, the
+//! anti-aliasing, shadow-filter and shadow-resolution choices among them) is a list of its
+//! choices [design: the menu overhaul], whose INI value is the choice's name, an older
+//! slider's part still loading.
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
 use crate::fly::FlyCam;
@@ -1033,6 +1036,29 @@ fn register_graphics(app: &mut App) {
         },
         ChoiceList { names: |_| graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect(), chosen: shadow_filter_chosen, pick: take_shadow_filter, save: shadow_filter_chosen, load: take_shadow_filter, ask_keep: false },
     );
+    // The sun's shadow maps' side, 2048 (the default) or 4096, changed in play (#2843); saved
+    // as its name, the branch's older slider part (0 or 1) still loads.
+    add_choice_list(
+        app,
+        Setting {
+            key: "shadow-resolution",
+            group: GROUP_GRAPHICS,
+            label: "Shadow resolution",
+            note: "Size of the sun's and the flashlight's shadow maps: 4096 draws sharper shadows than 2048. It takes more video memory and a little frame rate.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect(),
+            chosen: shadow_resolution_chosen,
+            pick: take_shadow_resolution,
+            save: shadow_resolution_chosen,
+            load: take_shadow_resolution,
+            ask_keep: false,
+        },
+    );
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
@@ -1382,6 +1408,23 @@ fn take_shadow_filter(w: &mut World, text: &str) -> bool {
     match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_FILTERS.len())) {
         Some(i) => {
             w.resource_mut::<Graphics>().shadow_filter = graphics::SHADOW_FILTERS[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
+fn shadow_resolution_chosen(w: &World) -> String {
+    graphics::SHADOW_RESOLUTIONS[graphics::shadow_resolution_choice(w)].0.to_string()
+}
+
+/// The shadow resolution `text` names (or an older slider's part stands for: 0 is 2048, 1
+/// is 4096).
+fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_RESOLUTIONS.len())) {
+        Some(i) => {
+            graphics::set_shadow_resolution_choice(w, i);
             true
         }
         None => false,
@@ -2511,6 +2554,7 @@ dlss-model=Preset K
             ("fsr-library", &[]),
             ("anti-aliasing", &["--msaa", "--graphics-only"]),
             ("shadow-filter", &[]),
+            ("shadow-resolution", &[]),
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),
@@ -2660,6 +2704,26 @@ dlss-model=Preset K
         // No settings page (not --play): the INI is not applied, the command line decides.
         assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod shadow_resolution_tests {
+    use super::*;
+
+    /// The Shadow resolution list takes its choices by name (2048, 4096, as it saves them) and
+    /// the older slider's part of the row before the menu overhaul (0 is 2048, 1 is 4096).
+    #[test]
+    fn the_row_takes_its_names_and_the_older_slider_part() {
+        let mut w = World::new();
+        assert_eq!(shadow_resolution_chosen(&w), "2048", "the default without the map resource");
+        for (text, want) in [("4096", "4096"), ("0", "2048"), ("1", "4096"), (" 2048 ", "2048"), ("1.0", "4096")] {
+            assert!(take_shadow_resolution(&mut w, text), "{text}");
+            assert_eq!(shadow_resolution_chosen(&w), want, "{text}");
+            assert_eq!(w.resource::<bevy::light::DirectionalLightShadowMap>().size.to_string(), want, "{text}");
+        }
+        assert!(!take_shadow_resolution(&mut w, "big"));
+        assert_eq!(shadow_resolution_chosen(&w), "4096", "an unknown text leaves the choice");
     }
 }
 

@@ -552,7 +552,8 @@ struct Args {
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
     /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`);
-    /// `shadow-distance=<units>`, `cascades=<n>` and `shadow-thin=<ratio>` change them.
+    /// `shadow-distance=<units>`, `cascades=<n>` (n cascades spaced as before #2843, not the
+    /// modes' layouts) and `shadow-thin=<ratio>` change them.
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
@@ -1280,7 +1281,7 @@ fn main() -> AppExit {
     sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
     if performance_shadows {
-        sky_state.shadow_cascades = shadow_rate::PERFORMANCE_CASCADES;
+        sky_state.shadow_layout = sky::CascadeLayout::Performance;
     }
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
@@ -1734,6 +1735,8 @@ fn main() -> AppExit {
     // Placed models' and effect models' billboard nodes face the camera (#2549).
     .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+    // The sun's cascades' far bounds and texel sizes, logged when they change.
+    .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)

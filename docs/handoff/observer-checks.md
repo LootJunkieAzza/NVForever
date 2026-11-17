@@ -3221,3 +3221,13 @@ already talking takes over at once, same topic or another; nothing is queued or 
      x1 plus up to four from AmmoMissilelauncher75). Also whether a robot whose folder has
      no reload clip (Mister Gutsy's plasma gun or flamer) ever pauses as if reloading.
 
+## Answered 2026-11-17 (ResetAI right after AddScriptPackage, #2865)
+
+223. **Does the original keep a script package added just before ResetAI in the same
+     script run?** (P2; #2865; `crates/fnv-game/src/functions/ai_state.rs` `reset_ai`.)
+     Answered [observed, base game]: no. GSVictorRef given VES01aVictorNovacGoHomePackage
+     alone holds it; given it and ResetAI in one script he is on his own package two
+     loops later and stays there (owner-decision-captures.md, od_06, "AddScriptPackage
+     and ResetAI in one script run"). The runtime already does this. A job script cannot
+     name a reference, package or quest by Editor ID: build each with `BuildRef 0
+     <decimal form ID>`.

@@ -70,9 +70,10 @@ No NVForever row counts for these, so a preset leaves them unused:
 - `[Display] iMaxDecalsPerFrame`, `fDecalLOD1`, `fDecalLOD2`: the impact decals have no
   settings row (impact-decals.md).
 - `[Display] iTexMipMapSkip`, `iTexMipMapMinimum`: no row sets a texture size.
-- `[Display] iActorShadowCountInt`, `iActorShadowCountExt`, `iShadowMapResolution`: the
-  sun's shadow map size is fixed (`graphics.rs` `SHADOW_MAP`); no row counts actors'
-  shadows.
+- `[Display] iActorShadowCountInt`, `iActorShadowCountExt`, `iShadowMapResolution`: no
+  row counts actors' shadows; the sun's shadow map size is the Shadow resolution row's
+  (`shadow-resolution`, #2843), which no preset sets until the maintainer decides how the
+  presets map to it.
 - `[Display] fSpecularLODStartFade`, `fLightLODStartFade`: no row fades specular light or
   lights by distance.
 - `[TerrainManager] fTreeLoadDistance`, `fBlockLoadDistanceLow`, `fBlockLoadDistance`,

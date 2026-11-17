@@ -201,6 +201,22 @@ fn file_sizes_times_and_the_load_order() {
     assert_eq!(s(&mut g, "GetFileTimeSTR \"none.log\" 2 0"), "");
     assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 2)"), 6.0);
     assert!(n(&mut g, "(GetFileTime \"nvac.log\" 2)[0]") >= 2026.0);
+    // The values, in the computer's time zone: the file is given a written time of
+    // 2026-07-15 12:00:30 UTC. In mid-month the month reads 07 in every time zone, so
+    // the two orders tell apart whatever the zone.
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_784_116_830);
+    std::fs::File::options().write(true).open(game_dir.join("nvac.log")).unwrap().set_modified(at).unwrap();
+    let local = jiff::Timestamp::try_from(at).unwrap().to_zoned_datetime(jiff::tz::TimeZone::system());
+    let fields: Vec<f64> = (0..6).map(|i| n(&mut g, &format!("(GetFileTime \"nvac.log\" 2)[{i}]"))).collect();
+    let want = [local.year(), i16::from(local.month()), i16::from(local.day()), i16::from(local.hour()), i16::from(local.minute()), i16::from(local.second())];
+    assert_eq!(fields, want.map(f64::from).to_vec());
+    let (dmy, mdy) = (s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 0"), s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 1"));
+    assert_eq!(dmy, local.strftime("%d/%m/%y %H:%M").to_string());
+    assert_eq!(mdy, local.strftime("%m/%d/%y %H:%M").to_string());
+    assert_eq!((&dmy[3..5], &mdy[0..2], &dmy[6..8]), ("07", "07", "26"), "{dmy} {mdy}");
+    // A request outside 0-2 gives nothing [hypothesis].
+    assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 3)"), 0.0);
+    assert_eq!(s(&mut g, "GetFileTimeSTR \"nvac.log\" 3 0"), "");
     // The load order into NVForever's SUPNVSE.log [documented: DumpLoadOrder].
     q(&mut g, "DumpLoadOrder");
     let log = std::fs::read_to_string(layer.join("GameRoot").join("SUPNVSE.log")).unwrap();

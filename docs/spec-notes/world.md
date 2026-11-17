@@ -712,7 +712,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   telegraph pole and the trailer cast no shadow on the road. The renderer drew sun
   shadows by default from 2026-10-09 (owner decision); since 2026-10-13 they are off by
   default, as in the game, until their frame cost and flicker are fixed (owner decision;
-  `nvforever --sun-shadows` or the settings page turns them on), to 8,000 units in 3 cascades since 2026-10-12 for the frame
+  `nvforever --sun-shadows` or the settings page turns them on), to 8,000 units in 3 cascades since 2026-10-12 (4 on Quality and 3 on Performance, staggered, proposed in #2843) for the frame
   rate (docs/design/graphics-enhanced.md §5.3). With shadows on
   and the corrected sun, the rock formations west of Goodsprings shade the whole town
   from about 18:40 [observed: renderer]. Whether actors cast shadows in the game is not
