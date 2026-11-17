@@ -302,10 +302,11 @@ mod tests {
     /// #2662's grass fires, #2550's terrain height blending, #2551's terrain anti-tiling,
     /// #2688's sound cover, #2149's smooth terrain and its Debug row terrain wireframe, the
     /// overhaul's menu font, and the Advanced Movement rows of tech/movement-inertia, Weapon
-    /// Inertia and Camera Motion in place of weapon sway and head bob), by the group it
+    /// Inertia and Camera Motion in place of weapon sway and head bob, and Gore Shake), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 124] = [
+    const KNOWN: [(&str, &str); 125] = [
         ("detached-camera", "Gameplay"),
+        ("gore-shake", "Gameplay"),
         ("advanced-movement", "Gameplay"),
         ("movement-weight", "Gameplay"),
         ("movement-inertia", "Gameplay"),

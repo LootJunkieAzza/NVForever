@@ -150,6 +150,16 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - Command-line switches: `--no-weapon-lower`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `gore-shake`: Gore shake
+
+- On the page: On: a body part blown apart near you (a gory kill) shakes the view too. Off:
+  only real explosions shake it.
+- In full: A body part blown apart or severed sets off its own small blast, which shook the
+  view like an explosion's whenever it went off within about 1,400 units, so many
+  critical kills shook the screen. Off by default; real explosions shake the view either
+  way (the Tweaks tab's Scale Explosion Shake sizes that shake).
+- Registered in `engine/nvf-play/src/shake.rs`
+
 ### `field-of-view`: Field of view
 
 - On the page: The game's field of view in degrees across a 4:3 picture (75 as the

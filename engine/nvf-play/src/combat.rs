@@ -462,6 +462,10 @@ pub struct ExplosionFx {
     pub normal: Option<V3>,
     /// How it is drawn.
     pub look: ExplosionLook,
+    /// A body part's own blast as it is blown apart or severed (its BPTD's explodable or
+    /// severable explosion, nvforever `dismember`), not a weapon's or a mine's: it shakes
+    /// the view only with the Gore Shake setting on (`crate::shake`).
+    pub gore: bool,
 }
 
 /// How an explosion is drawn (`nvforever::shot_fx`).
@@ -5588,13 +5592,13 @@ fn fly(
         let reach = c.forms.setting("fExplosionSplashRadius").filter(|r| *r > 0.0).unwrap_or(WATER_BLAST_REACH);
         let water = water_thrown_up(at, phys.world.water_surface_for(at), ground.as_ref().map(|g| g.point[2]), reach);
         let look = if water.is_some() { ExplosionLook::Hidden } else { ExplosionLook::Own };
-        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal), look });
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal), look, gore: false });
         if let Some(surface) = water {
             let point = [at[0], at[1], surface];
             stats.water_blasts += 1;
             info!("combat: explosion {} throws up water at ({:.0}, {:.0}, {:.0}), {:.0} units from the surface", x.edid.as_deref().unwrap_or("?"), point[0], point[1], point[2], (at[2] - surface).abs());
             // No one's: it is not heard as a second blast (detection hears the blast's).
-            effects.2.write(ExplosionFx { explosion: WATER_EXPLOSION, point, cause: None, normal: None, look: ExplosionLook::WaterSurface });
+            effects.2.write(ExplosionFx { explosion: WATER_EXPLOSION, point, cause: None, normal: None, look: ExplosionLook::WaterSurface, gore: false });
             if let Some(splash) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&WATER_EXPLOSION)) {
                 for sound in splash.sound_1.into_iter().chain(splash.sound_2) {
                     effects.0.write(PlaySound { sound, at: Some(point) });

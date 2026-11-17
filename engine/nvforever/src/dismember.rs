@@ -634,7 +634,7 @@ fn throw_gore(
         }
         // The explosion (visual and sound) and the blood.
         if let Some(x) = explosion {
-            explosions.write(ExplosionFx { explosion: x, point: at_a, cause: None, normal: None, look: ExplosionLook::Own });
+            explosions.write(ExplosionFx { explosion: x, point: at_a, cause: None, normal: None, look: ExplosionLook::Own, gore: true });
             if let Some(ex) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&x)) {
                 for sound in ex.sound_1.into_iter().chain(ex.sound_2) {
                     sounds.write(PlaySound { sound, at: Some(at_a) });
