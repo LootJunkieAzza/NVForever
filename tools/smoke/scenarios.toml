@@ -31810,3 +31810,28 @@ order = [[
 forbid = [
   { re = 'idle: Lucky38MrHouseREF plays MrHouseTalk', label = "the screen never plays the pod's talk idles" },
 ]
+
+[[scenario]]
+name = "perf-log"
+source = "engine/nvforever/src/perf_overlay/perf_log.rs (issue #2798): with no switch and the overlay hidden, the log has a performance line after a minute of play, a hitch line for a frame the test aid stalls 400 ms, the last stretch's line at the exit and the exit summary"
+note = "The stall comes at 30 s on the world aids' clock; the minute line after 60 s of play (the start's loading screen is left out of it), so the run lasts 75 s. The GPU part is a time where the render diagnostics record one, else the reason (no timestamps are taken by default)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/reports/summary.rs", "engine/nvforever/src/reports/anomaly.rs"]
+env = { NVF_PLAY_TEST_STALL = "30:400" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 75
+expect = [
+  { re = 'perf \(every minute\): 6\d\.\d s of play in \S+, cell .*: [\d.]+ fps, frame mean [\d.]+ ms, 1% low [\d.]+ ms, slowest [\d.]+ ms; main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\), GPU (time .+|[\d.]+ ms); VRAM ([\d.]+ / [\d.]+ GB|not read); RAM .*; CPU .*; upscaling .*; frame generation .*; frame cap .*; display sync .*; hitches [1-9]\d*; left out [\d.]+ s loading, [\d.]+ s paused; hint: .+', count = 1, label = "one minute line, every part said, the stalled frame among its hitches" },
+  { text = "test aid: stalling a frame 400 ms", count = 1, label = "the test aid stalls one frame" },
+  { re = 'perf hitch: (4\d\d|[5-9]\d\d|\d{4,}) ms in \S+, cell .*; last spans main [\d.]+ ms.*: \D+ longest', label = "the stalled frame logs a hitch line with its spans and the longest part" },
+  { re = 'perf \(exit\): [\d.]+ s of play in ', count = 1, label = "the last stretch's line at the exit" },
+  { re = 'perf summary: [\d.]+ min of play, [1-9]\d* hitches over 250 ms; .*left out [\d.]+ s loading, [\d.]+ s paused$', count = 1, label = "the exit summary's first line" },
+  { re = 'perf summary: \S+ \((worldspace|interior)\): [\d.]+ min, [1-9]\d* frames, median [\d.]+ ms, p95 [\d.]+ ms, p99 [\d.]+ ms, over 33 ms [\d.]+%, hitches \d+; frames by ms 0-8 \d+%', label = "a place's frame-time distribution in the exit summary" },
+]
+order = [[
+  "test aid: stalling a frame 400 ms",
+  { re = 'perf hitch: ' },
+  { re = 'perf \(every minute\): ' },
+  { re = 'perf \(exit\): ' },
+  { re = 'perf summary: [\d.]+ min of play' },
+]]
