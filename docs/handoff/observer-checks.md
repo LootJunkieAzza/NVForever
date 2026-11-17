@@ -3234,6 +3234,12 @@ already talking takes over at once, same topic or another; nothing is queued or 
      save has loaded, so a `coc` from the main menu is not enough; TTW's "missing
      dependency" box pauses the game until it is clicked; the game can hang on its quit
      line and has to be closed before the next run.
+     Sweep 2026-11-17 (27 worldspaces, world.md section 6 "Sweep of the other
+     worldspaces"): most match; Point Lookout, Anchorage, The Pitt's bridge and the
+     nuked Divide do not. To run a TTW capture: Mod Organizer 2 must be opened by the
+     owner first (started from a session it cannot launch the game: error 5), the
+     launch then goes through it (`moshortcut://:Tale of Two Wastelands`); the base
+     game's own load order has no add-ons, so their worldspaces need this route too.
      Left to check: the sky level against "LUM Ramp No Tex" in a third worldspace
      (Point Lookout, Zion, The Pitt); the Capital Wasteland's ground level; the sunrise
      sky; the sky near the sun at noon.
