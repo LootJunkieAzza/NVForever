@@ -15797,6 +15797,38 @@ expect = [
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
 
 [[scenario]]
+name = "gore-shake-off"
+source = "owner 2026-11-17: a limb blown apart sets off its body part's own blast (FalloutNV.esm DefaultBodyPartData explodable explosion 0x0001540D), which #1892's explosion shake took for a real explosion: a shake on critical kills. The Gore Shake setting (Gameplay > Camera) is off by default, so that blast leaves the view still (engine/nvf-play/src/shake.rs)"
+note = "as dismember-chet's first hit: the sniper rifle's 500 on Chet's head explodes it a few hundred units from the player, inside the reach a blast is felt; nothing turns the setting on"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/shake.rs", "engine/nvforever/src/dismember.rs"]
+env = { NVFOREVER_HOME = "gore-shake-off-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'dismember: .* 0x00104C79: Head exploded \(overkill', label = "the head is blown apart" },
+  { re = "shake: a body part's blast \\S+ \\d+ units away leaves the view still \\(Gore Shake off\\)", count = 1, label = "its blast does not shake the view by default" },
+]
+forbid = [
+  { text = "shakes the view (Gore Shake on)", label = "no gore blast shakes the view with the setting off" },
+]
+
+[[scenario]]
+name = "gore-shake-on"
+source = "owner 2026-11-17: the Gore Shake setting turned on brings the shake back for a body part's own blast (engine/nvf-play/src/shake.rs)"
+note = "as gore-shake-off, with the settings page's Gore Shake switch flipped on in the pause menu first (its own home, so the stored switch reaches no other scenario)"
+areas = ["combat", "settings"]
+paths = ["engine/nvf-play/src/shake.rs", "crates/nvf-settings-layout/"]
+env = { NVFOREVER_HOME = "gore-shake-on-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "4:6.5", NVF_PLAY_TEST_SETTINGS = "4.5:page,5:gore-shake", NVF_PLAY_TEST_HIT = "9:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition", NVF_PLAY_TEST_GOTO = "7:-583:440:700", NVF_PLAY_TEST_LOOK = "7.5:0:-10" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 16
+order = [[
+  { text = "settings: gore-shake on", label = "the switch is turned on" },
+  { re = 'dismember: .* 0x00104C79: Head exploded \(overkill', label = "the head is blown apart" },
+  { re = "shake: a body part's blast \\S+ \\d+ units away shakes the view \\(Gore Shake on\\)", label = "its blast shakes the view" },
+]]
+
+[[scenario]]
 name = "blast-ragdoll-corpse"
 source = "#2346: a blast never reached a corpse whose ragdoll had been built (its hit volume is dropped then, and blasts asked only the volumes); blasts now reach it by its ragdoll's bounds and bodies (engine/nvf-play/src/combat.rs view, blast_targets_near; PhysWorld::ragdoll_bounds) [design]"
 note = "the hit aid kills Chet at 8 s (500 damage with a knife on the torso: Dismember Only, and the torso cannot be severed, so he stays whole); his ragdoll settles (it is set at rest by MAX_AWAKE, 3 s of physics time, at the latest); at 20 s, twelve seconds after the kill, a frag grenade's explosion is placed at his corpse. The aids cannot wait for the rest line itself, so the margin covers physics running at a quarter of real time. The blast's lines come in the code's order: the corpse's roll reason, then the blast on him, then the explosion's summary (engine/nvf-play/src/combat.rs fly). A placed explosion has no source weapon, so the corpse line gives that reason instead of a roll (the source-weapon gate is left as it is until observer check 136)"

@@ -76,11 +76,16 @@ fn shake(
     mut shakes: ResMut<Shakes>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
 ) {
-    for e in booms.read().filter(|e| shakes_view(e, *gore)) {
+    for e in booms.read() {
         let Some(feet) = player.as_deref().map(|p| p.feet) else { continue };
         let radius = combat.as_deref().and_then(|c| c.forms.explosions.get(&e.explosion)).map_or(0.0, |x| x.radius);
         let d = Vec3::from(feet).distance(Vec3::from(e.point));
-        if let Some(p) = crate::rumble::explosion(d, radius) {
+        let Some(p) = crate::rumble::explosion(d, radius) else { continue };
+        let shakes_it = shakes_view(e, *gore);
+        if e.gore {
+            info!("shake: a body part's blast {} {d:.0} units away {}", e.explosion, if shakes_it { "shakes the view (Gore Shake on)" } else { "leaves the view still (Gore Shake off)" });
+        }
+        if shakes_it {
             shakes.0.push((p.strong, p.secs, p.secs));
         }
     }
