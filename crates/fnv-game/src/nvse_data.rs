@@ -62,17 +62,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: GetUserTime; observed: a string map of the 8 keys] the computer's
         // local time.
         "getusertime" => {
-            use chrono::{Datelike, Timelike};
-            let now = chrono::Local::now();
+            let now = jiff::ZonedDateTime::now();
             let pairs: [(&str, u32); 8] = [
                 ("Year", now.year().max(0) as u32),
-                ("Month", now.month()),
-                ("DayOfWeek", now.weekday().num_days_from_sunday()),
-                ("Day", now.day()),
-                ("Hour", now.hour()),
-                ("Minute", now.minute()),
-                ("Second", now.second()),
-                ("Millisecond", now.timestamp_subsec_millis().min(999)),
+                ("Month", now.month() as u32),
+                ("DayOfWeek", now.weekday().to_sunday_zero_offset() as u32),
+                ("Day", now.day() as u32),
+                ("Hour", now.hour() as u32),
+                ("Minute", now.minute() as u32),
+                ("Second", now.second() as u32),
+                ("Millisecond", (now.millisecond() as u32).min(999)),
             ];
             let entries = pairs.iter().map(|(k, v)| (XKey::Str((*k).to_string()), XVal::Num(f64::from(*v)))).collect();
             XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))

@@ -26,6 +26,21 @@ pub(crate) struct Sample {
 pub(crate) struct PlayerSequences {
     pub first: Vec<Sample>,
     pub third: Vec<Sample>,
+    /// The device-menu frame, also when the virtual world clock is stopped.
+    pub first_menu_dt: f32,
+}
+
+/// Consume actual admitted menu time once. Physics can keep preparing a pose
+/// while the script runtime is held, with its last frame configuration retained.
+fn prepare_frame(game: &fnv_game::Game<'_>, samples: &mut PlayerSequences, clock: &mut Option<f64>) {
+    samples.first.clear();
+    samples.third.clear();
+    samples.first_menu_dt = 0.0;
+    let now = game.first_person_menu_animation_time();
+    let elapsed = clock.replace(now).map_or(0.0, |before| (now - before).max(0.0));
+    if !game.loading && game.in_menu() && game.menu_open(fnv_game::game::menus::PIPBOY) && elapsed.is_finite() {
+        samples.first_menu_dt = elapsed as f32;
+    }
 }
 
 pub(crate) fn prepare(
@@ -34,12 +49,15 @@ pub(crate) fn prepare(
     mut models: ModelCtx,
     mut samples: ResMut<PlayerSequences>,
     mut told: Local<HashSet<u32>>,
+    mut menu_clock: Local<Option<f64>>,
 ) {
     samples.first.clear();
     samples.third.clear();
-    let Some(script) = script.as_deref_mut() else { return; };
-    let Some(runtime) = script.rt.as_mut() else { return; };
+    samples.first_menu_dt = 0.0;
+    let Some(script) = script.as_deref_mut() else { *menu_clock = None; return; };
+    let Some(runtime) = script.rt.as_mut() else { *menu_clock = None; return; };
     let g = &mut runtime.game;
+    prepare_frame(g, &mut samples, &mut menu_clock);
     let requests: Vec<_> = g.anim_paths.sequences.iter()
         .filter(|((actor, _, _), _)| *actor == FormId::PLAYER_REF)
         .map(|(_, request)| request.clone()).collect();
@@ -79,4 +97,72 @@ pub(crate) fn prepare(
     samples.first.sort_by_key(|s|s.request.serial);
     samples.third.sort_by_key(|s|s.request.serial);
     told.retain(|serial|active.contains(serial));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Resource)]
+    struct ClockGame(fnv_game::Game<'static>);
+
+    fn consume_frame(game: Res<ClockGame>, mut samples: ResMut<PlayerSequences>, mut clock: Local<Option<f64>>) {
+        // The same admission consumer used by prepare; decoded asset loading and
+        // ScriptState/Runtime construction are deliberately outside this seam.
+        prepare_frame(&game.0, &mut samples, &mut clock);
+    }
+
+    #[test]
+    fn prepare_frame_uses_admitted_menu_time_once_when_runtime_ticks_are_skipped() {
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(crate::outfits::tests::actor_forms(vec![])));
+        let refs: &'static fnv_sim::RefTable = Box::leak(Box::default());
+        let mut game = crate::outfits::tests::game(fnv_sim::World::new(forms, refs, Default::default()));
+        game.cfg.frame_seconds = 0.125;
+        game.menu = Some(fnv_game::game::menus::INVENTORY);
+        let mut app = App::new();
+        app.insert_resource(ClockGame(game)).init_resource::<PlayerSequences>().add_systems(Update, consume_frame);
+        app.update(); // Establish the runtime's clock origin.
+        assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0);
+        app.world_mut().resource_mut::<ClockGame>().0.tick();
+        app.update();
+        assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.125);
+        let frame = app.world().resource::<ClockGame>().0.frame;
+        // A retained Pip-Boy context and positive cfg are not a new script tick.
+        // This covers the actual producer/prepare-frame boundary without claiming
+        // that ordinary Escape input can enter pause over an active engine menu.
+        for _ in 0..3 {
+            app.update();
+            assert_eq!(app.world().resource::<ClockGame>().0.frame, frame);
+            assert_eq!(app.world().resource::<ClockGame>().0.cfg.frame_seconds, 0.125);
+            assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "retained configuration must not animate a held pose");
+        }
+        app.world_mut().resource_mut::<ClockGame>().0.page_tick(fnv_game::game::menus::START);
+        app.update();
+        assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "a Mods page frame does not admit device animation time");
+        app.world_mut().resource_mut::<ClockGame>().0.tick();
+        app.update();
+        assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.125, "resuming admits one current frame");
+        {
+            let mut game = app.world_mut().resource_mut::<ClockGame>();
+            game.0.loading = true;
+            game.0.tick();
+        }
+        app.update();
+        assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "loading keeps the device clock held");
+        // A replacement runtime starts a fresh cumulative clock. The renderer's
+        // old cursor must not turn the reversal into a frame or replay past time.
+        for _ in 0..2 {
+            let mut replacement = crate::outfits::tests::game(fnv_sim::World::new(forms, refs, Default::default()));
+            replacement.cfg.frame_seconds = 0.125;
+            replacement.menu = Some(fnv_game::game::menus::INVENTORY);
+            app.world_mut().resource_mut::<ClockGame>().0 = replacement;
+            app.update();
+            assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "a reset/reversed clock establishes a fresh origin");
+            app.world_mut().resource_mut::<ClockGame>().0.tick();
+            app.update();
+            assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.125, "the replacement runtime resumes with only its admitted frame");
+            app.update();
+            assert_eq!(app.world().resource::<PlayerSequences>().first_menu_dt, 0.0, "a current frame is never replayed");
+        }
+    }
 }

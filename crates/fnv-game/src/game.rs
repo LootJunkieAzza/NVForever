@@ -4058,6 +4058,7 @@ impl<'a> Game<'a> {
         self.small_tick();
         self.vheyes_tick();
         self.knvse_tick();
+        self.advance_first_person_menu_clock();
         // kNVSE's AnimGroupOverride folders: which hold for each actor.
         self.anim_folders_tick();
         // ppNVSE's CallLoop functions due (`crate::nvse_pp`).

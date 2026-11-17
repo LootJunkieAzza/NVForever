@@ -24,7 +24,9 @@ rand_core = "0.9"
 rand_chacha = "0.9"
 rayon = "1"
 tracing = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Local time for xNVSE GetUserTime, GetFileTime and GetTimeStamp (chrono was dropped: it is
+# unmaintained, RUSTSEC-2026-0543).
+jiff = "1"
 # SUP's screenshots and QR codes (image_files.rs): PNG, the version the engine already
 # builds; QR codes for TextToQRCode (docs/design/dependencies.md).
 png = "0.18"

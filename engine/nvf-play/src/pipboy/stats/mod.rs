@@ -1078,7 +1078,8 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
     v.desc_max = 0;
     if let Some(row) = rows.get(v.selected[tab]) {
         if let Some(icon) = &row.icon {
-            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, ICON_ZOOM, c.bright());
+            let zoom = ICON_ZOOM * c.picture_zoom(icon, 256.0);
+            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, zoom, c.bright());
         }
         let sep = Vec2::new(d.min.x + SEPARATOR.0, d.min.y + SEPARATOR.1);
         c.line(p, sep.x, sep.y, d.max.x - sep.x, THICK, amber(LINE));
@@ -1134,7 +1135,8 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
             let h = 290.0 + th;
             let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
             if let Some(icon) = &st.icon {
-                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, ICON_ZOOM, c.bright());
+                let zoom = ICON_ZOOM * c.picture_zoom(icon, 256.0);
+                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, zoom, c.bright());
             }
             centred(p, c, st.title, mid, top + 290.0, bw);
             centred(p, c, &st.name, mid, top + 340.0, bw);
@@ -1147,7 +1149,8 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
         let path = karma_picture(picture);
-        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, c.bright());
+        let zoom = ICON_ZOOM * c.picture_zoom(&path, 256.0);
+        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, zoom, c.bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
             centred(p, c, title, mid, y, bw);
@@ -1357,6 +1360,10 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
         AidStep::Perk(_) | AidStep::Fame(..) | AidStep::Use(_) | AidStep::LongDesc => {}
     }
 }
+
+#[cfg(test)]
+#[path = "hd_art_tests.rs"]
+mod hd_art_tests;
 
 #[cfg(test)]
 mod tests {

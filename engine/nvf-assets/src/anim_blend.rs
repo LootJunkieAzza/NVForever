@@ -140,6 +140,17 @@ pub fn settle_inv(y: f32) -> f32 {
 }
 
 impl Layer {
+    fn advance_fade(&mut self, dt: f32) {
+        if self.leaving {
+            let down = if self.fade_out <= 0.0 { 1.0 } else { dt / self.fade_out };
+            self.ease = (self.ease - down).max(0.0);
+        } else {
+            let up = if self.fade_in <= 0.0 { f32::INFINITY } else { dt / self.fade_in };
+            self.ease = (self.ease + up).min(1.0);
+            self.weight = if self.target > self.weight { (self.weight + up).min(self.target) } else { (self.weight - dt / DEFAULT_FADE).max(self.target) };
+        }
+    }
+
     /// The fade as the blend takes it: straight, or ([`Self::smooth`]) through [`settle`]:
     /// coming in it follows the curve; going out it follows the curve's mirror, so two
     /// layers of a priority crossing over the same time share the bones by the curve
@@ -656,14 +667,7 @@ impl Animator {
                 let next = l.time + dt * l.rate * l.clip.frequency;
                 self.wrapped |= (next / len).floor() != (l.time / len).floor();
             }
-            if l.leaving {
-                let down = if l.fade_out <= 0.0 { 1.0 } else { dt / l.fade_out };
-                l.ease = (l.ease - down).max(0.0);
-            } else {
-                let up = if l.fade_in <= 0.0 { f32::INFINITY } else { dt / l.fade_in };
-                l.ease = (l.ease + up).min(1.0);
-                l.weight = if l.target > l.weight { (l.weight + up).min(l.target) } else { (l.weight - dt / DEFAULT_FADE).max(l.target) };
-            }
+            l.advance_fade(dt);
             match l.mode {
                 Mode::Synced => {
                     let w = l.weight * l.ease;
@@ -679,6 +683,18 @@ impl Animator {
             self.wrapped |= next >= 1.0;
             self.phase = next.rem_euclid(1.0);
         }
+    }
+
+    /// Advance the selected layers' blends and the final pose's smoothing clock,
+    /// without moving clip time or the locomotion phase. A menu can animate a
+    /// first-person script pose while the world stays held (pipboy.md §2).
+    pub fn advance_pose_blends(&mut self, dt: f32, select: impl Fn(&Layer) -> bool) {
+        if !dt.is_finite() || dt <= 0.0 { return; }
+        self.last_dt += dt;
+        for layer in &mut self.layers {
+            if select(layer) { layer.advance_fade(dt); }
+        }
+        self.layers.retain(|layer| layer.ease > 0.0 || !layer.leaving);
     }
 
     /// Blend the layers into [`Self::locals`].
@@ -998,6 +1014,44 @@ mod tests {
         a.advance(0.21,1.0);
         a.pose();
         assert_eq!(a.locals[2].translation.x,10.0);
+    }
+
+    #[test]
+    fn admitted_pose_time_moves_a_smoothed_overlay_without_ticking_ordinary_layers() {
+        use fnv_nif::anim::{Key, KeyKind, Keys};
+        let mut a = animator();
+        a.smooth_seams(Some(0.1));
+        let base = clip(&[("A", [10.0, 0.0, 0.0], 200), ("B", [0.0, 10.0, 0.0], 200)], 1.0);
+        let mut overlay = (*clip(&[("A", [30.0, 0.0, 0.0], 1)], 1.0)).clone();
+        overlay.tracks[0].1 = Arc::new(TransformTrack {
+            translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: [(0.0, 30.0), (1.0, 50.0)].into_iter().map(|(time, x)| Key { time, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).collect() }),
+            rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None,
+        });
+        let overlay = Arc::new(overlay);
+        let base_slot = a.want(&base, 0, 1.0, Mode::Loop, 0.5);
+        a.layers[base_slot].ease = 0.5;
+        a.layers[base_slot].time = 0.125;
+        a.pose();
+        let ordinary_pose = a.locals[3];
+        a.begin();
+        a.want(&base, 0, 1.0, Mode::Loop, 0.5);
+        let slot = a.want(&overlay, 1, 1.0, Mode::Once, 0.25);
+        a.layers[slot].sequence_priority = 1;
+        a.end();
+        let phase = a.phase;
+        a.advance(0.0, 1.0);
+        a.advance_pose_blends(0.25, |layer| layer.tag == 1);
+        a.pose();
+        assert_eq!(a.locals[2].translation.x, 30.0, "the smoothed pose must accept the admitted menu sample");
+        assert_eq!(a.locals[3], ordinary_pose, "the uncovered ordinary pose stays held");
+        assert_eq!((a.layers[base_slot].ease, a.layers[base_slot].time), (0.5, 0.125));
+        assert_eq!(a.layers[slot].time, 0.0, "selected blends do not advance sample time");
+        assert_eq!(a.phase, phase, "locomotion phase stays held");
+        a.layers[slot].time = 0.5;
+        a.advance(0.0, 1.0);
+        a.advance_pose_blends(0.0, |_| true);
+        a.pose();
+        assert_eq!(a.locals[2].translation.x, 30.0, "a frame without admitted time keeps its shown pose");
     }
 
     #[test]

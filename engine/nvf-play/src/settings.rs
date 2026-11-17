@@ -112,7 +112,7 @@ impl GivenSwitches {
     /// `--a, --b`; `None`: none of them. Only the switch's name is matched, not its value:
     /// `--graphics-only no-glow` given counts for every row that names `--graphics-only`,
     /// whatever it turns off.
-    fn named_in(&self, switches: &str) -> Option<String> {
+    pub(crate) fn named_in(&self, switches: &str) -> Option<String> {
         let hits: Vec<&str> = note_switches(switches).into_iter().filter(|n| self.given.iter().any(|g| g == n)).collect();
         (!hits.is_empty()).then(|| hits.join(", "))
     }
@@ -358,7 +358,7 @@ impl Setting {
 
     /// The state as kept in the INI: a slider's to the thousandth [`Slider::fit`] keeps
     /// (a step under a hundredth, a colour's 1 of 255, needs it), at least two places.
-    fn stored_text(&self, v: f32) -> String {
+    pub(crate) fn stored_text(&self, v: f32) -> String {
         match self.slider {
             Some(_) => {
                 let mut t = format!("{v:.3}");

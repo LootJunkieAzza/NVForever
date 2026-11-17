@@ -11932,8 +11932,9 @@ source = "owner 2026-11-16: the launcher's Settings page is the game's menu; the
 areas = ["settings"]
 paths = ["engine/nvf-play/src/settings_menu.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/", "crates/nvf-launcher/src/catalog.rs"]
 # Its own home: the run reads that home's INI and writes the menu file beside it, never the machine's.
+# No switch a row names (--no-voice is the Dialogue Voice row's): only a player's start writes the file.
 env = { NVFOREVER_HOME = "settings-launcher-menu-home" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-messages"]
 run_seconds = 10
 expect = [
   { re = 'settings: menu for the launcher (written|unchanged): \S.*settings-menu\.json \(8 tabs, \d{3,} rows\)', count = 1, label = "the page written beside the INI: the eight tabs, every row" },
