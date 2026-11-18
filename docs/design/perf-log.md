@@ -113,8 +113,14 @@ compared by form ID; names are looked up only on a change. The usage sampler col
 own thread once a second for 5 s of each minute. GPU timestamps are not added for the log:
 Bevy's render diagnostics can only be added when the app is built and cost GPU time and a
 read-back every frame; the line uses them where the overlay's split row or a measuring aid
-added them [design, #2798]. The cost against the stress baseline is to be measured before
-and after (target under 0.1 ms a frame) [hypothesis: to be measured, #2798].
+added them [design, #2798]. Measured against the stress baseline [observed 2026-11-18, PR #2975:
+`tools/stress compare battle`, 10 fighters a side, ABBA, one warm-up and three measured launches a
+side, the 45 s window after 10 s of play, vsync off, 1280x800, RTX 5070 Ti; main 72533ce2a against
+the branch on it]: median frame 5.76 ms on main, 5.66 ms with the log (-0.10 ms; run-to-run
+spread 0.32-0.36 ms), p99 9.43 against 9.26 ms; the harness's verdict is no change beyond noise.
+So the per-frame work costs less than this comparison can resolve (about 0.3 ms here); that it
+is under the 0.1 ms target rests on the reading above [hypothesis]. The window is the first
+minute of play, so the sampler's 5 s and the minute's line fall outside it.
 
 ## 5. Test aid
 
