@@ -562,6 +562,21 @@ end";
     assert_eq!(l[1], "(v3 Set= lambda[1]((v2 Add 1)))");
 }
 
+/// A block lambda right after a call's name, no space before its parenthesis, is the
+/// call's argument, not part of the name [observed: an installed mod's
+/// `SetOnMenuOpenEventHandler(begin function{int iMenuID}`].
+#[test]
+fn a_lambda_right_after_the_call_name_is_its_argument() {
+    let l = lets("int r
+int x
+begin GameMode
+  let r := Call(begin function{x}
+    SetFunctionValue x
+  end) 1
+end");
+    assert_eq!(l[0], "(v1 Set= Call(lambda[1](1 statements) 1))");
+}
+
 // ---- strings (task B1) ---------------------------------------------------------------
 
 impl Locals {
@@ -1748,6 +1763,16 @@ fn spellings_the_extender_registers_are_names_too() {
     assert_eq!(t.by_name("movetomarker"), t.by_name("moveto"));
     assert_eq!(t.by_name("pc1st"), t.by_name("ispc1stperson"), "[observed: Enhanced FOV.esp's bytes]");
     assert!(t.by_name("moveto").is_some());
+}
+
+#[test]
+fn set_crit_dam_is_set_weapon_crit_damage() {
+    // [observed: gr_AssortedSecuritronUpgrades.txt, `SetCritDam <value> <weapon>` beside
+    // `SetCritPerc`; it compiled as an unknown function, so the weapons kept their damage.]
+    let t = table();
+    let resolved = |n: &str| t.unnumbered.get(n).map(|u| u.name.clone()).or_else(|| t.by_name(n).map(|o| format!("{o:?}")));
+    assert_eq!(resolved("setcritdam"), resolved("setweaponcritdamage"));
+    assert!(resolved("setcritdam").is_some());
 }
 
 #[test]
