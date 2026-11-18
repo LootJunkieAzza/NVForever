@@ -42,6 +42,7 @@ import bevy_pbr::{
     render::mesh_functions::get_local_from_world,
     render::pbr_types::StandardMaterial,
 };
+@if(SURFACE_BAKE) import nvforever::terrain_surface::surface_bake;
 @if(VISIBILITY_RANGE_DITHER) import bevy_pbr::render::pbr_functions::visibility_range_dither;
 @if(BINDLESS) import bevy_render::bindless::{bindless_textures_2d, bindless_samplers_filtering};
 @if(BINDLESS) import bevy_pbr::render::pbr_bindings::{material_indices, material_array};
@@ -533,6 +534,9 @@ fn fragment(
             pbr_input = terrain_pbr_occlusion(pbr_input, n_pre);
         }
     }
+    // [design] Surface bake of a folded base (terrain_surface.rs): its unlit colour.
+    @if(SURFACE_BAKE) return surface_bake(pbr_input.material.base_color.rgb);
+    @if(!SURFACE_BAKE) {
     if counts.z != 0u {
         let s = scorch(in.instance_index, in.world_position.xyz);
         pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb * mix(1.0, SCORCHED, s), 1.0);
@@ -555,4 +559,5 @@ fn fragment(
     out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
+    }
 }

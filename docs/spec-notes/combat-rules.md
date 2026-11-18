@@ -1956,3 +1956,67 @@ npc-behaviour-compare.md §9.
   trooper is about 22 in both. Checking it needs the capture's hits split by attacker
   (`tools/capture/fight_stats.py` gives each actor's hits made and damage taken, not who
   hit whom).
+
+
+## 19. Source queries for associated dropped weapons
+
+[documented] [GetDroppedRefs](https://geckwiki.com/index.php?title=GetDroppedRefs)
+returns world weapon references associated with a calling actor's death or targeted
+weapon drop. These differ from inventory references and ordinary carried items.
+
+[design] The named zero-argument query reads the existing `World::dropped_beside`
+association, filters to weapon bases and returns those actual world references.
+It does not create a drop, change inventory or infer association from proximity.
+Actor qualification uses the current level-aware selected NPC/creature, so placed
+LVLN/LVLC carriers qualify without being mistaken for ordinary actor base records.
+A valid base-form or nonactor receiver yields the existing null/zero result.
+An omitted receiver uses the calling actor. An explicitly supplied null/invalid
+source receiver is refused by the existing VM before host dispatch, stops the script
+and makes no getter mutation. The getter does not introduce a silent-zero continuation
+or a special receiver adapter. Generic VM/host receiver policy is unchanged; no native
+opcode adapter is added.
+
+[design] Associated disabled/deleted world references remain excluded by the existing
+world helper. Its deterministic FormID order is an engine mapping, not native order
+parity. No associations yields the existing null/zero convention. Queries store no
+new lifetime state: ordinary World/Game snapshot and restore retain association,
+while a fresh world inherits none.
+
+[hypothesis] Native ordering, exact empty-array/null representation and unusual
+unloaded/disabled-owner timing remain probe questions. The getter relies on existing
+producer association; death/VATS production and the full installed hover mod are not
+qualified by getter tests or a manually seeded association.
+
+[design] Four authored controls in the shared `fnv-game` integration binary use
+compiled source, actual World placements and explicitly seeded existing associations.
+They cover a hover list merging carried inventory references with dropped world
+weapons and publishing its text, ordinary and leveled NPC/creature receivers,
+disabled/deleted filtering, checked serialized restore and invalid-vs-omitted source
+receivers. Array inspection stays inside the live compiled source and returns an
+owned scalar representation; Rust does not inspect an expired returned array ID.
+The original hover query's function-name collision is retained as a compiler
+rejection control, with only that local renamed in its corrected consumer.
+
+[validation: PR #2879, original `2c9574ec` composite `f2009ad5`]
+All four original cases failed: a hover query did not compile, two helpers inspected
+arrays after the query lifetime ended, and the explicit-invalid case received the
+existing VM refusal rather than its incorrectly expected zero. Their downstream
+world/UI/restore assertions were not reached and are not credited as passes. The
+append-only corrected fixtures preserve those behavior oracles, assert the actual
+error/no-continuation/no-world-mutation boundary, and are unexecuted at correction
+authoring. Original and corrected baseline refs remain separate; predicted baseline
+failures are not observations. These fixture corrections do not change compiler,
+array lifetime, drop-producer or generic receiver policy.
+
+
+[validation: PR #2879, `5a61bc59` composite `ddac1b90`]
+The ordinary/leveled actor, filtering/serialized-restore and receiver cases passed
+once. The original Label diagnostic control also passed, but the renamed hover
+query still failed compilation before its count/UI/world assertions. Its quoted
+semicolon is a source comment delimiter under the existing compiler contract
+([extender bytecode §7](ext-bytecode.md#7-what-the-geck-refused-compile-messages)). The next fixture retains
+that refused source as a `mismatched_quotes` control and generates the same delimiter
+with `AsciiToChar 59`; exact title text, counts and references remain unchanged.
+The production getter and compiler/array/receiver policies are unchanged. These
+further corrected fixtures are unexecuted at correction authoring. The historical
+three passes are scoped to `5a61bc59`, not transferred to its successor or baseline.

@@ -100,9 +100,15 @@ pub(crate) struct Swapping<'w, 's> {
     models: ModelCtx<'w>,
     swapped: ResMut<'w, Swapped>,
     #[allow(clippy::type_complexity)]
-    drawn: Query<'w, 's, (Entity, &'static RefVisual, &'static MeshMaterial3d<NifMaterial>, Option<&'static ShapeName>, Option<&'static mut crate::effect_shaders::Faded>, Option<&'static Fading>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>,
-    added: Query<'w, 's, (), Added<RefVisual>>,
+    drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static ShapeName>, Option<&'static mut crate::effect_shaders::Faded>, Option<&'static Fading>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>,
+    added: Query<'w, 's, (), NewSwapTargets>,
 }
+
+/// What makes the retained swaps apply again: a reference's mesh drawn anew, as on main,
+/// and, for the mesh terrain blend's shapes only (test aid; no entity has `BlendShape`
+/// without it), their marker or a restored ordinary material arriving [design, #2661].
+type BlendShapeRef = (With<crate::mesh_terrain_blend::BlendShape>, With<RefVisual>);
+type NewSwapTargets = Or<(Added<RefVisual>, (Added<MeshMaterial3d<NifMaterial>>, BlendShapeRef), (Added<crate::mesh_terrain_blend::BlendShape>, With<RefVisual>))>;
 
 impl Swapping<'_, '_> {
     pub(crate) fn sync(&mut self, swaps: &fnv_game::functions::misc::TextureSwaps, sim: &SimState, world: &WorldData) {
@@ -125,7 +131,8 @@ impl Swapping<'_, '_> {
                     .filter(|s| s.name.as_deref().is_some_and(|n| same_shape(n, shape)))
                     .map(|s| s.material.id())
                     .collect();
-                for (e, rv, mat, name, mut faded, fading, drawing) in &mut *drawn {
+                for (e, rv, mat, blend, name, mut faded, fading, drawing) in &mut *drawn {
+                    let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
                     if rv.0 != r.0 {
                         continue;
                     }
@@ -135,7 +142,7 @@ impl Swapping<'_, '_> {
                         (_, Some(f)) => f.original().id(),
                         (Some(f), None) => f.original.id(),
                         // [design, #2557] Texture copies must not inherit the cloak.
-                        (None, None) => nvf_assets::nif_material::plain_material(&mat.0, drawing).id(),
+                        (None, None) => nvf_assets::nif_material::plain_material(mat, drawing).id(),
                     };
                     let original = swapped.original.get(&own).copied().unwrap_or(own);
                     if !targets.contains(&original) && name.is_none_or(|n| !same_shape(&n.0, shape)) {

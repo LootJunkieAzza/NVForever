@@ -26,6 +26,7 @@ use crate::limbs::ActorRig;
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 use nvf_assets::NifMaterial;
+use nvf_assets::nif_surface_blend::NifBlendMaterial;
 use std::collections::HashSet;
 
 /// How long a fade out or in lasts, seconds [design].
@@ -50,13 +51,16 @@ pub struct DoorFades {
 }
 
 /// Give every NIF mesh under `root` the dither step `k` (0 hidden … `fade::STEPS` drawn).
-fn apply(commands: &mut Commands, root: Entity, k: u8, children: &Query<&Children>, meshes: &mut Query<(&mut MeshMaterial3d<NifMaterial>, Has<VisibilityRange>)>) {
+type DoorMeshes<'w, 's> = Query<'w, 's, (Option<&'static mut MeshMaterial3d<NifMaterial>>, Option<&'static mut MeshMaterial3d<NifBlendMaterial>>, Has<VisibilityRange>)>;
+fn apply(commands: &mut Commands, root: Entity, k: u8, children: &Query<&Children>, meshes: &mut DoorMeshes) {
     for e in children.iter_descendants(root) {
-        let Ok((mut material, ranged)) = meshes.get_mut(e) else { continue };
+        let Ok((material, blend, ranged)) = meshes.get_mut(e) else { continue };
+        if material.is_none() && blend.is_none() { continue; }
         commands.entity(e).insert(fade::drawn(k));
         if !ranged {
             // Its pipeline is chosen again, with the dither (module notes).
-            material.set_changed();
+            if let Some(mut material) = material { material.set_changed(); }
+            if let Some(mut blend) = blend { blend.set_changed(); }
         }
     }
 }
@@ -69,7 +73,7 @@ pub fn fade(
     new_roots: Query<(Entity, &ActorRig), Added<ActorRig>>,
     bodies: Query<(Entity, &DoorFade)>,
     children: Query<&Children>,
-    mut meshes: Query<(&mut MeshMaterial3d<NifMaterial>, Has<VisibilityRange>)>,
+    mut meshes: DoorMeshes,
 ) {
     let now = time.elapsed_secs();
     // A body drawn for one that came through a door starts hidden, this frame.

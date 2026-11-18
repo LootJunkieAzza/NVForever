@@ -951,7 +951,7 @@ pub(crate) mod tests {
     }
 
     /// A placed reference for these tests: only its id, record type and base matter here.
-    fn placed_ref(id: u32, sig: [u8; 4]) -> fnv_sim::refs::PlacedRef {
+    pub(crate) fn placed_ref(id: u32, sig: [u8; 4]) -> fnv_sim::refs::PlacedRef {
         fnv_sim::refs::PlacedRef {
             id: FormId(id), sig, edid: None, base: OTHER, cell: None, stored_in: None, plugin: 0, flags: 0,
             in_persistent_group: false, pos: [0.0; 3], rot: [0.0; 3], scale: None, count: None, ammo: None,

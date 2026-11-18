@@ -345,7 +345,7 @@ fn play(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), Without<Overlay>>,
+    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
     drawings: Query<&nvf_assets::nif_material::MaterialOverride>,
     (body, children, body_meshes): (
         Option<Res<crate::player_body::PlayerBody>>,
@@ -396,7 +396,9 @@ fn play(
         }
         // The meshes get their own materials back, unless something else changed them since.
         for (e, (original, copy)) in a.holed {
-            if drawn.get(e).map(|d| nvf_assets::nif_material::plain_material(&d.4 .0, drawings.get(e).ok()) == &copy).or_else(|_| body_meshes.get(e).map(|d| nvf_assets::nif_material::plain_material(&d.2 .0, drawings.get(e).ok()) == &copy)).unwrap_or(false) {
+            let current = drawn.get(e).ok().and_then(|d| nvf_assets::nif_surface_blend::source_material(d.4, d.5))
+                .or_else(|| body_meshes.get(e).ok().map(|d| &d.2 .0));
+            if current.is_some_and(|m| nvf_assets::nif_material::plain_material(m, drawings.get(e).ok()) == &copy) {
                 commands.entity(e).try_insert(MeshMaterial3d(original));
             }
             models.materials.remove(&copy);
@@ -473,9 +475,10 @@ fn play(
     }
 
     // Cover only the references targeted by active shaders; animate the materials.
-    type Drawn<'a> = (Entity, &'a Mesh3d, Option<&'a SkinnedMesh>, &'a MeshMaterial3d<NifMaterial>);
+    type Drawn<'a> = (Entity, &'a Mesh3d, Option<&'a SkinnedMesh>, &'a Handle<NifMaterial>);
     let mut by_ref: HashMap<u32, Vec<Drawn<'_>>> = st.active.values().map(|a| (a.on, Vec::new())).collect();
-    for (e, rv, mesh, skin, mat) in &drawn {
+    for (e, rv, mesh, skin, mat, blend) in &drawn {
+        let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
         if let Some(list) = by_ref.get_mut(&rv.0) {
             list.push((e, mesh, skin, mat));
         }
@@ -491,7 +494,7 @@ fn play(
                 continue;
             }
             if let Ok((mesh, skin, mat)) = body_meshes.get(e) {
-                list.push((e, mesh, skin, mat));
+                list.push((e, mesh, skin, &mat.0));
             }
         }
     }
@@ -506,7 +509,7 @@ fn play(
             let value = h.value(t);
             let first = a.holed.is_empty();
             for &(e, _, _, mat) in meshes {
-                let current = nvf_assets::nif_material::plain_material(&mat.0, drawings.get(e).ok());
+                let current = nvf_assets::nif_material::plain_material(mat, drawings.get(e).ok());
                 if a.holed.get(&e).is_some_and(|(_, copy)| copy == current) {
                     continue;
                 }
@@ -647,7 +650,7 @@ pub(crate) fn cover(
     mut st: ResMut<Shaders>,
     mut materials: ResMut<Assets<NifMaterial>>,
     script: Option<Res<ScriptState>>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), Without<Overlay>>,
+    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&crate::mesh_terrain_blend::BlendShape>), Without<Overlay>>,
     body: Option<Res<crate::player_body::PlayerBody>>,
     children: Query<&Children>,
     body_meshes: Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
@@ -655,9 +658,10 @@ pub(crate) fn cover(
     drawings: Query<&nvf_assets::nif_material::MaterialOverride>,
 ) {
     let st = &mut *st;
-    type Drawn<'a> = (Entity, &'a Mesh3d, Option<&'a SkinnedMesh>, &'a MeshMaterial3d<NifMaterial>);
+    type Drawn<'a> = (Entity, &'a Mesh3d, Option<&'a SkinnedMesh>, &'a Handle<NifMaterial>);
     let mut by_ref: HashMap<u32, Vec<Drawn<'_>>> = st.active.values().map(|a| (a.on, Vec::new())).collect();
-    for (e, rv, mesh, skin, mat) in &drawn {
+    for (e, rv, mesh, skin, mat, blend) in &drawn {
+        let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
         if let Some(list) = by_ref.get_mut(&rv.0) {
             list.push((e, mesh, skin, mat));
         }
@@ -673,7 +677,7 @@ pub(crate) fn cover(
                 continue;
             }
             if let Ok((mesh, skin, mat)) = body_meshes.get(e) {
-                list.push((e, mesh, skin, mat));
+                list.push((e, mesh, skin, &mat.0));
             }
         }
     }
@@ -684,7 +688,7 @@ pub(crate) fn cover(
         let before = a.covered.len();
         for &(e, mesh, skin, mat) in meshes {
             let drawing = drawings.get(e).ok();
-            let plain = nvf_assets::nif_material::plain_material(&mat.0, drawing);
+            let plain = nvf_assets::nif_material::plain_material(mat, drawing);
             // [design, #2557] Producers can publish a plain handle before PostUpdate
             // re-derives the cloak; ownership still suppresses overlays in that gap.
             let cloaked = drawing.is_some();
@@ -874,7 +878,7 @@ pub(crate) struct AlphaDrawing<'w, 's> {
     st: ResMut<'w, Shaders>,
     materials: ResMut<'w, Assets<NifMaterial>>,
     #[allow(clippy::type_complexity)]
-    drawn: Query<'w, 's, (Entity, &'static RefVisual, &'static MeshMaterial3d<NifMaterial>, Option<&'static Faded>, Option<&'static nvf_assets::nif_material::MaterialOverride>), Without<Overlay>>,
+    drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static Faded>, Option<&'static nvf_assets::nif_material::MaterialOverride>), Without<Overlay>>,
 }
 
 impl AlphaDrawing<'_, '_> {
@@ -882,7 +886,8 @@ impl AlphaDrawing<'_, '_> {
         let Self { commands, st, materials, drawn } = self;
         let st = &mut **st;
         let mut changed: HashMap<u32, (f32, u32)> = HashMap::new();
-        for (e, rv, mat, faded, drawing) in &*drawn {
+        for (e, rv, mat, blend, faded, drawing) in &*drawn {
+            let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
             let want = alpha.get(&FormId(rv.0)).copied();
             match (want, faded) {
                 (None, None) => {}
@@ -892,7 +897,7 @@ impl AlphaDrawing<'_, '_> {
                 }
                 (Some(a), Some(f)) if f.alpha == a && f.made_from == f.original.id() => {}
                 (Some(a), f) => {
-                    let original = f.map(|f| f.original.clone()).unwrap_or_else(|| nvf_assets::nif_material::plain_material(&mat.0, drawing).clone());
+                    let original = f.map(|f| f.original.clone()).unwrap_or_else(|| nvf_assets::nif_material::plain_material(mat, drawing).clone());
                     let key = (original.id(), (a * 256.0).round() as u16);
                     let copy = match st.faded.get(&key) {
                         Some(h) => h.clone(),

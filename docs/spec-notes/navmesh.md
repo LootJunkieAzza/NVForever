@@ -344,6 +344,17 @@ obstacles that can be enabled or disabled stand on the navmesh …` at the start
 obstacles switched […]` on a change. Not done: the collision-layer condition (fnv-nav
 reads no models), cutting by the shape rather than the bounds.
 
+**Bounds wider than a cell cut nothing** (issue #2846) [engine choice: `MAX_SIDE`, 4,096
+units along the model's x or y, scaled]. Such bounds hold an animated activator's whole
+motion, not where it stands [hypothesis]. Survey of the come-and-go obstacles [observed
+2026-11-17]: FalloutNV.esm and its add-ons 197, none wider than 1,794; Tale of Two
+Wastelands' load order 393, of which only Fallout 3's MQ05 landing vertibirds
+(`MQ05VertibirdLandREF` 0x06079FEE, `Mq05VertibirdLandREF02` 0x060AE06E, base
+`MQ05VertibirdLandACT`, 12,146 by 12,885) are wider; the next is 4,633 by 2,444 and placed
+enabled, so it never cut. Cut, the vertibirds took 7,927 triangles around the Jefferson
+Memorial: the Enclave troops they bring had no triangle to start from, nor the player at
+the intake pipe's control panel.
+
 **The poll is skipped while nothing it reads changed** (issue #1430) [design:
 `fnv_ai::Ai::obstacles_in_line`, crates/fnv-ai/src/carry.rs]. `Game::present` reads the
 world's reference states alone (crates/fnv-game/src/game.rs): whether a reference and the

@@ -220,13 +220,21 @@ impl Handle {
 /// The folder the files go to: `NVF_DLSS_DIR` when set (absolute), else `dlss` beside the
 /// program, the folder the loader reads (`dlss::resolve_folder`). An error off Windows.
 pub fn target_folder() -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
+    target_folder_beside(exe_dir.as_deref())
+}
+
+/// [`target_folder`] for the game program in `program_dir`: the launcher's, whose game may sit
+/// in another folder (a source checkout's `engine/target/release`, `[Launcher] Exe`). In a
+/// release both programs share one folder, so it is the same folder there.
+pub fn target_folder_beside(program_dir: Option<&std::path::Path>) -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
-        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
-        crate::resolve_folder(std::env::var_os(crate::ENV_DIR).as_deref(), exe_dir.as_deref()).map(|(folder, _)| folder)
+        crate::resolve_folder(std::env::var_os(crate::ENV_DIR).as_deref(), program_dir).map(|(folder, _)| folder)
     }
     #[cfg(not(windows))]
     {
+        let _ = program_dir;
         Err(Failure::NotWindows.to_string())
     }
 }
@@ -245,7 +253,13 @@ pub fn current() -> Option<Handle> {
 /// `test_url`: the developer-only address of a local test server (`NVF_DLSS_DOWNLOAD_URL`),
 /// which the caller gives only for a developer's run (the game: with `--data`); `None` for a
 /// player's.
-pub fn start(_accepted: LicenceAccepted, test_url: Option<String>) -> Handle {
+pub fn start(accepted: LicenceAccepted, test_url: Option<String>) -> Handle {
+    start_into(accepted, test_url, target_folder())
+}
+
+/// [`start`] into `target` (the launcher's: the folder beside the game it starts,
+/// [`target_folder_beside`]); an `Err` ends the download as failed with nothing fetched.
+pub fn start_into(_accepted: LicenceAccepted, test_url: Option<String>, target: Result<PathBuf, String>) -> Handle {
     let mut current = CURRENT.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(running) = current.as_ref().filter(|s| !s.progress.lock().unwrap_or_else(PoisonError::into_inner).phase.finished()) {
         return Handle { shared: running.clone() };
@@ -260,7 +274,7 @@ pub fn start(_accepted: LicenceAccepted, test_url: Option<String>) -> Handle {
         let spawned = std::thread::Builder::new().name("nvf-dlss-download".into()).spawn(move || {
             // A panic ends the download as failed (the staging folder's guard still removes it
             // while unwinding), so the phase never stays unfinished and a new one can start.
-            let phase = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target_folder() {
+            let phase = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match target {
                 Err(why) => Phase::Failed(Failure::Write(why)),
                 Ok(target) => {
                     let mut source = fetch::Http::new(test_url);
@@ -276,7 +290,7 @@ pub fn start(_accepted: LicenceAccepted, test_url: Option<String>) -> Handle {
     }
     // Off Windows nothing is fetched, so the test address goes unused.
     #[cfg(not(windows))]
-    let _ = test_url;
+    let _ = (test_url, target);
     #[cfg(not(windows))]
     finish(&shared, Phase::Failed(Failure::NotWindows));
     Handle { shared }

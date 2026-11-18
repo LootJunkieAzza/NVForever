@@ -206,6 +206,14 @@ tells them apart is the process's exit code, which only another process can read
   start repeats it (`run log: the previous run's process ended with exit code …`).
 - An allocation that fails writes `out of memory: an allocation of N bytes failed` into
   the run log before Rust aborts (the game's global allocator, crash.rs).
+- A lost graphics device (the driver stopped answering) ends the run as one (#2934): the
+  frames in flight usually panic first on the dead device, so from Bevy's loss line on a
+  panic's crash report says `thread: the graphics driver`, `message: graphics device lost:
+  <reason>`, `at: reported by wgpu`, with the panic that followed and its backtrace under
+  `backtrace:`. The session's `end` is `panic` as before; the message, and so the
+  signature, is the loss's whatever panic followed. With no panic the handler Bevy asks
+  writes the same report. The player gets a message saying the graphics driver stopped
+  responding and what to try (not in unattended runs), as for GPU memory running out.
 - [design, not built] The summary carries no `exit_code` field yet: the server's schema
   check would have to know it first. Until then the dashboard can split `native` ends by
   the log's line.

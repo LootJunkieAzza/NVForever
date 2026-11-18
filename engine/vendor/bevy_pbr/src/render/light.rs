@@ -179,10 +179,20 @@ bitflags::bitflags! {
         const VOLUMETRIC                        = 1 << 1;
         const AFFECTS_LIGHTMAPPED_MESH_DIFFUSE  = 1 << 2;
         const CONTACT_SHADOWS_ENABLED           = 1 << 3;
+        // NVForever sun visibility: the light is the outdoor sun ([`NvfOutdoorSun`]).
+        const NVF_OUTDOOR_SUN                   = 1 << 4;
         const NONE                              = 0;
         const UNINITIALIZED                     = 0xFFFF;
     }
 }
+
+/// NVForever sun visibility (2026-11-17, engine/vendor/README.md). On the render-world
+/// entity of a directional light, it marks that light as the outdoor sun:
+/// `prepare_lights` sets `DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT` in its GPU flags,
+/// so a shader can tell it from every other directional light without assuming an index.
+/// Bevy inserts none; without it the flags are as upstream's.
+#[derive(Component, Clone, Copy, Default, Debug)]
+pub struct NvfOutdoorSun;
 
 #[derive(Copy, Clone, ShaderType, Default, Debug)]
 pub struct GpuRectLight {
@@ -1126,9 +1136,11 @@ pub fn prepare_lights(
     ),
     // NVForever held shadow maps: the hold, and the directional shadow texture of the last
     // frame (see where the texture is taken below).
-    (mut hold_directional, mut last_directional_texture): (
+    (mut hold_directional, mut last_directional_texture, nvf_outdoor_sun): (
         Option<ResMut<HoldDirectionalShadowMaps>>,
         Local<Option<TextureId>>,
+        // NVForever sun visibility: the light marked as the outdoor sun.
+        Query<(), With<NvfOutdoorSun>>,
     ),
 ) {
     let views_iter = views.iter();
@@ -1837,6 +1849,11 @@ pub fn prepare_lights(
 
             if light.affects_lightmapped_mesh_diffuse {
                 flags |= DirectionalLightFlags::AFFECTS_LIGHTMAPPED_MESH_DIFFUSE;
+            }
+
+            // NVForever sun visibility.
+            if nvf_outdoor_sun.contains(*light_entity) {
+                flags |= DirectionalLightFlags::NVF_OUTDOOR_SUN;
             }
 
             gpu_directional_lights[index] = GpuDirectionalLight {

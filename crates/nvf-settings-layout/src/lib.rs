@@ -96,7 +96,7 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Game"), &["difficulty", "hardcore", "reload-slows", "UsePipBoy", "sound-cover"]),
     // "V.A.T.S." as the data spells it (MESG `HelpVATS`).
     section("Gameplay", Some("V.A.T.S."), &["vats-style", "vats-slowdown", "kill-camera"]),
-    section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-lower", "field-of-view", "viewmodel-field-of-view"]),
+    section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-lower", "gore-shake", "field-of-view", "viewmodel-field-of-view"]),
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
@@ -193,10 +193,12 @@ pub const SECTIONS: &[Section] = &[
         ],
     ),
     section("Graphics", Some("Quality"), &["quality"]),
-    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-distance", "fine-shadows"]),
+    // Shadow resolution sizes the flashlight's maps too, so it needs no Sun shadows (no NEEDS
+    // line) (#2843).
+    section("Graphics", Some("Shadows"), &["sun-shadows", "shadow-filter", "shadow-resolution", "shadow-distance", "fine-shadows", "cloud-shadows"]),
     section("Graphics", Some("Lighting and Effects"), &["ambient-occlusion", "light-shafts", "bloom", "grade", "glow", "eye-adaptation", "neon-glow"]),
     section("Graphics", Some("Water"), &["water-reflections", "water-mirror"]),
-    section("Graphics", Some("Detail and Distance"), &["distant-lod", "grass", "anisotropic", "terrain-height-blend", "terrain-anti-tiling", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance"]),
+    section("Graphics", Some("Detail and Distance"), &["distant-lod", "grass", "anisotropic", "terrain-height-blend", "terrain-anti-tiling", "mesh-terrain-blend", "smooth-terrain", "object-distance", "actor-distance", "item-distance", "grass-distance"]),
     section("Graphics", Some("World and Animation"), &["head-tracking", "foot-ik", "sky-clock"]),
     // The owner's own layout of the movement work (tech/movement-inertia, 2026-11-15).
     section(NVF_FEATURES_TAB, Some("Advanced Movement"), &["advanced-movement", "movement-weight"]),

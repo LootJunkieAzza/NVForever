@@ -51,6 +51,7 @@ mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
 mod cell_resets;
+mod cloud_shadows;
 mod alert;
 mod anim_sounds;
 mod cpu_placement;
@@ -165,6 +166,7 @@ mod imagespace;
 mod imposters;
 mod sky;
 mod start_times;
+mod sun_visibility;
 mod weather_fx;
 mod limping;
 mod sneaking;
@@ -183,6 +185,8 @@ mod perf_overlay;
 mod occlusion;
 mod rooms;
 mod terrain;
+mod terrain_surface;
+mod mesh_terrain_blend;
 mod terrain_lod;
 mod terrain_wireframe;
 mod texture_swap;
@@ -533,7 +537,8 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, terrain-height-blend, terrain-anti-tiling) and choices (fxaa, smaa or taa instead of --msaa;
+    /// water-reflections, terrain-height-blend, terrain-anti-tiling, cloud-shadows, and
+    /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
@@ -552,7 +557,8 @@ struct Args {
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
     /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`);
-    /// `shadow-distance=<units>`, `cascades=<n>` and `shadow-thin=<ratio>` change them.
+    /// `shadow-distance=<units>`, `cascades=<n>` (n cascades spaced as before #2843, not the
+    /// modes' layouts) and `shadow-thin=<ratio>` change them.
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
@@ -1280,7 +1286,7 @@ fn main() -> AppExit {
     sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
     if performance_shadows {
-        sky_state.shadow_cascades = shadow_rate::PERFORMANCE_CASCADES;
+        sky_state.shadow_layout = sky::CascadeLayout::Performance;
     }
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
@@ -1594,7 +1600,10 @@ fn main() -> AppExit {
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
+    .add_plugins(sun_visibility::SunVisibilityPlugin)
+    .add_plugins(mesh_terrain_blend::MeshTerrainBlendPlugin)
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
     .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
@@ -1734,11 +1743,13 @@ fn main() -> AppExit {
     // Placed models' and effect models' billboard nodes face the camera (#2549).
     .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+    // The sun's cascades' far bounds and texel sizes, logged when they change.
+    .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, events_log::note_context, stray_commands::report))
+    .add_systems(Last, (crash::note_place, crash::test_device_lost, events_log::note_context, stray_commands::report))
     // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
     // the window left no clean-exit line and the run was reported as a native crash (#2203).
     .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
@@ -2722,3 +2733,6 @@ mod tests {
         assert!((horizontal(16.0 / 9.0) - 91.31).abs() < 0.01);
     }
 }
+
+#[cfg(test)]
+mod mesh_blend_shader_tests;

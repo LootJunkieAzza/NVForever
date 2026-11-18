@@ -2,7 +2,7 @@
 # compile Bevy (docs/adr/0001-bevy-viewer.md, docs/design/layer3.md §2.2).
 [workspace]
 resolver = "2"
-members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever"]
+members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever", "nvf-shader-tests"]
 exclude = ["vendor/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx-shaders-spv"]
 
 [workspace.package]
@@ -73,6 +73,7 @@ opt-level = 3
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
+bevy_post_process = { path = "vendor/bevy_post_process" }
 bevy_render = { path = "vendor/bevy_render" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 naga = { path = "vendor/naga" }

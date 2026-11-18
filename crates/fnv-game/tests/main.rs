@@ -9,6 +9,7 @@
 //! `[[test]]`; `every_test_file_is_built` fails until it is in one of them.
 
 mod common;
+mod string_settings;
 #[path = "common/digest.rs"]
 mod digest;
 
@@ -53,6 +54,7 @@ mod item_ref_health;
 mod jg_nif;
 mod jg10;
 mod jg3;
+mod jlm_dropped_refs;
 mod jg4;
 mod jg5;
 mod jg6;
@@ -148,3 +150,6 @@ fn every_test_file_is_built() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+mod preactivation_events;
+mod preactivation_mutation;

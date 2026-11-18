@@ -13,8 +13,8 @@ mod fonts;
 mod launch;
 mod news;
 mod reports;
+mod start;
 mod theme;
-mod ttw;
 mod update;
 
 const ICON: &[u8] = include_bytes!("../assets/icon-64.png");

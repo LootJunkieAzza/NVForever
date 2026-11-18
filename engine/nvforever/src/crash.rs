@@ -32,6 +32,16 @@
 //! log (exit_watch.rs, #2755), and an allocation that fails says so in the log first
 //! ([`SaysWhenEmpty`]).
 //!
+//! **A lost graphics device** (#2934: the driver stopped answering, or the card was
+//! reset). wgpu says so once, and Bevy asks the game what to do at the next frame
+//! ([`render_error`]); but the frame in flight goes on drawing with the dead device and
+//! usually panics first (a buffer made on it "is invalid"), so the run used to end as that
+//! panic. Bevy logs the loss the moment wgpu reports it; the console writer notes that
+//! line ([`note_device_lost`]), and from then on a panic is the loss's consequence: its
+//! crash report says `graphics device lost` (with the panic under it), the player is told
+//! the driver stopped ([`DEVICE_LOST_TEXT`]) and the run ends. Without a panic,
+//! [`render_error`] writes the same report and says the same.
+//!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
 //! in the run log, the console and crash reports ([`redact`]; owner's request 2026-11-06,
@@ -353,6 +363,83 @@ fn alloc_failed(size: usize) {
     }
 }
 
+/// The words Bevy logs when wgpu reports the device lost, before the reason and wgpu's
+/// text [observed: bevy_render 0.19.1 `error_handler.rs`, `Caught DeviceLost error:
+/// {reason:?} {str}`; the player report of #2934].
+const LOST_LINE: &str = "Caught DeviceLost error:";
+
+/// What the player is told when the graphics device is lost (#2934), as for running out
+/// of GPU memory (#2754).
+pub const DEVICE_LOST_TEXT: &str = "The graphics driver stopped responding, so NVForever has to close. Update the graphics driver; if it happens again, lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.";
+
+/// The lost device's reason and text, once Bevy has logged it.
+static DEVICE_LOST: Mutex<Option<String>> = Mutex::new(None);
+/// Set by the first thread to end the run for a lost device: it alone tells the player.
+static LOST_ENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The reason and text of a lost device in a log line, when the line is Bevy's.
+fn lost_in_line(line: &str) -> Option<&str> {
+    line.split_once(LOST_LINE).map(|(_, rest)| rest.trim())
+}
+
+/// Note a lost device from a log line (the console writer sees every line).
+fn note_device_lost(line: &str) {
+    if let Some(what) = lost_in_line(line) {
+        // Never waits: a line logged while the lock is held is not the first.
+        if let Ok(mut lost) = DEVICE_LOST.try_lock() {
+            lost.get_or_insert_with(|| if what.is_empty() { "no reason given".to_string() } else { what.to_string() });
+        }
+    }
+}
+
+/// The lost device's reason and text, when the device is lost.
+pub fn device_lost() -> Option<String> {
+    DEVICE_LOST.try_lock().ok().and_then(|l| l.clone())
+}
+
+/// A crash report's message for a lost device: the same words whatever panic followed, so
+/// the reports group under the loss.
+fn lost_message(what: &str) -> String {
+    format!("graphics device lost: {what}")
+}
+
+/// A crash report's backtrace part for a lost device: the panic that followed, then its
+/// backtrace.
+fn lost_backtrace(thread: &str, location: &str, message: &str, backtrace: &str) -> String {
+    format!("the panic that followed the loss, on thread '{thread}' at {location}:\n{message}\n\n{backtrace}")
+}
+
+/// The flight recorder's last 60 s and the world snapshot beside a crash report, when
+/// reports are on (reports/anomaly.rs, reports/snapshot.rs).
+fn write_sidecars(dir: &Path, when: &str) {
+    if crate::reports::active().is_some() {
+        let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{when}-{}.jsonl", std::process::id())));
+        let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{when}-{}.json", std::process::id())));
+        match (rec.is_ok(), snap.is_ok()) {
+            (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
+            (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
+            (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
+            (false, false) => {}
+        }
+    }
+}
+
+/// Test aid `NVF_PLAY_TEST_DEVICE_LOST=<seconds>`: the graphics device is destroyed that
+/// long after the start, so what the game does about a lost device can be checked. The
+/// frames after it fail as they do after a real loss (the same panic as the player report
+/// of #2934) [observed, this aid, GTX 1050]; wgpu 30 does not call the loss callback for a
+/// device destroyed this way, so the aid logs the loss in Bevy's words itself.
+pub fn test_device_lost(time: Res<Time>, device: Option<Res<bevy::render::renderer::RenderDevice>>, mut at: Local<Option<Option<f32>>>) {
+    let wanted = *at.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_DEVICE_LOST").ok().and_then(|v| v.trim().parse::<f32>().ok()));
+    let (Some(secs), Some(device)) = (wanted, device) else { return };
+    if time.elapsed_secs() >= secs {
+        *at = Some(None);
+        warn!("test aid: destroying the graphics device (NVF_PLAY_TEST_DEVICE_LOST)");
+        error!("{LOST_LINE} Destroyed by the test aid NVF_PLAY_TEST_DEVICE_LOST");
+        device.wgpu_device().destroy();
+    }
+}
+
 /// Test aid `NVF_PLAY_TEST_PANIC=<seconds>`: a thread of its own ("nvf-test-panic")
 /// panics that long after the first frame (when the camera's place is known), so the
 /// crash report can be checked; the game goes on (a panic on a thread of its own does
@@ -395,7 +482,9 @@ struct ConsoleWriter;
 
 impl Write for ConsoleWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        std::io::stderr().write_all(redact(&String::from_utf8_lossy(buf)).as_bytes())?;
+        let text = String::from_utf8_lossy(buf);
+        note_device_lost(&text);
+        std::io::stderr().write_all(redact(&text).as_bytes())?;
         Ok(buf.len())
     }
 
@@ -559,23 +648,29 @@ fn set_hook() {
         let location = info.location().map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         let place = PLACE.try_lock().map(|p| p.clone()).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-        let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
+        // After a lost graphics device a panic is its consequence (module notes): the
+        // report is the loss's, with the panic under it.
+        let lost = device_lost();
+        if let Some(what) = &lost {
+            // Another thread is already ending the run for it (the player may be reading
+            // its message): this one waits for the process to end.
+            if LOST_ENDING.load(std::sync::atomic::Ordering::SeqCst) {
+                loop {
+                    std::thread::park();
+                }
+            }
+            error!("render: the graphics device was lost ({what}); the panic below is its consequence and the game stops");
+        }
+        let text = match &lost {
+            Some(what) => {
+                report_text("the graphics driver", &lost_message(what), "reported by wgpu", &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &lost_backtrace(&thread, &location, &message, &backtrace))
+            }
+            None => report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace),
+        };
         let written = LOG_DIR.get().map(|dir| {
             let when = stamp(now_secs());
             let path = dir.join(format!("crash-{when}-{}.txt", std::process::id()));
-            let result = write_panic_report(&path, &text, || {
-                // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
-                if crate::reports::active().is_some() {
-                    let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{when}-{}.jsonl", std::process::id())));
-                    let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{when}-{}.json", std::process::id())));
-                    match (rec.is_ok(), snap.is_ok()) {
-                        (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
-                        (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
-                        (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
-                        (false, false) => {}
-                    }
-                }
-            });
+            let result = write_panic_report(&path, &text, || write_sidecars(dir, &when));
             (result, path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
@@ -601,7 +696,28 @@ fn set_hook() {
         } else {
             eprint_line(format_args!("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"));
         }
+        // A lost device: the player is told why the game closes, and it closes here (the
+        // frame cannot be finished, and the threads still drawing would only panic too).
+        if lost.is_some() && !LOST_ENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            tell_player_at_start(DEVICE_LOST_TEXT, false);
+            std::process::exit(1);
+        }
     }));
+}
+
+/// The crash report of a lost device that no panic followed ([`render_error`]): the same
+/// message as the panic hook's, so both group together.
+fn write_lost_report(what: &str) {
+    let place = PLACE.try_lock().map(|p| p.clone()).unwrap_or_default();
+    let text = report_text("the graphics driver", &lost_message(what), "reported by wgpu", &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), "none: no panic followed the loss");
+    let Some(dir) = LOG_DIR.get() else { return };
+    let when = stamp(now_secs());
+    let path = dir.join(format!("crash-{when}-{}.txt", std::process::id()));
+    match write_panic_report(&path, &text, || write_sidecars(dir, &when)) {
+        Ok(true) => error!("render: crash report written to {}", path.display()),
+        Ok(false) => error!("render: earlier crash report preserved at {}", path.display()),
+        Err(e) => error!("render: the crash report could not be written to {}: {e}", path.display()),
+    }
 }
 
 /// Say where the run log is, and whether the run before this one ended abnormally.
@@ -647,6 +763,13 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
     if matches!(error.ty, ErrorType::OutOfMemory) {
         // The player must see why the game closes (#2754); none in unattended runs.
         tell_player_at_start("The graphics card ran out of memory, so NVForever has to close. Lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.", false);
+    }
+    if matches!(error.ty, ErrorType::DeviceLost) && !LOST_ENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // No panic came first (#2934): the loss gets its crash report here, and the
+        // player is told. Bevy asks again every frame until the game has stopped; once.
+        let what = device_lost().unwrap_or_else(|| error.description.clone());
+        write_lost_report(&what);
+        tell_player_at_start(DEVICE_LOST_TEXT, false);
     }
     main.write_message(AppExit::error());
     RenderErrorPolicy::StopRendering
@@ -718,6 +841,28 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// #2934: Bevy's line for a lost device is recognised, and its report names the loss
+    /// whatever panic followed.
+    #[test]
+    fn a_lost_device_is_read_from_bevys_line_and_named_in_the_report() {
+        let line = "2026-11-17T19:42:37.625Z ERROR bevy_render::error_handler: Caught DeviceLost error: Unknown Unexpected error variant (driver implementation is at fault)\n";
+        assert_eq!(lost_in_line(line), Some("Unknown Unexpected error variant (driver implementation is at fault)"));
+        assert_eq!(lost_in_line("ERROR bevy_render::error_handler: Caught rendering error: Validation Error"), None);
+        assert_eq!(lost_in_line("ERROR bevy_render::view::window: Couldn't get swap chain texture: Validation"), None);
+        let what = lost_in_line(line).unwrap();
+        let panic_a = lost_backtrace("Compute Task Pool (7)", "device.rs:72:18", "Failed to get mapped range for buffer", "frames");
+        let panic_b = lost_backtrace("main", "other.rs:1:1", "another consequence", "frames");
+        let a = report_text("the graphics driver", &lost_message(what), "reported by wgpu", "cell", "command", None, &panic_a);
+        let b = report_text("the graphics driver", &lost_message(what), "reported by wgpu", "cell", "command", None, &panic_b);
+        // The lines a report is grouped by are the loss's, the same for both panics.
+        let head = |t: &str| t.lines().filter(|l| l.starts_with("thread: ") || l.starts_with("message: ") || l.starts_with("at: ")).map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(head(&a), ["thread: the graphics driver", "message: graphics device lost: Unknown Unexpected error variant (driver implementation is at fault)", "at: reported by wgpu"]);
+        assert_eq!(head(&a), head(&b));
+        // The panic is kept under it.
+        assert!(a.contains("the panic that followed the loss, on thread 'Compute Task Pool (7)' at device.rs:72:18:\nFailed to get mapped range for buffer\n\nframes"));
+        assert!(DEVICE_LOST_TEXT.contains("graphics driver stopped responding") && DEVICE_LOST_TEXT.contains("Update the graphics driver"));
     }
 
     #[test]

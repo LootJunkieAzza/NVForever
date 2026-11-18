@@ -125,13 +125,28 @@ fn tables() -> &'static [Table] {
 }
 
 /// The folders NVForever looks for languages in: `lang` beside the program (its own
-/// translations), then `lang` in the home (the player's), then `NVF_LANG_DIR` if set.
+/// translations; a release has it there), then a source checkout's `lang` when the program
+/// is a build of one and has none beside it ([`checkout_lang`], #2929), then `lang` in the
+/// home (the player's), then `NVF_LANG_DIR` if set.
 pub fn dirs(exe_dir: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = [exe_dir, home].into_iter().flatten().map(|d| d.join("lang")).collect();
+    let mut out: Vec<PathBuf> = exe_dir.into_iter().map(|d| d.join("lang")).collect();
+    out.extend(exe_dir.and_then(checkout_lang));
+    out.extend(home.map(|d| d.join("lang")));
     if let Some(d) = std::env::var_os("NVF_LANG_DIR").filter(|d| !d.is_empty()) {
         out.push(PathBuf::from(d));
     }
     out
+}
+
+/// The repository's `lang` for a program built in a source checkout (`target/release`,
+/// `engine/target/release`, ...): the nearest ancestor of `exe_dir` holding `engine/Cargo.toml`
+/// and a `lang` folder, the way the launcher finds the checkout's game. `None` when `lang`
+/// is beside the program (a release) or no ancestor is a checkout.
+pub fn checkout_lang(exe_dir: &Path) -> Option<PathBuf> {
+    if exe_dir.join("lang").is_dir() {
+        return None;
+    }
+    exe_dir.ancestors().skip(1).find(|a| a.join("engine").join("Cargo.toml").is_file()).map(|root| root.join("lang")).filter(|l| l.is_dir())
 }
 
 /// Every language this run can show: English first, then the ones read, as (id, name).
@@ -290,6 +305,30 @@ mod tests {
     fn the_folders_are_the_programs_then_the_homes() {
         let d = dirs(Some(Path::new("C:/nvf")), Some(Path::new("C:/home")));
         assert_eq!(&d[..2], [PathBuf::from("C:/nvf/lang"), PathBuf::from("C:/home/lang")]);
+    }
+
+    /// #2929: a build in a source checkout reads the repository's `lang`; a program with
+    /// `lang` beside it (a release) does not look further.
+    #[test]
+    fn a_checkouts_build_reads_the_repositorys_lang() {
+        let root = std::env::temp_dir().join(format!("nvf-words-checkout-{}", std::process::id()));
+        let game = root.join("engine").join("target").join("release");
+        let launcher = root.join("target").join("release");
+        for d in [&game, &launcher, &root.join("lang")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(root.join("engine").join("Cargo.toml"), "").unwrap();
+        for exe in [&game, &launcher] {
+            assert_eq!(checkout_lang(exe), Some(root.join("lang")));
+            assert_eq!(dirs(Some(exe), None)[..2], [exe.join("lang"), root.join("lang")]);
+        }
+        std::fs::create_dir_all(game.join("lang")).unwrap();
+        assert_eq!(checkout_lang(&game), None);
+        let release = std::env::temp_dir().join(format!("nvf-words-release-{}", std::process::id()));
+        std::fs::create_dir_all(&release).unwrap();
+        assert_eq!(checkout_lang(&release), None);
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&release).ok();
     }
 
     #[test]

@@ -63,6 +63,12 @@ fn version() -> &'static str {
     })
 }
 
+/// The message line while the game starts, cleared when it ends without an error.
+const STARTING: &str = "The game is starting…";
+/// On a start with no game folder set (#2938): at the launcher's start, and on Play.
+const NEEDS_FOLDER: &str = "Set your Fallout: New Vegas folder here, then Save: the game needs it to start.";
+const NEEDS_FOLDER_FIRST: &str = "Set your Fallout: New Vegas folder first (here, then Save): the game cannot start without it.";
+
 struct NewestSave {
     path: PathBuf,
     name: String,
@@ -87,6 +93,8 @@ pub struct App {
     edits: BTreeMap<String, String>,
     // Game folder.
     game_edit: String,
+    /// The Mods page's new-game start fields (src/start.rs), as typed.
+    start_edit: crate::start::Fields,
     // Mods.
     mods: Option<plugins::PluginList>,
     mods_dirty: bool,
@@ -152,6 +160,7 @@ impl App {
             stored: BTreeMap::new(),
             edits: BTreeMap::new(),
             game_edit: String::new(),
+            start_edit: crate::start::Fields::default(),
             mods: None,
             mods_dirty: false,
             mods_drag: None,
@@ -161,7 +170,7 @@ impl App {
                 EngineHome::user().map(|h| h.root).as_deref(),
             )),
             reports_confirm: false,
-            dlss: crate::dlss::Status::read(),
+            dlss: crate::dlss::Status::read(None),
             dlss_licence: false,
             reports_rx: None,
             news: Vec::new(),
@@ -209,10 +218,17 @@ impl App {
             }
             _ => Page::Home,
         };
+        // The INI first: the mod list's sync needs its game folder.
+        app.reload_ini();
         if app.page == Page::Mods {
             app.load_mods();
         }
-        app.reload_ini();
+        // No game folder yet (a first start): open on its page (#2938), unless a test aid
+        // chose the page.
+        if !app.folder_known() && std::env::var_os("NVF_LAUNCHER_PAGE").is_none() {
+            app.page = Page::Game;
+            app.message = Some((NEEDS_FOLDER.into(), false));
+        }
         app.find_newest_save();
         if let Some(h) = &app.home {
             app.news = news::load_cache(&h.cache()).into_iter().map(|p| (p, None)).collect();
@@ -275,6 +291,7 @@ impl App {
         self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         self.stored = ini_pairs(&self.ini_text, "Settings").into_iter().collect();
         self.edits.clear();
+        self.start_edit = crate::start::Fields::read(&self.ini_text);
         // The game writes its menu at each start (src/catalog.rs): the page follows it, on the
         // same tab.
         let menu = Catalog::load(self.ini_path().as_deref());
@@ -284,8 +301,18 @@ impl App {
         self.rows = menu.rows;
         self.tab = on.and_then(|on| self.tabs.iter().position(|t| *t == on)).unwrap_or(0);
         self.game_edit = Config::from_ini(&self.ini_text).game_dir.map(|p| p.display().to_string()).unwrap_or_default();
+        // None set: the box starts on Steam's usual folder when the game is there; it is
+        // stored only by Save (#2938).
+        if self.game_edit.is_empty() {
+            let usual = launch::usual_game_folders(launch::user_home().as_deref(), cfg!(windows));
+            if let Some(f) = launch::first_usable(&usual, |p| GameInstall::open(p).is_ok()) {
+                self.game_edit = f.display().to_string();
+            }
+        }
         let configured = ini_get(&self.ini_text, LAUNCHER, "Exe").filter(|s| !s.is_empty()).map(PathBuf::from);
         self.exe = launch::find_game(configured.as_deref());
+        // The DLSS folder is beside the game this INI starts (crate::dlss::folder_for).
+        self.dlss = crate::dlss::Status::read(self.exe.as_deref());
     }
 
     fn launcher_flag(&self, key: &str, default: bool) -> bool {
@@ -294,6 +321,11 @@ impl App {
 
     fn game(&self) -> Option<GameInstall> {
         Config::from_ini(&self.ini_text).game_dir.and_then(|d| GameInstall::open(d).ok())
+    }
+
+    /// Whether the game would find its folder when started now ([`launch::folder_known`]).
+    fn folder_known(&self) -> bool {
+        launch::folder_known(self.game().is_some(), fnv_install::mo2::usvfs_loaded(), std::env::var_os("NVFOREVER_DATA").as_deref())
     }
 
     /// Write `edit` over the INI as it is on disk now (the game may have written it since it
@@ -415,10 +447,18 @@ impl App {
         match &mut self.child {
             Some(c) => match c.try_wait() {
                 Ok(None) => true,
-                _ => {
+                ended => {
                     self.child = None;
                     self.reload_ini();
                     self.find_newest_save();
+                    // An error is said, with where the logs are; a clean exit only clears
+                    // "The game is starting…" (#2938).
+                    let said = ended.ok().flatten().and_then(|s| launch::exit_message(s.code(), s.success(), self.home.as_ref().map(EngineHome::logs).as_deref()));
+                    match said {
+                        Some(m) => self.message = Some((m, true)),
+                        None if self.message.as_ref().is_some_and(|(m, _)| m == STARTING) => self.message = None,
+                        None => {}
+                    }
                     false
                 }
             },
@@ -439,6 +479,13 @@ impl App {
             }
             self.after_write(r, None);
         }
+        // No game folder: the game would only ask for one (Windows) or quit (elsewhere);
+        // the launcher's own page asks instead (#2938).
+        if !self.folder_known() {
+            self.page = Page::Game;
+            self.message = Some((NEEDS_FOLDER_FIRST.into(), true));
+            return;
+        }
         let Some(exe) = self.exe.clone() else {
             self.message = Some((format!("{} was not found beside the launcher: pick it on the Game folder page.", launch::GAME_EXE), true));
             return;
@@ -446,7 +493,7 @@ impl App {
         match launch::spawn(&exe, &start) {
             Ok(c) => {
                 self.child = Some(c);
-                self.message = Some(("The game is starting…".into(), false));
+                self.message = Some((STARTING.into(), false));
                 if self.launcher_flag("CloseOnPlay", false) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -1209,7 +1256,7 @@ impl App {
         let running = download::current().map(|h| h.progress()).filter(|p| !p.phase.finished());
         let last = download::current().map(|h| h.progress()).filter(|p| p.phase.finished());
         if matches!(last.as_ref().map(|p| &p.phase), Some(download::Phase::Done(_))) && !self.dlss.complete() {
-            self.dlss = crate::dlss::Status::read();
+            self.dlss = crate::dlss::Status::read(self.exe.as_deref());
         }
         let s = self.dlss.clone();
         let need = |ui: &mut egui::Ui, ok: bool, words: String| {
@@ -1275,7 +1322,7 @@ impl App {
                     launch::open_url(download::RELEASE_PAGE);
                 }
                 if ui.button("Check again").clicked() {
-                    self.dlss = crate::dlss::Status::read();
+                    self.dlss = crate::dlss::Status::read(self.exe.as_deref());
                 }
             });
         });
@@ -1303,7 +1350,7 @@ impl App {
             ui.horizontal(|ui| {
                 let accept = ui.add(gold_button("I accept", true)).on_hover_text("A mouse click only.");
                 if accept.clicked_by(egui::PointerButton::Primary) {
-                    nvf_dlss_files::download::start(nvf_dlss_files::download::LicenceAccepted::by_player(), None);
+                    nvf_dlss_files::download::start_into(nvf_dlss_files::download::LicenceAccepted::by_player(), None, crate::dlss::folder_for(self.exe.as_deref()));
                     self.dlss_licence = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -1438,7 +1485,7 @@ impl App {
                 .small()
                 .color(WEAK),
         );
-        self.ttw_box(ui);
+        self.start_box(ui);
         ui.separator();
         let Some(list) = &mut self.mods else {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
@@ -1540,35 +1587,60 @@ impl App {
         }
     }
 
-    /// Tale of Two Wastelands' start (src/ttw.rs): shown while its master is in the load
-    /// order; ticking it writes TTW's two `[General]` lines to NVForever.ini at once.
-    fn ttw_box(&mut self, ui: &mut egui::Ui) {
-        let Some(active) = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(crate::ttw::PLUGIN))).map(|e| e.active) else { return };
-        let mut on = crate::ttw::is_on(&self.ini_text);
-        let other = crate::ttw::other_start(&self.ini_text);
-        let mut changed = false;
+    /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
+    /// written to NVForever.ini's `[General]` by Save; TTW's values one click away while its
+    /// master is in the load order.
+    fn start_box(&mut self, ui: &mut egui::Ui) {
+        use crate::start;
+        let ttw = self.mods.as_ref().and_then(|l| l.entries.iter().find(|e| e.name.eq_ignore_ascii_case(start::TTW_PLUGIN))).map(|e| e.active);
+        let saved = start::Fields::read(&self.ini_text);
+        let mut save = false;
         ui.add_space(4.0);
         card(ui, |ui| {
             ui.set_width(ui.available_width());
-            changed = ui.checkbox(&mut on, RichText::new("Tale of Two Wastelands: start new games in Vault 101").strong()).changed();
+            ui.label(RichText::new("New game start").strong());
             ui.label(
-                RichText::new("Sets TTW's start in NVForever.ini for you ([General] sCharGenQuest=001FFFF8 and no New Vegas intro film). Off: New Game is the New Vegas opening.")
+                RichText::new("For mods that start somewhere else (their install guide gives the values). Empty: the New Vegas opening and its film. Saved to NVForever.ini's [General].")
                     .small()
                     .color(WEAK),
             );
-            if on && !active {
-                ui.label(RichText::new(format!("{} is off in the list below: turn it on, or New Game stays at the New Vegas opening.", crate::ttw::PLUGIN)).small().color(BAD));
-            }
-            if let Some(q) = &other {
-                ui.label(RichText::new(format!("NVForever.ini names another start quest ({q}); ticking the box replaces it.")).small().color(WEAK));
+            let w = (ui.available_width() - 120.0).max(120.0);
+            egui::Grid::new("start_fields").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label("Start quest");
+                ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("VCG00 (New Vegas opening); TTW: 001FFFF8").desired_width(w));
+                ui.end_row();
+                ui.label("Intro film");
+                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(r"fnvintro.bik (a file in Data\Video)").desired_width(w));
+                ui.end_row();
+                ui.label("");
+                ui.checkbox(&mut self.start_edit.no_film, "No intro film");
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                save = ui.add_enabled(self.start_edit != saved, egui::Button::new("Save start")).clicked();
+                if ttw.is_some() && !self.start_edit.is_ttw() && ui.button("Use Tale of Two Wastelands' start").on_hover_text("Start quest 001FFFF8 and no intro film; Save to keep it").clicked() {
+                    self.start_edit = start::ttw();
+                }
+                if self.start_edit != start::Fields::default() && ui.button("Clear").on_hover_text("Back to the New Vegas opening; Save to keep it").clicked() {
+                    self.start_edit = start::Fields::default();
+                }
+                if self.start_edit != saved && ui.button("Undo").clicked() {
+                    self.start_edit = saved.clone();
+                }
+            });
+            if self.start_edit.is_ttw() && ttw == Some(false) {
+                ui.label(RichText::new(format!("{} is off in the list below: turn it on, or this start quest is not found.", start::TTW_PLUGIN)).small().color(BAD));
             }
         });
-        if changed {
+        if save {
+            let fields = self.start_edit.clone();
             // Only the INI's text is read again: unsaved changes on the Settings page stay.
-            match self.write_ini(|t| if on { crate::ttw::turn_on(&t) } else { crate::ttw::turn_off(&t) }) {
+            match self.write_ini(|t| fields.write(&t)) {
                 Ok(()) => {
                     self.ini_text = self.ini_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-                    self.message = Some(((if on { "New games start in Vault 101 (Tale of Two Wastelands)." } else { "New games start at the New Vegas opening." }).to_string(), false));
+                    self.start_edit = start::Fields::read(&self.ini_text);
+                    let what = if self.start_edit == start::Fields::default() { "New games start at the New Vegas opening." } else { "New game start saved." };
+                    self.message = Some((what.to_string(), false));
                 }
                 Err(e) => self.message = Some((e, true)),
             }

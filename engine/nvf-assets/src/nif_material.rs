@@ -964,9 +964,30 @@ impl Plugin for NifMaterialPlugin {
         app.add_plugins(MaterialPlugin::<NifMaterial>::default())
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
-            .add_systems(PostUpdate, (apply_blended_cutouts, see_through_casts_no_shadow));
+            .add_systems(PostUpdate, (apply_blended_cutouts.in_set(BlendedCutoutSystems), see_through_casts_no_shadow.in_set(SeeThroughShadowSystems)));
         crate::bc5_field::install(app);
     }
+}
+
+/// The blended cut-outs' alpha-mode edits ([`BlendedCutouts`]), which change materials in
+/// place under the same handle: systems that copy a material's state run after it
+/// (nvforever mesh_terrain_blend.rs, aid only).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BlendedCutoutSystems;
+
+/// The shadow bookkeeping of see-through shapes ([`SeeThroughNoShadow`]): systems that
+/// replace a mesh's [`NifMaterial`] component run after it, so it has seen the material.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SeeThroughShadowSystems;
+
+/// [`apply_blended_cutouts`] in its set, for tests of other crates' material consumers.
+pub fn blended_cutout_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    apply_blended_cutouts.in_set(BlendedCutoutSystems)
+}
+
+/// [`see_through_casts_no_shadow`] in its set, for tests of other crates' material producers.
+pub fn see_through_shadow_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    see_through_casts_no_shadow.in_set(SeeThroughShadowSystems)
 }
 
 /// Keeps Bevy's copy of the opaque frame (the view transmission texture) in every 3D
@@ -1152,6 +1173,28 @@ mod tests {
         };
         first_person_depth(&mut shadow, MeshPipelineKey::VIEW_PROJECTION_ORTHOGRAPHIC);
         assert!(shadow.fragment.is_none());
+    }
+
+    /// [design] The ordinary interface as on main (with #2551's `terrain` row): 50..54,
+    /// table 100, data 101, and nine 16-byte rows (144 bytes). No enabled-only resource may
+    /// enter this type.
+    #[test]
+    fn ordinary_surface_gpu_interface_matches_main() {
+        use bevy::render::render_resource::BindlessResourceType as R;
+        assert_eq!(NifSurfaceUniform::min_size().get(), 144);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 144);
+        let descriptor = NifSurface::bindless_descriptor().unwrap();
+        assert_eq!(descriptor.index_tables.len(), 1);
+        let table = &descriptor.index_tables[0];
+        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 54, 100));
+        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d]);
+        assert_eq!(descriptor.buffers.len(), 1);
+        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(144)));
+        // Non-bindless declarations are from this exact derived production type.
+        let source = include_str!("nif_material.rs");
+        let extension = source.split("pub struct NifSurface {").nth(1).unwrap().split("\n}").next().unwrap();
+        assert!(extension.contains("#[texture(51)]") && extension.contains("#[sampler(52)]") && extension.contains("#[texture(53)]"));
+        assert!(!extension.contains("#[texture(54)]") && !extension.contains("mesh_terrain"));
     }
 
     /// A main-pass pipeline as Bevy hands it to `specialize`: one colour target, depth

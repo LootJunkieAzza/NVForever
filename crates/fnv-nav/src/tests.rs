@@ -1149,6 +1149,28 @@ fn an_obstacle_placed_enabled_does_not_cut() {
     assert!(g.can_reach(from, to, &PathParams::default()));
 }
 
+/// An obstacle wider than an exterior cell (the bounds of MQ05's landing vertibirds hold
+/// their whole flight) cuts nothing when enabled; one just under the limit still does
+/// (issue #2846, `crate::obstacles::MAX_SIDE`).
+#[test]
+fn an_obstacle_wider_than_a_cell_does_not_cut() {
+    let side = crate::obstacles::MAX_SIDE;
+    let wide = crate::obstacles::Obstacle { bounds: ([-side / 2.0 - 1.0, -4.0, 0.0], [side / 2.0 + 1.0, 4.0, 90.0]), ..sandbags(0.0, 90.0) };
+    assert!(wide.too_wide());
+    let scaled = crate::obstacles::Obstacle { bounds: ([-side * 0.499, -4.0, 0.0], [side * 0.499, 4.0, 90.0]), scale: 1.01, ..sandbags(0.0, 90.0) };
+    assert!(scaled.too_wide(), "the placed scale counts");
+    let under = crate::obstacles::Obstacle { bounds: ([-side / 2.0 + 1.0, -4.0, 0.0], [side / 2.0 - 1.0, 4.0, 90.0]), ..sandbags(0.0, 90.0) };
+    assert!(!under.too_wide());
+    let (from, to) = (Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [950.0, 50.0, 0.0] });
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 1, 100.0, &[], flat), W)]);
+    g.set_obstacles(vec![wide], |_| true);
+    assert_eq!(g.cut_triangles(), 0);
+    assert!(g.can_reach(from, to, &PathParams::default()));
+    g.set_obstacles(vec![under], |_| true);
+    assert!(g.cut_triangles() > 0);
+    assert!(!g.can_reach(from, to, &PathParams::default()));
+}
+
 /// The floor near an obstacle's top is on it, not under it, and a floor far below its
 /// base is another level: neither is cut.
 #[test]

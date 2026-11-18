@@ -27,6 +27,24 @@ single slow frame charged to a render system that only writes a buffer
 (`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
 block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
 
+## bevy_post_process 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Bevy's post-processing, for its auto exposure, which meters the view for the game's eye
+adaptation (`engine/nvforever/src/eye_adapt.rs`). One change (#2892), marked `NVForever
+exact curve`, in `src/auto_exposure/`:
+
+- `compensation_curve.rs`: the compensation curve's table holds the compensation values
+  themselves as `f32` (texture `R32Float`); upstream keeps a `u8` between the curve's
+  lowest and highest value, rounded down (`R8Unorm`). `AutoExposureCompensationCurve::
+  compensation` gives the value for an average as the shader reads it, for tests.
+- `auto_exposure.wesl`: the curve is read between two table entries in proportion;
+  upstream reads the one entry at or below the average.
+
+Why: the exposure is `curve(average) − average`. With one byte entry per 0.086 EV of
+average and bytes 0.067 EV apart, a curve `y = x` (no change) came out as a sawtooth
+between 0 and about −0.15 EV, so a daylight picture was darkened by up to 10 %, by an
+amount that jumped as the view's average crossed an entry.
+
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Bevy's 3D passes, for FSR upscaling (docs/design/fsr-upscaling.md), which draws the main
@@ -76,6 +94,18 @@ unchanged, so nothing else behaves differently. Upstream has no way to get the s
 out of the prepass's own code; drop this when it has, or when the sampling is written in
 nvf-assets.
 
+Another change (equal-depth position invariance,
+docs/spec-notes/depth-equality-invariance.md), marked `NVForever equal-depth passes`:
+`src/render/forward_io.wesl` and `src/prepass/io.wesl` mark both vertex position
+producers invariant for the engine's Equal-depth passes. Position calculations and
+depth policy are unchanged. `nvf-shader-tests/tests/depth_invariance.rs` composes the actual
+source through Bevy WESL and Naga and checks the SPIR-V decoration, including
+unannotated controls. An earlier integrated run passed three controls and exposed
+two compiler-setup failures; the corrected pass-specific feature matrix and shared
+production lighting preparation are unrun. Reapply both annotations
+after upgrading Bevy until upstream provides the same guarantee, or retire them
+with the Equal-depth policy.
+
 Third change (#1803), in `src/material.rs`, each part marked by a comment starting
 `NVForever material queue probe`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
@@ -108,6 +138,51 @@ Bevy inserts no such resource, and without it (or with no bits set) nothing chan
 Whoever sets it must hand the lights the held cascades as the frame that drew them had
 them, as the game does.
 Upstream has no way to draw a light's shadow map less often than every frame.
+
+Gated materials (#2661, docs/design/graphics-enhanced.md §3.14 "Off"), in `src/material.rs`,
+each part marked `NVForever gated materials`: `MaterialPlugin::gated(MaterialGate)` (a new
+`gate` field, `None` by default). With a gate, the material type's own systems run only
+while it is open (main world: `mark_meshes_as_changed_if_their_materials_changed`,
+`check_entities_needing_specialization`; render world: `extract_mesh_materials`,
+`early_sweep_material_instances`, the two specialization extractions, and the asset
+extraction and preparation through `ErasedRenderAssetPlugin::gated` below); its shaders are
+loaded and its bind group allocator (with the bindless fallback buffers) made at the first
+extraction after the gate opens, and both dropped at the first extraction after it closes
+(a device recovery while open makes the allocator again, as upstream's startup system
+does). The owner opens the gate before the type's first asset or component and closes it
+only once none has been left for a few frames. Without a gate (every Bevy and every other
+NVForever material) the plugin does what upstream does. Upstream registers a material's
+systems, loads its shaders and makes its allocator at startup, and a plugin cannot be added
+after startup; nvforever's mesh terrain blend, off in most runs, gates its two material
+types with it. Drop it if upstream gains a way to register a material type lazily.
+
+Another change (sun visibility, #2670 and #2671, docs/design/sun-visibility.md), each part
+marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
+
+- `src/render/light.rs`: the render-world component `NvfOutdoorSun`. `prepare_lights` sets
+  the new `DirectionalLightFlags::NVF_OUTDOOR_SUN` (bit 4; `mesh_view_types.wesl`
+  `DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT`) in the GPU flags of the directional light
+  whose render entity has it, so a shader can tell the outdoor sun from other directional
+  lights without assuming an index.
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfSunVisibilityBindings` (a uniform buffer, two filterable float 2D textures and a
+  filtering sampler), the layout key bit `MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`
+  and bindings 39-42 of the mesh view bind group, present only for a view with it.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
+  `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
+  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
+  from the same component, and the shader defs of the same names. The pipelines' layout
+  key and the view's bind group are both read from that one component in the same frame,
+  so they cannot disagree; the component is inserted, changed and removed only during
+  extraction.
+
+The shaders that use the bindings are nvforever's (`sun_visibility.wesl`, patched into
+`apply_pbr_lighting` at run time like lights.rs's edits). Bevy inserts neither component;
+without them the flags, layouts and shader defs are upstream's, and so is every view while
+the game's switches are off; the pipeline keys are the same keys numbered differently (the
+packed fields above the new bits moved up by three). The meshlet path (feature off here) builds its
+view key without the bits, so a meshlet view must not get the component. Upstream has no
+way for an application to add bindings to the mesh view bind group.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -170,6 +245,11 @@ only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`
 `unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
 frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
 first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+Gated render assets (#2661), in `src/erased_render_asset.rs`, marked `NVForever gated
+materials`: `ErasedRenderAssetPlugin::gated(Arc<AtomicBool>)` runs the asset type's
+extraction and preparation systems only while the flag is set, for bevy_pbr's gated
+materials above. `Default` has no flag and does what upstream does.
 
 A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
 in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds

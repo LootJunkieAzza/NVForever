@@ -39,6 +39,7 @@ masters = [
 
 # Test aids that hold no times (safe to keep as they are when a member is offset).
 untimed = [
+  "NVF_PLAY_TEST_MESH_BLEND", "NVF_PLAY_TEST_MESH_BLEND_DETAIL",
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
   "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_PROJECTILE_LAUNCH", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
@@ -514,7 +515,7 @@ manual = "motion_turning.png against motion_still.png: the street and hills smea
 
 [[scenario]]
 name = "shadows-sun"
-source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
+source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 4 cascades (3 until #2843) and the arms' shade light draws only what is near the arms"
 areas = ["renderer", "graphics", "sky"]
 paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wesl", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
@@ -525,18 +526,19 @@ order = [[
   "sky: outdoors again, the sky dome (with the sun disc and glare) shown",
 ]]
 expect = [
-  "sun shadows to 8000 in 3 cascades",
+  "sun shadows to 8000 in 4 cascades",
+  { re = 'shadow casters per cascade: .*Sun for view: \[\d+, \d+, \d+, \d+\]', min = 1, label = "the casters culled per slice are counted for each of the default layout's four cascades (#2843; no measured ranges for that layout yet)" },
   "sun shadows off",
   { re = 'Arms shade light for view: \[(?P<n>\d+)\]', range = [1, 80], label = "the arms' shade light draws at most 80 casters (about 190 when it was the sun's first cascade)" },
 ]
 
 [[scenario]]
 name = "sun-casters-over-slice"
-source = "docs/design/graphics-enhanced.md §5.7 (#1378, 2026-11-03): each of the sun's cascades draws only the casters over the outline of the view's slice it covers, not its whole square: at Novac 07:00 about 78, 750 and 1,750 casters (154, 1,420 and 3,200 before)"
+source = "docs/design/graphics-enhanced.md §5.7 (#1378, 2026-11-03): each of the sun's cascades draws only the casters over the outline of the view's slice it covers, not its whole square: at Novac 07:00 about 78, 750 and 1,750 casters (154, 1,420 and 3,200 before); held at the 3 cascades those counts were taken with (the default is 4 since #2843)"
 areas = ["renderer", "graphics", "sky"]
 paths = ["engine/nvforever/src/sky.rs"]
 env = { NVF_PLAY_TEST_GOD = "1" }
-args = ["--cell", "Novac", "--play", "--no-voice", "--no-messages", "--hour", "7", "--sun-shadows", "--log-frame-times", "8"]
+args = ["--cell", "Novac", "--play", "--no-voice", "--no-messages", "--hour", "7", "--sun-shadows", "--log-frame-times", "8", "--graphics-cycle", "vanilla,cascades=3"]
 run_seconds = 25
 expect = [
   { re = 'shadow casters per cascade: .*Sun for view: \[\d+, (?P<n>\d+), \d+\]', range = [200, 1100], label = "the middle cascade draws the casters over its slice (about 750; 1,420 with the whole square)" },
@@ -855,7 +857,7 @@ expect = [
   { re = 'player body joints within ([3-9]\d\d|\d{4,})', count = 0, label = "the hidden body never wider than 300" },
   { re = 'checks with views sharing a key 0(?!\d)', min = 3, label = "switching to third person and back four times leaves no shadow view behind (the arms' shade light is despawned, not hidden)" },
   { re = 'views share one view key|checks with views sharing a key [1-9]', count = 0, label = "no two views ever share a key (the first-person shadow flicker of 2026-10-26)" },
-  { re = 'shadow probe: frame \d+ .*LOD terrain casting per cascade \[\d+, \d+, \d+\] of casters', min = 1, label = "the per-frame LOD terrain line names the three cascades" },
+  { re = 'shadow probe: frame \d+ .*LOD terrain casting per cascade \[\d+, \d+, \d+, \d+\] of casters', min = 1, label = "the per-frame LOD terrain line names the four cascades" },
 ]
 
 [[scenario]]
@@ -881,7 +883,10 @@ order = [[
   { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
   { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
 ]]
-forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" },
+  { re = 'mesh terrain blend: ', label = "#2661: the mesh terrain blend is not part of enhanced; off, it logs nothing and bakes nothing" },
+]
 
 [[scenario]]
 name = "ui-scale-write"
@@ -1777,7 +1782,7 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 
 [[scenario]]
 name = "sun-shadows-performance"
-source = "docs/design/frame-rate-audit.md §9, §10 and §11 (nvforever shadow_rate.rs, shadow_anchor.rs, #2062, #2063, #2833): the sun's cascades are snapped to a grid anchored near the camera; on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three staggered cascades again, without a rendering error"
+source = "docs/design/frame-rate-audit.md §9, §10 and §11 (nvforever shadow_rate.rs, shadow_anchor.rs, #2062, #2063, #2833): the sun's cascades are snapped to a grid anchored near the camera; on Quality the sun's farther cascades keep their maps on a staggered schedule; the settings page's Sun shadows row goes to Performance and back to Quality while the game runs: three cascades (two until #2843), the sun's shadow maps kept on alternate frames, four staggered cascades again (three until #2843), without a rendering error; the cascades' far bounds are logged as each mode lays them out (#2843)"
 areas = ["renderer", "graphics", "settings"]
 paths = [
   "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/shadow_anchor.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
@@ -1789,11 +1794,17 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 23
 order = [[
   { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "on Quality from the start, the farther cascades are held" },
-  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "sun shadows: performance (maps drawn every other frame, the farthest every fourth, trees cast near the camera only, no arms shade light), 3 cascades",
   "settings: sun-shadows Performance",
   "sun shadows: a frame kept the shadow maps of the frame before",
-  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 3 cascades",
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 4 cascades",
   { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", label = "Quality again: the staggered schedule holds cascades again" },
+], [
+  { text = "sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels […] units", label = "Quality from the start: four cascades, 700, 2,000 and 5,000 of the 8,000 units" },
+  "sun shadows: performance (maps drawn every other frame, the farthest every fourth, trees cast near the camera only, no arms shade light), 3 cascades",
+  { text = "sun shadows: cascades far bounds [1500, 4500, 8000] texels […] units", label = "Performance: three cascades, to 1,500 and 4,500 of the 8,000 units" },
+  "sun shadows: cascades on a staggered schedule (the nearest every frame, the farther ones less often), 4 cascades",
+  { text = "sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels […] units", label = "Quality again: the four cascades' bounds again" },
 ]]
 expect = [
   { text = "sun shadows: cascades snapped to a grid anchored near the camera", count = 1, label = "the cascades are anchored near the camera (logged once)" },
@@ -1801,6 +1812,36 @@ expect = [
 forbid = [
   { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
   { text = "cascades left on the grid through the world's origin", label = "the anchoring is on without the test aid" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "cloud-shadows"
+source = "[design, #2670] docs/design/sun-visibility.md, engine/nvforever/src/cloud_shadows.rs and sun_visibility.rs: the Cloud shadows row (off by default) switched on while the game runs at Goodsprings noon under a pinned cloudy weather turns the sun visibility's cloud variant on once, the producer composes the weather's cloud layers and publishes them, with the patched lighting of what this view draws compiling, without a rendering or pipeline error (the water highlight and the first-person arms' shade light only as far as this view draws them). Whether the ground darkens where it should is checked in pictures by hand"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/cloud_shadows.rs", "engine/nvforever/src/sun_visibility.rs", "engine/nvforever/src/sun_visibility.wesl",
+  "engine/nvforever/src/water.wesl", "engine/vendor/bevy_pbr/src/render/mesh_view_bindings.rs", "engine/vendor/bevy_pbr/src/render/mesh_view_types.wesl",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:cloud-shadows" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--weather", "NVBlackMountainWeather", "--sun-shadows"]
+run_seconds = 24
+order = [[
+  "settings: cloud-shadows on",
+  { text = "sun visibility: cloud on terrain off debug off", label = "the switch turned the plumbing's cloud variant on" },
+  { text = "cloud shadows: layers", label = "the producer composed the weather's layers and published them" },
+]]
+expect = [
+  { re = 'graphics: light glow, cloud shadows$', label = "the graphics line names the switch" },
+  { text = "sun visibility: cloud on terrain off debug off", count = 1, label = "on once: no texture read or publication toggles the pipelines (C0/C1 review, finding 1)" },
+]
+forbid = [
+  { text = "anchors not found", label = "the sun visibility hook did not apply to bevy_pbr's lighting" },
+  { text = "DeviceLost", label = "the GPU device was lost" },
+  { text = "Caught rendering error", label = "a rendering (validation) error with the sun visibility's bindings" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good (a patched lighting, water or arms shader that does not compile)" },
+  { text = "still being retried after", label = "a pipeline still retried at the cap" },
+  { text = "sun visibility: cloud off", label = "the cloud variant went off while the switch stayed on" },
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
@@ -1830,14 +1871,46 @@ env = { NVF_PLAY_TEST_SHADOW_STAGGER = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", 
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 23
 order = [[
-  "sun shadows: performance (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "sun shadows: performance (maps drawn every other frame, the farthest every fourth, trees cast near the camera only, no arms shade light), 3 cascades",
   "settings: sun-shadows Performance",
   "sun shadows: a frame kept the shadow maps of the frame before",
-  "sun shadows: drawn every frame, 3 cascades",
+  "sun shadows: drawn every frame, 4 cascades",
 ]]
 forbid = [
   { text = "staggered schedule", label = "with the aid, no cascade is held on the staggered schedule" },
   { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+]
+
+[[scenario]]
+name = "sun-shadow-resolution"
+source = "docs/design/frame-rate-audit.md §12 (#2843; nvforever graphics.rs SHADOW_RESOLUTIONS, sky.rs shadow_cascade_layout): the settings page's Shadow resolution row goes to 4096 and back to 2048 while the game runs on Sun shadows Quality: the sun's maps change size, a new shadow texture draws every cascade, and the cascades' far bounds follow the size in the same frame (700, 2,000, 5,000 with 2048; without Longer shadows 1,500, 2,400, 4,800 with 4096, the middle two capped at 0.3 and 0.6 of the last), without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/shadow_anchor.rs",
+  "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "crates/nvf-settings-layout/src/lib.rs", "engine/vendor/bevy_pbr/src/render/light.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:shadow-resolution=4096,18:shadow-resolution=2048" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "the maps start at 2048 (the default)" },
+  { text = "sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels […] units", label = "Quality with 2048 maps: 700, 2,000 and 5,000 of the 8,000 units" },
+  "settings: shadow-resolution 4096",
+  { text = "sun shadows: maps 4096 x 4096 texels", label = "the row makes the maps 4096 in play" },
+  { text = "sun shadows: cascades far bounds [1500, 2400, 4800, 8000] texels […] units", label = "Quality with 4096 maps, reach 1: 1,500, 2,400 and 4,800 of the 8,000 units" },
+  "settings: shadow-resolution 2048",
+  { text = "sun shadows: maps 2048 x 2048 texels", label = "back to 2048 in play" },
+  { text = "sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels […] units", label = "Quality with 2048 maps again: the nearer bounds" },
+]]
+expect = [
+  { text = "sun shadows: a frame kept its farther cascades' maps (staggered schedule", min = 1, label = "the staggered schedule holds cascades" },
+  { text = "held shadow maps: a new directional shadow texture", min = 2, label = "each change of size gives a new shadow texture, every cascade drawn (logged by the render world, so not ordered against the lines above)" },
+  { text = "sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels", count = 2, label = "the 2048 layout said at the start and on the way back only: no frame with the old bounds and the new maps" },
+  { text = "sun shadows: cascades far bounds [1500, 2400, 4800, 8000] texels", count = 1, label = "the 4096 layout said once: no frame with it and the 2048 maps" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps change size under held cascades" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
 ]
 
 [[scenario]]
@@ -6195,6 +6268,25 @@ expect = [
   { re = 'run log: .*nvforever-\d{8}-\d{6}-\d+\.log$', label = 'run log: <home>/logs/nvforever-<time>-<pid>.log' },
   { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
   "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "device-lost-report"
+source = "#2934 (player report panic-18a26827d78d01c8): a lost graphics device ends the run as a lost device, not as the wgpu panic that follows it: the crash report is the loss's and the run stops there (engine/nvforever/src/crash.rs)"
+note = "The test aid destroys the device 10 s in; the next frames fail as in the player's log. wgpu does not announce a loss for a device destroyed this way, so the aid logs Bevy's loss line itself; the line's form is from the player's log (unit test a_lost_device_is_read_from_bevys_line_and_named_in_the_report). The message box is not shown in unattended runs."
+areas = ["crash"]
+paths = ["engine/nvforever/src/crash.rs"]
+env = { NVF_PLAY_TEST_DEVICE_LOST = "10" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 30
+exit = 1
+# The run ends at the first panic after the loss: its last lines are that panic's.
+ends = "panicked at"
+expect = [
+  "test aid: destroying the graphics device (NVF_PLAY_TEST_DEVICE_LOST)",
+  { re = 'render: the graphics device was lost \(Destroyed by the test aid NVF_PLAY_TEST_DEVICE_LOST\); the panic below is its consequence and the game stops', label = "the loss named before the panic that followed it" },
+  { re = 'panic on thread .* crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "one crash report, written by the first panic after the loss" },
+  { text = "run log: the game exited normally", max = 0, label = "the run stops at the loss" },
 ]
 
 [[scenario]]
@@ -12214,7 +12306,9 @@ order = [[
   "settings: item-distance 50%",
   "settings: water-mirror off",
   "settings: glow off",
-  { re = 'quality presets: Low from .*quality-presets: 9 row\(s\) set', label = "Low sets its nine rows" },
+  { text = "settings: smooth-terrain Off", label = "Low turns Smooth terrain off, a row of NVForever's own beside the file's (#2864)" },
+  { text = "quality presets: Low: Smooth terrain Off, from the next start", label = "and says it applies at the next start" },
+  { re = 'quality presets: Low from .*quality-presets: 10 row\(s\) set', label = "Low sets its ten rows: the file's nine and Smooth terrain" },
   "settings: quality Low",
   "quality presets: the Quality row reads Low",
   "settings: grass-distance 25%",
@@ -12233,6 +12327,7 @@ order = [[
   "settings: object-distance 80%",
   "settings: item-distance 70%",
   "settings: glow on",
+  { text = "settings: smooth-terrain 4 x 4", label = "High brings Smooth terrain back to 4 x 4 (Medium left it Off)" },
   "settings: quality High",
   "quality presets: the Quality row reads High",
   "settings: shadow-distance 100%",
@@ -15798,6 +15893,38 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "gore-shake-off"
+source = "owner 2026-11-17: a limb blown apart sets off its body part's own blast (FalloutNV.esm DefaultBodyPartData explodable explosion 0x0001540D), which #1892's explosion shake took for a real explosion: a shake on critical kills. The Gore Shake setting (Gameplay > Camera) is off by default, so that blast leaves the view still (engine/nvf-play/src/shake.rs)"
+note = "as dismember-chet's first hit: the sniper rifle's 500 on Chet's head explodes it a few hundred units from the player, inside the reach a blast is felt; nothing turns the setting on"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/shake.rs", "engine/nvforever/src/dismember.rs"]
+env = { NVFOREVER_HOME = "gore-shake-off-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { re = 'dismember: .* 0x00104C79: Head exploded \(overkill', label = "the head is blown apart" },
+  { re = "shake: a body part's blast \\S+ \\d+ units away leaves the view still \\(Gore Shake off\\)", count = 1, label = "its blast does not shake the view by default" },
+]
+forbid = [
+  { text = "shakes the view (Gore Shake on)", label = "no gore blast shakes the view with the setting off" },
+]
+
+[[scenario]]
+name = "gore-shake-on"
+source = "owner 2026-11-17: the Gore Shake setting turned on brings the shake back for a body part's own blast (engine/nvf-play/src/shake.rs)"
+note = "as gore-shake-off, with the settings page's Gore Shake switch flipped on in the pause menu first (its own home, so the stored switch reaches no other scenario)"
+areas = ["combat", "settings"]
+paths = ["engine/nvf-play/src/shake.rs", "crates/nvf-settings-layout/"]
+env = { NVFOREVER_HOME = "gore-shake-on-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "4:6.5", NVF_PLAY_TEST_SETTINGS = "4.5:page,5:gore-shake", NVF_PLAY_TEST_HIT = "9:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition", NVF_PLAY_TEST_GOTO = "7:-583:440:700", NVF_PLAY_TEST_LOOK = "7.5:0:-10" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 16
+order = [[
+  { text = "settings: gore-shake on", label = "the switch is turned on" },
+  { re = 'dismember: .* 0x00104C79: Head exploded \(overkill', label = "the head is blown apart" },
+  { re = "shake: a body part's blast \\S+ \\d+ units away shakes the view \\(Gore Shake on\\)", label = "its blast shakes the view" },
+]]
 
 [[scenario]]
 name = "blast-ragdoll-corpse"
@@ -31281,6 +31408,296 @@ forbid = [
 ]
 
 [[scenario]]
+name = "mesh-terrain-blend-goodsprings"
+source = "[design] #2661: the test aid's world-space landscape colour cache (engine/nvforever/src/mesh_terrain_blend.rs, terrain_surface.rs)"
+areas = ["rendering", "terrain"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/terrain_capture.wesl", "engine/nvforever/src/terrain.*", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/nif_material.*", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvforever/src/mesh_blend_shader_tests.rs", "engine/nvforever/src/fade.rs", "engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/door_fade.rs", "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/shadow_thin.rs", "engine/nvforever/src/nif_mirror.rs", "engine/nvf-play/src/fade.rs"]
+env = { NVF_PLAY_TEST_MESH_BLEND = "24:surface", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "14:mesh_terrain_blend_goodsprings.png" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 20
+manual = "[design] Value syntax [band:]view[:shape[:resolution[:shading[:flat,steep]]]], defaults 8, height, 512, full (24:surface here: band 24, the rest defaults; docs/design/graphics-enhanced.md §3.14). Shoot 8:status:hybrid:1024:full first: magenta out of range, red invalid height, orange invalid colour quadrant, cyan rejected bilinear footprint, green success (brightness follows weight); weight, normal and status draw unlit. Inspect publication grids, quadrant paths, exclusions and probe-normal. A comparison sheet: aid absent, 24:surface:height:512:albedo, 8:surface:height:512:albedo, 8:surface:hybrid:512:albedo, 8:surface:hybrid:512:full, 8:surface:hybrid:1024:full at one road view, then the last and aid absent at a rock foot and a cliff base. No golden updates."
+expect = [
+  { re = 'mesh terrain blend: start band=24 variant=surface resolution=512 noise=0 shape=height shading=full', label = "the effective aid configuration (the defaults: height shape, resolution 512, full shading)" },
+  { re = 'mesh terrain blend: colour atlas resolution=512 atlas=1536x1536 rgba16f colour-mib=24 levels=10 ', label = "the default atlas fits the device (512 texels per cell, its mip chain down to one texel per cell)" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+', range = [1, 1000000], label = "nonzero eligible shapes and a published resident cache" },
+  { re = 'mesh terrain blend: publication generation=[0-9]+ origin=.* resident=.* excluded=.* probe-cell=.* probe-height-bytes=.* probe-status=.* colour=.* height=', label = "publication reports coverage, probe bytes and image identities" },
+  { re = 'mesh terrain blend: publication .*height-only:', max = 0, label = "every resident quadrant's colour is captured, layered and fallback stacks included" },
+  { re = 'mesh terrain blend: start band=24 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1', label = "the default height shape (weight version 1, no hybrid widths)" },
+  { re = 'mesh terrain blend: ready eligible-shapes=[0-9]+ resident-cells=[1-9] generation=[0-9]+ variant=surface shape=height resolution=512 shading=full weight-version=1 stat-shapes=([1-9][0-9]*) excluded-shapes=[0-9]+ pending-material-shapes=[0-9]+ excluded-world=[0-9]+ ', range = [1, 1000000], label = "the census counts resident STAT shapes after the publication fields, in the default height shape" },
+  { re = 'mesh terrain blend: ready .* admitted-blend=[0-9]+ admitted-bias=[0-9]+ admitted-decal=[0-9]+ admitted-mask=[0-9]+ admitted-alpha-cut=[0-9]+', label = "the ready line ends with the admitted material counts" },
+  { re = 'mesh terrain blend: census-shape ref=0x[0-9A-F]{8} base=0x[0-9A-F]{8} model=.+ shape=[0-9]+ status=eligible first-reason=none reasons=none', label = "per-shape census lines name eligible shapes" },
+  { re = 'mesh terrain blend: census-shape ref=0x[0-9A-F]{8} base=0x[0-9A-F]{8} model=.+ shape=[0-9]+ status=(eligible|excluded) first-reason=[a-z-]+ reasons=[a-z+-]+', max = 2048, label = "per-shape census lines stay within their cap" },
+  { re = 'test aid: screenshot .*mesh_terrain_blend_goodsprings\.png', label = "the contact frame is saved" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-options"
+source = "[design] #2661: the aid's extended value: band, view, contact shape, 2048-texel cells and albedo-only shading (engine/nvforever/src/mesh_terrain_blend.rs::parse, terrain_surface.rs::check_resolution)"
+areas = ["rendering", "terrain"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/terrain_capture.wesl", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_MESH_BLEND = "8:status:penetration:2048:albedo", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 20
+manual = "[design] Every resolved setting is logged; the explicit 2048-texel atlas (384 MiB with its mip chain, 288 MiB of it level 0) is allocated and published, or rejected by name on a device whose 2D texture limit is below 6144."
+expect = [
+  { re = 'mesh terrain blend: start band=8 variant=status resolution=2048 noise=0 shape=penetration shading=albedo', label = "every part of the value is resolved" },
+  { re = 'mesh terrain blend: colour atlas resolution=2048 atlas=6144x6144 rgba16f colour-mib=384 levels=12 ', label = "the 2048-texel atlas fits the device, with its twelve-level mip chain" },
+  { re = 'mesh terrain blend: assembly epoch=[0-9]+ request=[0-9]+ copied=[0-9]+ baked=[1-9][0-9]* .* levels=12', label = "an explicit 2048 keeps its meaning; the baked cells' twelve levels are assembled" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+ variant=status shape=penetration resolution=2048 shading=albedo', range = [1, 1000000], label = "the published atlas carries the requested resolution" },
+  { re = 'mesh terrain blend: publication generation=[0-9]+ .* resolution=2048', label = "the publication line names the resolution" },
+  { re = 'mesh terrain blend: start band=8 variant=status resolution=2048 noise=0 shape=penetration shading=albedo weight-version=1', label = "the penetration formula: weight version 1, no widths" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-widths"
+source = "[design] #2661: hybrid v2's flat and steep band widths at the end of the aid's value, and the census of STAT shapes before filtering (engine/nvforever/src/mesh_terrain_blend.rs::parse, census; nif_surface_blend.rs::contact_weight)"
+areas = ["rendering", "terrain"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_material.*"]
+env = { NVF_PLAY_TEST_MESH_BLEND = "8:weight:hybrid:1024:full:0.5,32", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 20
+manual = "[design] Comparison set: aid absent, 8:surface:height:1024:full, 8:surface:hybrid:1024:full:0.5,32, 8:surface:hybrid:1024:full:0.5,48, 8:surface:hybrid:1024:full:0.5,64, 8:weight:hybrid:1024:full:0.5,48 at the road view (A) and the rock foot (B); keep the start, ready and census-shape lines beside each frame. There is no colour-coded excluded view: classify the road from its census-shape line (grep its model path; docs/design/graphics-enhanced.md §3.14 says when a line can be missing). No golden updates."
+expect = [
+  { re = 'mesh terrain blend: start band=8 variant=weight resolution=1024 noise=0 shape=hybrid shading=full flat=0\.5 steep=32 weight-version=2', label = "the widths at the end of the value are resolved" },
+  { re = 'mesh terrain blend: colour atlas resolution=1024 atlas=3072x3072 rgba16f colour-mib=96 levels=11 ', label = "the aid's explicit 1024 keeps its meaning, with an eleven-level mip chain" },
+  { re = 'mesh terrain blend: ready eligible-shapes=[0-9]+ resident-cells=[1-9] generation=[0-9]+ variant=weight shape=hybrid resolution=1024 shading=full flat=0\.5 steep=32 weight-version=2 stat-shapes=([1-9][0-9]*) ', range = [1, 1000000], label = "the ready line carries the widths and the census" },
+  { re = 'mesh terrain blend: census-shape ref=0x[0-9A-F]{8} base=0x[0-9A-F]{8} model=.+ shape=[0-9]+ status=(eligible|excluded) first-reason=[a-z-]+ reasons=[a-z+-]+', label = "per-shape census lines with reference, base, model, shape and first reason" },
+  { re = 'mesh terrain blend: rejected NVF_PLAY_TEST_MESH_BLEND', max = 0, label = "the six-part value is accepted" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-setting"
+source = "[design] #2661: the Graphics row mesh-terrain-blend (Blend meshes into ground) on from the command line draws the default look, 8:surface:height:512:full, with STAT and SCOL shapes in the census (engine/nvforever/src/mesh_terrain_blend.rs follow_setting, setting_config; graphics.rs; settings.rs)"
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/terrain.*", "engine/nvforever/src/world.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend"]
+run_seconds = 20
+manual = "[design] Compare the same view with the row off: road shoulders and rock feet take the ground's colour and light within 8 units of it, road tops stay as they are. No golden updates."
+expect = [
+  { re = 'graphics: .*meshes blended into the ground', label = "the row's switch is on" },
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1', count = 1, label = "the row's look: 8:surface:height:512:full, started once" },
+  { re = 'mesh terrain blend: colour atlas resolution=512 atlas=1536x1536 rgba16f colour-mib=24 levels=10 ', label = "the default atlas fits the device (512 texels per cell with its ten-level mip chain, 48 MiB front and back)" },
+  { re = 'mesh terrain blend: assembly epoch=[0-9]+ request=[0-9]+ copied=[0-9]+ baked=[1-9][0-9]* .* levels=10', label = "the baked cells' ten levels are assembled" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+ variant=surface shape=height resolution=512 shading=full weight-version=1 stat-shapes=', range = [1, 1000000], label = "nonzero eligible shapes and a published cache in the row's look" },
+  { re = 'mesh terrain blend: ready .* scol-shapes=[0-9]+', label = "the census counts SCOL shapes by their base type" },
+  { re = 'mesh terrain blend: census-shape ref=0x[0-9A-F]{8} base=0x[0-9A-F]{8} model=.+ shape=[0-9]+ status=(eligible|excluded) first-reason=[a-z-]+ reasons=[a-z+-]+ base-type=(STAT|SCOL)', label = "census lines name the base type" },
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1 detail=layers', count = 1, label = "the landscape's own layers are sampled near the camera (a bindless device)" },
+  { re = 'mesh terrain blend: publication .* detail=layers palette-images=([1-9][0-9]*) palette-samplers=[1-9][0-9]* detail-quadrants=[1-9][0-9]* colour-quadrants=', range = [1, 384], label = "the publication's palette holds the layer images, within its 384 entries" },
+  { re = 'mesh terrain blend: ready .* scol-shapes=[0-9]+ detail=layers detail-quadrants=[1-9][0-9]*', label = "the ready line says the publication supplies layer detail" },
+  { re = 'mesh terrain blend: publication .*colour-quadrants=\[[^\]]*:(palette-images-full|palette-samplers-full|image-not-loaded|unresolved-materials)', max = 0, label = "no quadrant falls back for want of palette room, images or materials" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "nothing refused" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-live"
+source = "[design] #2661: the Graphics row mesh-terrain-blend switched on and off on the settings page while the game runs, no restart: on, the shapes and cells already drawn are taken in and the cache bakes; off, every converted shape gets its ordinary material back and nothing more is baked (engine/nvforever/src/mesh_terrain_blend.rs follow_setting, stop, close_gate; world.rs blend_backfill; terrain_surface.rs backfill_cells)"
+note = "the row starts off (a test run's vanilla look); it is flipped on at 11 s and off again at 22 s, each time on the settings page"
+areas = ["rendering", "terrain", "settings"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/terrain.*", "engine/nvforever/src/world.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,21:23", NVF_PLAY_TEST_SETTINGS = "11:mesh-terrain-blend,22:mesh-terrain-blend" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'mesh terrain blend: start ', count = 1, label = "started once, by the row" },
+  { re = 'mesh terrain blend: stop ', count = 1, label = "stopped once, by the row" },
+  { re = 'mesh terrain blend: idle ', count = 1, label = "the material gate closed once, after the stop" },
+  { re = 'mesh terrain blend: start .* detail=layers', count = 1, label = "switched on while the game runs, the layer detail is resolved with the start" },
+  { re = 'mesh terrain blend: ready .* detail=layers detail-quadrants=[1-9][0-9]*', label = "the cells captured after the switch publish layer detail" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "nothing refused while switching" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors on or off" },
+]
+order = [[
+  { text = "settings: mesh-terrain-blend on", label = "the row on" },
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1', label = "the row's look starts without a restart" },
+  { re = 'mesh terrain blend: backfill tracked-shapes=([1-9][0-9]*) convertible-shapes=([1-9][0-9]*)', label = "the shapes drawn while it was off are taken in" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+ variant=surface shape=height', label = "the cells drawn while it was off are captured and published" },
+  { text = "settings: mesh-terrain-blend off", label = "the row off" },
+  { re = 'mesh terrain blend: stop restored-shapes=([1-9][0-9]*) tracked-shapes=[0-9]+ released-cells=[1-9]', label = "the converted shapes get their ordinary materials back, the captures go" },
+  { re = 'mesh terrain blend: idle materials-released=true', label = "with the materials gone the gate closes: its allocators are gone and Bevy's own draw functions are back" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-crossing"
+source = "[design] #2661: immutable retained coverage, incremental copies after camera output, prepared enabled materials and 256-unit recentre hysteresis across repeated camera-cell reversals, including pending work (engine/nvforever/src/terrain_surface.rs, mesh_terrain_blend.rs)"
+note = "[hypothesis] The point just west of x=-65536 near Goodsprings and the eastward walk need visual review for a retained road contact. The staging go-to (2 s, the aids' clock) puts x at -65632; after the probe arms, its own crossing sequence (NVF_PLAY_TEST_MESH_BLEND_CROSSING, on the probe's world clock) puts x at -65152 and -65920, 384 units beyond either side of the boundary (past both 256-unit thresholds): each reversal only after the probe has seen the previous recentre in a later frame with a replacement pending, so no two steps share a frame. The shot times are approximate for the steps. The probe checks every frame after arming on initially prepared shapes in the starting camera cell; it cannot prove the pixels stayed unchanged."
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain.*", "engine/nvforever/src/mesh_blend_shader_tests.rs", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "2:-65632:4800:8600", NVF_PLAY_TEST_MESH_BLEND_CROSSING = "4800:8600:4/-65152,0.3/-65920,3/-65152,0.3/-65920,3/-65152,0.3/-65920,3/-65152", NVF_PLAY_TEST_LOOK = "4:90:-20", NVF_PLAY_TEST_MOVE = "12:0.25:0:walk,17:0:0", NVF_PLAY_TEST_MESH_BLEND_CONTINUITY = "8:32", NVF_PLAY_TEST_MESH_BLEND_READY_DELAY = "120", NVF_PLAY_TEST_SHOTS = "11:mesh_blend_crossing_before.png,13.5:mesh_blend_crossing_during.png,19:mesh_blend_crossing_after.png,29:mesh_blend_crossing_settled.png,42:mesh_blend_crossing_final.png" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend"]
+run_seconds = 44
+manual = "[design] Review before/during/after/settled frames at the retained road shoulder. The interior contact must keep the ground look while the atlas is pending. Newly entering cells and changing missing-neighbour border fades are outside the guarantee. Keep the row's height-8/512/full look; no appearance override and no golden updates."
+expect = [
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1', count = 1, label = "the settings row draws the default look" },
+  { re = 'mesh terrain blend: continuity armed witnesses=[1-9][0-9]*', count = 1, label = "initially prepared retained witnesses" },
+  { re = 'mesh terrain blend: continuity frame=.* transition=true .*published=true retained=[1-9][0-9]* missing-enabled=0 missing-prepared=0 failures=0', min = 4, label = "multiple real camera-cell crossings keep retained witnesses enabled and prepared" },
+  { re = 'mesh terrain blend: assembly .*copied=[1-9][0-9]* baked=[1-9][0-9]* ', label = "incremental assembly includes both retained copies and entering bakes" },
+  { re = 'mesh terrain blend: assembly .*copied=[1-9][0-9]* baked=[1-9][0-9]* .* levels=10', label = "the retained cells' ten levels are copied and the entering cells' filtered" },
+  { re = 'mesh terrain blend: continuity summary frames=[1-9][0-9]* crossings=([4-9]|[1-9][0-9]+) pending-frames=[1-9][0-9]* retained-lookups=[1-9][0-9]* pending-retained-lookups=[1-9][0-9]* unwitnessed-pending-frames=0 replacements=[1-9][0-9]* published-false=0 missing-enabled=0 missing-prepared=0 failures=0 copied=[1-9][0-9]* baked=[1-9][0-9]* settled=true recentres=([4-9]|[1-9][0-9]+) pending-reversals=([2-9]|[1-9][0-9]+)', count = 1, label = "every frame counted, at least four crossings and recentres, two reversals of pending work, eventual settlement and zero continuity failures" },
+  { re = 'mesh terrain blend: continuity frame=.*(published=false|missing-enabled=[1-9]|missing-prepared=[1-9]|failures=[1-9])', max = 0, label = "no per-frame publication, material or lookup outage" },
+  { re = 'mesh terrain blend: rejected|mesh terrain blend: continuity rejected', max = 0, label = "no rejected configuration" },
+  { re = 'mesh terrain blend: continuity crossing step=[1-7] x=-65(152|920) y=4800 frame=[0-9]+ world-secs=[0-9.]+ gated=true ', count = 7, label = "seven crossing steps on the probe's clock, each released by the seen recentre and pending work" },
+  { re = 'mesh terrain blend: continuity crossing step=([2-7]) .* gated=true pending=true ', count = 6, label = "every reversal is issued in a later frame while a replacement is pending" },
+  { re = 'mesh terrain blend: continuity crossing done steps=7 timeouts=0', count = 1, label = "the whole sequence ran, no step waited past its timeout" },
+  { re = 'mesh terrain blend: publication .*resident=\[.*\(-17, 0\):q=\[', label = "the road cell (-17, 0) is in the region" },
+  { re = 'mesh terrain blend: publication .*colour-quadrants=\[[^\]]*\(-17, 0\):q[0-3]:', max = 0, label = "every quadrant of the road cell (-17, 0) keeps layer detail, its separately drawn overflow layers included ([observed] folded+1 and folded+2 quadrants there)" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-terrain-switches"
+source = "[design] #2661 with #2550 and #2551: the mesh terrain blend on with Terrain height blending and Terrain anti-tiling on from the command line keeps its layer detail (the detail composes as the near draw does with both switches, graphics-enhanced.md §3.14 \"Height blending and anti-tiling\"), and turning both rows off on the settings page re-reads the detail and bakes and publishes again (engine/nvf-assets/src/nif_surface_bindings.wesl mesh_terrain_detail; engine/nvforever/src/terrain_surface.rs ResolvedDetail::from_materials, refresh_captures, bake_root; terrain_capture.wesl; terrain.rs sync_height_blend, sync_anti_tiling)"
+note = "the three switches start on; height blending is flipped off at 11 s and anti-tiling at 11.5 s on the settings page"
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain.*", "engine/nvforever/src/terrain_capture.wesl", "engine/nvforever/src/terrain_weights.wesl", "engine/nvf-assets/src/terrain_sampling.*", "engine/nvf-assets/src/terrain_pbr.wesl", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13", NVF_PLAY_TEST_SETTINGS = "11:terrain-height-blend,11.5:terrain-anti-tiling" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend,terrain-height-blend,terrain-anti-tiling"]
+run_seconds = 24
+manual = "[design] At a road shoulder or rock foot, with both terrain switches on: the blended band shows the same stones and the same broken-up repeat as the ground beside it; then the same view with both off. No golden updates."
+expect = [
+  { re = 'graphics: .*meshes blended into the ground.*terrain height blending, terrain anti-tiling', label = "the three switches are on" },
+  { re = 'mesh terrain blend: start .* detail=layers', count = 1, label = "the landscape's own layers are sampled near the camera (a bindless device)" },
+  { re = 'mesh terrain blend: ready .* detail=layers detail-quadrants=[1-9][0-9]*', label = "with both terrain switches on the publication still supplies layer detail" },
+  { re = 'terrain: height blending off ', count = 1, label = "the height blending row turned off once" },
+  { re = 'terrain: anti-tiling off ', count = 1, label = "the anti-tiling row turned off once" },
+  { re = 'mesh terrain blend: publication ', min = 2, label = "the switched materials bake and publish again" },
+  { re = 'mesh terrain blend: publication .*colour-quadrants=\[[^\]]*:(anti-tiling-repeat|unresolved-materials|overflow-material)', max = 0, label = "no quadrant falls back for the switches" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "nothing refused with the terrain switches" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+order = [[
+  { re = 'mesh terrain blend: ready .* detail=layers detail-quadrants=[1-9][0-9]*', label = "layer detail is ready with both terrain switches on" },
+  { re = 'terrain: height blending off ', label = "then the height blending row turns off" },
+  { re = 'terrain: anti-tiling off ', label = "then the anti-tiling row turns off" },
+  { re = 'mesh terrain blend: publication .* detail=layers .*detail-quadrants=[1-9][0-9]*', label = "then the switched materials bake and publish again with layer detail" },
+]]
+
+[[scenario]]
+name = "mesh-terrain-blend-detail-colour"
+source = "[design] #2661: the test aid NVF_PLAY_TEST_MESH_BLEND_DETAIL=colour keeps the colour cache alone (no palette, no detail rows), for comparison with the landscape's own layers (engine/nvforever/src/mesh_terrain_blend.rs detail_capability; terrain_surface.rs update_cache)"
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvforever/src/terrain_surface_mips.wgsl", "engine/nvforever/src/terrain.*", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_surface_bindings.wesl", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MESH_BLEND_DETAIL = "colour", NVF_PLAY_TEST_SHOTS = "14:mesh_terrain_blend_detail_colour.png" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend"]
+run_seconds = 20
+manual = "[design] Compare this frame with mesh-terrain-blend-setting's view without the aid at a road shoulder (1920x1080): with the aid the blended strip is the colour cache (smooth: 8 units per texel at the default 512, its mip levels further off); without it the near strip carries the ground's own gravel and normal-mapped relief, mixing back to the colour cache between 2048 and 4096 units (look at the transition and at layer boundaries in grazing views). No golden updates."
+expect = [
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1 detail=colour detail-reason=aid', count = 1, label = "the aid keeps the colour cache alone, said with the start" },
+  { re = 'mesh terrain blend: publication .* detail=colour detail-reason=capability', label = "publications carry no palette" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+ variant=surface .* detail=colour', range = [1, 1000000], label = "the ready line says colour" },
+  { re = 'mesh terrain blend: (start|publication|ready) .*detail=layers', max = 0, label = "no layer detail anywhere" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "the aid's value is accepted" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-verify-crossing"
+source = "[design] #2661: the change-driven conversion (graphics-enhanced.md §3.14 \"Per frame\"; engine/nvforever/src/mesh_terrain_blend.rs pass_needed) checked by the verify aid NVF_PLAY_TEST_MESH_BLEND_VERIFY=1 through mesh-terrain-blend-crossing's camera-cell reversals with pending replacements"
+note = "mesh-terrain-blend-crossing's run without its frames, with the verify aid: every frame the gate skips runs the full pass anyway and logs whatever it would have changed"
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_material.*", "engine/nvforever/src/world.rs", "engine/nvforever/src/fade.rs", "engine/nvf-play/src/fade.rs", "engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "2:-65632:4800:8600", NVF_PLAY_TEST_MESH_BLEND_CROSSING = "4800:8600:4/-65152,0.3/-65920,3/-65152,0.3/-65920,3/-65152,0.3/-65920,3/-65152", NVF_PLAY_TEST_LOOK = "4:90:-20", NVF_PLAY_TEST_MOVE = "12:0.25:0:walk,17:0:0", NVF_PLAY_TEST_MESH_BLEND_CONTINUITY = "8:32", NVF_PLAY_TEST_MESH_BLEND_READY_DELAY = "120", NVF_PLAY_TEST_MESH_BLEND_VERIFY = "1" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend"]
+run_seconds = 44
+expect = [
+  { re = 'mesh terrain blend: start band=8 variant=surface resolution=512 noise=0 shape=height shading=full weight-version=1', count = 1, label = "the settings row draws the default look, through the crossing" },
+  { re = 'mesh terrain blend: continuity crossing done steps=7 timeouts=0', count = 1, label = "the whole crossing sequence ran, through the crossing" },
+  { re = 'mesh terrain blend: continuity summary .* failures=0 .*settled=true', count = 1, label = "zero continuity failures and eventual settlement with the verify aid on, through the crossing" },
+  { re = 'mesh terrain blend: verify skipped-frames=([1-9][0-9]*) diverged=0 passes=', label = "the gate skipped frames, and the full pass run in them anyway changed nothing, through the crossing" },
+  { re = 'mesh terrain blend: verify skipped-frames=[1-9][0-9]* diverged=0 passes=[0-9]+ pass-first=1 pass-config=0 pass-publication=([2-9]|[1-9][0-9]+) pass-pending=[1-9][0-9]* pass-shapes=[1-9][0-9]* pass-materials=[0-9]+', label = "the triggers this case must fire did: the first publication and the crossing's replacements (at least one, its summary) each run a pass for the new publication; each new clone is pending a frame or more; the first conversion's removal of the ordinary materials (and the cells streaming in) runs a pass for the shapes; the look never changes while it is on, through the crossing" },
+  { re = 'mesh terrain blend: verify skipped-frames=[0-9]+ diverged=[1-9]', max = 0, label = "no skipped frame would have changed a shape, a clone, the census or the settlement, through the crossing" },
+  { re = 'mesh terrain blend: verify diverged', max = 0, label = "no divergence line, through the crossing" },
+  # [design] The readiness delay aid (120 frames) and the crossing's held steps keep each new
+  # set of clones pending for long stretches, so passes and pass-pending legitimately reach
+  # the thousands and are not bounded. [observed] smoke --slots 3, release build, final
+  # verify line: skipped-frames=2875 passes=1547 pass-pending=1530 pass-shapes=5
+  # shapes-ordinary-census-only=3 (398b61cda); the failure the bounds guard against (census-only
+  # shapes' same-handle republications running the pass, as inferred in
+  # mesh-terrain-blend-verify-terrain-switches) logged skipped-frames=424 passes=3137
+  # pass-shapes=1772 (070c331fa). These counts follow how loading and streaming spread over
+  # frames, which differs between machines (disk, frame rate), so each bound, on every
+  # (cumulative) count line, is set well above what was seen and well below the more than
+  # 1000 of the failure it guards against: fewer than 100.
+  { re = 'mesh terrain blend: verify skipped-frames=.* pass-shapes=(?P<n>[0-9]+) ', range = [0, 99], all = true, label = "fewer than 100 passes for a shape change in the run, through the crossing" },
+  { re = 'mesh terrain blend: verify skipped-frames=.* shapes-ordinary-census-only=(?P<n>[0-9]+) ', range = [0, 99], all = true, label = "fewer than 100 passes for another handle on a census-only shape, through the crossing" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "the verify aid is accepted, through the crossing" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors, through the crossing" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-verify-live"
+source = "[design] #2661: the change-driven conversion (graphics-enhanced.md §3.14 \"Per frame\"; engine/nvforever/src/mesh_terrain_blend.rs pass_needed) checked by the verify aid NVF_PLAY_TEST_MESH_BLEND_VERIFY=1 through mesh-terrain-blend-live's switch on and off on the settings page"
+note = "mesh-terrain-blend-live's run with the verify aid: the row starts off, is flipped on at 11 s and off again at 22 s; the stop line is followed by the verify count"
+areas = ["rendering", "terrain", "settings"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_material.*", "engine/nvforever/src/world.rs", "engine/nvforever/src/fade.rs", "engine/nvf-play/src/fade.rs", "engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,21:23", NVF_PLAY_TEST_SETTINGS = "11:mesh-terrain-blend,22:mesh-terrain-blend", NVF_PLAY_TEST_MESH_BLEND_VERIFY = "1" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'mesh terrain blend: start ', count = 1, label = "started once, by the row, through the live switch" },
+  { re = 'mesh terrain blend: stop ', count = 1, label = "stopped once, by the row, through the live switch" },
+  { re = 'mesh terrain blend: verify skipped-frames=([1-9][0-9]*) diverged=0 passes=', label = "the gate skipped frames, and the full pass run in them anyway changed nothing, through the live switch" },
+  { re = 'mesh terrain blend: verify skipped-frames=[1-9][0-9]* diverged=0 passes=[0-9]+ pass-first=1 pass-config=0 pass-publication=[1-9][0-9]* pass-pending=[1-9][0-9]* pass-shapes=[1-9][0-9]* pass-materials=[0-9]+', label = "the triggers this case must fire did: switched on: the first pass, the first publication, its clones pending, then the converted shapes' ordinary materials removed; the look never changes while it is on, through the live switch" },
+  { re = 'mesh terrain blend: verify skipped-frames=[0-9]+ diverged=[1-9]', max = 0, label = "no skipped frame would have changed a shape, a clone, the census or the settlement, through the live switch" },
+  { re = 'mesh terrain blend: verify diverged', max = 0, label = "no divergence line, through the live switch" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "the verify aid is accepted, through the live switch" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors on or off, through the live switch" },
+]
+order = [[
+  { text = "settings: mesh-terrain-blend on", label = "the row on, through the live switch" },
+  { re = 'mesh terrain blend: ready eligible-shapes=([1-9][0-9]*) resident-cells=[1-9] generation=[0-9]+ variant=surface shape=height', label = "the cells drawn while it was off are captured and published, through the live switch" },
+  { text = "settings: mesh-terrain-blend off", label = "the row off, through the live switch" },
+  { re = 'mesh terrain blend: verify skipped-frames=([1-9][0-9]*) diverged=0 passes=[0-9]+ pass-first=1 pass-config=0 pass-publication=[1-9][0-9]* pass-pending=[1-9][0-9]* pass-shapes=[1-9][0-9]* ', label = "the count at the stop: frames skipped while it was on, none would have changed anything, and the first pass, a publication, pending clones and shape changes each ran one, through the live switch" },
+  { re = 'mesh terrain blend: stop restored-shapes=([1-9][0-9]*) ', label = "then the converted shapes get their ordinary materials back, through the live switch" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood, through the live switch" },
+]
+
+[[scenario]]
+name = "mesh-terrain-blend-verify-terrain-switches"
+source = "[design] #2661: the change-driven conversion (graphics-enhanced.md §3.14 \"Per frame\"; engine/nvforever/src/mesh_terrain_blend.rs pass_needed) checked by the verify aid NVF_PLAY_TEST_MESH_BLEND_VERIFY=1 through mesh-terrain-blend-terrain-switches' two terrain switches and the bakes and publications they cause"
+note = "mesh-terrain-blend-terrain-switches' run with the verify aid: the three switches start on; height blending is flipped off at 11 s and anti-tiling at 11.5 s on the settings page"
+areas = ["rendering", "terrain", "graphics"]
+paths = ["engine/nvforever/src/mesh_terrain_blend.rs", "engine/nvforever/src/terrain_surface.*", "engine/nvf-assets/src/nif_surface_blend.rs", "engine/nvf-assets/src/nif_material.*", "engine/nvforever/src/world.rs", "engine/nvforever/src/fade.rs", "engine/nvf-play/src/fade.rs", "engine/nvforever/src/effect_shaders.rs", "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/nif_mirror.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:13", NVF_PLAY_TEST_SETTINGS = "11:terrain-height-blend,11.5:terrain-anti-tiling", NVF_PLAY_TEST_MESH_BLEND_VERIFY = "1" }
+args = ["--play", "--cell", "Goodsprings", "--hour", "12.5", "--no-voice", "--no-messages", "--graphics-only", "mesh-terrain-blend,terrain-height-blend,terrain-anti-tiling"]
+run_seconds = 24
+expect = [
+  { re = 'mesh terrain blend: start .* detail=layers', count = 1, label = "started once with layer detail, through the terrain switches" },
+  { re = 'terrain: height blending off ', count = 1, label = "the height blending row turned off once, through the terrain switches" },
+  { re = 'terrain: anti-tiling off ', count = 1, label = "the anti-tiling row turned off once, through the terrain switches" },
+  { re = 'mesh terrain blend: publication ', min = 2, label = "the switched materials bake and publish again, through the terrain switches" },
+  { re = 'mesh terrain blend: verify skipped-frames=([1-9][0-9]*) diverged=0 passes=', label = "the gate skipped frames, and the full pass run in them anyway changed nothing, through the terrain switches" },
+  { re = 'mesh terrain blend: verify skipped-frames=[1-9][0-9]* diverged=0 passes=[0-9]+ pass-first=1 pass-config=0 pass-publication=([2-9]|[1-9][0-9]+) pass-pending=[1-9][0-9]* pass-shapes=[1-9][0-9]* pass-materials=[0-9]+', label = "the triggers this case must fire did: the first publication and the switched materials' (at least two, above) each run a pass for the new publication; each new clone is pending a frame or more; the first conversion's removal of the ordinary materials runs a pass for the shapes; the look never changes while it is on, through the terrain switches" },
+  { re = 'mesh terrain blend: verify skipped-frames=[0-9]+ diverged=[1-9]', max = 0, label = "no skipped frame would have changed a shape, a clone, the census or the settlement, through the terrain switches" },
+  { re = 'mesh terrain blend: verify diverged', max = 0, label = "no divergence line, through the terrain switches" },
+  # [design] Standing still with the blend on from the start, the gate is quiet.
+  # [observed] smoke --slots 3, release build, final verify line: skipped-frames=3354
+  # passes=20 (first 1, publication 5, pending 10, shapes 4, materials 0)
+  # shapes-ordinary-census-only=3 (398b61cda). The failure the bounds guard against logged
+  # skipped-frames=1277 passes=1289 pass-shapes=1275 (070c331fa); the one change between the
+  # two heads is that census-only shapes' same-handle republications no longer run the pass, so those
+  # passes were taken to be them (an animated STAT's look, nvf-assets material_anim.rs),
+  # read from that and from the per-signal counts, not seen directly. These counts follow
+  # how loading spreads over frames, which differs between machines (disk, frame rate), so
+  # each bound, on every (cumulative) count line, is set well above what was seen and well
+  # below the more than 1000 of the failure it guards against: fewer than 100. The passes
+  # bound covers pass-shapes too.
+  { re = 'mesh terrain blend: verify skipped-frames=[0-9]+ diverged=[0-9]+ passes=(?P<n>[0-9]+) ', range = [0, 99], all = true, label = "the gate stays quiet in standing play: fewer than 100 full passes in the run, through the terrain switches" },
+  { re = 'mesh terrain blend: verify skipped-frames=.* shapes-ordinary-census-only=(?P<n>[0-9]+) ', range = [0, 99], all = true, label = "fewer than 100 passes for another handle on a census-only shape, through the terrain switches" },
+  { re = 'mesh terrain blend: rejected', max = 0, label = "the verify aid is accepted, through the terrain switches" },
+  { re = '(?i)(shader.*error|error.*shader|validation error)', max = 0, label = "no shader or GPU validation errors, through the terrain switches" },
+]
+
+[[scenario]]
 name = "pipboy-sleeve-trooper-pimpboy"
 source = "#2457 (docs/spec-notes/actors.md §1.2): with the NCR Trooper Fatigues and the Pimp-Boy 3 Billion worn the raised Pip-Boy showed no sleeve on the arm: the fatigues' model has no `Arms…` shape, its sleeves are arm partitions (3/3000, 5/5000) of `hest:0`, `objdefault01:0` and `objdefault02:0`, and the arms rig drew only `Arms…` and `PipBoyOn…` shapes"
 note = "the player wears OutfitTrooperFatigues (0x0010D2CD) and the Pimp-Boy (PimpBoy 0x0011BACB) in Goodsprings; the Pip-Boy comes up at 4 s, a frame at 7 s: an olive sleeve from the elbow to the device and a cuff at the wrist, the street not seen through the arm"
@@ -31375,6 +31792,25 @@ order = [[
 expect = [
   { re = 'WARN nvf_play::softlock: softlock: ', count = 1, label = "one finding for the one hold, none while the player was free" },
 ]
+
+[[scenario]]
+name = "softlock-gomorrah-leave"
+source = "issue #2835 (engine/nvforever/src/residents.rs drive): leaving Gomorrah by the inner hotel door GomorrahHotelDoorREF01 (0x0011A987), whose script resets vDialogueGomorrah.iInGomorrah to 0, let the entrance guard vGOMEntranceGuardREF (0x00127956) take up GomorrahGreeterPackage in the same frame and start his weapons check with a player already on the way out; the hand-over set iInGomorrah to 1 again, so on the next way in (vGOMHotelDoor02, 0x0013BB1D, DisablePlayerControls) no greeting came to give the controls back. Nobody thinks in the frame the player sets off through a load door"
+note = "Gomorrah's main level: the guard greets the player at the start and is answered with the hand-over (INFO 0x0012793F); the player stands at the inner door at 10 s, which at 12 s takes them out to the Strip, and the outer door at 22 s brings them back in, where the guard greets again and his line's end gives the controls back. The race itself is one frame (the guard choosing his package in the frame the player sets off; the quest pilot met it, a build without the fix passed this five times out of five), so this guards the way out and back in, not the race"
+areas = ["ai", "quests", "scripts"]
+paths = ["engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SOFTLOCK_SECS = "8", NVF_PLAY_TEST_TALK = "0:*=Here you go;20:*=Here you go", NVF_PLAY_TEST_GOTO = "10:1790:2440:6410", NVF_PLAY_TEST_SCRIPT = "12:activate:0x0011A987,22:activate:0x0013BB1D" }
+args = ["--play", "--cell", "Gomorrah01", "--pos=1900,1900,6410", "--heading", "0", "--no-voice", "--no-messages"]
+run_seconds = 45
+order = [[
+  { re = 'vGOMEntranceGuardREF: starts a conversation', label = "the guard greets the player inside" },
+  { re = 'script: travel to None / Some\(1291016\)', label = "the inner door takes the player out to the Strip" },
+  { re = 'player controls: .*disabled by scripts', label = "the outer door takes the controls on the way back in" },
+  { re = 'vGOMEntranceGuardREF: starts a conversation', label = "back inside, the guard greets the player again" },
+  { text = "player controls: all enabled", label = "his line's end gives the controls back" },
+]]
+expect = [{ re = 'vGOMEntranceGuardREF: starts a conversation', count = 2, label = "two greetings, both inside" }]
+forbid = [{ re = 'softlock: controls_held', label = "the controls are not left off" }]
 
 [[scenario]]
 name = "softlock-hardin-training"

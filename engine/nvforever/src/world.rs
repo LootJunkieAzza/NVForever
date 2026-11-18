@@ -1379,6 +1379,13 @@ pub fn spawn_model(
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
         }
+        // [design] Census while the blend is on (#2661): a rigged STAT's or SCOL's shapes
+        // are tracked, never converted.
+        if let Some(census) = blend_census(world, p, r, base, &path, &model, false) {
+            for (index, e) in drawn.iter().enumerate() {
+                commands.entity(*e).insert(crate::mesh_terrain_blend::BlendCensus { shape: index, ..census.clone() });
+            }
+        }
         if door.is_some() {
             commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes.clone(), p.open_by_default));
             stats.refs_doors += 1;
@@ -1433,15 +1440,18 @@ pub fn spawn_model(
         info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
     }
     stats.refs_posed += usize::from(posed.is_some());
+    // [design] Census of every STAT and SCOL shape while the blend is on, before any
+    // selection (#2661).
+    let census = blend_census(world, p, r, base, &path, &model, posed.is_some());
     // Shapes below a billboard node go under an entity for it that turns to the camera
     // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
     // holder carries the reference's RefVisual, so moving and redrawing it take them along.
     let mut boards = nvf_assets::model::BakedBillboards::default();
-    for s in &model.shapes {
+    for (index, s) in model.shapes.iter().enumerate() {
         let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
-        let (parent, m) = match posed.is_none().then(|| boards.place(commands, parent, &model, rt, s, RefVisual(r))).flatten() {
-            Some((board, below)) => (board, Mat4::from(below)),
-            None => (parent, Mat4::from(rt * shape)),
+        let (parent, m, billboard) = match posed.is_none().then(|| boards.place(commands, parent, &model, rt, s, RefVisual(r))).flatten() {
+            Some((board, below)) => (board, Mat4::from(below), true),
+            None => (parent, Mat4::from(rt * shape), false),
         };
         // External emittance: the reference's XEMI source drives the colour.
         let material = p
@@ -1452,6 +1462,15 @@ pub fn spawn_model(
         // A shape below a damage-stage node: under a holder of its own, shown at its stages
         // only (destroyed.rs); the holder's RefVisual follows the reference's presence.
         let stages = s.node.and_then(|n| nvf_assets::model::damage_stages_of(&model.nodes, n));
+        // [design] Morphing meshes are registered independently of rigs (nvf-assets/src/morph.rs).
+        // Only shapes without reference or shape reasons may be converted (BlendShape).
+        // [design] A shape turned to the camera under a billboard holder (#2549) is counted
+        // but never blends, as the backfill (`blend_backfill`) leaves it out.
+        let blend = census.as_ref().map(|c| {
+            let mut tracked = shape_census(c, index, s, models);
+            tracked.reasons |= crate::mesh_terrain_blend::billboard_reason(billboard);
+            (tracked, material.clone())
+        });
         let e = match stages {
             Some(st) => {
                 let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
@@ -1459,6 +1478,12 @@ pub fn spawn_model(
             }
             None => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id(),
         };
+        if let Some((tracked, original)) = blend {
+            if tracked.reasons == 0 {
+                commands.entity(e).insert(crate::mesh_terrain_blend::BlendShape::new(original));
+            }
+            commands.entity(e).insert(tracked);
+        }
         // A mine's light parts: shown and hidden by its state (`nvf_play::mines`).
         if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
             commands.entity(e).insert(l);
@@ -1469,6 +1494,113 @@ pub fn spawn_model(
     stats.refs_billboards += usize::from(!boards.is_empty());
     spawn_emitters(commands, parent, r, &model, &path, rt);
     stats.refs_drawn += 1;
+}
+
+/// [design] The mesh terrain blend's census of a STAT or SCOL reference (#2661;
+/// mesh_terrain_blend.rs) while the blend is on: its reference reasons from the actual
+/// spawn path and prepared model, before any selection; `None` while the blend is off or
+/// for another record type. Record presence follows fnv-game/src/data.rs (DEST); no
+/// asset-name selection. The shape index and shape reasons are the caller's.
+fn blend_census(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    if !crate::mesh_terrain_blend::recording() {
+        return None;
+    }
+    census_of(world, p, r, base, path, model, posed)
+}
+
+/// [`blend_census`] whether or not the blend records spawns now (the backfill's).
+fn census_of(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    let base_type = crate::mesh_terrain_blend::BaseType::of(&base.sig)?;
+    let exterior = world.index.refs.get(&r).and_then(|r| world.index.cells.get(&r.cell))
+        .is_some_and(|c| !c.is_interior() && c.world == Some(world.world));
+    let destructible = fnv_world::fields::winner(world.lo, base.form_id)
+        .and_then(|(pi, record)| fnv_world::fields::Fields::new(record, pi, world.schema).ok())
+        .is_some_and(|f| f.raw(b"DEST").is_some());
+    let facts = crate::mesh_terrain_blend::ReferenceFacts {
+        exterior,
+        rigged: model.rig.is_some() || model.skinned != 0,
+        particles: model.particles,
+        posed: model.jointed || model.loose || posed,
+        damage_stages: model.nodes.iter().any(|n| n.damage_stages.is_some()),
+        destructible,
+        distant: p.imposter,
+    };
+    Some(crate::mesh_terrain_blend::BlendCensus {
+        reference: r,
+        base: base.form_id,
+        base_type,
+        model: path.into(),
+        shape: 0,
+        reasons: crate::mesh_terrain_blend::reference_reasons(facts),
+    })
+}
+
+/// [design] Shape `index` of a reference's census: its shape reasons (external emittance,
+/// a registered morph mesh, nvf-assets/src/morph.rs) added to the reference's.
+fn shape_census(c: &crate::mesh_terrain_blend::BlendCensus, index: usize, s: &nvf_assets::model::PreparedShape, models: &ModelCtx) -> crate::mesh_terrain_blend::BlendCensus {
+    let morph = models.cache.morphs.ids().any(|id| id == s.mesh.id());
+    let reasons = c.reasons | crate::mesh_terrain_blend::shape_reasons(s.external_emittance, morph);
+    crate::mesh_terrain_blend::BlendCensus { shape: index, reasons, ..c.clone() }
+}
+
+/// The shapes drawn while the blend was off: no census yet, the ordinary material on.
+type Untracked<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static Mesh3d, &'static MeshMaterial3d<NifMaterial>, &'static ChildOf), Without<crate::mesh_terrain_blend::BlendCensus>>;
+
+/// [design] The blend turned on while cells were drawn (#2661, the settings row): the
+/// census and selection of every STAT and SCOL shape already drawn directly under a cell
+/// as `spawn_model` draws a static one, once per switch (`BlendState::shapes_pending`).
+/// The same rules as at spawn: the reference's placement, base (a destroyed reference's
+/// replacement model, destroyed.rs), prepared model and stored pose decide its reasons
+/// ([`census_of`]); a shape is matched to its model's shape by its mesh, which gives its
+/// index and shape reasons ([`shape_census`]); the material it draws with now is its
+/// source. Shapes under a rig's nodes (animated models), under a damage stage's holder,
+/// under a billboard holder (#2549) or drawn as an imposter have no cell for a parent and
+/// are left out; those can never blend anyway.
+pub(crate) fn blend_backfill(
+    mut commands: Commands,
+    world: Res<WorldData>,
+    streamer: Res<Streamer>,
+    mut state: ResMut<crate::mesh_terrain_blend::BlendState>,
+    mut models: ModelCtx,
+    shapes: Untracked,
+    cells: Query<(), With<CellEntity>>,
+) {
+    if !std::mem::take(&mut state.shapes_pending) {
+        return;
+    }
+    let mut by_ref = HashMap::<u32, Vec<_>>::new();
+    for (e, r, mesh, material, parent) in &shapes {
+        if cells.contains(parent.parent()) {
+            by_ref.entry(r.0).or_default().push((e, &mesh.0, &material.0));
+        }
+    }
+    let (mut tracked, mut convertible) = (0, 0);
+    for (r, drawn) in by_ref {
+        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
+        if crate::mesh_terrain_blend::BaseType::of(&base.sig).is_none() {
+            continue;
+        }
+        let base = match streamer.model_overrides.get(&r) {
+            Some(m) => base_object_with_model(base, m),
+            None => base,
+        };
+        let Some(path) = base.world_model_path() else { continue };
+        let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else { continue };
+        let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path)).is_some();
+        let Some(census) = census_of(&world, &p, r, &base, &path, &model, posed) else { continue };
+        for (e, mesh, material) in drawn {
+            let Some((index, s)) = model.shapes.iter().enumerate().find(|(_, s)| &s.mesh == mesh) else { continue };
+            let shape = shape_census(&census, index, s, &models);
+            if shape.reasons == 0 {
+                commands.entity(e).try_insert(crate::mesh_terrain_blend::BlendShape::new(material.clone()));
+                convertible += 1;
+            }
+            commands.entity(e).try_insert(shape);
+            tracked += 1;
+        }
+    }
+    info!("mesh terrain blend: backfill tracked-shapes={tracked} convertible-shapes={convertible}");
 }
 
 /// A placed model's own particle systems (a fire's flames: Gomorrah's roof,
@@ -1955,5 +2087,46 @@ mod tests {
         assert!((r * Vec3::Z).abs_diff_eq(Vec3::Z, 1e-5), "upright: {}", r * Vec3::Z);
         let level = Vec3::new(eye.x, eye.y, 0.0).normalize();
         assert!((r * Vec3::Y).dot(level) > 0.9999, "+y to the camera: {}", r * Vec3::Y);
+    }
+}
+
+#[cfg(test)]
+mod blend_census_tests {
+    use super::*;
+    use crate::mesh_terrain_blend::{reason, BaseType};
+
+    /// #2661 round 7: a SCOL reference is taken into the census as a STAT is, under the
+    /// same reference rules and labelled by its base type; other record types are not.
+    /// Synthetic index and records; no game data.
+    #[test]
+    fn scol_references_get_the_census_of_a_stat_and_other_records_none() {
+        let mut world = crate::outfits::tests::empty_world_data();
+        let mut index = WorldIndex::default();
+        index.cells.insert(0x10, fnv_world::Cell { form_id: 0x10, world: Some(0), grid: Some((-16, -2)), ..default() });
+        index.cells.insert(0x11, fnv_world::Cell { form_id: 0x11, data_flags: 1, ..default() });
+        index.refs.insert(0x100, fnv_world::index::RefEntry { cell: 0x10, sig: *b"REFR", persistent: false });
+        index.refs.insert(0x101, fnv_world::index::RefEntry { cell: 0x11, sig: *b"REFR", persistent: false });
+        world.index = Box::leak(Box::new(index));
+        let placement = |imposter: bool| Placement {
+            form_id: 0x100, sig: *b"REFR", flags: 0, base: Some(0x200), position: [0.0; 3], rotation: [0.0; 3], scale: 1.0,
+            enable_parent: None, open_by_default: false, teleport: false, emittance: None, imposter, primitive: false,
+        };
+        let base = |sig: [u8; 4]| BaseObject {
+            form_id: 0x200, sig, edid: None, model: Some("scol/synthetic_road.nif".into()), world_model: None, world_alt_textures: vec![], worn_only: false,
+        };
+        let model = PreparedModel::default();
+        let path = "scol/synthetic_road.nif";
+        let scol = census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, false).expect("a SCOL is tracked");
+        assert_eq!((scol.base_type, scol.reasons, scol.reference, scol.base), (BaseType::Scol, 0, 0x100, 0x200));
+        assert_eq!(&*scol.model, path);
+        let stat = census_of(&world, &placement(false), 0x100, &base(*b"STAT"), path, &model, false).expect("a STAT is tracked");
+        assert_eq!((stat.base_type, stat.reasons), (BaseType::Stat, 0));
+        // The same reference rules: an imposter, an interior, a stored pose.
+        assert_eq!(census_of(&world, &placement(true), 0x100, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::DISTANT);
+        assert_eq!(census_of(&world, &placement(false), 0x101, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::WORLD);
+        assert_eq!(census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, true).unwrap().reasons, reason::POSED);
+        for sig in [*b"MSTT", *b"DOOR", *b"ACTI", *b"TREE", *b"MISC"] {
+            assert!(census_of(&world, &placement(false), 0x100, &base(sig), path, &model, false).is_none(), "{}", String::from_utf8_lossy(&sig));
+        }
     }
 }

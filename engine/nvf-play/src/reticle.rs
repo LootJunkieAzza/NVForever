@@ -161,6 +161,13 @@ impl Prompt {
 
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
         let (mut action, name) = outcome::prompt(&t.name, &t.action);
+        // Session changes share the script reader's authority; XATO below still wins
+        // (docs/spec-notes/string-settings.md).
+        if matches!(t.action, Action::Talk) {
+            if let Some(fnv_sim::settings::Setting::Str(text)) = sim.world.setting_value("sTargetTypeTalk") {
+                action = text.clone();
+            }
+        }
         // An owned item is stolen, not taken [hypothesis: the game's word; owner's
         // playtest list 2 of 2026-10-12].
         if t.crime && matches!(t.action, Action::Take { .. }) {
@@ -830,3 +837,6 @@ mod tests {
         assert_eq!(value_text(None), "--");
     }
 }
+
+#[cfg(test)]
+mod string_settings_tests;

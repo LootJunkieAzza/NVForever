@@ -72,9 +72,10 @@ const LENS_WORLD_PX: u32 = 768;
 /// 3D scopes: the reticle drawn this far in front of the world disc (model units).
 const RETICLE_LIFT: f32 = 0.02;
 
-/// The second world camera of a 3D scope.
+/// The second world camera of a 3D scope (it takes the sun visibility too:
+/// sun_visibility.rs).
 #[derive(Component)]
-struct LensCamera;
+pub(crate) struct LensCamera;
 
 pub struct ScopeViewPlugin;
 

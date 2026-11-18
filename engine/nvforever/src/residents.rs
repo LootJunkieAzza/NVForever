@@ -3171,6 +3171,13 @@ pub fn drive(
         if arriving {
             res.core.begin_trip();
         }
+        // The player is leaving: nobody thinks this frame (the loading screen holds the
+        // game from the next). Gomorrah's inner door resets iInGomorrah as the player
+        // goes out, and the entrance guard's GomorrahGreeterPackage, judging the player
+        // still at the door, started its weapons check with a player already outside;
+        // the hand-over set iInGomorrah again, so on the next way in the guard never
+        // greeted and the door's DisablePlayerControls was never undone.
+        return;
     }
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.

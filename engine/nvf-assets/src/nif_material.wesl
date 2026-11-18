@@ -90,8 +90,14 @@ import bevy_pbr::{
     render::shadows::{fetch_directional_shadow, get_cascade_index},
     render::shadow_sampling::sample_shadow_map,
 };
+// The sun visibility (nvforever sun_visibility.rs) for the shade light's algebra, only
+// while the view has the plumbing (the shader def then exists: bevy_pbr mesh.rs).
+@if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
+@if(!PREPASS_PIPELINE && SHADE_LIGHT && NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
 
 import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
+@if(MESH_TERRAIN_BLEND) import nvf_assets::nif_surface_bindings::{mesh_terrain_lookup, mesh_terrain_view, mesh_terrain_shading, mesh_terrain_unlit_view, mesh_terrain_diagnostic, mesh_terrain_blend_normal, mesh_terrain_target_colour, mesh_terrain_target_normal, mesh_terrain_face_up, MeshTerrainInputs, LOOKUP_SUCCESS, LAND_ROUGHNESS, LAND_REFLECTANCE};
+@if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -380,6 +386,31 @@ const BODY_CLEARANCE: f32 = 24.0;
 // R + S * wanted with wanted = min(shade, past), is lit - S * (1 + share - wanted).
 // Whatever shades the point past the body lies on the fragment's own line to the sun, so
 // past >= own: where neither map has a shadow (own = shade = 1) the result is `shadowed`.
+//
+// With the sun visibility (nvforever sun_visibility.rs, shader def NVF_SUN_VISIBILITY) the
+// outdoor sun's shadow value C becomes V(C) inside apply_pbr_lighting, for receivers and
+// non-receivers alike (non-receivers with C = 1); the shade light is never flagged, so
+// its values stay as they were. Then
+//   shadowed = R + S * (V(own) + share * shade)
+//   lit      = R + S * (V(1) + share)
+// so S = (lit - shadowed) / missing with missing = (V(1) - V(own)) + share * (1 - shade),
+// and the colour wanted, R + S * V(wanted) (the sun's light with the visibility of the
+// wanted shadow value, the shade light's taken out as before), is
+// lit - S * (V(1) + share - V(wanted)): k = (V(1) + share - V(wanted)) / missing.
+// Off (no def, or the sun not flagged: indoors) V(C) = C, so V(1) = 1, V(own) = own and
+// V(wanted) = wanted, and both lines are the ones above term for term:
+//   missing = (1 - own) + share * (1 - shade),   k = (1 + share - wanted) / missing.
+// `missing` near 0 (V(1) = V(own), e.g. own = 1, or a fully opaque cloud, with shade = 1)
+// returns `shadowed`, which keeps the shade light's share there as it did before.
+@if(!PREPASS_PIPELINE && SHADE_LIGHT) fn sun_shadow_value(sun: u32, in: PbrInput, cascade: f32, view_z: f32) -> f32 {
+    @if(NVF_SUN_VISIBILITY)
+    if (lights.directional_lights[sun].flags & DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
+        // As the hook in apply_pbr_lighting computes it (same position, light, view_z).
+        return nvf_sun_visibility(in.world_position.xyz, lights.directional_lights[sun].direction_to_light, cascade, view_z);
+    }
+    return cascade;
+}
+
 @if(!PREPASS_PIPELINE && SHADE_LIGHT) fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
     if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
         return shadowed;
@@ -418,16 +449,19 @@ const BODY_CLEARANCE: f32 = 24.0;
     ), in.world_position);
     let own = fetch_directional_shadow(sun, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
     let shade = fetch_directional_shadow(shade_light, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
-    let missing = (1.0 - own) + share * (1.0 - shade);
+    // V(1) and V(own): 1 and own without the sun visibility (see above).
+    let v_lit = sun_shadow_value(sun, in, 1.0, view_z);
+    let v_own = sun_shadow_value(sun, in, own, view_z);
+    let missing = (v_lit - v_own) + share * (1.0 - shade);
     if missing < 0.000001 {
-        // Neither map has a shadow here.
+        // Neither map has a shadow here (or the clouds leave no sun to tell apart).
         return shadowed;
     }
     let wanted = min(shade, shadow_past_body(sun, in, view_z));
     var unshadowed = in;
     unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT;
     let lit = apply_pbr_lighting(unshadowed);
-    let k = (1.0 + share - wanted) / missing;
+    let k = (v_lit + share - sun_shadow_value(sun, in, wanted, view_z)) / missing;
     if lights.ambient_color.a < 0.0 {
         // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
         // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
@@ -466,6 +500,18 @@ fn nif_fragment(
     in: VertexOutput,
     is_front: bool,
 ) -> FragmentOutput {
+    // [design] Mesh terrain blend: the derivatives of the fragment's world position, for
+    // the face's geometric normal (the steepness fade, nif_surface_bindings.wesl
+    // `mesh_terrain_face_up`), and of its game xy (Bevy (x, -z), the same differences
+    // picked out) for the landscape layers' explicit-gradient reads, the colour level and
+    // the local height reference (`mesh_terrain_detail`). Taken first, in uniform control
+    // flow while every fragment of the quad still runs, before the visibility dither and
+    // every discard below (terrain.wesl's order); the blend itself stays after the coverage
+    // tests. Only the blend variant has these lines.
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdx = dpdx(in.world_position.xyz);
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_wdy = dpdy(in.world_position.xyz);
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dx = vec2(terrain_wdx.x, -terrain_wdx.z);
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_dy = vec2(terrain_wdy.x, -terrain_wdy.z);
     // Landscape anti-tiling's footprint, while every fragment of the quad still runs.
     @if(TERRAIN_ANTI_TILING) let terrain_fp = terrain_footprint(in.world_position, nif_surface(in.instance_index).terrain.x, standard_material(in.instance_index).uv_transform);
     @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
@@ -559,6 +605,43 @@ fn nif_fragment(
     // equality with it: nothing is left to test here.
     @if(PREPASS_COVERAGE) pbr_input.material.base_color.a = 1.0;
     @if(!SOFT_EDGES && !PREPASS_COVERAGE) pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
+    // [design] Mesh terrain blend (nif_surface_blend.rs; the mesh-terrain-blend settings row),
+    // forward only: after the existing coverage tests and normal mapping, before lighting.
+    // The weight comes from the unperturbed world_normal; alpha, positions, depth and that
+    // geometric normal (shadow bias) stay as they are. Full shading moves the material
+    // values the lighting reads towards the landscape's (terrain.rs `surface`), so the
+    // mesh's normal-map creases, specular and emission fade out where the weight is 1.
+    // The weight, normal and status views are drawn as unlit colour without fog (no early
+    // return: the lighting code after it keeps uniform control flow), their emission
+    // cleared below.
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_unlit = mesh_terrain_unlit_view(mesh_terrain_view(in.instance_index));
+    // [design] Round 10a: the lookup's inputs, with the game-xy derivatives captured at the
+    // top of nif_fragment (before any discard), passed in for the lookup's branches; #2661
+    // review: the face's steepness from the world-position derivatives captured there.
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) let terrain_inputs = MeshTerrainInputs(distance(view.world_position, in.world_position.xyz), terrain_dx, terrain_dy, view.mip_bias, mesh_terrain_shading(in.instance_index), mesh_terrain_face_up(terrain_wdx, terrain_wdy, pbr_input.world_normal));
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) {
+        let terrain = mesh_terrain_lookup(in.instance_index, in.world_position.xyz, pbr_input.world_normal, terrain_inputs);
+        let terrain_view = mesh_terrain_view(in.instance_index);
+        if terrain_unlit {
+            pbr_input.material.base_color = vec4(mesh_terrain_diagnostic(terrain_view, terrain, pbr_input.material.base_color.rgb), pbr_input.material.base_color.a);
+            pbr_input.material.flags = (pbr_input.material.flags | STANDARD_MATERIAL_FLAGS_UNLIT_BIT) & ~STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
+        } else if terrain_view == 3u {
+            pbr_input.material.base_color = vec4(mesh_terrain_diagnostic(terrain_view, terrain, pbr_input.material.base_color.rgb), pbr_input.material.base_color.a);
+        } else if terrain.status == LOOKUP_SUCCESS && terrain.weight > 0.0 {
+            let w = terrain.weight;
+            pbr_input.material.base_color = vec4(mix(pbr_input.material.base_color.rgb, mesh_terrain_target_colour(terrain), w), pbr_input.material.base_color.a);
+            if mesh_terrain_shading(in.instance_index) == 1u {
+                pbr_input.N = mesh_terrain_blend_normal(pbr_input.N, mesh_terrain_target_normal(terrain), w);
+                pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, LAND_ROUGHNESS, w);
+                pbr_input.material.reflectance = mix(pbr_input.material.reflectance, vec3(LAND_REFLECTANCE), w);
+                pbr_input.material.metallic = mix(pbr_input.material.metallic, 0.0, w);
+                pbr_input.material.emissive = vec4(pbr_input.material.emissive.rgb * (1.0 - w), pbr_input.material.emissive.a);
+                pbr_input.material.clearcoat *= 1.0 - w;
+                pbr_input.material.anisotropy_strength *= 1.0 - w;
+                pbr_input.anisotropy_strength *= 1.0 - w;
+            }
+        }
+    }
     // base_color already holds texture × vertex colour × material colour.
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
@@ -575,6 +658,7 @@ fn nif_fragment(
     let emissive_scale = select(view_emissive_scale(), 1.0, surface.emissive_rule.x > 0.5 || (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
     let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
+    @if(MESH_TERRAIN_BLEND && !PREPASS_PIPELINE) if terrain_unlit { pbr_input.material.emissive = vec4(vec3(0.0), e.a); }
 
     // Kept out of the lighting sum: multiply_factor adds it in display values.
     @if(BLEND_MULTIPLY) let multiply_emissive = pbr_input.material.emissive.rgb;

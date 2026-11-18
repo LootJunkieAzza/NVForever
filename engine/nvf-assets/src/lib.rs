@@ -28,3 +28,5 @@ pub use nif_material::{depth_equal, fade_prepass, grass_edges, nif_material, sof
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 pub use release::{AssetReleasePlugin, KeepLimits};
 pub use texture::TextureCache;
+
+pub mod nif_surface_blend;

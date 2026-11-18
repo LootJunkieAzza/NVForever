@@ -10,6 +10,14 @@
 //! `bScaleExplosionShake` scales a camera shake the game has]; how strongly is not
 //! measured, so the numbers are ours. The player's Scale Explosion Shake tweak multiplies
 //! it (`crate::tweaks`; 0 for none) [design: docs/design/tweaks.md].
+//!
+//! A body part blown apart or severed sets off its own small blast (the BPTD's explodable
+//! explosion, `ExplosionFx::gore`; FalloutNV.esm's DefaultBodyPartData gives every
+//! explodable part 0x0001540D, radius 55 [observed: `fnvtool combat form`]), which within
+//! [`crate::rumble::EXPLOSION_FELT`] shook the view on gory kills, felt as a shake on
+//! critical hits [observed: the owner, 2026-11-17]. It shakes the
+//! view only with the Gore Shake setting (Gameplay › Camera) on, off by default [design:
+//! the owner, 2026-11-17]; real explosions shake it either way.
 
 use crate::combat::{Combat, ExplosionFx};
 use crate::player::Player;
@@ -32,6 +40,15 @@ impl Default for ShakeScale {
     }
 }
 
+/// The Gore Shake setting: a body part's own blast shakes the view too (off by default).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GoreShake(pub bool);
+
+/// Whether explosion `e` shakes the view with Gore Shake `gore` (module notes).
+fn shakes_view(e: &ExplosionFx, gore: GoreShake) -> bool {
+    !e.gore || gore.0
+}
+
 /// The shakes under way: strength (0 to 1), seconds left, their whole length.
 #[derive(Resource, Default)]
 struct Shakes(Vec<(f32, f32, f32)>);
@@ -52,6 +69,7 @@ fn shake(
     time: Res<Time>,
     state: Res<State<crate::PlayState>>,
     scale: Res<ShakeScale>,
+    gore: Res<GoreShake>,
     combat: Option<Res<Combat>>,
     player: Option<Res<Player>>,
     mut booms: MessageReader<ExplosionFx>,
@@ -62,7 +80,12 @@ fn shake(
         let Some(feet) = player.as_deref().map(|p| p.feet) else { continue };
         let radius = combat.as_deref().and_then(|c| c.forms.explosions.get(&e.explosion)).map_or(0.0, |x| x.radius);
         let d = Vec3::from(feet).distance(Vec3::from(e.point));
-        if let Some(p) = crate::rumble::explosion(d, radius) {
+        let Some(p) = crate::rumble::explosion(d, radius) else { continue };
+        let shakes_it = shakes_view(e, *gore);
+        if e.gore {
+            info!("shake: a body part's blast {} {d:.0} units away {}", e.explosion, if shakes_it { "shakes the view (Gore Shake on)" } else { "leaves the view still (Gore Shake off)" });
+        }
+        if shakes_it {
             shakes.0.push((p.strong, p.secs, p.secs));
         }
     }
@@ -87,9 +110,22 @@ pub struct ShakePlugin;
 
 impl Plugin for ShakePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ShakeScale>().init_resource::<Shakes>().add_message::<ExplosionFx>().add_systems(
+        app.init_resource::<ShakeScale>().init_resource::<GoreShake>().init_resource::<Shakes>().add_message::<ExplosionFx>().add_systems(
             Update,
             shake.in_set(PlaySet::Physics).after(crate::control::place_camera).after(crate::script_camera::script_camera).after(crate::free_cam::fly),
+        );
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "gore-shake",
+                group: crate::pause::GROUP_MENUS,
+                label: "Gore shake",
+                note: "On: a body part blown apart near you (a gory kill) shakes the view too. Off: only real explosions shake it.",
+                switches: "",
+                get: |w| w.resource::<GoreShake>().0,
+                set: |w, on| w.resource_mut::<GoreShake>().0 = on,
+                slider: None,
+            },
         );
     }
 }
@@ -107,5 +143,15 @@ mod tests {
         let (y, p) = turn(1.0, 0.123);
         assert!(y.abs() <= MOST_TURN && p.abs() <= MOST_TURN);
         assert_eq!(turn(0.0, 0.5), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_body_parts_blast_shakes_the_view_only_with_gore_shake_on() {
+        let boom = |gore| ExplosionFx { explosion: fnv_sim::FormId(0x0001540D), point: [0.0; 3], cause: None, normal: None, look: crate::combat::ExplosionLook::Own, gore };
+        assert_eq!(GoreShake::default(), GoreShake(false), "off by default");
+        assert!(!shakes_view(&boom(true), GoreShake(false)));
+        assert!(shakes_view(&boom(true), GoreShake(true)));
+        assert!(shakes_view(&boom(false), GoreShake(false)), "a real explosion shakes it either way");
+        assert!(shakes_view(&boom(false), GoreShake(true)));
     }
 }

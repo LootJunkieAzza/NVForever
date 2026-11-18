@@ -150,6 +150,16 @@ Tweaks tab's rows (#1892) are listed in docs/design/settings-tweaks-layout.md.
 - Command-line switches: `--no-weapon-lower`
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `gore-shake`: Gore shake
+
+- On the page: On: a body part blown apart near you (a gory kill) shakes the view too. Off:
+  only real explosions shake it.
+- In full: A body part blown apart or severed sets off its own small blast, which shook the
+  view like an explosion's whenever it went off within about 1,400 units, so many
+  critical kills shook the screen. Off by default; real explosions shake the view either
+  way (the Tweaks tab's Scale Explosion Shake sizes that shake).
+- Registered in `engine/nvf-play/src/shake.rs`
+
 ### `field-of-view`: Field of view
 
 - On the page: The game's field of view in degrees across a 4:3 picture (75 as the
@@ -895,12 +905,18 @@ below cover them all.
 ### `quality`: Quality preset
 
 - On the page: Sets the rows the original's quality presets cover to the game folder's
-  low.ini to VeryHigh.ini. Custom: those rows match none of them.
+  low.ini to VeryHigh.ini, and Smooth terrain (Off at Low and Medium). Custom: those rows
+  match none of them.
 - In full: Sets the rows the original's quality presets cover to the values of the game
   folder's low.ini, medium.ini, high.ini or VeryHigh.ini: Sun shadows, Shadow filtering,
   Light glow, Mirrored reflections and the object, actor, item, shadow and grass
-  distances. Custom: those rows match none of them. A preset whose file is missing is not
-  offered. The effects, anti-aliasing and the upscaler keep their own rows (the Enhanced effects row is gone since the menu overhaul).
+  distances. It also sets Smooth terrain, a row of NVForever's own that no preset file
+  names [design, #2864]: Off at Low and Medium (on an integrated GPU 4 x 4 costs about 9 ms
+  of a 73 ms frame), 4 x 4, the default, at High and Very High; like the row itself the
+  change applies at the next start. Custom: those rows match none of them, Smooth terrain
+  included. A preset whose file is missing is not offered. A fresh install's default stays
+  4 x 4 whatever the Quality row reads. The effects, anti-aliasing and the upscaler keep
+  their own rows (the Enhanced effects row is gone since the menu overhaul).
 - More: docs/spec-notes/quality-presets.md
 - Registered in `engine/nvforever/src/quality.rs`
 
@@ -911,10 +927,11 @@ below cover them all.
 - On the page: The sun's shadows: Off, Performance (cheaper outdoors; moving shadows update
   at half the frame rate) or Quality. The original casts none from the world.
 - In full: The sun's shadows, out to --shadow-distance: Off; Performance (the shadow maps
-  drawn every other frame in two cascades, trees casting shadows only near you, the
-  first-person arms taking the world's shadows: saves frame time outdoors, shadows of moving
-  things update at half the frame rate); or Quality (three cascades, the farther ones drawn
-  less often). The original casts none from the world. Quality by default in the game.
+  drawn every other frame in three cascades, the farthest every fourth, trees casting
+  shadows only near you, the first-person arms taking the world's shadows: saves frame time
+  outdoors, shadows of moving things update at half the frame rate); or Quality (four
+  cascades, the farther ones drawn less often). The original casts none from the world.
+  Quality by default in the game.
 - Shown as a list since the menu overhaul; an older slider number in the INI still loads as
   the nearest choice.
 - Command-line switches: `--shadow-distance`, `--sun-shadows`, `--no-sun-shadows`
@@ -931,6 +948,24 @@ below cover them all.
   the nearest choice.
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `shadow-resolution`: Shadow resolution
+
+- On the page: Size of the sun's and the flashlight's shadow maps: 4096 draws sharper
+  shadows than 2048. It takes more video memory and a little frame rate.
+- In full: The side of the shadow maps of the directional lights and the shadowed spot
+  lights, in texels: 2048 (the default) or 4096, changed while the game runs. They share
+  one texture: the sun's cascades, the first-person arms' shade light (on Quality) and the
+  flashlight while it is on. On Sun shadows Quality the cascades are laid out for the size:
+  with 4096 and Longer sun shadows they end at 1,500, 3,500 and 7,000 of the default 8,000
+  units (blended over a wider band) and stay sharp near the player; with 4096 alone at
+  1,500, 2,400 and 4,800; with 2048 nearer (700, 2,000 and 5,000). By arithmetic 4096
+  takes about 240 MiB more video memory on Quality by day in first person (five layers of 64 MiB against 16 MiB),
+  144 MiB more on Performance, and 48 MiB more again with the flashlight on. No quality
+  preset sets this row.
+- A list of its two choices, kept in the INI by name (2048 or 4096); an older slider number
+  in the INI still loads as the nearest choice.
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `shadow-distance`: Shadow distance
 
 - On the page: How far from you the sun casts shadows, as a part of the farthest shadow
@@ -945,6 +980,23 @@ below cover them all.
   little frame rate.
 - Command-line switches: `--shadow-distance`, `--graphics`
 - More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
+### `cloud-shadows`: Cloud shadows (experimental)
+
+- On the page: On: the weather's clouds cast soft shadows that drift over the land, only
+  where the cover is heavier than around it. Still being tuned. Not in the original.
+- In full: The weather's cloud layers, as the sky draws them (both weathers during a
+  change), are composed into one transmittance image that darkens the sun's (and at night
+  the moon's) direct light where it falls, projected along the light from a plane high
+  above the ground and drifting with the wind. The image is relative to its own clearest
+  part (its 90th percentile reads fully lit), so even cover, an overcast sky, casts nothing
+  and only the patches heavier than the rest darken. Ambient light, lamps, fog and
+  reflections are left alone. Experimental: off by default and in every preset; its
+  strength, size, height and the relative rule's reference are not calibrated yet. Switching it rebuilds the world's material pipelines (Continue waits for
+  them). Works with Sun shadows off too.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/sun-visibility.md
 - Registered in `engine/nvforever/src/settings.rs`
 
 ## Graphics › Lighting and Effects
@@ -1079,6 +1131,19 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md §3.13
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `mesh-terrain-blend`: Blend meshes into ground
+
+- On the page: On: softens where outdoor roads, rocks and cliffs meet the landscape, giving
+  them the ground's colour and light there. Not in the original.
+- In full: On: rigid outdoor statics and static collections (roads, rocks, cliffs) take the
+  landscape's colour and shading over the lowest 8 units above the ground (fading out on
+  faces steeper than 60 degrees, none on near-vertical ones), from a cache of the landscape
+  around the camera. Off by default and in both presets; switches at once, no restart.
+  The test aid `NVF_PLAY_TEST_MESH_BLEND` overrides it.
+- Command-line switches: `--graphics-only` (`--graphics-only mesh-terrain-blend`)
+- More: docs/design/graphics-enhanced.md §3.14
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `smooth-terrain`: Smooth terrain
 
 - On the page: Smooths height steps while keeping bumps and ridges: 2 x 2 or 4 x 4 squares
@@ -1095,7 +1160,9 @@ below cover them all.
   (8 units) of the stored triangles to keep placed objects in contact (the test aids below
   allow up to 16); actors and objects stand on what is drawn. Off: the landscape's
   triangles as stored. It takes effect at the next start (loading a save starts the game
-  again), so drawn ground and collision always change together. The INI's older `1`/`0`
+  again), so drawn ground and collision always change together. The Quality preset row
+  sets it too (Off at Low and Medium, 4 x 4 at High and Very High, #2864), from the next
+  start as well. The INI's older `1`/`0`
   (#2149's on/off) reads as 4 x 4 and Off. Not in the original. Kept in the INI as `off`,
   `2x2`, `4x4` or `4x4-near`. For comparing recipes, the test aids
   `NVF_PLAY_TEST_SMOOTH_MODE` (`interpolate`, `fit`, `detail`: a fit that evens out the

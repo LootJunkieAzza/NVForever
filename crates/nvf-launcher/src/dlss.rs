@@ -21,8 +21,9 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn read() -> Status {
-        let folder = nvf_dlss_files::download::target_folder();
+    /// `game`: the program the launcher starts; the files go beside it, where it reads them.
+    pub fn read(game: Option<&Path>) -> Status {
+        let folder = folder_for(game);
         let (upscaling, frame_generation) = folder.as_ref().map_or((0, 0), |f| (present(f, &FILES), present(f, &FG_FILES)));
         Status { windows: cfg!(windows), gpus: gpu_names(), folder, upscaling, frame_generation }
     }
@@ -36,6 +37,17 @@ impl Status {
     /// Every one of the eight files is there.
     pub fn complete(&self) -> bool {
         self.upscaling == FILES.len() && self.frame_generation == FG_FILES.len()
+    }
+}
+
+/// The DLSS folder the game reads: `dlss` beside `game` (`NVF_DLSS_DIR` when set), else beside
+/// the launcher (a release's layout: the game beside it). A source checkout's launcher is in
+/// `target/release` and its game in `engine/target/release`: beside the launcher, the game
+/// would never see the files.
+pub fn folder_for(game: Option<&Path>) -> Result<PathBuf, String> {
+    match game.and_then(Path::parent) {
+        Some(dir) => nvf_dlss_files::download::target_folder_beside(Some(dir)),
+        None => nvf_dlss_files::download::target_folder(),
     }
 }
 
@@ -102,6 +114,19 @@ pub fn gpu_names() -> Vec<String> {
 mod tests {
     use super::*;
     use nvf_dlss_files::download::Failure;
+
+    /// The files go beside the game the launcher starts, not beside the launcher: a source
+    /// checkout's launcher (target/release) starts engine/target/release's game.
+    #[cfg(windows)]
+    #[test]
+    fn the_folder_is_beside_the_game() {
+        if std::env::var_os(nvf_dlss_files::ENV_DIR).is_some_and(|v| !v.is_empty()) {
+            return;
+        }
+        let release = Path::new("C:/").join("nvf").join("engine").join("target").join("release");
+        assert_eq!(folder_for(Some(&release.join("nvforever.exe"))).unwrap(), release.join("dlss"));
+        assert_eq!(folder_for(None), nvf_dlss_files::download::target_folder());
+    }
 
     #[test]
     fn rtx_cards_by_name() {

@@ -387,6 +387,8 @@ pub fn check_views_need_specialization(
             Has<ExtractedAtmosphere>,
             Has<ScreenSpaceReflectionsUniform>,
             Has<ContactShadows>,
+            // NVForever sun visibility.
+            Option<&NvfSunVisibilityBindings>,
         ),
     )>,
     mut seen_views: Local<HashSet<RetainedViewEntity>>,
@@ -406,7 +408,7 @@ pub fn check_views_need_specialization(
         projection,
         distance_fog,
         (has_environment_maps, has_irradiance_volumes),
-        (has_oit, has_atmosphere, has_ssr, has_contact_shadows),
+        (has_oit, has_atmosphere, has_ssr, has_contact_shadows, nvf_sun_visibility),
     ) in views.iter_mut()
     {
         seen_views.insert(view.retained_view_entity);
@@ -456,6 +458,18 @@ pub fn check_views_need_specialization(
 
         if has_contact_shadows {
             view_key |= MeshPipelineKey::CONTACT_SHADOWS;
+        }
+
+        // NVForever sun visibility: the same component decides the view's bind group
+        // (mesh_view_bindings.rs `prepare_mesh_view_bind_groups`), so the two agree.
+        if let Some(sun) = nvf_sun_visibility {
+            view_key |= MeshPipelineKey::NVF_SUN_VISIBILITY;
+            if sun.cloud {
+                view_key |= MeshPipelineKey::NVF_CLOUD_VISIBILITY;
+            }
+            if sun.terrain {
+                view_key |= MeshPipelineKey::NVF_TERRAIN_VISIBILITY;
+            }
         }
 
         if view.invert_culling {
@@ -3128,7 +3142,12 @@ bitflags::bitflags! {
         const INVERT_CULLING                    = 1 << 22;
         const PREPASS_READS_MATERIAL            = 1 << 23;
         const CONTACT_SHADOWS                   = 1 << 24;
-        const LAST_FLAG                         = Self::CONTACT_SHADOWS.bits();
+        // NVForever sun visibility (engine/vendor/README.md): the view has
+        // `NvfSunVisibilityBindings`, and with them a cloud or terrain sample.
+        const NVF_SUN_VISIBILITY                = 1 << 25;
+        const NVF_CLOUD_VISIBILITY              = 1 << 26;
+        const NVF_TERRAIN_VISIBILITY            = 1 << 27;
+        const LAST_FLAG                         = Self::NVF_TERRAIN_VISIBILITY.bits();
 
         const ALL_PREPASS_BITS                  = Self::DEPTH_PREPASS.bits()
                                                 | Self::NORMAL_PREPASS.bits()
@@ -3723,6 +3742,17 @@ impl SpecializedMeshPipeline for MeshPipeline {
 
         if key.contains(MeshPipelineKey::ATMOSPHERE) {
             shader_defs.push("ATMOSPHERE".into());
+        }
+
+        // NVForever sun visibility (engine/vendor/README.md).
+        if key.contains(MeshPipelineKey::NVF_SUN_VISIBILITY) {
+            shader_defs.push("NVF_SUN_VISIBILITY".into());
+            if key.contains(MeshPipelineKey::NVF_CLOUD_VISIBILITY) {
+                shader_defs.push("NVF_CLOUD_VISIBILITY".into());
+            }
+            if key.contains(MeshPipelineKey::NVF_TERRAIN_VISIBILITY) {
+                shader_defs.push("NVF_TERRAIN_VISIBILITY".into());
+            }
         }
 
         if self.binding_arrays_are_usable {

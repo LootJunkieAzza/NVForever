@@ -9,8 +9,11 @@
 //! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--radius`; the volumes
 //! are the Sound tab, `nvf_play::audio_out::register_settings`)
 //! and the test aids. The draw distances are sliders here, each a part of the
-//! command line's distance (`draw_distance.rs`); the field of view, the frame-rate cap and the
-//! anti-aliasing and shadow-filter choices are sliders whose steps are the choices.
+//! command line's distance (`draw_distance.rs`), and the field of view a slider of whole
+//! degrees; a row of 7 or fewer values (the frame-rate cap, the shadow distance, the
+//! anti-aliasing, shadow-filter and shadow-resolution choices among them) is a list of its
+//! choices [design: the menu overhaul], whose INI value is the choice's name, an older
+//! slider's part still loading.
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
 use crate::fly::FlyCam;
@@ -913,6 +916,11 @@ pub(crate) const MODEL_NOTE: &str = "Which DLSS model rebuilds the picture (NVID
 /// The DLSS model row's command-line switch.
 pub(crate) const MODEL_SWITCHES: &str = "--dlss-model";
 
+/// The mesh terrain blend's row (#2661, mesh_terrain_blend.rs).
+pub(crate) const MESH_BLEND_KEY: &str = "mesh-terrain-blend";
+/// Its note, in NVForever's own words.
+pub(crate) const MESH_BLEND_NOTE: &str = "On: softens where outdoor roads, rocks and cliffs meet the landscape, giving them the ground's colour and light there. Not in the original.";
+
 /// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
@@ -1033,6 +1041,29 @@ fn register_graphics(app: &mut App) {
         },
         ChoiceList { names: |_| graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect(), chosen: shadow_filter_chosen, pick: take_shadow_filter, save: shadow_filter_chosen, load: take_shadow_filter, ask_keep: false },
     );
+    // The sun's shadow maps' side, 2048 (the default) or 4096, changed in play (#2843); saved
+    // as its name, the branch's older slider part (0 or 1) still loads.
+    add_choice_list(
+        app,
+        Setting {
+            key: "shadow-resolution",
+            group: GROUP_GRAPHICS,
+            label: "Shadow resolution",
+            note: "Size of the sun's and the flashlight's shadow maps: 4096 draws sharper shadows than 2048. It takes more video memory and a little frame rate.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect(),
+            chosen: shadow_resolution_chosen,
+            pick: take_shadow_resolution,
+            save: shadow_resolution_chosen,
+            load: take_shadow_resolution,
+            ask_keep: false,
+        },
+    );
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
@@ -1073,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 13] = [
+    let switches: [Switch; 15] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1089,6 +1120,14 @@ fn register_graphics(app: &mut App) {
             "--shadow-distance, --graphics",
             |w| w.resource::<Graphics>().fine_shadows,
             |w, on| w.resource_mut::<Graphics>().fine_shadows = on,
+        ),
+        (
+            "cloud-shadows",
+            "Cloud shadows (experimental)",
+            CLOUD_SHADOWS_NOTE,
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().cloud_shadows,
+            |w, on| w.resource_mut::<Graphics>().cloud_shadows = on,
         ),
         (
             "bloom",
@@ -1181,18 +1220,36 @@ fn register_graphics(app: &mut App) {
             |w| w.resource::<Graphics>().water_mirror,
             |w, on| w.resource_mut::<Graphics>().water_mirror = on,
         ),
+        // #2661: off in both looks and not part of `enhanced`; switched while the game runs
+        // (mesh_terrain_blend.rs `follow_setting`); the test aid NVF_PLAY_TEST_MESH_BLEND
+        // overrides it.
+        (
+            MESH_BLEND_KEY,
+            "Blend meshes into ground",
+            MESH_BLEND_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().mesh_terrain_blend,
+            |w, on| w.resource_mut::<Graphics>().mesh_terrain_blend = on,
+        ),
     ];
     for (key, label, note, switches, get, set) in switches {
         add_setting(app, Setting { key, group: GROUP_GRAPHICS, label, note, switches, get, set, slider: None });
     }
 }
 
+/// The Cloud shadows row's note (#2670; docs/design/sun-visibility.md): the label says the
+/// feature is experimental (as 3D scopes' says "(test)"), the note that its look is still
+/// being tuned (the relative rule, §7a, and the calibration, §8).
+const CLOUD_SHADOWS_NOTE: &str = "On: the weather's clouds cast soft shadows that drift over the land, only where the cover is heavier than around it. Still being tuned. Not in the original.";
+
 fn register_pipeline_waits(app: &mut App) {
+    // Cloud shadows switches the world views' material pipelines (the sun visibility's
+    // view key bits, sun_visibility.rs), so Continue waits for them like the others.
     for key in [
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
-        "terrain-height-blend", "terrain-anti-tiling",
+        "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", MESH_BLEND_KEY,
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1382,6 +1439,23 @@ fn take_shadow_filter(w: &mut World, text: &str) -> bool {
     match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_FILTERS.len())) {
         Some(i) => {
             w.resource_mut::<Graphics>().shadow_filter = graphics::SHADOW_FILTERS[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
+fn shadow_resolution_chosen(w: &World) -> String {
+    graphics::SHADOW_RESOLUTIONS[graphics::shadow_resolution_choice(w)].0.to_string()
+}
+
+/// The shadow resolution `text` names (or an older slider's part stands for: 0 is 2048, 1
+/// is 4096).
+fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_RESOLUTIONS.len())) {
+        Some(i) => {
+            graphics::set_shadow_resolution_choice(w, i);
             true
         }
         None => false,
@@ -2511,11 +2585,13 @@ dlss-model=Preset K
             ("fsr-library", &[]),
             ("anti-aliasing", &["--msaa", "--graphics-only"]),
             ("shadow-filter", &[]),
+            ("shadow-resolution", &[]),
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),
             ("ambient-occlusion", &["--graphics"]),
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
+            ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),
@@ -2527,6 +2603,7 @@ dlss-model=Preset K
             ("light-shafts", &["--graphics"]),
             ("water-reflections", &["--graphics"]),
             ("water-mirror", &["--graphics-only"]),
+            (MESH_BLEND_KEY, &["--graphics-only"]),
         ];
         for (key, switches) in want {
             let s = settings.list()[row(&app, key)];
@@ -2536,6 +2613,35 @@ dlss-model=Preset K
         assert!(settings.list().iter().all(|s| !s.note.contains("--")), "no Graphics row's note names a switch");
         assert_eq!(nvf_play::settings::note_switches(FPS_COUNTER_SWITCHES), ["--fps"]);
         assert!(nvf_play::settings::note_switches(FPS_SPLIT_SWITCHES).is_empty());
+    }
+
+    /// #2661: the mesh terrain blend's row stands among the Graphics switches, off in a
+    /// vanilla start, switches `Graphics::mesh_terrain_blend` on the page and is kept in
+    /// the INI, read back at the next start.
+    #[test]
+    fn the_mesh_blend_row_switches_the_blend_and_is_kept_in_the_ini() {
+        let mut app = rows_app();
+        let i = row(&app, MESH_BLEND_KEY);
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Blend meshes into ground", MESH_BLEND_NOTE, "--graphics-only"));
+        assert!(!(s.get)(app.world()), "off in a vanilla start");
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(true));
+        assert!(app.world().resource::<Graphics>().mesh_terrain_blend);
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(false));
+        assert!(!app.world().resource::<Graphics>().mesh_terrain_blend);
+
+        let dir = std::env::temp_dir().join(format!("nvf-mesh-blend-row-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut app = ini_app(&path, "[Settings]\nmesh-terrain-blend=1\n", UpscalerChoice::Off, GivenSwitches::default());
+        assert!(app.world().resource::<Graphics>().mesh_terrain_blend, "the stored row turns it on at the start");
+        let i = row(&app, MESH_BLEND_KEY);
+        nvf_play::settings::flip(app.world_mut(), i);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, MESH_BLEND_KEY), Some("0".to_string()), "{ini}");
+        assert!(!ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default()).world().resource::<Graphics>().mesh_terrain_blend, "and off again at the next");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
@@ -2660,6 +2766,26 @@ dlss-model=Preset K
         // No settings page (not --play): the INI is not applied, the command line decides.
         assert_eq!(upscaler_after_ini(fsr_q, Some(&UpscalerIni::read("[Settings]\nupscaler=DLSS\n")), None), fsr_q);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod shadow_resolution_tests {
+    use super::*;
+
+    /// The Shadow resolution list takes its choices by name (2048, 4096, as it saves them) and
+    /// the older slider's part of the row before the menu overhaul (0 is 2048, 1 is 4096).
+    #[test]
+    fn the_row_takes_its_names_and_the_older_slider_part() {
+        let mut w = World::new();
+        assert_eq!(shadow_resolution_chosen(&w), "2048", "the default without the map resource");
+        for (text, want) in [("4096", "4096"), ("0", "2048"), ("1", "4096"), (" 2048 ", "2048"), ("1.0", "4096")] {
+            assert!(take_shadow_resolution(&mut w, text), "{text}");
+            assert_eq!(shadow_resolution_chosen(&w), want, "{text}");
+            assert_eq!(w.resource::<bevy::light::DirectionalLightShadowMap>().size.to_string(), want, "{text}");
+        }
+        assert!(!take_shadow_resolution(&mut w, "big"));
+        assert_eq!(shadow_resolution_chosen(&w), "4096", "an unknown text leaves the choice");
     }
 }
 

@@ -23,7 +23,7 @@ pub(super) fn sky() -> SkyState {
         climate: Climate::default(), weather: Weather::default(), hour: 12.0,
         fog_override: None, interior: None, interior_grade: None, shadows: false,
         shadow_distance: DEFAULT_SHADOW_DISTANCE, shadow_reach: 1.0,
-        shadow_cascades: DEFAULT_SHADOW_CASCADES, grade: true, time_scale: 0.0,
+        shadow_layout: CascadeLayout::Quality, grade: true, time_scale: 0.0,
         clock_running: false, days_passed: 0.0, keep_once: false, prev: None, fade: 1.0,
         choices: Vec::new(), image_space: None, adapters: HashMap::new(), changed: true,
         script: None, pinned: false, regions: Vec::new(), source: None, placed: false, region_cell: None,

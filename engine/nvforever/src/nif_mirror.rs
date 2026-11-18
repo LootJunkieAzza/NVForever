@@ -31,9 +31,14 @@ impl Plugin for NifMirrorPlugin {
     fn build(&self, app: &mut App) {
         attach_model_probe::install(app);
         crate::nif_attachments::install(app);
-        app.add_systems(PostUpdate, (crate::nif_attachments::produce, mirror).chain().before(TransformSystems::Propagate));
+        app.add_systems(PostUpdate, (crate::nif_attachments::produce, mirror).chain().in_set(MirrorSystems).before(TransformSystems::Propagate));
     }
 }
+
+/// [design] The scripted NIF edits ([`mirror`]), for systems that must see their material
+/// changes applied (mesh_terrain_blend.rs converts after them).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct MirrorSystems;
 
 /// What the mirror keeps between frames: the references it logged, the held transforms,
 /// the models' material values, the scripts' material values and the shapes drawn with
@@ -412,7 +417,7 @@ fn apply_held(root: Entity, node: &str, held: Held, nodes: &mut NodeQuery, rig: 
 }
 
 /// The material side of [`mirror`]: the data files, the shapes' materials, the assets.
-type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, (&'static MeshMaterial3d<NifMaterial>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>, Option<ResMut<'w, Assets<NifMaterial>>>);
+type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, (Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>, Option<ResMut<'w, Assets<NifMaterial>>>);
 
 /// The roots of created items (`nvf_play::dropped`) and the entities with children: an
 /// item whose shapes hang straight from its root is drawn flat.
@@ -650,8 +655,9 @@ fn mirror_game(
                 };
                 let Some(e) = entity else { continue };
                 let Some(assets) = assets.as_deref_mut() else { continue };
-                let Ok((handle, drawing)) = drawn.get(e) else { continue };
-                let source = nvf_assets::nif_material::plain_material(&handle.0, drawing);
+                let Ok((handle, blend, drawing)) = drawn.get(e) else { continue };
+                let Some(handle) = nvf_assets::nif_surface_blend::source_material(handle, blend) else { continue };
+                let source = nvf_assets::nif_material::plain_material(handle, drawing);
                 match owned.get(&e).filter(|h| *h == source).cloned() {
                     Some(h) => {
                         if let Some(mut m) = assets.get_mut(&h) {
