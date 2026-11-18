@@ -314,7 +314,12 @@ impl<'a> Gen<'a> {
                 let i = self.lambdas.len();
                 self.lambdas.push((names, body));
                 let rest = &l.text[l.text.find(')').map_or(l.text.len(), |p| p + 1)..];
-                let text = format!("{before}__lambda{i}{rest}");
+                // `Call(begin function …` has no space before its parenthesis: the
+                // lambda is still an argument, not part of the name [observed: an installed
+                // mod's Script Runner file, gl_AWR_Main.txt, `SetOnMenuOpenEventHandler(begin
+                // function{int iMenuID}`].
+                let sep = if before.ends_with(|c: char| c.is_alphanumeric() || c == '_') { " " } else { "" };
+                let text = format!("{before}{sep}__lambda{i}{rest}");
                 let merged = lex::Line { no: first.no, toks: lex::tokens(&text), text };
                 match open.last_mut() {
                     Some(o) => o.3.push(merged),
