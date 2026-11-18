@@ -1341,7 +1341,10 @@ pub struct Game<'a> {
     /// loops/02, valid after the loop, invalid a frame later].
     pub(crate) temp_refs: Vec<(FormId, FormId)>,
     /// Form lists as ListAddForm and the ListRemove… functions left them, for the
-    /// session only [documented: ListAddForm, its changes are not saved].
+    /// session only [documented: ListAddForm, its changes are not saved]: a load keeps
+    /// them ([`Game::take_session`]), as the original keeps the edited form in memory
+    /// until it quits [hypothesis: an MCM mod's item added under the main menu was in
+    /// MCM's list on the first pause after a load, job mcm976e, menu-xml.md §10.1].
     pub(crate) list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
     /// xNVSE's queued delayed calls (`crate::delayed`); not saved [documented].
     pub(crate) delayed: Vec<crate::delayed::Delayed>,
@@ -2374,6 +2377,8 @@ pub struct Session {
     save_files: crate::nvse_sup4::SaveFiles,
     /// SUP's CallFunctionNextFrame calls with removeOnLoad 0 (`crate::delayed`).
     kept_calls: Vec<crate::delayed::Delayed>,
+    /// The form lists' ListAddForm/ListRemove… edits (`Game::list_edits`), issue #2944.
+    list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -2784,6 +2789,12 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The start-game-enabled quests the save `s` has no entry for: those of plugins added
+    /// since it was made ([`Game::restore`], issue #2944).
+    fn quests_added_since(&self, s: &GameSnapshot) -> Vec<FormId> {
+        self.data.quests.values().filter(|q| q.start_enabled() && !s.quests.contains_key(&q.form)).map(|q| q.form).collect()
+    }
+
     /// The New Game menu starts the character-generation quest (the original's INI
     /// `sCharGenQuest`, VCG00 by the original's defaults [documented: Fallout_default.ini
     /// `SCharGenQuest=00102037`]) and the quest's `Begin MenuMode` blocks run once, as
@@ -2848,7 +2859,12 @@ impl<'a> Game<'a> {
     /// - a stage already done does nothing unless the quest allows repeated stages
     ///   [observed: VMS16 stage 10 and VCG03 stage 10 set again did not rerun their
     ///   scripts; Generic, with the flag, did];
-    /// - the quest starts if it is not running [observed: VMS16];
+    /// - the quest starts if it is not running [observed: VMS16], unless it is already
+    ///   completed or failed: then the stage is still marked done and its entries run,
+    ///   but the quest stays stopped [observed 2026-11-18, #2958, layer5-captures.md §5.8: VMS16
+    ///   failed by its stage 110, then SetStage 50 and 100: GetStageDone 1, GetQuestRunning
+    ///   0; the same after its complete stage 100. A quest stopped without being
+    ///   completed does start: SetStage 10, StopQuest, SetStage 50, GetQuestRunning 1];
     /// - the stage is marked done, then every entry whose conditions pass runs its result
     ///   script immediately, nested in the caller [documented: wiki, "resolves any of the
     ///   attached stage items that pass their conditions"], then applies its Complete /
@@ -2865,7 +2881,9 @@ impl<'a> Game<'a> {
             self.emit(EventKind::StageIgnored { quest: q, stage, reason: "already_done" });
             return false;
         }
-        self.start_quest(q);
+        if !self.quest(q).completed {
+            self.start_quest(q);
+        }
         self.quest(q).stages_done.insert(stage);
         let player = Some(FormId::PLAYER_REF);
         let label = format!("QUST {q} stage {stage}");
@@ -2923,7 +2941,27 @@ impl<'a> Game<'a> {
     /// clears the completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md
     /// §5.2], displaying one already shown keeps it [observed: o5_00, VMS19 65 and
     /// VFSAtomicPimp 34, observer check 40, issue #1108].
+    ///
+    /// On a quest already completed or failed neither does anything, running or not
+    /// [observed 2026-11-18, #2958, layer5-captures.md §5.8: VMS16 after its fail stage 110,
+    /// `SetObjectiveDisplayed VMS16 50 1` and `SetObjectiveCompleted VMS16 10 1` left
+    /// both as they were; after its complete stage 100, `SetObjectiveDisplayed VMS16 60
+    /// 1` did nothing, stopped and again after StartQuest]. That is why a player who
+    /// fails Ghost Town Gunfight through Joe Cobb sees no new objective when the
+    /// townspeople's lines set its later stages.
     pub fn set_objective(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
+        if self.quests.get(&q).is_some_and(|s| s.completed) {
+            return false;
+        }
+        self.set_objective_whatever(q, index, displayed, completed)
+    }
+
+    /// [`Game::set_objective`] without its completed-quest rule: for
+    /// `CompleteAllObjectives`, which does act on a failed quest [observed 2026-11-18,
+    /// #2958: VMS16 failed, then SetStage 100, whose script calls it: objective 10 read
+    /// completed afterwards, where SetObjectiveCompleted had left it open; hypothesis
+    /// that the function, and not the stage's Complete Quest flag, did it].
+    pub fn set_objective_whatever(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
         let data = self.data;
         let Some(def) = data.quests.get(&q) else { return false };
         if !def.objectives.contains_key(&index) {
@@ -3697,7 +3735,7 @@ impl<'a> Game<'a> {
             .collect();
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls() }
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -3716,6 +3754,7 @@ impl<'a> Game<'a> {
         self.dialogue_edits = s.dialogue_edits;
         self.save_files = s.save_files;
         self.put_kept_calls(s.kept_calls);
+        self.list_edits = s.list_edits;
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
@@ -6509,6 +6548,16 @@ impl<'a> Game<'a> {
         g.nx = s.nx.clone();
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
+        // A start-game-enabled quest the save has no entry for came with a plugin added
+        // since the game was saved (every game starts them all, `Game::new_game`, and an
+        // entry is never dropped): it starts with the load, as on a new game [hypothesis:
+        // the original starts a newly added plugin's start-game-enabled quests on a load,
+        // which mods added mid-game rely on; observed: the owner's saves of 2026-11-11 to
+        // 13, from before MCM was added, loaded with MCM's quest stopped and its Mods page
+        // empty, issue #2944].
+        for q in g.quests_added_since(s) {
+            g.start_quest(q);
+        }
         g.extra = s.extra.clone();
         g.stand_everyone_up();
         g.player = s.player.clone();

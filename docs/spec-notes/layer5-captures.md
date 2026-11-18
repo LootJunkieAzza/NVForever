@@ -383,6 +383,43 @@ sample; `ResetQuest`, read; set the timer again, sample; StartQuest, sample.
   runtime stops the quest on a reset from any other script and keeps it running on a
   self-reset [hypothesis for the self-reset; issue #1232, observer check 66].
 
+### 5.8 SetStage and objectives on a completed or failed quest (#2958, observer check 226)
+
+Four jobs on save `nvftest`, 2026-11-18, each from a fresh load, reading GetQuestRunning,
+GetStage, GetQuestCompleted, GetStageDone and GetObjectiveDisplayed / Completed of VMS16
+(Ghost Town Gunfight) after each step [observed]:
+
+- **Failed by its stage 110** (the Fail Quest flag; its script is `StopQuest VMS16`).
+  `SetStage VMS16 10` then `SetStage VMS16 110`: running 0, stage 110, completed 1;
+  objective 10 still displayed, not completed; VMS16b (Run Goodsprings Run) not running.
+  - `SetStage VMS16 50` after it: GetStageDone 50 is 1, the quest stays stopped, and
+    objective 50 is not displayed nor 10 completed (stage 50's script is
+    `SetObjectiveCompleted VMS16 10 1`, `SetObjectiveDisplayed VMS16 50 1`).
+  - `SetObjectiveDisplayed VMS16 50 1` and `SetObjectiveCompleted VMS16 10 1` given
+    directly: no change.
+  - `SetStage VMS16 100` after it: GetStageDone 100 is 1, still stopped, and objective 10
+    reads completed (stage 100's script calls `CompleteAllObjectives VMS16`).
+  - `StartQuest VMS16` after it: running 1, still completed.
+- **Completed by its stage 100** (the Complete Quest flag; its script ends with
+  `CompleteQuest`, `StopQuest`). `SetObjectiveDisplayed VMS16 60 1`: no change, stopped
+  and again after `StartQuest`. `SetStage VMS16 50`: GetStageDone 1, still stopped.
+- **Stopped without being completed** (`SetStage VMS16 10`, `StopQuest VMS16`): `SetStage
+  VMS16 50` starts it again (running 1, stage 50, objective 50 displayed, 10 completed),
+  and `SetObjectiveDisplayed VMS16 60 1` on the stopped quest displays it and starts the
+  quest (as the wiki says of SetObjectiveDisplayed).
+
+As built (`Game::set_stage`, `Game::set_objective`): on a completed or failed quest
+SetStage marks the stage and runs its entries without starting the quest, and
+SetObjectiveDisplayed / SetObjectiveCompleted do nothing; CompleteAllObjectives still
+completes [hypothesis that the function did it and not stage 100's flag].
+
+Why it was looked at: each of Joe Cobb's three "reason" lines (INFO 0x0015EC53, 0x0015EC54,
+0x0015EF99) ends with `if GetStage VMS16 > 0, SetStage VMS16 110`, so giving him a reason
+fails Ghost Town Gunfight in the original too, whatever the player says next; Run
+Goodsprings Run (VMS16b) starts only on the lines that agree to help him or report Ringo
+dead. Before this, NVForever then started the failed quest again and showed its next
+objectives as the townspeople's lines set its stages.
+
 ## 6. Scenarios and goldens
 
 `parity-lab/scenarios/layer5_quests.json`, comparator keyed on `label` over

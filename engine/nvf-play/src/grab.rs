@@ -201,7 +201,7 @@ impl Plugin for GrabPlugin {
         let aid = std::env::var("NVF_PLAY_TEST_GRAB").map(|v| parse_aid(&v)).unwrap_or_default();
         app.insert_resource(GrabState { aid, ..default() })
             .add_systems(Update, holding_controls.after(PlaySet::Input).before(PlaySet::Physics))
-            .add_systems(Update, grab.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate));
+            .add_systems(Update, grab.in_set(PlaySet::Activation).after(crate::quick_loot::follow).before(crate::activate::activate));
     }
 }
 
@@ -368,7 +368,7 @@ fn grab(
     // other presses are handed here by `activate::activate`), and the aid's press.
     let activate_down = input.pressed(Control::Activate) || g.aid_now.is_some_and(|a| a.activate);
     if let (Some(c), true) = (g.candidate, playing) {
-        let pressed_e = (input.just_pressed(Control::Activate) && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
+        let pressed_e = (input.just_pressed(Control::Activate) && !crate::quick_loot::holds_input() && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
         if pressed_e && g.tap.is_none() {
             let t = target.0.clone().filter(|t| t.form_id == c.on.form_id() && aid_press != Some(true));
             g.tap = Some(Tap { target: t, candidate: c, held: 0.0 });

@@ -628,7 +628,8 @@ pub fn read_controls(
         c.auto_move = !c.auto_move;
     }
     // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster.
-    if input.just_pressed(Control::ReadyItem) {
+    // Not while Quick Loot has the key (its full menu, `crate::quick_loot`).
+    if input.just_pressed(Control::ReadyItem) && !crate::quick_loot::holds_input() {
         if c.weapon_out {
             c.ready_held = Some(0.0);
         } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
@@ -731,7 +732,7 @@ pub fn read_controls(
     let wheel = switches.is_none_or(|s| s.vanity_wheel);
     // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
     let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
-    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
+    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() && !crate::quick_loot::holds_input() {
         c.distance = zoom(c.distance, scroll.delta.y);
     }
     // The player's tweak: drawing goes to first person, holstering to third [design: docs/design/tweaks.md].

@@ -116,3 +116,8 @@ path = "tests/jip_registration_provenance.rs"
 [[test]]
 name = "get_files_data_roots"
 path = "tests/get_files_data_roots.rs"
+
+# CompileScript fixture owns the process-wide Data reader.
+[[test]]
+name = "crosshair_water"
+path = "tests/crosshair_water.rs"

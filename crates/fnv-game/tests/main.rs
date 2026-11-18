@@ -46,6 +46,7 @@ mod first_person_menu_clock;
 mod functions;
 mod game_clock;
 mod title_menu_group;
+mod jip_remove_filters;
 mod hit_effects_data;
 mod hit_effects;
 mod idles_holstered;

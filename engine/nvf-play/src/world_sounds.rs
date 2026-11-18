@@ -643,7 +643,14 @@ fn objects(
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
     }
-    let in_container = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    // Quick Loot's takes sound as the container menu's (`crate::quick_loot`): the player's
+    // inventory is followed while its list shows, but only a frame it took something in
+    // is sounded (the game runs on under it: a shot's ammo, a hotkeyed Stimpak are not takes).
+    let menu_open = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    let in_container = menu_open || crate::quick_loot::holds_input();
+    // Read every frame, so a take flagged while the container menu is open is not left to
+    // sound a later frame after it closes.
+    let took = crate::quick_loot::took_this_frame() | menu_open;
     for &RefChanged { form_id: id, restored } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
@@ -662,7 +669,7 @@ fn objects(
         if s.deleted() {
             // Taken from a container menu (a corpse's dropped weapon, `menu::model::Row::
             // reference`): the menu's own take sound below plays instead.
-            if in_container && s.dropped_by.is_some() {
+            if took && s.dropped_by.is_some() {
                 ws.picked.insert(id);
                 continue;
             }
@@ -689,7 +696,7 @@ fn objects(
     // at the listener [hypothesis: the same sounds as in the world].
     let now_carried: Option<BTreeMap<FormId, i32>> =
         in_container.then(|| sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default());
-    if let (Some(before), Some(now)) = (ws.carried.as_ref(), now_carried.as_ref()) {
+    if let (Some(before), Some(now)) = (ws.carried.as_ref().filter(|_| took), now_carried.as_ref()) {
         let mut moved: Vec<(FormId, bool)> = Vec::new();
         for (&item, &n) in now {
             if n > before.get(&item).copied().unwrap_or(0) {

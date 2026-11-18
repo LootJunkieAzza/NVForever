@@ -162,7 +162,13 @@ itself turns exactly as the mouse says.
 - Bob: a dip at each footfall and one sideways swing a stride, at the phase of the
   movement clips (the footstep keys), growing with the ground speed to a run's
   (300 units/s): 0.9 units down, 0.6 across, 1.2° of tilt. Sneaking 60 %, down the sights
-  20 % (the turn lag 35 %), none in the air.
+  20 % (the turn lag 35 %). In the air the stride's swing fades but its middle (half the
+  dip) stays with the ground speed, and while a jump's or landing's dip of the gun is
+  deeper than 0.2-0.8 units the stride fades: the landing is the footfall (2026-11-17,
+  "when holding W - moving forward and jumping, the landing animation has a lag/hitch":
+  with the whole bob gone in the air, the gun rose over a running jump and sank again
+  after it, and the first footfall after the landing dipped it a second time, a dip in
+  two steps; the trace `movement-inertia-trace-run-jump`).
 - Movement lag: a sprung hand pushed by the body's acceleration (spring rate 3.8/s; 10/s
   until the fourth playtest, "the gun slides to the sides too quick", 4.5/s until the
   seventh, "make the gun return to the default position smoother"): starting,
@@ -188,12 +194,17 @@ itself turns exactly as the mouse says.
   the grip (`view_sway::GRIP_PIVOT`, the right hand's place in the view, about 10 right,
   15.7 ahead and 14.6 down) so the gun's back end stays put; from the take-off (rising
   faster than 100 units/s) or once in the air, on two springs of 0.15 s each (× the
-  weights), none down the sights.
+  weights), none down the sights. It takes the walking tip's place (§1.4a, ninth
+  playtest) at its own pace both ways, so running ahead the muzzle goes from the one to
+  the other in one move; the walking tip let go in the air came back over 0.6 s after
+  the landing, a second, slower dip (2026-11-17).
 - The first-person landing clip (it moves `Camera1st`: the view dips about 6 units and
   stands up again, the standing up in 0.4 s at the clip's own pace [observed: the motion
   trace; the head's own landing spring gives 2 of the 8 units]) is played by its
-  place along the settling curve over 1.8 × its length
-  (`inertia::LAND_STRETCH`): the dip comes as fast as before (0.3 s), the standing up
+  place along `1 − (1 − u)^stretch` over 1.8 × its length (`inertia::LAND_STRETCH`,
+  `inertia::land_curve`; the settling curve until 2026-11-17, whose start at no speed
+  played the impact's first frames in slow motion): it starts at the clip's own pace
+  from the landing frame, the dip comes as fast as before (0.3 s), the standing up
   takes 0.7 s and slows to its end (seventh playtest: "make landing after jumping
   smoother - the little stand up to normal position after the camera dips"). Since the
   eighth ("fall-scaled landing") the stretch grows with the fall speed, 1.8 up to 350
@@ -332,7 +343,13 @@ itself turns exactly as the mouse says.
   inertia the climb is 60 % of the original's. The fire clip starts again
   at once at each shot and the arms ease across the step back to its start
   (`Animator::smooth_jump`, the loop seams' inertialization below): its kick shows whole,
-  with no snap between shots.
+  with no snap between shots. At such a jump the offset keeps only the part of its rate
+  that takes it back towards nothing, never past it (`anim_blend::toward_rest`, the
+  overshoot clamp of David Bollo's inertialization, GDC 2018): handed the new clip's
+  whole speed, an offset of almost nothing was flung out and back, and the lever-action
+  Trail Carbine fired as fast as it cycles down its sights took the left hand 9.5 units
+  off the gun for a quarter of a second at each shot (the clip's own 4.6; a tester's
+  video and the trace `movement-inertia-trace-lever-sights`, 2026-11-17).
 - Reloads (eighth playtest: "try improving reloads with springs"): with movement inertia
   a reload's, a jam's and each round's clip starts at once and the arms ease across the
   step to it as across a loop seam (the clip's own motion untouched); at its end the arms
@@ -549,7 +566,12 @@ tuned by eye]:
   showed a 1.5-unit dip, about 2 cm; 3 and 1 in the fourth build, "way too little" at
   the fifth), at the movement clip's
   phase, growing with the ground speed to a run's; sneaking 60 %, down the sights 25 %,
-  none in the air, under the Pip-Boy or while an idle drives the view. The arms' own bob
+  none under the Pip-Boy or while an idle drives the view. In the air the stride's
+  swing fades and its middle (2.6 units at a run) stays with the ground speed, and the
+  stride's footfalls fade while a landing's dip is deeper than 0.5-2 units: a running
+  landing dips the view once and lands it where it was carried (2026-11-17; with the
+  whole bob gone in the air the view rose 2.6 units over a running jump, sank back for
+  half a second after it and dipped a second time at the first footfall). The arms' own bob
   (§1.4a) comes on top. A switch registered in the settings page's Display group and
   shown under NVF Features › Advanced movement (Gameplay › Camera until 2026-11-13, then
   Gameplay › Advanced Inertia until 2026-11-15; `head-bob`,

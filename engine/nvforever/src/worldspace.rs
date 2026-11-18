@@ -13,11 +13,13 @@
 //! - Water: distant water planes and their per-cell surfaces are dropped (they hold the
 //!   old worldspace's default water height and water type).
 //!
-//! Each worldspace's own records are used. A child worldspace (WRLD `WNAM`) may take data
-//! from its parent by its `PNAM` flags [documented: xEdit names, schemas/fnv/world.json];
-//! every child worldspace in the ten masters sets only "Use Map Data" and has its own
-//! climate, water, image space and land [observed: `fnvtool world list`, `esm decode`],
-//! so taking the parent's is not implemented beyond what the start already does.
+//! A child worldspace (WRLD `WNAM`) takes data from its parent by its `PNAM` flags
+//! [documented: xEdit names, schemas/fnv/world.json]. The world index follows them for
+//! land, default heights, water type and climate (`fnv_world::WorldIndex::take_parent_data`,
+//! #2345; world.md §2.1), the distant LOD's files are the parent's with Use LOD Data
+//! (`WorldIndex::lod_world`), and the image space falls back to the parent's. Every child
+//! in the ten New Vegas masters sets only "Use Map Data"; Tale of Two Wastelands' Megaton,
+//! Oasis, Paradise Falls and the DC roof worlds set more.
 
 use crate::lod::{GenState, LodState};
 use crate::sky::{self, CloudLayer, MoonDisc, SkyDome, SkyState, Stars, Sun};

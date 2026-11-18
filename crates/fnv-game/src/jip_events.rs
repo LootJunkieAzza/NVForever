@@ -185,9 +185,16 @@ pub fn click_path_matches(filter: &str, menu: &str, path: &str, id: f64) -> bool
 
 impl Game<'_> {
     /// `SetOn<event>EventHandler func add filters…`; a second identical registration is
-    /// kept once [decision, jip-events.md §2]. Returns whether anything changed.
+    /// kept once [decision, jip-events.md §2]. A removal takes the registrations whose
+    /// filters begin with the ones given: the same filters, or with fewer (none: every
+    /// registration of that handler for the event) [documented: the same filters remove
+    /// the registration, jip-events.md §1; hypothesis: fewer remove all that match them,
+    /// as Just Assorted Mods' sprint relies on: it registers its key handler per key and
+    /// removes it with no key before registering again or when the sprint is turned off,
+    /// observed in its script source; issue #2952]. Returns whether anything changed.
     pub(crate) fn jip_set(&mut self, event: String, func: XVal, add: bool, filters: Vec<XVal>, registrar: Option<Arc<Registrar>>) -> bool {
         let same = |h: &JipHandler| h.event == event && h.func == func && h.filters == filters;
+        let removed = |h: &JipHandler| h.event == event && h.func == func && h.filters.starts_with(&filters);
         if add {
             if self.jip.handlers.iter().any(same) {
                 return true;
@@ -201,7 +208,7 @@ impl Game<'_> {
             let before = self.jip.handlers.len();
             let registrars = &mut self.jip.registrars;
             self.jip.handlers.retain(|h| {
-                if same(h) { registrars.remove(&h.seq); false } else { true }
+                if removed(h) { registrars.remove(&h.seq); false } else { true }
             });
             self.jip.handlers.len() < before
         }

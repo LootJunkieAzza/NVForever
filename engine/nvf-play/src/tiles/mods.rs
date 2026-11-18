@@ -24,9 +24,18 @@
 //!   and makes one code row (the one MCM reads) when it opens. `_enabled` is MCM's after
 //!   that (it turns the column off while its window is open).
 //! - **MCM opens with the page** ([`tick`]): a click on MCM's trigger (its `_clicked`, one
-//!   frame) once the trigger has been placed, as the player's click on the original's
-//!   "Mod Configuration" row; MCM's window closing itself (its Back, its trigger: `_Menu`
-//!   back to 0) closes the page ([`ModsPage::closed`]) [design].
+//!   frame) once the trigger has been placed and a mod has registered with MCM, as the
+//!   player's click on the original's "Mod Configuration" row; MCM's window closing itself
+//!   (its Back, its trigger: `_Menu` back to 0) closes the page ([`ModsPage::closed`])
+//!   [design].
+//! - **The click waits for MCM's list** (issue #2944): an MCM mod adds itself to MCM's list
+//!   (`MCMMods`) from its own `MenuMode 1013` block, Just Assorted Mods after half a second
+//!   of `GetSecondsPassed` and then `ListAddForm` [observed: its script source]. The start
+//!   menu's frames before the game normally do it (`crate::script`, before a save is read),
+//!   but a mod that registers only under the page would meet a click on its 3rd frame with
+//!   an empty list, and MCM stops at its "No MCM Mods" check [observed: MCM's script source].
+//!   The click waits for the list to have members, at most [`WAIT_FOR`] frames (a list no
+//!   mod fills still gets its click) [design].
 use bevy::prelude::info;
 use fnv_game::game::menus;
 use fnv_ui::Ui;
@@ -76,6 +85,12 @@ pub const MCM_TRIGGER: &str = "StartMenu/MCM/MCM_Trigger";
 const CLICK_AT: u64 = 3;
 /// The most frames the click is held for [design].
 const CLICK_FOR: u64 = 60;
+/// The most frames past [`CLICK_AT`] the click waits for a mod in MCM's list (`MCMMods`):
+/// Just Assorted Mods registers after half a second of the start menu's frames; three
+/// seconds at 60 frames a second leave room for slower mods [design].
+pub const WAIT_FOR: u64 = 180;
+/// MCM's list of the mods registered with it [observed: The Mod Configuration Menu.esp].
+pub const MCM_MODS: &str = "MCMMods";
 
 /// The Mods page's state over its frames (`crate::script` keeps it; `crate::pause` reads
 /// [`ModsPage::closed`]).
@@ -89,6 +104,15 @@ pub struct ModsPage {
     pub closed: bool,
     /// MCM's trigger is held clicked, until its window opens.
     pub clicking: bool,
+    /// The page's frame the trigger was clicked on (one click a page).
+    pub clicked_at: Option<u64>,
+}
+
+/// Whether the page clicks MCM's trigger on this frame: its first frames done, MCM's
+/// trigger placed, its window shut, no click yet on this page, and a mod in MCM's list
+/// (`listed`) or the wait over ([`WAIT_FOR`]) [design: issue #2944].
+pub fn click_now(page: &ModsPage, trigger: bool, open: bool, listed: usize) -> bool {
+    page.frames >= CLICK_AT && trigger && !open && page.clicked_at.is_none() && (listed > 0 || page.frames >= CLICK_AT + WAIT_FOR)
 }
 
 /// The original's column as MCM reads it, written into `StartMenu` when it was (re)built
@@ -132,24 +156,30 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
         // JIP's menu-open handlers for the start menu, as the original's pause menu opens
         // (`Game::page_menu_event`); MCM Extender adds its menus to MCM's list there.
         let ran = game.page_menu_event(menus::START, true);
-        let listed = game.data.by_edid("MCMMods").map(|l| fnv_game::functions::list_members(game, l).len());
+        let listed = game.data.by_edid(MCM_MODS).map(|l| fnv_game::functions::list_members(game, l).len());
         info!("tiles: the start menu's opening sent to {ran} JIP handlers; MCM's list of mods (MCMMods) holds {listed:?}");
     }
     let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
     if prepare_column(&mut game.ui_tree, files) {
         info!("tiles: {COLUMN}: the original's column traits written for MCM");
     }
+    let listed = game.data.by_edid(MCM_MODS).map_or(0, |l| fnv_game::functions::list_members(game, l).len());
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
     // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
     // a click in the frame after it reset itself (its `_UnClick`) [observed: MCM's script
     // source; the original opened with `_clicked` left at 1, menu-xml.md §10.1].
     let clicked = format!("{MCM_TRIGGER}/_clicked");
-    if page.frames == CLICK_AT && ui.find_tile(MCM_TRIGGER).is_some() && !open(ui) {
+    if click_now(page, ui.find_tile(MCM_TRIGGER).is_some(), open(ui), listed) {
         ui.set_float(&clicked, 1.0);
         page.clicking = true;
-        info!("tiles: MCM's trigger clicked: its window opens with the Mods page");
-    } else if page.clicking && (open(ui) || page.frames >= CLICK_AT + CLICK_FOR) {
+        page.clicked_at = Some(page.frames);
+        if listed > 0 {
+            info!("tiles: MCM's trigger clicked: its window opens with the Mods page ({listed} mods in MCM's list, page frame {})", page.frames);
+        } else {
+            info!("tiles: MCM's trigger clicked with no mod in MCM's list after {WAIT_FOR} frames: its window opens with the Mods page");
+        }
+    } else if page.clicking && (open(ui) || page.clicked_at.is_some_and(|at| page.frames >= at + CLICK_FOR)) {
         if !open(ui) {
             let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| v.to_string());
             bevy::prelude::warn!(
@@ -186,6 +216,20 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
 mod tests {
     use super::*;
     use fnv_ui::MemSource;
+
+    #[test]
+    fn the_click_waits_for_a_mod_in_mcms_list() {
+        let at = |frames| ModsPage { frames, ..Default::default() };
+        assert!(!click_now(&at(CLICK_AT - 1), true, false, 1), "before the first frames are done");
+        assert!(click_now(&at(CLICK_AT), true, false, 1), "a mod registered: clicked at once");
+        assert!(!click_now(&at(CLICK_AT + 30), true, false, 0), "an empty list (after a load): waits");
+        assert!(click_now(&at(CLICK_AT + 31), true, false, 1), "clicked once the mod registers");
+        assert!(click_now(&at(CLICK_AT + WAIT_FOR), true, false, 0), "a list no mod fills: clicked after the wait");
+        assert!(!click_now(&at(CLICK_AT), false, false, 1), "no trigger");
+        assert!(!click_now(&at(CLICK_AT), true, true, 1), "the window already open");
+        let clicked = ModsPage { frames: CLICK_AT + 5, clicked_at: Some(CLICK_AT), ..Default::default() };
+        assert!(!click_now(&clicked, true, false, 1), "one click a page");
+    }
 
     #[test]
     fn the_entry_needs_the_switch_and_a_mods_tiles() {

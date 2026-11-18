@@ -43,6 +43,51 @@ entry in the schemas.
   and the Zion, Big MT and Divide landscapes). WastelandNV has 16,396 grid cells spanning
   x −65..64, y −65..271, with 16,388 LAND records [observed].
 
+### 1.1 Child worldspaces: data taken from the parent (WRLD WNAM, PNAM)
+
+Issue #2345. Code: `fnv_world::WorldIndex::take_parent_data`, `WorldIndex::lod_world`.
+
+- **The flags** [documented: xEdit wbDefinitionsFNV.pas WRLD; names only]: PNAM bit 0 Use
+  Land Data, 1 Use LOD Data, 2 Use Map Data, 3 Use Water Data, 4 Use Climate Data, 5 Use
+  Image Space Data.
+- **The ten New Vegas masters** [observed: `fnvtool world list`]: every child sets Use
+  Map Data only and has its own land, `DNAM`, climate, water and image space.
+- **Fallout 3's children in a Tale of Two Wastelands load order** [observed: `fnvtool
+  world list`, `world heights`, `esm decode` on Fallout3.esm, 2026-11-18], all children
+  of Wasteland:
+
+  | Child | PNAM | Own records |
+  |---|---|---|
+  | MegatonWorld | land, map | no `DNAM`; own climate, water, image space; LAND on 12 of 16 cells |
+  | Oasis | land, map | no `DNAM`; own climate, water, image space; no LAND on any of 34 cells |
+  | GNRroofWorld | land, LOD, map | no `DNAM`; own climate, water, image space; LAND on 85 of 143 cells |
+  | ParadiseFalls | land, map, water, climate, image space | no `DNAM`, `CNAM`, `NAM2`, `INAM`; LAND on 2 of 12 cells |
+  | MonumentWorld, StatesmanRoofWorld, TestQAWorld | LOD, map | own `DNAM` (land 12288, water 0), climate, water, image space |
+
+  So a child with a flag leaves the matching subrecords out, and a child without it has
+  them. The land-sharing children lie on their parent's grid squares: MegatonWorld's own
+  LAND has the same heights as the parent's cell on the same square on 10 of its 12
+  squares (2 differ); ParadiseFalls's 2 and GNRroofWorld's 85 all differ from the
+  parent's (GNRroofWorld's are flat at about 12,280, over ground at about 10,700).
+- **As built** [hypothesis on the observations above]:
+  - Use Land Data: the default land and water heights (`DNAM` holds both) are the
+    parent's when the child has none; a cell without LAND takes the LAND of the parent's
+    cell on the same grid square; a cell with its own LAND keeps it. Which the original
+    uses where both exist and differ is not known (observer check 225).
+  - Use Water Data: the water type (`NAM2`) and the default heights are the parent's
+    when the child has none. Per-cell water (`XCLW`, `XCWT`) is not taken from the
+    parent's cells [not known].
+  - Use Climate Data: the climate is the parent's. Use Image Space Data: the renderer
+    already reads the parent's `INAM` when the child has none.
+  - Use LOD Data: the distant LOD files read are the parent's (`lodsettings\<parent>`,
+    `meshes\landscape\lod\<parent>`).
+  - Use Map Data: the Pip-Boy's map (pipboy data, `read.rs`).
+- **Seen in the game** [observed, TTW data, 2026-11-18]: started in Oasis at
+  (-10240, 116736) the player stands on terrain at z 17,938 (the parent's LAND for
+  square (-3, 28)); before, there was no floor and the player fell without end (#2345's
+  quest-pilot report). MegatonWorld loads with the parent's land on the 4 squares that
+  had none.
+
 ## 2. References
 
 - References are records in persistent (type 8) and temporary (type 9) cell-children
@@ -1532,6 +1577,46 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   - Not checked: the fog clip distance's interplay, Honest Hearts' and the other add-ons'
     worldspaces (Honest Hearts' archive is a lab holdout), the underwater fog (still
     linear, water.md).
+
+### Under-water colour (#2916, 2026-11-18)
+
+Code: `engine/nvforever/src/underwater.rs` (`fog_bytes`, `DEEP_AT`).
+
+- **The original** [observed: own captures, `tools/capture/capture_frames.py`, god mode,
+  the player set in place under water; mean display colour of the whole 1280×720 frame]:
+  - Lake Mead (WastelandNV cell (28, 16), surface 2,600, bed 1,272; water Potomac
+    0x00030009: shallow (52, 75, 52), deep (27, 39, 24), under fog −1,000..700), clear
+    weather, noon, by the player's feet below the surface:
+
+    | Feet down | 150 | 300 | 500 | 700 | 900 | 1,100 | 1,250 |
+    |---|---|---|---|---|---|---|---|
+    | Frame | 72, 81, 38 | 67, 75, 34 | 60, 68, 31 | 53, 60, 26 | 45, 51, 21 | 37, 43, 16 | 36, 42, 15 |
+
+    At 50 down the camera is above the water. The fall is even (about 3.8 levels of green
+    per 100 units) and stops near 1,100.
+  - The frame is one colour whichever way the camera looks at 300 down: level (67, 76,
+    34), 45° up (67, 75, 35), 45° down (68, 77, 35).
+  - By the hour at 300 down: 06:00 (42, 48, 34), 09:00, 12:00, 15:00 and 18:00 all
+    (67, 75, 34), 20:00 (38, 43, 29), 22:00 and 00:00 (32, 42, 37). Midnight by depth:
+    150 (35, 46, 40), 500 (29, 38, 33), 900 (20, 27, 23), 1,250 (16, 22, 17).
+  - The Pitt's river (Tale of Two Wastelands, DLC01PittWorld cell (0, 1), surface −2,100;
+    water DLC01PittWorldWater: shallow (56, 60, 34), deep (17, 17, 4), the same fog), feet
+    180 down, weather DLC01PittWthrBridge01 at noon: (46, 53, 33).
+- **As built** [hypothesis, fitted to the above]: the camera's fog under water is the
+  water type's shallow colour at the surface and its deep colour 1,000 units down, in
+  proportion between, as display values; it is not lit. The picture's grade then gives
+  the day and night levels. Ours for the same views: Lake Mead at noon 150 / 500 / 900 /
+  1,250 down (74, 83) / (61, 69) / (47, 52) / (37, 42) in red and green, midnight 150
+  (36, 47) and 900 (21, 28); the Pitt (49, 55, 34).
+- **Before**: the deep colour times the light on a sunlit surface, which in the Pitt's
+  dim weather came out nearly black ((15, 20, 10) against the original's (46, 53, 33)):
+  #2916's "The Pitt's bridge is black". The sweep's camera there was under the river.
+- **Left**: (a) looking up from just below the surface the original shows the sky and
+  clouds faintly, near the water's colour ((67, 70, 47) at the top of the Pitt frame);
+  ours shows the sky brightly ((128, 133, 116)): the sky is not fogged by the camera's
+  fog. (b) At 06:00 and 20:00 ours is still on the night's grade ((34, 44, 40)) where
+  the original is part of the way to the day's. (c) Whether 1,000 is the water's under
+  fog near or a constant: both waters measured store −1,000.
 
 ### Sunlight Dimmer (Old World Blues comparison F1, 2026-10-23)
 

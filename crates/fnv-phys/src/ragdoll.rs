@@ -115,6 +115,57 @@ pub struct RagdollReport {
     pub freed: Vec<usize>,
 }
 
+/// What a ragdoll touches ([`PhysWorld::ragdoll_contacts`]): contact pairs by what the
+/// other collider belongs to.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RagdollContacts {
+    /// The terrain's heightfields.
+    pub terrain: ContactTally,
+    /// References whose body is not dynamic (buildings, rocks, furniture).
+    pub fixed: ContactTally,
+    /// References whose body is dynamic (loose objects).
+    pub loose: ContactTally,
+    /// Other actors' ragdolls that move, and those held at rest.
+    pub moving_ragdolls: ContactTally,
+    pub resting_ragdolls: ContactTally,
+    /// Two of its own bodies.
+    pub own: ContactTally,
+    /// Anything else (gore pieces).
+    pub other: ContactTally,
+    /// The other actors' ragdolls it touches, by FormID, ascending.
+    pub ragdolls: Vec<u32>,
+    /// The references (fixed and loose) it touches, by FormID, ascending.
+    pub refs: Vec<u32>,
+}
+
+/// Contact pairs of one kind, and the deepest overlap among them (game units, 0 when
+/// none overlaps).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ContactTally {
+    pub pairs: usize,
+    pub deepest: f32,
+}
+
+impl RagdollContacts {
+    /// For a log line: `terrain 3 (0.4 deep), fixed 0, loose 0, moving ragdolls 2 (1.2 deep), resting ragdolls 0, own 1 (0.0 deep), other 0, touching [00012345], refs [0001ABCD]`.
+    pub fn summary(&self) -> String {
+        let t = |name: &str, c: &ContactTally| if c.pairs == 0 { format!("{name} 0") } else { format!("{name} {} ({:.1} deep)", c.pairs, c.deepest) };
+        let ids: Vec<String> = self.ragdolls.iter().map(|f| format!("{f:08X}")).collect();
+        format!(
+            "{}, {}, {}, {}, {}, {}, {}, touching [{}], refs [{}]",
+            t("terrain", &self.terrain),
+            t("fixed", &self.fixed),
+            t("loose", &self.loose),
+            t("moving ragdolls", &self.moving_ragdolls),
+            t("resting ragdolls", &self.resting_ragdolls),
+            t("own", &self.own),
+            t("other", &self.other),
+            ids.join(" "),
+            self.refs.iter().map(|f| format!("{f:08X}")).collect::<Vec<_>>().join(" ")
+        )
+    }
+}
+
 /// A ragdoll in the world.
 #[derive(Debug, Clone)]
 pub(crate) struct RagdollBodies {
@@ -662,6 +713,70 @@ impl PhysWorld {
             .filter(|p| p.has_any_active_contact())
             .filter(|p| matches!((of(p.collider1), of(p.collider2)), (Some(a), Some(b)) if a != b))
             .count()
+    }
+
+    /// What the bodies of an actor's ragdoll touch now (as of the last step): every pair
+    /// with an active contact, by what the other collider is, or only those of body
+    /// `body` (index in the ragdoll's bodies). Diagnostics for a ragdoll that does not come
+    /// to rest (#2083); reads the world, changes nothing. Empty without a ragdoll.
+    pub fn ragdoll_contacts(&self, form_id: u32, body: Option<usize>) -> RagdollContacts {
+        let mut out = RagdollContacts::default();
+        let Some(r) = self.ragdolls.get(&form_id) else { return out };
+        let mut seen = std::collections::HashSet::new();
+        let mut others = std::collections::BTreeSet::new();
+        let mut refs = std::collections::BTreeSet::new();
+        for (i, h) in r.bodies.iter().enumerate() {
+            if body.is_some_and(|b| b != i) {
+                continue;
+            }
+            let Some(b) = h.and_then(|h| self.w.bodies.get(h)) else { continue };
+            for &c in b.colliders() {
+                for pair in self.w.contact_pairs_with(c).filter(|p| p.has_any_active_contact()) {
+                    // A pair of two of its own bodies is met from both sides: counted once.
+                    let (c1, c2) = (pair.collider1.into_raw_parts(), pair.collider2.into_raw_parts());
+                    let key = if c1 < c2 { (c1, c2) } else { (c2, c1) };
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    let other = if pair.collider1 == c { pair.collider2 } else { pair.collider1 };
+                    let depth = pair.find_deepest_contact().map_or(0.0, |(_, k)| (-k.dist / self.k).max(0.0));
+                    let co = self.w.colliders.get(other);
+                    let parent = co.and_then(|co| co.parent());
+                    let owner = co.and_then(|co| Owner::decode(co.user_data));
+                    let touch = match (parent.and_then(|p| self.ragdoll_of.get(&p)), owner) {
+                        (Some(&(f, _)), _) if f == form_id => &mut out.own,
+                        (Some(&(f, _)), _) => {
+                            others.insert(f);
+                            if self.ragdolls.get(&f).is_some_and(|o| o.at_rest) {
+                                &mut out.resting_ragdolls
+                            } else {
+                                &mut out.moving_ragdolls
+                            }
+                        }
+                        (None, Some(Owner::Terrain { .. })) => &mut out.terrain,
+                        (None, Some(Owner::Ref { form_id: f, .. })) => {
+                            refs.insert(f);
+                            match parent.and_then(|p| self.w.bodies.get(p)) {
+                                Some(p) if p.is_dynamic() => &mut out.loose,
+                                _ => &mut out.fixed,
+                            }
+                        }
+                        _ => &mut out.other,
+                    };
+                    touch.pairs += 1;
+                    touch.deepest = touch.deepest.max(depth);
+                }
+            }
+        }
+        out.ragdolls = others.into_iter().collect();
+        out.refs = refs.into_iter().collect();
+        out
+    }
+
+    /// Whether the ragdoll is held at rest ([`PhysWorld::set_ragdoll_at_rest`]), not merely
+    /// asleep in the engine ([`PhysWorld::ragdoll_asleep`] is either).
+    pub fn is_ragdoll_at_rest(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.at_rest)
     }
 
     /// Whether the player's grab holds a body of this actor's ragdoll.

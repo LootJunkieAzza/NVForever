@@ -62,8 +62,13 @@ pub const OMEGA: f32 = 22.0;
 pub const FULL_RATE_SPEED: f32 = 250.0;
 /// The slowest rate, 1/s (standing still: within a tenth after about 0.5 s) [design].
 pub const OMEGA_MIN: f32 = 10.0;
-/// Most the drawn height may lag, game units [design: the controller's step height].
-pub const MAX_LIFT: f32 = 24.0;
+/// Most the drawn height may lag, game units [design: up to a placement's change in one
+/// step, [`JUMP`]; the controller's step height (24) until 2026-11-17: a let-down of 27
+/// units off a road piece's edge after a crouched jump, on top of 12 still being eased,
+/// went past it and the view dropped the 15 over it in one frame (the owner's video,
+/// "player character teleports to the ground while crouch walking forward and jumping";
+/// the trace `movement-inertia-trace-crouch-jump-slope`, physics at 144 Hz)].
+pub const MAX_LIFT: f32 = JUMP;
 /// A change of the drawn height over this in one step is a placement, not a step: the
 /// lift goes back to 0 [design].
 pub const JUMP: f32 = 48.0;
@@ -260,6 +265,31 @@ mod tests {
             out.push(w[1] + lift.lift);
         }
         out
+    }
+
+    #[test]
+    fn a_let_down_on_top_of_one_being_eased_is_eased_whole() {
+        // Walking at 200 units/s at 144 steps a second: down 12 units, and four steps
+        // later 27 more (off a road piece's edge onto the terrain): the drawn height comes
+        // down at about a fall's pace (under 2 units a step; with the cap at 24 it dropped
+        // 15 in one) and is down on the ground a second later.
+        let dt = 1.0 / 144.0;
+        let mut lift = StepLift::default();
+        let mut feet = 0.0f32;
+        let mut drawn = vec![0.0];
+        for k in 0..150 {
+            let dz = match k {
+                10 => -12.0,
+                14 => -27.0,
+                _ => 0.0,
+            };
+            lift.step(dz, 200.0 * dt, true, dt);
+            feet += dz;
+            drawn.push(feet + lift.lift);
+        }
+        let worst = drawn.windows(2).map(|w| w[0] - w[1]).fold(0.0f32, f32::max);
+        assert!(worst < 2.0, "the drawn height dropped {worst} units in one step");
+        assert!((drawn[drawn.len() - 1] - feet).abs() < 0.1, "on the ground: {} against {feet}", drawn[drawn.len() - 1]);
     }
 
     #[test]

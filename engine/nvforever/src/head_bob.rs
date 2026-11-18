@@ -45,6 +45,14 @@ const LAND_OMEGA: f32 = 4.0;
 pub const LAND_PEAK_PER_SPEED: f32 = 0.007;
 /// (5 until the eighth playtest's "fall-scaled landing".)
 const MAX_LAND: f32 = 9.0;
+/// While a landing's dip shows deeper than the first of these (units) the stride's
+/// footfalls fade, gone from the second, and they come back as the dip stands up again:
+/// the landing is the footfall [design: the owner, 2026-11-17, "when holding W - moving
+/// forward and jumping, the landing animation has a lag/hitch": the first footfall after a
+/// running landing (0.4 s on) dipped the view a second time before the landing's dip had
+/// stood up, a dip in two steps; the trace `movement-inertia-trace-run-jump`].
+const LAND_HUSH_FROM: f32 = 0.5;
+const LAND_HUSH_FULL: f32 = 2.0;
 /// The body's velocities are smoothed over this long (seconds) before their changes push
 /// the head (`nvf_play::ease::Pushed`): a take-off or a landing never jolts the view.
 const PUSH_SMOOTH_SECONDS: f32 = 0.12;
@@ -135,6 +143,9 @@ pub struct BobInput {
 #[derive(Debug, Clone, Default)]
 pub struct HeadBob {
     amount: Spring,
+    /// How much of the bob's lowering (its middle: the dip goes down at each footfall and
+    /// back up, never above) shows: follows the ground speed, in the air too.
+    carry: Spring,
     /// How far down the sights and how far sneaking the shares are (0-1, on springs).
     sighted: Spring,
     crouched: Spring,
@@ -177,19 +188,31 @@ impl HeadBob {
         let follow = |t: f32| if dt <= 0.0 { 0.0 } else { 1.0 - (-dt / t).exp() };
         self.gain += (f32::from(u8::from(i.on)) - self.gain) * follow(FOLLOW_SECONDS);
         self.land_gain += (f32::from(u8::from(i.landing)) - self.land_gain) * follow(FOLLOW_SECONDS);
-        let target = if i.airborne { 0.0 } else { (i.speed / FULL_SPEED).min(1.0) };
+        // In the air the footfalls stop but the body runs on: the bob's swing fades and its
+        // middle stays, so a running jump lands with the view where it was. With the whole
+        // bob gone in the air, the view rose by half the dip (2.6 units at a run) over the
+        // jump and sank again over half a second after the landing, on top of the landing
+        // dip [design: the owner, 2026-11-17, "when holding W - moving forward and jumping,
+        // the landing animation has a lag/hitch"; the trace `movement-inertia-trace-run-jump`].
+        let running = (i.speed / FULL_SPEED).min(1.0);
+        let target = if i.airborne { 0.0 } else { running };
         self.amount.step(target, omega_for(AMOUNT_SETTLE_SECONDS), dt);
+        self.carry.step(running, omega_for(AMOUNT_SETTLE_SECONDS), dt);
         // The calmer shares down the sights and sneaking come and go on springs.
         let stance = omega_for(crate::view_sway::STANCE_SHARE_SECONDS);
         self.sighted.step(f32::from(u8::from(i.sights)), stance, dt);
         self.crouched.step(f32::from(u8::from(i.sneaking)), stance, dt);
         let (sighted, crouched) = (self.sighted.value.clamp(0.0, 1.0), self.crouched.value.clamp(0.0, 1.0));
-        let share = self.gain * self.amount.value * (1.0 + (SIGHTS - 1.0) * sighted) * (1.0 + (SNEAK - 1.0) * crouched);
+        let calmed = self.gain * (1.0 + (SIGHTS - 1.0) * sighted) * (1.0 + (SNEAK - 1.0) * crouched);
+        // The footfalls hushed while a landing's dip shows (its last frame's).
+        let landing_dip = -soft(self.land.out.value, MAX_LAND) * self.land_gain;
+        let hush = 1.0 - nvf_play::ease::smoothstep(LAND_HUSH_FROM, LAND_HUSH_FULL, landing_dip);
+        let (share, carried) = (calmed * self.amount.value * hush, calmed * self.carry.value);
         let a = std::f32::consts::TAU * (i.phase - crate::view_sway::FOOTFALL_PHASE);
         // Down at each footfall (twice a cycle), across once a cycle, through the spring.
         let w = omega_for(BOB_SETTLE_SECONDS);
         self.bob[0].step(SWING * a.sin() * share, w, dt);
-        self.bob[1].step(-DIP * 0.5 * (1.0 + (2.0 * a).cos()) * share, w, dt);
+        self.bob[1].step(-DIP * 0.5 * (carried + (2.0 * a).cos() * share), w, dt);
         let (swing, dip) = (self.bob[0].value, self.bob[1].value);
         self.peak_dip = self.peak_dip.max(-dip);
         // The head's own weight, pushed by the body's acceleration (below).
@@ -437,6 +460,54 @@ mod tests {
         let mut b = HeadBob::default();
         let low = (0..120).map(|f| b.first_person(BobInput { landing: true, on: false, ..input(344.0, f as f32 / 60.0) }).z).fold(0.0f32, f32::min);
         assert!(low.abs() < 1e-4, "{low}");
+    }
+
+    #[test]
+    fn a_running_jump_lands_the_view_where_it_was_carried() {
+        // Running, 0.6 s in the air and running on, at the stride's place where the footfall
+        // dip is at its middle, with no push from the take-off or the landing (the landing
+        // dip is its own test): the view neither rises in the air nor sinks after landing.
+        // With the whole bob let go in the air it rose by half the dip and sank back over
+        // half a second after the landing (the owner, 2026-11-17, "the landing animation has a
+        // lag/hitch").
+        let mid = crate::view_sway::FOOTFALL_PHASE + 0.125;
+        let mut b = HeadBob::default();
+        let mut z = 0.0;
+        for _ in 0..240 {
+            z = b.first_person(input(344.0, mid)).z;
+        }
+        let carried = z;
+        let air = (0..36).map(|_| b.first_person(BobInput { airborne: true, ..input(344.0, mid) }).z).fold(f32::MIN, f32::max);
+        let after = (0..60).map(|_| b.first_person(input(344.0, mid)).z).fold(f32::MIN, f32::max);
+        assert!(carried < -0.4 * DIP, "the bob's middle while running: {carried}");
+        assert!((air - carried).abs() < 0.05 && (after - carried).abs() < 0.05, "carried at {carried}; in the air up to {air}, after the landing up to {after}");
+    }
+
+    #[test]
+    fn a_running_landing_dips_the_view_in_one_step() {
+        // Running (a 0.72 s stride), a 0.6 s jump and running on, landing at each of eight
+        // places in the stride: from the landing to the dip's bottom the view goes down in
+        // one move, its speed rising and falling once. The first footfall after the landing
+        // dipped it a second time before (a dip in two steps, the owner's "hitch").
+        for k in 0..8 {
+            let mut b = HeadBob::default();
+            let mut phase = k as f32 / 8.0;
+            let mut step = |b: &mut HeadBob, airborne: bool, vertical: f32| {
+                phase = (phase + DT / 0.72).fract();
+                b.first_person(BobInput { airborne, vertical, ..input(344.0, phase) }).z
+            };
+            for _ in 0..300 {
+                step(&mut b, false, 0.0);
+            }
+            for f in 0..36 {
+                step(&mut b, true, 290.0 - 980.0 * f as f32 * DT);
+            }
+            let z: Vec<f32> = (0..48).map(|_| step(&mut b, false, 0.0)).collect();
+            let bottom = (0..z.len()).min_by(|&i, &j| z[i].total_cmp(&z[j])).unwrap_or(0);
+            let down: Vec<f32> = z[..=bottom].windows(2).map(|w| (w[0] - w[1]) / DT).collect();
+            let humps = down.windows(3).filter(|w| w[1] > w[0] && w[1] >= w[2] && w[1] > 1.0).count();
+            assert!(humps <= 1, "landing {k}/8 into the stride: the view went down in {humps} steps: {down:?}");
+        }
     }
 
     #[test]

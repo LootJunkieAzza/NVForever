@@ -136,6 +136,7 @@ mod stealth_field;
 mod stray_commands;
 mod post;
 mod quality;
+mod quality_probe;
 mod particles;
 mod shot_fx;
 mod ragdoll;
@@ -247,6 +248,13 @@ struct Args {
     /// its home; with --data, the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
+    /// A Mod Organizer 2 instance folder: its profile's mods are merged over Data and its
+    /// plugins load, with MO2 closed (issue #1526).
+    #[arg(long, value_name = "INSTANCE")]
+    mo2: Option<PathBuf>,
+    /// The profile in that instance (default: the instance's selected_profile).
+    #[arg(long, value_name = "NAME")]
+    profile: Option<String>,
     /// Record schema directory.
     #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv"))]
     esm_schema: PathBuf,
@@ -1085,9 +1093,49 @@ fn main() -> AppExit {
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
+    // A Mod Organizer 2 instance named on the command line (#1526): its selected (or
+    // `--profile`) profile's mods layer over Data and its plugins load, with MO2 closed.
+    let mo2 = match &args.mo2 {
+        Some(instance) => match fnv_install::mo2::Layout::open(instance, args.profile.as_deref()) {
+            Ok(l) => {
+                eprintln!("setup: Mod Organizer 2 instance: {} profile {} ({} mod folder(s))", l.mods.display(), l.profile_name(), l.mod_roots().len());
+                Some(l)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        },
+        None => None,
+    };
+    if let Some(l) = &mo2 {
+        let archives = l.mod_archives();
+        if !archives.is_empty() {
+            let shown: Vec<&str> = archives.iter().take(5).map(String::as_str).collect();
+            eprintln!(
+                "warning: {} mod archive(s) are not mounted yet (#1526 phase 1): {}{}",
+                archives.len(),
+                shown.join(", "),
+                if archives.len() > shown.len() { ", …" } else { "" }
+            );
+        }
+    }
     // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
     // Developer and smoke runs keep the fixed masters below, whatever the list says.
-    if default_plugins && !developer_data {
+    // Under --mo2 the profile's list takes the home list's place (docs/mod-organizer-2.md).
+    if let (true, Some(l)) = (default_plugins, mo2.as_ref()) {
+        match l.profile_plugins() {
+            Ok(p) if !p.is_empty() => {
+                eprintln!("setup: plugins from the Mod Organizer 2 profile ({})", l.profile.display());
+                args.plugins = p;
+            }
+            Ok(_) => eprintln!("warning: the Mod Organizer 2 profile has no active plugins; loading the masters only"),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        }
+    } else if default_plugins && !developer_data {
         match setup::plugin_list(&install) {
             Ok(p) => args.plugins = p,
             Err(e) => {
@@ -1114,10 +1162,18 @@ fn main() -> AppExit {
     };
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
-    // A plugin in NVForever's own mods folder is opened instead of Data's copy
-    // (fnv_install::plugins).
-    let mods = fnv_install::EngineHome::user().map(|h| h.mods());
-    let opened = world::open_plugins(args.data(), mods.as_deref(), &args.plugins);
+    // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
+    // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
+    // with its overwrite folder first (#1526).
+    let mods: Vec<PathBuf> = match &mo2 {
+        Some(l) => {
+            let mut roots = l.mod_roots();
+            roots.reverse();
+            roots
+        }
+        None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
+    };
+    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
     if !code_page_named {
@@ -1167,7 +1223,15 @@ fn main() -> AppExit {
         }
     }
     // The archives beside a plugin in the mods folder are mounted with it.
-    let game = match GameData::open_for_plugins_in(args.data(), mods.as_deref(), &args.plugins, &args.nif_schema) {
+    let game = match &mo2 {
+        Some(_) => {
+            let mut roots = mods.clone();
+            roots.reverse();
+            GameData::open_for_plugins_layered(args.data(), &roots, &args.plugins, &args.nif_schema)
+        }
+        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+    };
+    let game = match game {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
@@ -2104,6 +2168,7 @@ fn main() -> AppExit {
     if play.is_some() {
         settings::register(&mut app);
         dlss_download::add(&mut app);
+        quality_probe::register(&mut app);
         console_toggles::register(&mut app);
         app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);

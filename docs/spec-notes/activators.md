@@ -556,3 +556,36 @@ controller type, with the models, bases and references whose sequences have one:
   the effect still applies at the activation [design, #2349] (idles.md §16).
 - Not built: a drinking sound (no record names one), NPCs drinking.
 
+
+
+### Object water under the crosshair
+
+[documented] [GetCrosshairWater](https://geckwiki.com/index.php?title=GetCrosshairWater)
+returns the WaterType belonging to the object reference under the crosshair within
+activation range. [observed: original installed mod data] The Contextual Prompts
+callback checks this before its generic reference/icon branches to select an
+object-water image. Its initial callback is queued before the runner's dependency
+guards; persistent event registration and image injection occur after the guards.
+This source demand does not establish original-game execution or native timing.
+
+[design] Read the existing activation-range GetCrosshairRef publication, qualify
+its base as ACTI, and read WNAM through the existing effective record accessor
+used by GetActivatorWaterType. SetActivatorWaterType changes are visible to the
+next query. Missing/unmapped targets, non-activators and absent WNAM return no
+form. This adds no ray, surface-water detection, retained result or World mutation.
+It follows the existing target publication lifetime rather than inventing separate
+visibility, deletion or distance policies. Drinking, water remapping, HUD hiding,
+provider/version reporting and event dispatch are unchanged. Full surface-water
+and native timing behavior remain unqualified.
+
+[validation plan] Independently authored file-backed CompileScript source chooses
+the injected image using the real query; a real setter/getter pair checks effective
+record authority and repeated target/invalid/nonwater/reentry cases preserve the
+World snapshot. A separate engine control uses the actual activation collision ray
+and then a source image branch and real draw Picture/title pieces, retaining
+ordinary target/getter/accessor controls and collision eviction. The file-reader
+fixture has its own process-scoped test target. Both tests and identical-fixture
+baseline are unexecuted at authoring; the engine callback is direct compiled source,
+not an assertion that original initialization or OnCrosshairOn has run. The separate
+event-producer contribution requires its own composition/execution. Original
+profile, native, rendered and full Contextual Prompts/yUI acceptance remain open.

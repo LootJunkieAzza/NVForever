@@ -119,7 +119,14 @@ and nothing repeats them.
 
 ### 3.1 Ambient occlusion (`ambient-occlusion`)
 
-From the depth prepass alone (multisampled or not: sample 0 is read): the view-space position
+**Since #2897 (stage a) the estimate is ground-truth ambient occlusion** (§3.1.1); the older
+estimate described next stays in the code as the fallback until the new one is measured
+(`NVF_PLAY_DEBUG_AO=old`, §6). Both share everything but the estimate and the denoise: the
+inputs, half resolution, the two placements (after tonemapping, or before a temporal
+upscaler), the radius, the screen-radius cap, the far fade and the output (a factor
+multiplied into the picture).
+
+The old estimate: from the depth prepass alone (multisampled or not: sample 0 is read): the view-space position
 from the reverse-infinite depth (distance = near / depth), the normal from the neighbouring
 depths on the side with the smaller step, 12 samples on a 3-turn spiral within 64 game units
 (about 0.9 m; at most 80 pixels on the screen), turned per pixel by a 4 × 4 ordered pattern;
@@ -145,6 +152,114 @@ While FSR 3.1 upscales (since 2026-11-08) the same pass runs before FSR instead,
 render size, multiplied into the HDR picture FSR then accumulates
 ([fsr-upscaling](fsr-upscaling.md), "Ambient occlusion"); `NVF_AO_BEFORE_FSR=0` keeps it
 after tonemapping.
+
+#### 3.1.1 Ground-truth estimate (#2897 stage a)
+
+An engineering choice for the enhanced look, like the rest of this page: the original draws
+no ambient occlusion, and this is never a parity item nor an explanation of a difference
+from the original's frames.
+
+**Why.** The old estimate counts buried samples instead of integrating the visible part of
+the hemisphere, so flat areas darken unevenly and depth edges get halos (#2897).
+
+**Technique** [documented: Jimenez, Wu, Pesce, Jarabo, "Practical Real-Time Strategies for
+Accurate Indirect Occlusion", SIGGRAPH 2016 course; written from the paper's maths, no code
+copied from any implementation] (`ssao.wesl` `gtao_visibility`): per half-resolution texel
+(the top-left pixel of its 2 × 2 block, as before), `SLICES` = 2 screen directions through
+the pixel, φ = (k + turn) π / 2. In each slice (the plane through the view vector V and that
+direction) the normal N (from the depth, `normal_at` as before: on each axis the
+neighbouring texel with the smaller depth step, so an edge does not bend it) is projected:
+its angle γ from V, atan2(N·t, N·V) with t the slice's tangent, and its length |n_p|. The
+depth is marched `STEPS` = 4 times on each side, from one pixel out to the screen radius
+(64 units, at most 80 pixels as before), the steps closer together near the pixel (squared
+spacing) where the contact shadows are. Each side keeps the highest horizon as its cosine
+from V, starting at the edge of the normal's hemisphere (γ ± π/2); the horizons are
+clamped to that hemisphere and the cosine-weighted visible arc between them is integrated
+in closed form, ¼(−cos(2h − γ) + cos γ + 2h sin γ) for each horizon h.
+
+- **Normalisation** [engineering choice, own maths]: the slices' sum Σ|n_p|(â₁ + â₂) is
+  divided by the same slices' integral with nothing in the way, Σ|n_p|(cos γ + γ sin γ),
+  not by the slice count. The paper's mean over slices is 1 on open ground only on average
+  over the directions (one slice of a surface tilted by α from the view gives between
+  cos α and cos α + α sin α), which two slices and a 4 × 4 pattern would show as a grain on
+  open ground; the ratio is exactly 1 there with any slice count, never divides by zero
+  (cos γ + γ sin γ ≥ 1 for |γ| < π/2) and tends to the same integral as the slices increase.
+- **Thickness** [engineering choice]: no occluder counts beyond the radius; a sample's
+  horizon is blended towards the hemisphere's edge as its distance from the pixel goes from
+  half the radius (`FALLOFF_START`, a quarter of the squared radius) to the radius, the
+  same falloff curve as the old estimate's. So a thin post far in front of a wall does not
+  hide the wall's sky. A sample off the screen or on the sky raises nothing.
+- **Bias**: a sample's cosine is lowered by 0.03 (`HORIZON_BIAS`) before it may raise a
+  horizon, so a sample on the pixel's own plane (depth rounding, the normal from
+  neighbouring depths) does not occlude it.
+- **Pattern**: the slice turn from the 4 × 4 ordered pattern per half-resolution texel (as
+  before), the steps' offset from the same cell's sixteen values in another order
+  (i → 7i + 5 mod 16), so the denoise's 4 × 4 texels hold every turn and every offset
+  once. Fixed from frame to frame: under TAA, FSR or DLSS a per-frame turn could add crawl
+  [engineering choice]. On planes the denoise is expected to average all sixteen turns away;
+  the occlusion-alone pictures showed flat walls even and white, but a grain over bushes and
+  other alpha-tested plants, whose depth has no plane [observed, 2026-11-18, main session's
+  runs, 1920 × 1080, MSAA], hence the denoise's fallback below (its effect on plants still to
+  be confirmed in pictures).
+- **Denoise** (`openness_at`): the same 4 × 4 texels around each full-size pixel, all of
+  equal spatial weight (so the sixteen turns cancel), each weighted by how far its distance
+  lies from the distance this pixel's plane has at that texel: under the reverse-infinite
+  projection a plane's depth values (near / distance) are affine in the screen position, so
+  the plane is predicted exactly from the depth gradient (on each axis the neighbouring
+  drawn texel with the smaller step, as for the normal), a slope seen at a grazing angle
+  included. Texels within 3 % of that distance plus one unit (`DENOISE_TOLERANCE`) count,
+  falling linearly to nothing; a texel across a depth edge is left out, which is what keeps
+  occlusion from leaking across edges (the halos). Where the plane-aware weights of the 16
+  texels add up to little (`PLANE_WEIGHT_FEW` = 1, depth with no plane: plants, grass,
+  leaves), the weights blend smoothly (over `PLANE_WEIGHT_BLEND` = 2 more) into the old blur's:
+  the gap to the pixel's own distance, within 5 % plus one unit (`FALLBACK_TOLERANCE`), so
+  foliage averages over most of the sixteen turns again while planes keep the sharp
+  plane-aware result; no hard switch, which would draw an edge of its own. The same 16 texel
+  reads serve both. A pixel no texel takes at all takes the texel nearest its own distance,
+  as before. The old estimate keeps its own blur (within 5 % of the pixel's distance), so
+  `NVF_PLAY_DEBUG_AO=old` draws the old picture to within rounding [observed, 2026-11-18, main
+  session's runs: against a build of main with the switch on, Doc Mitchell's house at 1920 x 1080,
+  2 % of the pixels differ by one level of 255 and 57 pixels by more, where two runs of main
+  differ in none; the Goodsprings street differs as much as two runs of main do]; its cost is to be measured (both estimates
+  sit in one pipeline behind a uniform branch).
+- **Positions under an upscaler's expanded depth** (`NVF_AO_BEFORE_FSR=0` with FSR or DLSS):
+  the centre and the horizon samples are taken at the centres of the drawn texels their
+  pixels show, as the normal is, not at display-pixel centres with a texel's depth (which lie
+  off the surface and occluded themselves); a step that lands in the pixel's own texel
+  raises no horizon. Without upscaling the two are the same.
+- **Strength** (`ssao.rs` `GTAO_STRENGTH` = 0.4): factor = 1 − 0.4 (1 − visibility). It
+  still multiplies all light, so it is kept low as the old 0.55 was. Open flat ground has
+  visibility 1 and stays as bright as with the switch off (the old estimate did not
+  guarantee that); a floor point at the foot of a wall has 0.5 (the wall hides half the
+  cosine-weighted hemisphere) and becomes 0.8, about what the old estimate gave in such a
+  crease [engineering choice from that reckoning; to be checked in pictures].
+  `NVF_PLAY_DEBUG_AO_STRENGTH` (§6) replaces it for comparisons by eye: open ground is now
+  exactly 1, so a higher strength darkens creases and contact without greying open areas.
+- **Cost**: 2 slices × 4 steps a side = 16 depth reads per texel against the old 12, plus
+  per-slice trigonometry; the denoise reads 4 more depths per full-size pixel for the
+  gradient. Aimed at the old pass's cost (about 0.3 ms at half resolution at 1920 × 1080,
+  #1370); `SLICES` and `STEPS` are constants (`ssao.wesl`, mirrored in `ssao.rs` for the log)
+  to trade once measured. No extra full-size pass.
+- **What does not change**: the switch (`ambient-occlusion`, no new row; #2897 asked for it
+  "in `enhanced`": it stays in the `--graphics enhanced` preset as before; only the settings
+  page's Enhanced effects row is gone since the settings menu overhaul), the two placements, MSAA, TAA, FSR and
+  DLSS paths, the far fade 4,000–7,000 units, the 60,000-unit distance cap, the main camera
+  only (the scope lens and Pip-Boy views carry no `AmbientOcclusion`).
+- **Log**: `ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at
+  half resolution, depth-aware denoise` each time the occlusion turns on on the main camera
+  (`old estimate (12-sample spiral, NVF_PLAY_DEBUG_AO)` with the debug switch; smoke
+  scenarios `ambient-occlusion-gtao`, `ambient-occlusion-gtao-fsr`).
+
+**Not done** (in this stage):
+
+- Applying the occlusion to the ambient term inside the lighting instead of to the finished
+  picture (#2897 stage b): it edits the patched lighting function that open pull requests
+  #2904 and #2920 also edit, so it waits for them. Until then sunlit creases darken too.
+- The paper's multi-bounce fit: it needs the surface colour, which a pass on the finished
+  (tonemapped, or HDR before the upscaler) picture does not have.
+- A bent normal for the ambient lookup (needs stage b), a per-frame turn of the pattern
+  accumulated by TAA or the upscalers (left fixed, see above), the paper's thickness
+  heuristic of a slowly sinking horizon (the distance falloff stands in for it).
 
 ### 3.2 Longer sun shadows (`fine-shadows`)
 
@@ -1712,13 +1827,26 @@ log then gives the sun's shadow reach and cascades with each frame time, the sun
 elevation, and the casters each cascade of each light drew; with sun shadows on also what
 `--shadow-thin` thinned and the sun's last cascade broken down by angular size (§5.5).
 
+Debug switch `NVF_PLAY_DEBUG_AO` (read once at the start; for before/after pictures and cost
+runs of the ambient occlusion, §3.1.1): `old` runs the old estimate and its blur, `view`
+shows the ground-truth estimate's factor alone as a grey picture, `view-old` the old one's;
+unset, empty, `0`, `off` or `false` run the ground-truth estimate.
+`NVF_PLAY_DEBUG_AO_STRENGTH=<number>` (read once at the start) replaces the ground-truth
+estimate's strength (`GTAO_STRENGTH`, 0.4), held to 0..1; the old estimate keeps its 0.55; the
+log line then ends `, strength <number> (NVF_PLAY_DEBUG_AO_STRENGTH)`. Before a temporal upscaler
+the grey replaces the HDR picture and still passes through the upscaler and tonemapping;
+`NVF_AO_BEFORE_FSR=0` shows it after tonemapping instead. Its pass's GPU time is the
+`nvf_ambient_occlusion` span of `--log-frame-times`.
+
 ## 7. Next candidates
 
 - Bloom and eye adaptation driven by the image spaces' own HDR values (IMGS DNAM's 14 HDR
   floats and 3 bloom floats), once their meanings are documented from xEdit: that would move
   bloom from an engine choice towards parity.
-- Bevy SSAO or GTAO once the custom prepasses write normals; motion vectors from the custom
-  prepasses (last frame's wind and skinning) would let the TAA follow what moves by itself.
+- Bevy SSAO once the custom prepasses write normals (an own GTAO from the depth was built
+  instead, §3.1.1; its stage b, the occlusion on the ambient light only, is open); motion
+  vectors from the custom prepasses (last frame's wind and skinning) would let the TAA
+  follow what moves by itself.
 - Sun shafts through interior windows are the game's own light-ray meshes already; none from
   the moon.
 - A shadow distance and map size setting with more steps than on/off (the cycle keys of §6

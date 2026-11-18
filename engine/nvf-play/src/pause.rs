@@ -2545,7 +2545,7 @@ impl RowX {
 /// at the end with [`CUT_MARK`]; only the mark, or nothing, where even that does not fit.
 /// What is cut is only what is drawn: the search, the log and the hidden texts the aids read
 /// keep the full words [design: #2377].
-fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
+pub(crate) fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
     let room = room + 0.01;
     if width_of(text) <= room {
         return text.to_string();

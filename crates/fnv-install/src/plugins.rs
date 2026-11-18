@@ -174,6 +174,12 @@ pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
     mods.and_then(|m| child_ci(m, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
 }
 
+/// [`plugin_path`] over the mods folders `roots`, highest precedence first (issue #1526:
+/// an MO2 profile's overwrite folder, then its mods from the highest priority down).
+pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
+    roots.iter().find_map(|r| child_ci(r, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
+}
+
 impl PluginList {
     pub fn parse(text: &str) -> PluginList {
         let mut entries: Vec<PluginEntry> = Vec::new();
