@@ -61,12 +61,12 @@ pub use convert::ConvertError;
 pub use drawn::DRAWN_JUMP;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
-pub use ragdoll::{RagdollReport, RagdollStart};
+pub use ragdoll::{ContactTally, RagdollContacts, RagdollReport, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
 pub use quarantine::{QuarantineReport, Remedy};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};
 pub use world::{
     AddReport, BodyState, DirtyBy, Filter, Key, Owner, PhysParams, PhysWorld, PreparedRef, PreparedTerrain, Queries, QueryConsumer, RayHit,
-    RefPose, RefreshStats, Stats, Stepper, SweepHit, TERRAIN_SHELL,
+    RefPose, RefreshStats, Stats, Stepper, SweepHit, PLACED_SLEEP_SPEED, TERRAIN_SHELL,
 };

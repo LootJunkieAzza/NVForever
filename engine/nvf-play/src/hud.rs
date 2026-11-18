@@ -111,6 +111,10 @@ const LINE_Y: f32 = 66.0;
 const LEFT_UPRIGHT: f32 = 17.0;
 const RIGHT_UPRIGHT: f32 = 369.0;
 const DIVIDER: f32 = 207.0;
+/// How far in from the view's right edge the right bracket's end upright stands, its outer
+/// side (the upright about 2 units wide): the line other pieces keep inside on the right
+/// (`crate::quick_loot`) [design, #2933: step 10].
+pub(crate) const RIGHT_EDGE_IN: f32 = MARGIN_X + AP_PANEL.x - RIGHT_UPRIGHT - 2.0;
 /// The small corner marks on the long line: where a full bar ends on the left piece and
 /// starts on the right one.
 const LEFT_MARK: f32 = 320.0;
@@ -1288,13 +1292,7 @@ fn pips(
             Bar::Enemy => None,
         };
         if let Some(red) = red {
-            let colour = if red { crime_colour() } else { amber(METER_BRIGHTNESS) };
-            if let Some(i) = image.as_mut().filter(|i| i.color != colour) {
-                i.color = colour;
-            }
-            if let Some(b) = fill.as_mut().filter(|b| b.0 != colour) {
-                b.0 = colour;
-            }
+            set_tick_colour(image.as_deref_mut(), fill.as_deref_mut(), if red { crime_colour() } else { amber(METER_BRIGHTNESS) });
         }
         let on = match pip.bar {
             Bar::Health => pip.index < lit(view.health, PIPS),
@@ -1337,6 +1335,27 @@ fn set_tick_alpha(image: Option<impl DerefMut<Target = ImageNode>>, fill: Option
         (None, Some(mut fill)) => {
             if fill.0.alpha() != alpha {
                 fill.0 = fill.0.with_alpha(alpha);
+            }
+        }
+        (None, None) => {}
+    }
+}
+
+/// A health or action points tick's colour (amber, or red under the low-bar tweak): on
+/// its picture when it has one, else on its fill (the stand-in block), as
+/// [`set_tick_alpha`]. Painting a pictured tick's transparent background too made a solid
+/// block that hid `hud_tick_mark.dds`'s fade towards the top [observed: owner's
+/// screenshot 2026-11-18, #2951; from #1892 on].
+fn set_tick_colour(image: Option<&mut ImageNode>, fill: Option<&mut BackgroundColor>, colour: Color) {
+    match (image, fill) {
+        (Some(image), _) => {
+            if image.color != colour {
+                image.color = colour;
+            }
+        }
+        (None, Some(fill)) => {
+            if fill.0 != colour {
+                fill.0 = colour;
             }
         }
         (None, None) => {}
@@ -1597,6 +1616,23 @@ mod tests {
             let mut block = BackgroundColor(Color::WHITE);
             set_tick_alpha(None::<&mut ImageNode>, Some(&mut block), alpha);
             assert_eq!(block.0.alpha(), alpha);
+        }
+    }
+
+    /// The health and action points ticks' colour, amber or the low-bar red, goes on the
+    /// picture and leaves a pictured tick's background clear, so the picture's fade shows
+    /// (#2951); a stand-in block takes it on its fill.
+    #[test]
+    fn a_meter_tick_keeps_its_background_clear_so_its_picture_fades() {
+        for colour in [amber(METER_BRIGHTNESS), crime_colour()] {
+            let mut image = ImageNode::default();
+            let mut fill = BackgroundColor(Color::NONE);
+            set_tick_colour(Some(&mut image), Some(&mut fill), colour);
+            assert_eq!(image.color, colour);
+            assert_eq!(fill.0, Color::NONE);
+            let mut block = BackgroundColor(Color::WHITE);
+            set_tick_colour(None, Some(&mut block), colour);
+            assert_eq!(block.0, colour);
         }
     }
 

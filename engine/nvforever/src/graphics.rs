@@ -843,6 +843,7 @@ fn apply(
     cutouts: Option<ResMut<nvf_assets::nif_material::BlendedCutouts>>,
     map: Option<Res<DirectionalLightShadowMap>>,
     mut done: Local<Option<(Graphics, Msaa, bool, UpscalerChoice, Vec<Entity>)>>,
+    work: Option<ResMut<crate::quality_probe::Work>>,
 ) {
     let cam_count = cams.iter().count();
     if cam_count == 0 {
@@ -876,6 +877,9 @@ fn apply(
     let fsr_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.fsr() != fsr);
     let dlss_changed = done.as_ref().is_none_or(|(_, _, _, effective, _)| effective.dlss() != dlss);
     *done = Some((*g, msaa.0, fsr_support.0, upscaler, entities));
+    if let Some(mut work) = work {
+        work.graphics += 1;
+    }
     for (cam, cam_msaa, ..) in &cams {
         let mut e = commands.entity(cam);
         if g.ambient_occlusion {

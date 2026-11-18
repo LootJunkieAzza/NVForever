@@ -1240,3 +1240,105 @@ fn feet_a_character_left_are_drawn_as_the_character_was_on(make: fn(&Job) -> Pre
     let _ = p.standing_drawn_feet(7, moved, true);
     assert!(!p.left.contains_key(&7));
 }
+
+/// A made-up exterior cell with no references and steep terrain: rising 0.4 units a unit
+/// eastwards (about 22 degrees), for the lifts out of the terrain (#2753).
+fn steep_cell(job: &Job) -> Prepared {
+    let PhysCell::Exterior(gx, gy) = job.cell else { panic!("exterior cells only") };
+    let x0 = gx as f32 * CELL_SIZE;
+    let heights: Vec<f32> = (0..SIDE * SIDE).map(|i| 0.4 * (x0 + (i % SIDE) as f32 * 128.0)).collect();
+    let terrain = Some(PreparedTerrain::new(&PhysParams::default(), (gx, gy), &heights));
+    Prepared { cell: job.cell, surface: Some(fnv_world::land_surface::Surface::stored(&heights)), terrain, refs: Vec::new(), times: LoadTimes::default() }
+}
+
+/// [`steep_cell`] (0, 0) loaded, and the terrain height at (2000, 2000) in it.
+fn steep() -> (PhysState, f32) {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(steep_cell), loader: loader::Loader::manual(), ..Default::default() };
+    p.load(&ctx, PhysCell::Exterior(0, 0));
+    let t = p.terrain_z(2000.0, 2000.0).expect("terrain");
+    assert!((t - 800.0).abs() < 1e-2, "{t}");
+    (p, t)
+}
+
+fn box_at(p: &mut PhysState, form_id: u32, at: [f32; 3], rotation: [f32; 9], o: CollisionObject) {
+    p.world.add_ref(&RefPose { form_id, position: at, rotation, scale: 1.0 }, &[o]);
+}
+
+const LEVEL: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+#[test]
+fn a_drop_started_under_the_terrain_is_lifted_onto_it_and_rests_there() {
+    let (mut p, t) = steep();
+    let id = 0x0900_0001;
+    box_at(&mut p, id, [2000.0, 2000.0, t - 30.0], LEVEL, object(4.0, Motion::Dynamic));
+    assert!(p.lift_out_of_terrain(id), "its centre is 30 under the terrain");
+    let c = p.world.ref_center(id).expect("bodies");
+    assert!(c[2] > t, "lifted over the terrain: {c:?} against {t}");
+    for _ in 0..300 {
+        p.world.step();
+    }
+    let c = p.world.ref_center(id).expect("bodies");
+    let ground = p.terrain_z(c[0], c[1]).expect("terrain");
+    assert!(c[2] > ground, "it stays on the ground: {c:?} against {ground}");
+}
+
+#[test]
+fn a_long_drop_resting_on_a_slope_is_not_lifted_when_added_again() {
+    // A rifle-sized box lying down the slope (as one at rest is added again by a cell load):
+    // its downhill end reaches far under the terrain under its centre, its centre does not.
+    let (mut p, t) = steep();
+    let id = 0x0900_0002;
+    let (s, c) = (0.4f32.atan().sin(), 0.4f32.atan().cos());
+    let long = CollisionObject { shape: Shape::Box { half_extents: [50.0, 4.0, 4.0] }.into(), ..object(4.0, Motion::Dynamic) };
+    let at = [2000.0, 2000.0, t + 4.0 / c + fnv_phys::TERRAIN_SHELL];
+    box_at(&mut p, id, at, [c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c], long);
+    let low = p.world.ref_lowest_z(id).expect("bodies");
+    assert!(t + fnv_phys::TERRAIN_SHELL - low > LIFT_ONTO_SUPPORT_MOST, "measured under its centre it reaches into the terrain ({low} against {t})");
+    let before = p.world.ref_center(id).expect("bodies");
+    assert!(!p.lift_out_of_terrain(id));
+    assert_eq!(p.world.ref_center(id), Some(before));
+}
+
+#[test]
+fn a_drop_over_a_floor_below_the_terrain_is_not_lifted() {
+    let (mut p, t) = steep();
+    // A floor (a static box) whose top is 250 under the terrain, and a drop just over it.
+    box_at(&mut p, 0x0900_0010, [2000.0, 2000.0, t - 300.0], LEVEL, object(50.0, Motion::Static));
+    let id = 0x0900_0003;
+    box_at(&mut p, id, [2000.0, 2000.0, t - 240.0], LEVEL, object(4.0, Motion::Dynamic));
+    assert!(!p.lift_out_of_terrain(id));
+}
+
+#[test]
+fn a_ragdoll_started_under_the_terrain_rises_onto_what_stands_there() {
+    use super::sinking::{SANK_NOTE, START_CLEARANCE};
+    let (mut p, t) = steep();
+    let t2 = p.terrain_z(2030.0, 2000.0).expect("terrain");
+    // Two bodies 3 under the terrain each (a placed-dead corpse a little in the ground).
+    let pose = [(0, [2000.0, 2000.0, t - 3.0]), (1, [2030.0, 2000.0, t2 - 3.0])];
+    let lift = p.lift_from_under(&pose, 0.0).expect("under the terrain");
+    assert!((lift.up - (3.0 + START_CLEARANCE)).abs() < 0.1, "{lift:?}");
+    assert!(lift.onto.starts_with("terrain"), "{lift:?}");
+    // A saved pose so little under is left as it is.
+    assert_eq!(p.lift_from_under(&pose, SANK_NOTE), None);
+    // Over the surface: nothing to do.
+    assert_eq!(p.lift_from_under(&[(0, [2000.0, 2000.0, t + 10.0])], 0.0), None);
+    // A rock on the terrain there, its top 80 over it: lifted onto the rock, not into it.
+    box_at(&mut p, 0x0900_0011, [2000.0, 2000.0, t + 30.0], LEVEL, object(50.0, Motion::Static));
+    let lift = p.lift_from_under(&[(0, [2000.0, 2000.0, t - 30.0])], 0.0).expect("under the terrain");
+    assert!((lift.up - (110.0 + START_CLEARANCE)).abs() < 0.5, "{lift:?}");
+    assert!(lift.onto.starts_with("ref 09000011"), "{lift:?}");
+}
+
+#[test]
+fn a_ragdoll_standing_on_a_floor_below_the_terrain_is_not_lifted() {
+    let (mut p, t) = steep();
+    // A floor whose top is 350 under the terrain; the feet 5 over it. The head lies uphill,
+    // about 440 under the terrain there with no floor under it: the body that needs the most
+    // lift, and the one a check under the neediest body alone would have lifted from.
+    box_at(&mut p, 0x0900_0012, [2000.0, 2000.0, t - 400.0], LEVEL, object(50.0, Motion::Static));
+    let pose = [(0, [2600.0, 2000.0, t - 200.0]), (1, [2000.0, 2010.0, t - 345.0])];
+    assert_eq!(p.lift_from_under(&pose, 0.0), None);
+}

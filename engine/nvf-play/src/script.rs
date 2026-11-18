@@ -315,6 +315,9 @@ pub struct Runtime {
     /// The start menu's MenuMode 1013 frames have run before the first GameMode frame
     /// (`Game::came_through_start_menu`).
     came_through: bool,
+    /// The start menu's frames ran before the save was read (a run that begins in a save,
+    /// issue #2944): the first frame does not run them again.
+    start_frames_before_load: bool,
     /// A save restored before the start menu's frames: its LoadGame and PostLoadGame
     /// events, and the Script Runner's load files, wait for the end of those frames.
     loaded_pending: Option<std::path::PathBuf>,
@@ -677,6 +680,7 @@ impl Runtime {
             location: None,
             frozen_frames: 0,
             came_through: false,
+            start_frames_before_load: false,
             loaded_pending: None,
             triggers: Default::default(),
             children,
@@ -1990,6 +1994,24 @@ fn runtime_waits(held: bool, menu_to_open: bool) -> bool {
     held || menu_to_open
 }
 
+/// The start menu's frames before the game (`Game::came_through_start_menu`): with the start
+/// menu's tiles in the tree, as under the original's main menu: MCM's install check reads
+/// its own `_MCM` there and shows "cannot access its menu files" without it. A run that
+/// begins in a save has no main menu, and a new game's was dropped already [observed: the
+/// owner's run of 2026-11-12, the box after a settings change restarted the game into its
+/// save]. The frame's own sync drops the menu again. The caller puts the played world in
+/// the game (`with_world`).
+fn start_menu_frames(rt: &mut Runtime) {
+    if rt.game.ui_files.is_some() {
+        for line in fnv_game::ui_loading::sync(&mut rt.game, false, true).changes {
+            info!("ui: {line} (for the start menu's frames before the game)");
+        }
+        rt.game.ui_tree.update();
+    }
+    rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
+    info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
+}
+
 /// One frame of scripts, then their effects.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_scripts(
@@ -2041,6 +2063,16 @@ pub(crate) fn run_scripts(
                 tiles.install_measure(&mut rt.game);
                 let mut restored = false;
                 if let Some(PendingGame(snap, path)) = st.pending_game.take() {
+                    // The original's main menu is its start menu, and a save is loaded
+                    // from it: its MenuMode 1013 blocks run before the save is read, with
+                    // the quests' variables at their start, where an MCM mod adds itself
+                    // to MCM's list (ListAddForm, kept through the load as the session's,
+                    // `Game::take_session`). Run after the restore, a mod whose timer the
+                    // save holds at its end (Just Assorted Mods' fTimerStart) skipped it
+                    // and MCM's list was empty after every load (issue #2944).
+                    tiles.load(&mut rt.game, &sim.world);
+                    with_world(&mut rt, &mut sim, start_menu_frames);
+                    rt.start_frames_before_load = true;
                     // Test aid: `save::read_for_load` lets no save through that fails here.
                     let restore = if std::env::var_os("NVF_PLAY_TEST_LOAD_FAILS_LATE").is_some() { Err("test aid NVF_PLAY_TEST_LOAD_FAILS_LATE".to_string()) } else { rt.restore_save(&mut sim, *snap) };
                     match restore {
@@ -2261,20 +2293,10 @@ pub(crate) fn run_scripts(
         // straight into the game, so a second of them runs first (fnv_game, module notes).
         if !rt.came_through {
             rt.came_through = true;
-            // With the start menu's tiles in the tree, as under the original's main menu:
-            // MCM's install check reads its own `_MCM` there and shows "cannot access its
-            // menu files" without it. A run that begins in a save has no main menu, and a
-            // new game's was dropped already [observed: the owner's run of 2026-11-12, the
-            // box after a settings change restarted the game into its save]. The frame's
-            // own sync drops the menu again.
-            if rt.game.ui_files.is_some() {
-                for line in fnv_game::ui_loading::sync(&mut rt.game, false, true).changes {
-                    info!("ui: {line} (for the start menu's frames before the game)");
-                }
-                rt.game.ui_tree.update();
+            // A run that begins in a save ran them before the save was read (`run_scripts`).
+            if !std::mem::take(&mut rt.start_frames_before_load) {
+                start_menu_frames(rt);
             }
-            rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
-            info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
             if let Some(path) = rt.loaded_pending.take() {
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let n = rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None) + rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
@@ -2772,6 +2794,7 @@ impl ScriptState {
             location: None,
             frozen_frames: 0,
             came_through: false,
+            start_frames_before_load: false,
             loaded_pending: None,
             triggers: Default::default(),
             children: HashMap::new(),

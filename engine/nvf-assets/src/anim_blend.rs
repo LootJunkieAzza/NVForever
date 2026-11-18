@@ -262,6 +262,8 @@ pub struct Animator {
     wrapped: bool,
     /// The pose jumps at the next [`Self::advance`] for another reason ([`Self::smooth_jump`]).
     jumped: bool,
+    /// The last [`Self::advance`]'s seam was such a jump (`wrapped` is set too).
+    jump_seam: bool,
     /// The last [`Self::advance`]'s seconds.
     last_dt: f32,
     /// The last [`Self::pose`] eased across a loop's seam or a jump (for a motion trace).
@@ -295,6 +297,8 @@ struct Seams {
     /// rate after the seam is known.
     pending: bool,
     active: bool,
+    /// The pending seam is a jump ([`Animator::smooth_jump`]), not a loop's wrap.
+    jump: bool,
 }
 
 /// `dt` seconds of a critically damped spring at rest `0` (value, rate), exact.
@@ -302,6 +306,24 @@ fn decay(v: Vec3, r: Vec3, omega: f32, dt: f32) -> (Vec3, Vec3) {
     let b = r + omega * v;
     let k = (-omega * dt).exp();
     ((v + b * dt) * k, (b - omega * (v + b * dt)) * k)
+}
+
+/// An offset's rate at a jump, kept only as far as it takes the offset `x` back towards
+/// zero and never past it (a critically damped spring at `omega` crosses zero when the
+/// rate towards it is over `omega` × the offset): what moves it away, or across, is
+/// dropped. Without this a clip that starts with a sharp move (a lever-action rifle's
+/// shot, `2hrattack5is.kf`) handed its whole speed to an offset of almost nothing, and the
+/// spring flung the arm out and back: the left hand left the Trail Carbine for a quarter
+/// of a second at each shot (the trace `movement-inertia-trace-lever-sights`, 9.5 units
+/// against the clip's own 4.6) [design: inertialization's overshoot clamp, David Bollo,
+/// GDC 2018 "Inertialization: High-Performance Animation Transitions in Gears of War"].
+fn toward_rest(x: Vec3, rate: Vec3, omega: f32) -> Vec3 {
+    let len = x.length();
+    if len < 1e-6 {
+        return Vec3::ZERO;
+    }
+    let d = x / len;
+    d * rate.dot(d).clamp(-omega * len, 0.0)
 }
 
 /// The rotation taking `b` to `a`, as a scaled axis (the shorter way).
@@ -318,7 +340,7 @@ impl Seams {
     /// them) and give the pose to show in its place.
     // The loops walk the node index through several arrays of the same length at once.
     #[allow(clippy::needless_range_loop)]
-    fn smooth(&mut self, raw: &mut [Transform], wrapped: bool, dt: f32) {
+    fn smooth(&mut self, raw: &mut [Transform], wrapped: bool, jump: bool, dt: f32) {
         let n = raw.len();
         if self.shown.len() != n {
             // The first pose, or the skeleton changed: start from the clips'.
@@ -338,7 +360,7 @@ impl Seams {
                 self.off_t[i] = (t - raw[i].translation, Vec3::ZERO);
                 self.off_r[i] = (rot_diff(q, raw[i].rotation), Vec3::ZERO);
             }
-            (self.pending, self.active) = (true, true);
+            (self.pending, self.active, self.jump) = (true, true, jump);
         } else if self.active {
             for i in 0..n {
                 if self.pending {
@@ -347,6 +369,12 @@ impl Seams {
                     let rr = rot_diff(raw[i].rotation, self.raw[i].rotation) / dt;
                     self.off_t[i].1 = self.vel_t[i] - rt;
                     self.off_r[i].1 = self.vel_r[i] - rr;
+                    // A jump (a clip started again): the clip's own motion from its start
+                    // shows whole; the offset only dies away (`toward_rest`).
+                    if self.jump {
+                        self.off_t[i].1 = toward_rest(self.off_t[i].0, self.off_t[i].1, self.omega);
+                        self.off_r[i].1 = toward_rest(self.off_r[i].0, self.off_r[i].1, self.omega);
+                    }
                 }
                 self.off_t[i] = decay(self.off_t[i].0, self.off_t[i].1, self.omega, dt);
                 self.off_r[i] = decay(self.off_r[i].0, self.off_r[i].1, self.omega, dt);
@@ -392,7 +420,7 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new(), seams: None, wrapped: false, jumped: false, last_dt: 0.0, seamed: false, last_rotations: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new(), seams: None, wrapped: false, jumped: false, jump_seam: false, last_dt: 0.0, seamed: false, last_rotations: Vec::new() }
     }
 
     /// Smooth the seams of looping clips: at a wrap the pose carries on and eases onto the
@@ -660,6 +688,7 @@ impl Animator {
         let (mut len_sum, mut w_sum) = (0.0, 0.0);
         self.last_dt = dt;
         self.wrapped = std::mem::take(&mut self.jumped);
+        self.jump_seam = self.wrapped;
         for l in &mut self.layers {
             // A shown looping clip about to wrap round (for `smooth_seams`).
             let len = l.clip.length();
@@ -802,9 +831,9 @@ impl Animator {
         }
         self.seamed = self.wrapped && self.seams.is_some();
         if let Some(s) = self.seams.as_mut() {
-            s.smooth(&mut self.locals, self.wrapped, self.last_dt);
+            s.smooth(&mut self.locals, self.wrapped, self.jump_seam, self.last_dt);
             // A pose asked for again without time passing is not a second seam.
-            self.wrapped = false;
+            (self.wrapped, self.jump_seam) = (false, false);
         }
     }
 
@@ -1110,6 +1139,44 @@ mod tests {
         };
         assert!(fire(false) > 0.6, "each start snaps back: {}", fire(false));
         assert!(fire(true) < 0.15, "eased across: {}", fire(true));
+    }
+
+    #[test]
+    fn a_clip_started_with_a_sharp_move_is_never_flung_past_it() {
+        // A lever-action shot: from the held pose at 0 the clip kicks to 1 in 0.03 s and
+        // comes back over the rest of its 0.3 s, started again from a still pose. Easing
+        // across the start must not push the pose outside the clip's own way (the left
+        // hand left the Trail Carbine at each shot, `toward_rest`).
+        use fnv_nif::anim::{Key, KeyKind, Keys};
+        let key = |time: f32, x: f32| Key { time, value: [x, 0.0, 0.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+        let base = clip(&[("A", [0.0, 0.0, 0.0], 30)], 0.3);
+        let kick = TransformTrack { translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.0), key(0.03, 1.0), key(0.3, 0.0)] }), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None };
+        let shot = Arc::new(Clip { tracks: vec![("A".to_string(), Arc::new(kick))], ..(*base).clone() });
+        let mut a = animator();
+        a.smooth_seams(Some(0.3));
+        for _ in 0..30 {
+            a.begin();
+            a.want(&base, 0, 1.0, Mode::Loop, 0.0);
+            a.end();
+            a.advance(1.0 / 60.0, 1.0);
+            a.pose();
+        }
+        let mut lowest = f32::MAX;
+        for frame in 0..40 {
+            a.begin();
+            a.want(&base, 0, 1.0, Mode::Loop, 0.0);
+            if frame == 0 {
+                a.restart(&shot, 70, 1.0, Mode::Once, 0.0);
+                a.smooth_jump();
+            } else {
+                a.want(&shot, 70, 1.0, Mode::Once, 0.0);
+            }
+            a.end();
+            a.advance(1.0 / 60.0, 1.0);
+            a.pose();
+            lowest = lowest.min(a.locals[2].translation.x);
+        }
+        assert!(lowest > -0.02, "flung below the held pose to {lowest}");
     }
 
     #[test]

@@ -124,3 +124,140 @@ fn a_stone_on_a_table_top_of_many_corners_rests_on_it() {
         }
     }
 }
+
+/// Turned `a` about z after a tilt of `tilt` about x (row-major).
+fn turned(a: f32, tilt: f32) -> [f32; 9] {
+    let ((s, c), (st, ct)) = (a.sin_cos(), tilt.sin_cos());
+    [c, -s * ct, s * st, s, c * ct, -c * st, 0.0, st, ct]
+}
+
+/// A hill over one cell, heights at the LAND vertices (row-major, rows south → north),
+/// slopes up to about 25°. `stepped` rounds them to the 8-unit steps LAND stores
+/// (world.md §3), so neighbouring triangles often meet at one step over 128 units, 3.6°.
+fn hill(stepped: bool) -> Vec<f32> {
+    use fnv_world::land::{SIDE, SPACING};
+    (0..SIDE * SIDE)
+        .map(|i| {
+            let (x, y) = ((i % SIDE) as f32 * SPACING, (i / SIDE) as f32 * SPACING);
+            let z = 200.0 * (x / 600.0 + 0.3).sin() * (y / 780.0).cos() + 0.05 * x + 0.03 * y;
+            if stepped { (z / 8.0).round() * 8.0 } else { z }
+        })
+        .collect()
+}
+
+/// A garment laid out flat: a body and two sleeves, thin boxes in one compound, 1 kg.
+fn garment() -> CollisionObject {
+    let plate = |x: f32, y: f32, hx: f32, hy: f32| (Iso { translation: [x, y, 0.0], rotation: ID }, Shape::Box { half_extents: [hx, hy, 0.6] });
+    let children = vec![plate(0.0, 0.0, 11.0, 15.0), plate(-17.0, 9.0, 6.0, 4.0), plate(17.0, 9.0, 6.0, 4.0)];
+    object(Shape::Compound { children }, Motion::Dynamic, 1.0)
+}
+
+/// A cloth folded flat: one thin box, 1 kg, rough and dead.
+fn folded_cloth() -> CollisionObject {
+    CollisionObject { friction: 0.8, restitution: 0.0, ..object(Shape::Box { half_extents: [12.0, 16.0, 0.5] }, Motion::Dynamic, 1.0) }
+}
+
+/// A flat stone as a hull of ten points, 3 kg.
+fn flat_stone() -> CollisionObject {
+    let points = vec![
+        [-9.0, -5.0, -2.0], [8.0, -6.0, -2.0], [10.0, 4.0, -1.5], [-7.0, 6.0, -2.0], [0.0, 0.0, -2.5],
+        [-8.0, -4.0, 2.0], [7.0, -5.0, 1.5], [9.0, 3.0, 2.0], [-6.0, 5.0, 1.5], [1.0, 1.0, 3.0],
+    ];
+    object(Shape::ConvexHull { points }, Motion::Dynamic, 3.0)
+}
+
+/// Placed clutter dropped on creased ground falls asleep resting on it. rapier merges the
+/// contacts of one pair whose normals lie within about 5° into one and solves them with
+/// one normal [documented: rapier3d 0.36.1 `contact_clustering.rs`, `COS_MERGE_ANGLE`]:
+/// a flat body across two terrain triangles that meet at a small angle was tipped one way,
+/// then the other, its farthest point above rapier's 7 units/s, and never slept
+/// [observed: issue #2663]. Placed dynamic bodies sleep under `PLACED_SLEEP_SPEED`
+/// (physics.md §5.5). 64 drops each of a garment, a folded cloth, a box and a stone on a
+/// hill as stored (8-unit steps) and smoothed, at 60 and 160 Hz. With rapier's own
+/// threshold 3-8 of the 256 drops stayed awake in each of the four set-ups, most of them
+/// garments and cloths, their centres creeping at 0.2-4 units/s [observed: this test's
+/// set-up with rapier's threshold, 2026-11-17].
+#[test]
+fn placed_clutter_on_creased_ground_falls_asleep() {
+    use fnv_world::land_surface::{Block, SmoothParams, Surface};
+    let shell = TERRAIN_SHELL;
+    for stepped in [true, false] {
+        let heights = hill(stepped);
+        let surface = if stepped {
+            Surface::stored(&heights)
+        } else {
+            let mut block: Block = [[None; 3]; 3];
+            block[1][1] = Some(&heights);
+            Surface::smoothed(&block, SmoothParams::DEFAULT).expect("a smoothed surface")
+        };
+        for hz in RATES {
+            for (kind, make) in [("garment", garment as fn() -> CollisionObject), ("cloth", folded_cloth), ("box", || object(Shape::Box { half_extents: [8.0, 5.0, 2.5] }, Motion::Dynamic, 4.0)), ("stone", flat_stone)] {
+                let mut w = PhysWorld::new(PhysParams::default());
+                w.insert_terrain(PreparedTerrain::from_surface(&w.params, (0, 0), &surface));
+                let mut spots = Vec::new();
+                for i in 0..64u32 {
+                    let (x, y) = (400.0 + (i % 8) as f32 * 430.0 + (i / 8) as f32 * 17.0, 400.0 + (i / 8) as f32 * 440.0 + (i % 8) as f32 * 23.0);
+                    let ground = surface.height_at(x, y).expect("inside the cell");
+                    let pose = RefPose { rotation: turned(i as f32 * 0.7, 0.05 * (i % 5) as f32), ..at(0x300 + i, [x, y, ground + shell + 10.0]) };
+                    let r = w.add_ref(&pose, &[make()]);
+                    assert!(r.errors.is_empty(), "{:?}", r.errors);
+                    spots.push((0x300 + i, x, y));
+                }
+                w.set_step(1.0 / hz);
+                for _ in 0..(12.0 * hz) as usize {
+                    w.step();
+                }
+                let mut awake = Vec::new();
+                for &(id, x, y) in &spots {
+                    let b = w.ref_bodies(id)[0];
+                    let ground = surface.height_at(b.translation[0], b.translation[1]).expect("still in the cell");
+                    let above = b.translation[2] - ground;
+                    let near = dist(&b.translation, &[x, y, b.translation[2]]);
+                    // On the ground: the centre within the body's half-height (at most 3)
+                    // plus the shell and a tilt's worth of the slope, near where it fell.
+                    assert!(above > 0.0 && above < 12.0 && near < 100.0, "{kind}, stepped {stepped}, {hz} Hz, ref {id:#x}: {above} above the ground, {near} from the drop, {b:?}");
+                    if !b.sleeping {
+                        awake.push(id);
+                    }
+                }
+                assert!(awake.is_empty(), "{kind}, stepped {stepped}, {hz} Hz: {} of 64 awake after 12 s: {awake:x?}", awake.len());
+            }
+        }
+    }
+}
+
+/// The higher sleep speed stops only what is nearly still: a ball rolling at 40 units/s
+/// on flat ground is still awake and rolling 3 s later, and so is one started at 21
+/// whose centre rolls on slower than `PLACED_SLEEP_SPEED` (once rolling, 5/7 of its
+/// start): rapier measures the farthest point, and a rolling ball's top moves at twice
+/// its centre's speed [documented: rapier3d 0.36.1 `relative_pose_drift`, the turn
+/// times the body's extent added to the move].
+#[test]
+fn a_ball_rolling_slowly_stays_awake() {
+    use fnv_world::land::SIDE;
+    // Start speed, and the least and most the centre may move in the last second.
+    for (start, least, most) in [(40.0, 20.0, f32::INFINITY), (21.0, 10.0, PLACED_SLEEP_SPEED)] {
+        for hz in RATES {
+            let mut w = PhysWorld::new(PhysParams::default());
+            for x in -1..=0 {
+                for y in -1..=0 {
+                    w.add_terrain((x, y), &vec![0.0; SIDE * SIDE]);
+                }
+            }
+            let ball = object(Shape::Sphere { radius: 6.0 }, Motion::Dynamic, 2.0);
+            w.add_ref(&at(0x400, [-300.0, 0.0, 6.0 + TERRAIN_SHELL]), &[ball]);
+            w.set_step(1.0 / hz);
+            assert_eq!(w.set_ref_velocity(0x400, 0, start), 1);
+            let mut last = [0.0; 3];
+            for i in 0..(3.0 * hz) as usize {
+                if i == (2.0 * hz) as usize {
+                    last = w.ref_bodies(0x400)[0].translation;
+                }
+                w.step();
+            }
+            let b = w.ref_bodies(0x400)[0];
+            let moved = dist(&b.translation, &last);
+            assert!(!b.sleeping && moved > least && moved < most, "{start} units/s, {hz} Hz: asleep {}, {moved} units in the last second, {b:?}", b.sleeping);
+        }
+    }
+}

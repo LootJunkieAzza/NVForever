@@ -59,7 +59,11 @@ dead actor searches it (`nvf_play::activate`).
   before the start-game quests run. Saves keep it like any death.
 - Drawn dead: with an `XRGD` that fits its skeleton, in that pose, at rest (§5); else the
   end of a death pose, then the ragdoll drops the body and it comes to rest (ragdoll.md
-  §4); with the ground not loaded the death pose holds until it is.
+  §4); with the ground not loaded the death pose holds until it is. A corpse drawn at a
+  reference placed under the ground (the leveled spawns' invisible `nvvoid` placeholders
+  laid out dead, 3 and 360 units under it) starts its ragdoll lifted over the terrain, or
+  it fell through it; a stored pose (`XRGD`) only when it lies more than 20 units under,
+  and then it starts awake (physics.md §4.3, #2753).
 - Corpses whose base respawns come back alive after three days away (§4).
 
 ## 4. Cell resets: Respawn [2026-10-12]

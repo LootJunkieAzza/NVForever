@@ -554,6 +554,69 @@ for the same spot within 0.3 units, simulation.md §5) it came to rest on the gr
 8692.71, 30.9 lower. Repeated runs came to rest within 0.1 units of each other (the steps
 are fixed, but how many run per frame depends on frame times).
 
+**Sinking through the terrain (#2753: the corpses' cause found, the weapons' open).** Players' logs show weapons dropped by dying
+NPCs and corpses at rest on the terrain in exteriors going through it, the same creatures at
+the same spots on many installs [observed: player reports, build 0.7.0, issue #2753]; the
+safety nets (`dropped 0x… fell through the world`, 10,000 units under the drop point, and
+the ragdoll's `fell through at`, 150 under the terrain under its first bone) put them back.
+Synthetic fnv-phys experiments did not reproduce it (square reloads, waking, the contact
+shell, characters, slow motion, shots, blasts). Diagnostic lines (`engine/nvf-play`
+`phys/sinking.rs` [design, #2753]): `dropped 0x… woke after resting S s … touching …` when a
+resting drop moves again, with what its colliders touch; `dropped 0x… sank: …` and `ragdoll:
+actor … sank: bone …` once, the first frame a body's centre is more than 20 units under the
+terrain at its own x, y, with its speed, its rest or settle state, every collider a ray finds
+straight down there (whether the terrain collider is in place where the surface says) and,
+for a drop, what it touches. A ragdoll `fell through` line with no `sank` line before it is
+the guard's reading on a slope (it measures under the first bone), not a body under the
+ground. Smoke probes `sinking-drop-*-spot` and `sinking-corpse-*-spot` run at the reported
+spots.
+
+What the probes found [observed: smoke runs of 241f1581d, 2026-11-18, logs in the session's
+notes]:
+
+- **The corpses** of the reports (Bighorner 001710BB, Radscorpion 0015A0C4, Mole rat
+  00161732) are leveled spawns (`VSpawnTier2BigHornerMed75` …) whose leveled choice in those
+  runs was the invisible `nvvoid` placeholder (scale 0.1, no shapes; actors.md §10): with
+  Health 0 a new game lays it out dead (dead-on-spawn.md) where its reference is placed,
+  and its two-body ragdoll starts when the cell loads. 001710BB's root started about 3 units
+  under the terrain and fell straight down (0.2 s later 20 under at 158 units/s, then caught
+  152 under the terrain, the reports' figure); 0015A0C4's started 360 under (the reports'
+  355), where a terrain-layer rock (001613EC) stands 49 over the heightfield; 001710B3 nearby
+  did as 001710BB. A body whose centre starts under the two-sided terrain mesh is pushed
+  down and falls through it. Players see nothing of these (the model has no shapes); the
+  fall-through warnings and the lifts were all there was.
+- **The dropped weapons** did not reproduce: the settler of the drop probes held its weapon
+  holstered (SetRestrained, no combat), so it dropped nothing (combat.rs `death_drops` takes
+  the weapon in the hand); the player's own drops came to rest. An NPC's death drop is
+  placed 50 units in front of it and 30 over its feet (`fnv_sim::world::DROP_AHEAD`,
+  `DROP_ABOVE`): on a slope rising more than 0.6 ahead of it, or under feet drawn below the
+  surface, it starts in the ground, and the reports' weapons first sank slowly (8 to 24
+  units/s) and then fell, as a body pushed out downwards does [hypothesis].
+
+So [design, #2753]:
+
+- A ragdoll about to start with a body's centre under the terrain at its own x, y is lifted
+  whole until every such centre is 5 units over what stands there: the first collision a ray
+  finds coming down from 100 units over the terrain, so a rock or foundation on the terrain
+  rather than the heightfield inside it (`ragdoll: actor … starts with bone … under the
+  terrain: lifted N units onto …`). It is left as it is when anything other than the terrain
+  lies within 100 units under any such body or under its lowest body (a floor built below
+  the surface, a tunnel). A saved pose (`XRGD`, or where it lay before) is lifted only past
+  20 units under, since it was authored on the stored ground and the smoothed terrain
+  (#2149) lies up to 8 units off it; lifted, it starts awake and comes down, instead of
+  hovering at rest.
+- A dropped item whose centre of mass starts under the terrain at its own x, y, with nothing
+  other than the terrain under it, is lifted onto the contact shell of what stands there
+  (`collision of dropped 0x… started with its centre … under the terrain …: lifted … onto …`).
+  One at rest on a slope has its centre over the terrain, however low its downhill end
+  reaches, so the reloads of its cell leave it alone.
+- The safety nets stay. The drop probes were set up again (the settler fights the player,
+  its weapon drawn, and dies about 2 s later on the spot); a fifth runs at the shotgun's spot
+  (WastelandNVmini, 10798, 17343, flat at z 9920). Their lift line is marked known failing
+  until a run shows it: the weapons' cause stays a hypothesis until then.
+- Whether a shapeless `nvvoid` placeholder laid out dead should get a ragdoll at all is a
+  question for the owner (owner-review.md).
+
 ### 4.3.1 Clutter at cell load: asleep, jointed objects held (`engine/nvf-play`, 2026-10-11)
 
 **The playtest.** Loading Chet's store (GSGeneralStore) threw the shelves' items about
@@ -1197,6 +1260,31 @@ sleeping"). Two causes, both in how rapier picks a contact's points.
   that span the most of such a face (or, for a contact outside them, the most with the
   corner nearest it). Test `a_stone_on_a_table_top_of_many_corners_rests_on_it`.
   **`NVF_PHYS_HULL_FACES=0`** (a test aid, read once) builds parry's plain hull.
+- **Creased ground (#2663)**: rapier merges the contacts of one pair whose normals lie
+  within about 5° into one cluster and solves it with one normal [documented: rapier3d
+  0.36.1 `contact_clustering.rs`, `COS_MERGE_ANGLE` 0.996; `contact_clustering` on by
+  default]. LAND's heights come in 8-unit steps over 128 units (world.md §3), so two
+  neighbouring terrain triangles often meet at 3.6°; a flat body lying across them got
+  one normal for both, tipped one way, then the other (two tilts about 0.4° apart), its
+  farthest point moving at 10-27 units/s and its centre creeping about 0.3 units/s, and
+  never slept, on the stored landscape and the smoothed one alike [observed: issue #2663].
+  The contact skin, the prediction distance, `FIX_INTERNAL_EDGES`, contact recycling,
+  solver iterations, friction and restitution made no real difference; clustering off
+  for the whole world rests them, but changes the contacts of every compound and
+  triangle-mesh pair and rapier has no per-pair switch [observed: issue #2663]. Instead
+  placed dynamic bodies (references' bodies, not ragdolls, gore, characters or bodies
+  the wind blows) sleep once their farthest point moves slower than
+  **`PLACED_SLEEP_SPEED` = 21 units/s** for 0.5 s, three times rapier's 7 [design,
+  #2663]. It changes only when such a body may sleep, not how it moves awake; a body
+  sliding or rolling slower than that for half a second stops a little sooner, and one
+  asleep wakes as before when struck, pushed, grabbed or touched by a moving body. Tests
+  `placed_clutter_on_creased_ground_falls_asleep` (64 drops each of a garment, a folded
+  cloth, a box and a stone on a stepped and a smoothed hill, 60 and 160 Hz: all asleep on
+  the ground after 12 s; with rapier's threshold 3-8 of the 256 stayed awake in each
+  set-up, creeping at 0.2-4 units/s [observed: that set-up, 2026-11-17]) and
+  `a_ball_rolling_slowly_stays_awake` (started at 40 and at 21 units/s, still rolling 3 s
+  later; the slower one's centre rolls under 21, its top at twice that, and rapier
+  measures the farthest point).
 - **Measured** [observed: a probe of `fnvtool phys cell`, not committed, 2026-11-13:
   every dynamic reference of the cell added awake where it is placed, 20 s of settling,
   then a kick from below at 400 units/s and 20 s more; bodies awake at the end of each,
@@ -2951,7 +3039,10 @@ into the lift with the opposite sign; the prediction is the vertical speed on th
 filtered over 0.2 s, each sample kept within 0.4 × the distance walked of the prediction,
 so a step does not feed it and is not overshot. A change of the drawn ground is taken in
 whole. The lift goes back to 0 as a critically damped spring, ω = 8/s for a small lift
-and stiffer the larger it is (ω × (1 + |lift| / 6)), at most 24 units either way; a
+and stiffer the larger it is (ω × (1 + |lift| / 6)), at most 48 units either way (24,
+the step height, until 2026-11-17: a 27-unit let-down off a road piece's edge after a
+crouched jump, on top of 12 still being eased, went past it and the view dropped the
+excess in one frame; `step_lift::MAX_LIFT`); a
 change over 48 units in a step (a placement), the air and swimming take nothing in and
 restart the prediction from 0. The feet, the capsule, the reference's position and every
 query stay where the controller has them; the player's body, its first- and third-person

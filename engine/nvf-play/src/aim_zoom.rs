@@ -245,7 +245,7 @@ pub(crate) fn zoom(
         z.scope_zoom = 0.0;
     } else if tweaks.as_ref().is_some_and(|t| t.scope_wheel_zoom) {
         let notches = scroll.as_ref().map_or(0.0, |s| s.delta.y);
-        if notches != 0.0 {
+        if notches != 0.0 && !crate::quick_loot::holds_input() {
             z.scope_zoom = (if z.scope_zoom > 0.0 { z.scope_zoom } else { 1.0 } * SCOPE_WHEEL_STEP.powf(-notches)).clamp(0.5, 2.0);
         }
     }

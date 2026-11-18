@@ -12,6 +12,8 @@ use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
+mod crosshair_water_tests;
+
 const STIMPAK: u32 = 0x100;
 const KEY: u32 = 0x101;
 const CHEST: u32 = 0x120;

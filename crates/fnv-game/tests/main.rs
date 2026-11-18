@@ -49,6 +49,7 @@ mod high_fe_lambda_snapshots;
 mod high_fe_session_consumers;
 mod root_high_fe_callable_probe;
 mod title_menu_group;
+mod jip_remove_filters;
 mod hit_effects_data;
 mod hit_effects;
 mod idles_holstered;

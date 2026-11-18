@@ -143,6 +143,11 @@ const LIFT_PEAK_PER_SPEED: f32 = 0.008;
 /// (3.5 until the eighth playtest's "fall-scaled landing": hard landings were held to
 /// about a hop's.)
 const MAX_LIFT: f32 = 6.0;
+/// While the jump's or the landing's dip of the gun is deeper than the first of these
+/// (units) the stride's bob fades, gone from the second, and comes back as the gun rises
+/// again: the landing is the footfall (`head_bob.rs`, the same for the view).
+const LIFT_HUSH_FROM: f32 = 0.2;
+const LIFT_HUSH_FULL: f32 = 0.8;
 const LIFT_TIP: f32 = 1.0 * std::f32::consts::PI / 180.0;
 /// The gun with the view's pitch: looking straight down it comes up by `PITCH_DOWN_RAISE`
 /// and back towards the eye by `PITCH_DOWN_BACK` (units), its muzzle a little up; looking
@@ -376,6 +381,8 @@ pub struct ViewSway {
     pub peak_recoil: f32,
     /// How much of the bob shows (follows the speed on a spring).
     bob: Spring,
+    /// How much of the bob's lowering (its middle) shows: follows the speed in the air too.
+    bob_carry: Spring,
     /// Breathing: where in the figure of eight (0–1) and how much of it shows.
     breath_phase: f32,
     breath: f32,
@@ -513,8 +520,12 @@ impl ViewSway {
         // The bob follows the speed; breathing shows standing still, and out of breath
         // always, faster and larger.
         let speed = i.velocity.length();
-        let bob_target = if i.airborne { 0.0 } else { (speed / FULL_BOB_SPEED).min(1.0) };
+        // In the air the stride's bob fades and its middle stays (`head_bob.rs`, the same
+        // for the view): the gun lands where it was carried.
+        let running = (speed / FULL_BOB_SPEED).min(1.0);
+        let bob_target = if i.airborne { 0.0 } else { running };
         self.bob.step(bob_target, omega_for(BOB_SETTLE_SECONDS * slow), dt);
+        self.bob_carry.step(running, omega_for(BOB_SETTLE_SECONDS * slow), dt);
         let exertion = i.exertion.clamp(0.0, 1.0);
         let still = if !i.airborne && speed < BREATH_BELOW_SPEED { 1.0 } else { 0.0f32 };
         let breath_goal = if i.breathing { still.max(exertion) } else { 0.0 };
@@ -530,7 +541,9 @@ impl ViewSway {
         let (a, n) = (self.sighted.value.clamp(0.0, 1.0), self.crouched.value.clamp(0.0, 1.0));
         let mix = |share: f32, by: f32| 1.0 + (share - 1.0) * by;
         let sway_share = g * mix(SIGHTS_SWAY, a);
-        let bob_share = g * self.bob.value * mix(SIGHTS_BOB, a) * mix(SNEAK_BOB, n);
+        let bob_calm = g * mix(SIGHTS_BOB, a) * mix(SNEAK_BOB, n);
+        let hush = 1.0 - smoothstep(LIFT_HUSH_FROM, LIFT_HUSH_FULL, -soft_clamp(self.lift.out.value, MAX_LIFT * heft));
+        let (bob_share, bob_carried) = (bob_calm * self.bob.value * hush, bob_calm * self.bob_carry.value);
         let breath_calm = mix(SNEAK_BREATH, n);
         let breath_share = g * self.breath * heft * (1.0 + (EXERTED_SIZE - 1.0) * exertion) * (breath_calm + (SIGHTS_SWAY - breath_calm) * a);
         let recoil_share = g * mix(SIGHTS_RECOIL, a);
@@ -551,11 +564,10 @@ impl ViewSway {
         // muzzle down.
         // Walking ahead tips the muzzle down a little; a reload leans the gun over.
         let ahead_w = omega_for(AHEAD_SECONDS * 0.6 * slow);
-        let ahead_goal = if i.airborne { 0.0 } else { (i.velocity.y / AHEAD_FULL_SPEED).clamp(0.0, 1.0) };
+        let ahead_goal = (i.velocity.y / AHEAD_FULL_SPEED).clamp(0.0, 1.0);
         self.ahead[0].step(ahead_goal, ahead_w, dt);
         let first = self.ahead[0].value;
         self.ahead[1].step(first, ahead_w, dt);
-        let walk = self.ahead[1].value * g * (1.0 - a);
         let reload_w = omega_for(RELOAD_SECONDS * slow);
         self.reload[0].step(i.reloading.clamp(0.0, 1.0), reload_w, dt);
         let first = self.reload[0].value;
@@ -567,6 +579,12 @@ impl ViewSway {
         let first = self.jump_tip[0].value;
         self.jump_tip[1].step(first, jump_w, dt);
         let jump_tip = Quat::from_rotation_x(-JUMP_TIP * self.jump_tip[1].value * g * (1.0 - a));
+        // Off the ground the jump's tip takes the walking tip's place, at its own pace each
+        // way: running ahead the muzzle goes from the one to the other in one move. The walk's
+        // springs follow the speed through the air; with them let go in the air they came
+        // back over 0.6 s after a running landing, a second, slower dip of the gun after the
+        // jump tip's return (the trace `movement-inertia-trace-run-jump`).
+        let walk = self.ahead[1].value * g * (1.0 - a) * (1.0 - self.jump_tip[1].value.clamp(0.0, 1.0));
         // The view's pitch (up positive): down raises the gun and draws it in, up lowers it.
         let s = i.pitch.sin();
         let (down, up) = ((-s).max(0.0) * g * (1.0 - a), s.max(0.0) * g * (1.0 - a));
@@ -575,7 +593,7 @@ impl ViewSway {
         let turn = Quat::from_rotation_z(-lag.x + kick_side) * Quat::from_rotation_x(tip);
         let a = std::f32::consts::TAU * (i.phase - FOOTFALL_PHASE);
         // Down at each footfall (twice a cycle), across once a cycle.
-        let dip = -BOB_DIP * 0.5 * (1.0 + (2.0 * a).cos()) * bob_share;
+        let dip = -BOB_DIP * 0.5 * (bob_carried + (2.0 * a).cos() * bob_share);
         let swing = a.sin();
         let roll = lag.x * LAG_ROLL + BOB_ROLL * swing * bob_share + self.lean.value * sway_share + RELOAD_ROLL * reload;
         let b = std::f32::consts::TAU * self.breath_phase;
@@ -850,11 +868,31 @@ mod tests {
         let mut air = ViewSway::default();
         let a = settle(&mut free, input(0.0, v, FOOTFALL_PHASE), 240).offset.z;
         let b = settle(&mut sights, SwayInput { sights: true, ..input(0.0, v, FOOTFALL_PHASE) }, 240).offset.z;
-        // In the air: no dip where the gun is held (the jump's tip turns it about the grip).
+        // In the air the stride's bob is gone where the gun is held (the jump's tip turns it
+        // about the grip); its middle, half the dip at a run, stays, so the gun lands where
+        // it was carried.
         let c = settle(&mut air, SwayInput { airborne: true, ..input(0.0, v, FOOTFALL_PHASE) }, 240);
         let c = (c.rotation * GRIP_PIVOT + c.offset).z - GRIP_PIVOT.z;
         assert!(b > a * 0.5 && b < 0.0, "{a} {b}");
-        assert!(c.abs() < 1e-3, "{c}");
+        assert!((c + 0.5 * BOB_DIP).abs() < 1e-3, "{c}");
+    }
+
+    #[test]
+    fn a_running_landing_does_not_sink_the_gun_after_it() {
+        // Running ahead, 0.6 s in the air and running on, at the stride's place where the
+        // footfall dip is at its middle (its swing is nothing there) and with no push from
+        // the take-off or the landing: 0.35 s after the landing the gun is where it stays.
+        // With the bob's middle and the walking drop let go in the air, they came back over
+        // half a second after it: the gun sank on after the jump's tip had gone.
+        let v = Vec2::new(0.0, 344.0);
+        let mid = FOOTFALL_PHASE + 0.125;
+        let held = |p: SwayPose| (p.rotation * GRIP_PIVOT + p.offset).z - GRIP_PIVOT.z;
+        let mut s = ViewSway::default();
+        settle(&mut s, input(0.0, v, mid), 240);
+        settle(&mut s, SwayInput { airborne: true, ..input(0.0, v, mid) }, 36);
+        let soon = held(settle(&mut s, input(0.0, v, mid), 21));
+        let later = held(settle(&mut s, input(0.0, v, mid), 90));
+        assert!((soon - later).abs() < 0.05, "0.35 s after the landing {soon}, settled {later}");
     }
 
     #[test]

@@ -74,6 +74,50 @@ pub fn run_vfs(cmd: crate::VfsCmd) -> anyhow::Result<Value> {
                 "loose": "above every archive",
             }))
         }
+        crate::VfsCmd::Mods { instance, profile, data, path } => {
+            let layout = fnv_install::mo2::Layout::open(&instance, profile.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
+            let modlist = std::fs::read_to_string(layout.profile.join("modlist.txt")).unwrap_or_default();
+            let mods: Vec<Value> = modlist
+                .lines()
+                .filter_map(|l| {
+                    let l = l.trim_end();
+                    let (enabled, name) = match l.as_bytes().first()? {
+                        b'+' => (true, &l[1..]),
+                        b'-' => (false, &l[1..]),
+                        b'*' => (true, &l[1..]),
+                        b'#' => return None,
+                        _ => (true, l),
+                    };
+                    (!name.is_empty()).then(|| json!({"name": name, "enabled": enabled, "present": layout.mods.join(name).is_dir()}))
+                })
+                .collect();
+            let roots: Vec<String> = layout.mod_roots().iter().map(|r| r.display().to_string()).collect();
+            let plugins = layout.profile_plugins().map_err(|e| anyhow::anyhow!(e))?;
+            let mut out = json!({
+                "schema": "fnv.vfs.mods/1",
+                "instance": instance.display().to_string(),
+                "profile": layout.profile_name(),
+                "profile_dir": layout.profile.display().to_string(),
+                "mods": mods,
+                "roots": roots,
+                "plugins": plugins,
+                "archives_not_mounted": layout.mod_archives(),
+            });
+            if let Some(p) = path {
+                let data = data.ok_or_else(|| anyhow::anyhow!("--path needs --data (the game's Data folder)"))?;
+                anyhow::ensure!(data.is_dir(), "{}: not a folder", data.display());
+                let vfs = fnv_vfs::Vfs::open_for_plugins_layered(&data, &layout.mod_roots(), &plugins)?;
+                let key = fnv_vfs::normalize(&p);
+                let found = vfs.loose_path(&key).or_else(|| vfs.source_of(&key).map(std::path::PathBuf::from));
+                let layer = found.as_ref().and_then(|f| {
+                    let mut layers: Vec<&std::path::Path> = vec![vfs.data_dir()];
+                    layers.extend(vfs.loose_roots().iter().skip(1).map(std::path::PathBuf::as_path));
+                    layers.iter().rev().find(|r| f.starts_with(r)).map(|r| r.display().to_string())
+                });
+                out["path"] = json!({"asked": p, "key": key, "found": found.map(|f| f.display().to_string()), "layer": layer});
+            }
+            Ok(out)
+        }
     }
 }
 

@@ -130,6 +130,36 @@ impl Game<'_> {
         self.place_beside_player(who)
     }
 
+    /// A teammate brought along into another cell or worldspace forgets the foes and the
+    /// alarms it left in the one it came from, and with nothing it can still reach to fight
+    /// or search for, leaves the fight and takes up its package [hypothesis, #2948: Rex,
+    /// brought into the Jacobstown Lodge mid-search, kept looking about for a gecko left
+    /// 121,561 units away in the Mojave and did not follow the player for a minute
+    /// (observed)].
+    pub fn leave_foes_behind(&mut self, actor: FormId) {
+        let space = |g: &Self, r: FormId| g.cell_of(r).map(|c| g.world.placed.world_of(c).unwrap_or(c));
+        let Some(here) = space(self, actor) else { return };
+        let Some(a) = self.awareness.actors.get(&actor) else { return };
+        let mut gone: Vec<FormId> = a.targets.keys().copied().chain(a.alarms.iter().map(|al| al.owner)).filter(|&o| o != actor && space(self, o).is_some_and(|s| s != here)).collect();
+        gone.sort_unstable();
+        gone.dedup();
+        if gone.is_empty() {
+            return;
+        }
+        let Some(a) = self.awareness.actors.get_mut(&actor) else { return };
+        for o in &gone {
+            a.forget(*o);
+        }
+        if a.fighting.is_some_and(|f| gone.contains(&f)) {
+            a.fighting = None;
+        }
+        let left = !a.targets.is_empty() || !a.alarms.is_empty();
+        tracing::info!("followers: {actor:?} brought along: forgets {} foe(s) left in another space{}", gone.len(), if left { "" } else { ": leaves the fight" });
+        if !left {
+            self.stop_combat(actor);
+        }
+    }
+
     /// The player's Map Selectable Companions tweak: the teammates `who` (present ones only)
     /// are put beside the player as [`Game::bring_teammates`] puts them, wherever they were
     /// [design: docs/design/tweaks.md]. Returns them.
@@ -153,6 +183,7 @@ impl Game<'_> {
             let Ok(s) = self.world.get(t) else { continue };
             (s.cell, s.pos, s.rot) = (Some(cell), at, [0.0, 0.0, h]);
             self.note_relocated(t, Some(cell), at);
+            self.leave_foes_behind(t);
             self.brought_along.insert(t);
             out.push(t);
         }

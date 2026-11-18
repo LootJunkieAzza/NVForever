@@ -188,8 +188,13 @@ pub(crate) fn apply_ranges(
     parents: Query<&ChildOf>,
     marks: Query<(Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>)>,
     mut known: Local<HashMap<u32, DrawClass>>,
+    mut work: Option<ResMut<crate::quality_probe::Work>>,
 ) {
     let entities: Vec<Entity> = if distances.is_changed() { all.iter().collect() } else { changed.iter().collect() };
+    if let Some(work) = work.as_mut().filter(|_| distances.is_changed()) {
+        work.ranges += 1;
+        work.range_meshes += entities.len() as u64;
+    }
     if distances.is_changed() && !distances.is_added() {
         info!(
             "draw distances: objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units ({} meshes)",
@@ -219,6 +224,9 @@ pub(crate) fn apply_ranges(
                     // Its pipeline is chosen again, with the dither (fade.rs notes).
                     if let Some(mut material) = material { material.set_changed(); }
                     if let Some(mut blend) = blend { blend.set_changed(); }
+                    if let Some(work) = work.as_mut() {
+                        work.range_materials += 1;
+                    }
                 }
             }
             // Fading in or out: the fade's own range until it rests.

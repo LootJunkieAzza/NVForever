@@ -189,6 +189,9 @@ pub struct Vfs {
     index: HashMap<String, Location>,
     /// Lower-cased loose path → winning physical path (preserving filesystem casing).
     loose: HashMap<String, PathBuf>,
+    /// The folders loose files were indexed from, lowest precedence first: `Data`, then
+    /// the mods folders (#1526).
+    loose_roots: Vec<PathBuf>,
     /// The highest archive copy of each loose path that also sits in an archive, which
     /// the loose file hides from [`Vfs::read`] ([`Vfs::read_archived`], #975).
     under_loose: HashMap<String, Location>,
@@ -277,7 +280,7 @@ impl Vfs {
     /// Open the archives (lowest precedence first) and index loose files under `data_dir`.
     pub fn open(data_dir: &Path, archives: &[String]) -> Result<Vfs, VfsError> {
         let mut vfs =
-            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), under_loose: HashMap::new(), skipped: Vec::new(), broken: Vec::new() };
+            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), loose_roots: Vec::new(), under_loose: HashMap::new(), skipped: Vec::new(), broken: Vec::new() };
         for name in archives {
             // A bad or wrong-version archive is skipped; the others still load.
             let a = match Archive::open(data_dir.join(name)) {
@@ -307,6 +310,9 @@ impl Vfs {
     }
 
     fn index_loose(&mut self, root: &Path) {
+        if !self.loose_roots.iter().any(|r| r == root) {
+            self.loose_roots.push(root.to_path_buf());
+        }
         let mut files = Vec::new();
         walk(root, root, &mut files, &mut self.skipped);
         for rel in files {
@@ -351,6 +357,27 @@ impl Vfs {
             }
         }
         Ok(vfs)
+    }
+
+    /// [`Vfs::open_for_plugins`] with loose files from the mods folders `roots` layered
+    /// over `Data`, lowest precedence first (issue #1526: Mod Organizer 2's enabled mods
+    /// from the lowest priority up, then its overwrite folder). The archives mounted are
+    /// `Data`'s only: a mod's own `.bsa` is not mounted yet (phase 1).
+    pub fn open_for_plugins_layered<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S]) -> Result<Vfs, VfsError> {
+        let mut vfs = Vfs::open(data_dir, &Vfs::order_for_plugins(data_dir, plugins).0)?;
+        for root in roots {
+            // An absent optional layer is ordinary; other errors retain walk's diagnostics.
+            if root.as_path() == data_dir || matches!(root.try_exists(), Ok(false)) {
+                continue;
+            }
+            vfs.index_loose(root);
+        }
+        Ok(vfs)
+    }
+
+    /// The folders loose files were read from, lowest precedence first (`Data` first).
+    pub fn loose_roots(&self) -> &[PathBuf] {
+        &self.loose_roots
     }
 
     /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and

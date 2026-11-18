@@ -425,7 +425,7 @@ impl HudTiles<'_> {
         // ui-tile-tree.md §4.1]; the strings' file tiles [observed: hud.md §14.2].
         let prompt = {
             let _span = info_span!("tiles::write::prompt").entered();
-            self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()))
+            self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info && !crate::quick_loot::holds_input()).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()))
         };
         // Reuse the latest drawing snapshot before scripts [design: ui-tile-tree.md §4.1].
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
