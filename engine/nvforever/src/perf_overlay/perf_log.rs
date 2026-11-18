@@ -292,7 +292,7 @@ struct LineFacts {
 
 /// `perf (every minute): 60.0 s of play in WastelandNV, cell GSGoodspringsCenter (-3,-1): …`.
 fn line_text(f: &LineFacts) -> String {
-    let mut out = format!("perf ({}): {:.1} s of play in {}", f.why.text(), f.play_secs, f.place);
+    let mut out = format!("perf ({}): {:.1} s of play in {}", f.why.text(), shown(f.play_secs), f.place);
     if f.interior {
         out += " (interior)";
     }
@@ -366,7 +366,7 @@ fn line_text(f: &LineFacts) -> String {
         Some(hz) => format!(" at {hz:.0} Hz"),
         None => ", refresh rate not known".to_string(),
     };
-    out += &format!("; hitches {}; left out {:.1} s loading, {:.1} s paused; hint: {}", f.hitches, f.loading_secs, f.paused_secs, hint(f));
+    out += &format!("; hitches {}; left out {:.1} s loading, {:.1} s paused; hint: {}", f.hitches, shown(f.loading_secs), shown(f.paused_secs), hint(f));
     out
 }
 
@@ -456,10 +456,19 @@ fn hitch_text(ms: f32, place: &str, cell: Option<&str>, last: [Option<f32>; 3], 
     out
 }
 
+/// A duration as printed: never below zero, and never `-0.0` (adding `0.0` turns a negative
+/// zero into a positive one). The durations are sums of positive frame times, so only the
+/// empty sum's -0.0 reaches here [design].
+fn shown(secs: f64) -> f64 {
+    secs.max(0.0) + 0.0
+}
+
 /// The exit summary's lines.
 fn summary_lines(log: &PerfLog) -> Vec<String> {
+    // A float sum of nothing is -0.0 (std's `Sum` for floats starts from it), printed
+    // `-0.0`: every shown duration goes through [`shown`].
     let play: f64 = log.places.iter().map(|p| p.secs).sum();
-    let mut first = format!("perf summary: {:.1} min of play, {} hitches over {HITCH_MS:.0} ms", play / 60.0, log.total_hitches);
+    let mut first = format!("perf summary: {:.1} min of play, {} hitches over {HITCH_MS:.0} ms", shown(play / 60.0), log.total_hitches);
     if let Some((used, budget)) = log.peak_vram {
         first += &format!("; peak VRAM {} / {} GB", gb(used), gb(budget));
     }
@@ -468,7 +477,7 @@ fn summary_lines(log: &PerfLog) -> Vec<String> {
     if game.is_some() || machine.is_some() {
         first += &format!("; peak RAM {}", [game, machine].into_iter().flatten().collect::<Vec<_>>().join(", "));
     }
-    first += &format!("; left out {:.1} s loading, {:.1} s paused", log.loading_secs, log.paused_secs);
+    first += &format!("; left out {:.1} s loading, {:.1} s paused", shown(log.loading_secs), shown(log.paused_secs));
     let mut out = vec![first];
     let mut places: Vec<&PlaceRun> = log.places.iter().filter(|p| p.place.histogram.iter().sum::<u64>() > 0).collect();
     places.sort_by(|a, b| b.place.percentile(0.99).unwrap_or(0.0).total_cmp(&a.place.percentile(0.99).unwrap_or(0.0)));
@@ -507,7 +516,7 @@ fn place_text(p: &PlaceRun) -> String {
     format!(
         "perf summary: {}{kind}: {:.1} min, {total} frames, median {} ms, p95 {} ms, p99 {} ms, over 33 ms {:.1}%, hitches {}; frames by ms {}",
         p.place.name,
-        p.secs / 60.0,
+        shown(p.secs / 60.0),
         pct(0.5),
         pct(0.95),
         pct(0.99),
@@ -1019,6 +1028,15 @@ mod tests {
         let lines = summary_lines(&menus);
         assert!(lines[1].starts_with("perf summary: main menu: 0.0 min, 1 frames"), "{}", lines[1]);
         assert!(lines[2].starts_with("perf summary: no world: 0.0 min, 1 frames"), "{}", lines[2]);
+    }
+
+    #[test]
+    fn shown_durations_are_never_negative() {
+        let empty: f64 = std::iter::empty::<f64>().sum();
+        assert_eq!(format!("{:.1}", shown(empty / 60.0)), "0.0");
+        assert_eq!(format!("{:.1}", shown(-0.0)), "0.0");
+        assert_eq!(format!("{:.1}", shown(-1e-9)), "0.0");
+        assert_eq!(format!("{:.1}", shown(12.34)), "12.3");
     }
 
     #[test]
