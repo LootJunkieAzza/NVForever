@@ -43,6 +43,10 @@
 //! - [`split`]: the frame split's spans and GPU times.
 //! - [`graph`]: the frame graph's pixels.
 //! - [`draw`]: the panel.
+//! - [`perf_log`]: the performance log (#2798), on in every run whether the overlay shows or
+//!   not: a `perf (…)` line each minute of play and at each change of place, `perf hitch`
+//!   lines and a `perf summary` at the exit, from these readings (its own sampler, the
+//!   split's spans taken all the time into accumulators of its own; docs/design/perf-log.md).
 //!
 //! A later row is a switch in [`readings::Rows`], a row of [`readings::rows`] and, if it
 //! draws other than a line of text, a part of [`draw`].
@@ -53,6 +57,7 @@ mod drm_usage;
 mod graph;
 #[cfg(target_os = "linux")]
 mod nvml;
+mod perf_log;
 mod readings;
 mod split;
 mod usage;
@@ -146,6 +151,8 @@ impl Plugin for PerfOverlayPlugin {
         // The GPU timestamps are a plugin, added now or not at all: from the INI as the
         // settings will apply it (`split::timestamps_at_start`).
         split::build(app, split::timestamps_at_start(self.0, self.1.as_ref()));
+        // The performance log, after the split's clock it takes spans from.
+        perf_log::build(app);
     }
 
     fn finish(&self, app: &mut App) {

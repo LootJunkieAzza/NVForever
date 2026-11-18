@@ -45,8 +45,13 @@
 //! a span is tagged with the generation it began in and is dropped when it ends in
 //! another, so a span under way across a hide and a show is not in the new showing, as
 //! `usage.rs` does for the sampler's collections.
+//!
+//! The performance log (`super::perf_log`, #2798) takes the same spans all the time
+//! ([`Clock::set_log`]), into accumulators of its own that the overlay's showings neither
+//! start nor take ([`Clock::take_log`]), and keeps the last frame's spans for its hitch line
+//! ([`Clock::last_ms`]): a stamp and an atomic add a span, as the row's [design, #2798].
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -72,7 +77,8 @@ use super::readings::{gpu_frame_ms, Rows, Split, WINDOW};
 // add saturates both fields all the same, so neither can carry into the next. The
 // generation wraps after 256 showings; a span lasts one frame, and a showing at most one
 // change of the switches a frame (`super::switch`), so a span never sees its generation
-// come round again.
+// come round again. The performance log's accumulators are taken every frame
+// (`super::perf_log`), so they stay further under both limits.
 const US_BITS: u32 = 36;
 const COUNT_BITS: u32 = 20;
 const US_MAX: u64 = (1 << US_BITS) - 1;
@@ -133,12 +139,26 @@ impl Acc {
     }
 }
 
-/// When a span began and the showing it began in.
+/// When a span began, the showing it began in, and whether the row showed then (else the
+/// span is the performance log's alone).
 #[derive(Clone, Copy, Debug)]
 struct Stamp {
     at: Instant,
     generation: u8,
+    overlay: bool,
 }
+
+/// The three spans ([`Clock`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Part {
+    Main,
+    Render,
+    Wait,
+}
+
+/// The log's accumulators' generation: they are never started again, so every span counts
+/// ([`Acc::add`] with the generation they hold).
+const LOG_GENERATION: u8 = 0;
 
 /// The means a reading takes ([`Clock::take`]), ms; none without a frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -159,6 +179,14 @@ pub struct Clock {
     wait: Acc,
     /// When the row last started to show (read by the main world only).
     began: Mutex<Option<Instant>>,
+    /// The performance log takes the spans too (`super::perf_log`), into its own
+    /// accumulators, whether the row shows or not.
+    log: AtomicBool,
+    log_main: Acc,
+    log_render: Acc,
+    log_wait: Acc,
+    /// The last span of each part the log took, microseconds, at least 1 (0: none yet).
+    last_us: [AtomicU32; 3],
 }
 
 impl Clock {
@@ -191,9 +219,52 @@ impl Clock {
         self.on.store(true, Ordering::Release);
     }
 
-    /// A span begins now, if the row shows.
+    /// A span begins now, if the row shows or the log takes spans.
     fn stamp(&self) -> Option<Stamp> {
-        self.is_on().then(|| Stamp { at: Instant::now(), generation: self.generation.load(Ordering::Acquire) })
+        let overlay = self.is_on();
+        (overlay || self.logs()).then(|| Stamp { at: Instant::now(), generation: self.generation.load(Ordering::Acquire), overlay })
+    }
+
+    /// Whether the performance log takes the spans.
+    fn logs(&self) -> bool {
+        self.log.load(Ordering::Acquire)
+    }
+
+    /// The performance log takes the spans from now on (`super::perf_log`), or no longer.
+    pub fn set_log(&self, on: bool) {
+        self.log.store(on, Ordering::Release);
+    }
+
+    /// A span of `part` that began at `s` and took `took` ends: the row's, if it showed
+    /// when the span began (and still the same showing, [`Acc::add`]), and the log's, if it
+    /// takes spans.
+    fn end(&self, part: Part, s: &Stamp, took: Duration) {
+        let (row, log, last) = match part {
+            Part::Main => (&self.main, &self.log_main, &self.last_us[0]),
+            Part::Render => (&self.render, &self.log_render, &self.last_us[1]),
+            Part::Wait => (&self.wait, &self.log_wait, &self.last_us[2]),
+        };
+        if s.overlay {
+            row.add(s.generation, took);
+        }
+        if self.logs() {
+            log.add(LOG_GENERATION, took);
+            last.store(took.as_micros().clamp(1, u128::from(u32::MAX)) as u32, Ordering::Relaxed);
+        }
+    }
+
+    /// The log's spans since its last take: (frames, microseconds) of main, render and the
+    /// wait for the window's image, zeroed in the same step.
+    pub fn take_log(&self) -> [(u64, u64); 3] {
+        [self.log_main.take(), self.log_render.take(), self.log_wait.take()]
+    }
+
+    /// The last main, render and wait span the log took, ms; none before the first.
+    pub fn last_ms(&self) -> [Option<f32>; 3] {
+        self.last_us.each_ref().map(|a| match a.load(Ordering::Relaxed) {
+            0 => None,
+            us => Some(us as f32 / 1000.0),
+        })
     }
 
     /// The means since the last call.
@@ -233,6 +304,9 @@ struct RenderSpan {
 #[derive(Resource, Clone, Copy, Default)]
 pub struct GpuTimes {
     pub diagnostics: bool,
+    /// The recorder is taken out while the row is hidden ([`gate_recorder`]): GPU times
+    /// are recorded only while it shows.
+    pub gated: bool,
 }
 
 /// Whether this row's start added the render diagnostics itself
@@ -297,11 +371,12 @@ fn gates_recorder(app: &App) -> bool {
 /// recorder follows the row ([`gate_recorder`]).
 pub fn finish(app: &mut App) {
     let diagnostics = app.is_plugin_added::<RenderDiagnosticsPlugin>();
-    app.insert_resource(GpuTimes { diagnostics });
+    let gated = diagnostics && gates_recorder(app);
+    app.insert_resource(GpuTimes { diagnostics, gated });
     if !diagnostics {
         return;
     }
-    if !gates_recorder(app) {
+    if !gated {
         info!("fps counter: GPU timestamps are taken all the time (the render diagnostics are also a measuring path's)");
         return;
     }
@@ -386,7 +461,7 @@ fn main_begin(clock: Res<SplitClock>, mut span: ResMut<MainSpan>) {
 
 fn main_end(clock: Res<SplitClock>, mut span: ResMut<MainSpan>) {
     if let Some(s) = span.0.take() {
-        clock.0.main.add(s.generation, s.at.elapsed());
+        clock.0.end(Part::Main, &s, s.at.elapsed());
     }
 }
 
@@ -402,13 +477,13 @@ fn wait_begin(mut span: ResMut<RenderSpan>) {
 
 fn wait_end(clock: Res<SplitClock>, mut span: ResMut<RenderSpan>) {
     if let (Some(s), Some(at)) = (span.began, span.wait_began.take()) {
-        clock.0.wait.add(s.generation, at.elapsed());
+        clock.0.end(Part::Wait, &s, at.elapsed());
     }
 }
 
 fn render_end(clock: Res<SplitClock>, mut span: ResMut<RenderSpan>) {
     if let Some(s) = span.began.take() {
-        clock.0.render.add(s.generation, s.at.elapsed());
+        clock.0.end(Part::Render, &s, s.at.elapsed());
     }
 }
 
@@ -503,6 +578,35 @@ impl SplitInputs<'_> {
             }))
         });
         Some(Split { main_ms: m.main?, render_ms: m.render, wait_ms: m.render.and(m.wait), gpu_ms })
+    }
+
+    /// The GPU time of a frame (ms) over the render diagnostics' recent measurements (each
+    /// top-level pass's moving average over the history Bevy keeps, a few seconds of
+    /// frames), for the performance log (#2798): only while they are recorded (taken all
+    /// the time, or the row shows), none otherwise or without timestamps. Unlike
+    /// [`Self::read`] it takes nothing from the row's accumulators.
+    pub fn gpu_recent_ms(&self) -> Option<f32> {
+        let gpu = self.gpu.as_deref()?;
+        if !gpu.diagnostics || (gpu.gated && !self.clock.0.is_on()) {
+            return None;
+        }
+        let store = self.store.as_deref()?;
+        let now = Instant::now();
+        gpu_frame_ms(store.iter().filter_map(|d| {
+            let last = d.measurement()?;
+            Some((d.path().as_str(), d.average()?, now.saturating_duration_since(last.time).as_secs_f64()))
+        }))
+    }
+
+    /// Why the performance log has no GPU time (#2798), for its line.
+    pub fn no_recent_gpu_reason(&self) -> &'static str {
+        let gated = self.gpu.as_deref().is_some_and(|g| g.gated);
+        match (self.diagnostics(), self.timestamps()) {
+            (_, Some(false)) => "no timestamp queries on this device",
+            (false, _) => "not taken (GPU timestamps are taken with the overlay's frame split row on at the start)",
+            (true, _) if gated && !self.clock.0.is_on() => "not taken while the frame split row is hidden",
+            (true, _) => "no recent GPU time",
+        }
     }
 
     /// Whether the device offers timestamp queries; none before there is a device.
@@ -637,6 +741,42 @@ mod tests {
         assert!(!c.is_on());
         c.set_on(true);
         assert_eq!(c.take(), Means::default());
+    }
+
+    #[test]
+    fn the_log_takes_the_spans_apart_from_the_rows_showings() {
+        let c = Clock::default();
+        assert_eq!(c.last_ms(), [None, None, None]);
+        // The log alone: spans are stamped for it, not the row.
+        c.set_log(true);
+        let s = c.stamp().expect("the log takes spans");
+        assert!(!s.overlay);
+        c.end(Part::Main, &s, Duration::from_micros(8_000));
+        c.end(Part::Render, &s, Duration::from_micros(6_000));
+        c.end(Part::Wait, &s, Duration::from_micros(2_000));
+        assert_eq!(c.take(), Means::default(), "the row's accumulators are left alone");
+        assert_eq!(c.take_log(), [(1, 8_000), (1, 6_000), (1, 2_000)]);
+        assert_eq!(c.take_log(), [(0, 0); 3], "each take starts again");
+        assert_eq!(c.last_ms(), [Some(8.0), Some(6.0), Some(2.0)]);
+        // The row shows too: both get the span, and a new showing does not empty the log's.
+        c.end(Part::Main, &s, Duration::from_micros(1_000));
+        c.set_on(true);
+        let both = c.stamp().expect("on");
+        assert!(both.overlay);
+        c.end(Part::Main, &both, Duration::from_micros(3_000));
+        assert_eq!(c.take().main, Some(3.0));
+        assert_eq!(c.take_log()[0], (2, 4_000));
+        // The row's take does not take the log's.
+        c.end(Part::Main, &both, Duration::from_micros(5_000));
+        let _ = c.take();
+        assert_eq!(c.take_log()[0], (1, 5_000));
+        // The log off: the row alone.
+        c.set_log(false);
+        c.end(Part::Main, &both, Duration::from_micros(7_000));
+        assert_eq!(c.take_log()[0], (0, 0));
+        assert_eq!(c.take().main, Some(7.0));
+        c.set_on(false);
+        assert!(c.stamp().is_none(), "neither: no span");
     }
 
     #[test]
