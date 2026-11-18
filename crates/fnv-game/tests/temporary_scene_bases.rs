@@ -268,7 +268,7 @@ fn retired_scene_roundtrip_keeps_tombstone_provenance_without_reviving_a_clone()
         // The earlier positional-lambda-ID retired format still loads.
         let mut legacy = json.clone();
         legacy["format"] = "fnv.game.state/2-retired-scenes".into();
-        if let Some(lambdas) = legacy["lambdas"].as_array_mut() {
+        if let Some(lambdas) = legacy.get_mut("lambdas").and_then(|l| l.as_array_mut()) {
             lambdas.iter_mut().for_each(|l| { l.as_object_mut().unwrap().remove("id"); });
         }
         let old = restore_scene(&f, &legacy).unwrap();
