@@ -130,6 +130,18 @@ from source; tests in `crates/fnv-script/tests/compile.rs`):
   `(begin function` does (`CallWhen ( begin function {} … end) ({}=> …) (0b10100)`)
   [hypothesis: spaces between tokens do not matter; documented: Lambda shows
   `(begin function`].
+- **`Call(begin function`**, no space between a call's name and the parenthesis, still
+  opens a block lambda as that call's argument, not as part of its name
+  (`SetOnMenuOpenEventHandler(begin function{int iMenuID} …`) [observed: an installed
+  mod's Script Runner file, gl_AWR_Main.txt, is written that way; hypothesis: the
+  extender's compiler reads it as the argument, as the mod expects. Not observed in
+  the original game].
+- **`SetCritDam value weapon`** is SetWeaponCritDamage, the setter beside the
+  catalogue's GetCritDam (GetWeaponCritDamage) as SetCritPerc is SetWeaponCritChance's
+  [observed: an installed mod's Script Runner file, gr_AssortedSecuritronUpgrades.txt,
+  calls `SetCritDam` beside `SetCritPerc`; hypothesis: that the spelling is an alias of
+  SetWeaponCritDamage. The catalogue does not list it, nvse.log does not list the core
+  extender's own aliases, and it was not observed in the original game].
 
 Building the files found two compiler gaps that affect every script compiled from source,
 now fixed: a type word after `let` (`let int i := 10`, `let array_var a := …`) and in an
