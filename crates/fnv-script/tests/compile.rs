@@ -1628,6 +1628,37 @@ fn spellings_the_extender_registers_are_names_too() {
     assert!(t.by_name("moveto").is_some());
 }
 
+/// A mod's source compiled as the engine compiles it (`build_mod`'s seed), asserting only
+/// that it has no errors.
+fn mod_ok(src: &str) -> (Compiled, Program) {
+    let t = table();
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: true }));
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    let p = decode(&c.bytes, &t).program;
+    (c, p)
+}
+
+#[test]
+fn tale_of_two_wastelands_lines_compile() {
+    // TaleOfTwoWastelands.esm SCPT 0x0607836F line 30: `MS14ArmorVoiceRef.Set SayTimer to
+    // GameDaysPassed + 0.1`, a reference before `Set`, as vanilla source and as a mod's.
+    let src = "float SayTimer
+begin GameMode
+TestDoorREF.Set SayTimer to GetSecondsPassed + 0.1
+end";
+    let (c, _) = build(src);
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+    let (c, _) = mod_ok(src);
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+    // TTW Quick Start.esp SCPT 0x10010FAD line 14: `TTW_EnableRadioFix 1`, a catalogued TTW
+    // function, compiled as a mod's source with no "unknown function" note.
+    for line in ["TTW_EnableRadioFix 1", "TTW_EnableRadioFix 0"] {
+        let (c, _) = mod_ok(&format!("begin GameMode\n{line}\nend"));
+        assert!(!c.diags.iter().any(|d| d.kind == "unknown_function"), "{line}: {:?}", c.diags);
+        assert!(!c.bytes.is_empty());
+    }
+}
+
 #[test]
 fn a_quoted_form_id_before_a_dot_is_the_reference() {
     // [observed: Veronica Outfit Replacer.esp ships `If "E32A9".GetItemCount X == 0` and
