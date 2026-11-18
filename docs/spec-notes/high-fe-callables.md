@@ -59,6 +59,40 @@ CompileScript transfer gap is not repaired here. CompileScript FE20, inventory
 reference FE40 and TempCloneForm allocations/exhaustion are separate work; no
 global runtime-ID safety claim or more-than-255-plugin change is made.
 
+## Sources of each constant and rule
+
+Nothing in this note is backed by an original-game observation or by a public
+source about the original game.
+
+[hypothesis: game behaviour] A plugin in load-order slot FE is an ordinary plugin
+in the original game, and its compiled SCPT records, including record numbers at
+or above 800000, are record functions: called, registered as event handlers or
+main-loop callbacks, or kept by delayed calls, they behave like the same function
+in a lower slot. This is why a real FE record must not be taken for a runtime
+lambda. The 255-plugin load order with slot FE comes from this repository's load
+order code, not from the game.
+
+[design] The rest are NVForever engine design choices. They concern NVForever's own
+runtime identifiers and its own save format, not the original game's or an
+extender's save format, and claim no native allocation or lifetime equivalence:
+
+- the lambda ID range FE800000 up to, not including, FF000000 (`LAMBDA_BASE`,
+  `LAMBDA_END` in `fnv-game/src/game.rs`);
+- checked allocation that skips loaded records, reserved lambda IDs and clones, an
+  exact ID-to-definition map, and missing-unit lambdas keeping their IDs;
+- the save tags `fnv.game.state/2` (written for every new save) and
+  `fnv.game.state/2-retired-scenes+lambda-ids`, reading `/1` and
+  `/2-retired-scenes` with positional IDs, and refusing duplicate, out-of-range or
+  colliding IDs;
+- refusing a changed (non-identity) load order for a save with lambdas;
+- building and validating the replacement game before taking the active session;
+- session consumers admitting real high record scripts and excluding allocated
+  lambdas;
+- the test-only refused format `fnv.game.state/unsupported-test` (smoke
+  `save-refused-load`).
+
+No text the game shows is added; the new messages are NVForever's own error text.
+
 ## Authored coverage and qualified execution
 
 Process qualification: the source contains five core integration controls in
