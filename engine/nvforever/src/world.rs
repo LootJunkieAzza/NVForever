@@ -19,7 +19,7 @@ use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Base object types drawn as static models. NPCs and creatures are assembled from parts
 /// (`actors.rs`); sounds and idle markers have no model. PROJ: placed mines and charges
@@ -59,13 +59,13 @@ pub struct OpenedPlugins {
 /// load order would refuse: a missing master, a master that loads after it, a second
 /// copy, past the 255th (`fnv_esm::loadorder::drop_unloadable`). The game goes on without
 /// them; a line for each is printed now (the log is not up yet) and kept for the log.
-pub fn open_plugins(data_dir: &Path, mods: Option<&Path>, names: &[String]) -> OpenedPlugins {
+pub fn open_plugins(data_dir: &Path, mods: &[PathBuf], names: &[String]) -> OpenedPlugins {
     let mut dropped = Vec::new();
     let mut plugins = Vec::with_capacity(names.len());
     for n in names {
         // The file whatever its case on disk (a case-sensitive copy may hold
         // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
-        let path = fnv_install::plugins::plugin_path(data_dir, mods, n);
+        let path = fnv_install::plugins::plugin_path_in(data_dir, mods, n);
         match EsmPlugin::open(path) {
             Ok(mut p) => {
                 p.name = n.clone();
@@ -254,6 +254,10 @@ pub enum CellKey {
 
 #[derive(Debug, Default, Clone)]
 pub struct StreamStats {
+    /// Cumulative cell construction and reference spawn attempts, including work that
+    /// produces no visual [design, #2248: begin_cell, spawn_ref; quality_probe.rs].
+    pub cell_starts: u64,
+    pub reference_attempts: u64,
     pub cells_loaded: usize,
     pub refs_drawn: usize,
     pub refs_skipped_disabled: usize,
@@ -1102,6 +1106,7 @@ fn begin_cell(
     streamer: &mut Streamer,
 ) -> (Entity, Vec<u32>, Vec3) {
     let stats = &mut streamer.stats;
+    stats.cell_starts += 1;
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -1156,6 +1161,7 @@ fn spawn_ref(
 ) {
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
     // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
+    streamer.stats.reference_attempts += 1;
     let waits = streamer.settled;
     let override_model = streamer.model_overrides.get(&r).cloned();
     let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);

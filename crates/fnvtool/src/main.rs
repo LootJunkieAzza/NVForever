@@ -978,6 +978,23 @@ pub enum VfsCmd {
         #[arg(long)]
         archive_list: Option<String>,
     },
+    /// A Mod Organizer 2 instance's profile as the merge it means (#1526): the enabled
+    /// mods from the lowest priority up, the overwrite folder last, and the profile's
+    /// active plugins (fnv.vfs.mods/1). With `--data` and `--path`, the path is resolved
+    /// through those layers as the engine reads it.
+    Mods {
+        /// The instance folder (the one holding ModOrganizer.ini).
+        instance: PathBuf,
+        /// Profile name (default: the instance's selected_profile).
+        #[arg(long)]
+        profile: Option<String>,
+        /// The game's Data folder, for `--path`.
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// A game path to resolve (e.g. `textures\clutter\vodka.dds`).
+        #[arg(long)]
+        path: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -1081,3 +1081,50 @@ fn joints_hold_their_limits_through_hard_shoves() {
     }
     assert!(failed.is_empty(), "{failed:#?}");
 }
+
+/// What a ragdoll touches, by kind (#2083's probe, `PhysWorld::ragdoll_contacts`): a figure
+/// lying on the ground and a second one dropped flat on top of it. The lower one touches
+/// the terrain and the upper one; the upper one touches the lower one (moving, then held
+/// at rest once the lower is set at rest); one body alone sees only its own pairs.
+#[test]
+fn a_ragdoll_reports_what_it_touches_by_kind() {
+    let mut w = ground();
+    let rag = figure();
+    // Turned a quarter about x: lying along y, its widest body 9 units round.
+    let lying = |z: f32| Iso { translation: [100.0, 100.0, z], rotation: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0] };
+    let poses = |z: f32| rag.bodies.iter().map(|b| lying(z).compose(&b.rest())).collect::<Vec<Iso>>();
+    let (low, high) = (poses(10.0), poses(40.0));
+    w.add_ragdoll(&start(0x20, &rag, &low));
+    w.add_ragdoll(&start(0x21, &rag, &high));
+    assert_eq!(w.ragdoll_contacts(0x99, None), RagdollContacts::default(), "no ragdoll, nothing touched");
+    let mut met = false;
+    for _ in 0..90 {
+        w.step();
+        let (a, b) = (w.ragdoll_contacts(0x20, None), w.ragdoll_contacts(0x21, None));
+        if b.moving_ragdolls.pairs > 0 {
+            met = true;
+            assert_eq!(b.ragdolls, vec![0x20]);
+            assert!(a.moving_ragdolls.pairs > 0 && a.ragdolls == vec![0x21], "the lower one is touched back: {}", a.summary());
+            assert!(a.terrain.pairs > 0, "and lies on the ground: {}", a.summary());
+            assert_eq!(b.resting_ragdolls.pairs, 0);
+            assert!(b.summary().contains("moving ragdolls ") && b.summary().ends_with("touching [00000020], refs []"), "{}", b.summary());
+            // One body's contacts are a share of the whole ragdoll's.
+            let parts: usize = (0..rag.bodies.len()).map(|i| w.ragdoll_contacts(0x21, Some(i)).moving_ragdolls.pairs).sum();
+            assert_eq!(parts, b.moving_ragdolls.pairs);
+            break;
+        }
+    }
+    assert!(met, "the upper figure lands on the lower one");
+    assert!(w.set_ragdoll_at_rest(0x20));
+    let mut held = false;
+    for _ in 0..30 {
+        w.step();
+        let b = w.ragdoll_contacts(0x21, None);
+        if b.resting_ragdolls.pairs > 0 {
+            held = true;
+            assert_eq!((b.moving_ragdolls.pairs, b.ragdolls.clone()), (0, vec![0x20]), "{}", b.summary());
+            break;
+        }
+    }
+    assert!(held, "the lower figure held at rest is still met, as a ragdoll at rest");
+}

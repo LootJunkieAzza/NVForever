@@ -20,7 +20,9 @@ pub struct Worldspace {
     pub edid: Option<String>,
     pub name: Option<String>,
     pub parent: Option<u32>,
-    /// WRLD PNAM: which data the worldspace takes from its parent.
+    /// WRLD PNAM: which data the worldspace takes from its parent ([`parent_use`]).
+    /// [`WorldIndex::build`] has already followed it for the land, the default heights,
+    /// the water type and the climate ([`WorldIndex::take_parent_data`]).
     pub parent_flags: u16,
     /// WRLD DATA flags (bit 0 Small World, 4 No LOD Water, … [documented: xEdit WRLD]).
     pub data_flags: u8,
@@ -59,7 +61,12 @@ pub struct Cell {
     pub plugin: usize,
     /// References whose winning placement is in this cell, by FormID.
     pub refs: Vec<u32>,
+    /// The cell's LAND record. In a worldspace that uses its parent's land data a cell
+    /// with none of its own has the parent's, of the cell on the same grid square
+    /// ([`Cell::land_of_parent`] says so).
     pub land: Option<u32>,
+    /// `land` is the parent worldspace's ([`WorldIndex::take_parent_data`]).
+    pub land_of_parent: bool,
 }
 
 impl Cell {
@@ -115,6 +122,16 @@ pub struct WorldIndex {
     /// Two cells of one worldspace with the same grid square: (world, grid, earlier
     /// cell, later cell by FormID); the later one is used.
     pub grid_conflicts: Vec<(u32, (i32, i32), u32, u32)>,
+}
+
+/// WRLD PNAM bits [documented: xEdit wbDefinitionsFNV.pas WRLD, schemas/fnv/world.json].
+pub mod parent_use {
+    pub const LAND: u16 = 1 << 0;
+    pub const LOD: u16 = 1 << 1;
+    pub const MAP: u16 = 1 << 2;
+    pub const WATER: u16 = 1 << 3;
+    pub const CLIMATE: u16 = 1 << 4;
+    pub const IMAGE_SPACE: u16 = 1 << 5;
 }
 
 /// Record types in cell-children groups that are not placed references.
@@ -188,7 +205,74 @@ impl WorldIndex {
                 }
             }
         }
+        ix.take_parent_data();
         ix
+    }
+
+    /// Follow each child worldspace's parent use flags (WRLD `WNAM`, `PNAM`), once the
+    /// grids are known (docs/spec-notes/world.md §2.1, #2345).
+    ///
+    /// What the flags mean is named, not described [documented: xEdit]. The records show
+    /// it [observed: Fallout3.esm in a Tale of Two Wastelands load order, `fnvtool world
+    /// list` / `heights` / `esm decode`]: a child with a flag leaves the matching
+    /// subrecords out (Use Land Data: no `DNAM`; ParadiseFalls, with water, climate and
+    /// image space: no `NAM2`, `CNAM`, `INAM`), a child without it has its own, and the
+    /// land-sharing children lie on their parent's grid squares (MegatonWorld's own LAND
+    /// equals the parent's on 10 of its 12 squares; Oasis has no LAND at all).
+    ///
+    /// - Use Land Data: the default heights (`DNAM`, land and water together) are the
+    ///   parent's when the child has none, and a cell without LAND takes the LAND of the
+    ///   parent's cell on the same grid square. A cell with its own LAND keeps it
+    ///   [hypothesis: which wins where both exist and differ is not known; MegatonWorld
+    ///   differs on 2 squares, GNRroofWorld on all 85].
+    /// - Use Water Data: the water type and default heights are the parent's when the
+    ///   child has none. Per-cell water (`XCLW`, `XCWT`) is not taken [not known].
+    /// - Use Climate Data: the climate is the parent's.
+    /// - Use LOD Data, Use Image Space Data: followed where they are read
+    ///   ([`WorldIndex::lod_world`]; the renderer reads `INAM` with the parent's as its
+    ///   fallback). Use Map Data: the Pip-Boy's map.
+    ///
+    /// The ten New Vegas masters' children set Use Map Data only, so nothing changes
+    /// there.
+    fn take_parent_data(&mut self) {
+        let children: Vec<(u32, u32, u16)> = self.worldspaces.values().filter_map(|w| Some((w.form_id, w.parent?, w.parent_flags))).collect();
+        for (child, parent, flags) in children {
+            let Some(p) = self.worldspaces.get(&parent).cloned() else { continue };
+            let land = flags & parent_use::LAND != 0;
+            let water = flags & parent_use::WATER != 0;
+            if let Some(w) = self.worldspaces.get_mut(&child) {
+                if land || water {
+                    w.default_land_height = w.default_land_height.or(p.default_land_height);
+                    w.default_water_height = w.default_water_height.or(p.default_water_height);
+                }
+                if water {
+                    w.water = w.water.or(p.water);
+                }
+                if flags & parent_use::CLIMATE != 0 {
+                    w.climate = p.climate.or(w.climate);
+                }
+            }
+            if land {
+                let squares: Vec<((i32, i32), u32)> = self.worldspaces[&child].grid.iter().map(|(&g, &c)| (g, c)).collect();
+                for (g, cell) in squares {
+                    if self.cells.get(&cell).is_some_and(|c| c.land.is_some()) {
+                        continue;
+                    }
+                    let Some(theirs) = p.grid.get(&g).and_then(|c| self.cells.get(c)).and_then(|c| c.land) else { continue };
+                    if let Some(c) = self.cells.get_mut(&cell) {
+                        c.land = Some(theirs);
+                        c.land_of_parent = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The worldspace whose distant LOD files `world` shows: its parent with Use LOD Data
+    /// [documented name: xEdit; hypothesis: the parent's files are the ones drawn], else
+    /// itself.
+    pub fn lod_world(&self, world: u32) -> u32 {
+        self.worldspaces.get(&world).filter(|w| w.parent_flags & parent_use::LOD != 0).and_then(|w| w.parent).filter(|p| self.worldspaces.contains_key(p)).unwrap_or(world)
     }
 
     fn add_world(&mut self, lo: &LoadOrder, schema: &Schema, pi: usize, r: &fnv_esm::Record, fid: u32) {

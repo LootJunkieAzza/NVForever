@@ -40,6 +40,7 @@ pub mod cells;
 pub mod drawn;
 mod loader;
 pub mod prepare;
+pub mod sinking;
 pub mod step_lift;
 #[cfg(test)]
 mod tests;
@@ -438,6 +439,11 @@ pub struct CreatedBody {
     pub settled: bool,
     /// How many of the pose marks (`CREATED_MARKS`) were logged.
     pub marks: usize,
+    /// The game seconds the world had stepped when it last came to rest, if it has
+    /// (`sinking`, #2753).
+    pub rested_at: Option<f64>,
+    /// Its sinking under the terrain was logged (`sinking`, #2753): once.
+    pub sank: bool,
 }
 
 /// The most a created dynamic reference may reach into the contact shell under it and be
@@ -726,12 +732,12 @@ impl PhysState {
     /// `world` as cells load. Loaded exterior cells belong to the previous worldspace:
     /// [`PhysState::reset`] first.
     ///
-    /// Each worldspace's own records are used. A child worldspace (WRLD `WNAM`) may take
-    /// land, water and other data from its parent by its `PNAM` flags [documented: xEdit
-    /// names, schemas/fnv/world.json]; every child worldspace in the ten masters sets only
-    /// "Use Map Data" and has its own land, `DNAM` and `NAM2` [observed: `fnvtool world
-    /// list`, `esm decode`], so taking the parent's is not implemented (logged when a
-    /// plugin asks for it).
+    /// A child worldspace (WRLD `WNAM`) takes land, water and other data from its parent
+    /// by its `PNAM` flags; the world index has followed them already
+    /// (`fnv_world::WorldIndex::take_parent_data`, #2345: a cell without LAND has its
+    /// parent's, the default heights and water type are the parent's where the child has
+    /// none), so the records read here are the ones to use. Logged once per start of
+    /// play in such a worldspace.
     ///
     /// The first time a worldspace is played its reach index is built
     /// (`fnv_world::reach::ReachIndex`: every placed reference of its exterior cells read
@@ -758,9 +764,18 @@ impl PhysState {
         };
         let ws = d.index.worldspaces.get(&world);
         if let Some(w) = ws.filter(|w| w.parent.is_some() && w.parent_flags & !PNAM_USE_MAP_DATA != 0) {
-            warn!(
-                "worldspace {world:08X} takes data from its parent (PNAM 0x{:X}); NVForever uses its own records only",
-                w.parent_flags
+            let cells = w.grid.values().filter_map(|c| d.index.cells.get(c));
+            let (own, theirs) = cells.fold((0, 0), |(o, t), c| match (c.land, c.land_of_parent) {
+                (Some(_), false) => (o + 1, t),
+                (Some(_), true) => (o, t + 1),
+                _ => (o, t),
+            });
+            info!(
+                "worldspace {world:08X} takes data from its parent {:08X} (PNAM 0x{:X}): land of {theirs} cell(s) from the parent, {own} of its own; default land height {:?}, water height {:?}",
+                w.parent.unwrap_or(0),
+                w.parent_flags,
+                w.default_land_height,
+                w.default_water_height
             );
         }
         if let Some(pc) = ws.and_then(|w| w.persistent_cell).and_then(|c| d.index.cells.get(&c)) {
@@ -1567,9 +1582,10 @@ impl PhysState {
         );
         if dynamic {
             self.lift_onto_support(id);
+            self.lift_out_of_terrain(id);
         }
         let added_at = self.world.stepped_secs();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0 });
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0, rested_at: None, sank: false });
         true
     }
 
@@ -1600,6 +1616,11 @@ impl PhysState {
     pub fn settle_created(&mut self, index: &WorldIndex, world_id: u32, sim: &mut World) -> Vec<u32> {
         let mut moved = Vec::new();
         let mut lost = Vec::new();
+        // Moving bodies to check against the terrain, and those that woke after resting
+        // (`sinking`, #2753).
+        let mut awake = Vec::new();
+        let mut woke = Vec::new();
+        let now = self.world.stepped_secs();
         // Game seconds stepped since: under a slowed clock the steps are shorter, so the steps
         // times the step now would count the ones before at the wrong length.
         let elapsed = |since: f64| (self.world.stepped_secs() - since) as f32;
@@ -1607,6 +1628,9 @@ impl PhysState {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
+            if !b.sleeping && !cb.sank {
+                awake.push((id, b.linvel));
+            }
             let t = elapsed(cb.added_at);
             if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
                 cb.marks += 1;
@@ -1639,6 +1663,7 @@ impl PhysState {
             }
             if b.sleeping && !cb.settled {
                 cb.settled = true;
+                cb.rested_at = Some(now);
                 info!(
                     "dropped 0x{id:08X} came to rest at ({:.1}, {:.1}, {:.2}), {:.1} below where its collision was added, {:.2} s after",
                     pos[0],
@@ -1648,9 +1673,13 @@ impl PhysState {
                     elapsed(cb.added_at)
                 );
             } else if !b.sleeping {
+                if cb.settled {
+                    woke.push((id, cb.rested_at.map_or(0.0, |r| (now - r) as f32), pos));
+                }
                 cb.settled = false;
             }
         }
+        self.note_created_sinking(woke, awake);
         for id in lost {
             let start = self.created.remove(&id).map(|c| c.start);
             self.world.remove_ref(id);

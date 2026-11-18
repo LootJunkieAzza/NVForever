@@ -53,6 +53,20 @@ impl Default for PhysParams {
 /// the bare surface.
 pub const TERRAIN_SHELL: f32 = 3.5;
 
+/// The speed (game units a second) of a placed dynamic body's farthest point under which
+/// it may fall asleep, after rapier's half second: references' dynamic bodies, not
+/// ragdolls, gore, characters or bodies the wind blows. Three times rapier's own
+/// (0.1 m/s, 7 units/s) [design, #2663; documented: rapier3d 0.36.1
+/// `RigidBodyActivation::update_energy`]. rapier solves the contacts of one pair whose
+/// normals lie within about 5° with one normal [documented: rapier3d 0.36.1
+/// `contact_clustering.rs`, `COS_MERGE_ANGLE`], so clutter lying across two terrain
+/// triangles that meet at a small angle (LAND's 8-unit steps over 128 units make 3.6°)
+/// rocked between two tilts at 10-27 units/s and never slept [observed: issue #2663;
+/// also the set-up of test `placed_clutter_on_creased_ground_falls_asleep` with rapier's
+/// default threshold, 3-8 of 256 drops awake]. It changes only when such a
+/// body may sleep, not how it moves awake (physics.md §5.5).
+pub const PLACED_SLEEP_SPEED: f32 = 21.0;
+
 /// `NVF_PHYS_INDOOR_PREDICTION=0` (a test aid for comparing, read once): the contact
 /// prediction distance stays raised by [`TERRAIN_SHELL`] with no terrain too, as before
 /// 2026-11-13 (`PhysWorld::new`, `PhysWorld::fit_prediction`).
@@ -637,6 +651,13 @@ impl PhysWorld {
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.material.mass);
                 self.heavy_unpushed(body);
+            }
+            if o.motion == Motion::Dynamic && !blown {
+                // Sleeps under `PLACED_SLEEP_SPEED`. rapier counts a step as still while
+                // half the farthest point's displacement is under its threshold times the
+                // step [documented: rapier3d 0.36.1 `RigidBodyActivation::update_energy`,
+                // `relative_pose_drift`], so the threshold is half the speed.
+                self.w.bodies[body].activation_mut().normalized_linear_threshold = PLACED_SLEEP_SPEED * self.k * 0.5;
             }
             if hold {
                 self.pending_sleep.push(body);

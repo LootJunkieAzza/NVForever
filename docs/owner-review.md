@@ -305,6 +305,13 @@ the spec it links to.
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
+- **Corpses in a crowd held while a head or hand still turns (#2083).** [observed, #2083]
+  In battle-50, 34 corpses were held still moving at their time limit: 26 shot corpses
+  at the 1 s `MAX_AWAKE_SHOVED` (your item 51), 8 fresh ones (7 at the 3 s
+  `MAX_AWAKE_CROWDED`, an engineering choice kept as a cost guard when `MAX_AWAKE` went
+  to 8 s), with a head, hand or foot turning 0.7-4 rad/s. Neither changed. Longer limits
+  would let more settle, at the solver cost they guard against. Keep both, or raise the
+  crowded one? ([ragdoll §4](spec-notes/ragdoll.md), "Corpses in a crowd")
 - [design, #2659] **Selected-part mesh boundary:** mixed-mesh triangles are selected at
   a mean bone-weight share of `PART_TRIANGLE_SHARE = 0.5`, then filled at the same mask
   opacity as whole parts. A different threshold changes the boundary, not its strength;
@@ -853,6 +860,13 @@ the spec it links to.
     follow the player's own way from where they stand instead (the last outdoor door
     of that way), which can differ for buildings with several entrances.
     ([quests-dialogue §2](spec-notes/quests-dialogue.md))
+- **Ragdolls for shapeless placeholder corpses (#2753).** [design, #2753] A leveled
+  spawn whose choice is the invisible `nvvoid` placeholder (scale 0.1, no shapes, Health 0)
+  is laid out dead by a new game and gets a two-body ragdoll like any corpse; it is now
+  lifted out of the ground before it starts instead of falling through it. Nothing of it is
+  seen. Ruling otherwise: such corpses are shown dead without a ragdoll (no physics, no
+  fall-through warnings from them) ([physics §4.3](spec-notes/physics.md),
+  [dead-on-spawn §3](spec-notes/dead-on-spawn.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

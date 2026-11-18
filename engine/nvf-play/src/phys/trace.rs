@@ -41,7 +41,7 @@ impl PhysTrace {
     }
 }
 
-fn owner_name(o: Option<Owner>) -> String {
+pub(super) fn owner_name(o: Option<Owner>) -> String {
     match o {
         Some(Owner::Ref { form_id, object, layer }) => format!("ref {form_id:08X} object {object} layer {layer}"),
         Some(Owner::Terrain { x, y }) => format!("terrain ({x}, {y})"),

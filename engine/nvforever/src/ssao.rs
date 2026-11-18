@@ -2,6 +2,14 @@
 //! docs/design/graphics-enhanced.md §3.1): creases, corners and the ground under things
 //! are darkened by how much of the space around them the depth prepass shows filled.
 //!
+//! Since #2897 the estimate is ground-truth ambient occlusion (Jimenez, Wu, Pesce, Jarabo,
+//! "Practical Real-Time Strategies for Accurate Indirect Occlusion", SIGGRAPH 2016 course;
+//! ssao.wesl `gtao_visibility`): per pixel a few slices through the view vector, the depth
+//! marched on both sides of each for the highest horizon, the cosine-weighted visible arc
+//! integrated, then a denoise that keeps to the pixel's own plane. The older estimate
+//! described below (a spiral of samples) stays as the fallback until the new one is
+//! measured: debug switch `NVF_PLAY_DEBUG_AO` ([`AoDebug`]).
+//!
 //! Bevy's own SSAO needs a normal prepass and a view without multisampling; the game's
 //! views are multisampled (alpha-tested plants are smoothed with it) and the NIF, grass,
 //! tree and water prepasses write depth only. So this pass works from the depth alone:
@@ -40,8 +48,23 @@ use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 /// Radius of the occlusion around a point, in game units (about 0.9 m) [engineering
 /// choice: the size of a doorstep or a crate's foot; larger darkened whole walls].
 const RADIUS: f32 = 64.0;
-/// How strongly a fully closed point is darkened (0..1) [engineering choice, by eye].
+/// How strongly a fully closed point is darkened (0..1), the old estimate [engineering
+/// choice, by eye].
 const STRENGTH: f32 = 0.55;
+/// How much of the ground-truth estimate's darkening reaches the picture: factor
+/// = 1 - strength x (1 - visibility). Open flat ground has visibility 1 (ssao.wesl
+/// `gtao_visibility` divides by the slices' open integral), so it stays as bright as with the
+/// switch off; a floor point at the foot of a wall has 0.5 (the wall hides half the
+/// cosine-weighted hemisphere), which this darkens to 0.8, about what the old estimate gave
+/// in such a crease [engineering choice, from that estimate, not yet from pictures: the
+/// factor still multiplies all light, so it is kept low as the old one was].
+const GTAO_STRENGTH: f32 = 0.4;
+/// Slice directions per pixel and depth samples on each side of a slice: the shader's
+/// `SLICES` and `STEPS` (ssao.wesl; a test keeps them the same), for the log line. Two by
+/// four at half resolution, about the old pass's twelve samples in cost [engineering choice:
+/// to be traded once measured].
+const GTAO_SLICES: u32 = 2;
+const GTAO_STEPS: u32 = 4;
 /// Largest radius on the screen, in pixels (near things, e.g. the player's arms).
 const MAX_SCREEN_RADIUS: f32 = 80.0;
 /// The effect fades out between these distances (game units) [engineering choice: beyond
@@ -68,20 +91,27 @@ pub struct AmbientOcclusion {
     /// size (x, y), the part of the depth prepass drawn, and z 1. Set in the render world by
     /// `upscaler/prep.rs` `prepare`; 0 otherwise (the extraction puts 0 back every frame).
     pub area: Vec4,
+    /// x 1 for the old estimate, y 1 for the factor shown alone as grey ([`AoDebug`]).
+    pub mode: Vec4,
 }
 
 impl Default for AmbientOcclusion {
     fn default() -> Self {
-        AmbientOcclusion {
-            params: Vec4::new(RADIUS, STRENGTH, 5.0, FADE_END),
-            proj: Vec4::new(1.0, 1.0, MAX_SCREEN_RADIUS, FADE_START),
-            render_scale: Vec4::ONE,
-            area: Vec4::ZERO,
-        }
+        AmbientOcclusion::with_debug(*AO_DEBUG)
     }
 }
 
 impl AmbientOcclusion {
+    fn with_debug(debug: AoDebug) -> Self {
+        AmbientOcclusion {
+            params: Vec4::new(RADIUS, debug.strength(), 5.0, FADE_END),
+            proj: Vec4::new(1.0, 1.0, MAX_SCREEN_RADIUS, FADE_START),
+            render_scale: Vec4::ONE,
+            area: Vec4::ZERO,
+            mode: debug.mode(),
+        }
+    }
+
     /// Under FSR: the occlusion at the render size, on the HDR picture before FSR
     /// ([`ao_before_fsr`]), with the largest radius on the screen scaled to the render size
     /// so it covers what it did at the display size.
@@ -101,13 +131,101 @@ impl AmbientOcclusion {
 pub(crate) static AO_BEFORE_FSR: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| !std::env::var("NVF_AO_BEFORE_FSR").is_ok_and(|v| v.trim() == "0"));
 
+/// Debug switch `NVF_PLAY_DEBUG_AO` (read once at the start; a development aid for
+/// before/after pictures and cost runs, not a setting): `old` runs the old estimate (the
+/// spiral of samples and its blur), `view` shows the ground-truth estimate's factor alone as
+/// a grey picture, `view-old` the old one's; unset, empty, `0`, `off` or `false` run the
+/// ground-truth estimate.
+///
+/// `NVF_PLAY_DEBUG_AO_STRENGTH=<number>` (read once too) replaces [`GTAO_STRENGTH`] for the
+/// ground-truth estimate, held to 0..1, so strengths can be compared by eye from a launcher;
+/// the old estimate keeps its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct AoDebug {
+    /// The old estimate instead of ground-truth ambient occlusion.
+    old: bool,
+    /// The factor alone as grey instead of multiplied into the picture.
+    view: bool,
+    /// The ground-truth estimate's strength from `NVF_PLAY_DEBUG_AO_STRENGTH`.
+    gtao_strength: Option<f32>,
+}
+
+impl AoDebug {
+    /// The switch's value: `Err` with the value for one it does not know.
+    fn parse(value: Option<&str>) -> Result<AoDebug, String> {
+        let v = value.map(str::trim).unwrap_or("");
+        match v.to_ascii_lowercase().as_str() {
+            "" | "0" | "off" | "false" => Ok(AoDebug::default()),
+            "old" => Ok(AoDebug { old: true, ..AoDebug::default() }),
+            "view" => Ok(AoDebug { view: true, ..AoDebug::default() }),
+            "view-old" => Ok(AoDebug { old: true, view: true, ..AoDebug::default() }),
+            _ => Err(v.to_string()),
+        }
+    }
+
+    /// `NVF_PLAY_DEBUG_AO_STRENGTH`'s value: none when unset or empty, a finite number held
+    /// to 0..1, `Err` with the value for anything else.
+    fn parse_strength(value: Option<&str>) -> Result<Option<f32>, String> {
+        let v = value.map(str::trim).unwrap_or("");
+        if v.is_empty() {
+            return Ok(None);
+        }
+        match v.parse::<f32>() {
+            Ok(s) if s.is_finite() => Ok(Some(s.clamp(0.0, 1.0))),
+            _ => Err(v.to_string()),
+        }
+    }
+
+    fn strength(self) -> f32 {
+        if self.old { STRENGTH } else { self.gtao_strength.unwrap_or(GTAO_STRENGTH) }
+    }
+
+    /// The uniform's `mode` (ssao.wesl `Ao.mode`).
+    fn mode(self) -> Vec4 {
+        Vec4::new(if self.old { 1.0 } else { 0.0 }, if self.view { 1.0 } else { 0.0 }, 0.0, 0.0)
+    }
+
+    /// The log line when the occlusion turns on on the main camera.
+    fn describe(self) -> String {
+        let estimate = if self.old {
+            "old estimate (12-sample spiral, NVF_PLAY_DEBUG_AO)".to_string()
+        } else {
+            let strength = match self.gtao_strength {
+                Some(s) => format!(", strength {s} (NVF_PLAY_DEBUG_AO_STRENGTH)"),
+                None => String::new(),
+            };
+            format!("ground-truth estimate (GTAO), {GTAO_SLICES} slices x {GTAO_STEPS} steps a side at half resolution, depth-aware denoise{strength}")
+        };
+        let view = if self.view { ", factor shown alone as grey (NVF_PLAY_DEBUG_AO)" } else { "" };
+        format!("ambient occlusion: {estimate}{view}")
+    }
+}
+
+static AO_DEBUG: std::sync::LazyLock<AoDebug> = std::sync::LazyLock::new(|| {
+    let mut debug = match AoDebug::parse(std::env::var("NVF_PLAY_DEBUG_AO").ok().as_deref()) {
+        Ok(debug) => debug,
+        Err(v) => {
+            warn!("debug switch NVF_PLAY_DEBUG_AO={v}: expected old, view or view-old; the ground-truth estimate runs");
+            AoDebug::default()
+        }
+    };
+    debug.gtao_strength = match AoDebug::parse_strength(std::env::var("NVF_PLAY_DEBUG_AO_STRENGTH").ok().as_deref()) {
+        Ok(s) => s,
+        Err(v) => {
+            warn!("debug switch NVF_PLAY_DEBUG_AO_STRENGTH={v}: expected a number from 0 to 1; strength {GTAO_STRENGTH}");
+            None
+        }
+    };
+    debug
+});
+
 pub struct SsaoPlugin;
 
 impl Plugin for SsaoPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "ssao.wesl");
         app.add_plugins((ExtractComponentPlugin::<AmbientOcclusion>::default(), UniformComponentPlugin::<AmbientOcclusion>::default()))
-            .add_systems(PostUpdate, follow_projection.after(bevy::camera::CameraUpdateSystems));
+            .add_systems(PostUpdate, (follow_projection.after(bevy::camera::CameraUpdateSystems), log_estimate));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .add_systems(RenderStartup, init_pipelines)
@@ -123,13 +241,22 @@ fn follow_projection(mut cams: Query<(&Projection, &mut AmbientOcclusion), With<
         let Projection::Perspective(p) = proj else { continue };
         let y = 1.0 / (p.fov * 0.5).tan();
         let x = y / p.aspect_ratio.max(1e-3);
-        let params = Vec4::new(RADIUS, STRENGTH, p.near, FADE_END);
+        let params = Vec4::new(RADIUS, AO_DEBUG.strength(), p.near, FADE_END);
         let projv = Vec4::new(x, y, MAX_SCREEN_RADIUS, FADE_START);
         if ao.params != params || ao.proj != projv {
             ao.params = params;
             ao.proj = projv;
         }
     }
+}
+
+/// Which estimate runs, said once each time the occlusion turns on on the main camera.
+fn log_estimate(cams: Query<(), (With<AmbientOcclusion>, With<FlyCam>)>, mut was_on: Local<bool>) {
+    let on = !cams.is_empty();
+    if on && !*was_on {
+        info!("{}", AO_DEBUG.describe());
+    }
+    *was_on = on;
 }
 
 #[derive(Resource)]
@@ -210,9 +337,15 @@ fn init_pipelines(mut commands: Commands, device: Res<RenderDevice>, assets: Res
     let mut multiply_base = base("ssao_multiply_pipeline", "multiply");
     multiply_base.layout = vec![multiply_layout.clone()];
     if let Some(f) = multiply_base.fragment.as_mut() {
-        // The picture times the factor; its alpha (the marks the post passes read) kept.
+        // The picture times the factor; its alpha (the marks the post passes read) kept. With
+        // the grey view (NVF_PLAY_DEBUG_AO) the factor replaces the colour.
+        let color = if AO_DEBUG.view {
+            BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::Zero, operation: BlendOperation::Add }
+        } else {
+            BlendComponent { src_factor: BlendFactor::Zero, dst_factor: BlendFactor::Src, operation: BlendOperation::Add }
+        };
         let blend = BlendState {
-            color: BlendComponent { src_factor: BlendFactor::Zero, dst_factor: BlendFactor::Src, operation: BlendOperation::Add },
+            color,
             alpha: BlendComponent { src_factor: BlendFactor::Zero, dst_factor: BlendFactor::One, operation: BlendOperation::Add },
         };
         f.targets = vec![Some(ColorTargetState { format: BEFORE_FSR_FORMAT, blend: Some(blend), write_mask: ColorWrites::ALL })];
@@ -239,7 +372,14 @@ fn prepare(
     mut textures: ResMut<TextureCache>,
     device: Res<RenderDevice>,
     views: Query<(Entity, &ExtractedView, &Msaa, &AmbientOcclusion)>,
+    stale: Query<Entity, (With<AoView>, Without<AmbientOcclusion>)>,
 ) {
+    // The row switched off while the game runs: the view's extracted settings go, but what
+    // this system and the uniform plugin put on the view stays, and the passes would go on
+    // drawing with an offset into a uniform buffer nothing writes any more.
+    for entity in &stale {
+        commands.entity(entity).remove::<(AoView, DynamicUniformIndex<AmbientOcclusion>)>();
+    }
     for (entity, view, msaa, settings) in &views {
         let before_fsr = settings.runs_before_fsr();
         if before_fsr && pipelines.multiply.is_none() {
@@ -446,4 +586,169 @@ pub(crate) fn ao_pass(
     pass.draw(0..3, 0..1);
     drop(pass);
     span.end(ctx.command_encoder());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ssao.wesl as the game's WESL loader would hand it to naga for one value of the
+    /// `MULTISAMPLED` condition: the two imports replaced by stand-ins of the same signature
+    /// (Bevy's fullscreen vertex output; nvf_assets' `unsqueeze`, its body left out), the
+    /// conditional bindings resolved.
+    fn resolved_shader(multisampled: bool) -> String {
+        let source = include_str!("ssao.wesl").replace("\r\n", "\n");
+        let mut out = String::from(
+            "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, };\nfn unsqueeze(d: f32) -> f32 { return d; }\n",
+        );
+        for line in source.lines() {
+            if line.starts_with("import ") {
+                continue;
+            }
+            let line = if let Some(rest) = line.strip_prefix("@if(MULTISAMPLED) ") {
+                if !multisampled {
+                    continue;
+                }
+                rest
+            } else if let Some(rest) = line.strip_prefix("@if(!MULTISAMPLED) ") {
+                if multisampled {
+                    continue;
+                }
+                rest
+            } else {
+                line
+            };
+            assert!(line.trim_start().starts_with("//") || !line.contains("@if"), "a condition the test does not resolve: {line}");
+            out.push_str(line);
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn the_shader_is_valid_wgsl_with_either_depth() {
+        use wgpu::naga;
+        for multisampled in [false, true] {
+            let source = resolved_shader(multisampled);
+            let module = naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("multisampled {multisampled}: {}", e.emit_to_string(&source)));
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::default())
+                .validate(&module)
+                .unwrap_or_else(|e| panic!("multisampled {multisampled}: {e:?}"));
+            for entry in ["occlusion", "apply", "multiply"] {
+                assert!(module.entry_points.iter().any(|e| e.name == entry), "entry point {entry}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_shader_declares_what_the_rust_side_mirrors() {
+        let source = include_str!("ssao.wesl");
+        for line in [format!("const SLICES: i32 = {GTAO_SLICES};"), format!("const STEPS: i32 = {GTAO_STEPS};")] {
+            assert!(source.contains(&line), "ssao.wesl must declare `{line}` (ssao.rs mirrors it)");
+        }
+        // The uniform's five fields in the order of the Rust struct.
+        let fields = ["params: vec4<f32>,", "proj: vec4<f32>,", "render_scale: vec4<f32>,", "area: vec4<f32>,", "mode: vec4<f32>,"];
+        let at: Vec<usize> = fields.iter().map(|f| source.find(f).unwrap_or_else(|| panic!("{f}"))).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "the uniform's fields in the Rust order");
+    }
+
+    #[test]
+    fn the_debug_switch_picks_the_estimate_and_the_view() {
+        for off in [None, Some(""), Some("0"), Some("off"), Some("false"), Some(" OFF ")] {
+            assert_eq!(AoDebug::parse(off), Ok(AoDebug::default()), "{off:?}");
+        }
+        assert_eq!(AoDebug::parse(Some("old")), Ok(AoDebug { old: true, ..AoDebug::default() }));
+        assert_eq!(AoDebug::parse(Some("view")), Ok(AoDebug { view: true, ..AoDebug::default() }));
+        assert_eq!(AoDebug::parse(Some("View-Old")), Ok(AoDebug { old: true, view: true, ..AoDebug::default() }));
+        assert_eq!(AoDebug::parse(Some("gtao")), Err("gtao".to_string()));
+    }
+
+    #[test]
+    fn the_strength_aid_is_a_number_held_to_0_1() {
+        for none in [None, Some(""), Some("  ")] {
+            assert_eq!(AoDebug::parse_strength(none), Ok(None), "{none:?}");
+        }
+        assert_eq!(AoDebug::parse_strength(Some("0.6")), Ok(Some(0.6)));
+        assert_eq!(AoDebug::parse_strength(Some(" 0.8 ")), Ok(Some(0.8)));
+        assert_eq!(AoDebug::parse_strength(Some("2")), Ok(Some(1.0)));
+        assert_eq!(AoDebug::parse_strength(Some("-1")), Ok(Some(0.0)));
+        for bad in ["strong", "NaN", "inf"] {
+            assert_eq!(AoDebug::parse_strength(Some(bad)), Err(bad.to_string()));
+        }
+        // Only the ground-truth estimate takes it.
+        let set = AoDebug { gtao_strength: Some(0.8), ..AoDebug::default() };
+        assert_eq!(AmbientOcclusion::with_debug(set).params.y, 0.8);
+        assert_eq!(AmbientOcclusion::with_debug(AoDebug { old: true, ..set }).params.y, STRENGTH);
+        assert!(set.describe().ends_with("depth-aware denoise, strength 0.8 (NVF_PLAY_DEBUG_AO_STRENGTH)"));
+        assert!(!AoDebug { old: true, ..set }.describe().contains("STRENGTH"));
+    }
+
+    #[test]
+    fn the_uniform_carries_the_estimates_strength_and_mode() {
+        let new = AmbientOcclusion::with_debug(AoDebug::default());
+        assert_eq!(new.params.y, GTAO_STRENGTH);
+        assert_eq!(new.mode, Vec4::ZERO);
+        let old = AmbientOcclusion::with_debug(AoDebug { old: true, ..AoDebug::default() });
+        assert_eq!(old.params.y, STRENGTH);
+        assert_eq!(old.mode, Vec4::new(1.0, 0.0, 0.0, 0.0));
+        let view = AmbientOcclusion::with_debug(AoDebug { view: true, ..AoDebug::default() });
+        assert_eq!(view.mode, Vec4::new(0.0, 1.0, 0.0, 0.0));
+        // Everything else as before the change.
+        for ao in [new, old, view] {
+            assert_eq!((ao.params.x, ao.params.w, ao.proj.z, ao.proj.w), (RADIUS, FADE_END, MAX_SCREEN_RADIUS, FADE_START));
+            assert_eq!((ao.render_scale, ao.area), (Vec4::ONE, Vec4::ZERO));
+        }
+    }
+
+    #[test]
+    fn the_log_line_names_the_estimate() {
+        assert_eq!(
+            AoDebug::default().describe(),
+            "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise"
+        );
+        assert_eq!(AoDebug { old: true, ..AoDebug::default() }.describe(), "ambient occlusion: old estimate (12-sample spiral, NVF_PLAY_DEBUG_AO)");
+        assert!(AoDebug { view: true, ..AoDebug::default() }.describe().ends_with("depth-aware denoise, factor shown alone as grey (NVF_PLAY_DEBUG_AO)"));
+    }
+
+    /// ssao.wesl `visible_arc`, the same formula: the integral of cos(t - g) |sin t| from 0 to h.
+    fn visible_arc(h: f32, g: f32) -> f32 {
+        0.25 * (g.cos() - (2.0 * h - g).cos() + 2.0 * h * g.sin())
+    }
+
+    /// The same integral by the midpoint rule.
+    fn arc_numeric(h: f32, g: f32) -> f32 {
+        let n = 20_000;
+        let step = h / n as f32;
+        // From 0 towards h, whichever side: the integral over the arc between them.
+        let width = step.abs();
+        (0..n).map(|i| (i as f32 + 0.5) * step).map(|t| (t - g).cos() * t.sin().abs() * width).sum()
+    }
+
+    #[test]
+    fn the_visible_arc_is_the_integral_it_stands_for() {
+        assert!(include_str!("ssao.wesl").contains("return 0.25 * (cos_g - cos(2.0 * h - gamma) + 2.0 * h * sin_g);"));
+        use std::f32::consts::FRAC_PI_2;
+        for g in [-1.3f32, -0.6, 0.0, 0.4, 1.2] {
+            for h in [-(FRAC_PI_2 - g), -0.7, -0.1, 0.0, 0.3, 0.9, FRAC_PI_2 + g] {
+                assert!((visible_arc(h, g) - arc_numeric(h, g)).abs() < 1e-3, "g {g} h {h}");
+            }
+            // Nothing in the way: the whole arc, cos g + g sin g (the shader's `unblocked`), at
+            // least 1 and never 0, so the ratio never divides by zero.
+            let open = visible_arc(g - FRAC_PI_2, g) + visible_arc(g + FRAC_PI_2, g);
+            assert!((open - (g.cos() + g * g.sin())).abs() < 1e-5, "g {g}");
+            assert!(open >= 1.0 - 1e-6);
+            // A horizon raised on either side only takes away (monotone, never negative).
+            let mut last = open;
+            for i in 1..=20 {
+                let h = g + FRAC_PI_2 - (g + FRAC_PI_2) * i as f32 / 20.0;
+                let v = visible_arc(g - FRAC_PI_2, g) + visible_arc(h, g);
+                assert!(v <= last + 1e-6 && v >= -1e-6, "g {g} h {h}");
+                last = v;
+            }
+        }
+        // A surface facing the camera with one side hidden up to the view vector keeps half.
+        let half = visible_arc(-FRAC_PI_2, 0.0) + visible_arc(0.0, 0.0);
+        assert!((half - 0.5).abs() < 1e-6);
+        assert!((1.0 - GTAO_STRENGTH * (1.0 - half) - 0.8).abs() < 1e-6, "the crease's factor GTAO_STRENGTH's comment gives");
+    }
 }

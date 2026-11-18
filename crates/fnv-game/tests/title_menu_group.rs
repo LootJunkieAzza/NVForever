@@ -190,3 +190,18 @@ fn repeated_start_frames_keep_restart_consumption_and_restore_has_no_title_conte
     assert_eq!(query(&mut back, 4), XVal::Num(0.0));
     clean(&g); clean(&back);
 }
+
+#[test]
+fn a_load_starts_the_start_game_quests_of_plugins_added_since_the_save() {
+    let f = fixture(); let mut g = game(&f);
+    // A quest the game stopped stays stopped through the load.
+    assert!(g.stop_quest(FormId(0xC02)));
+    let mut snapshot: GameSnapshot = serde_json::from_slice(&serde_json::to_vec(&g.checked_snapshot().unwrap()).unwrap()).unwrap();
+    // The save was made before the plugin of quest 0xC01 was added: no entry for it (#2944).
+    snapshot.quests.remove(&FormId(0xC01));
+    let world = World::restore(g.world.forms, g.world.placed, &snapshot.sim).unwrap();
+    let back = Game::restore(g.data, world, g.cfg, &snapshot).unwrap();
+    assert!(back.quests[&FormId(0xC01)].running, "a start-game-enabled quest the save does not know starts with the load");
+    assert!(back.quests[&FormId(0xC00)].running, "a running quest stays running");
+    assert!(!back.quests[&FormId(0xC02)].running, "a quest the save holds stopped stays stopped");
+}

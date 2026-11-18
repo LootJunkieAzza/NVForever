@@ -284,6 +284,67 @@ moves (mantis nymphs at the player's feet, frame-rate-audit.md §2), and at the 
 peak 6-7 ragdolls moved at once; the youngest 4 are most likely the ones just killed in
 view [engineering choice].
 
+**Corpses in a crowd (#2083, open).** A lone figure dropped in a test comes to rest by
+about 1.2 s, but in the 50-a-side battle (upstream main 1790ab94a, 180 s) 65 of 101 rests
+were held still moving: 32 at 1 s (shoved corpses, by design) and 9 at the 3 s crowded
+limit, the fastest bone more often a hand (22) than the head (14) [observed: a battle-50
+run of 2026-11-16, logs private]. [hypothesis] What differs in a crowd is contacts (a
+corpse on a corpse, on a loose object, on uneven ground) or hits on corpses still moving
+(stray shots keep pushing one without restarting its clock).
+
+**The probe.** With the test aid `NVF_PLAY_TEST_RAGDOLL_PROBE=1` each ragdoll set at rest
+logs a `ragdoll probe:` line (`engine/nvforever/src/ragdoll.rs` `probe`); without it none
+of this runs. The line gives how it came to rest (`slept`, `held still`, `held calm after
+settling`, `held moving at its time limit`, `held calm at its time limit`, `held calm in
+slow motion`), what woke it (`fresh`, `fresh crowded`, `shoved`, `in water`), seconds
+awake against its limit, its calm and longest calm, the frames a hit struck it while
+awake (the killing or rousing shove counts), its fastest-moving and fastest-turning bones
+over the last calm window, the bones that broke its calm spells, and what the whole
+ragdoll and its fastest-turning body touched as its settle began and when it was held
+(`PhysWorld::ragdoll_contacts`: active contact pairs by kind, terrain, fixed references,
+loose references, moving and resting ragdolls, its own bodies, other, each with its
+deepest overlap, the other corpses and the references touched). The exit's `ragdoll probe
+summary` counts rests by how and wake, with how many were hit again while awake (more than
+one hit; a corpse killed without a shove, by `killall`, a blast or a script, and hit once
+later is not counted, so it undercounts) and how many touched another corpse or a loose
+object as their settle began. Smoke `ragdoll-probe-battle-50` (the battle) and
+`ragdoll-probe-block` (nine corpses falling together with no shooter left, the town's
+residents falling alone) run it.
+
+What the probe found [observed: both scenarios, one run each, 2026-11-17, logs private]:
+
+- **Holds at the time limit split into still moving and calm by then.** A ragdoll whose
+  settle began at its time limit was counted as held still moving whatever it did during
+  the settle. In the battle 56 of the 90 such holds had a last calm window under 12
+  units/s and 0.6 rad/s (`CALM_SPEED`, `CALM_SPIN`): 33 were already that calm when the
+  settle began (calm for less than 1.5 s, so no calm settle), and 23 calmed during it, under
+  the settle's own damping (`SETTLE_DAMPING`), not by themselves; 5 of the other 34 went the
+  other way during the settle. In the block 6 of 12 were calm by then. They are now logged
+  as `ragdoll: actor <id> held at rest calm at its time limit …` and the exit report gives
+  the holds at the time limit as a sum, `N held at their time limit after settling: M still
+  moving, K of them crowded to 3 s, and J calm by then` [design, #2083]. When ragdolls are
+  held is unchanged, so `held at rest still moving` fell from 90 to 34 in the same run with
+  nothing behaving differently: a before/after against an older build compares N (M + J),
+  not M.
+- **Hits are a small part.** Of the 34 still moving in the battle, 26 were shoved corpses at
+  their 1 s limit (`MAX_AWAKE_SHOVED`), 23 of them hit no more than the once that roused
+  them; 5 of the 8 fresh ones had been hit again. In the block nothing was hit and 6 of 12
+  were still moving at the 3 s crowded limit.
+- **What keeps them moving** is a light end bone turning 0.7-4 rad/s with the trunk all
+  but still (head 11 of 34, a hand 10, a foot 8), the shiver described above; another
+  corpse (moving or at rest) was touched by 7 of the 8 fresh ones. In the block the fast
+  ones (60-90 units/s when held) lay draped over fixed references (trunk 40-63 units over
+  their lowest bone, no terrain contact) overlapping them 2-4 units deep (6 under a calm
+  one), while their terrain contacts showed no overlap [hypothesis: limbs that started
+  inside the object, or a shape whose Havok shell is not a contact skin as the terrain's
+  is (`TERRAIN_SHELL`); the probe now names the references touched, `refs [...]`].
+- [hypothesis] The 3 s crowded limit is shorter than a fresh corpse in a crowd needs to calm
+  by itself (a lone figure ~1.2 s, plus its settle). The 1 s shoved limit is the owner's
+  (owner-review item 51: a shot's shove has fallen back within half a second), a different
+  case from a fresh drop; 26 shoved corpses were still turning a head or hand at it. The 3 s
+  crowded limit and `FULL_TIME` are an engineering choice (a cost guard, frame-rate-audit.md
+  §5). Neither changed; whether to raise one is in owner-review.md (#2083).
+
 **Memory.** The bone poses of a ragdoll at rest are remembered by reference. A ragdoll
 whose ground unloads, or whose actor is no longer drawn, leaves the world and is
 remembered the same way; put back later it is held in that pose. The memory lasts for the

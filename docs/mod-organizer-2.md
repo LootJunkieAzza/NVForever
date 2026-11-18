@@ -45,6 +45,20 @@ process and reads the plugin list MO2 shows it at the original game's list path
 (`%LOCALAPPDATA%\FalloutNV\plugins.txt`), recognised by MO2's header line. Details and
 sources: `crates/fnv-install/src/mo2.rs`, docs/design/install-layout.md.
 
+## Without MO2 running (the Linux-native merge, #1526)
+
+MO2 does not run on Linux, so the native engine can do the merge itself from the profile:
+`nvforever --mo2 "<instance folder>"` (plus `--profile <name>` when not the instance's
+`selected_profile`) reads the active mods' loose files over `Data`, the overwrite folder last,
+and loads the profile's plugins in its order. Nothing is written into the game folder or into
+MO2's folders, and MO2 keeps being where mods are installed and ordered. Mod-held `.bsa`
+archives are not mounted yet (phase 2) and the start warns about them. Design and limits:
+[mod-folders](design/mod-folders.md).
+
+```
+nvforever --data "<game>\Data" --mo2 "<instance>" --profile "<name>"
+```
+
 ## Checking a mod list's scripts without starting the game
 
 `fnvtool` reads an MO2 profile directly, with MO2 closed: `--mo2-profile <profile
@@ -58,5 +72,7 @@ functions NVForever lacks, per plugin:
 fnvtool ext report "<game>\Data" --mo2-profile "<instance>\profiles\<profile>" --schema schemas/fnv
 ```
 
-Only plugins are read this way. A mod's loose files and archives are not merged, so
-commands that need meshes or textures still need MO2 or a merged Data folder.
+`fnvtool vfs mods "<instance>"` shows the profile as the engine merges it (folders lowest
+priority first, active plugins), and with `--data` and `--path` resolves one game path to the
+layer that wins.
+

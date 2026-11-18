@@ -163,8 +163,8 @@ pub const CROUCH_UP_SECONDS: f32 = 1.1;
 /// along the settling curve (their own times are about 0.2 s, straight).
 pub const MOVE_FADE_SECONDS: f32 = 0.45;
 /// The first-person landing clip (the view dips and stands up again) takes this many times
-/// its own length, its place along the settling curve: the dip comes
-/// about as fast as the clip's own, the standing up after it slowly and to a soft end. A
+/// its own length, its place along [`land_curve`]: the dip comes at the clip's own pace
+/// from the landing frame on, the standing up after it slowly and to a soft end. A
 /// hop's landing (up to [`LANDING_SOFT_SPEED`]) takes the first, a hard one (from
 /// [`LANDING_HARD_SPEED`]) the second, smoothly between ([`land_stretch`]) [design: the
 /// owner's eighth playtest, 2026-11-14, "fall-scaled landing"].
@@ -214,6 +214,22 @@ pub fn hard_landing(push: f32) -> f32 {
 /// `fall_speed` (units/s).
 pub fn land_stretch(fall_speed: f32) -> f32 {
     LAND_STRETCH + (HARD_LAND_STRETCH - LAND_STRETCH) * crate::ease::smoothstep(LANDING_SOFT_SPEED, LANDING_HARD_SPEED, fall_speed)
+}
+
+/// Where the first-person landing clip is (0–1 of its length) at `u`, 0–1 of the `stretch`
+/// times longer time it takes: `1 − (1 − u)^stretch`, which leaves its start at the clip's
+/// own pace and slows all the way to rest at its end. Along the settling curve, which
+/// leaves 0 at no speed, the clip's first frames (the impact: the view going down) played
+/// in slow motion and the dip came about 0.06 s late, quickest 0.2 s after the feet were
+/// down [design: the owner, 2026-11-17, "when holding W - moving forward and jumping, the
+/// landing animation has a lag/hitch"; the trace `movement-inertia-trace-run-jump`].
+pub fn land_curve(u: f32, stretch: f32) -> f32 {
+    1.0 - (1.0 - u.clamp(0.0, 1.0)).powf(stretch.max(1.0))
+}
+
+/// The `u` at which [`land_curve`] is `y`.
+pub fn land_curve_inv(y: f32, stretch: f32) -> f32 {
+    1.0 - (1.0 - y.clamp(0.0, 1.0)).powf(1.0 / stretch.max(1.0))
 }
 
 /// Landing compression: landings slower than the first fall speed (units/s) keep their
@@ -851,6 +867,18 @@ mod tests {
         assert!(handling(7.0) > 1.0 && handling(7.0) < handling(15.0));
         assert_eq!(land_stretch(290.0), LAND_STRETCH, "a hop's landing as before");
         assert_eq!(land_stretch(2000.0), HARD_LAND_STRETCH);
+        // The landing clip starts at its own pace and comes to rest at its end.
+        for s in [1.2, LAND_STRETCH, HARD_LAND_STRETCH] {
+            let du = 1e-4;
+            let start = land_curve(du, s) / du / s;
+            assert!((start - 1.0).abs() < 1e-2, "stretch {s}: the clip starts at x{start} its own pace");
+            let end = (1.0 - land_curve(1.0 - du, s)) / du / s;
+            assert!(end < if s >= LAND_STRETCH { 0.01 } else { 0.2 }, "stretch {s}: it ends at x{end} its pace");
+            for k in 0..=20 {
+                let y = k as f32 / 20.0;
+                assert!((land_curve(land_curve_inv(y, s), s) - y).abs() < 1e-4);
+            }
+        }
         assert_eq!(hard_landing(291.0), 291.0, "a hop pushes as before");
         assert!((hard_landing(-1200.0) + 1200.0 * HARD_LANDING_GAIN).abs() < 1e-2);
         let m = MovementInertia { handling: 1.5, ..MovementInertia::all_on() };

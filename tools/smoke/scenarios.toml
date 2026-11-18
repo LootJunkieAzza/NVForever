@@ -47,6 +47,7 @@ untimed = [
   "NVF_PLAY_TEST_SANDBOX_INTERRUPT",
   "NVF_PLAY_TEST_MELEE_KNOCKBACK",
   "NVF_PLAY_TEST_RAGDOLL_FAIL",
+  "NVF_PLAY_TEST_RAGDOLL_PROBE",
   "NVF_PLAY_TEST_DEATH_RECOVERY",
 ]
 
@@ -889,6 +890,38 @@ forbid = [
 ]
 
 [[scenario]]
+name = "ambient-occlusion-gtao"
+source = "#2897 stage a, docs/design/graphics-enhanced.md §3.1: the ambient-occlusion switch runs the ground-truth estimate (engine/nvforever/src/ssao.wesl gtao_visibility, its plane-aware denoise) on the multisampled view, says so once, and its pipelines build and draw without a shader, pipeline or rendering error"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao.rs", "engine/nvforever/src/ssao.wesl"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics-only", "ambient-occlusion"]
+run_seconds = 14
+order = [[
+  { re = 'graphics: ambient occlusion, light glow$', label = "the switch is on from the start" },
+  { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise", label = "the ground-truth estimate runs, not the old one" },
+]]
+expect = [{ re = 'ambient occlusion: (ground-truth|old) estimate', count = 1, label = "said once: the switch stays on" }]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the occlusion drawn" },
+  { text = "failed and will not be tried again", label = "a pipeline (the occlusion's among them) that failed for good" },
+  { text = "Shader validation error", label = "ssao.wesl does not compile" },
+]
+
+[[scenario]]
+name = "ambient-occlusion-gtao-fsr"
+source = "#2897 stage a, docs/design/graphics-enhanced.md §3.1: the ground-truth estimate before FSR (engine/nvforever/src/ssao.rs ao_before_fsr, single-sampled depth at the render size) in Doc Mitchell's house, without a shader, pipeline or rendering error"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/ssao.rs", "engine/nvforever/src/ssao.wesl"]
+env = { WGPU_BACKEND = "vulkan" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--graphics-only", "ambient-occlusion", "--no-voice", "--no-lodgen"]
+run_seconds = 16
+expect = [
+  "FSR dispatch active: 3.1.4, 853x480 -> 1280x720",
+  { text = "ambient occlusion: ground-truth estimate (GTAO), 2 slices x 4 steps a side at half resolution, depth-aware denoise", count = 1, label = "the ground-truth estimate runs before FSR" },
+]
+forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error", "failed and will not be tried again"]
+
+[[scenario]]
 name = "ui-scale-write"
 source = "issue #1631: the settings page's Display row UI scale (ui-scale) sets the HUD's size, kept in NVForever.ini; the first half of the round trip, ui-scale-read starts with what this run keeps"
 note = "The home's INI may hold any scales from an earlier run: set both rows to 100%, then both to 70% (the rows are lists of 50-100% in tens since the menu overhaul, owner 2026-11-15; 75% was the slider's). #2519 makes the menu row independent; the existing three following 70% drawing/pointer oracles are unchanged."
@@ -1280,6 +1313,74 @@ run_seconds = 17
 expect = [
   { re = 'motion trace: writing', label = "the trace of the block is written" },
   { re = 'player body summary: weapon sway on', label = "the block: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-run-jump"
+source = "owner 2026-11-17 (\"when holding W - moving forward and jumping, the landing animation has a lag/hitch\"; engine/nvforever/src/player_body.rs MotionTrace): a frame-by-frame trace of jumps while running east down Goodsprings' main street with the rifle out (10/12.5/15 s) and back west with it put away (23/25.5/28 s), the street clear ahead both ways (the cell's start ran into a house), for finding a hitch at the landing (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/head_bob.rs", "engine/nvforever/src/view_sway.rs", "engine/nvf-play/src/inertia.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-run-jump.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon,10:jump,12.5:jump,15:jump,19:weapon,23:jump,25.5:jump,28:jump", NVF_PLAY_TEST_MOVE = "8:1:0,17:0:0,21:1:0,30:0:0", NVF_PLAY_TEST_LOOK = "18.5:270:0", NVF_PLAY_TEST_SHOTS = "7.5:run_jump_east.png,14:run_jump_east_mid.png,20.5:run_jump_west.png,27:run_jump_west_mid.png" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob"]
+run_seconds = 32
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the running jumps is written" },
+  { re = 'player body summary: [4-9] falls', label = "the running jumps: the jumps were taken" },
+  { re = 'player body summary: weapon sway on', label = "the running jumps: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-run-jump-original"
+source = "the reference for movement-inertia-trace-run-jump: the same running jumps with the Advanced Movement main switch off (--no-advanced-movement), to tell the landing clip's own motion from ours"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-run-jump-original.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "4:weapon,10:jump,12.5:jump,15:jump,19:weapon,23:jump,25.5:jump,28:jump", NVF_PLAY_TEST_MOVE = "8:1:0,17:0:0,21:1:0,30:0:0", NVF_PLAY_TEST_LOOK = "18.5:270:0" }
+args = ["--pos=-72000,2152,8390", "--heading", "90", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob", "--no-advanced-movement"]
+run_seconds = 32
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the running jumps is written, Advanced Movement off" },
+  { re = 'player view: landed at', label = "the running jumps, Advanced Movement off: a jump landed" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-crouch-jump-slope"
+source = "owner 2026-11-17 (video: \"player character teleports to the ground while crouch walking forward and jumping\"; engine/nvforever/src/player_body.rs MotionTrace): a frame-by-frame trace of crouched jumps while walking west up Goodsprings' sloped road by the house west of the cell's start (the place in the video), the rifle out, physics at 144 Hz and the body in first person as in the video, for finding the view snapping down at a touchdown (tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-crouch-jump-slope.csv", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_LOOK = "1:270:0", NVF_PLAY_TEST_CONTROL = "4:weapon,6:sneak,9:jump,10.6:jump,12.2:jump,13.8:jump,15.4:jump", NVF_PLAY_TEST_MOVE = "8:1:0,17:0:0", NVF_PLAY_TEST_SHOTS = "7.5:crouch_slope_ahead.png,13:crouch_slope_mid.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob", "--first-person-body", "--physics-hz", "144"]
+run_seconds = 19
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the crouched jumps on the slope is written" },
+  { re = 'player view: landed at', label = "a crouched jump on the slope landed" },
+  { re = 'player body summary: weapon sway on', label = "the crouched jumps on the slope: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-lever-sights"
+source = "owner 2026-11-17 (a tester's video: with Animation Smoothing on, the Trail Carbine fired down its sights takes the left hand off the gun after each shot; engine/nvforever/src/player_body.rs MotionTrace): a frame-by-frame trace of the lever-action Trail Carbine fired as fast as it cycles (a click every 0.3 s) down its sights for 4.5 s and then from the hip, with the body in first person on as in the report, for checking that the left hand stays on the gun (lhand_* against the camera node; tools/smoke/motion_trace.py reads it)"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvf-play/src/inertia.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-lever-sights.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapNVTrailCarbine:1,2:call:player:AddItem:Ammo44Magnum:60,2.5:call:player:EquipItem:WeapNVTrailCarbine", NVF_PLAY_TEST_CONTROL = "4:weapon,8:aim,10.00:fire,10.05:fire,10.30:fire,10.35:fire,10.60:fire,10.65:fire,10.90:fire,10.95:fire,11.20:fire,11.25:fire,11.50:fire,11.55:fire,11.80:fire,11.85:fire,12.10:fire,12.15:fire,12.40:fire,12.45:fire,12.70:fire,12.75:fire,13.00:fire,13.05:fire,13.30:fire,13.35:fire,13.60:fire,13.65:fire,13.90:fire,13.95:fire,14.20:fire,14.25:fire,14.50:fire,14.55:fire,15.5:aim,17.00:fire,17.05:fire,17.30:fire,17.35:fire,17.60:fire,17.65:fire,17.90:fire,17.95:fire,18.20:fire,18.25:fire,18.50:fire,18.55:fire,18.80:fire,18.85:fire,19.10:fire,19.15:fire,19.40:fire,19.45:fire", NVF_PLAY_TEST_SHOTS = "9.6:lever_on_aimed.png,10.2:lever_on_shot.png,10.45:lever_on_lever.png,18.2:lever_on_hip.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--animation-smoothing", "--weapon-sway", "--head-bob", "--first-person-body"]
+run_seconds = 22
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the lever-action shots is written" },
+  { re = 'combat: kick: shot', label = "the Trail Carbine fired" },
+  { re = 'player body summary: weapon sway on', label = "the lever-action shots: the run reached its end" },
+]
+
+[[scenario]]
+name = "movement-inertia-trace-lever-sights-original"
+source = "the reference for movement-inertia-trace-lever-sights: the same shots with Animation Smoothing off (--no-animation-smoothing), where the tester's video shows the left hand staying on the gun"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs"]
+env = { NVF_PLAY_TEST_MOTION_TRACE = "movement-inertia-trace-lever-sights-original.csv", NVF_PLAY_TEST_SCRIPT = "2:call:player:AddItem:WeapNVTrailCarbine:1,2:call:player:AddItem:Ammo44Magnum:60,2.5:call:player:EquipItem:WeapNVTrailCarbine", NVF_PLAY_TEST_CONTROL = "4:weapon,8:aim,10.00:fire,10.05:fire,10.30:fire,10.35:fire,10.60:fire,10.65:fire,10.90:fire,10.95:fire,11.20:fire,11.25:fire,11.50:fire,11.55:fire,11.80:fire,11.85:fire,12.10:fire,12.15:fire,12.40:fire,12.45:fire,12.70:fire,12.75:fire,13.00:fire,13.05:fire,13.30:fire,13.35:fire,13.60:fire,13.65:fire,13.90:fire,13.95:fire,14.20:fire,14.25:fire,14.50:fire,14.55:fire,15.5:aim,17.00:fire,17.05:fire,17.30:fire,17.35:fire,17.60:fire,17.65:fire,17.90:fire,17.95:fire,18.20:fire,18.25:fire,18.50:fire,18.55:fire,18.80:fire,18.85:fire,19.10:fire,19.15:fire,19.40:fire,19.45:fire", NVF_PLAY_TEST_SHOTS = "9.6:lever_off_aimed.png,10.2:lever_off_shot.png,10.45:lever_off_lever.png,18.2:lever_off_hip.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--movement-inertia", "--weapon-handling", "--no-animation-smoothing", "--weapon-sway", "--head-bob", "--first-person-body"]
+run_seconds = 22
+expect = [
+  { re = 'motion trace: writing', label = "the trace of the lever-action shots is written, Animation Smoothing off" },
+  { re = 'combat: kick: shot', label = "the Trail Carbine fired, Animation Smoothing off" },
 ]
 
 [[scenario]]
@@ -6290,6 +6391,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "failed-quest-stays-stopped"
+source = "#2958 (docs/spec-notes/layer5-captures.md section 5.8, observer check 226): Joe Cobb's reason lines set Ghost Town Gunfight's fail stage 110 (the game's own data); in the original a later SetStage on the failed quest marks the stage done but does not start the quest again, and its objectives no longer change (crates/fnv-game/src/game.rs set_stage, set_objective)"
+areas = ["quests", "scripts"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/quest.rs"]
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+# Ghost Town Gunfight started (10), failed as Cobb's lines fail it (110), then the stage the townspeople's lines set (50).
+env = { NVF_PLAY_TEST_CONSOLE = "2:SetStage VMS16 10;3:SetStage VMS16 110;4:SetStage VMS16 50;5:GetQuestRunning VMS16;6:GetObjectiveDisplayed VMS16 50;7:GetStageDone VMS16 50;8:GetQuestCompleted VMS16;9:GetQuestRunning VMS16b;10:close" }
+run_seconds = 13
+expect = [
+  { text = "console: GetQuestRunning >> 0.00", count = 2, label = "the failed quest is not started again by SetStage, and Run Goodsprings Run is not running" },
+  { text = "console: GetObjectiveDisplayed >> 0.00", count = 1, label = "stage 50's objective is not displayed on the failed quest" },
+  { text = "console: GetStageDone >> 1.00", count = 1, label = "the stage itself is marked done" },
+  { text = "console: GetQuestCompleted >> 1.00", count = 1, label = "a failed quest reads as completed" },
+]
+
+[[scenario]]
+name = "underwater-colour-by-depth"
+source = "#2916 (docs/spec-notes/world.md section 6, Under-water colour): under water the camera's fog goes from the water type's shallow colour at the surface to its deep colour 1,000 units down and is not lit (engine/nvforever/src/underwater.rs); the original under Lake Mead at noon is (67, 75, 34) with the feet 300 units down, the same whichever way the camera looks"
+areas = ["water", "render"]
+paths = ["engine/nvforever/src/underwater.rs"]
+# The viewer's camera 400 units under Lake Mead's surface (2,600): Potomac's shallow (52, 75, 52) and deep (27, 39, 24) give (42, 61, 41) there (a depth where no channel falls on a rounding edge).
+args = ["--world", "WastelandNV", "--pos=116736,67584,2080", "--eye-height=120", "--hour", "12", "--weather", "NVWastelandClear"]
+run_seconds = 8
+expect = [
+  { text = "underwater: the camera is under water (surface 2600.0), the water's under-water fog: colour (42, 61, 41) 400 units down, between shallow (52, 75, 52) and deep (27, 39, 24)", label = "the colour for the depth, from the water type's two colours" },
+]
+
+[[scenario]]
 name = "hello-shared-quest-order"
 source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
 note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM), the approaches 65 s apart since #2156: an actor that said an idle line says no other for 60 s (IDLE_LINE_AGAIN). Four approaches must choose eligible Random lines, never the later plain line; a line said in the last 180 s is not said again, so the four are the pool's four lines. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. The ganger is restrained at 1 s (#2011): it stays where it stands and keeps its package, so each approach finds it standing; before #2011 it stood through a seatless meal from about 12:09, now it goes on wandering, and an actor on its way does not say hello (crates/fnv-ai/src/social.rs)"
@@ -6376,6 +6505,7 @@ expect = [
   { re = 'ragdolls: .* (?P<n>\d+) laid in the pose their reference stores', range = [9, 1000], label = "ragdolls: the village's nine corpses or more in their stored pose" },
   { re = 'ragdolls: .* \(0 stored poses did not fit\)' },
 ]
+forbid = [{ re = 'ragdoll: actor 001578F7 starts with bone', label = "a village corpse in its stored pose is not lifted out of the ground (#2753: saved poses only past 20 units under)" }]
 
 [[scenario]]
 name = "death-pose-held"
@@ -12599,7 +12729,40 @@ expect = [
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
 ]
-forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
+forbid = [{ text = "death recovery:", label = "camera-only fixture does not dispatch recovery during its unchanged observation window" }, { re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }, { re = 'ragdoll: actor 00000014 held at rest calm at its time limit', label = "nor held at its time limit once calm (#2083 counts those apart)" }]
+
+[[scenario]]
+name = "ragdoll-probe-battle-50"
+source = "#2083 probe (round 1): in the 50-a-side battle most corpses were held at rest still moving instead of settling by themselves, while a lone test drop settles in about 1.2 s; one `ragdoll probe:` line per ragdoll set at rest says what woke it, the hits it took while awake, its moving bones and what it touched (another corpse, a loose object, the ground) as its settle began and when it was held (engine/nvforever/src/ragdoll.rs probe, fnv_phys PhysWorld::ragdoll_contacts)"
+note = "the profile campaign's battle-50 layout (tools/profile/campaign.toml, tools/stress battle.py layout): 50 NCR troopers west and 50 Legion raiders east of the Goodsprings road spot, the god-mode, unseen player 1,800 units south looking north, the stress launch's aids; a findings probe: the checks only show the lines are there, the main session reads them"
+areas = ["ragdoll", "physics"]
+paths = ["engine/nvforever/src/ragdoll.rs", "crates/fnv-phys/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_STRESS = "1", NVF_PLAY_TEST_RAGDOLL_PROBE = "1", NVF_PLAY_TEST_BATTLE = "5;LvlNCRTrooper:50:-69875:4800;LvlLegionRaiderMelee:50:-66875:4800" }
+args = ["--cell", "Goodsprings", "--pos=-68375,3000,9000", "--heading", "0", "--hour", "12", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 120
+expect = [
+  { re = 'stress battle: 2 groups, (?P<n>\d+) fighters', range = [60, 100], label = "the battle is placed" },
+  { re = 'ragdoll probe: actor [0-9A-F]{8} (slept|held still|held calm after settling|held moving at its time limit|held calm at its time limit|held calm in slow motion) \(', min = 10, label = "a probe line for each ragdoll set at rest" },
+  { re = 'ragdoll probe summary: ', label = "the probe's totals at exit" },
+  { re = 'ragdolls: .* held at their time limit after settling: \d+ still moving, \d+ of them crowded to 3 s, and \d+ calm by then;', label = "the exit report splits the holds at the time limit into still moving and calm by then (#2083)" },
+]
+
+[[scenario]]
+name = "ragdoll-probe-block"
+source = "#2083 probe (round 1): corpses falling together with nobody left to shoot them, against Goodsprings' residents falling alone, to tell contacts from hits (engine/nvforever/src/ragdoll.rs probe, fnv_phys PhysWorld::ragdoll_contacts)"
+note = "the battle aid places nine NCR troopers in a 3x3 block 140 units apart on the Goodsprings road spot and one Legion raider 3,000 units north (the aid needs two groups); `killall` at 8 s kills them all at once with the town's residents (essential ones knocked out), so no shooter is left to strike a corpse; the block's corpses fall on and beside each other, the residents' alone. A findings probe: the checks only show the lines are there"
+areas = ["ragdoll", "physics"]
+paths = ["engine/nvforever/src/ragdoll.rs", "crates/fnv-phys/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_RAGDOLL_PROBE = "1", NVF_PLAY_TEST_BATTLE = "5;LvlNCRTrooper:9:-68375:4800;LvlLegionRaiderMelee:1:-68375:7800", NVF_PLAY_TEST_CONSOLE = "8:killall;8.5:close" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4300,9000", "--heading", "0", "--hour", "12", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'stress battle: 2 groups, (?P<n>\d+) fighters', range = [6, 10], label = "the block is placed" },
+  { re = 'KillAllActors >> (?P<n>\d+) killed', range = [6, 1000], label = "the block and the town die at once" },
+  { re = 'ragdoll probe: actor [0-9A-F]{8} (slept|held still|held calm after settling|held moving at its time limit|held calm at its time limit|held calm in slow motion) \(', min = 6, label = "a probe line for each ragdoll set at rest" },
+  { re = 'ragdoll probe summary: ', label = "the probe's totals at exit, block" },
+  { re = 'ragdolls: .* held at their time limit after settling: \d+ still moving, \d+ of them crowded to 3 s, and \d+ calm by then;', label = "the exit report splits the holds at the time limit into still moving and calm by then (#2083), block" },
+]
 
 [[scenario]]
 name = "loose-items-float"
@@ -16978,6 +17141,144 @@ expect = [
 ]
 
 [[scenario]]
+name = "sinking-drop-varmint-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the reported Varmint Rifle spot (-68186, 1595) in WastelandNV [observed: issue #2753]; GoodspringsSettler03Ref (0x00104F0A) is put on the spot at 2 s (MoveTo the player, 300 north, 110 up: the terrain at the spot is about 100 over the player's start, observed: round 1 of the probes, terrain z 8353 against 8256; MoveTo keeps the player's height and in round 1 the settler stood 87 units inside the slope), given the weapon, made to equip it and set on the player (GOD) so it holds the weapon drawn, and killed at 12 s, put back on the spot a quarter second before (MoveTo again): it drops the weapon 50 units in front of it, 30 over its feet, as the reports' NPCs did (iDeathDropWeaponChance). The player drops one of the same weapon at 5 s as a control. In round 1 the settler was held with SetRestrained and not in combat, its weapon holstered, so nothing dropped (combat.rs death_drops takes the weapon in the hand). The lift line is what would confirm the weapons' cause (round 2). Killed at 6 s (probes round 3) it had no weapon in the hand yet, so nothing dropped: that run's settler was not even drawn by then ('says a line to the player but is not drawn'); at 10 s (round 2) it had drawn and dropped, but had run off to cover first, up to 800 units away"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:0x00104F0A:MoveTo:player:0:300:110,3:call:0x00104F0A:AddItem:WeapNVVarmintRifle:1,3.5:call:0x00104F0A:EquipItem:WeapNVVarmintRifle,4:combat:0x00104F0A:player,4.5:call:player:AddItem:WeapNVVarmintRifle:1,5:call:player:Drop:WeapNVVarmintRifle:1,11.75:call:0x00104F0A:MoveTo:player:0:300:110,12:call:0x00104F0A:KillActor" }
+args = ["--play", "--world", "WastelandNV", "--pos=-68186,1295,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: 0x00104F0A died: it drops its ', label = "the settler drops the Varmint Rifle as it dies" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: .*\(dynamic\)', min = 2, label = "the player's Varmint Rifle and the settler's get dynamic collision" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 1, label = "the player's Varmint Rifle comes to rest" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 2, label = "both Varmint Rifles come to rest" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} started with its centre .* under the terrain', label = "the settler's Varmint Rifle would start under the terrain and is lifted onto it", known_failing = "hypothesis, #2753 round 3: whether an NPC's death drop starts under the terrain here (50 units ahead, 30 over its feet) is not shown; a 'now passes' line here confirms the dropped weapons' cause" },
+]
+forbid = [
+  { re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "no Varmint Rifle falls through the ground (#2753)" },
+  { re = 'dropped 0x[0-9A-F]{8} sank:', label = "no Varmint Rifle sinks under the terrain (#2753)" },
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Varmint Rifle spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-drop-hunting-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the reported Hunting Rifle spot (1276, 15635) in WastelandNV [observed: issue #2753]; GoodspringsSettler03Ref (0x00104F0A) is put on the spot at 2 s (MoveTo the player, 300 north, 0 up: the ground there is level with the start, observed: round 1), given the weapon, made to equip it and set on the player (GOD) so it holds the weapon drawn, and killed at 12 s, put back on the spot a quarter second before (MoveTo again): it drops the weapon 50 units in front of it, 30 over its feet, as the reports' NPCs did (iDeathDropWeaponChance). The player drops one of the same weapon at 5 s as a control. In round 1 the settler was held with SetRestrained and not in combat, its weapon holstered, so nothing dropped (combat.rs death_drops takes the weapon in the hand). The lift line is what would confirm the weapons' cause (round 2). Killed at 6 s (probes round 3) it had no weapon in the hand yet, so nothing dropped: that run's settler was not even drawn by then ('says a line to the player but is not drawn'); at 10 s (round 2) it had drawn and dropped, but had run off to cover first, up to 800 units away"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:0x00104F0A:MoveTo:player:0:300:0,3:call:0x00104F0A:AddItem:WeapHuntingRifle:1,3.5:call:0x00104F0A:EquipItem:WeapHuntingRifle,4:combat:0x00104F0A:player,4.5:call:player:AddItem:WeapHuntingRifle:1,5:call:player:Drop:WeapHuntingRifle:1,11.75:call:0x00104F0A:MoveTo:player:0:300:0,12:call:0x00104F0A:KillActor" }
+args = ["--play", "--world", "WastelandNV", "--pos=1276,15335,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: 0x00104F0A died: it drops its ', label = "the settler drops the Hunting Rifle as it dies" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: .*\(dynamic\)', min = 2, label = "the player's Hunting Rifle and the settler's get dynamic collision" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 1, label = "the player's Hunting Rifle comes to rest" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 2, label = "both Hunting Rifles come to rest", known_failing = "probes round 5 (d5ebb3ad8): the player's control rifle lay on the ground at the spot, 34 below its start, jittering at 0-10 units/s and never asleep in 30 s (no sink): the never-sleeping clutter of #2663, whose sleep threshold is on its own branch" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} started with its centre .* under the terrain', label = "the settler's Hunting Rifle would start under the terrain and is lifted onto it", known_failing = "hypothesis, #2753 round 3: whether an NPC's death drop starts under the terrain here (50 units ahead, 30 over its feet) is not shown; a 'now passes' line here confirms the dropped weapons' cause" },
+]
+forbid = [
+  { re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "no Hunting Rifle falls through the ground (#2753)" },
+  { re = 'dropped 0x[0-9A-F]{8} sank:', label = "no Hunting Rifle sinks under the terrain (#2753)" },
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Hunting Rifle spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-drop-10mm-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the reported 10mm Pistol spot (-42041, -94388) in WastelandNV [observed: issue #2753]; GoodspringsSettler03Ref (0x00104F0A) is put on the spot at 2 s (MoveTo the player, 300 north, 0 up: the ground there is level with the start, observed: round 1), given the weapon, made to equip it and set on the player (GOD) so it holds the weapon drawn, and killed at 12 s, put back on the spot a quarter second before (MoveTo again): it drops the weapon 50 units in front of it, 30 over its feet, as the reports' NPCs did (iDeathDropWeaponChance). The player drops one of the same weapon at 5 s as a control. In round 1 the settler was held with SetRestrained and not in combat, its weapon holstered, so nothing dropped (combat.rs death_drops takes the weapon in the hand). The lift line is what would confirm the weapons' cause (round 2). Killed at 6 s (probes round 3) it had no weapon in the hand yet, so nothing dropped: that run's settler was not even drawn by then ('says a line to the player but is not drawn'); at 10 s (round 2) it had drawn and dropped, but had run off to cover first, up to 800 units away"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:0x00104F0A:MoveTo:player:0:300:0,3:call:0x00104F0A:AddItem:0x0000434F:1,3.5:call:0x00104F0A:EquipItem:0x0000434F,4:combat:0x00104F0A:player,4.5:call:player:AddItem:0x0000434F:1,5:call:player:Drop:0x0000434F:1,11.75:call:0x00104F0A:MoveTo:player:0:300:0,12:call:0x00104F0A:KillActor" }
+args = ["--play", "--world", "WastelandNV", "--pos=-42041,-94688,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: 0x00104F0A died: it drops its ', label = "the settler drops the 10mm Pistol as it dies" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: .*\(dynamic\)', min = 2, label = "the player's 10mm Pistol and the settler's get dynamic collision" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 1, label = "the player's 10mm Pistol comes to rest" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 2, label = "both 10mm Pistols come to rest" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} started with its centre .* under the terrain', label = "the settler's 10mm Pistol would start under the terrain and is lifted onto it", known_failing = "hypothesis, #2753 round 3: whether an NPC's death drop starts under the terrain here (50 units ahead, 30 over its feet) is not shown; a 'now passes' line here confirms the dropped weapons' cause" },
+]
+forbid = [
+  { re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "no 10mm Pistol falls through the ground (#2753)" },
+  { re = 'dropped 0x[0-9A-F]{8} sank:', label = "no 10mm Pistol sinks under the terrain (#2753)" },
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the 10mm Pistol spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-drop-shotgun-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the reported Lever-Action Shotgun spot (10798, 17343) in WastelandNVmini [observed: issue #2753]; GoodspringsSettler03Ref (0x00104F0A) is put on the spot at 2 s (MoveTo the player, 300 north, 0 up: the ground there is flat at z 9920, observed: LAND 0x00149DCA; the Hunting Rifle stands in for the shotgun, whose Editor ID was not looked up), given the weapon, made to equip it and set on the player (GOD) so it holds the weapon drawn, and killed at 12 s, put back on the spot a quarter second before (MoveTo again): it drops the weapon 50 units in front of it, 30 over its feet, as the reports' NPCs did (iDeathDropWeaponChance). The player drops one of the same weapon at 5 s as a control. In round 1 the settler was held with SetRestrained and not in combat, its weapon holstered, so nothing dropped (combat.rs death_drops takes the weapon in the hand). The lift line is what would confirm the weapons' cause (round 2). Killed at 6 s (probes round 3) it had no weapon in the hand yet, so nothing dropped: that run's settler was not even drawn by then ('says a line to the player but is not drawn'); at 10 s (round 2) it had drawn and dropped, but had run off to cover first, up to 800 units away"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:call:0x00104F0A:MoveTo:player:0:300:0,3:call:0x00104F0A:AddItem:WeapHuntingRifle:1,3.5:call:0x00104F0A:EquipItem:WeapHuntingRifle,4:combat:0x00104F0A:player,4.5:call:player:AddItem:WeapHuntingRifle:1,5:call:player:Drop:WeapHuntingRifle:1,11.75:call:0x00104F0A:MoveTo:player:0:300:0,12:call:0x00104F0A:KillActor" }
+args = ["--play", "--world", "WastelandNVmini", "--pos=10798,17043,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: 0x00104F0A died: it drops its ', label = "the settler drops the stand-in Hunting Rifle as it dies" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: .*\(dynamic\)', min = 2, label = "the player's stand-in Hunting Rifle and the settler's get dynamic collision" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 1, label = "the player's stand-in Hunting Rifle comes to rest" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at', min = 2, label = "both stand-in Hunting Rifles come to rest" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} started with its centre .* under the terrain', label = "the settler's stand-in Hunting Rifle would start under the terrain and is lifted onto it", known_failing = "hypothesis, #2753 round 3: whether an NPC's death drop starts under the terrain here (50 units ahead, 30 over its feet) is not shown; a 'now passes' line here confirms the dropped weapons' cause" },
+]
+forbid = [
+  { re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "no stand-in Hunting Rifle falls through the ground (#2753)" },
+  { re = 'dropped 0x[0-9A-F]{8} sank:', label = "no stand-in Hunting Rifle sinks under the terrain (#2753)" },
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Lever-Action Shotgun spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-corpse-bighorner-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the spot (-9617, -96521) where the Bighorner spawn 0x001710BB's corpse fell through on 9 installs [observed: issue #2753]. A new game lays it out dead where it is placed (an nvvoid placeholder in round 1: its leveled choice; Health 0) and its ragdoll starts when the cell loads, in round 1 under the terrain"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--world", "WastelandNV", "--pos=-9617,-96821,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'ragdoll: actor 001710BB starts with bone .* under the terrain: lifted', label = "its ragdoll would start under the terrain and is lifted over it first" },
+  { re = 'ragdoll: actor 001710BB at rest at', label = "its corpse comes to rest" },
+]
+forbid = [
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Bighorner spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-corpse-radscorpion-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the spot (-48169, 2481) where the Radscorpion spawn 0x0015A0C4's corpse fell through on 9 installs [observed: issue #2753]. A new game lays it out dead where it is placed (an nvvoid placeholder in round 1: its leveled choice; Health 0) and its ragdoll starts when the cell loads, in round 1 under the terrain"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--world", "WastelandNV", "--pos=-48169,2181,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'ragdoll: actor 0015A0C4 starts with bone .* under the terrain: lifted', label = "its ragdoll would start under the terrain and is lifted over it first" },
+  { re = 'ragdoll: actor 0015A0C4 at rest at', label = "its corpse comes to rest" },
+]
+forbid = [
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Radscorpion spot (#2753)" },
+]
+
+[[scenario]]
+name = "sinking-corpse-molerat-spot"
+source = "#2753: weapons dropped by dying NPCs and corpses sank through the terrain in exteriors (players' logs, build 0.7.0). The probes: the reported corpses are leveled spawns' invisible nvvoid placeholders laid out dead, whose ragdolls started 3 to 360 units under the terrain and fell through it; a body started under the two-sided terrain mesh is now lifted over it first (engine/nvforever/src/ragdoll.rs out_of_terrain, engine/nvf-play/src/phys/sinking.rs; docs/spec-notes/physics.md §4.3)"
+note = "probe: the player starts 300 units south of the spot (4576, -80356) where the Mole rat spawn 0x00161732's corpse fell through on 7 installs [observed: issue #2753]. A new game lays it out dead where it is placed (an nvvoid placeholder in round 1: its leveled choice; Health 0) and its ragdoll starts when the cell loads"
+areas = ["physics", "ragdoll"]
+paths = ["engine/nvf-play/src/phys/sinking.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--world", "WastelandNV", "--pos=4576,-80656,30000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'ragdoll: actor 00161732 at rest at', label = "its corpse comes to rest" },
+]
+forbid = [
+  { re = 'ragdoll: actor [0-9A-F]{8} (fell through at|sank:)', label = "no corpse falls through or sinks under the terrain near the Mole rat spot (#2753)" },
+]
+
+[[scenario]]
 name = "next-quest-active"
 source = "ESM full audit gap 20 (crates/fnv-game/src/game.rs set_stage): a stage entry that completes its quest makes its Next Quest (QUST NAM0) the active quest (GECK wiki Quest Stages)"
 note = "SetStage VCG01 200 (Ain't That a Kick in the Head; its Next Quest is VMQ01, They Went That-a-Way) at 4 s; the Pip-Boy's data page opens at 10 s"
@@ -18525,6 +18826,27 @@ commands = [["ext", "report", "{data}", "--mo2-profile", "{env:NVF_MODLIST_BEGIN
 # compile lowers units_kept_bytes there; a rise fails this run.
 expect_file = "expected/modlist-begin-again.toml"
 manual = "a rise: compare the report's per_plugin failed lists with main's; a drop: write the new summary into expected/modlist-begin-again.toml"
+
+[[scenario]]
+name = "ttw-child-worlds-parent-land"
+kind = "tool"
+source = "issue #2345: a child worldspace takes land and default heights from its parent by WRLD PNAM (crates/fnv-world/src/index.rs take_parent_data; docs/spec-notes/world.md section 1.1): Tale of Two Wastelands' Oasis has no LAND of its own (the player fell through the world), MegatonWorld lacks it on 4 squares, ParadiseFalls on 10"
+areas = ["world", "mods"]
+paths = ["crates/fnv-world/src/index.rs", "crates/fnv-world/tests/parent_data.rs"]
+requires = ["NVF_TTW_DATA"]
+note = "NVF_TTW_DATA: a Data folder holding Tale of Two Wastelands' masters beside the New Vegas ones (the owner's merged folder). The counts are of cells with a LAND record after the parent's are taken; before #2345 they were 0, 12, 2 and 85, with no default heights"
+commands = [["world", "list", "--schema", "schemas/fnv", "{env:NVF_TTW_DATA}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm"]]
+expect = [
+  { json = "worldspaces.?edid=Oasis.land_cells", schema = "fnv.world.list/1", equals = 34, count = 1, label = "Oasis: land on all 34 cells, from the parent" },
+  { json = "worldspaces.?edid=Oasis.default_land_height", schema = "fnv.world.list/1", equals = -2048.0, count = 1, label = "Oasis: the parent's default land height" },
+  { json = "worldspaces.?edid=Oasis.default_water_height", schema = "fnv.world.list/1", equals = 10500.0, count = 1, label = "Oasis: the parent's default water height" },
+  { json = "worldspaces.?edid=MegatonWorld.land_cells", schema = "fnv.world.list/1", equals = 16, count = 1, label = "MegatonWorld: its own 12 and the parent's 4" },
+  { json = "worldspaces.?edid=ParadiseFalls.land_cells", schema = "fnv.world.list/1", equals = 12, count = 1, label = "ParadiseFalls: its own 2 and the parent's 10" },
+  { json = "worldspaces.?edid=GNRroofWorld.land_cells", schema = "fnv.world.list/1", equals = 143, count = 1, label = "GNRroofWorld: its own 85 and the parent's 58" },
+  { json = "worldspaces.?edid=MonumentWorld.land_cells", schema = "fnv.world.list/1", equals = 73, count = 1, label = "MonumentWorld (no Use Land Data): its own records only" },
+  { json = "worldspaces.?edid=MonumentWorld.default_land_height", schema = "fnv.world.list/1", equals = 12288.0, count = 1, label = "MonumentWorld keeps its own default land height" },
+  { json = "worldspaces.?edid=FreesideWorld.land_cells", schema = "fnv.world.list/1", equals = 108, count = 1, label = "a New Vegas child (Use Map Data only) is unchanged" },
+]
 
 [[scenario]]
 name = "modlist-high-dry"
@@ -25383,6 +25705,70 @@ expect = [
 order = [["pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
 
 [[scenario]]
+name = "pause-mods-save-jam"
+source = "issue #2944: the first half: a new game with MCM and Just Assorted Mods, with the Mods page opened in play (JAM registers under it again after the new game's GameMode reset its timer), then saved: its timer variable is saved at 1, MCM's list is not (ListAddForm's changes are not saved); pause-mods-load-jam loads it, so run them together"
+note = "needs MCM and Just Assorted Mods in Data, as pause-mods-page-jam. NVFOREVER_HOME keeps the save off the real saves folder"
+areas = ["ui", "menus", "scripts", "save"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-game/src/game.rs"]
+env = { NVFOREVER_HOME = "mcm-load-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "9:14", NVF_PLAY_TEST_PAUSE_MENU = "10:mods,13:back", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:save smoke-mcm;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 20
+expect = [
+  { text = "tiles: MCM's window is open on the Mods page", label = "the Mods page ran JAM's MenuMode 1013 block in play, so its timer is at 1 when saved" },
+  { re = 'save: wrote .*smoke-mcm\.nvfsave \(manual', label = "the save is written with JAM registered" },
+]
+order = [["pause menu: mods page closed", "save: wrote"]]
+
+[[scenario]]
+name = "pause-mods-load-jam"
+source = "issue #2944: the second half: --load the save pause-mods-save-jam made. As under the original's main menu the start menu's MenuMode 1013 frames run before the save is read, with JAM's timer at its start, so JAM adds itself to MCM's list, and the list (ListAddForm's edits, not saved) lasts through the load; MCM's install check on the page's first frame finds it and its window opens (the owner's run 2026-11-17: the frames ran after the restore, JAM's saved timer skipped them, the list was empty and MCM stopped at 'No MCM Mods')"
+note = "needs MCM and Just Assorted Mods in Data, as pause-mods-page-jam; pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts", "save"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-game/src/game.rs"]
+env = { NVFOREVER_HOME = "mcm-load-home", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_PAUSE_MENU = "11:mods,16:shot,18:back" }
+args = ["--play", "--load", "smoke-mcm", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 26
+expect = [
+  { re = 'load: restored .*smoke-mcm\.nvfsave', label = "the save is loaded" },
+  { text = "scripts: the start menu's MenuMode 1013 blocks ran 60 frames before the game", label = "the start menu's frames ran" },
+  { re = "MCM's list of mods [(]MCMMods[)] holds Some[(][1-9]", label = "JAM is in MCM's list as the page opens after the load" },
+  { text = "tiles: MCM's window is open on the Mods page", label = "MCM's window opens on a loaded save" },
+  { text = "MCM's window did not open", count = 0, label = "no click is lost to MCM's 'No MCM Mods' check" },
+  { text = "pause menu: mods page closed", label = "Back leaves the page" },
+]
+order = [["scripts: the start menu's MenuMode 1013 blocks ran", "load: restored", "pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
+
+[[scenario]]
+name = "pause-mods-added-save"
+source = "issue #2944: the first half: a save written with no MCM in the load order, as the owner's games begun before MCM was added; pause-mods-added-load loads it with MCM and Just Assorted Mods added, so run them together"
+note = "needs only the base game for the save; NVFOREVER_HOME keeps the save off the real saves folder"
+areas = ["ui", "menus", "scripts", "save"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/script.rs", "crates/fnv-game/src/game.rs"]
+env = { NVFOREVER_HOME = "mcm-added-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:save smoke-no-mcm;13:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm"]
+run_seconds = 16
+expect = [
+  { re = 'save: wrote .*smoke-no-mcm\.nvfsave \(manual', label = "the save is written without MCM" },
+]
+
+[[scenario]]
+name = "pause-mods-added-load"
+source = "issue #2944: the second half: --load the save pause-mods-added-save made, with MCM and Just Assorted Mods added since. MCM's quest is start-game-enabled and the save has no entry for it; the load starts it, as a new game does, so its GameMode and MenuMode blocks run and its window opens on the Mods page (the owner's saves of 2026-11-11 to 13 loaded with MCM's quest stopped and the page empty)"
+note = "needs MCM and Just Assorted Mods in Data, as pause-mods-page-jam; pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts", "save"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/script.rs", "crates/fnv-game/src/game.rs"]
+env = { NVFOREVER_HOME = "mcm-added-home", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_PAUSE_MENU = "11:mods,16:shot,18:back", NVF_PLAY_TEST_CONSOLE = "8:PrintC \"nvf mcm running %g\" (GetQuestRunning MCM);8.5:close" }
+args = ["--play", "--load", "smoke-no-mcm", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 26
+expect = [
+  { re = 'load: restored .*smoke-no-mcm\.nvfsave', label = "the save from before MCM is loaded" },
+  { text = "nvf mcm running 1", label = "MCM's start-game-enabled quest runs after the load" },
+  { text = "tiles: MCM's window is open on the Mods page", label = "MCM's window opens on the save from before MCM" },
+  { text = "MCM's window did not open", count = 0, label = "no click is lost" },
+]
+order = [["load: restored", "nvf mcm running 1", "pause menu: mods page", "tiles: MCM's window is open", "pause menu: mods page closed"]]
+
+[[scenario]]
 name = "pause-mods-page-set-value"
 source = "issue #2298 (docs/spec-notes/mcm.md; crates/fnv-ui/src/tree.rs, xml.rs; crates/fnv-game/src/ui_functions.rs; engine/nvf-play/src/tiles/mod.rs, input.rs): on the pause menu's Mods page the pointer chooses a mod in MCM's list and a click on one of its toggle options sets the value through MCM's own round trip (MCM writes _Value and _NewValue, the mod's MenuMode 1013 block takes it and sets _Reset, the page shows it) [documented: MCM Guide v6, New Values]"
 note = "needs MCM and Just Assorted Mods (JustAssortedMods.esp; masters FalloutNV and DLC) in Data, as pause-mods-page-jam. Just Mods is the list's only line, at (338, 188) in interface units; its first option, Enable Dynamic Crosshair, a check box (type 5), at (600, 190), clicked twice: Just Assorted Mods keeps the setting in its INI (SetModINI), so a run starts from whatever the last left, and both values must follow the first click. The mod log's MCM line says the option's _value after each; pause_mods.png shows the page"
@@ -25404,6 +25790,35 @@ order = [
   [{ re = "MCM _ActiveOption 1, _Value [01], _NewValue 0,", label = "the click" },
    { re = 'Option1 "Enable Dynamic Crosshair" x \S+ y \S+ visible 1 title y \S+ _type 5 _value 1 shown "1"', label = "and the box on, one of the two clicks each" }],
 ]
+
+[[scenario]]
+name = "jam-sprint-off"
+source = "issue #2952: Just Assorted Mods' sprint turned off (JVSEnabled 0, as its INI sets it) must not start: its sprint script, told to apply the setting (JVS.iSettingUpdate), removes its key handler with no key (SetOnKeyDownEventHandler JVSOnKeyDownEventHandler 0) and its main loop callback. NVForever removed only a registration with the same key, so Shift still started a sprint the removed main loop could never stop (the owner's run 2026-11-18)"
+note = "needs Just Assorted Mods in Data (and MCM, its master). NVFOREVER_HOME is a home with no JustMods.ini, so the plugin's own values hold until the console sets JVSEnabled 0. W is held from 10 s, Left Shift (JAM's JVSKey 42) from 11 to 14 s"
+areas = ["scripts", "nvse", "input"]
+paths = ["crates/fnv-game/src/jip_events.rs"]
+env = { NVFOREVER_HOME = "jam-sprint-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set JVSEnabled to 0;4.2:set JVS.iSettingUpdate to 1;4.4:close;12.5:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;12.7:close;17:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;17.2:close", NVF_PLAY_TEST_KEYS = "10:w:9,11:shift:3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 20
+expect = [
+  { text = "nvf jvs sprint 0 enabled 0", min = 2, label = "with the sprint turned off, Shift starts none (12.5 s) and none is left on (17 s)" },
+  { text = "nvf jvs sprint 1", count = 0, label = "no sprint at all" },
+]
+
+[[scenario]]
+name = "jam-sprint-stops"
+source = "issue #2952: Just Assorted Mods' sprint, on (the plugin's own JVSEnabled 1): holding Left Shift while running starts it, and letting go ends it (its main loop callback, JVSMainLoopEventHandler, sees the key up)"
+note = "needs Just Assorted Mods in Data (and MCM, its master). NVFOREVER_HOME is a home with no JustMods.ini, so the plugin's own values hold. W is held from 10 s, Left Shift (JAM's JVSKey 42) from 11 to 14 s"
+areas = ["scripts", "nvse", "input"]
+paths = ["crates/fnv-game/src/jip_events.rs"]
+env = { NVFOREVER_HOME = "jam-sprint-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12.5:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;12.7:close;17:PrintC \"nvf jvs sprint %g enabled %g\" JVS.iSprint JVSEnabled;17.2:close", NVF_PLAY_TEST_KEYS = "10:w:9,11:shift:3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 20
+expect = [
+  { text = "nvf jvs sprint 1 enabled 1", label = "Shift held while running starts the sprint" },
+  { text = "nvf jvs sprint 0 enabled 1", label = "letting go of Shift ends it" },
+]
+order = [["nvf jvs sprint 1 enabled 1", "nvf jvs sprint 0 enabled 1"]]
 
 [[scenario]]
 name = "travel-skip-sun-shadows"
@@ -32247,6 +32662,38 @@ order = [[
 ]]
 forbid = [
   { re = 'idle: Lucky38MrHouseREF plays MrHouseTalk', label = "the screen never plays the pod's talk idles" },
+]
+
+
+[[scenario]]
+name = "quality-main-menu-measure"
+source = "[design, #2248] Main menu -> Settings -> four invented presets, then each of their nine rows alone; quality_probe.rs records wall-clock frames and correlated work. Stage 1 requires measurement lines without performance or load limits. Stage 2 (the fix) adds: each preset writes the INI once, and no preset starts a cell, a reference, a world root, a visual part or a camera (all 0 in the first measured run, 2026-11-17); still no frame-time limit."
+note = "[design, #2248] Eight seconds between edits permits a three-second sample after each setter; overlapping samples remain independent if a stall makes several aid steps due together. No New Game action is sent. Pipeline labels/times use the existing pipeline log aid. Shadow distance, Shadow filtering and Sun shadows are lists since the menu overhaul: each takes a number as the INI does (load_text); Shadow filtering is changed before Sun shadows goes Off so it is measured with shadows on."
+areas = ["main-menu", "settings", "renderer"]
+paths = ["engine/nvforever/src/quality_probe.rs", "engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/main_menu.rs", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/pipeline_gate.rs", "engine/nvforever/src/sky.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVFOREVER_HOME = "quality-main-menu-measure-home", NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "8:settings", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_QUALITY_MEASURE = "1", NVF_PLAY_TEST_SETTINGS = "12:quality=Low,20:quality=Medium,28:quality=High,36:quality=Very High,44:shadow-distance=0.5,52:shadow-filter=0,60:sun-shadows=0,68:actor-distance=0.5,76:object-distance=0.5,84:item-distance=0.5,92:grass-distance=0.5,100:water-mirror,108:glow" }
+args = ["--play", "--menu", "--no-voice", "--no-messages", "--no-lodgen", "--size", "1280x720"]
+run_seconds = 180
+expect = [
+  "main menu: open",
+  "main menu: Settings",
+  "pause menu: Settings { selected: None } page for another menu",
+  { text = "test aid NVF_PLAY_TEST_QUALITY_MEASURE: main-menu quality edits measured", count = 1 },
+  { re = 'quality measure: key=quality value=Low main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=Medium main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=High main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=Very High main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=shadow-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=sun-shadows value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=shadow-filter value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=actor-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=object-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=item-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=grass-distance value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=water-mirror value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=glow value=.* main_menu=true .*longest_frame_ms=[0-9.]+ setter_ms=[0-9.]+ cell_starts=', count = 1 },
+  { re = 'quality measure: key=quality value=.* ini_write_attempts=1\b', count = 4, label = "#2248 fix: each preset writes NVForever.ini once, not once per row (settings.rs StoreHold)" },
+  { re = 'quality measure: key=quality value=.* cell_starts=0 reference_attempts=0 world_roots=0 visual_parts=0 camera_spawns=0 ', count = 4, label = "#2248: a preset rebuilds nothing of the held house behind the main menu" },
 ]
 
 [[scenario]]
