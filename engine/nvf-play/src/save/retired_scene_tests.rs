@@ -22,6 +22,12 @@ fn query(world: &mut World, body: &str) -> XVal {
 }
 
 fn fixture() -> (World, OwnedFile) {
+    fixture_with_save_callback(true)
+}
+
+/// `save_callback` registers a SaveGame handler lambda; a save then holds a runtime lambda,
+/// which the proposed high-FE policy refuses to remap to a changed load order.
+fn fixture_with_save_callback(save_callback: bool) -> (World, OwnedFile) {
     use crate::script_draw::tests::{play_over, record, sub, top};
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let string = |sig: &[u8; 4], text: &str| sub(sig, [text.as_bytes(), &[0]].concat());
@@ -43,9 +49,11 @@ fn fixture() -> (World, OwnedFile) {
     world.insert_resource(SaveConfig::with_dir(Some(dir)));
     world.init_resource::<SaveHooks>();
     world.init_resource::<SaveWrites>();
-    world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.run_source(
-        "SetEventHandler \"SaveGame\" (begin function {string_var ownName}\nSetModLocalData \"owned.save.callback\" 1\nend)", Default::default(),
-    ).unwrap();
+    if save_callback {
+        world.resource_mut::<ScriptState>().rt.as_mut().unwrap().game.run_source(
+            "SetEventHandler \"SaveGame\" (begin function {string_var ownName}\nSetModLocalData \"owned.save.callback\" 1\nend)", Default::default(),
+        ).unwrap();
+    }
     (world, OwnedFile(path))
 }
 
@@ -108,17 +116,26 @@ fn retired_scene_container_allows_appended_plugins_but_refuses_identity_remappin
 
 #[test]
 fn ordinary_deleted_reference_still_uses_real_plugin_remapping() {
-    let (mut world, file) = fixture();
-    let (reference, original) = retire(&mut world, false);
-    assert_eq!(original, FormId(0xD10));
-    save_now(&mut world, &SaveRequest { name: "retired".into(), kind: SaveKind::Manual }).unwrap();
-    let writes = world.resource::<SaveWrites>(); let write = &writes.waiting[0];
-    assert_eq!(write.header.plugins.len(), 1);
-    fnv_save::write(&file.0, &write.header, &[], &write.body, false).unwrap();
-    let mut current = vec![PluginEntry { name: "OwnedEarlier.esm".into(), size: 0 }];
-    current.extend(write.header.plugins.clone());
-    let (_, body, order) = read_for_load(&file.0, &current).unwrap();
-    assert!(order.is_some());
-    assert_eq!(body.game.sim.deleted_created.get(&reference), Some(&FormId(0x0100_0D10)));
-    assert_eq!(body.game.format, fnv_game::game::SNAPSHOT_FORMAT);
+    for save_callback in [false, true] {
+        let (mut world, file) = fixture_with_save_callback(save_callback);
+        let (reference, original) = retire(&mut world, false);
+        assert_eq!(original, FormId(0xD10));
+        save_now(&mut world, &SaveRequest { name: "retired".into(), kind: SaveKind::Manual }).unwrap();
+        let writes = world.resource::<SaveWrites>(); let write = &writes.waiting[0];
+        assert_eq!(write.header.plugins.len(), 1);
+        fnv_save::write(&file.0, &write.header, &[], &write.body, false).unwrap();
+        let mut current = vec![PluginEntry { name: "OwnedEarlier.esm".into(), size: 0 }];
+        current.extend(write.header.plugins.clone());
+        if save_callback {
+            // The SaveGame handler's lambda is saved: the proposed high-FE policy refuses the
+            // nonidentity remap before the generic walker, retired provenance or not.
+            let error = read_for_load(&file.0, &current).unwrap_err();
+            assert!(error.contains("remapping a save with runtime lambdas"), "{error}");
+            continue;
+        }
+        let (_, body, order) = read_for_load(&file.0, &current).unwrap();
+        assert!(order.is_some());
+        assert_eq!(body.game.sim.deleted_created.get(&reference), Some(&FormId(0x0100_0D10)));
+        assert_eq!(body.game.format, fnv_game::game::SNAPSHOT_FORMAT);
+    }
 }
