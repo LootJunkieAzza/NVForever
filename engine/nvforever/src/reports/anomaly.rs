@@ -17,10 +17,12 @@
 //! | `hitch` | a frame over [`HITCH_MS`] outside a load and the [`HITCH_SETTLE_SECS`] after one |
 //! | `slow_load` | a loading screen up longer than [`SLOW_LOAD_MS`] |
 //! | `player_stuck` | movement held [`STUCK_SECS`] with under [`STUCK_UNITS`] moved, while playing |
+//! | `controls_locked` | [design, #2403] an unchanged dialogue, menu or script control lock for [`CONTROLS_LOCKED_SECS`] with [`CONTROLS_LOCKED_PRESSES`] recent press edges |
 //! | `memory` | RAM or VRAM in use over [`MEMORY_SHARE`] of the budget (memory_budget.rs) |
+//! | `softlock` | the player is held and nothing in the game moves on to let them go: controls off or restrained with no story event, a conversation with no line and no choice, a line that never ends, a menu that never opens (nvf-play softlock.rs, `fnv_game::softlock`) |
 //!
-//! Not yet: actors stuck on a travel package and stalled quests (no hook the reports can
-//! read without changing the AI and quest code).
+//! [design / file refs] Actor travel progress and main-quest stall detection are excluded;
+//! see player-reports.md §4.4 for the missing AI progress contract and quest selection.
 //!
 //! **The flight recorder.** Every log event that reaches the log layer (info and up, and
 //! what `[Log]` turns up), with the time and where the camera was, kept for the last
@@ -45,6 +47,61 @@ pub const MEMORY_SHARE: f64 = 0.9;
 pub const SCRIPT_ERRORS: u32 = 100;
 pub const RECORDER_SECS: f64 = 60.0;
 const RECORDER_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// [design, #2403] Real seconds without screen/control progress, also the input window.
+pub const CONTROLS_LOCKED_SECS: f64 = 60.0;
+/// [design, #2403] Press edges required in that window; holding a button is one press.
+pub const CONTROLS_LOCKED_PRESSES: usize = 5;
+/// [design, #2403] Payload limits, independent of the world's number of quests/plugins.
+pub const CONTROLS_LOCKED_QUESTS: usize = 10;
+pub const CONTROLS_LOCKED_SOURCES: usize = 10;
+pub const CONTROLS_LOCKED_TOPICS: usize = 10;
+pub const CONTROLS_LOCKED_LABEL_CHARS: usize = 128;
+
+/// [design, #2403] A screen fingerprint and effective groups; any change rearms the watch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LockProgress {
+    pub screen: u64,
+    pub groups: [bool; 7],
+}
+
+/// [design, #2403] Bounded input history; only the newest required press edges are needed.
+#[derive(Default)]
+pub struct ControlsLocked {
+    progress: Option<LockProgress>,
+    since: f64,
+    presses: VecDeque<f64>,
+    fired: bool,
+}
+
+impl ControlsLocked {
+    /// [design, #2403] `None` releases the lock (including loading). Returns its duration
+    /// once, after enough recent presses and enough time without progress.
+    pub fn step(&mut self, now: f64, progress: Option<LockProgress>, presses: usize) -> Option<f64> {
+        if self.progress != progress {
+            self.progress = progress;
+            self.since = now;
+            self.presses.clear();
+            self.fired = false;
+        }
+        progress?;
+        while self.presses.front().is_some_and(|t| now - t > CONTROLS_LOCKED_SECS) {
+            self.presses.pop_front();
+        }
+        for _ in 0..presses.min(CONTROLS_LOCKED_PRESSES) {
+            if self.presses.len() == CONTROLS_LOCKED_PRESSES {
+                self.presses.pop_front();
+            }
+            self.presses.push_back(now);
+        }
+        let held = now - self.since;
+        if self.fired || held < CONTROLS_LOCKED_SECS || self.presses.len() < CONTROLS_LOCKED_PRESSES {
+            return None;
+        }
+        self.fired = true;
+        Some(held)
+    }
+}
 
 fn start() -> Instant {
     static START: OnceLock<Instant> = OnceLock::new();
@@ -107,6 +164,9 @@ pub fn classify(level: &str, msg: &str) -> Option<Found> {
     if warn && msg.starts_with("player fell out of interior") {
         return Some(Found::Now("fell_out_of_world", json!({ "space": "interior", "line": cut(msg) })));
     }
+    if let Some((what, rest)) = msg.strip_prefix("softlock: ").filter(|_| warn).and_then(|r| r.split_once(' ')) {
+        return Some(Found::Now("softlock", json!({ "what": what, "line": cut(rest) })));
+    }
     if msg.contains(": cannot reach the place of ") {
         return Some(Found::Now("path_failure", json!({ "line": cut(msg) })));
     }
@@ -159,6 +219,7 @@ pub struct Detectors {
     stuck_from: Option<(f64, [f32; 3])>,
     memory_high: bool,
     voice_missing: Option<u64>,
+    pub controls_locked: ControlsLocked,
 }
 
 impl Detectors {
@@ -233,6 +294,66 @@ impl Detectors {
 mod tests {
     use super::*;
 
+    fn lock(screen: u64) -> Option<LockProgress> {
+        Some(LockProgress { screen, groups: [false; 7] })
+    }
+
+    #[test]
+    fn controls_locked_fires_at_sixty_seconds_once_per_lock() {
+        let mut watch = ControlsLocked::default();
+        assert_eq!(watch.step(0.0, lock(1), 0), None);
+        assert_eq!(watch.step(59.0, lock(1), CONTROLS_LOCKED_PRESSES), None);
+        assert_eq!(watch.step(60.0, lock(1), 0), Some(60.0));
+        assert_eq!(watch.step(120.0, lock(1), CONTROLS_LOCKED_PRESSES), None);
+        assert_eq!(watch.step(121.0, None, 0), None);
+        assert_eq!(watch.step(122.0, lock(1), 0), None);
+        assert_eq!(watch.step(182.0, lock(1), CONTROLS_LOCKED_PRESSES), Some(60.0));
+    }
+
+    #[test]
+    fn controls_locked_ignores_idle_held_and_old_input() {
+        let mut watch = ControlsLocked::default();
+        watch.step(0.0, lock(1), 1);
+        assert_eq!(watch.step(60.0, lock(1), 0), None, "a held key gives no new edges");
+        assert_eq!(watch.step(61.0, lock(1), CONTROLS_LOCKED_PRESSES - 1), None, "old press expired");
+        assert_eq!(watch.step(122.0, lock(1), 0), None, "idle does not fire");
+        assert_eq!(watch.step(123.0, lock(1), 1), None);
+        assert_eq!(watch.step(124.0, lock(1), CONTROLS_LOCKED_PRESSES - 1), Some(124.0));
+    }
+
+    #[test]
+    fn controls_locked_progress_and_reenabled_groups_restart_the_window() {
+        let mut watch = ControlsLocked::default();
+        let locked = Some(LockProgress { screen: 1, groups: [true; 7] });
+        watch.step(0.0, locked, CONTROLS_LOCKED_PRESSES);
+        assert_eq!(watch.step(59.0, lock(2), 0), None, "a new line or page is progress");
+        assert_eq!(watch.step(60.0, lock(2), CONTROLS_LOCKED_PRESSES), None);
+        assert_eq!(watch.step(119.0, lock(2), 0), Some(60.0));
+        watch.step(120.0, locked, 0);
+        let released = Some(LockProgress { screen: 1, groups: [true, false, true, true, true, true, true] });
+        assert_eq!(watch.step(179.0, released, 0), None);
+        assert_eq!(watch.step(180.0, released, CONTROLS_LOCKED_PRESSES), None);
+        assert_eq!(watch.step(239.0, released, 0), Some(60.0));
+    }
+
+    #[test]
+    fn controls_locked_loading_clears_input_and_session_cap_still_applies() {
+        let mut watch = ControlsLocked::default();
+        watch.step(0.0, lock(1), CONTROLS_LOCKED_PRESSES);
+        watch.step(59.0, None, CONTROLS_LOCKED_PRESSES);
+        watch.step(60.0, lock(1), 0);
+        assert_eq!(watch.step(120.0, lock(1), 0), None);
+        let (mut d, mut s) = (Detectors::default(), Summary::default());
+        for i in 0u32..5 {
+            let now = f64::from(i * 61);
+            d.controls_locked.step(now, lock(i.into()), 0);
+            if let Some(held) = d.controls_locked.step(now + 60.0, lock(i.into()), CONTROLS_LOCKED_PRESSES) {
+                d.fire(&mut s, &Here::default(), now as u64, "controls_locked", json!({ "held_s": held }));
+            }
+        }
+        assert_eq!(s.events.len(), MAX_PER_KIND as usize);
+    }
+
     fn kind(level: &str, msg: &str) -> Option<&'static str> {
         match classify(level, msg) {
             Some(Found::Now(k, _)) => Some(k),
@@ -248,6 +369,7 @@ mod tests {
         assert_eq!(kind("INFO", "ai [12.0] Sunny: cannot reach the place of 0012AB34: no path"), Some("path_failure"));
         assert_eq!(kind("WARN", "model not loaded: meshes\\x.nif: broken"), Some("missing_asset"));
         assert_eq!(kind("WARN", "save: failed: disk full"), Some("save_trouble"));
+        assert_eq!(classify("WARN", "softlock: controls_held for 30 s: scripts hold the controls (movement)"), Some(Found::Now("softlock", json!({ "what": "controls_held", "line": "for 30 s: scripts hold the controls (movement)" }))));
         assert_eq!(kind("WARN", "load: C:\\s.nvfsave: bad header; starting again on the main menu"), Some("save_trouble"));
         assert_eq!(kind("WARN", "audio output: no device (gone); sound runs silent until one appears"), Some("audio"));
         assert_eq!(classify("WARN", "script error in GSScript: bad ref"), Some(Found::ScriptError("GSScript".into())));

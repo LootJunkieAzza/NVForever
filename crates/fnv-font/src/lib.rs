@@ -102,12 +102,19 @@ pub struct Font {
     pub texture: String,
     /// By character code, 256 of them.
     pub glyphs: Vec<Glyph>,
+    /// The characters this run's code page has no code for, by character: a font drawn from a
+    /// font file of its own (the menus' sharp letters, nvf-play's `vector_font`) measures them
+    /// here, so a language the game's install was not made for still reads (Russian on an
+    /// English install); empty for the game's `.fnt` fonts, which draw such a character as `?`.
+    pub extra: std::collections::HashMap<char, Glyph>,
 }
 
-/// A character set in a line: its code and where its glyph's room starts.
+/// A character set in a line: its code, the character itself (which the code page may have
+/// no code for: `code` is then `?`) and where its glyph's room starts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
     pub code: u8,
+    pub ch: char,
     pub x: f32,
 }
 
@@ -119,10 +126,10 @@ pub struct Line {
 }
 
 impl Line {
-    /// The line's characters, its codes read back in this run's code page (the spaces it
-    /// was broken at are not in it).
+    /// The line's characters (the spaces it was broken at are not in it), as they were given,
+    /// also those this run's code page has no code for.
     pub fn text(&self) -> String {
-        self.text_in(fnv_util::text::code_page())
+        self.glyphs.iter().map(|g| g.ch).collect()
     }
 
     /// The line's characters, its codes read back in a given code page.
@@ -138,7 +145,6 @@ impl Line {
     /// the line that sets its own letters (issue #2298: MCM's texts ran together where a
     /// font's picture was not read).
     pub fn text_spaced(&self, font: &Font) -> String {
-        let page = fnv_util::text::code_page();
         let space = font.glyph(b' ').advance();
         let mut out = String::new();
         let mut end = 0.0;
@@ -147,8 +153,8 @@ impl Line {
                 let n = if space > 0.0 { ((g.x - end) / space).round().max(1.0) as usize } else { 1 };
                 out.extend(std::iter::repeat_n(' ', n));
             }
-            out.push(page.char_of(g.code));
-            end = g.x + font.glyph(g.code).advance();
+            out.push(g.ch);
+            end = g.x + font.glyph_of(g.ch).advance();
         }
         out
     }
@@ -196,7 +202,7 @@ impl Font {
                 Glyph { uv: [f(1), f(2), f(7), f(8)], width: f(9), height: f(10), before: f(11), after: f(12), ascent: f(13) }
             })
             .collect();
-        Ok(Font { size: f32_at(bytes, 0), texture, glyphs })
+        Ok(Font { size: f32_at(bytes, 0), texture, glyphs, extra: Default::default() })
     }
 
     /// The texture's path in the game's files.
@@ -214,9 +220,18 @@ impl Font {
         &self.glyphs[code as usize]
     }
 
+    /// The glyph a character is measured with: its code's in this run's code page, else its
+    /// own in [`Font::extra`], else `?`'s (what the game's fonts draw for it).
+    pub fn glyph_of(&self, c: char) -> &Glyph {
+        match fnv_util::text::code_page().code_of(c) {
+            Some(code) => self.glyph(code),
+            None => self.extra.get(&c).unwrap_or_else(|| self.glyph(b'?')),
+        }
+    }
+
     /// The width of a text set in one line.
     pub fn width(&self, text: &str) -> f32 {
-        text.chars().map(|c| self.glyph(code_of(c)).advance()).sum()
+        text.chars().map(|c| self.glyph_of(c).advance()).sum()
     }
 
     /// Set a text in lines (§3): a line ends at a line break, and before the word that
@@ -242,9 +257,8 @@ impl Font {
                 }
                 let mut x = line.width + gap;
                 for c in word.chars() {
-                    let code = code_of(c);
-                    line.glyphs.push(Placed { code, x });
-                    x += self.glyph(code).advance();
+                    line.glyphs.push(Placed { code: code_of(c), ch: c, x });
+                    x += self.glyph_of(c).advance();
                 }
                 line.width = x;
                 gap = 0.0;
@@ -293,6 +307,21 @@ mod tests {
         assert_eq!(a.advance(), 11.0);
         assert!(a.drawn() && !f.glyph(b' ').drawn());
         assert_eq!(f.glyph(b' ').advance(), 5.0);
+    }
+
+    #[test]
+    fn characters_beyond_the_code_page_keep_their_own_glyphs() {
+        assert_eq!(fnv_util::text::code_page(), fnv_util::text::CodePage::Windows1252, "Ж has no code here");
+        let mut f = Font::parse(&file()).unwrap();
+        // The game's font draws Ж as `?` and measures it so; the line still holds Ж.
+        assert_eq!(f.width("Ж"), f.glyph(b'?').advance());
+        let line = &f.lines("Жa", None)[0];
+        assert_eq!((line.glyphs[0].code, line.text()), (b'?', "Жa".to_string()));
+        // A font with a glyph of its own for it (the menus' sharp letters) measures that.
+        f.extra.insert('Ж', Glyph { width: 20.0, ..Glyph::default() });
+        assert_eq!(f.width("Жa"), 31.0);
+        let line = &f.lines("Ж a", None)[0];
+        assert_eq!((line.glyphs[1].x, line.text_spaced(&f)), (25.0, "Ж a".to_string()));
     }
 
     #[test]
@@ -351,7 +380,7 @@ mod tests {
         // Line breaks are kept, an empty line too; a word too wide is not cut.
         assert_eq!(texts(Some(30.0), "ab\n\nabcdef g"), vec![("ab".to_string(), 22.0), (String::new(), 0.0), ("abcdef".to_string(), 66.0), ("g".to_string(), 11.0)]);
         // The second word of a line starts after the space.
-        assert_eq!(f.lines("ab cd", None)[0].glyphs[2], Placed { code: b'c', x: 27.0 });
+        assert_eq!(f.lines("ab cd", None)[0].glyphs[2], Placed { code: b'c', ch: 'c', x: 27.0 });
     }
 
     #[test]
@@ -380,7 +409,7 @@ mod tests {
     #[test]
     fn a_line_reads_back_in_its_code_page() {
         use fnv_util::text::CodePage::*;
-        let line = |s: &str, page| Line { glyphs: s.chars().map(|c| Placed { code: code_in(c, page), x: 0.0 }).collect(), width: 0.0 };
+        let line = |s: &str, page| Line { glyphs: s.chars().map(|c| Placed { code: code_in(c, page), ch: c, x: 0.0 }).collect(), width: 0.0 };
         assert_eq!(line("Привет", Windows1251).text_in(Windows1251), "Привет");
         assert_eq!(line("Łódź", Windows1250).text_in(Windows1250), "Łódź");
         assert_eq!(line("café", Windows1252).text_in(Windows1252), "café");

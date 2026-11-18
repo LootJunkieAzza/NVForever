@@ -252,6 +252,12 @@ def _item_mod_handler(flag):
 # Parameters where a page's argument table is missing or short: what the game took
 # [observed: the probe named] or what the page's own example passes [documented].
 PARAM_FIXES = {
+    # [documented: GECK wiki RemoveReputationExact, the reputation editor ID is
+    # a form operand, followed by the axis and fractional amount]. Source syntax
+    # only: this does not establish a native bytecode encoding.
+    "RemoveReputationExact": [{"name": "FactionID", "type": "editorID", "kind": "form"},
+                              {"name": "Fame/Infamy", "type": "int", "kind": "int"},
+                              {"name": "Amount", "type": "float", "kind": "float"}],
     # [documented: SetCursorTrait's example "SetCursorTrait 0 255"; the table lists the
     # trait only].
     "SetCursorTrait": [{"name": "iTrait", "type": "int", "kind": "int"},
@@ -617,7 +623,7 @@ PAGELESS += [
     _x("ClearModelAltTextures", _J, "int", [_p("form", "form")]), _x("InitRockItLauncher", _J, "int", [_p("weapon", "form")]),
     _x("EnableImprovedRecipeMenu", _J, "int"), _x("SwapObjectLOD", _J, "int", [_p("object", "form"), _I("a"), _I("b")]),
     _x("ScrollMouseWheel", _J, "int", [_I("delta", True)]), _x("InitMiniMap", _J, "int"),
-    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_F(f"v{i}") for i in range(1, 7)]),
+    _x("UpdateMiniMap", _J, "int", [_I("a"), _I("b", True)]), _x("ProjectUITile", _J, "int", [_S("tilePath"), _S("block"), _F("x"), _F("y"), _F("width"), _F("height")], ref="reference"),
     _x("ReloadCharController", _J, "int", ref="reference"), _x("ReloadCloudTextures", _J, "int"), _x("ResetClouds", _J, "int"),
     _x("ExecuteScript", _J, "int"), _x("ShowLevelUpMenuEx", _J, "int", [_I("mode")]),
     _x("CCCTaskPackageFlags", _J, "int", list(_ANY)), _x("GetCameraMovement", _J, "string_var", list(_ANY)),

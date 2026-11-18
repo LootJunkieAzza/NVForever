@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::panic::Location;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::OnceLock;
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -205,6 +206,16 @@ impl Origin {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TraitWriteSerial(NonZeroU64);
 
+/// One existing, non-expression trait write, conditional on its current external-write token.
+/// A batch publishes all sinks together or leaves every sink unchanged [design].
+#[derive(Clone, Debug)]
+pub struct ConditionalTraitWrite<'a> {
+    pub tile: TileId,
+    pub name: &'a str,
+    pub expected: TraitWriteSerial,
+    pub value: Value,
+}
+
 /// One trait of a tile.
 #[derive(Clone, Debug)]
 pub struct Trait {
@@ -253,6 +264,8 @@ pub struct Tile {
     pub name: String,
     pub parent: Option<TileId>,
     pub children: Vec<TileId>,
+    /// Value-generation dependency for an expression's structural childcount fallback.
+    children_changed: u64,
     pub traits: Vec<Trait>,
     pub templates: Vec<Template>,
     /// False once unloaded: [`Ui::tile`] answers such a tile for an id kept past its
@@ -271,6 +284,7 @@ impl Tile {
             name: String::new(),
             parent: None,
             children: Vec::new(),
+            children_changed: 0,
             traits: Vec::new(),
             templates: Vec::new(),
             live: false,
@@ -321,6 +335,9 @@ pub struct Ui {
     /// given a trait or a template): what a source names may have changed, so the sources
     /// a trait read last are no longer known.
     shape: u64,
+    /// First descendant of each name in each root's file order. Shape changes
+    /// invalidate the index; trait value writes leave name resolution unchanged.
+    named_sources: OnceLock<HashMap<TileId, HashMap<String, TileId>>>,
     /// This tree's number, in every [`TileId`] it makes ([`Ui::new`]).
     tree: u32,
     /// The shape when [`Ui::update`] last ran, the updates in a row that found it changed,
@@ -374,6 +391,9 @@ pub struct Ui {
     /// Passes the last [`Ui::update`] made, for the tests.
     #[cfg(test)]
     pub(crate) passes: usize,
+    /// Nodes walked to resolve named expression sources, for work-bound controls.
+    #[cfg(test)]
+    pub(crate) named_source_visits: std::sync::atomic::AtomicUsize,
 }
 
 impl Ui {
@@ -472,6 +492,7 @@ impl Ui {
     /// worked out at the next update.
     fn reshape(&mut self) {
         self.shape += 1;
+        self.named_sources.take();
         self.reshaped_by = self.op;
     }
 
@@ -529,7 +550,11 @@ impl Ui {
             }
         };
         if let Some(p) = parent {
-            self.tile_mut(p).children.push(id);
+            self.gen += 1;
+            let changed = self.gen;
+            let parent = self.tile_mut(p);
+            parent.children.push(id);
+            parent.children_changed = changed;
         }
         if self.tile(id).origin.mod_added() {
             self.count_mod_tile(id, true);
@@ -821,7 +846,11 @@ impl Ui {
             gone.push(t);
         }
         if let Some(p) = self.tile(id).parent {
-            self.tile_mut(p).children.retain(|&c| c != id);
+            self.gen += 1;
+            let changed = self.gen;
+            let parent = self.tile_mut(p);
+            parent.children.retain(|&c| c != id);
+            parent.children_changed = changed;
         }
         self.roots.retain(|&r| r != id);
         self.dirty = true;
@@ -1038,6 +1067,43 @@ impl Ui {
     pub fn trait_write_serial(&self, tile: TileId, name: &str) -> Option<TraitWriteSerial> {
         let t = self.tile(tile);
         t.traits.get(t.trait_index(name)?)?.write_serial
+    }
+
+    /// Atomically write 1..=8 distinct existing plain traits whose complete IDs and
+    /// external-write tokens still match. Limits (4096-byte names, 65536-byte values)
+    /// are engine policy. Validate all targets and counters before the first write.
+    /// Success calls `set_at` directly, without `set_trait`'s reshape-diagnostic entrypoint;
+    /// the batch neither creates traits nor reshapes the tree.
+    pub fn set_existing_batch_if_unchanged(&mut self, writes: &[ConditionalTraitWrite<'_>]) -> Option<Vec<TraitWriteSerial>> {
+        if writes.is_empty() || writes.len() > 8 { return None; }
+        let count=u64::try_from(writes.len()).ok()?;
+        self.last_write_serial.checked_add(count)?;
+        self.gen.checked_add(count)?;
+        self.trait_writes.checked_add(count)?;
+        let mut bytes=0usize;
+        for write in writes {
+            if write.name.len()>4096 { return None; }
+            bytes=bytes.checked_add(match &write.value {Value::Str(s)|Value::Sym(s)=>s.len(),Value::Num(_)=>8})?;
+            if bytes>65536 { return None; }
+        }
+        let mut at = Vec::with_capacity(writes.len());
+        for (i, write) in writes.iter().enumerate() {
+            if writes[..i].iter().any(|other| other.tile == write.tile && other.name.eq_ignore_ascii_case(write.name)) { return None; }
+            let tile = self.tile(write.tile);
+            if !tile.live { return None; }
+            let index = tile.trait_index(write.name)?;
+            let tr = &tile.traits[index];
+            if tr.expr.is_some() || tr.write_serial != Some(write.expected) { return None; }
+            at.push((write.tile, index));
+        }
+        let changes=writes.iter().zip(&at).filter(|(write,(tile,index))|write.value.differs(&self.tiles[tile.index as usize].traits[*index].value)).count();
+        self.trait_changes.checked_add(u64::try_from(changes).ok()?)?;
+        let mut assigned = Vec::with_capacity(writes.len());
+        for (write, (tile, index)) in writes.iter().zip(at) {
+            self.set_at(tile, index, write.value.clone());
+            assigned.push(self.trait_write_serial(tile, write.name).expect("bounded checked batch reserved serials"));
+        }
+        Some(assigned)
     }
 
     fn next_write_serial(&mut self) -> Option<TraitWriteSerial> {
@@ -1409,14 +1475,24 @@ impl Ui {
 
     /// The first tile of that name under `root`, in file order.
     fn find_named(&self, root: TileId, name: &str) -> Option<TileId> {
-        let mut stack = vec![root];
-        while let Some(t) = stack.pop() {
-            if t != root && self.tile(t).name.eq_ignore_ascii_case(name) {
-                return Some(t);
+        let roots = self.named_sources.get_or_init(|| {
+            let mut roots = HashMap::new();
+            for &root in &self.roots {
+                let mut names = HashMap::new();
+                let mut stack = vec![root];
+                while let Some(t) = stack.pop() {
+                    #[cfg(test)]
+                    self.named_source_visits.fetch_add(1, Ordering::Relaxed);
+                    if t != root {
+                        names.entry(self.tile(t).name.to_ascii_lowercase()).or_insert(t);
+                    }
+                    stack.extend(self.tile(t).children.iter().rev().copied());
+                }
+                roots.insert(root, names);
             }
-            stack.extend(self.tile(t).children.iter().rev().copied());
-        }
-        None
+            roots
+        });
+        roots.get(&root)?.get(&name.to_ascii_lowercase()).copied()
     }
 
     fn read_trait(&self, me: TileId, src: &Src, name: &str, deps: &mut u64, sources: &mut Vec<(TileId, u32)>) -> Value {
@@ -1427,6 +1503,13 @@ impl Ui {
                 *deps = (*deps).max(tr.changed);
                 sources.push((t, k as u32));
                 tr.value.clone()
+            }
+            // [design: menu-xml.md §6.1] Explicit list counts keep precedence.
+            // Do not insert a trait: absence also guards pause-column initialization.
+            None if name.eq_ignore_ascii_case("childcount") => {
+                let tile = self.tile(t);
+                *deps = (*deps).max(tile.children_changed);
+                Value::Num(tile.children.len() as f64)
             }
             // A trait not there reads 0 [hypothesis].
             None => Value::default(),
@@ -1507,6 +1590,30 @@ fn split(path: &str) -> Vec<&str> {
     path.split(['/', '\\']).map(str::trim).filter(|s| !s.is_empty()).collect()
 }
 
+/// Invalid/overflowing extra-operator results do not enter renderer traits [hypothesis].
+fn finite_extra(value: f64) -> Value {
+    Value::Num(if value.is_finite() { value } else { 0.0 })
+}
+
+/// Exact nonnegative integer mapping (mcm-rgb-integer-consumers.md); native edge
+/// behaviour is not inferred.
+/// Unsupported inputs keep the accumulator, as ignored tags previously did.
+fn integer_extra(kind: OpKind, acc: Value, arg: Value) -> Value {
+    const EXACT_LIMIT: u64 = 1_u64 << 53;
+    let integer = |value: &Value| match value {
+        Value::Num(n) if n.is_finite() && (0.0..=EXACT_LIMIT as f64).contains(n) && n.fract() == 0.0 => Some(*n as u64),
+        _ => None,
+    };
+    let (Some(x), Some(y)) = (integer(&acc), integer(&arg)) else { return acc };
+    let result = match kind {
+        OpKind::BitAnd => Some(x & y),
+        OpKind::ShiftLeft if y <= 53 && x <= (EXACT_LIMIT >> y as u32) => Some(x << y as u32),
+        OpKind::ShiftRight if y <= 53 => Some(x >> y as u32),
+        _ => None,
+    };
+    result.map(|value| Value::Num(value as f64)).unwrap_or(acc)
+}
+
 fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
     let (x, y) = (acc.num(), a.num());
     let num = Value::Num;
@@ -1527,6 +1634,23 @@ fn apply(kind: OpKind, acc: Value, a: Value, me: TileId, k: usize) -> Value {
         OpKind::Round => num(x.round()),
         OpKind::Trunc => num(x.trunc()),
         OpKind::Abs => num(x.abs()),
+        // [documented: ui-neg-operator.md] Unlike abs/floor, neg uses the argument.
+        OpKind::Neg => num(-y),
+        // UIO's unary arguments and accumulated exponentiation. Only the added
+        // operators use this finite-output policy; existing arithmetic is unchanged.
+        OpKind::Sin => finite_extra(y.to_radians().sin()),
+        OpKind::Cos => finite_extra(y.to_radians().cos()),
+        OpKind::Log => finite_extra(y.ln()),
+        OpKind::Pow => finite_extra(x.powf(y)),
+        // [documented: ui-bit-test-operator.md] The argument selects one bit.
+        // Limit conversion to consecutive exactly representable nonnegative
+        // integers. Native signed/coercion/width behavior remains unobserved.
+        OpKind::BitTest => {
+            let valid = x.is_finite() && (0.0..=9_007_199_254_740_992.0).contains(&x)
+                && x.fract() == 0.0 && y.is_finite() && y >= 0.0 && y.fract() == 0.0;
+            Value::from_bool(valid && y <= 53.0 && (x as u64 & (1_u64 << y as u32)) != 0)
+        }
+        OpKind::BitAnd | OpKind::ShiftLeft | OpKind::ShiftRight => integer_extra(kind, acc, a),
         // A whole number from 0 below the argument, the same for this tile and operator
         // every time [design: when the original draws is not known].
         OpKind::Rand => {
@@ -1594,5 +1718,73 @@ mod write_serial_tests {
         assert_eq!(ui.trait_write_serial(screen, "x"), None);
         assert_eq!(ui.trait_write_serial(screen, "y"), None);
         assert_eq!(ui.last_write_serial, u64::MAX);
+    }
+    #[test]
+    fn conditional_batch_rejects_an_equal_external_writer_without_partial_values() {
+        let mut ui=Ui::new();let tile=ui.screen();
+        ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        ui.set_trait(tile,"x",Value::Num(1.0));let before=ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(9.0)},
+            ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(8.0)},
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(),before);assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(2.0)));
+    }
+    #[test]
+    fn conditional_batch_checks_exhaustion_before_any_accepted_legacy_write() {
+        let mut ui=Ui::new();let tile=ui.screen();ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        ui.last_write_serial=u64::MAX-1;let before=ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(8.0)},
+            ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(9.0)},
+        ]).is_none());assert_eq!(ui.last_write_serial,u64::MAX-1);assert_eq!(ui.trait_write_counts(),before);
+        assert_eq!(ui.tile(tile).get("x"),Some(&Value::Num(1.0)));assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(2.0)));
+    }
+    #[test]
+    fn conditional_batch_assigns_all_sinks_and_rejects_aliasing_duplicates() {
+        let mut ui=Ui::new();let tile=ui.screen();ui.set_trait(tile,"x",Value::Num(1.0));ui.set_trait(tile,"y",Value::Num(2.0));
+        let x=ui.trait_write_serial(tile,"x").unwrap();let y=ui.trait_write_serial(tile,"y").unwrap();
+        assert!(ui.set_existing_batch_if_unchanged(&[ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(3.0)},ConditionalTraitWrite {tile,name:"X",expected:x,value:Value::Num(4.0)}]).is_none());
+        let got=ui.set_existing_batch_if_unchanged(&[ConditionalTraitWrite {tile,name:"x",expected:x,value:Value::Num(3.0)},ConditionalTraitWrite {tile,name:"y",expected:y,value:Value::Num(4.0)}]).unwrap();
+        assert_eq!(got.len(),2);assert_ne!(got[0],x);assert_ne!(got[0],got[1]);assert_eq!(ui.tile(tile).get("x"),Some(&Value::Num(3.0)));assert_eq!(ui.tile(tile).get("y"),Some(&Value::Num(4.0)));
+    }
+
+    #[test]
+    fn conditional_batch_rejects_expression_sink_before_any_plain_sink_write() {
+        let src = MemSource::default().with("batch.xml", r#"<menu name="Batch"><x>1</x><y><copy src="me()" trait="x"/></y></menu>"#);
+        let mut ui = Ui::new();
+        let tile = ui.load_menu(&src, "batch.xml").unwrap();
+        ui.update();
+        let x = ui.trait_write_serial(tile, "x").unwrap();
+        let y = ui.trait_write_serial(tile, "y").unwrap();
+        let before = ui.trait_write_counts();
+        assert!(ui.tile(tile).traits[ui.tile(tile).trait_index("y").unwrap()].expr.is_some());
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite { tile, name: "x", expected: x, value: Value::Num(8.) },
+            ConditionalTraitWrite { tile, name: "y", expected: y, value: Value::Num(9.) },
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(), before);
+        assert_eq!(ui.tile(tile).get("x"), Some(&Value::Num(1.)));
+        assert_eq!(ui.tile(tile).get("y"), Some(&Value::Num(1.)));
+    }
+
+    #[test]
+    fn conditional_batch_rejects_old_tile_generation_after_reload_without_partial_write() {
+        let src = MemSource::default().with("batch.xml", r#"<menu name="Batch"><x>1</x></menu>"#);
+        let mut ui = Ui::new();
+        let old = ui.load_menu(&src, "batch.xml").unwrap();
+        let expected = ui.trait_write_serial(old, "x").unwrap();
+        let current = ui.load_menu(&src, "batch.xml").unwrap();
+        assert_ne!(old, current);
+        let now = ui.trait_write_serial(current, "x").unwrap();
+        let before = ui.trait_write_counts();
+        assert!(ui.set_existing_batch_if_unchanged(&[
+            ConditionalTraitWrite { tile: current, name: "x", expected: now, value: Value::Num(8.) },
+            ConditionalTraitWrite { tile: old, name: "x", expected, value: Value::Num(9.) },
+        ]).is_none());
+        assert_eq!(ui.trait_write_counts(), before);
+        assert_eq!(ui.tile(current).get("x"), Some(&Value::Num(1.)));
     }
 }

@@ -9,6 +9,7 @@
 //! `[[test]]`; `every_test_file_is_built` fails until it is in one of them.
 
 mod common;
+mod string_settings;
 #[path = "common/digest.rs"]
 mod digest;
 
@@ -37,13 +38,17 @@ mod dialogue;
 mod difficulty;
 mod effect_updates;
 mod experience;
+mod player_source_commands;
 mod extender_conditions;
 mod factions;
+mod fixtures_data;
+mod first_person_menu_clock;
 mod functions;
 mod game_clock;
 mod high_fe_lambda_snapshots;
 mod high_fe_session_consumers;
 mod root_high_fe_callable_probe;
+mod title_menu_group;
 mod hit_effects_data;
 mod hit_effects;
 mod idles_holstered;
@@ -52,6 +57,7 @@ mod item_ref_health;
 mod jg_nif;
 mod jg10;
 mod jg3;
+mod jlm_dropped_refs;
 mod jg4;
 mod jg5;
 mod jg6;
@@ -66,8 +72,11 @@ mod jip7;
 mod jip8;
 mod jip9;
 mod knockdowns;
+mod lighting_session;
 mod lutana;
+mod nellis_hangar_doors;
 mod nif_player_models;
+mod model_has_block;
 mod lutana2;
 mod lutana3;
 mod magic_archetypes;
@@ -81,16 +90,20 @@ mod packages;
 mod perk_combat;
 mod perk_talk;
 mod pp;
+mod quest_marker_data;
 mod radiation;
 mod radio_data;
 mod respawn;
 mod save_pairs;
 mod script_events;
 mod script_stack;
+mod short_hex_receivers;
 mod showoff3;
 mod set_class;
 mod showoff4;
 mod showoff5;
+mod softlock;
+mod source_metadata;
 mod step_budget;
 mod sup1;
 mod sup4;
@@ -140,3 +153,6 @@ fn every_test_file_is_built() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+mod preactivation_events;
+mod preactivation_mutation;

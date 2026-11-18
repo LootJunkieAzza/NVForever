@@ -36,9 +36,10 @@ Sources read 2026-11-09 (public pages only; no executable was read):
 - The rules (hit chance, AP, perks, helpers) are the ones VATS mode already has.
 - V with nothing to target does nothing but play the refusal sound.
 
-From the playtests of 2026-11-10 (each is cited where it is built): the enemy bar at the
-top with the damage in sight; the selected part lit as a HUD element, pulsing, in the
-HUD's colour; nothing of the HUD while the attacks play; no darkening or colour filter;
+From the playtests of 2026-11-10 (each is cited where it is built): the enemy bar with
+the damage in sight; the selected part lit as a HUD element, pulsing, in the HUD's
+colour; [design, #2659] classic now places the bar at bottom centre and keeps it through
+playback, with the corner HUD hidden; no darkening or colour filter;
 the cameras' angles (§8); an attack on a dead target is not played and the mode ends
 soon after (§8.1); explosives hold the mode until they have gone off (§8.2); slow motion
 keeps the physics' pace (§8.3); the zoom's times (§5).
@@ -61,7 +62,16 @@ keeps the physics' pace (§8.3); the zoom's times (§5).
 Every living actor with a hit volume that is
 
 - within the weapon's reach and `fVATSMaxEngageDistance` (5000) [documented:
-  fallout.wiki "Fallout 3 V.A.T.S.", settings table];
+  fallout.wiki "Fallout 3 V.A.T.S.", settings table]. A melee or unarmed weapon's reach
+  is the swing's (`fCombatDistance` 107 x the weapon's Reach) times `fVATSMeleeReachMult`
+  (2), at most `fVATSMeleeMaxDistance` (300), from the body [documented: GECK wiki "VATS
+  Settings"; neither setting is in FalloutNV.esm, so these defaults apply, observed; that
+  New Vegas keeps the page's Fallout 3 defaults is a hypothesis]: the Fists 214, a
+  machete 107, a lead pipe 268, plus the player's capsule radius from the eye, to the
+  target's body (its radius off the distance to its middle), as the swing itself reaches
+  (`fnv_combat::damage::vats_melee_reach`, issue #2656). Until then it was Dead Eye's flat
+  350 (`MELEE_MARK_REACH`), which Dead Eye keeps [design: the maintainer's choice for that
+  style];
 - within `CLASSIC_FRONT` (55 degrees) of the line the player looked along on entering
   [design: about what the view shows];
 - in sight from the eye: its aim point or the middle of any of its body part capsules,
@@ -105,8 +115,8 @@ A new target starts on the part with the best chance [design]. Each part's label
 its name and chance, the selected one bracketed, with "xN" when N attacks are queued on
 it; with Concentrated Fire the label shows the chance the next attack on it would have.
 Under each label a bar shows the part's condition (its condition actor value of 100; a
-part without one has no bar), and at the top of the view the target's name stands over
-a bar of its health [documented: the original shows each part's chance and condition;
+part without one has no bar). [design, #2659] At bottom centre the target's name stands
+under the HUD's health bar [documented: the original shows each part's chance and condition;
 design: this layout, the engine-drawn screen that stays as the fallback, §11].
 
 ## 5. The player and the view
@@ -210,10 +220,12 @@ the clock (either style, a kill camera, the weapon wheel, a script's time multip
 [design: the fork owner 2026-11-10]. A corpse's bones are drawn between its last two
 steps, as characters are (`ragdoll.rs`, `Corpse::drawn`).
 
-Nothing of the HUD is drawn from Accept until the last attack has played, with or
-without a camera: the meters, the compass, the enemy bar, the crosshair and its prompt,
-the corner messages, the quest notices and the queue's marks [design: the fork owner
-2026-11-10] (`VatsMode::playing_back`).
+[design, #2659] From Accept until playback ends, classic keeps the target name and
+health bar at bottom centre, above the compass gap, including during attack cameras.
+The other meters, compass, crosshair and prompt, corner messages, quest notices and
+queue marks stay hidden (`VatsMode::playing_back`, `hud::HudView::enemy_shown`).
+Dead Eye retains its previous playback HUD rule. The wider playback comparison is
+still observer check 215, item 8.
 
 ## 9. Special attacks
 
@@ -263,8 +275,8 @@ owner's review of #2102]. "Dead Eye" names the mechanic it is modelled on, anoth
 publisher's term, and stays in these notes, the code's names and the test aid's
 `dead-eye` only. What it shares with the classic style, and so does differently from
 before this branch: marks on a target that has died are dropped and the mode ends 2 s
-later (§8.1), nothing of the HUD from the first shot, the enemy bar at the top, the
-parts' labels from the menu file, explosives holding the mode's end (§8.2), the kill
+later (§8.1), hiding the corner HUD from the first shot, the parts' labels from the
+menu file, explosives holding the mode's end (§8.2), the kill
 camera's last shot held 3 s longer and the playing shot's Player time multiplier on
 the player's own attack (§8).
 
@@ -307,9 +319,9 @@ written into it: spec-notes/vats-menu.md.
   their key hints; the queue's list of queued attacks with its divider.
 - **Still the engine's**: the target's name and health, which are the HUD's own enemy
   bar (its bracket, ticks and name), shown for the selected target hurt or not and
-  moved to the top of the view while targets are chosen [design: the fork owner
-  2026-11-10; the original keeps it at the bottom], with blinking ticks for what the
-  queued attacks and the selected part would take off, a weapon's explosion counted
+  kept at bottom centre while choosing and through playback [design, #2659;
+  documented: issue #2659, item 3, original capture description], with blinking ticks
+  for what the queued attacks and the selected part would take off, a weapon's explosion counted
   (`combat::vats_hit_estimate`); the HUD's HP and AP meters. The picture is neither
   darkened nor tinted in the classic style [design: the fork owner 2026-11-10].
 - **The switch**: on unless `[UI] VatsMenuFile=0` is in `NVForever.ini` [design: the
@@ -359,7 +371,14 @@ notes are the full account).
 
 - A part's triangles are those carried mostly by the bones of its chain, the bones the
   hit volumes use; a bone in no chain goes with the chain above it [design]. The weapon
-  in the target's hand is a part too.
+  in the target's hand is a part too. [design, #2659] For mixed meshes, a triangle is
+  selected when its mean bone-weight share reaches `PART_TRIANGLE_SHARE` (0.5). All
+  selected vertices use full mask alpha, as whole-part meshes do: weights select the
+  geometry instead of weakening its fill. Previously `glow` put the weights in alpha
+  on mixed meshes (such as legs), then `vats_mask.wesl::cover` thresholded the blended
+  result; there is no area or triangle-count normalization. The fill strength, HUD
+  colour, pulse and scanlines stay unchanged. The boundary follows whole triangles,
+  so coarse meshes need picture review (owner-review, #2659).
 - It is a HUD element, not a glow in the world: the part's shapes are drawn white (the
   rest of the actor black) on a layer of their own into a mask by a camera at the
   player's, and one node over the view draws from the mask a fill with fine level lines
@@ -372,3 +391,26 @@ notes are the full account).
   them all, no cell loaded after the first lit part and a door's loading screen waited
   out its 120 s [observed: the fork owner's playtest 2026-11-10]. While a part is lit
   they still rest (§9b).
+
+## 13. Target screen alignment (#2659)
+
+- [design, #2659] Queue rows join the target's data name and the part's data name as
+  `<target>: <part>` (`vats_mode::queued_text`); a target without parts keeps its name
+  alone. The colon is NVForever's joiner. [documented: issue #2659, item 1] Its capture
+  description reports both data names with a colon in the original's queue.
+- [design, #2659] In classic targeting, both HUD implementations show loaded rounds
+  minus `MarkQueue::rounds_needed`, saturating at zero, and keep the spare count.
+  Undo or clearing the queue returns those shown rounds. No inventory or weapon
+  state changes until firing; playback reads the actual remaining rounds. Dead Eye
+  retains its prior display rule. [documented: issue #2659, item 2] The capture
+  description reports the displayed loaded count decreasing per queued shot.
+- [design, #2659] The tile HUD keeps its own existing bottom anchor for `EnemyHealth`
+  (`fnv-game/src/ui_hud.rs::write`); it accepts the engine's visibility decision,
+  including full-health classic targets. The hand-built HUD gives the enemy piece
+  an independent root so hiding the corner root during playback cannot hide it.
+  [design, #2659; `free_cam.rs::hide_menus`, `hud.rs::draw`] Console `tm` also hides
+  this independent piece; undoing it lets normal HUD eligibility restore the bar.
+- [design, #2659] Pointer and click handling are outside this change (PR #2711).
+  AP display, AP cost, the wider playback HUD and target-change timing remain open
+  in observer check 215; no changes are made for those comparisons. Body-part keys
+  (issue item 10) remain open as well.

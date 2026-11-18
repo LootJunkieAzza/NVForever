@@ -27,9 +27,13 @@ over FalloutNV.esm (2026-10-20). The player's own jump is physics.md ยง6.3 and ย
   links].
 - **Allow Falls** [documented: GECK wiki Packages, Flags tab]: "Actors will not jump off
   of an elevation that will cause damage unless this flag is set." NVForever's packages
-  already let an actor's path use ledge links only with this flag (`fnv_ai`
-  `path_params`, actor-behaviour.md); whether a drop that would not hurt is taken without
-  it is not documented [hypothesis left: NVForever takes none].
+  let an actor's path use all downward ledge links with this flag (`fnv_ai::Ai::path_params`).
+  [design, #2532] Without it, authored downward links up to `fJumpFallHeightMin` are
+  available only after ordinary routing returns unreachable. Ordinary A* and path
+  smoothing disable these drops; search-limit failures do not enable them
+  (`fnv_nav::NavGraph::search_path`). Existing climb rules stay unchanged.
+  [hypothesis, #2532] The planned takeoff-to-landing height predicts safety
+  for a single drop (physics.md section 6.10); observer check 214 checks this policy.
 - **Settings**: FalloutNV.esm holds four jump settings, all about falls: `fJumpFallHeightMin`,
   `fJumpFallHeightExponent`, `fJumpFallVelocityMin`, `fJumpSwimmingMult` [observed:
   `fnvtool esm inventory`, the GMST Editor IDs containing "jump"; their values are in
@@ -135,6 +139,7 @@ walks round them, `fnv_ai::apart`). Actors on the navmesh surface meet no obstac
 
 - Whether the original's actors take a ledge-up link at all, and how high they jump.
 - Whether they jump obstacles, and by what rule; whether a drop without Allow Falls is
-  taken when it would not hurt.
+  taken when it would not hurt [hypothesis, #2532: now provisionally allowed as above;
+  observer check 214].
 - An AI observer capture of a follower taking a drop down (Boone after the player off a
   marked ledge) would answer the first and the take-off.

@@ -1,5 +1,5 @@
-The FFI declarations in this folder (ffi.rs, security.rs, and the constants the other files
-here take from Streamline's headers) are translated from the public headers of NVIDIA
+The FFI declarations in this folder (ffi.rs, and the constants the other files here take from
+Streamline's headers; the signature checks, security.rs, are in crates/nvf-dlss-files) are translated from the public headers of NVIDIA
 Streamline v2.14.16 (https://github.com/NVIDIA-RTX/Streamline), used under the MIT licence
 below. The translated headers carry "Copyright (c) 2022-2023 NVIDIA CORPORATION. All rights
 reserved" (some 2022-2024 or 2022-2025). NVForever ships no NVIDIA program or library.

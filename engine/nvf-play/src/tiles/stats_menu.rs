@@ -753,7 +753,7 @@ fn write_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
         let number = row.value.clone().filter(|_| !matches!(row.key, RowKey::Perk(_)));
         ui.write_changed(made.tile, "user1", number.map_or(Value::Num(-1.0), Value::Str));
         ui.write_changed(made.tile, "user0", flag(row.mark.is_some()));
-        ui.write_changed(made.tile, "user2", Value::Str(row.mark.unwrap_or_default().to_string()));
+        ui.write_changed(made.tile, "user2", Value::Str(row.mark.clone().unwrap_or_default()));
     }
 }
 
@@ -1298,7 +1298,7 @@ impl PageFonts for FontKit<'_> {
 /// zoom changed on the same file writes the sizes again [design: as
 /// `tile-repair-menu-1468:engine/nvf-play/src/tiles/repair_menu.rs::write_file_sizes`]. A picture
 /// of an atlas has no file of its own.
-fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (String, f64)>, texels: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
+pub(super) fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (String, f64)>, texels: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
     let mut due = Vec::new();
     let mut stack = vec![menu];
     while let Some(t) = stack.pop() {
@@ -1311,7 +1311,7 @@ fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (Strin
             continue;
         }
         let name = tile.get("filename").map(|v| v.text().trim().to_string()).unwrap_or_default();
-        if name.is_empty() {
+        if name.is_empty() || super::runtime_images::is_runtime(&name) {
             continue;
         }
         let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);
@@ -2140,7 +2140,7 @@ mod tests {
     }
 
     fn rows() -> Vec<Row> {
-        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None }).collect()
+        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None, bold: false }).collect()
     }
 
     fn skills() -> Vec<Row> {
@@ -2259,7 +2259,7 @@ mod tests {
         let mut s = snap();
         s.special[0].value = Some("--".into());
         s.special[1].value = None;
-        s.special[2].mark = Some("(+)");
+        s.special[2].mark = Some("(+)".into());
         run(&mut ui, &s, &mut v, true, &mut t).unwrap();
         let made = t.written.rows.clone();
         assert_eq!(text(&ui, made[0].tile, "user1"), "--", "a numeric write would lose it");

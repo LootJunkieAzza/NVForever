@@ -58,8 +58,8 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
 
-      - name: Build fnvtool
-        run: cargo build --release --locked -p fnvtool
+      - name: Build fnvtool and the launcher
+        run: cargo build --release --locked -p fnvtool -p nvf-launcher
       - name: Build nvforever and nvf-viewer
         run: cargo build --release --locked -p nvforever -p nvf-viewer
         working-directory: engine
@@ -74,6 +74,7 @@ jobs:
           name="NVForever-${TAG}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/release/fnvtool${{ matrix.exe }}" "dist/$name/"
+          cp "target/release/nvforever-launcher${{ matrix.exe }}" "dist/$name/"
           cp "engine/target/release/nvforever${{ matrix.exe }}" "dist/$name/"
           cp "engine/target/release/nvf-viewer${{ matrix.exe }}" "dist/$name/"
           cp -r schemas "dist/$name/schemas"
@@ -86,7 +87,7 @@ jobs:
             (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
           else
             cp tools/release/nvforever.sh tools/release/nvf-viewer.sh "dist/$name/"
-            chmod +x "dist/$name/"*.sh "dist/$name/nvforever" "dist/$name/nvf-viewer" "dist/$name/fnvtool"
+            chmod +x "dist/$name/"*.sh "dist/$name/nvforever" "dist/$name/nvf-viewer" "dist/$name/fnvtool" "dist/$name/nvforever-launcher"
             tar -C dist -czf "dist/$name.tar.gz" "$name"
           fi
       - uses: actions/upload-artifact@v7

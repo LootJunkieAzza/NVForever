@@ -885,7 +885,15 @@ conversation between actors):
 - the **listener** looks at the speaker [documented for SayTo, §9.1]: head only for a
   SayTo line [design]; head and body in a conversation between actors, where it speaks
   next [design: `fnv_ai::social` already turned both bodies];
-- SayTo with `noTargetLookFlag` 1: only the speaker turns (`LineLook::Speaker`);
+- SayTo with `noTargetLookFlag` 1: nobody turns, body or head, and no head is left with
+  a forced look afterwards (`LineLook::Nobody`) [hypothesis, observer check 218; #2796,
+  2026-11-16]. The listener staying still is the wiki's (§9.1); the speaker not turning
+  to the target is read from the flag's name and the shipped data: 22 SayTo calls to the
+  player pass it (the McCarran monorail guards' warnings, Curtis's radio call in the
+  McCarran tower), and with the player as the target the wiki's reading alone would do
+  nothing. Curtis's call only works with his back to the player. Until #2796 the flag
+  turned the speaker only; the 2026-10-11 rule above still holds for every SayTo without
+  it (owner-review.md, Tier 3);
 - StartConversation with `headTrack` 0: nobody turns, for every line of that
   conversation (`LineLook::Nobody`, carried from line to line) [hypothesis: left out, it
   is on];
@@ -918,8 +926,9 @@ SayTo from the speaker's script.
 ### 9.4 Checks (2026-10-11)
 
 - `cargo test -p fnv-game --test integration dialogue::lines_said_to_someone_turn_the_two_to_each_other`:
-  SayTo with and without the flag, Say, a conversation between actors with and without
-  `headTrack` 0 (and its reply).
+  SayTo without the flag, Say, a conversation between actors with and without
+  `headTrack` 0 (and its reply); `dialogue::say_to_with_no_target_look_turns_nobody`:
+  SayTo with the flag to the player and to an actor (#2796).
 - Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test
   aid: to Cheyenne 157° behind her, the AI turned her body and the line ended with
   Cheyenne +0° off her front; Cheyenne (a dog) was given Sunny as her head's target
@@ -927,7 +936,7 @@ SayTo from the speaker's script.
   turns depends on its skeleton and was not checked. The same with `--no-npc-packages`: `speech_look.rs`
   turned her -160° in 1.06 s, ending at +0°. To the player 96° off: ended at +0°. With
   `noTargetLookFlag` 1 to GoodspringsSettler04Ref and to Cheyenne: only Sunny turned
-  (ended at -1° and +0°).
+  (ended at -1° and +0°); since #2796 nobody turns for those lines.
 - The unattended opening (`--new-game`): Doc Mitchell's 13 SayTo lines to the player in
   the first 90 s turn his head; while he sits on his chair (001059B0) the body stays, as
   §8.1 has it for sitting actors. The opening's idle summary and stage 55 are as before.
@@ -940,4 +949,79 @@ SayTo from the speaker's script.
 - What `headTrack` left out means, and what it does in a conversation with the player.
 - A listener's body stays for SayTo lines: with the speaker behind it, its head stops
   at its limit (60°).
+
+## 10. Fort equipment return regression (#2534)
+
+[documented: #2534 owner brief, fnvtool ESM decode/script decompile,
+FalloutNV.esm, main session 2026-11-14] The weather-station guard's GREETING
+`0x0015BCA2` offers Topic000 (INFO `0x0015BCA1`). That choice and Topic010's
+"Done." INFO `0x00165712` set `FortEquipmentConfiscationQuest.bGimme` in their
+begin result and start the equipment quest in their end result. The quest
+(`0x00164762`, script `0x00164763`, delay 0.1 seconds) transfers all eligible
+items from persistent `NVCCPlayerStorageREF` (`0x00139B6B`, Cottonwood Cove)
+to the player when `bFortEquipmentStored` and `bGimme` are 1, clears both flags
+and stops. Its return notification follows the transfer, except in
+`FortificationHillWeatherStation` (`0x0012428F`), where it is omitted.
+
+[observed: main session's authorized `fnvtool script run` and `script roundtrip`
+results on upstream main, 2026-11-14, supplied in the #2534 owner brief] One
+`Weap10mmPistol` moves from the player into storage at the entrance and returns
+after Caesar's bunker task and the weather guard's Topic000. A save/load before
+the middle step also succeeds. This is headless evidence; the reported engine
+failure has not been reproduced in this worktree.
+
+[design: `engine/nvf-play/src/dialogue.rs` input, `script.rs` `with_world`,
+`Runtime::player_action` and `tick`; `crates/fnv-game/src/dialogue.rs`
+`run_line_result` and `finish_line`] Engine dialogue choices and skipped
+responses call the shared `Game` implementation while the played simulation
+world is swapped in. Begin and end results run through that shared code; the
+runtime's inventory snapshot records the outcome rather than restoring an older
+inventory. The engine tick likewise calls `Game::tick` on the played world.
+
+[design: `crates/fnv-game/src/game.rs` `tick`, `start_quest`, `stop_quest`]
+Only running quests are scheduled. Their configured delay advances on separate
+GameMode and MenuMode counters. Dialogue and message boxes hold GameMode; after
+leaving dialogue or closing a box, the equipment quest can run its GameMode
+return branch. Starting a stopped quest resets its counters; stopping it prevents
+later ticks. No separate engine quest scheduler was found in this path.
+
+[documented: GECK wiki **RemoveAllTypedItems**, offline snapshot 2026-10-28,
+revision 31990] Omitting the type code transfers all eligible items; the
+suppress-messages argument hides the item notification. [design:
+`crates/fnv-game/src/functions/items.rs` `remove_all_typed_items`, `remove_all`;
+`crates/fnv-sim/src/world.rs` `get`, `inventory_mut`; `refs.rs` `from_index`;
+`engine/nvf-play/src/sim.rs` `SimState::new`] The transfer directly changes
+the shared `World` inventory. References are indexed independently of rendered
+cells, and inventory access materializes reference state on demand; the transfer
+does not require the storage container's cell to be streamed or its lock opened.
+
+[design: `engine/nvf-play/src/menu.rs` `open_menus`;
+`menu/model.rs` `MenuModel::open_inventory`; `pipboy/items.rs` `draw`]
+Opening the Pip-Boy builds its inventory model from the played world, and the
+ITEMS page renders that model. A return made before opening it therefore needs
+no separate inventory-copy notification. No supported engine cause was identified
+by this source inspection, so #2534 adds regression coverage without changing
+runtime behavior. An in-game pass remains necessary before claiming the report
+is resolved.
+
+[design, #2534] Smoke coverage:
+
+- `mq-fort-gear-returned` runs
+  `crates/fnv-game/walkthrough/fort-gear-returned.actions.json`, preserving the
+  supplied actions with rewritten explanatory notes. It checks the return
+  greeting/choice, player/storage pistol counts 0/1 then 1/0, and stopped quest
+  with both flags reset.
+- `fort-gear-returned` isolates the engine bridge in Goodsprings while the storage
+  is remote. Console aids confiscate a test pistol, seed both quest flags and start
+  the quest. The console closes before GameMode is allowed to return it. Later
+  console reads check the same four counts, stopped quest and cleared flags. This
+  scenario bypasses the long dialogue route; it does not establish that the
+  reported weather-guard conversation succeeds in-game.
+
+[design, #2534] If both checks pass but the report persists, reproduce the full
+guard conversation in the engine and inspect the chosen INFO, its begin/end
+results, the two quest variables, running state and any menu still holding
+GameMode. The existing `mq-legion` and `console-quest-info` scenarios provide
+related chain and console coverage. No new parity value, setting, or maintainer
+choice is introduced.
 

@@ -1,0 +1,10 @@
+<!-- Authored portable numeric fixtures; no installed menu content. -->
+<menu name="UIOFour">
+  <angle>90</angle>
+  <sine><copy>37</copy><sin src="me()" trait="angle"/></sine>
+  <cosine><copy>42</copy><cos>180</cos></cosine>
+  <ratio><copy>11</copy><log>64</log><div><log>4</log></div></ratio>
+  <power><copy>3</copy><pow>4</pow></power>
+  <ordinary><copy>7</copy><mul>3</mul></ordinary>
+  <sentinel>23</sentinel>
+</menu>

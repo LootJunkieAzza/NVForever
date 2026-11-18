@@ -152,6 +152,13 @@ clean-room rules, and never give an assistant leaked or decompiled code as input
 [CLAUDE.md](CLAUDE.md) holds the standing instructions the project's own sessions follow,
 and it is a good brief for any assistant.
 
+### A row of the settings page
+
+The settings page has one system for its rows (tabs, categories, lists for 7 or fewer
+values, greyed rows, Title Case on the page): `docs/design/settings-page.md` §0 says how to
+add or change one. A new row needs its place in `engine/nvf-play/src/settings_layout.rs`
+`SECTIONS`; the tests fail until it has one.
+
 ## Licence
 
 NVForever is licensed under **GPL-3.0-or-later** ([LICENSE](LICENSE)). By opening a pull

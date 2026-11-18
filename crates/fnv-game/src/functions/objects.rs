@@ -381,10 +381,8 @@ pub fn get_lock_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
         let l = if super::refs::in_loaded_cell(g, r) { crate::terminal::lock_level(g, r) } else { 0 };
         return Ok(Value::Num(l as f64));
     }
-    let own = g.world.get(r).map_err(|e| e.to_string())?.lock.map(|l| l.level);
-    let door = g.world.placed.get(r).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
-    let other = door.and_then(|d| g.world.get(d).ok()).and_then(|s| s.lock.map(|l| l.level));
-    let l = own.or(other).unwrap_or(0);
+    g.world.get(r).map_err(|e| e.to_string())?;
+    let l = g.world.lock_of(r).map_or(0, |l| l.level);
     Ok(Value::Num(l as f64))
 }
 
@@ -466,7 +464,9 @@ pub fn set_broadcast_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 /// activator's own) [documented: catalogue summary].
 pub fn set_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().talking_actor = a.opt_form(0);
+    let e = g.extra.entry(r).or_default();
+    e.talking_actor = a.opt_form(0);
+    e.talking_actor_set = true;
     none()
 }
 

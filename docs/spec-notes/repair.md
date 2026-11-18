@@ -309,6 +309,19 @@ epairmenuPlayer, Repair 17]:
   Cancel [design: the owner's rule, playtest list 7 item 16; the original's screenshots
   show the ITEMS list back after one repair]. Log `pipboy repair: stays open: …` or
   `pipboy repair: closed: …`.
+- A physical repair or mod-menu key is consumed for the rest of its frame, including
+  when it closes the list. ITEMS keeps its open-list guards and also checks `KeysTaken`,
+  cleared once per frame in Bevy's `First` schedule; the closing Enter/Space (controller
+  A maps to Enter) cannot also toggle equipment. Mouse messages do not mark keys, and
+  a fresh press on the following frame reaches ITEMS normally [design, #2553:
+  `engine/nvf-play/src/pipboy.rs`, `pipboy/repair.rs`, `pipboy/item_mod.rs`,
+  `pipboy/items.rs`, `engine/nvf-play/src/pad.rs`]. The tile repair page retains these
+  physical keys, so it uses the same guard [design:
+  `engine/nvf-play/src/tiles/repair_menu.rs::HAND_BUILT_KEYS`].
+  Regression coverage: `repair_keys_closing_the_list_preserve_worn_state` drives the
+  real handlers with Enter, NumpadEnter and Space on synthetic inventories; smoke
+  `pipboy-repair-enter` injects real Enter through `NVF_PLAY_TEST_KEYS` [design:
+  `engine/nvf-play/src/pipboy/repair.rs`, `tools/smoke/scenarios.toml`].
 - The hint: "Maintain R)" from 75 % (weapons) or 50 % (apparel), "Repair R)" below;
   dim when R would do nothing. "Mod X)" is drawn under it for weapons with mod slots
   (pipboy.md §5); the mod menu itself is not built.
@@ -316,6 +329,17 @@ epairmenuPlayer, Repair 17]:
   vendor's menu.
 - Scripts do not see MenuMode 1035 (`fnv_game::repair::REPAIR_MENU`) while the list is
   open [not built].
+
+- **Weapon Repair Kit** [observed: FalloutNV.esm]: `NVRepairKit` is an ingestible with one
+  effect, `RepairKitEffect` ("Repairs Current Weapon"), whose script `RepairKitEffectSCRIPT`
+  reads the player's GetWeaponHealthPerc, adds 10 points below Repair 25, 15 below 50, 20
+  below 75, 25 below 100 and 30 at 100, and sets the weapon in hand to that with
+  SetWeaponHealthPerc (at most 99.83 % [documented: GECK wiki]). Used from the inventory it
+  runs as any aid item. Under the Tweaks tab's Repair Kits in the Repair List
+  (`bUseWeaponRepairKitsInRepairMenu`) the kits carried are parts in any weapon's repair
+  list, after the others, and one raises that weapon by the same rule
+  (`fnv_game::repair::kit_condition`) [design: the kit's script is not run, so a mod's kit
+  that changes the script but keeps the effect repairs by the master's rule].
 
 ### 5.1 The page drawn from its file
 

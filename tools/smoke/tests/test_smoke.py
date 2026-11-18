@@ -330,6 +330,34 @@ class PlanTests(unittest.TestCase):
             merge("L", s, {}, untimed=set())  # an offset member with an aid of unknown kind
 
 
+class MessagesTests(unittest.TestCase):
+    """`--play` scenarios get --no-messages unless `messages = true` (smoke/scenarios.py)."""
+
+    def test_play_gets_no_messages(self):
+        [a] = load_text(game("a", args='["--cell", "X", "--play"]')).scenarios
+        self.assertEqual(a.args, ["--cell", "X", "--play", "--no-messages"])
+        self.assertFalse(a.messages)
+        # Given already: not twice.
+        [b] = load_text(game("b", args='["--play", "--no-messages", "--cell", "X"]')).scenarios
+        self.assertEqual(b.args.count("--no-messages"), 1)
+        # Not a --play run: untouched.
+        [c] = load_text(game("c")).scenarios
+        self.assertEqual(c.args, ["--cell", "X"])
+
+    def test_messages_true_keeps_the_boxes(self):
+        [a] = load_text(game("a", args='["--cell", "X", "--play"]', extra="messages = true")).scenarios
+        self.assertEqual(a.args, ["--cell", "X", "--play"])
+        self.assertTrue(a.messages)
+        for bad in [
+            game("a", args='["--play", "--no-messages"]', extra="messages = true"),  # contradicts itself
+            game("a", extra="messages = true"),  # no --play
+            game("a", args='["--play"]', extra='messages = "yes"'),
+            '[[scenario]]\nname = "t"\nkind = "tool"\npaths = ["x"]\ncommands = [["a"]]\nmessages = true\n',
+        ]:
+            with self.assertRaises(ScenarioError):
+                load_text(bad)
+
+
 class FrontTests(unittest.TestCase):
     """`front = true`: the launch's window held in front (smoke/front.py)."""
 
@@ -468,6 +496,35 @@ class JudgeTests(unittest.TestCase):
             Expect.parse({"text": "x", "known_failing": {}})
         with self.assertRaises(ScenarioError):
             Expect.parse({"text": "x", "known_failing": {"linux": ""}})
+
+
+class RoySayPauseTests(unittest.TestCase):
+    def setUp(self):
+        self.scenario = load(HERE / "scenarios.toml").by_name()["roy-say-pause-resume"]
+
+    def test_say_and_pause_inputs_share_the_world_clock(self):
+        # [design, #2714: nvf-play/script.rs, test_aid.rs] SCRIPT and KEYS use
+        # world_secs; PAUSE uses elapsed_secs and can open before a late Say.
+        launch, = plan(load(HERE / "scenarios.toml"), [self.scenario])
+        env = game_env(launch)
+        self.assertEqual(env[FROM_SCRIPTS], "1")
+        self.assertNotIn("NVF_PLAY_TEST_PAUSE", env)
+        say_at = float(env["NVF_PLAY_TEST_SCRIPT"].split(":", 1)[0])
+        pauses = [item.split(":") for item in env["NVF_PLAY_TEST_KEYS"].split(",")]
+        self.assertEqual([key for _, key in pauses], ["esc", "esc"])
+        opened, resumed = [float(at) for at, _ in pauses]
+        self.assertEqual(opened - say_at, 1)
+        self.assertEqual(resumed - opened, 5)
+
+    def test_subtitle_clear_is_required_after_completion(self):
+        # [design, #2714] Authored trace of the final two transitions only; no
+        # subtitle words or voice assets from the game are needed for this check.
+        final = self.scenario.order[1][-2:]
+        ended = "script: VFSRoyREF ended line 0x0011361F"
+        cleared = "subtitle: cleared"
+        self.assertTrue(all(o.ok for o in check_order(final, [ended, cleared])))
+        self.assertFalse(all(o.ok for o in check_order(final, [ended])))
+        self.assertFalse(all(o.ok for o in check_order(final, [cleared, ended])))
 
 
 class GameEnvTests(unittest.TestCase):

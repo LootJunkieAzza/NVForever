@@ -59,6 +59,11 @@
 //!   (docs/spec-notes/combat-rules.md §4). The clips' lengths and `Hit` key in the
 //!   actor's own rig go to `npc_combat` ([`AttackTimes::reloads`]), whose gun cycle
 //!   reloads for as long. Their `Sound:` keys play as any clip's (`anim_sounds`).
+//! - **Shot timing of NPCs** (#2739): a semi-automatic gun's standing attack clip in the
+//!   actor's own rig (`player_clips::attack_clips` of the WEAP attack animation: the
+//!   sentry bot's `2hlattackleft.kf`) gives its length and `a:` key with the reload
+//!   clips ([`AttackTimes::reloads`]); `npc_combat` times the next shot by them as the
+//!   player's (docs/spec-notes/combat-rules.md §4).
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
@@ -261,7 +266,9 @@ pub struct AttackTimes {
     pub swings: HashMap<u32, SwingClip>,
     /// Each armed actor's reload clips in its own rig, for the weapon drawn on it: their
     /// length and `Hit` key and the opening clip's length (`fnv_combat::attack::
-    /// ClipTiming`), so its gun's cycle reloads for as long as the clip plays.
+    /// ClipTiming`), so its gun's cycle reloads for as long as the clip plays; for a
+    /// semi-automatic gun also its standing attack clip's length and `a:` key, which time
+    /// its shots (#2739).
     pub reloads: HashMap<u32, (FormId, fnv_combat::attack::ClipTiming)>,
 }
 
@@ -313,7 +320,7 @@ fn head_or_neck(name: &str) -> bool {
 pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
     let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
     let tracks: Vec<_> = bound.tracks.iter().filter(|(i, _, _)| head(*i)).cloned().collect();
-    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None, unbound: Default::default() })
+    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None, hold_xy: None, unbound: Default::default() })
 }
 
 impl Attack {
@@ -389,6 +396,9 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// [design, #2512] The advanced attack/reload visibility sample, including the exact
+    /// end on its last frame; consumed by `weapons::reparent` after locomotion.
+    pub weapon_visibility: Option<(Arc<BoundClip>, f32)>,
     /// The actor moves this frame (`locomotion::drive` sets it before [`CombatPose::layers`]):
     /// a creature's blow shows on its head and neck only.
     pub moving: bool,
@@ -459,6 +469,7 @@ impl CombatPose {
     /// Lay the aim's up or down form and the attack over the actor's layers;
     /// `drawn`: its weapon is drawn (the aim clip plays). Advances the attack by `dt`.
     pub fn layers(&mut self, player: &mut BlendPlayer, drawn: bool, dt: f32) {
+        self.weapon_visibility = None;
         let [_, (_, up), (_, down)] = aim_weights(self.pitch);
         let (variant, share) = if up > 0.0 { (Aim::Up, up) } else { (Aim::Down, down) };
         let w = variant_weight(share);
@@ -521,6 +532,9 @@ impl CombatPose {
         self.travel += a.clip.travel(before, a.t);
         if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
             a.t = loop_time(a.t, from, to);
+        }
+        if a.kind == Move::Attack || a.kind.reloads() {
+            self.weapon_visibility = Some((a.clip.clone(), a.clip.clip.start + (a.t / a.len.max(1e-3)).clamp(0.0, 1.0) * a.clip.clip.length()));
         }
         let shot = a.kind == Move::Attack && !a.melee;
         if a.t >= a.len {
@@ -609,7 +623,7 @@ impl AttackClips {
         let key = (skeleton.to_string(), fnv_vfs::normalize(path));
         self.carried
             .entry(key)
-            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None, unbound: clip.unbound.clone() }.carried()))
+            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None, hold_xy: None, unbound: clip.unbound.clone() }.carried()))
             .clone()
     }
 
@@ -636,6 +650,29 @@ impl AttackClips {
 fn folder_of(skeleton: &str) -> String {
     let s = fnv_vfs::normalize(&fnv_actor::resolve::mesh_path(skeleton));
     s.rfind('\\').map_or(String::new(), |i| s[..i].to_string())
+}
+
+/// A semi-automatic gun's attack clip as its shots are timed by (#2739): its length
+/// (`None` if empty) and its `a:` key's time into the clip with the group it names, from
+/// the clip's length, start and text keys (`AttackTimes::reloads`).
+pub fn attack_keys(len: f32, start: f32, text_keys: &[(f32, String)]) -> (Option<f32>, Option<(f32, NextAttack)>) {
+    let keys = ClipKeys::parse(text_keys);
+    let next = keys.next_attack.and_then(|(t, v)| NextAttack::parse(&v).map(|n| ((t - start).clamp(0.0, len.max(0.0)), n)));
+    (Some(len).filter(|l| *l > 0.0), next)
+}
+
+impl AttackTimes {
+    /// The timing of the gun `weapon` (`ws`) drawn on actor `id` from its clips in its rig,
+    /// once [`attack_anims`](self) has looked them up for that weapon: the reload clips,
+    /// and for a semi-automatic weapon its attack clip as the player's
+    /// (`fnv_combat::attack::npc_clip_timing`), at the teammate attack rate `rate` gives
+    /// (asked only once the clips are known). The one handoff `npc_combat`'s fights and
+    /// `use_weapon`'s shooters both take (#2739).
+    pub fn gun_timing(&self, id: u32, weapon: FormId, ws: &fnv_combat::data::WeaponStats, tuning: &fnv_combat::tuning::CombatTuning, rate: impl FnOnce() -> f32) -> Option<(fnv_combat::attack::ClipTiming, fnv_combat::attack::Timing)> {
+        let (_, clips) = self.reloads.get(&id).filter(|r| r.0 == weapon)?;
+        let timed = fnv_combat::attack::npc_clip_timing(clips, ws.automatic);
+        Some((timed, fnv_combat::attack::Timing::of(ws, &timed, tuning).with_attack_rate(rate())))
+    }
 }
 
 /// The `Hit` text key's time into a clip, if it has one.
@@ -740,6 +777,15 @@ fn start(
                     timing.reload_hit = hit_time(&c);
                 }
                 timing.reload_open_len = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &reload_open_clips(Stance::Stand, prefix, &r)).map(|(_, c)| c.clip.length());
+            }
+            // A semi-automatic gun's standing attack clip: its length and `a:` key time
+            // the next shot as the player's (`fnv_combat::attack::Timing::of`, #2739).
+            let semi = combat.as_deref().and_then(|c| c.forms.weapons.get(&w)).filter(|ws| !ws.automatic);
+            if let Some(ws) = semi {
+                let stem = attack_stem(ws.attack_anim.as_deref());
+                if let Some((_, c)) = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &attack_clips(Stance::Stand, prefix, &stem, false)) {
+                    (timing.attack_len, timing.next_attack) = attack_keys(c.clip.length(), c.clip.start, &c.clip.text_keys);
+                }
             }
             times.reloads.insert(id, (w, timing));
         }
@@ -1120,6 +1166,50 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>, travel: Res
 
 #[cfg(test)]
 mod tests {
+    /// #2739: the production handoff from an attack clip's keys, as the lookup stores them
+    /// in `AttackTimes::reloads`, to the timing an NPC's (or a Use Weapon shooter's) gun
+    /// cycle runs on (`AttackTimes::gun_timing`). The keys are the test's own, laid out as
+    /// the sentry bot's `2hlattackleft.kf` (`a:R` at 0.967 s, end 2.0 s) and a pistol clip.
+    #[test]
+    fn stored_attack_clips_time_an_npcs_semi_automatic_gun() {
+        use super::{attack_keys, AttackTimes};
+        use fnv_combat::attack::ClipTiming;
+        use fnv_combat::data::WeaponStats;
+        use fnv_combat::tuning::CombatTuning;
+        use fnv_sim::FormId;
+        let t = CombatTuning::default();
+        let keys = |list: &[(f32, &str)]| list.iter().map(|(t, k)| (*t, k.to_string())).collect::<Vec<_>>();
+        let stored = |len: f32, k: &[(f32, &str)]| {
+            let (attack_len, next_attack) = attack_keys(len, 0.0, &keys(k));
+            ClipTiming { attack_len, next_attack, ..ClipTiming::default() }
+        };
+        let (me, launcher_id, pistol_id, minigun_id) = (7u32, FormId(0x0005_7E8F), FormId(0x10), FormId(0x11));
+        let mut times = AttackTimes::default();
+        // The launcher (an embedded semi-automatic weapon): its a: key, not 1 / 1.5789.
+        let launcher = WeaponStats { embedded: true, clip_size: 1, attack_shots_per_sec: 1.578_947_4, attack_mult: 1.0, anim_mult: 1.0, ..WeaponStats::default() };
+        times.reloads.insert(me, (launcher_id, stored(2.0, &[(0.0, "start"), (0.033, "BlendIn:1"), (0.067, "Hit"), (0.967, "a:R"), (2.0, "end")])));
+        let (_, timing) = times.gun_timing(me, launcher_id, &launcher, &t, || 1.0).expect("stored");
+        assert!((timing.interval - 0.967).abs() < 1e-5 && timing.fire_delay == 0.0, "{timing:?}");
+        // Stored for another weapon: none yet (the fight keeps 1 / Attack Shots/Sec).
+        assert!(times.gun_timing(me, pistol_id, &launcher, &t, || 1.0).is_none());
+        // A person's semi-automatic pistol: a: at 0.4 s ÷ speed 1.25 = 0.32 s; without an
+        // a: key, its clip's end (0.5 ÷ 1.25 = 0.4 s); at a teammate rate of 2, half.
+        let pistol = WeaponStats { clip_size: 13, attack_shots_per_sec: 3.125, attack_mult: 1.25, anim_mult: 1.0, ..WeaponStats::default() };
+        times.reloads.insert(me, (pistol_id, stored(0.5, &[(0.0, "start"), (0.4, "a:R"), (0.5, "end")])));
+        let (_, timing) = times.gun_timing(me, pistol_id, &pistol, &t, || 1.0).expect("stored");
+        assert!((timing.interval - 0.32).abs() < 1e-5, "{timing:?}");
+        let (_, fast) = times.gun_timing(me, pistol_id, &pistol, &t, || 2.0).expect("stored");
+        assert!((fast.interval - 0.16).abs() < 1e-5, "{fast:?}");
+        times.reloads.insert(me, (pistol_id, stored(0.5, &[(0.0, "start"), (0.5, "end")])));
+        let (_, timing) = times.gun_timing(me, pistol_id, &pistol, &t, || 1.0).expect("stored");
+        assert!((timing.interval - 0.4).abs() < 1e-5, "{timing:?}");
+        // An automatic weapon: its Fire Rate, whatever is stored.
+        let minigun = WeaponStats { automatic: true, fire_rate: 15.0, clip_size: 255, attack_mult: 1.0, anim_mult: 1.0, ..WeaponStats::default() };
+        times.reloads.insert(me, (minigun_id, stored(2.0, &[(0.967, "a:R")])));
+        let (timed, timing) = times.gun_timing(me, minigun_id, &minigun, &t, || 1.0).expect("stored");
+        assert!(timed.attack_len.is_none() && (timing.interval - 1.0 / 15.0).abs() < 1e-5, "{timing:?}");
+    }
+
     /// A lunge with room carries the actor by its clip's whole root travel, frame by
     /// frame; one that reaches its target's body stops there for the rest of the attack,
     /// its travel back included (`clamp_lunge`, actors.md §8.13).
@@ -1225,6 +1315,38 @@ mod tests {
         player.layers = Default::default();
         pose.layers(&mut player, true, 0.01);
         assert!(pose.held.is_none() && player.layers[ATTACK_LAYER].is_none());
+    }
+
+    #[test]
+    fn npc_weapon_visibility_samples_attack_reload_end_and_loop_time() {
+        // [design, #2512] Synthetic clips with an end-only key and a nonzero start.
+        let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        c.start = 3.0;
+        c.stop = 4.0;
+        c.visibility.push(("##NifRound".into(), 0, fnv_nif::anim::BoolTrack { value: None, keys: vec![(3.0, false), (4.0, true)] }));
+        let clip = Arc::new(BoundClip::bind(Arc::new(c), |_| None));
+        for kind in [Move::Attack, Move::Reload, Move::ReloadRound, Move::BlockHit, Move::Recoil] {
+            let attack = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 1.0, repeat: None, since: 0.0, fade_in: true, reload: kind.reloads(), kind, opening: false, melee: false, hit: 0.0, on_the_move: None, head_blow: None };
+            let mut pose = CombatPose { attack: Some(attack.clone()), ..Default::default() };
+            let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+            pose.layers(&mut player, true, 1.5);
+            assert!(pose.attack.is_none());
+            if matches!(kind, Move::Attack | Move::Reload | Move::ReloadRound) {
+                let (sampled, time) = pose.weapon_visibility.as_ref().unwrap();
+                assert!(Arc::ptr_eq(sampled, &clip));
+                assert_eq!(*time, 4.0);
+                assert_eq!(sampled.clip.visibility[0].2.at(*time), Some(true));
+            } else {
+                assert!(pose.weapon_visibility.is_none(), "reactions do not key the weapon");
+            }
+            pose.layers(&mut player, true, 0.1);
+            assert!(pose.weapon_visibility.is_none(), "a held shot or aim does not replay visibility");
+            if kind == Move::Attack {
+                pose.attack = Some(Attack { repeat: Some((0.2, 0.6)), t: 0.55, ..attack });
+                pose.layers(&mut player, true, 0.1);
+                assert!((pose.weapon_visibility.as_ref().unwrap().1 - 3.25).abs() < 1e-5, "sample the wrapped loop time");
+            }
+        }
     }
 
     #[test]

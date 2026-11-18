@@ -45,11 +45,23 @@ const TALK_PACKAGE: u32 = 0xB00;
 const LINE_SETTLER: u32 = 0x913;
 const LINE_SINK: u32 = 0x914;
 const SINK_SCRIPT: u32 = 0xA03;
+const BUNKER: u32 = 0x604;
+const BUNKER_REF: u32 = 0x605;
+const BUNKER_SCRIPT: u32 = 0xA04;
 const T_INTERCOM: u32 = 0x920;
 const L_ASK: u32 = 0x921;
 const L_REFUSE: u32 = 0x922;
 const L_INSIST: u32 = 0x923;
 const L_OPEN: u32 = 0x924;
+const SPEAKER: u32 = 0x606;
+const SPEAKER_REF: u32 = 0x607;
+const SPEAKER_SCRIPT: u32 = 0xA05;
+const T_SAY: u32 = 0x930;
+const L_SAY_BENNY: u32 = 0x931;
+const L_SAY_OWN: u32 = 0x932;
+const T_OWN: u32 = 0x933;
+const G_BEGIN: u32 = 0x940;
+const G_END: u32 = 0x941;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
@@ -139,6 +151,29 @@ fn info_flagged(id: u32, speaker: u32, flags: u8, text: &str, conds: Vec<Subreco
     record(b"INFO", 0, id, &s)
 }
 
+/// A Topic line with no fixed speaker (no ANAM): who says it is up to its conditions.
+fn topic_line(id: u32, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
+    topic_line_scripted(id, text, conds, unit(0, &[], &[], &[]), unit(0, &[], &[], &[]))
+}
+
+/// [`topic_line`] with its begin and end result scripts.
+fn topic_line_scripted(id: u32, text: &str, conds: Vec<Subrecord>, begin: Vec<Subrecord>, end: Vec<Subrecord>) -> Vec<u8> {
+    let mut s = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", u32b(QUEST))];
+    let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
+    s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z(text)), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
+    s.extend(conds);
+    s.extend(begin);
+    s.push(sub(b"NEXT", vec![]));
+    s.extend(end);
+    record(b"INFO", 0, id, &s)
+}
+
+/// `set <global> to IsActorTalkingThroughActivator` (on the line's speaker; SCRO 1 the
+/// global).
+fn record_talking_through(global: u32) -> Vec<Subrecord> {
+    unit(0, &set(var(b'G', 1), ex(&[xcall(OP_TALKING_THROUGH, &[])])), &[], &[global])
+}
+
 fn plugin_bytes() -> Vec<u8> {
     let perks = [
         perk(CANNIBAL, "Cannibal", "Devour", vec![ctda(EQ, 0.0, HAS_BEEN_EATEN, 0), ctda(EQ, 1.0, GET_DEAD, 0)], on_player(0x107E)),
@@ -156,6 +191,8 @@ fn plugin_bytes() -> Vec<u8> {
     let tact = [
         record(b"TACT", 0, INTERCOM, &[sub(b"EDID", z("Intercom")), sub(b"FULL", z("Intercom"))]),
         record(b"TACT", 0, SINK, &[sub(b"EDID", z("SinkAppliance")), sub(b"FULL", z("Appliance")), sub(b"SCRI", u32b(SINK_SCRIPT))]),
+        record(b"TACT", 0, BUNKER, &[sub(b"EDID", z("BunkerIntercom")), sub(b"FULL", z("Intercom")), sub(b"SCRI", u32b(BUNKER_SCRIPT))]),
+        record(b"TACT", 0, SPEAKER, &[sub(b"EDID", z("SquareSpeaker")), sub(b"FULL", z("Loudspeaker")), sub(b"SCRI", u32b(SPEAKER_SCRIPT))]),
     ]
     .concat();
     // Start game enabled, Allow Repeated Conversation Topics (as VDialogueHiddenValley).
@@ -185,7 +222,24 @@ fn plugin_bytes() -> Vec<u8> {
         conversation_line(L_OPEN, BENNY, BYE_ONCE, "Opening.", through(), &[]),
     ]
     .concat();
+    // A topic a script's Say or SayTo has the loudspeaker say (issue #2768): Benny's line,
+    // to be said through an activator; and a topic of the loudspeaker's own line.
+    // Benny's line records IsActorTalkingThroughActivator from its begin and end scripts.
+    let say_lines = topic_line_scripted(
+        L_SAY_BENNY,
+        "Listen up.",
+        vec![ctda(EQ, 1.0, GET_IS_ID, BENNY), ctda(EQ, 1.0, TALKING_THROUGH, 0)],
+        record_talking_through(G_BEGIN),
+        record_talking_through(G_END),
+    );
+    let own_lines = topic_line(L_SAY_OWN, "Feedback, static and a long electric hum.", vec![ctda(EQ, 1.0, GET_IS_ID, SPEAKER)]);
+    let glob = |id: u32, edid: &str| record(b"GLOB", 0, id, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", (-1f32).to_le_bytes().to_vec())]);
+    let globs = [glob(G_BEGIN, "ThroughAtBegin"), glob(G_END, "ThroughAtEnd")].concat();
     let dial = [
+        record(b"DIAL", 0, T_SAY, &[sub(b"EDID", z("SpeakerSay")), sub(b"FULL", z("SpeakerSay")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]),
+        group(T_SAY.to_le_bytes(), 7, &say_lines),
+        record(b"DIAL", 0, T_OWN, &[sub(b"EDID", z("SpeakerOwn")), sub(b"FULL", z("SpeakerOwn")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]),
+        group(T_OWN.to_le_bytes(), 7, &own_lines),
         record(b"DIAL", 0, T_INTERCOM, &[sub(b"EDID", z("IntercomExchange")), sub(b"FULL", z("IntercomExchange")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![1, 0])]),
         group(T_INTERCOM.to_le_bytes(), 7, &intercom_lines),
         record(b"DIAL", 0, GREETING, &[sub(b"EDID", z("GREETING")), sub(b"FULL", z("GREETING")), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]),
@@ -225,6 +279,13 @@ fn plugin_bytes() -> Vec<u8> {
         SINK_SCRIPT,
         &[vec![sub(b"EDID", z("SinkApplianceScript"))], unit(0, &script(&[(0x02, None, set_talk), (0x00, None, talk)]), &[(1, "bTalk", 1)], &[])].concat(),
     );
+    // The Hidden Valley intercom's shape (SCPT 0x000A418A): OnActivate sets its talking
+    // actor (here Chris, reference 1) and activates it.
+    let set_chris = [st(OP_SET_TALKING_ACTOR, &[le16(1), vec![b'r'], le16(1)].concat()), st(0x100D, &le16(0))].concat();
+    let bunker_script = record(b"SCPT", 0, BUNKER_SCRIPT, &[vec![sub(b"EDID", z("BunkerIntercomScript"))], unit(0, &script(&[(0x02, None, set_chris)]), &[], &[CHRIS_REF])].concat());
+    // The loudspeaker's script: a SayToDone block that counts in its variable 1.
+    let done = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let speaker_script = record(b"SCPT", 0, SPEAKER_SCRIPT, &[vec![sub(b"EDID", z("SquareSpeakerScript"))], unit(0, &script(&[(0x07, None, done)]), &[(1, "nDone", 1)], &[])].concat());
     // A Dialogue package: talk to the player, no topic (the greeting).
     let pkdd = [0f32.to_le_bytes().to_vec(), u32b(0), u32b(0), vec![0; 4], u32b(0), vec![0; 4]].concat();
     let ptdt = [0i32.to_le_bytes(), 0x14u32.to_le_bytes(), 0i32.to_le_bytes(), 0f32.to_le_bytes()].concat();
@@ -243,17 +304,20 @@ fn plugin_bytes() -> Vec<u8> {
     let trigger = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("IntercomTrigger")), sub(b"SCRI", u32b(TRIGGER_SCRIPT))]);
     let trigger_ref = record(b"REFR", 0, TRIGGER_REF, &[sub(b"EDID", z("IntercomTriggerREF")), sub(b"NAME", u32b(TRIGGER)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let bunker_ref = record(b"REFR", 0, BUNKER_REF, &[sub(b"EDID", z("BunkerIntercomREF")), sub(b"NAME", u32b(BUNKER)), sub(b"DATA", vec![0; 24])]);
+    let speaker_ref = record(b"REFR", 0, SPEAKER_REF, &[sub(b"EDID", z("SquareSpeakerREF")), sub(b"NAME", u32b(SPEAKER)), sub(b"DATA", vec![0; 24])]);
     let sink_ref = record(b"REFR", 0, SINK_REF, &[sub(b"EDID", z("SinkApplianceREF")), sub(b"NAME", u32b(SINK)), sub(b"DATA", vec![0; 24])]);
-    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr, trigger_ref, sink_ref].concat();
+    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr, trigger_ref, sink_ref, bunker_ref, speaker_ref].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"PERK", &perks),
         top(b"NPC_", &npcs),
-        top(b"SCPT", &[trigger_script, sink_script].concat()),
+        top(b"SCPT", &[trigger_script, sink_script, bunker_script, speaker_script].concat()),
         top(b"PACK", &pack),
         top(b"ACTI", &trigger),
         top(b"TACT", &tact),
+        top(b"GLOB", &globs),
         top(b"QUST", &quest),
         top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -421,6 +485,33 @@ fn talking_activators_speak_for_their_actor() {
     assert!(g.start_dialogue(benny, None).is_err());
 }
 
+/// A talking activator no SetTalkingActivatorActor has reached speaks for the one actor
+/// its scripts name (`Game::scripted_talking_actor`, issue #2454): the Hidden Valley
+/// intercom, made to start a conversation by a door's script on a route that never used
+/// it, speaks for Ramos as its OnActivate would have set.
+#[test]
+fn a_talking_activator_with_no_actor_set_speaks_for_the_actor_its_script_names() {
+    let f = fixture();
+    let mut g = game(&f);
+    let bunker = FormId(BUNKER_REF);
+    let chris = FormId(CHRIS_REF);
+    assert_eq!(g.scripted_talking_actor(bunker), Some(chris));
+    // The plain intercom's scripts name nobody for it.
+    assert_eq!(g.scripted_talking_actor(FormId(INTERCOM_REF)), None);
+    assert_eq!(g.talker(bunker), (chris, Some(bunker)));
+    assert_eq!(g.force_greet(bunker, None).unwrap(), FormId(LINE_CHRIS_BYE));
+    let c = g.dialogue.clone().unwrap();
+    assert_eq!((c.actor, c.through), (chris, Some(bunker)));
+    g.end_dialogue();
+    // An actor set by script wins.
+    call(&mut g, bunker, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(BENNY_REF))]);
+    assert_eq!(g.talker(bunker), (FormId(BENNY_REF), Some(bunker)));
+    // Cleared by script: the activator's own voice, not the scripted actor again.
+    call(&mut g, bunker, OP_SET_TALKING_ACTOR, &[]);
+    assert_eq!(g.talker(bunker), (bunker, Some(bunker)));
+    no_errors(&g);
+}
+
 /// An actor's conversation with a talking activator: the activator says its talking
 /// actor's lines (chosen with IsActorTalkingThroughActivator 1), and Goodbye lines that
 /// link on go on (Veronica and Ramos at Hidden Valley's intercom, issue #2451).
@@ -451,6 +542,131 @@ fn an_actor_talks_with_a_talking_activator_through_goodbye_lines_that_link_on() 
         vec![(npc, Some(intercom), FormId(L_ASK)), (benny, Some(npc), FormId(L_REFUSE)), (npc, Some(intercom), FormId(L_INSIST)), (benny, Some(npc), FormId(L_OPEN))],
     );
     assert!(g.events[from..].iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { reason: "goodbye", lines: 4, .. })), "{:?}", &g.events[from..]);
+    no_errors(&g);
+}
+
+/// A script's Say or SayTo on a talking activator with a talking actor says that actor's
+/// line, chosen with the actor as the speaker and IsActorTalkingThroughActivator 1, and
+/// said by the actor through the activator, which stands for it in the world: its
+/// SayToDone block runs, it is talking, the listener looks at it (issue #2768: Vault 101's
+/// intercom given Jonas, the Pitt's loudspeakers given Ashur). Before the actor is set the
+/// line's GetIsID fails on the activator, and its own lines are still its own after.
+#[test]
+fn a_talking_activator_says_its_talking_actors_lines_by_script() {
+    let f = fixture();
+    let mut g = game(&f);
+    let speaker = FormId(SPEAKER_REF);
+    let benny = FormId(BENNY_REF);
+    // No talking actor: the activator is the speaker, and the line is Benny's.
+    assert_eq!(g.say_by_script(speaker, Some(P), FormId(T_SAY), true), None);
+    g.tick();
+    assert!(g.speech.is_empty());
+    call(&mut g, speaker, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(BENNY_REF))]);
+    let from = g.events.len();
+    assert_eq!(g.say_by_script(speaker, Some(P), FormId(T_SAY), true), Some(FormId(L_SAY_BENNY)));
+    let s = g.speech.last().cloned().expect("the line is being said");
+    assert_eq!((s.speaker, s.through, s.info), (benny, Some(speaker), FormId(L_SAY_BENNY)));
+    assert!(g.events[from..].iter().any(|e| matches!(e.kind, EventKind::LineStarted { speaker: sp, info, .. } if sp == benny && info == FormId(L_SAY_BENNY))));
+    assert!(g.is_talking(speaker), "the activator talks");
+    // Benny talks through the activator while the line plays, and its begin script saw it.
+    assert_eq!(call(&mut g, benny, OP_TALKING_THROUGH, &[]), 1.0);
+    assert_eq!(g.world.global(FormId(G_BEGIN)).ok(), Some(1.0), "the begin script ran talking through it");
+    // The same SayTo again leaves the line playing.
+    assert_eq!(g.say_by_script(speaker, Some(P), FormId(T_SAY), true), Some(FormId(L_SAY_BENNY)));
+    assert_eq!(g.speech.len(), 1);
+    // The player looks at the activator; Benny, who is not there, does not turn.
+    let facings = g.facings();
+    assert!(facings.iter().all(|f| f.who != benny && f.to != benny), "{facings:?}");
+    assert!(facings.iter().any(|f| f.who == P && f.to == speaker), "{facings:?}");
+    let done_before = g.events.iter().filter(|e| matches!(&e.kind, EventKind::BlockRun { block, on: Some(r), .. } if block == "SayToDone" && *r == speaker)).count();
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    assert!(g.speech.is_empty(), "the line ends");
+    let done_after = g.events.iter().filter(|e| matches!(&e.kind, EventKind::BlockRun { block, on: Some(r), .. } if block == "SayToDone" && *r == speaker)).count();
+    assert_eq!(done_after, done_before + 1, "the activator's SayToDone runs once the line ends");
+    assert_eq!(g.world.global(FormId(G_END)).ok(), Some(1.0), "the end script ran talking through it");
+    assert_eq!(call(&mut g, benny, OP_TALKING_THROUGH, &[]), 0.0, "not after the line");
+    // Its own line: Benny has none, so the activator says it itself.
+    assert_eq!(g.say_by_script(speaker, None, FormId(T_OWN), false), Some(FormId(L_SAY_OWN)));
+    let s = g.speech.last().cloned().unwrap();
+    assert_eq!((s.speaker, s.through), (speaker, None));
+    no_errors(&g);
+}
+
+/// One line at a time at a talking activator (#2768): its own line and a line said
+/// through it by its talking actor cut each other, whichever starts second, so only the
+/// second ends and the activator's SayToDone runs once.
+#[test]
+fn a_talking_activators_own_line_and_its_actors_line_cut_each_other() {
+    let f = fixture();
+    let speaker = FormId(SPEAKER_REF);
+    let benny = FormId(BENNY_REF);
+    let set_benny = |g: &mut Game| {
+        call(g, speaker, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(BENNY_REF))]);
+    };
+    let done = |g: &Game| g.events.iter().filter(|e| matches!(&e.kind, EventKind::BlockRun { block, on: Some(r), .. } if block == "SayToDone" && *r == speaker)).count();
+    let cut = |g: &Game, who: FormId, line: u32| g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker: sp, info, cut: true } if sp == who && info == FormId(line)));
+    let finish = |g: &mut Game| {
+        for _ in 0..20_000 {
+            if g.speech.is_empty() {
+                break;
+            }
+            g.tick();
+        }
+        assert!(g.speech.is_empty());
+    };
+    // Its own line first, then Benny's through it: the own line is cut.
+    let mut g = game(&f);
+    set_benny(&mut g);
+    assert_eq!(g.say_by_script(speaker, None, FormId(T_OWN), false), Some(FormId(L_SAY_OWN)));
+    assert_eq!(g.say_by_script(speaker, Some(P), FormId(T_SAY), true), Some(FormId(L_SAY_BENNY)));
+    assert!(cut(&g, speaker, L_SAY_OWN), "the activator's own line is cut");
+    assert_eq!(g.speech.iter().map(|s| (s.speaker, s.through, s.info)).collect::<Vec<_>>(), vec![(benny, Some(speaker), FormId(L_SAY_BENNY))]);
+    finish(&mut g);
+    assert_eq!(done(&g), 1, "one SayToDone, for the line said to its end");
+    no_errors(&g);
+    // Benny's line through it first, then its own: Benny's is cut.
+    let mut g = game(&f);
+    set_benny(&mut g);
+    assert_eq!(g.say_by_script(speaker, Some(P), FormId(T_SAY), true), Some(FormId(L_SAY_BENNY)));
+    assert_eq!(g.say_by_script(speaker, None, FormId(T_OWN), false), Some(FormId(L_SAY_OWN)));
+    assert!(cut(&g, benny, L_SAY_BENNY), "the line through the activator is cut");
+    assert_eq!(g.speech.iter().map(|s| (s.speaker, s.through, s.info)).collect::<Vec<_>>(), vec![(speaker, None, FormId(L_SAY_OWN))]);
+    // Say's flags reach the line that plays.
+    g.set_line_flags(speaker, true, false);
+    assert!(g.speech[0].force_subtitles);
+    finish(&mut g);
+    assert_eq!(done(&g), 1, "one SayToDone, for the line said to its end");
+    no_errors(&g);
+}
+
+/// A conversation's line through a talking activator cuts the activator's own line, as a
+/// Say through it does (#2768): an actor talks to the loudspeaker while it says its own
+/// line, and Benny's answer through it takes over.
+#[test]
+fn a_conversation_line_through_a_talking_activator_cuts_its_own_line() {
+    let f = fixture();
+    let mut g = game(&f);
+    let speaker = FormId(SPEAKER_REF);
+    let (npc, benny) = (FormId(VICTIM_REF), FormId(BENNY_REF));
+    call(&mut g, speaker, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(BENNY_REF))]);
+    assert_eq!(g.start_actor_conversation(npc, speaker, Some(FormId(T_INTERCOM))).unwrap(), FormId(L_ASK));
+    // Benny has no line of its own topic: the loudspeaker says it itself.
+    assert_eq!(g.say_by_script(speaker, None, FormId(T_OWN), false), Some(FormId(L_SAY_OWN)));
+    for _ in 0..20_000 {
+        if g.speech.iter().any(|s| s.info == FormId(L_REFUSE)) {
+            break;
+        }
+        g.tick();
+    }
+    let lines: Vec<_> = g.speech.iter().map(|s| (s.speaker, s.through, s.info)).collect();
+    assert_eq!(lines, vec![(benny, Some(speaker), FormId(L_REFUSE))], "only the answer through the loudspeaker plays");
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker: sp, info, cut: true } if sp == speaker && info == FormId(L_SAY_OWN))), "its own line is cut");
+    assert_eq!(call(&mut g, benny, OP_TALKING_THROUGH, &[]), 1.0, "Benny talks through it while the answer plays");
     no_errors(&g);
 }
 

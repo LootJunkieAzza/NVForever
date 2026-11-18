@@ -67,6 +67,18 @@ pub struct TargetedSceneEdit {
     pub target: SceneTarget,
 }
 
+/// Structural attachment registration, consumed separately from numeric node edits.
+/// The target is captured when the script calls, before the drawing backend runs.
+#[derive(Debug, Clone)]
+pub struct AttachmentChange {
+    pub reference: FormId,
+    pub view: ModelView,
+    pub target: String,
+    pub model: String,
+    pub mode: u8,
+    pub captured: SceneTarget,
+}
+
 /// A node's drawn bound, particle system and render properties, as the engine tells them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NodeInfo {
@@ -141,6 +153,8 @@ pub struct SceneMirror {
     player_view: ModelView,
     watched: HashSet<FormId>,
     edits: Vec<TargetedSceneEdit>,
+    attachment_changes: Vec<AttachmentChange>,
+    attachment_session: std::sync::Arc<()>,
     identified: HashMap<(FormId, ModelView), Option<u64>>,
     /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
     /// reference and lower-case name, and what the engine told of them.
@@ -161,6 +175,21 @@ impl SceneMirror {
         if r != FormId::PLAYER_REF { ModelView::Reference }
         else if view == ModelView::Reference { self.player_view }
         else { view }
+    }
+
+    /// Session ownership is separate from a movable Game address or a FormId.
+    pub fn attachment_session(&self) -> std::sync::Arc<()> { self.attachment_session.clone() }
+
+    pub fn take_attachment_changes(&mut self) -> Vec<AttachmentChange> {
+        std::mem::take(&mut self.attachment_changes)
+    }
+
+    fn attachment_change(&mut self, r: FormId, view: ModelView, target: &str, model: &str, mode: u8) {
+        let captured = self.target_for(view, &SceneEdit::Attach { r, target: target.into(), model: model.into() });
+        self.attachment_changes.push(AttachmentChange {
+            reference: r, view: self.resolve_view(r, view), target: target.into(), model: model.into(), mode, captured,
+        });
+        self.watched.insert(r);
     }
 
     /// The references whose trees the engine should tell.
@@ -240,6 +269,9 @@ impl SceneMirror {
     /// The real drawing backend keeps the identities captured when scripts queued
     /// their changes. Legacy `take_edits` deliberately exposes only the old payload.
     pub fn take_targeted_edits(&mut self) -> Vec<TargetedSceneEdit> {
+        // The real attachment producer drains its side queue before this mirror.
+        // Legacy/headless hosts consuming edits must not retain an unconsumed copy.
+        self.attachment_changes.clear();
         std::mem::take(&mut self.edits)
     }
 
@@ -752,14 +784,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "insertnode" | "attachmodel" => {
             let target_ref = form(args, 0).unwrap_or(r);
             // Modes 1 and 3 insert, 0 and 2 remove [documented: InsertNode's addOrRemove
-            // table]. The mirror drops nothing on a remove: mode 0 waits for a reload and
-            // mode 2's instant removal is a follow-up (ext-jippp.md).
+            // table]. InsertNode removal remains a follow-up; the attachment producer
+            // separately consumes modes 0/2 with exact instance ownership.
             let mode = num(args, 1, 1.0);
             let add = mode as i64 & 1 == 1;
             let spec = text(args, 2);
             let Some((target, what)) = spec.split_once('|') else { return Some(Ok(zero)) };
             // JIPPPLN's runtime node lists (`crate::nvse_jippp`) keep every well-formed call.
             crate::nvse_jippp::record(g, target_ref, name == "attachmodel", &spec, mode);
+            if name == "attachmodel" && mode.is_finite() && (0.0..=3.0).contains(&mode) && mode.fract() == 0.0 {
+                g.scene.attachment_change(target_ref, view, target, what, mode as u8);
+            }
             if !add {
                 return Some(Ok(zero));
             }
@@ -835,7 +870,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // "projectilenode" 0 where "ProjectileNode" is 1].
         "modelhasblock" => {
             let (Some(f), want) = (form(args, 0), text(args, 1)) else { return Some(Ok(zero)) };
-            let found = model_of(g, f).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|bytes| crate::mod_files::nif_has_name(&bytes, &want));
+            // A published reference tree includes instance-only nodes absent from
+            // MODL. Its exact-name answer, even for an empty tree, is authoritative
+            // (nif-player-model-selection.md, ModelHasBlock). Keep file fallback for
+            // base forms and references awaiting their first publication.
+            let reference = f == FormId::PLAYER_REF || g.world.placed.get(f).is_some() || g.world.peek(f).is_some();
+            let published = if reference { g.scene.tree(f).map(|nodes| !want.is_empty() && nodes.iter().any(|node| node.name == want)) } else { None };
+            let found = published.unwrap_or_else(|| model_of(g, f).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|bytes| crate::mod_files::nif_has_name(&bytes, &want)));
             XVal::Num(f64::from(u8::from(found)))
         }
         _ => return None,

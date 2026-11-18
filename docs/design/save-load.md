@@ -123,7 +123,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Rounds in the clip | `Combat.cycle.magazine` | player record [hypothesis] | **yes: add** |
 | Flashlight (Pip-Boy light) | `Flashlight.on` | not found | **yes: add** |
 | Active quest in the Pip-Boy | `pipboy/data.rs` `DataState.active_quest` | global type 1 quest ref [hypothesis] | **yes: add** |
-| Sitting / lying | `PlayerSeat` | not found | rebuild: stand the player up on load (furniture stays free) |
+| Sitting / lying | `PlayerSeat`; NPCs' seats in `Furnishings`/`OnFurniture` (engine/nvforever/src/furniture.rs); the use scripts read in `RefExtra::furniture` | not found | rebuild: a load stands the player and every NPC up (furniture stays free): `Game::restore` clears each actor's saved furniture use (`Game::stand_everyone_up`), so GetSitting and its kin read 0 until the engine seats the body again and reports it (`furniture: … goes to` / `is on`) [design, #1573 for the player, #2797 for NPCs]. Whether the original puts a seated NPC straight back on its seat is observer check 220 |
 | Current sky weather and fade | `SkyState` (engine/nvforever) | global type 8: two weather refs (§5.1) | **yes: add** the current and previous weather; the fade restarts |
 | Corpse poses | `Ragdolls.rest` | REFR/ACHR moved data [hypothesis] | optional: the corpse's `RefState.pos` is enough at first |
 | Music, radio playback position | `Music`, `Radio` | global type 10 [hypothesis] | drop: start a new track |
@@ -436,4 +436,4 @@ shown with a controller); the key, the question and its place are NVForever's]. 
 
 Not built: renaming saves from the menu, in-place loading
 without a new run (by design, see above), AI agent progress, corpse poses beyond their position, the sitting or
-lying pose (the player stands up), playback positions of music and radio.
+lying pose (the player and every NPC stand up, #1573, #2797), playback positions of music and radio.

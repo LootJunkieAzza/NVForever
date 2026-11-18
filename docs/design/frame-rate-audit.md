@@ -111,23 +111,30 @@ cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/
 ### The physics line and the `phys::*` zones
 
 [design: `engine/nvf-play/src/phys_load.rs`, `player.rs` `step` and `move_npcs`,
-`graphics.rs`] `nvf_play::player::step` advances a 1/60 s accumulator
-(`fnv_phys::Stepper::advance`) and runs the fixed steps the frame's time owes, up to 15 a
-frame (`phys::play_params`: a whole 0.25 s frame of the virtual clock is caught up,
-deliberately, so actors near the player cover the ground the clock passes). Its cost is
-therefore about *ticks a frame × ms a tick*, and grows with the previous frame's length:
-a slow frame owes more steps to the next one. With `--log-frame-times <s>` the system
-counts and times itself, and each period logs, beside `frame time:`:
+`graphics.rs`, `phys_rate.rs`] `nvf_play::player::step` advances an accumulator of game
+time (`fnv_phys::Stepper::advance`, kept in `f64`) and runs the fixed steps the frame's
+time owes at the physics rate (60 a second by default; the settings page's Physics rate or
+`--physics-hz`, physics.md §5.4), up to a quarter second of them a frame (15 at 60, 38 at
+152, 40 at 160: `phys_rate::catch_up_steps`; a whole 0.25 s frame of the virtual clock is
+caught up, deliberately, so actors near the player cover the ground the clock passes). Its
+cost is therefore about *ticks a frame × ms a tick*, grows with the rate, and grows with the
+previous frame's length: a slow frame owes more steps to the next one. With
+`--log-frame-times <s>` the system counts and times itself, and each period logs, beside
+`frame time:`:
 
-`physics: 2.00 ticks a frame (max 4) over 600 frames, 7.1 controller moves a tick (max 12), 31 blocks, 5.68 ms a frame in player::step, 2.84 ms a tick`
+`physics: 2.00 ticks a frame (max 4) over 600 frames, 7.1 controller moves a tick (max 12), 31 blocks, 5.68 ms a frame in player::step, 2.84 ms a tick, at 152 Hz`
 
-(an example of the format, not a measurement). Frames are those in which the system ran
+(an example of the format, not a measurement). The rate at the end is the one in effect
+over the period, or the range it ran over (`at 120-152 Hz`) when the cost guard switched it
+(physics.md §5.4). Frames are those in which the system ran
 while playing; frames with no player character or waiting for a cell to load are not
 counted (`Meter::skip`). Controller moves are the player's (on the walking path) and each
 walked actor's per step; blocks is the mean length of the actor block list
 (`crate::blocking`); the two times are `Instant`-based, the whole system per frame and the
-steps alone per step. Without frame-time logging no `PhysLoad` statistics are kept, no
-`Instant` is read and the line is not logged (the `phys::*` spans are independent of it).
+steps alone per step. Without frame-time logging no `PhysLoad` statistics are kept, the
+steps are not timed one by one and the line is not logged (the `phys::*` spans are
+independent of it); the system's whole time is still read, two `Instant`s a frame, for the
+physics rate's cost guard (`phys_rate::Guard`).
 The two lines do not count the same frames: the physics counts cover the frames of the
 period in which the game was playing (less those skipped above), while the
 `frame time:` mean also counts frames that were not (menus, loading) and, only with
@@ -892,6 +899,9 @@ about 0.1 ms.
    - A first try without the sample mask (depth equality with the old prepass) lost the
      soft edges: grass thinned out and fence wires broke up. That is why the prepass writes
      them.
+   - On Vulkan it needs the vendored naga's fix (engine/vendor/README.md, "naga"; #2413):
+     upstream naga declares the sample mask output as a scalar, which Vulkan forbids, and
+     Intel's shader compiler crashed on it.
 3. **One multisample resolve instead of three** (engine/vendor/README.md, "one resolve").
    The opaque, transmissive and transparent passes each resolved the 4x HDR target, and the
    transmissive pass copied the resolved frame. Now the samples are resolved once into the
@@ -1116,7 +1126,8 @@ cascade keeps its map and the matrices of the frame that drew it
 5.78 → 5.42 ms, Novac 7.02 → 6.34, Primm 6.70 → 6.21. Screenshots against every frame:
 0.26 % and 0.61 % of pixels over 24/255 at Goodsprings and Novac (two runs drawing every
 frame: 0.20 % and 0.42 %; NPCs' shadows move). Performance keeps its schedule, both
-cascades every other frame.
+cascades every other frame. What a held cascade did to the shadows' shimmer under the
+sun's turn, and the fix: §11.
 
 A cache of static casters (#2063's proposal) was prototyped and measured, and not adopted
 [observed 2026-11-10, branch `perf/shadow-cache-prototype`, commit 056695cf3]: cascades
@@ -1146,3 +1157,143 @@ The owner's settings (SMAA, Sun shadows on Performance), the branch before these
 
 Every outdoor scene measured but the Strip (unchanged within noise) is now over 175 a
 second, Primm over 180.
+
+## 11. Shadow shimmer under a turning sun (#2833, 2026-11-16)
+
+Players reported the sun's shadows shimmering while they stood still. Bevy places each
+cascade (`bevy_light` `calculate_cascade`) on a grid of whole texels in the light's axes,
+so that the edges stand still while the camera moves under a still light; that grid runs
+through the world's origin. The sun light turns a little every frame with the clock (sky.rs
+`aim_sun`, `SkyState::sun_light_hour`), and a turn of `dθ` slides the grid under a camera
+`d` units from the origin by `d × dθ`: about 2.5 units, four texels of the nearest
+cascade, a frame at 70,000 units out with a game day of 48 minutes. Every frame then
+samples every edge at a new fraction of a texel. The staggered schedule (§10) turns this
+into a pulse: a held cascade keeps the matrices it was drawn with and stands still, and
+changes all at once on the frame it is drawn again.
+
+The fix (nvforever shadow_anchor.rs) [engineering choice]: after Bevy builds the cascades,
+each cascade of the sun and of the arms' shade light is moved across the light by at most
+about a texel, toward the middle of its slice, onto a grid through an anchor near the
+cascade's middle. The anchor stays put until the cascade's middle is more than 512 texels
+from it on some world axis (up to about 887 texels in a straight line) and then moves by
+whole texels in the light's axes. The grid then slides by the distance from the anchor
+times `dθ`: at most about 0.03 texel a frame at the cascade's middle and 0.07 at its edge,
+against several texels a frame on the origin's grid.
+Then the cascades are stretched toward the sun and the held ones given back, in that order
+(shadow_anchor.rs `cascade_edits`). Test aid `NVF_PLAY_TEST_SHADOW_ANCHOR=0` leaves the grid
+through the origin.
+
+[observed 2026-11-16: Goodsprings' start view standing still, 1280 × 720, vertical sync
+at 60 Hz, `--no-actors --no-grass`; the mean change of luma (of 255) between consecutive
+frames over the ground and the house]
+
+| Sun shadows, hour | Grid through the origin | Anchored |
+|---|---|---|
+| Quality, 09:00 | 0.02 / 0.10 alternating (0.10 on the frames the middle cascade is drawn; 0.10 every frame with `NVF_PLAY_TEST_SHADOW_STAGGER=0`) | 0.01, staggered or not |
+| Quality, 09:00, the sun light held still | 0.02-0.03 | |
+| Quality, 07:00 | 0.114 | 0.012 |
+| Performance, 07:00 | 0.25 / 0.00 alternating (0.127) | 0.013 |
+
+Anchored, about 90 % of the change between frames is gone, below what is left with the
+light held still on the origin's grid; the pulse at half the frame rate is gone with it.
+The anchoring is a few matrices per cascade a frame; its frame time was not measured
+separately.
+
+## 12. Where the sun's cascades end (#2843, 2026-11-16)
+
+Players found the sun's shadows sharp only in a small radius around the player and coarse
+beyond, worst on Performance. Every count had the same layout (Bevy's builder): the first
+cascade ends at a twelfth of the shadow distance (667 of the default 8,000 units, about
+9.5 m), the others spaced geometrically up to the distance times the reach (1.5 with longer
+shadows). Each cascade's texels were about 4.2 times the size of the one before (0.77, 3.2,
+13.8 units with longer shadows), and the Smooth filter's blur is a fixed number of texels,
+so an edge got about four times softer at each seam. On Performance's 2 cascades
+everything past 667 units lay on the last cascade.
+
+[observed 2026-11-16: Goodsprings' start view at 09:00 standing still, 2560 × 1440, an RTX
+5070 Ti, ambient occlusion, longer shadows (reach 12,000), light glow, 16x anisotropic
+filtering, sun shafts, `--no-actors`, cascades anchored (§11); the median of five 4-second
+periods, two rounds; sun shadows off 2.81-2.85 ms a frame. Third cascades on Performance
+drawn every fourth frame; four cascades on Quality every frame / every other / every fourth
+/ every fourth, the last two on different frames]
+
+| Layout | Far bounds (units) | Maps | Texel sizes (units) | ms a frame |
+|---|---|---|---|---|
+| Performance as it was | 667 / 12,000 | 2048² | 0.77 / 13.8 | 3.05-3.10 |
+| Performance, first bound 1,500 | 1,500 / 12,000 | 2048² | 1.72 / 13.8 | 3.07 |
+| Performance, three cascades | 1,000 / 3,500 / 12,000 | 2048² | 1.15 / 4.0 / 13.8 | 3.07-3.10 |
+| **Performance, three cascades, farther** | 1,500 / 4,500 / 12,000 | 2048² | 1.72 / 5.2 / 13.8 | 3.09-3.11 |
+| Quality as it was | 667 / 2,828 / 12,000 | 2048² | 0.77 / 3.2 / 13.8 | 3.15-3.16 |
+| Quality, four cascades | 700 / 2,000 / 5,000 / 12,000 | 2048² | 0.80 / 2.3 / 5.7 / 13.8 | 3.22 |
+| Quality, four cascades, wider | 1,000 / 2,800 / 6,500 / 12,000 | 2048² | 1.15 / 3.2 / 7.5 / 13.8 | 3.24-3.27 |
+| Quality as it was | 667 / 2,828 / 12,000 | 4096² | 0.38 / 1.6 / 6.9 | 3.38 |
+| Quality, four cascades, wider | 1,000 / 2,800 / 6,500 / 12,000 | 4096² | 0.57 / 1.6 / 3.7 / 6.9 | 3.42-3.43 |
+| **Quality, four cascades, farther, blend band 0.4** | 1,500 / 3,500 / 7,000 / 12,000 | 4096² | 0.86 / 2.0 / 4.0 / 6.9 | 3.43-3.48 |
+
+In pictures of a long pole shadow (one per row, the same view): with 2048² maps a farther
+first seam costs sharpness at the player's feet (a wire's shadow is crisp at 0.77 units a
+texel, soft at 1.15, blurred at 1.72); with 4096² maps the near shadow stays crisp with the
+seams farther out. The two rows in bold looked best to the contributor in play.
+Performance with three cascades keeps a clean shadow of a telegraph pole's crossarm where
+the two-cascade layout has a shapeless blob, for 0.01-0.05 ms here.
+
+Proposed [engineering choice: the contributor's proposal, for the maintainer to decide]
+(sky.rs `shadow_cascade_layout`, a pure function of the distance, the reach, the layout
+and the shadow maps' side): the bounds as shares of the shadow distance, so the Shadow
+distance slider and `--shadow-distance` move them, with only the last stretched by the
+reach (longer shadows); the moon's single cascade unchanged.
+
+- **Performance**, 3 cascades (2 before): far bounds 0.1875 and 0.5625 of the distance
+  (1,500 and 4,500 of 8,000), whatever the maps' size, overlap 0.2. The schedule
+  (shadow_rate.rs `PERFORMANCE_SCHEDULE`) draws the first two every other frame,
+  together, and the third every fourth frame on a frame the first two are not drawn.
+- **Quality**, 4 cascades (sky.rs `CascadeLayout::Quality`, the default; 3 before), laid out by the maps'
+  side (the Shadow resolution row, `shadow-resolution`): with 2048² maps 0.0875, 0.25
+  and 0.625 of the distance (700, 2,000, 5,000), overlap 0.2; with 4096² maps 0.1875,
+  0.4375 and 0.875, the second and third capped at 0.3 and 0.6 of the last bound, and a
+  blend band (overlap) of 0.4. With Longer shadows (reach 1.5) the caps leave 1,500,
+  3,500, 7,000, 12,000, the layout measured and pictured above. Without them (reach 1, the
+  play default) the uncapped bounds would be 1,500, 3,500, 7,000, 8,000, where the fourth
+  cascade (4,200-8,000 with the 0.4 band) adds almost nothing beside the third
+  (2,100-7,000) for a fourth draw; the caps give 1,500, 2,400, 4,800, 8,000. That reach-1
+  layout is derived by this rule [engineering choice, for the maintainer to decide] and
+  was not measured: only reach 1.5 was. With 2048² maps the wider
+  layout's near shadow is softer than before, so 2048 keeps the nearer seams. The schedule (shadow_rate.rs `STAGGERED_SCHEDULE`) draws the nearest every
+  frame, the second every other frame, the third and the fourth every fourth frame on
+  different frames: two cascades drawn in each frame, 2 of 4 on average against 1.75
+  of 3.
+- **Shadow resolution** 2048 (as before, the default) or 4096: the side of
+  `DirectionalLightShadowMap`, changed in play. Bevy keeps every directional light's
+  cascades and every shadowed spot light's map as layers of one 32-bit depth texture of
+  that side (the vendored bevy_pbr light.rs `prepare_lights`: the most cascades any view's
+  directional lights have, plus one layer per shadowed spot light), so the row sizes the
+  sun's cascades, the first-person arms' shade light's cascade (Quality only) and the
+  flashlight's shadow, whose pass draws 4096² too. By arithmetic a layer is 64 MiB at
+  4096² against 16 MiB: about 240 MiB more on Quality by day in first person (five layers), 144 MiB on
+  Performance (three), and 48 MiB more again with the flashlight on; not measured. 4096²
+  maps measured 0.2-0.3 ms on this GPU (the table); not measured on a slower GPU. No
+  quality preset sets the row.
+- `--graphics-cycle cascades=<n>` (the test aid) asks for n cascades in the spacing of
+  before (sky.rs `CascadeLayout::Spaced`), so `cascades=3` still measures the 3 cascades
+  of before against the modes' layouts.
+
+For the maintainer to decide: the 3 cascades to 8,000 units are the choice of 2026-10-12
+after the playtest's "shadow rendering seriously affects performance" (graphics-enhanced.md
+§5.3; sky.rs `DEFAULT_SHADOW_DISTANCE`: the old default of 16,000 units in 4 cascades took
+19.0-20.8 ms a frame and 8,000 in 3 13.7-15.2; 8,000 in 4 took 15.0-16.8, every cascade
+drawn every frame, before the casters were culled to the slice, graphics-enhanced.md
+§5.7, and before the schedule). This keeps the 8,000 units; with the staggered schedule of
+#2182 a fourth cascade measured 0.06-0.1 ms here. Performance is the mode this audit says
+the maintainer plays on; its third cascade measured within the noise of the two of
+before. Whether 4096 is any preset's default is left open.
+
+At short distances (the Shadow distance list goes from 0 % to 100 % of `--shadow-distance`
+in steps of 20 %; 0 % casts none) the first bound keeps its floor of 200 units, or half
+the last bound where that is nearer; each in-between bound is then
+its (capped) share held at least `i` steps above the first bound and `n − 1 − i` steps
+below the last, a step being 5 % of the room between them, so the bounds always rise. The
+limits act only when a share comes within a step of them: at 8,000 units every layout of
+the table keeps its shares exactly, with or without Longer shadows (at 800 units Quality
+with 2048² maps gets 200, 230, 500, 800: its second share, 200, is lifted a step above
+the first). The log says the layout whenever the bounds or the maps' side
+change: `sun shadows: cascades far bounds [700, 2000, 5000, 8000] texels [..] units`.

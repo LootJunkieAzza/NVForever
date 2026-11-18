@@ -26,7 +26,6 @@
 //! two from drifting; docs/design/layer5-play.md].
 
 use crate::clutter_pose::{self, BodyNodes, Posed};
-use crate::moved::ref_affine;
 use crate::phys::PhysState;
 use crate::script::ScriptState;
 use crate::sim::SimState;
@@ -191,14 +190,17 @@ type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transf
 /// Move the roots of the references physics moved this frame
 /// (`PhysState::settle_placed`), a script's Rotate turned or SetScale resized
 /// (`Game::turned`), or the console moved (`crate::RefRepose`, which still names what the
-/// tick cleared from `turned`), to the simulation's pose and scale.
+/// tick cleared from `turned`), to the simulation's pose and scale; a body moving under
+/// physics is drawn between the last two steps instead (`crate::moved::drawn_affine`).
 fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, mut repose: MessageReader<crate::RefRepose>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
     let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
-    for id in phys.moved_now.iter().copied().chain(turned).chain(repose.read().map(|m| m.form_id)) {
+    // Clutter drawn between physics steps too (`PhysState::between`), every frame while it
+    // moves and once after.
+    let moving = phys.moved_now.iter().chain(&phys.between.redraw).copied();
+    for id in moving.chain(turned).chain(repose.read().map(|m| m.form_id)) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
-        let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
-        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, sim.ref_scale(id))));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * crate::moved::drawn_affine(&sim, &phys, id, p)));
     }
 }
 
@@ -276,9 +278,13 @@ fn sync(
                             if let Some(p) = posed.as_ref().filter(|_| st.posed_told.insert(id)) {
                                 info!("clutter pose: 0x{id:08X} {} drawn in its stored pose, enabled at run time ({} bodies)", d.path, p.bodies);
                             }
+                            // Shapes below a billboard node under an entity for it that
+                            // turns to the camera, as render streaming draws them (#2549).
+                            let mut boards = nvf_assets::model::BakedBillboards::default();
                             for s in &model.shapes {
                                 let shape = clutter_pose::shape_transform(posed.as_ref(), s);
-                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(shape)), RefVisual(id), ChildOf(root))).id();
+                                let (parent, shape) = posed.is_none().then(|| boards.place(&mut commands, root, &model, Affine3A::IDENTITY, s, ())).flatten().unwrap_or((root, shape));
+                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(shape)), RefVisual(id), ChildOf(parent))).id();
                                 if let Some(x) = d.placement.emittance.filter(|_| s.external_emittance) {
                                     commands.entity(e).insert(WantsEmittance(x));
                                 }

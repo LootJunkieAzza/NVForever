@@ -762,6 +762,55 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   SRC_ALPHA / INV_SRC_ALPHA shapes of lit shaders are still blended in linear light
   (they agree with the game at alpha 0 and 1 and differ between; unlit ones: "Alpha
   blend of unlit shapes"); ONE / ONE shapes are drawn as SRC_ALPHA / ONE, as before.
+- **Fog on added light** (2026-11-15, #2435). The Gomorrah Suites (`Gomorrah03`,
+  0x0010DA71) have 7 lit wall sconces (`NeoclassicalSconce`,
+  `clutter\neoclassical\neoclassicalsconce.nif`, e.g. refs 0x0011A90A, 0x0011A90C) and 14
+  unlit ones (`NeoclassicalSconceOff`) [observed, `fnvtool world refs --cell Gomorrah03`].
+  The lit model [observed, `fnvtool nif decode`, `Fallout - Meshes.bsa`]:
+  - `NeoclassicalSconce:2` and `:6`: the bowl, BSShaderPPLightingProperty on
+    `NeoclassicalMainTile01/02.dds`, about 43 units wide.
+  - `NeoclassicalSconce:4`: BSShaderNoLightingProperty (flags 0x82000000, no file name),
+    NiAlphaProperty flags 0x1043 (blend on, source ZERO, destination SRC_COLOR
+    [documented: nif.xml AlphaFlags]: a multiply), vertex colours grey 0.34 and white,
+    a little larger than the bowl.
+  - `NeoclassicalSconce:9`, the glow on the wall: BSShaderNoLightingProperty (flags
+    0x82000000: neither Vertex_Alpha, bit 3, nor the falloff bit 6 [documented: nif.xml
+    BSShaderFlags]; no file name, so no texture), NiAlphaProperty flags 0x1001 (blend on,
+    source ONE, destination ONE, no test), NiMaterialProperty emissive black × 1. 61
+    vertices in the wall's plane (y 87.1), x −104 to 104, z 134 to 206, around the bowl's
+    rim (z 126 to 148): a trapezoid widening upwards. Vertex colours (0.34, 0.32, 0.27)
+    along the rim, (0.23, 0.22, 0.19) just below it, black on the whole outline; alpha 1.
+
+  So the soft wash is in the vertex colours alone: warm 0.34 at the bowl falling to
+  nothing at the outline, and black adds nothing to the frame [documented: nif.xml
+  AlphaFlags, ONE / ONE adds the colour]. In NVForever (smoke `gomorrah-suite-sconce-glow`,
+  `gomorrah_sconce_near.png`) it was a flat warm board: grey levels 140 to 190 over the
+  trapezoid on a wall of about 62, a step of 50 to 60 levels at the outline [observed].
+  The built material was as the data says (additive, vertex colours up to 0.093 linear,
+  no emissive; checked with a temporary log), and with the card's colour set to black the
+  board was gone. Two causes, both in how the colour reached the frame:
+  1. Fog. The shader fogged the added colour as a surface, mix(colour, fog colour, k), so
+     even black added k × the room's fog colour over the whole card. A textured
+     SRC_ALPHA / ONE glow hides this (its alpha goes to 0 with its texture); a ONE / ONE
+     card adds at alpha 1 and shows it whole. Rule [hypothesis: the frame behind the shape
+     is already fogged, and a black outline that adds nothing is what the data asks for;
+     no frame of the original was compared]: fog dims added light and adds no colour of
+     its own. Bevy's fogs are colour × k plus a term without the colour [documented:
+     `engine/vendor/bevy_pbr/src/render/fog.wesl`, linear, exponential and atmospheric],
+     so the shader runs the post-lighting step on the colour and on black and adds the
+     difference (`nif_material.wesl`, `nif_material::fogged_addition`). In a view without
+     HDR (tonemapping in the shader) that is the tonemapped step the colour makes over the
+     fog [engineering choice]. Every additive shape takes the rule; beyond the fog's end
+     one now adds nothing where it added the fog colour × alpha.
+  2. The vertex colours were made linear at the vertices and blended linear
+     ("Unlit vertex colours as display values").
+
+  After both (same frame): about 165 next to the bowl, 110 to 130 halfway, 80 to 95 near
+  the outline on a wall of 60 to 70 (the frame with the card black), the step at the top
+  edge some 10 to 20 levels [observed]. What is left follows the data under the
+  display-value sum ("Additive blend"): the card adds display 0.34 at the bowl on a wall
+  darker than the original's (owner's choice), so the wash is strong near the bowl. An
+  observer frame of the corridor would settle its strength (observer-checks.md 201).
 - **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
   BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
   system, which `nvf_assets::particles` draws with the same material). The blend is
@@ -1074,6 +1123,14 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   where the smoke can barely be seen (playtest list 4 item 16); read as linear it drew
   as a display 0.78, a white plume. Lit shapes still take their vertex colours as linear
   factors (see "Multiply blend" for what that leaves).
+  Since 2026-11-15 (#2435) the conversion is made per fragment, after the colours are
+  blended across the triangle as display values, not at the vertices (the material
+  marks the shape, `NifSurface::emissive_rule` z; `nif_material.wesl`
+  `display_to_linear`) [hypothesis: the game blends the stored values; the vertices
+  themselves draw as before]. Made linear at the vertices, a colour falling to black
+  across a triangle stayed bright almost to its black edge: nine tenths of the way from
+  display 0.34 to 0 it was display 0.096, where the stored values give 0.034. That was
+  half of the Gomorrah sconces' hard-edged glow ("Fog on added light").
 - **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
   `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
   with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have
@@ -1154,6 +1211,17 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   normal-map alpha as an ordinary specular mask; what it does with it and with the
   `_hl` map is open — an in-game picture of hair under a strong light, from the side,
   would show whether there is any highlight to rebuild].
+  L'il Devil (HAIR 0x000987DB `HairRaiderFCat`, `Characters\Hair\HairRaiderFCat.NIF`)
+  has strands in `HairRaider01_hl.dds` where `HairRaider01.dds` is black on its crown:
+  9% of `NoHat`'s area samples black, opaque diffuse texels (RGB ≈ 0.001,
+  alpha ≈ 0.99), against at most 1% for the other raider hairs. Of 2,506 black,
+  opaque diffuse texels, 2,084 have `_hl` luma above 0.08; crown-region luma is
+  about 0.17 in `_hl` against 0.001 in the diffuse, despite overall luma correlation
+  0.97 [documented: issue #2350, supplied `fnvtool esm decode`, `fnvtool nif` and
+  texture measurements]. The original may use `_hl` for crown colour or brightness
+  [hypothesis, #2350]; whether its crown tints is unknown. Settle
+  [observer check 216](../handoff/observer-checks.md#added-2026-11-15-lil-devils-crown-issue-2350)
+  before considering a change to the provisional tint rule [design, #2350].
 - **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
   NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
   INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw

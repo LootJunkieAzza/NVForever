@@ -61,6 +61,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 
+mod death_recovery;
+
 pub const BODY_FORMAT: &str = "nvf.save.body/1";
 pub const ENGINE_FORMAT: &str = "nvf.engine.state/1";
 
@@ -355,13 +357,15 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveWrites>()
             .init_resource::<CoopEngineState>()
             .init_resource::<FastTravelLanding>()
+            .init_resource::<death_recovery::RecoveryPolicy>()
+            .init_resource::<death_recovery::DeathRecovery>()
             .add_message::<crate::wait::RestEnded>()
             .add_message::<SaveRequest>()
             .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
             .add_message::<LoadRefused>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Update, (death_recovery::update, write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(p) = app.world_mut().remove_resource::<PendingLoad>() {
             let PendingLoad { path, body, order } = p;
@@ -395,12 +399,15 @@ impl Plugin for SavePlugin {
 const GROUP: &str = "Saving";
 
 /// The QuickSave and QuickLoad keys and the [`SaveRequest`]s.
-fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>) {
+#[allow(clippy::too_many_arguments)]
+fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     queue.0.extend(asked.read().cloned());
-    if *state.get() != PlayState::Playing {
+    // The player's tweak: QuickLoad works in the main and pause menus too [design: docs/design/tweaks.md].
+    let menu_load = tweaks.is_some_and(|t| t.quick_load_in_menus) && *state.get() == PlayState::Menu;
+    if *state.get() != PlayState::Playing && !menu_load {
         return;
     }
-    if input.just_pressed(crate::bindings::Control::QuickSave) {
+    if !menu_load && input.just_pressed(crate::bindings::Control::QuickSave) {
         info!("save: QuickSave key");
         queue.0.push(SaveRequest { name: fnv_save::QUICK_NAME.into(), kind: SaveKind::Quick });
     }
@@ -865,6 +872,14 @@ fn apply_engine(world: &mut World) {
         return;
     }
     let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
+    // The player's tweak: a load turns god mode off [design: docs/design/tweaks.md].
+    if world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.game.god_mode_off_on_load) && crate::combat::god_mode() {
+        crate::combat::set_god_mode(false);
+        if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.toggles.god_mode = false;
+        }
+        info!("save: god mode off after the load (tweak)");
+    }
     // GetLoadOrderChanged (`fnv_game::nvse_jip12`): the save's plugins moved or are gone
     // [hypothesis: plugins only added after the save's own do not count].
     if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
@@ -938,6 +953,12 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
         }
         return Ok((f.header, body_of(raw)?, None));
     }
+    // Retired aliases are reserved identities, not plugin-indexed records. This
+    // first persistence format supports identical/appended load orders only;
+    // refuse before the generic walker can remap or discard their provenance.
+    if raw.get("game").and_then(|g| g.get("retired_scene_bases")).is_some_and(|v| v.as_object().is_none_or(|m| !m.is_empty())) {
+        return Err(format!("{} contains retired temporary scene identities and cannot be loaded with a reordered or missing plugin list", path.display()));
+    }
     // Proposed conservative policy: generic JSON remapping cannot distinguish
     // saved lambda tokens from real FE record references (high-fe-callables.md).
     if !body_of(raw.clone())?.game.lambdas.is_empty() {
@@ -978,6 +999,10 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     }
     Ok((f.header, body, Some(OrderChange { remap, missing })))
 }
+
+#[cfg(test)]
+#[path = "save/retired_scene_tests.rs"]
+mod retired_scene_tests;
 
 #[cfg(test)]
 mod tests {

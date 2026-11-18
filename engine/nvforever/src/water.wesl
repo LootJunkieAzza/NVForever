@@ -12,6 +12,10 @@ import bevy_pbr::{
 };
 @if(DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
 @if(DEPTH_PREPASS) import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
+// The sun visibility (nvforever sun_visibility.rs): clouds (and later terrain) on the
+// sun's highlight, only while the view has the plumbing.
+@if(NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
+@if(NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
 
 // During temporal upscaling, the main pass occupies only the render-sized region
 // of full-sized attachments. Geometry UVs and texture UVs are distinct.
@@ -358,12 +362,31 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         reflected = select(water.reflection.rgb, sky, water.reflection.a > 0.5);
         if lights.n_directional_lights > 0u {
-            let sun = lights.directional_lights[0];
+            // The sun's highlight: directional light 0, or with the sun visibility's
+            // plumbing the light flagged as the outdoor sun (none flagged indoors: 0, as
+            // without it).
+            var sun_index = 0u;
+            @if(NVF_SUN_VISIBILITY)
+            for (var i = 0u; i < lights.n_directional_lights; i += 1u) {
+                if (lights.directional_lights[i].flags & DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
+                    sun_index = i;
+                    break;
+                }
+            }
+            let sun = lights.directional_lights[sun_index];
             let spec = pow(max(dot(R, sun.direction_to_light), 0.0), max(water.surface.z, 1.0));
             // In a world view the sun's colour holds display values (nvforever lights.rs
             // DISPLAY_HELPERS): its light is that value raised to the display gamma.
             let sun_light = select(sun.color.rgb * view.exposure, 3.14159265 * pow(max(sun.color.rgb * view.exposure / 3.14159265, vec3(0.0)), vec3(2.2)), lights.ambient_color.a < 0.0);
-            reflected += spec * sun_light;
+            // The highlight takes the sun visibility once (no cascade shadow: water casts
+            // and receives none, C = 1); the reflection image is left as it is.
+            var sun_visibility = 1.0;
+            @if(NVF_SUN_VISIBILITY)
+            if (sun.flags & DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT) != 0u {
+                let view_z = dot(vec4<f32>(view.view_from_world[0].z, view.view_from_world[1].z, view.view_from_world[2].z, view.view_from_world[3].z), vec4<f32>(pos, 1.0));
+                sun_visibility = nvf_sun_visibility(pos, sun.direction_to_light, 1.0, view_z);
+            }
+            reflected += spec * sun_light * sun_visibility;
         }
     } else {
         // From below, the sky shows only within Snell's window (refractive index 1.33:

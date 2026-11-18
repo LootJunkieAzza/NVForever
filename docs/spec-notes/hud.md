@@ -350,6 +350,12 @@ follows the actor shown: systemcolor 1 (HUD main) for a non-hostile, 2 (alternat
 for a hostile. [design] The hand-built bracket, ticks, name, Living Anatomy line and
 fallback blocks follow that flag, including a hostility change without a name change.
 History: §8 previously generalised the hostile screenshot to always red [hypothesis].
+[design: #2696] The hand-built ticks are drawn at the meters' brightness 175 (§14.8's
+enemy meter read), in the main or the alternative colour, with the tick picture's own
+fade (its alpha rising from 34 at the top to 255 by row 17 [observed: the texture]), as
+the health and action points ticks. Until #2696 they stood solid at full brightness:
+the VATS blink's alpha was also set on each tick's transparent node background, which
+made it an opaque block behind the picture.
 
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
@@ -539,6 +545,14 @@ menu's (`dialogue_menu.rs`).
   actors' moving bodies, unrounded (`compass::place`), before the tile HUD's writes, so
   both drawings move the marks with this frame's strip. Until T12d the places were whole
   units and only ten a second: the marks stepped while turning (§14.9).
+- [documented: the HUD file's `compass_icon` kinds (§2) and `template_compass_icon_player`
+  in `hudtemplates.xml`] The player's marker is the custom map marker (the Pip-Boy's
+  Place Marker, SetCustomMapMarker; pipboy.md §5.3), drawn as
+  `glow_hud_compass_pc_marker.dds`. [hypothesis] NVForever marks it only while it is in
+  the player's interior or worldspace (no door is followed to it), lays it out and holds
+  it at the band's ends as a quest target, and draws it over the quest marks, as the
+  Pip-Boy's maps do (`compass::Mark::Player`). Which the original does is open: a
+  capture with a marker placed behind the player, and one placed in another cell, says.
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass, <k> held at an end` when
@@ -1510,3 +1524,51 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   Smoke `tiles-hud-breath` (new, shot `tiles_hud_breath.png`); the six other `tiles-*`
   scenarios that quote the start line now expect `hand-built HUD hidden` with nothing
   after it.
+
+## 15. The grenade indicator (2026-11-13, #1891)
+
+- **The files** [documented: `menus\main\hud_main_menu.xml`, `menus\prefabs\HUDTemplates.xml`]:
+  `Explosive_positioning_rect` is an empty rect with `locus` true; the template
+  `template_explosive_indicator` holds one image, `Interface\HUD\explosive_indicator.dds`,
+  `&hudalt;`, 151 x 187 at x -75, y -93 from the rect, zoom 120, alpha 0. Nothing in the
+  files places the rect or raises the alpha: the game's code does. A commented-out text
+  under it would have said `sExplosive`.
+- **The picture** [observed: the texture, 128 x 128]: the top half of a ring with a small
+  point at its top, white on clear.
+- **NVForever** (`engine/nvf-play/src/grenade_indicator.rs`): the picture at zoom 120 from
+  the box's top left, cut to the box, as the tile renderer reads `zoom`; one mark per live
+  grenade whose explosion radius + 64 reaches the player's feet (the rule actors use to
+  get away, combat-ai.md §17.7), the nearest 8; on the grenade upright while it is in
+  view, else on the view's edge 90 pixels in, turned so the point faces it
+  [hypothesis: all of the placing; observer check 190]. Not the player's own grenade in
+  its first 0.5 s. The Tweaks tab's three grenade-indicator switches (tweaks.md).
+
+
+### Hover text consumers of the ammo copy's alpha
+
+[documented] [GetUIFloatAlt](https://geckwiki.com/index.php?title=GetUIFloatAlt)
+returns -999 for a missing trait. It reads the named local trait; this contract does
+not substitute an inherited opacity or a new generic default.
+
+[design] The engine-created `ActionPoints/justify_right_text:1` ammo copy now
+materializes its local alpha only when the loaded template omits that trait. The
+value is the existing renderer's omitted-alpha fallback, 255. Explicit template
+values or expressions, including zero, remain authoritative. This happens only at
+copy creation, including a menu rebuild, and does not overwrite subsequent script
+writes. Parent alpha and visibility continue to control actual rendered pieces.
+No foreign tile or missing UI path acquires a fabricated trait.
+
+[hypothesis] A hover controller which copies that ammo alpha into its own title and
+row alpha can otherwise forward the missing sentinel into an explicit negative
+alpha: actual layout clamps it to zero while an independent backdrop remains
+visible. This isolates one consumer boundary; earlier blank-bar screenshots do not
+identify the current build or prove every missing label has this cause. Ordinary
+inventory, crosshair events and the original installed controller's full execution
+remain separate acceptance work. Native default/property publication parity has
+not been observed.
+
+[design] Three authored `nvf-play` controls run real HUD copy creation, compiled
+GetUIFloatAlt/SetUIFloatAlt forwarding and actual tile layout with nonempty title
+and row strings. They cover omitted alpha, explicit zero/expression and later
+foreign hiding, parent opacity/visibility and the missing-path sentinel. They are
+unexecuted at authoring; actual results are qualified by their exact executed head.

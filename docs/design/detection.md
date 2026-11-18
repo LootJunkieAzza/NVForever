@@ -59,7 +59,7 @@ Each is also listed in the module notes of `detection.rs`.
 | Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10), of the weapon as fired: the unit's mod flags travel on the shot (`ShotFired::mods`) and a Silence mod makes the shot Silent (`WeaponStats::modded`, `hear_shot`; weapon-mods.md §7) | [documented]; the Silence mod: [documented: GECK wiki Weapons, mod effects] |
 | Movement sound of a creature | the boot term × the creature's NAM5 sound level ÷ Normal: Loud × 2, Normal × 1, Silent × 0.2 (§8) | [hypothesis] |
 | Detector asleep | lying on a bed (marker 1–10, state "on it") | [hypothesis] |
-| Detector alert, or on its target | alert in a combat state (Alert, Combat, Lost); fSneakCombatMod when the detector is in Combat and the target is on its target list (IsCombatTarget), so 0.8 against its foes and 1.2 against anyone else (§9) | [documented] |
+| Detector alert, or fighting someone else | alert in a combat state (Alert, Combat, Lost); fSneakCombatMod only in Combat against an actor outside its target list, so 1.2 against its foes and 0.8 against anyone else (§9); Lost stays 1.2 | [observed: captures run15b_t1 and run15b_t2, 2026-11-15; actor-behaviour.md §2.1a]; Lost: [design: §9] |
 | Interval | 0.25 s | [engineering choice] |
 
 Pairs not measured for 1 s of game time are dropped from the table.
@@ -178,9 +178,28 @@ The light level decides most of the visual term, and its measure is a hypothesis
   player standing, walking, running and sneaking at set distances, lit and dark, and the
   game's values of the fSneak* settings (the masters may override the documented
   defaults; `Settings::read` takes them when present).
-  And for §9: a sneaking player, half hidden, read by an NPC in Combat with the player
-  and by one in Combat with someone else (fSneakCombatMod's direction), and GetDetected
-  at night with the Pip-Boy light on and off.
+  The fSneakCombatMod direction capture is taken: the sneaking, stationary player
+  read higher to its own fighter and lower to one fighting someone else [observed:
+  captures run15b_t1 and run15b_t2, 2026-11-15; actor-behaviour.md §2.1a; answered
+  observer check 200]. Still open here: GetDetected at night with the Pip-Boy light
+  on and off.
+
+  [design, #2573; tools/smoke/scenarios.toml] `detection-combat-target-sneak` uses
+  the cleared Searchlight Airport runway at hour 12 with god mode. The player sneaks
+  from 2 s and stands still. Fighter GoodspringsSettler01Ref (00104F03) and watcher
+  GoodspringsSettler03Ref (00104F0A) have Perception 5 and Assistance 0; the watcher
+  is removed from all factions. A gecko is created at the watcher with Aggression 0
+  and Perception 0, then positioned 150 units toward the player. Both settlers reset
+  to mirrored 690-unit offsets at 5.8 s and the gecko resets at 5.9 s. At 6 s the
+  fighter starts combat with the player and the watcher with the gecko. Five paired
+  GetDetectionValue/GetDistance reads run every 0.5 s from 6.6 to 8.6 s. Every
+  fighter value must exceed its paired watcher value; distances are logged without
+  absolute ranges.
+
+  [observed: smoke runs on the combined build, 2026-11-15] With the fix, both
+  detectors at 690 units read fighter 64 / watcher 56; the fighter closing to 610
+  read 69 (PASS). With both detection.rs files reverted to upstream main, fighter
+  84-88 / watcher 91 in all five pairs (FAIL).
 - Not modelled: perk entry point "Ignore Running During Detection", melee blows' own
   sound (a blow's impact counts, §8), SetAllVisible, player.GetLineOfSight on objects
   that are not actors, the sneak meter on the HUD, fights in the low process (§7).
@@ -319,7 +338,7 @@ the start bonus and the armour class penalty 10 / 20; the thresholds −20 and 0
 
 **Changed:**
 
-- **The combat modifier was the wrong way round.** We took fSneakCombatMod (−0.4) for a
+- **2026-10-24: the combat modifier was judged the wrong way round.** We took fSneakCombatMod (−0.4) for a
   detector in Combat with someone other than the target, from the setting's description
   on the GECK wiki ("in active combat against someone else"). The same page's formula
   writes it `IsCombatTarget * fSneakCombatMod`, IsCombatTarget being 1 when the target
@@ -331,6 +350,15 @@ the start bonus and the armour class penalty 10 / 20; the thresholds −20 and 0
   in Combat). It makes a sneaking target easier to lose in a fight. A capture could settle
   it: GetDetected of a sneaking player by a fighter it is shooting against one it is not
   (§6, captures).
+  **2026-11-15 correction (#2573):** the capture is now taken [observed: captures
+  run15b_t1 and run15b_t2, 2026-11-15; actor-behaviour.md §2.1a, answered observer
+  check 200]. With the NPC roles swapped, its own combat target read 3-4 higher
+  than out of combat at comparable distances; a bystander read 2-4 lower (fewer
+  samples as sight came and went). This reverses the 2026-10-24 decision: the
+  GECK setting description was right, while the formula and Fallout Wiki table
+  had the direction reversed. A fighter now perceives its own targets at 1.2,
+  others at 0.8; a Lost detector stays at 1.2 [design: only State::Combat applies
+  fSneakCombatMod; no timer change]. The earlier decision above is kept as history.
 - **The Pip-Boy light gives the player away.** We left the light out of detection as
   undecided. The game says it counts: a FalloutNV.esm loading screen, "The light
   generated from your Pip-Boy light actually makes you less stealthy", and Broad
@@ -384,3 +412,40 @@ sneak word while the player sneaks (`nvf_play::sneak_gauges`):
 They show what the player gives off, not whether anyone notices (the sneak word says
 that); sneaking itself makes no less noise in the formula, only the Sneak skill counts.
 Smoke `sneak-gauges`.
+
+## 11. Sound cover (owner request 2026-11-15, #2688)
+
+The sounds of the world hide the player's own [design: not the original's; the Gameplay
+switch `sound-cover`, on by default, kept in the INI, turns it off]:
+
+- **The rule** (`fnv_game::detection::masked`): when the player's noise
+  (`Settings::noise`, §10's Noise) is under the cover, the loudest sound of the world heard
+  at the player, the sound term of every actor's detection of the player is 0
+  (`Situation::sound_cover`). With no sound left, an actor that does not see the player
+  reads it as a silent target (the target skill not counted, §2). A noise equal to the
+  cover or over it is heard whole: a shot over a generator's hum is heard with the
+  footsteps under it. Only the player is covered; NPCs detecting each other are not.
+- **The cover** (`nvf_play::sound_cover`): every sound played at a place notes its gain
+  where the listener (the player's eye) is, the record's static attenuation times its
+  attenuation curve at that distance (`sfx::distance_gain`), without the effects volume:
+  one-shots (other actors' footsteps and shots, impacts, creatures, doors, region sounds
+  about the listener) for their length, placed loops (sound markers, objects' and
+  creatures' loops) and placed radios every frame they sound, lines said at a place by
+  the voice's fall-off (`voice::voice_gain`) while they play. The loudest gain heard,
+  0–1, × 100 is the cover in the noise's units: a sound heard whole covers a run in heavy
+  armour, one at a third of its loudness a walk in light armour. Sounds at the listener
+  (the player's own footsteps and shots, interface sounds, the cells' background loops, 2D
+  region sounds) are not placed and never cover; a placed sound within 64 units of the
+  listener is taken as the player's own (an effect's loop on the player, the player's
+  weapon in third person) and does not either.
+- **On the gauge**: the noise bar's segment at the cover level wears a brighter, larger
+  square (the HUD colour half way to white, outside the segment): the noise up to it is
+  covered. It rises at once and falls back over 1.5 s as the noise does.
+
+Not built: the player's own shots' impacts and explosions are placed sounds of the world
+and can cover the player's next measurement; with sounds switched off (`--no-sound`)
+nothing plays and nothing covers. The log says `sound cover: the player's noise N is
+under the world's C: not heard` and `… is heard again` as it changes, and `sound cover
+summary: …` at the end. Checks: `fnv_game::detection` test
+`a_louder_world_covers_the_targets_noise`, `nvf_play::sound_cover` tests, smoke
+`sneak-sound-cover`.

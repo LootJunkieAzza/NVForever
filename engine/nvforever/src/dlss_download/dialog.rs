@@ -5,7 +5,7 @@
 //!    box that scrolls (PgUp, PgDn, the arrow keys, Home, End, the mouse wheel), and I accept,
 //!    Open on GitHub (the release's page) and Cancel. Only I accept starts the download
 //!    (`dlss::download::LicenceAccepted::by_player`); Cancel or Esc closes with nothing done.
-//! 2. **The progress**: the step, the file (n of 4), the megabytes fetched of those to fetch
+//! 2. **The progress**: the step, the file (n of 8), the megabytes fetched of those to fetch
 //!    and a bar; Hide (Esc) closes the dialog and the download goes on, Cancel download stops
 //!    it. The choice on the Upscaler row shows the dialog again.
 //! 3. **The result**: ready (a restart loads DLSS), or why not in our words with the log's
@@ -133,7 +133,7 @@ impl Dialog {
         match (act, self.page) {
             (Act::Accept, Page::Licence) if now - self.opened_at < ACCEPT_ARMS_AFTER => return,
             (Act::Accept, Page::Licence) => {
-                self.download = Some(download::start(LicenceAccepted::by_player()));
+                self.download = Some(download::start(LicenceAccepted::by_player(), super::test_aid_value(download::TEST_URL_VAR)));
                 self.page = Page::Progress;
                 self.end_seen = false;
                 self.started_at = now;
@@ -506,7 +506,7 @@ fn with_key(label: &str, key: &str) -> String {
 
 /// The manual way, for a download that did not happen.
 fn manual_way() -> &'static str {
-    tr("Or get the files by hand: open the release page, download streamline-sdk-v2.14.16.zip and copy sl.interposer.dll, sl.common.dll, sl.dlss.dll and nvngx_dlss.dll from its bin\\x64 folder into the dlss folder (never nvngx_update.exe), then restart.")
+    tr("Or get the files by hand: open the release page, download streamline-sdk-v2.14.16.zip and copy sl.interposer.dll, sl.common.dll, sl.dlss.dll, nvngx_dlss.dll, sl.dlss_g.dll, nvngx_dlssg.dll, sl.reflex.dll and sl.pcl.dll from its bin\\x64 folder into the dlss folder (never nvngx_update.exe), then restart.")
 }
 
 /// Draw the dialog again when it changed.
@@ -537,8 +537,8 @@ fn draw(mut commands: Commands, mut d: ResMut<Dialog>, roots: Query<Entity, With
             match d.page {
                 Page::Licence => {
                     block(p, title, tr("Download DLSS"), TEXT_WIDTH, bright);
-                    block(p, small, tr("NVForever fetches four files from NVIDIA's Streamline 2.14.16 release on GitHub: sl.interposer.dll, sl.common.dll and sl.dlss.dll, under Streamline's MIT licence, and nvngx_dlss.dll, under NVIDIA's licence below. Nothing is downloaded unless you accept it."), TEXT_WIDTH, dim);
-                    block(p, small, tr("NVIDIA's licence for nvngx_dlss.dll"), TEXT_WIDTH, bright);
+                    block(p, small, tr("NVForever fetches eight files for DLSS upscaling and frame generation from NVIDIA's Streamline 2.14.16 release on GitHub: sl.interposer.dll, sl.common.dll, sl.dlss.dll, sl.dlss_g.dll, sl.reflex.dll and sl.pcl.dll, under Streamline's MIT licence, and nvngx_dlss.dll and nvngx_dlssg.dll, under NVIDIA's RTX SDKs licence below. Nothing is downloaded unless you accept it."), TEXT_WIDTH, dim);
+                    block(p, small, tr("NVIDIA's RTX SDKs licence for nvngx_dlss.dll and nvngx_dlssg.dll"), TEXT_WIDTH, bright);
                     let step = small.font.size;
                     let shown = &d.lines[d.scroll.min(d.lines.len())..(d.scroll + VIEW_LINES).min(d.lines.len())];
                     p.spawn((

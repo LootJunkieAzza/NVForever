@@ -18,7 +18,9 @@
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
 //!   `cls` / `clear` (empty the scrollback), `advlevel` / `AdvancePCLevel` (the player's
 //!   level up by one and the level-up menu open, `crate::levelup`; the catalogue gives
-//!   it no console number), `poker [casino]` (NVForever's poker table, `crate::poker`).
+//!   it no console number), `poker [casino]` (NVForever's poker table, `crate::poker`),
+//!   `tcg [radius]` / ToggleCollisionGeometry (the collision shapes drawn in the world,
+//!   `crate::collision_view`; not in the catalogue).
 //! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
 //!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
 //!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
@@ -110,6 +112,9 @@ pub struct ConsoleSet;
 #[derive(Resource, Default)]
 pub struct Console {
     pub open: bool,
+    /// The pause menu's Console entry asked for it (the player's Replace Help With Console
+    /// tweak): it opens as soon as the world is played again.
+    pub open_asked: bool,
     input: String,
     history: Vec<String>,
     /// The history line being shown (Up/Down), counted from the newest.
@@ -127,6 +132,47 @@ pub struct Console {
     recording: Option<Vec<String>>,
     /// `SetConsoleOuputFile`: the file every console line is added to.
     out_file: Option<std::path::PathBuf>,
+    /// The player's tweaks (`crate::tweaks`): a line said again right after itself
+    /// becomes `line -#n`; every line starts with the time since the game started.
+    pub compress_repeats: bool,
+    pub timestamps: bool,
+    /// The last line printed and how many times running, for `compress_repeats`.
+    repeat: Option<(String, u32)>,
+    /// The player's Remember Console History tweak: the history is read once from
+    /// [`HISTORY_FILE`] in NVForever's folder and written back as lines are entered [design: docs/design/tweaks.md].
+    pub remember_history: bool,
+    history_loaded: bool,
+    /// The player's Console Output File tweak has set the file this session.
+    pub auto_output_done: bool,
+    /// The player's Set Home tweak: `sethome`, `home`, `back` and `delhome` work, the
+    /// homes kept for this session [design: docs/design/tweaks.md].
+    pub homes_on: bool,
+    homes: std::collections::BTreeMap<String, Travel>,
+    /// Where the last `home` or `back` left from.
+    back: Option<Travel>,
+}
+
+impl Console {
+    /// [design, #2403 / file refs] Local-only editing/navigation fingerprint. Console
+    /// text stays in the hash; no command or output is attached to a report.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.open.then_some((&self.input, self.recall, self.scroll, self.selected, &self.lines))
+    }
+}
+
+/// When the console's clock starts: the first line printed (the game's start, near
+/// enough) [design: docs/design/tweaks.md].
+static CLOCK: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// `[mm:ss]` since [`CLOCK`] started, `[h:mm:ss]` past an hour.
+fn stamp(seconds: u64) -> String {
+    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if h > 0 { format!("[{h}:{m:02}:{s:02}] ") } else { format!("[{m:02}:{s:02}] ") }
+}
+
+/// The text a line said `n` times running shows (`n` from 2) [design: docs/design/tweaks.md].
+fn repeated(line: &str, n: u32) -> String {
+    format!("{line} -#{n}")
 }
 
 /// Render toggles the console asked for, for the renderer (nvforever) to switch and
@@ -188,8 +234,27 @@ impl Console {
     }
 
     fn print(&mut self, line: impl Into<String>) {
-        let line = line.into();
+        let mut line = line.into();
+        let since = CLOCK.get_or_init(std::time::Instant::now).elapsed().as_secs();
         info!("console: {line}");
+        // The Compress Repeats tweak: a single line said again replaces itself.
+        if self.compress_repeats && !line.contains('\n') {
+            if let Some((last, n)) = self.repeat.as_mut().filter(|(last, _)| *last == line) {
+                *n += 1;
+                let shown = repeated(last, *n);
+                if let Some(l) = self.lines.last_mut() {
+                    *l = if self.timestamps { format!("{}{shown}", stamp(since)) } else { shown };
+                }
+                self.scroll = 0;
+                return;
+            }
+            self.repeat = Some((line.clone(), 1));
+        } else {
+            self.repeat = None;
+        }
+        if self.timestamps {
+            line = format!("{}{line}", stamp(since));
+        }
         if let Some(path) = &self.out_file {
             use std::io::Write;
             let added = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}"));
@@ -265,6 +330,58 @@ pub fn batch_lines(name: &str, roots: &[std::path::PathBuf]) -> Result<(std::pat
 /// Most statements `rbat` records [documented: GECK wiki Rbat, "up to 20 console
 /// commands"]; the ones after are not recorded [hypothesis].
 pub const RBAT_MAX: usize = 20;
+
+/// The console history's file in NVForever's folder, and the most lines it keeps
+/// (ours) [design: docs/design/tweaks.md].
+pub const HISTORY_FILE: &str = "ConsoleHistory.txt";
+const HISTORY_KEPT: usize = 100;
+/// The file the Console Output File tweak adds console lines to (ours).
+pub const AUTO_OUTPUT_FILE: &str = "ConsoleOutput.txt";
+
+impl Console {
+    /// The Remember Console History tweak on or off; on, the saved history comes back
+    /// the first time.
+    pub fn remember(&mut self, on: bool) {
+        self.remember_history = on;
+        if !on || self.history_loaded {
+            return;
+        }
+        self.history_loaded = true;
+        let Ok(path) = own_file(HISTORY_FILE, fnv_install::EngineHome::default_root().as_deref()) else { return };
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let saved: Vec<String> = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+            info!("console: {} history lines read from {}", saved.len(), path.display());
+            let mut both = saved;
+            both.append(&mut self.history);
+            self.history = both;
+        }
+    }
+
+    /// Write the history's last lines to [`HISTORY_FILE`].
+    fn save_history(&self) {
+        let Ok(path) = own_file(HISTORY_FILE, fnv_install::EngineHome::default_root().as_deref()) else { return };
+        let from = self.history.len().saturating_sub(HISTORY_KEPT);
+        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+        if let Err(e) = std::fs::write(&path, self.history[from..].join("
+")) {
+            warn!("console: history not written to {}: {e}", path.display());
+        }
+    }
+
+    /// The Console Output File tweak: the output file is set once a session, unless one
+    /// is set already.
+    pub fn auto_output(&mut self) {
+        self.auto_output_done = true;
+        if self.out_file.is_some() {
+            return;
+        }
+        if let Ok(path) = own_file(AUTO_OUTPUT_FILE, fnv_install::EngineHome::default_root().as_deref()) {
+            let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+            info!("console: lines are added to {} (tweak)", path.display());
+            self.out_file = Some(path);
+        }
+    }
+}
 
 /// A file `rbat` or `SetConsoleOuputFile` writes: a plain name in NVForever's own folder
 /// (`Documents\My Games\NVForever`), never a path, so nothing is written elsewhere (the
@@ -361,23 +478,28 @@ fn toggle(
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
+    (tweaks, bindings, mouse): (Option<Res<crate::tweaks::TweakSettings>>, Option<Res<crate::bindings::Bindings>>, crate::pad::ActionButtons<MouseButton>),
 ) {
     let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
+    // The Console binding (Controls > Additional Features), ` unless the player rebinds it.
+    let pressed = crate::bindings::binding_just_pressed(bindings.as_deref(), crate::bindings::Control::Console, |k| keys.just_pressed(k), |m| mouse.just_pressed(m));
     let by_aid = aid.0.first().is_some_and(|(t, _)| time.world_secs().is_some_and(|now| *t <= now));
     if !c.open {
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
         let world = *state.get() == PlayState::Playing || (free_cam.holds_world() && *state.get() == PlayState::Menu);
         let free = world && active.0.is_none() && !loading.active();
-        if free && (keys.just_pressed(KeyCode::Backquote) || by_aid) {
+        if free && (pressed || by_aid || c.open_asked) {
             c.open = true;
+            c.open_asked = false;
             // Already `Menu` under the free camera: no change of state, which would close it.
             NextState::set_if_different(&mut *next, PlayState::Menu);
-            spawn(&mut commands);
+            spawn(&mut commands, tweaks.as_ref().is_some_and(|t| t.console_text_shadow));
             info!("console: open");
         }
         return;
     }
-    if keys.any_just_pressed([KeyCode::Backquote, KeyCode::Escape]) {
+    if pressed || keys.just_pressed(KeyCode::Escape) {
         close(&mut c, &mut next, &mut commands, &roots);
     }
 }
@@ -413,7 +535,7 @@ fn close_on_exit(mut c: ResMut<Console>, mut commands: Commands, roots: Query<En
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn typing(
     (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
     time: crate::pause::AidTime,
@@ -428,7 +550,8 @@ fn typing(
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play, mut poker, location): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>, Option<Res<crate::Location>>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
-    (pipboy, data, mut editor): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>, ResMut<crate::editor::Editor>),
+    (pipboy, data, player): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>, Option<Res<crate::player::Player>>),
+    (mut view, mut editor): (ResMut<crate::collision_view::CollisionView>, ResMut<crate::editor::Editor>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     if !c.open {
@@ -492,6 +615,9 @@ fn typing(
         c.recall = None;
         if c.history.last() != Some(&line) {
             c.history.push(line.clone());
+            if c.remember_history {
+                c.save_history();
+            }
         }
         let parts = statements(&line);
         if parts.len() > 1 {
@@ -509,8 +635,45 @@ fn typing(
                 rec.push(line.clone());
             }
         }
+        // Where the player stands now, as a travel back to it (the Set Home tweak).
+        let here = match (location.as_deref(), player.as_deref()) {
+            (Some(l), Some(p)) => Some(Travel { world: l.interior.is_none().then_some(l.world), interior: l.interior, feet: p.feet, heading_deg: p.heading.to_degrees(), pitch_deg: None }),
+            _ => None,
+        };
+        let name = if rest.is_empty() { "home".to_string() } else { rest.to_ascii_lowercase() };
         match lower.as_str() {
             "cls" | "clear" | "clr" => c.lines.clear(),
+            "sethome" if c.homes_on => match here {
+                Some(t) => {
+                    c.print(format!("Home \"{name}\" set here"));
+                    c.homes.insert(name, t);
+                }
+                None => c.print("sethome: the player is not in the world"),
+            },
+            "delhome" if c.homes_on => match c.homes.remove(&name) {
+                Some(_) => c.print(format!("Home \"{name}\" removed")),
+                None => c.print(format!("No home \"{name}\"")),
+            },
+            "home" if c.homes_on => match c.homes.get(&name).copied() {
+                Some(t) => {
+                    c.back = here;
+                    c.print(format!("Travelling to home \"{name}\""));
+                    travel.write(crate::loading::TravelRequest(t));
+                }
+                None if c.homes.is_empty() => c.print("No homes yet: sethome [name] sets one here"),
+                None => {
+                    let names: Vec<String> = c.homes.keys().cloned().collect();
+                    c.print(format!("No home \"{name}\"; homes: {}", names.join(", ")));
+                }
+            },
+            "back" if c.homes_on => match c.back.take() {
+                Some(t) => {
+                    c.back = here;
+                    c.print("Travelling back");
+                    travel.write(crate::loading::TravelRequest(t));
+                }
+                None => c.print("back: no home or back travel yet"),
+            },
             // `rbat`: start or cancel recording; `rbat <file>`: the recording written for
             // `bat` (docs/design/console.md).
             "rbat" => match (rest.is_empty(), c.recording.take()) {
@@ -558,7 +721,7 @@ fn typing(
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>, editor (editor mode on/off), editor select|move|turn|place|delete|undo, editor save <Name.esp>, editor why [topic] (why the selected actor says what it says). Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
-                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), tlv (leaves), ToggleLODLand, ToggleNavmesh, tlik (head tracking), temo (emotions)");
+                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), tlv (leaves), ToggleLODLand, ToggleNavmesh, tlik (head tracking), temo (emotions), tcg [radius] (collision shapes)");
                     c.print("bat <file> (console lines from a text file), rbat [file] (record lines for bat), scof [file] (write the console to a file), slpm [1-5] (a practice lock), [ref.]mfg expression|phoneme|modifier <id> <0-100>, mfg reset");
                     c.print("plm <x> <y> <z> [name] [0-9] (a marker seen through walls), clm (clear them), s1st (first-person model in third person), [ref.]setvel x|y|z <speed>, tst <global>, prc, tlv (tree leaves), ClearScreenBlood");
                 } else {
@@ -659,6 +822,20 @@ fn typing(
                 crate::combat::set_god_mode(on);
                 c.print(format!("God mode {}", if on { "on" } else { "off" }));
             }
+            // ToggleCollisionGeometry: the collision view (`crate::collision_view`); with a
+            // radius, on within that many units of the camera.
+            "tcg" | "togglecollisiongeometry" => match rest.split_whitespace().next().map(str::parse::<f32>) {
+                None => {
+                    let on = !view.on;
+                    view.set(on, None);
+                    c.print(view.state());
+                }
+                Some(Ok(r)) if r.is_finite() && r > 0.0 => {
+                    view.set(true, Some(r));
+                    c.print(view.state());
+                }
+                Some(_) => c.print("tcg [radius]: the collision shapes within radius game units of the camera"),
+            },
             "click" => {
                 let xy: Vec<f32> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
                 match xy[..] {
@@ -791,7 +968,7 @@ fn replies(
                 ConsoleRequest::Select(id) => select(&mut c, id.0, &play.0, &sim, st.rt.as_mut()),
                 ConsoleRequest::Travel { world, interior, feet, heading_deg, label } => {
                     info!("console: travelling to {label}");
-                    travel.write(crate::loading::TravelRequest(Travel { world: world.map(|w| w.0), interior: interior.map(|i| i.0), feet, heading_deg }));
+                    travel.write(crate::loading::TravelRequest(Travel { world: world.map(|w| w.0), interior: interior.map(|i| i.0), feet, heading_deg, pitch_deg: None }));
                 }
                 ConsoleRequest::Quit => {
                     info!("console: quit");
@@ -888,6 +1065,22 @@ pub fn place_name(d: &PlayData, cell: u32) -> String {
     })
 }
 
+/// The player's Extra Console Details tweak: a selected reference's details add its
+/// base's model [design: docs/design/tweaks.md].
+static MODEL_DETAILS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_model_details(on: bool) {
+    MODEL_DETAILS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A record's model path (MODL), from the load order's winning copy.
+fn model_path(d: &PlayData, id: FormId) -> Option<String> {
+    let (_, rec) = d.lo.winner(id.0)?;
+    let subs = rec.subrecords().unwrap_or_default();
+    subs.iter().find(|s| &s.sig == b"MODL").map(|s| fnv_util::text::decode_z(&s.data)).filter(|t| !t.is_empty())
+}
+
 /// A reference's details, a line each.
 pub fn describe(id: u32, d: &PlayData, sim: &SimState, rt: Option<&mut Runtime>) -> Vec<String> {
     let r = FormId(id);
@@ -904,6 +1097,9 @@ pub fn describe(id: u32, d: &PlayData, sim: &SimState, rt: Option<&mut Runtime>)
         let (sig, bedid, name) = record_names(d, b);
         let name = name.map(|n| format!(" \"{n}\"")).unwrap_or_default();
         out.push(format!("base {b} {sig} {}{name}", bedid.unwrap_or_default()));
+        if let Some(m) = model_path(d, b).filter(|_| MODEL_DETAILS.load(std::sync::atomic::Ordering::Relaxed)) {
+            out.push(format!("model {m}"));
+        }
     }
     let cell = state.and_then(|s| s.cell).or(placed.and_then(|p| p.cell));
     let pos = state.map(|s| s.pos).or(placed.map(|p| p.pos));
@@ -954,7 +1150,7 @@ fn coc(sim: &SimState, name: &str) -> Result<(Travel, String), String> {
     let cell = refs.cell_edids.get(&name.to_ascii_lowercase()).copied().or_else(|| parse_form_id(name).filter(|c| refs.by_cell.contains_key(c))).ok_or_else(|| format!("No cell named {name}"))?;
     let spot = crate::player::safe::cell_spot(refs, cell.0).ok_or_else(|| format!("{name} has no marker or door to arrive at"))?;
     let world = refs.cell_world.get(&cell).map(|w| w.0);
-    let t = Travel { world, interior: if world.is_some() { None } else { Some(cell.0) }, feet: spot.feet, heading_deg: spot.heading.to_degrees() };
+    let t = Travel { world, interior: if world.is_some() { None } else { Some(cell.0) }, feet: spot.feet, heading_deg: spot.heading.to_degrees(), pitch_deg: None };
     Ok((t, name.to_string()))
 }
 
@@ -973,7 +1169,8 @@ fn world_word(d: &PlayData, word: &str) -> Result<u32, String> {
 /// worldspace, the one last walked in from an interior): the player goes to the exterior
 /// cell at grid square (x, y) ("moves the player to given exterior grid coordinates"
 /// [documented: GECK wiki CenterOnWorld, CenterOnExterior]). Where in the cell is not
-/// documented: its centre, on the landscape there [hypothesis], which the arrival rule
+/// documented: its centre, on the landscape there [hypothesis] (the run's surface,
+/// `crate::smooth_terrain::spec`, as the collision has it), which the arrival rule
 /// (physics.md §6.2) then settles as for any travel.
 fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, String), String> {
     let grid = |w: &str| w.parse::<i32>().map_err(|_| format!("{w:?} is not a grid number"));
@@ -983,9 +1180,9 @@ fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, Stri
     // Only a cell the worldspace itself has: physics stands on a worldspace's own land,
     // not its parent's (`PhysState::set_world`).
     let cell = ws.grid.get(&g).and_then(|c| d.index.cells.get(c)).ok_or_else(|| format!("No exterior cell at {name}"))?;
-    let land = cell.land.and_then(|land| {
-        let heights = fnv_world::land::load_land(d.lo, d.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights?;
-        fnv_phys::terrain::height_at(&heights, CELL_CENTRE, CELL_CENTRE)
+    let land = cell.land.and_then(|_| {
+        let ids = fnv_world::land_surface::land_ids(g, |n| ws.grid.get(&n).and_then(|c| d.index.cells.get(c)).and_then(|c| c.land));
+        fnv_world::land_surface::load_surface(d.lo, d.schema, &ids, crate::smooth_terrain::spec())?.height_at(CELL_CENTRE, CELL_CENTRE)
     });
     // A cell without landscape: the worldspace's default land height.
     let land = land.or(ws.default_land_height).unwrap_or(0.0);
@@ -993,7 +1190,7 @@ fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, Stri
     // original puts the player is undocumented].
     let water = cell.has_water().then(|| cell.water_height.or(ws.default_water_height)).flatten().filter(|w| w.abs() < 1.0e6);
     let z = water.map_or(land, |w| land.max(w));
-    Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0 }, name))
+    Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0, pitch_deg: None }, name))
 }
 
 /// Half a cell's width: an exterior cell's centre from its corner.
@@ -1027,8 +1224,12 @@ fn click(
     panel: Query<&PointerState, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
     (mut wheel, mut wheel_px): (MessageReader<MouseWheel>, Local<f32>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let mouse = mouse.snapshot();
+    // The player's tweak: a click never picks the player [design: docs/design/tweaks.md].
+    let skip_player = tweaks.is_some_and(|t| t.console_skips_player);
+    let pickable = move |id: u32| !(skip_player && id == FormId::PLAYER_REF.0);
     // Read every frame so a turn made while the console is shut does not count later.
     let mut steps = 0i32;
     for w in wheel.read() {
@@ -1080,7 +1281,7 @@ fn click(
         let g = space::to_game(o);
         info!("console: the ray from the free camera at ({:.0}, {:.0}, {:.0})", g[0], g[1], g[2]);
     }
-    let Under { hits, bounds, choice, .. } = pick_under(o, d, CLICK_REACH, phys.map(|p| p.into_inner()), &visuals);
+    let Under { hits, bounds, choice, .. } = pick_under(o, d, CLICK_REACH, phys.map(|p| p.into_inner()), &visuals, pickable);
     match choice {
         // Clicking the selected reference again unselects it.
         Some(p) if c.selected == Some(p.form_id) => {
@@ -1121,7 +1322,7 @@ pub struct Under {
 /// The reference a ray from `o` along `d` (Bevy space) picks within `reach` game units:
 /// the first collision hit, else the render bounds it enters, as the console's click and
 /// the crosshair pick.
-pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, visuals: &Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>) -> Under {
+pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, visuals: &Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>, pickable: impl Fn(u32) -> bool + Copy) -> Under {
     let (eye, dir) = (space::to_game(o), {
         let p = space::to_game(o + d);
         let e = space::to_game(o);
@@ -1145,7 +1346,7 @@ pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, vi
             (form_id, h.distance)
         })
         .collect();
-    let hit = hits.first().map(|&(form_id, distance)| RayHit { form_id, distance });
+    let hit = hits.iter().find(|(f, _)| f.is_none_or(pickable)).map(|&(form_id, distance)| RayHit { form_id, distance });
     let bounds: Vec<(u32, f32)> = visuals
         .iter()
         .filter(|(_, _, _, v)| v.get())
@@ -1155,7 +1356,7 @@ pub fn pick_under(o: Vec3, d: Vec3, reach: f32, phys: Option<&mut PhysState>, vi
             Some((r.0, pick::ray_box(o, d, &t, ce, he)?))
         })
         .collect();
-    let choice = pick::choose(hit, bounds.iter().copied(), reach, |_| true);
+    let choice = pick::choose(hit, bounds.iter().copied(), reach, pickable);
     Under { picked: choice.as_ref().map(|p| p.form_id), choice, hits, bounds }
 }
 
@@ -1194,9 +1395,11 @@ fn step_along(along: &[u32], current: u32, by: i32) -> Option<u32> {
     Some(along[(i as i64 + by as i64).rem_euclid(n) as usize])
 }
 
-fn spawn(commands: &mut Commands) {
+fn spawn(commands: &mut Commands, shadow: bool) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
-    let green = Color::srgb(0.75, 1.0, 0.75);
+    // The player's tweak: the scrollback a darker green over a faint shadow [design: docs/design/tweaks.md].
+    let green = if shadow { Color::srgb(0.6, 0.85, 0.6) } else { Color::srgb(0.75, 1.0, 0.75) };
+    let shade = TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, if shadow { 0.8 } else { 0.0 }) };
     commands.spawn((
         ConsoleRoot,
         PointerState::None,
@@ -1215,7 +1418,7 @@ fn spawn(commands: &mut Commands) {
         children![
             // The details of the selected reference, over the scrollback.
             (Part::Selected, Text::new(""), font(15.0), TextColor(Color::srgb(1.0, 0.95, 0.6))),
-            (Part::Scroll, Text::new(""), font(14.0), TextColor(green)),
+            (Part::Scroll, Text::new(""), font(14.0), TextColor(green), shade),
             (Part::Input, Text::new("> "), font(16.0), TextColor(Color::WHITE)),
         ],
     ));
@@ -1497,9 +1700,49 @@ fn compiled(g: &mut fnv_game::Game, call: &ConsoleCall, on: Option<FormId>) -> R
     Ok(ConsoleReply { lines, ..Default::default() })
 }
 
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> Console {
+    let mut c = Console { open: true, ..Default::default() };
+    if step >= 1 {
+        c.input = "synthetic".into();
+    }
+    if step >= 2 {
+        c.recall = Some(0);
+    }
+    if step >= 3 {
+        c.scroll = 1;
+    }
+    if step >= 4 {
+        c.selected = Some(42);
+    }
+    if step >= 5 {
+        c.lines.push("Synthetic result".into());
+    }
+    c.auto_output_done = step >= 6;
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tweaks_count_repeats_and_stamp_lines() {
+        let mut c = Console { compress_repeats: true, ..Default::default() };
+        for _ in 0..3 {
+            c.print("same");
+        }
+        c.print("other");
+        c.print("same");
+        assert_eq!(c.lines, ["same -#3", "other", "same"]);
+        assert_eq!(stamp(75), "[01:15] ");
+        assert_eq!(stamp(3725), "[1:02:05] ");
+        let mut c = Console { timestamps: true, ..Default::default() };
+        c.print("x");
+        assert!(c.lines[0].starts_with('[') && c.lines[0].ends_with("] x"));
+    }
 
     #[test]
     fn rbat_and_scof_write_plain_names_in_nvforevers_folder_only() {

@@ -24,6 +24,9 @@
 //!   first saw it in this fight, with its weapon drawn, and a gun only facing it (within
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
+//!   a semi-automatic gun's shots are spaced by its attack clip in its own rig once known
+//!   (`attack_anims`, the player's rule: `fnv_combat::attack::npc_clip_timing`, #2739),
+//!   by 1 ÷ Attack Shots/Sec until then;
 //!   an automatic weapon's trigger is held for a burst and let go for a pause
 //!   (`fnv_combat::burst`: the V.A.T.S. burst's rounds, a 0.5–1.5 s pause scaled by the
 //!   style's semi-automatic delay multipliers; embedded weapons too, issue #1448), and
@@ -42,7 +45,11 @@
 //!   reloads, which would close the weapon after one. The same gun keeps its magazine
 //!   on a new target. Rounds come from nowhere: an NPC uses no ammunition from its
 //!   inventory [design: owner 2026-10-17, "they dont use ammo"]. Reloading before the
-//!   magazine is empty (in cover, out of sight) is not built.
+//!   magazine is empty (in cover, out of sight) is not built. A creature's embedded gun
+//!   has a magazine, and reloads so, once its rig is known to have the weapon's reload
+//!   clip; without one (the sentry bot's folder has none) it fires on without a magazine
+//!   (`fnv_combat::body_weapon::has_magazine` [design, #2739]; docs/spec-notes/
+//!   combat-rules.md §4.1).
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
@@ -134,6 +141,8 @@
 //!   fCombatFleeBoostConfidenceTargetRadius, its confidence goes up a level and it checks
 //!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
 //!   without a boost [hypothesis: what the wait time is for].
+//!   A child (its race's Child flag, `Game::never_fights`) flees at once, unhurt, and
+//!   never turns to fight again [owner decision 2026-11-13, #2438].
 //! - **Hiding at the flee spot** (docs/design/combat-ai.md §12.2.1): a person that has
 //!   reached its flee spot is crouched there by the rules (`Game::sneaks`,
 //!   `Game::at_flee_spot`: the crouched set, and the original's cower idle over it,
@@ -818,7 +827,7 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
 /// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
 /// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
-fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+pub(crate) fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
     if !g.is_teammate(me) {
         return 1.0;
     }
@@ -1663,8 +1672,9 @@ pub(crate) fn fight(
                                 info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
                             }
                             let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
-                            // A body weapon has no magazine to change: it never reloads (§19).
-                            Cycle::new(ws, timing, ws.embedded, ws.clip_size.max(1))
+                            // A body weapon has no magazine until its creature's reload
+                            // clip for it is known (below; `body_weapon::has_magazine`, #2739).
+                            Cycle::new(ws, timing, !fnv_combat::body_weapon::has_magazine(ws.embedded, None), ws.clip_size.max(1))
                         })
                     }),
                     _ => None,
@@ -1803,9 +1813,11 @@ pub(crate) fn fight(
                         }
                     }
                 }
-                None if fighter.flee_check_in <= 0.0 => {
+                // A coward or a child checks at once, hurt or not (`Game::always_flees`,
+                // `Game::never_fights`, #2438).
+                None if fighter.flee_check_in <= 0.0 || g.always_flees(me) || g.never_fights(me) => {
                     fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
-                    if health < full {
+                    if health < full || g.always_flees(me) || g.never_fights(me) {
                         f.stats.flee_checks += 1;
                         let check = g.flee_check(me, fighter.confidence_mod);
                         if check.flees {
@@ -1816,14 +1828,20 @@ pub(crate) fn fight(
                             f.stats.flees += 1;
                             let side = battle.side_of(g, id);
                             battle.sides[side].flights += 1;
-                            let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
-                            info!(
-                                "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
-                                ratio.unwrap_or(0.0),
-                                check.threshold,
-                                check.rating,
-                                fighter.confidence_mod
-                            );
+                            // A coward the ratios alone would not send off says so.
+                            let by_ratio = check.personal || check.group_ratio.is_some_and(|r| fnv_game::combat_style::flees(r, check.threshold, fighter.confidence_mod));
+                            if check.rating <= 0 && !by_ratio {
+                                info!("npc combat: {me_name} flees from {target_name}: its confidence is Cowardly (health {health:.0} of {full:.0})");
+                            } else {
+                                let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
+                                info!(
+                                    "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
+                                    ratio.unwrap_or(0.0),
+                                    check.threshold,
+                                    check.rating,
+                                    fighter.confidence_mod
+                                );
+                            }
                         }
                     }
                 }
@@ -2659,7 +2677,7 @@ pub(crate) fn fight(
                         Decision::Throw(throw) => {
                             if let Some(throw) = npc_grenades::commit(throw, |weapon| g.world.remove_item(me, weapon, 1)) {
                                 let gr = throw.grenade;
-                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
+                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
                                 let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.free_count(gr.weapon));
                                 f.stats.grenades += 1;
@@ -2679,12 +2697,34 @@ pub(crate) fn fight(
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some((cycle, reload_timed)) = fighter.ranged.as_mut().and_then(RangedAttack::firearm_mut) else { continue };
                     // Its reload takes as long as its reload clips in its rig, once known
-                    // (between reloads, so one under way runs to its end).
+                    // (between reloads, so one under way runs to its end); a semi-automatic
+                    // gun's shots follow its attack clip there as the player's do (#2739:
+                    // `fnv_combat::attack::npc_clip_timing`).
                     if !*reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
-                        if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            let rate = teammate_attack_rate(g, me, Some(*w));
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
+                        if let Some((timed, timing)) = times.gun_timing(id, *w, ws, &c.tuning, || teammate_attack_rate(g, me, Some(*w))) {
+                            cycle.timing = timing;
                             *reload_timed = true;
+                            // A body gun gets its magazine with its reload clip: it reloads
+                            // as the people's guns do; without the clip it fires on without
+                            // one (`body_weapon::has_magazine`, #2739).
+                            let magazine = fnv_combat::body_weapon::has_magazine(ws.embedded, timed.reload_len);
+                            if ws.embedded {
+                                let pace = match timed.attack_len {
+                                    Some(len) => format!(
+                                        "fires every {:.2} s (its attack clip {len:.2} s{})",
+                                        cycle.timing.interval,
+                                        timed.next_attack.map_or(String::new(), |(t, _)| format!(", the next shot from its a: key at {t:.2} s"))
+                                    ),
+                                    None if ws.automatic => format!("fires every {:.2} s (its Fire Rate)", cycle.timing.interval),
+                                    None => format!("fires every {:.2} s (1 / Attack Shots/Sec: no attack clip in its rig)", cycle.timing.interval),
+                                };
+                                let mag = match timed.reload_len.filter(|_| magazine) {
+                                    Some(len) => format!("has a magazine of {} and reloads in {len:.2} s", cycle.clip_size),
+                                    None => "has no reload clip in its rig: no magazine".to_string(),
+                                };
+                                info!("npc combat: {me_name}'s body gun {} {pace}; {mag}", ws.edid.as_deref().unwrap_or("?"));
+                            }
+                            cycle.no_ammo = !magazine;
                         }
                     }
                     let reloading = cycle.reloading();
@@ -2816,7 +2856,7 @@ pub(crate) fn fight(
                                 let actor_spread = shot_spread(&c.rules, &c.tuning, ws, &st, g.gun_wobble_off(me));
                                 g.other.jg9.spreads.insert(me, actor_spread);
                                 let cone = spread::cone_deg(actor_spread, 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
                                 f.stats.shot_offs.push(off.to_degrees());

@@ -186,6 +186,190 @@ apart and the last row/column coincides with the neighbour's first.
   `SDefaultLandNormalTexture=DirtWasteland01_N.dds` [documented]. Before this change
   those quadrants were drawn untextured, which showed as hard-edged patches along quadrant
   edges (owner's screenshot, 2026-10-08) [observed].
+- **Smoothing** [design, #2149: NVForever's own choice, not the original's behaviour]. The
+  grid is coarse (128 units), heights come in steps of 8 and every square is split along
+  the same south-west → north-east diagonal (a [hypothesis] about the original), so ridges
+  zig-zag and gentle slopes show steps; the VNML lighting is already smooth, the facets
+  are in the geometry. The maintainer decided on 2026-11-13: "terrain smoothing should be
+  the default have the collision follow the smoothed surface". The default recipe,
+  **detail, 4 × 4, bound 8, thresholds 2:6**, is the contributor's pick from nine variants
+  compared in game and screenshots on 2026-11-15, for the maintainer to confirm
+  [design, #2149]. Interpolate keeps the 8-unit VHGT steps; fit flattens
+  real features; detail removes the steps while keeping bumps, crests and ridges.
+  The 4 × 4 subdivision gives rounder silhouettes, and bound 8 keeps placed objects
+  in contact by limiting the distance from the stored ground to one height step.
+  The rule
+  (`crates/fnv-world/src/land_surface.rs`, one surface for drawing, collision and every
+  height query; the run's recipe is a `SurfaceSpec` fixed at the start and carried by
+  every job that builds a surface):
+  - each grid square is cut into `subdiv` × `subdiv` squares (4 by default, or 2), split
+    along the same diagonal, so every new triangle lies inside one stored triangle;
+  - the new vertices lie on a Catmull-Rom bicubic patch over control heights at the LAND
+    vertices. Interpolating the controls are the stored heights, so every
+    LAND vertex keeps its stored height exactly. Fitting, each control is the stored
+    height H moved towards the binomial mean A of its 3 × 3, (1 2 1) × (1 2 1) / 16, by
+    at most K = min(4, bound): F = H + clamp(A − H, −K, K), every F from stored heights
+    only, rows then columns in one fixed order; a plane stays a plane and the staircase
+    `0, 0, 8, 8, 16, 16` becomes the even slope `…, 2, 6, 10, 14, …` (each knot moved
+    2 units); at a LAND vertex the surface is F. With detail (the default, a feature-preserving fit)
+    only the part of the move that looks like a quantisation step is taken: with
+    d = A − H, F = H + clamp(d · (1 − smoothstep(t0, t1, |d|)), −K, K), t0 = 2 and t1 = 6
+    units by default [design, #2149: in the contributor's comparisons fit 4 × 4 within 8 was
+    the best compromise but "overly smooths things"; an 8-unit step on a slope moves a vertex by
+    at most 2 (the staircase above gives ±2), while a lone vertex 16 above flat
+    neighbours moves by 12 and a ridge 16 high by 8, so steps even out as with fit and
+    bumps, crests, ridges and dips keep their height];
+  - the patch's distance from the *stored* triangle is clamped to ± the bound (8 units by
+    default, one stored step; 0 to 16 with the test aid): cliffs and sharp edges keep
+    their shape, placed objects neither float nor sink by more than that. The bound is
+    the whole of it, fitted or not (K ≤ bound);
+  - along a cell edge the patch reads the neighbouring cells' LAND (all eight, so the
+    corners too): a vertex outside the cell comes from the cell that owns it, else the
+    other one that has it; where no loaded cell has it, it carries on the nearest lines
+    of present vertices (for the least step k of 1 up to the padding, 2 interpolating and
+    3 fitting, the mean over the eight grid directions of 2·a − b from the vertices k and
+    2k away, never an extrapolated one), a rule of the world vertex alone, so every cell
+    that reads it gets the same value; each new vertex is worked out in one fixed square,
+    so both cells of an edge compute it from the same numbers and their edges are
+    identical (heights and normals). Everything an edge's vertices read lies within 9
+    LAND vertices of the edge (2 for the patch and the normals' margin, 1 for the fit's
+    3 × 3, 6 for extrapolation), inside the cells both sides read; this assumes the two
+    LAND records of a shared edge agree on its heights, as the stored triangles do;
+  - the normals are central differences of the final (clamped) heights (one vertex of
+    margin beyond the cell); the vertex colours and the texture layers' opacities are
+    interpolated on the stored triangles, so the paint lies where it did; a fitted (or
+    detail) surface keeps the stored heights (4.3 KiB a cell) so the lift is measured from the
+    stored triangles;
+  - collision (`fnv-phys` terrain, `collider_surface`), `PhysState::terrain_z`, grass,
+    the feet and detection probes use the same surface, so actors and objects stand on
+    what is drawn.
+  The setting `smooth-terrain` (Graphics) takes effect at the next start and is a list
+  [design, #2149, #2676]: **Off** (the stored triangles drawn and collided exactly as
+  before; `--no-smooth-terrain`), **2 x 2** and **4 x 4** (each grid square cut 2 × 2 or
+  4 × 4 everywhere, drawn and collided at that level; 4 × 4 is the default, smoothing on
+  by the maintainer's decision of 2026-11-13 and 4 × 4 the contributor's pick of 2026-11-15
+  for the maintainer to confirm; 2 × 2 is a
+  quarter of the geometry, 4,225 vertices and 8,192 triangles a cell against 16,641 and
+  32,768), and **4 x 4 near**; `--smooth-terrain off|2x2|4x4|4x4-near`, kept in the INI
+  in those words; the INI's older `1`/`0` reads as 4 x 4 and Off. Whether 4 x 4 near
+  becomes the default is the maintainer's call. 4 x 4 near [design, #2676; NVForever's
+  own rule, `engine/nvforever/src/terrain_lod.rs`]:
+  - *the same surface at both levels*: a 2 × 2 surface's vertices are exactly every other
+    vertex of the 4 × 4 surface of the same recipe (a new vertex is worked out from its
+    place in its stored square alone, and 2/4 is 1/2), so a quadrant drawn 2 × 2 is the
+    4 × 4 surface's even vertices with their 4 × 4 normals
+    (`fnv_world::land_surface::QuadrantDraw`; tested bit for bit);
+  - *the rule*: each loaded quadrant is drawn 4 × 4 once the camera comes within 2,048
+    units of its square seen from above (0 over it; one quadrant's side), and 2 × 2 again
+    only beyond 2,560 (512 of hysteresis), keeping its level in between so it does not
+    flicker at the boundary; at that distance the two levels, about a unit apart in
+    height, differ by less than a pixel at 1080p (a unit spans about 0.7 pixels at 1,500
+    units with a 75° view). The distances are to be tuned from pictures
+    (`nvf_play::smooth_terrain::FINE_NEAR`, `FINE_HYSTERESIS`; test aid
+    `NVF_PLAY_TEST_SMOOTH_NEAR=<units>`). A cell's quadrants are first drawn 2 × 2 (new
+    cells load at the edge of the loaded grid);
+  - *no cracks*: a 4 × 4 quadrant's side next to a quadrant drawn 2 × 2 (or one not
+    loaded, which loads as 2 × 2) is drawn coarse: each vertex between two of the 2 × 2
+    side's vertices is put halfway between them, with the normalised sum of their normals,
+    so the side lies on the 2 × 2 side's straight segments with no gap (the T-junctions stay,
+    collinear); the normals agree at the shared vertices and differ slightly between them
+    (the moved vertex's normal is normalised, the 2 × 2 side interpolates linearly);
+    colours and layer opacities need no change (the stored
+    triangles are linear along a quadrant's side). A level change also redraws the 4 × 4
+    neighbours whose sides depend on it; cell edges stay identical from both sides;
+  - *redraws* run one batch at a time on the read pool's worker threads, from the
+    landscape, surface and layers the cell was spawned with (no record read again); a
+    built batch is spawned hidden, with the visibility range of the cell's fade as it is
+    that frame (after the fade's own update), else the fully drawn range, and the old
+    meshes stay until the render world reports every new mesh uploaded and given its
+    buffer slabs (the shared GPU upload limit can hold meshes back for frames). After 120
+    frames without that word the batch is given up: the old meshes stay, the new are
+    dropped, and redraws pause (120 frames, twice as long after each batch given up in a
+    row, at most 3,600; the first is warned, all counted in the exit summary). At the swap
+    the batch is checked against the cells loaded then: a quadrant whose sides would no
+    longer fit its neighbours' drawing (a cell unloaded or loaded again while it was
+    built) keeps its old meshes, until every swapped one fits; the rest swap in one
+    frame, so neighbours change together. Retired cells are forgotten at once and their
+    quadrants leave a waiting batch. The readiness covers the meshes' upload, not their
+    materials or pipelines (reused from the old meshes in the usual case);
+  - *collision* keeps one surface per loaded cell at the finest chosen level: 2 × 2 under
+    2 x 2, 4 × 4 under 4 x 4 and 4 x 4 near. Actors near the player stand on what is drawn
+    there once their quadrant is redrawn 4 × 4 (at the start, after a teleport and while a
+    batch waits, the drawn ground there is briefly 2 × 2, within about a unit); at a distance the drawn 2 × 2 ground is within about a unit of the
+    collision, below what an actor's feet show from that far, and the collision never
+    changes while cells are loaded (no rebuilt colliders, nothing re-grounded when the
+    camera moves) [design, #2676];
+  - the terrain wireframe shows each quadrant as drawn, and the start line names the rule
+    (`…; drawn 4 x 4 within 2048 units of the camera, 2 x 2 beyond 2560 (4 x 4 near)`); the
+    redraws log `terrain levels: …` (the first, then at most every 10 s) and the exit's
+    `terrain summary` adds their totals; test aid `NVF_PLAY_TEST_TERRAIN_LEVELS=1` logs
+    `terrain levels: settled: …` each time the levels settle after redraws.
+  Test aids choose another recipe for comparing them, without changing the
+  setting or the INI [design, #2149]:
+  `NVF_PLAY_TEST_SMOOTH_MODE=interpolate|fit|detail`, `NVF_PLAY_TEST_SMOOTH_SUBDIV=2|4`
+  (over the row's level; 2 with 4 x 4 near is 2 × 2 everywhere),
+  `NVF_PLAY_TEST_SMOOTH_BOUND=<0..16>`, `NVF_PLAY_TEST_SMOOTH_DETAIL=<t0>:<t1>` (detail's
+  thresholds, 0 ≤ t0 < t1 ≤ 16; detail only) (a bad value warns once and keeps that
+  field's default; with smoothing off they do nothing). Detail logs its thresholds:
+  `mode=detail(2:6)`. The start logs one line, by default `terrain:
+  mode=detail(2:6) subdiv=4 bound=8 land-shift=4; drawing, collision and queries use this
+  surface` (off: `mode=stored subdiv=1 bound=0 land-shift=0`), and the exit's `terrain
+  summary` counts cell draws over the run (a cell drawn again counts again) and names the
+  recipe. Cost of the default [observed: 2026-11-15, 1920x1080 unpaced, RTX 5070 Ti, three
+  launches each on a Goodsprings hillside and two fast flights (1500 units/s) over
+  Goodsprings]: standing frame time 3.78 ms (2 x 2 interpolate 3.74, off 3.78), the
+  flight's worst frame 32.9 ms (2 x 2 32.4), peak working set about 255 MB above 2 x 2
+  (3,038 against 2,783 MB) and video memory about 130 MB above it; the costs of 2 x 2
+  and 4 x 4 near against it are still to be measured (#2676). The Pip-Boy local map's outline reads the same surface beyond the loaded
+  collision, and so do the console's CenterOnWorld and CenterOnExterior (the cell's
+  centre on the run's surface; `coc` uses arrival markers). An actor standing without a physics character at
+  an authored or navmesh height over the bare landscape (within 32 units of the stored
+  triangles, the landscape the first collision under it, not walking up to, on or
+  getting off furniture) is drawn as far above the smoothed surface as it stood above
+  the stored triangles (`nvf_play::phys` `landscape_lift`); one whose feet rest on the
+  collision is drawn on it as before, and feet a physics character left are drawn as the
+  character was (never lifted twice). The answer is kept per actor and looked at again
+  when its feet change or collision loads or unloads next to it. Known limit [design,
+  #2149]: that "left by a character" record is not kept across a reset (a door to an
+  interior and back) or a save and load, so an actor that stopped on displaced, sloping
+  ground and has not moved since loses the character's drawing offset and is lifted again:
+  it can then be drawn off the drawn ground by the lift (at most the bound, 8 units by
+  default) plus the
+  controller's slope clearance it stood with (for example 5 + 8 = 13 units) until it next
+  walks. Keeping walker feet in stored-ground space instead was tried
+  and dropped: the simulation's positions feed script moves, script shots and raycasts
+  and ragdoll start-up as world coordinates. Distant LOD is not touched: its chunks are sunk
+  under the loaded cells with skirts (§7), and the loaded edge moves by at most the bound
+  (between the LAND vertices; fitting, the LAND vertices themselves by at most K). With
+  the previous interpolate/2/bound-8 recipe, on Goodsprings' cells (−17, 0) and (−18, 0), 1,084 and
+  1,541 of the 3,136 new vertices move by more than half a unit, the 95th percentile by
+  3.3 and 4.6 units, and 19 and 43 reach the bound [observed: `fnvtool world land`
+  heights of the nine cells around each (FalloutNV.esm, WastelandNV), run through a
+  Python port of the rule above on 2026-11-14; a calculation, not a game run]: that is
+  why a larger bound alone changes little there, and why the fit moves the controls.
+  Cost per cell [design, #2149: arithmetic from the grid sizes; frame cost and memory to
+  be measured]:
+
+  | | 2 × 2 | 4 × 4 |
+  |---|---:|---:|
+  | Vertex spacing | 64 units | 32 units |
+  | Surface and collision vertices | 4,225 | 16,641 |
+  | Collision triangles | 8,192 | 32,768 |
+  | Vertices per quadrant mesh | 1,089 | 4,225 |
+  | Heights and normals | 66.0 KiB | 260.0 KiB |
+  | Collision position and index arrays | 145.5 KiB | 579.0 KiB |
+  | Base render geometry (64-byte vertices, u32 indices) | 368.3 KiB | 1,440.3 KiB |
+
+  Blended layers and folded opacities add to the render figure; Rapier's own structures
+  are not counted. Nine LAND height reads per cell instead of one either way.
+  **Terrain wireframe** [design, #2149]: the Debug row `terrain-wireframe` (live, off by
+  default; `--terrain-wireframe`, engine/nvforever/src/terrain_wireframe.rs) draws every
+  triangle edge of the loaded, shown cells' surfaces once (rows, columns, diagonals as
+  line strips; not the texture layers, not distant LOD) as magenta 1-pixel gizmo lines,
+  depth-tested with a small bias. On switching on, a read-pool job per cell builds the
+  surface again from the LAND records with the run's recipe; cells loaded or shown while
+  on get one, cells unloaded or hidden lose theirs; off, nothing is built, kept, uploaded
+  or drawn (12,416 edges a cell at 2 × 2, 49,408 at 4 × 4, 3,136 stored).
 
 ## 4. Reference rotation convention
 
@@ -286,14 +470,61 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   VStoryEventHooverDamBattleStarted) and VMapTheFortRegion, all priority 100, and clear on
   GSWeatherRegion (NVWastelandGS, made beside the test climate NVDefaultClimateGSTest),
   NVBorderRegion (priority 90) and NVColoradoRiverRegion. The rules NVForever follows:
-  - The list followed is the climate's, or, while the camera (the player's eye in play)
-    stands inside an area of a region of the worldspace whose weather block has the
-    Override flag, that region's; among several, the highest priority, then the lowest
-    FormID [hypothesis: the flag is named by JohnnyGuitar's GetRegionWeatherOverride and
-    priority by GetRegionWeatherPriority (GECK wiki); bit 0 is read from the data above
-    (the place weathers have it, the test region over Goodsprings does not, and the lab's
-    Goodsprings frames of the original name NVWastelandClear); the tie rule is ours].
-    Indoors the list stays as it was.
+  - The list followed is the climate's or an overriding region's, sampled by its
+    outline at the camera's x/y. The outline is looked up at the start and when that
+    point enters another exterior cell (4096-unit grid); between those events the
+    sampled region stays, even across an outline inside one cell [observed: captures
+    run15b_w and run15b_w2, 2026-11-15, #2531]. A script MoveTo samples again and changes
+    weather at once [observed: same captures]. Load doors, other teleports, fast travel,
+    loaded games, worldspace changes and coming outdoors also refresh placement
+    [hypothesis: inferred from the script move; design: sky.rs::place_outdoors,
+    SkyState::set_interior, world.rs::travel and worldspace.rs retain placement paths].
+    Walking into a cell fades a changed weather; a new placement snaps [observed for
+    walking and script MoveTo: same captures; hypothesis for the other travel cases].
+    A same-world climate rebuild retains that sampled cell and region (rebound by
+    FormID), so ForceClimate/SetCurrentClimate do not trigger a fresh outline lookup;
+    current simulation gate values seed the rebuilt sky before its first selection,
+    so a stored-zero/live-nonzero gate does not briefly select ungated weather or
+    consume extra rolls. Travel invalidation and worldspace rebuilds still refresh placement [design,
+    #2531: sky.rs::carry_region_placement, worldspace.rs::carry_climate_sky and switch;
+    implementation of the settled lookup rule, not an additional capture claim].
+    Travel stays before weather lookup and streaming. The test-hit producer precedes
+    death handling so a test kill can start its ragdoll in that frame's PostUpdate;
+    the next frame's Physics volume sync (including its optional comparison pipe)
+    then precedes Activation dismemberment through the existing PlaySet chain [design,
+    #2531: engine/nvforever/src/main.rs, deaths.rs::DeathsPlugin, ragdoll.rs::RagdollPlugin;
+    engine/nvf-play/src/knockouts.rs::TestHitSet, lib.rs::PlayPlugin;
+    regression scenario `hitvol-marked-corpse-parts`].
+    Indoors the list stays as it was [hypothesis]. Among overlapping overriding regions,
+    highest priority then lowest FormID wins [hypothesis: the flag is named by
+    JohnnyGuitar's GetRegionWeatherOverride and priority by GetRegionWeatherPriority
+    (GECK wiki); bit 0 is read from the data above; design: existing tie rule in
+    fnv_world::sky::region_at]. The cell's XCLR list is not the membership test
+    [observed: same captures].
+    - At the Legate's stairs, NVLegateRegion (0x0015E248) belongs to WastelandNV
+      (0x000DA726). Its one area has RPLI fall-off 1024 and RPLD points
+      (101288.5, 23835.9), (109583.6, 23835.9), (109495.4, 17570.5),
+      (100670.8, 18100.0). Its RDAT type 3, flags 1, priority 100 lists
+      NVlegateCampWeather (0x001735E9), chance 100. The east outline is x 109513 at
+      y 18842; CampLog03 stairs near y 18885 span x 109330..109815. LegateCampArena
+      cell 26,4 spans x 106496..110592, y 16384..20480 and lists the region in XCLR,
+      as do cells 24..26 x 4..5; cell 27,4 does not. Climate weather there by day is
+      NVWastelandClear (0x000FFC88) [observed: FalloutNV.esm, fnvtool esm decode,
+      2026-11-15, supplied records work for #2531].
+    - With first-person view, GameHour 12, xNVSE 6.4.9 and JIP LN 57.30,
+      GetCurrentWeather/GetCurrentWeatherPercent after script moves read clear at
+      (110686, 19125) in cell 27,4 and (109775, 18882) in cell 26,4, 260 units outside
+      the outline (clear for 40 s); the camp weather at (109330, 18852), inside; clear
+      again on moving back outside. Every new weather was complete (percent 1.0) at
+      the first sample, 4 s after the move [observed: captures run15b_w and run15b_w2,
+      2026-11-15].
+    - Walking east along y 18849 crossed both the outline (x 109513) and fall-off
+      distance (x 110537) without changing weather. Last camp sample: x 110567.9;
+      first clear sample: x 110596.0, percent 0.000, across cell border x 110592.
+      Percent rose 0.033/s, complete after about 30 s. Walking west reentered cell
+      26,4 outside the outline; clear persisted to (109067, 18849), 450 units inside,
+      and for 49 s standing there [observed: captures run15b_w and run15b_w2,
+      2026-11-15].
   - Eligible entries [hypothesis]: an entry with a global counts only while the global is
     non-zero, and such entries win over the ungated ones; with none open, the ungated
     entries. A plain draw over all open entries would give the day weather on half the
@@ -317,6 +548,24 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     override flag until ReleaseWeatherOverride and then until the next roll [documented:
     GECK wiki SetWeather/ForceWeather "the weather will change back in the normal fashion
     according to the weather system"; hypothesis: that is the next roll].
+  - A held script weather survives a door into another worldspace, even when that
+    world's lists do not include it [hypothesis, #1997; observer check 209 in
+    `docs/handoff/observer-checks.md`]. The lifetime follows the wording of both
+    [ForceWeather](https://geckwiki.com/index.php?title=ForceWeather) and
+    [SetWeather](https://geckwiki.com/index.php?title=SetWeather): "If OverrideWeatherFlag
+    is 1, the weather will not change again until ReleaseWeatherOverride is called."
+    [documented: offline GECK wiki snapshot 2026-10-28].
+    [ReleaseWeatherOverride](https://geckwiki.com/index.php?title=ReleaseWeatherOverride)
+    says to "allow the weather to resume normal dynamic operation" [documented: same
+    snapshot]. The cross-door interpretation remains provisional pending check 209.
+    The replacement sky keeps the script/pin/resume state, shown and fading-out weather,
+    fade progress and those weathers' image-space adapters; the destination supplies
+    its own climate and region lists for later rolls. Natural unpinned weather starts
+    from the destination's sky [design: `worldspace.rs::carry_sky`,
+    `sky.rs::SkyState::carry_weather_from`]. A save after the door uses the same shown
+    weather and held flag as a save before it; load restores the hold before the first
+    placement [design: `sky.rs::SAVE_HOOK`, `SkyState::restore_saved`,
+    `nvf-play/src/save.rs::header`, `nvforever/src/main.rs` load setup].
   - A loaded game shows its saved weather and keeps it, without a roll, while the list
     followed at its place lists it; `--weather` pins one weather for the whole run (the
     parity lab passes it for every exterior frame; interior frames do not use the sky).
@@ -463,7 +712,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   telegraph pole and the trailer cast no shadow on the road. The renderer drew sun
   shadows by default from 2026-10-09 (owner decision); since 2026-10-13 they are off by
   default, as in the game, until their frame cost and flicker are fixed (owner decision;
-  `nvforever --sun-shadows` or the settings page turns them on), to 8,000 units in 3 cascades since 2026-10-12 for the frame
+  `nvforever --sun-shadows` or the settings page turns them on), to 8,000 units in 3 cascades since 2026-10-12 (4 on Quality and 3 on Performance, staggered, proposed in #2843) for the frame
   rate (docs/design/graphics-enhanced.md §5.3). With shadows on
   and the corrected sun, the rock formations west of Goodsprings shade the whole town
   from about 18:40 [observed: renderer]. Whether actors cast shadows in the game is not
@@ -492,7 +741,111 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   both, so the keys are unchanged. Still open after the sky changes below: at 20:00
   looking west the game's sky at 20-45° is (48, 43, 53) and the renderer's (9, 10, 18)
   [observed, diag frame `diag_west_200`]; the renderer is at full night colours there.
-- **Sky colours** [observed 2026-10-09: the four reference frames (tools/capture README
+- **Sky and grade across two worldspaces (2026-11-16; this replaces the fitted items
+  marked below)** [observed: own captures with `tools/capture/capture_frames.py`, the
+  original at 1280 x 720 and our renders at the cameras it recorded; private, in
+  `C:\fnv-private\capture`]. Sets: Tale of Two Wastelands' Capital Wasteland (Springvale
+  and by Vault 101, `WastelandClear`, 07:00 to 23:00, 12 frames); the Mojave at Goodsprings
+  (`NVWastelandClear`, 10 frames); the base game's own `WastelandClear` at Goodsprings by
+  the hour (22 frames) and at five elevations and two headings at 09:09 (10 frames).
+  Before, mean distance between the original's and our mean colours over the sky and
+  ground regions (0-255, over RGB): Capital Wasteland 119.3, Mojave 17.7; the Capital
+  Wasteland's noon sky was (97, 84, 76), dark brown, against the original's (174, 200,
+  173). With the five points below: 32.0 and 14.6; that sky (166, 180, 156).
+  - **Adapter tint.** The weather's adapter (IMAD `TNAM`, time 0: a colour and an alpha)
+    counts as one more tint beside the image space's own: colours averaged by their
+    amounts, the larger amount kept, the rule for several modifiers' tints [documented:
+    GECK wiki "ImageSpace Modifiers"; hypothesis that a weather's adapter is one of them].
+    Fitting the tint amount freely (our render without the grade, our grade formula, one
+    exposure factor) to the original's ground: Capital Wasteland noon 0.31 (base amount 0,
+    adapter 0.314: `WastelandBaseImageSpace`, `WastelandDayISFXDC`), 19:00 0.53, 23:00 0.58
+    (adapters 0.392 and 0.627); Mojave noon 0.36, 16:00 0.31 (base 0.33, adapter 0.392).
+    The same fit on the sky dome gave 0.36 under the base game's `WastelandClear` (rule:
+    0.33). The earlier rule, the base amount times the adapter's alpha, gave 0 and 0.13.
+    The Fallout 3 adapters set every value (multiply 0, add the value), the Mojave's scale
+    the base (multiply, add 0) [observed: `fnvtool esm decode`].
+  - **High noon.** A six-time colour set uses its high-noon column: day at the end of
+    sunrise, high noon at 12:00, day at the start of sunset, linear between, on the stored
+    bytes. FalloutNV.esm's own `WastelandClear` has black high-noon and midnight columns:
+    in the base game the whole picture is black at 12:06, and the sky's blue is 237, 135,
+    52, 19, 0, 18, 39, 84, 142 at 9:06, 10:06, 11:06, 11:36, 12:06, 12:36, 13:06, 14:06,
+    15:06 (climate `NVDefaultClimate`: sunrise 6:00-8:00, sunset 18:00-20:00). The sky is
+    (13, 14, 11) at every hour from 21:06 to 5:06, so the midnight column is not blended
+    in. The weather's high-noon adapter is taken the same way [hypothesis]. In the
+    Mojave's `NVWastelandClear` cloud layers 1 and 2 are white by day and black at high
+    noon, and sky-upper is (72, 91, 159) for (50, 71, 135).
+  - **Dome weights.** `atmosphere.nif`'s vertex colours: red weighs the horizon colour,
+    green sky-lower, blue sky-upper, mixed as display values. Base game `WastelandClear`
+    at 09:09 (upper (40, 46, 255), lower (123, 156, 242), horizon (162, 194, 204), each
+    x 0.71 for the high-noon share), looking away from the sun, grade taken out: red and
+    green at 46, 31 and 25 degrees up are (52, 59), (74, 93), (84, 105); 1.4 x (blue x
+    upper + green x lower) gives (53, 65), (76, 93), (81, 101); with green as the horizon
+    colour (91, 108) at 31 degrees. Near the zenith the original has about (25, 20) more
+    red and green than the model [not explained]. The fitted horizon curve and its
+    twilight factor are gone.
+  - **Sky level** [hypothesis, fitted to two worldspaces]. The sky's display colours
+    (dome and clouds) are scaled by the image space's "LUM Ramp No Tex" with the
+    adapter on it: 0.88 by day in the Mojave (`NVDefaultExterior` 1.1 x `NVWastelandIS`
+    0.8), 1.55 in the Capital Wasteland (`WastelandDayISFXDC` sets it). Scaled by the
+    emissive mult (1.5 and 1.4) the Mojave's noon sky was (189, 181, 170) against the
+    original's (145, 137, 129) and the Capital Wasteland's (156, 169, 146) against (174,
+    200, 173); by this value (151, 143, 133) and (166, 180, 156). What the value means in
+    the original's HDR pass is not known.
+  - **Taken out**: the daytime dimming of the sky to 0.4 with a share of the sunlight
+    colour added, and the sunlight hue in the clouds' and the fog's colour ("Fog colour by
+    day" below). They were fitted in the Mojave under the weak tint and without the
+    high-noon column, and made the Capital Wasteland's teal sky dark brown.
+  - **Cloud layer 0 was never drawn.** Freeside's and the Strip's weathers (`NVUrbanClear`,
+    `NVTheStripWeather`) put their only cloud texture, `sky\NV_WastelandUpperSky2.dds`, on
+    layer 0, which goes on `clouds.nif`'s first shape, `CloudDome`; the Mojave's clear
+    weather uses layer 3 (`LowerLayer`). The original shows scattered clouds over Freeside
+    at noon; ours showed none, in the 3 November build as well. `CloudDome` is 0 to 6 %
+    farther from the centre than `atmosphere.nif`'s dome, and the renderer's sort bias on
+    the blended sky parts also acts as a depth bias of about 14 % of the distance, so the
+    shape failed the depth test against the dome at its own size, at 0.97 and at 0.9 of
+    it; at 0.75 it is drawn. The same texture on layer 3 (`NVWastelandHazy`) always showed
+    [observed: own renders; the bias mechanism is a hypothesis that fits these figures].
+  - **The Strip and Freeside** [observed 2026-11-17, base game, 20 frames]. The Strip's
+    noon sky is a cool grey-purple in the original, (93, 90, 99) in one open patch; ours
+    was (117, 111, 106) in the 3 November build and is (98, 96, 109) now. Freeside's near
+    the noon sun is (141, 139, 123); ours (110, 111, 103), still darker (the sky near the
+    sun, below).
+  - **Sweep of the other worldspaces** [observed 2026-11-17: 112 frames of the original
+    under Tale of Two Wastelands, one worldspace per climate (27), each climate's weather
+    forced, noon and 17:00, level and 45 degrees up; our renders of the 58 noon cameras].
+    Close to the original in colour and look: Sierra Madre (Villa, both towns), Big MT,
+    Zion (clear and rain), the Divide (NVDLC04DivideClimate, LR, HR, the vista), the
+    Citadel, Adams Air Force Base, DC's Mall, Monument top and Mama Dolce's (ours a little
+    lighter), The Pitt's market and uptown (our sky darker than the original's glow),
+    TTW's Lucky 38 climate. Off:
+    - **Point Lookout** (`DLC04PointLookoutBoardwalkWthr`, fog 1 to 14,000 units): the
+      original's sky and distant fog are bright and pale, (214, 227, 202) level; ours
+      (134, 146, 126). Its worldspace's image space is `DefaultImageSpaceExterior`, tint
+      (0.60, 0.54, 0.39) at 0.6; the adapter's tint is (0.02, 1, 1) at 0.078 and its LUM
+      Ramp No Tex 1.5. With the adapter's tint in place of the base's the sky is (166,
+      194, 181): lighter but too blue, and the Mojave's night ground goes from (44, 43,
+      48) to (32, 41, 62) against the original's (48, 47, 51) (mean distance over the
+      Mojave frames 14.6 to 18.1), so the rule above stays. [hypothesis] The sky's
+      colours times 1.5 are past the display range, and the original's grade works on
+      them before they are held to 1: 1.5 x (220, 233, 225) tinted olive at 0.5 gives about
+      (255, 255, 240). Here the sky is held to 1 first and the tint then darkens it. The
+      fog colour gets no such factor here at all.
+    - **Anchorage** (`DLC02AnchWthrClear01`): the original's sky is a bright cyan, (61,
+      104, 120) up and (67, 146, 163) level; ours (57, 75, 79) and (52, 99, 107).
+    - **The Pitt's bridge** (`DLC01PittWthrBridge01`): the original is green fog all
+      round; our frame is black with a pale patch [not looked into: the camera may be
+      under our land there].
+    - **The nuked Divide areas** (`NVDLC04NukedWeather`): our sky is yellow, (253, 238,
+      174) up, where the original's is near white, (255, 255, 232).
+    Not compared: Tranquility Lane and the GNR roof (the original did not travel there
+    with `cow`), and the 17:00 frames (captured, ours not rendered).
+  - **Left open.** The Capital Wasteland's ground is still too bright (ours x 0.79 at
+    noon and x 0.54 at 16:00 would match). Its 07:00 sky is (213, 199, 147) against (246,
+    235, 170). Colours past the display range lose their excess before the grade here
+    (the base game `WastelandClear` sky's blue is 104-123 against 138-149): the
+    original's grade evidently works on values over 1. The original's noon sky near the
+    sun is brighter than the model (glare, not measured).
+- **Sky colours** (its fitted horizon curve, twilight factor and daytime dimming are superseded by the 2026-11-16 item above) [observed 2026-10-09: the four reference frames (tools/capture README
   section 7) and 30 diagnostic screenshots of the original game at Goodsprings
   (07:00-20:30, NVWastelandClear, private), compared region by region with nvforever
   renders of the same cameras; "dark 10%" is the mean of the darkest tenth of a region,
@@ -619,7 +972,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   `nvforever::sky::update_clouds`). The renderer logs `clouds: <weather> layer speeds
   [..] (ONAM), scrolling .. texture repeats/s` when a weather first shows (smoke
   `cloud-scroll-onam`).
-- **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
+- **Fog colour by day** (taken out 2026-11-16, see the item above) [observed 2026-10-21, the eight exterior reference frames against
   renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
   warm haze in the game and into a light blue-grey in the renderer. At
   spring_mountains_east (camera 18,448 up, looking east over the valley) the land rows
@@ -675,7 +1028,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the byte raw]. `textures\sky\` ships `masser_{full,new,half_wax,half_wan,one_wax,one_wan,
   three_wax,three_wan}.dds`, `skymoonfull.dds` and `moonshadow.dds`; which one the engine
   draws for that flag is not known. NVWastelandClearNight's cloud layer 0
-  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive. The NAM0 "stars" colour of
+  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive; the renderer leaves that layer
+  without a texture and, the weather being the base game's own, says so at debug only (a
+  mod's weather naming a missing texture is still warned about; issue #2408; what the
+  original draws on that layer is not captured). The NAM0 "stars" colour of
   NVWastelandClear is black at sunrise and white at day, sunset and night, so day-time
   hiding of the stars must come from elsewhere (engine) [hypothesis]. The renderer
   fades the stars in as the sun sinks from 0° to −12° and the moon from +5° to −6°,
@@ -742,9 +1098,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   (1.0, 0.44, 0.10) at 0.39; night track 0x12 ×1.2, tint (0.22, 0.47, 0.93) at 0.63
   [observed]. Later keys look like defaults (tint white at 0 or pure blue at 1).
   The renderer grades the tonemapped picture with the base image space × each adapter's
-  time-0 keys (value × mult + add), the adapter tint giving the colour and scaling the
-  base tint amount, blended by time of day like the weather colours [hypothesis, chosen
-  against the owner's screenshots: replacing the amount made night far too blue].
+  time-0 keys (value × mult + add), the adapter tint counting as one more tint beside the
+  base's (colours averaged by amount, the larger amount; "Adapter tint" above, 2026-11-16;
+  before that the adapter's alpha scaled the base amount), blended by time of day like the
+  weather colours.
   Formula on display values: saturation around luminance, tint towards
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
@@ -812,6 +1169,14 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   default) and off without it (`nvforever/src/eye_adapt.rs`). With the fog changes
   below, the Dead Money frames come out within 1 EV of the original's; the lab's frames
   move by under 0.1 EV.
+  Until #2892 the exposure worked out from the meter was not exactly the lift: Bevy's
+  pass read its curve as one byte entry per 0.086 EV, so every view was darkened by 0 to
+  about 0.15 EV more than the lift says (0.075 on average), by an amount that jumped
+  with the view [observed: noon by the road at WastelandNV (−17, 0), the picture with
+  adaptation on 2.4 to 5.6 levels of 255 darker than with it off, differing by pitch;
+  0.01 to 0.05 with the curve read exactly (`engine/vendor/bevy_post_process`)]. The
+  fitted numbers above were made with that in them; they were not fitted again, the
+  shift being a tenth of the fit's own spread (the frames agree within 0.3 to 1 EV).
   The sky counts 1/16 of a world pixel in the meter, from a mask drawn each frame from
   the depth prepass (`eye_mask.wesl`) [hypothesis, 2026-10-23]: once our night sky was
   as dark as the original's ("Night sky" above), metering it with the world brightened

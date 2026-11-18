@@ -133,6 +133,16 @@ pub struct PlaySound {
     pub at: Option<[f32; 3]>,
 }
 
+/// Play a SOUN once as [`PlaySound`] does, its loudness times `gain` (1 = as the record
+/// has it): the shot sounds under the player's Weapon Volume Scaling tweak
+/// [design: docs/design/tweaks.md].
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ScaledSound {
+    pub sound: FormId,
+    pub at: Option<[f32; 3]>,
+    pub gain: f32,
+}
+
 /// Start (`on`) or stop a SOUN that goes round until it is stopped, at the listener.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LoopSound {
@@ -207,6 +217,37 @@ fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Enti
             } else {
                 commands.entity(e).remove::<ScriptFade>();
             }
+        }
+    }
+}
+
+/// Shares of their full volume for [`LoopSound`] loops, by SOUN (1 when not named): a
+/// module fading a loop it started sets its share here (`crate::heartbeat`).
+#[derive(Resource, Default, Debug)]
+pub struct LoopScale(pub HashMap<FormId, f32>);
+
+/// A loop's full volume, read from its sink the first time [`loop_scales`] sees it.
+#[derive(Component)]
+struct LoopFull(f32);
+
+/// Each [`LoopSound`] loop at its [`LoopScale`] share of its full volume.
+fn loop_scales(mut commands: Commands, scale: Res<LoopScale>, mut q: Query<(Entity, &Looping, Option<&mut AudioSink>, Option<&LoopFull>)>) {
+    if scale.0.is_empty() && !scale.is_changed() {
+        return;
+    }
+    for (e, l, sink, full) in &mut q {
+        let Some(mut sink) = sink else { continue };
+        let full = match full {
+            Some(f) => f.0,
+            None => {
+                let v = sink.volume().to_linear();
+                commands.entity(e).insert(LoopFull(v));
+                v
+            }
+        };
+        let want = full * scale.0.get(&l.0).copied().unwrap_or(1.0).clamp(0.0, 1.0);
+        if (sink.volume().to_linear() - want).abs() > 1e-4 {
+            sink.set_volume(Volume::Linear(want));
         }
     }
 }
@@ -695,6 +736,9 @@ pub struct Sfx {
     frame: u64,
     /// How long requests waited for their files (the exit report).
     pub waits: Waits,
+    /// One-shots played at a place since [`crate::sound_cover`] last took them: their gain
+    /// at the listener (no effects volume), distance and seconds.
+    pub cover_notes: Vec<(f32, f32, f32)>,
     /// The age limit in force ([`MAX_ONE_SHOT_WAIT`]; the tests' real decodes on a busy
     /// machine would otherwise run into it).
     one_shot_wait: Duration,
@@ -776,6 +820,7 @@ impl Sfx {
             waiting: Vec::new(),
             frame: 0,
             waits: Waits::default(),
+            cover_notes: Vec::new(),
             one_shot_wait: MAX_ONE_SHOT_WAIT,
             reported: HashSet::new(),
             rng: SplitMix(0x5f37_59df),
@@ -850,6 +895,8 @@ enum Wanted {
     Loop,
     /// [`PlaySound`]: once, at a place or at the listener.
     Once(Option<[f32; 3]>),
+    /// [`ScaledSound`]: once, its loudness times the gain.
+    Scaled(Option<[f32; 3]>, f32),
     /// A sound a script played: its id (for [`ScriptSounds::heard`]), its place, and
     /// whether it goes round until StopSound (the Loop flag).
     Script { id: u32, at: Option<[f32; 3]>, looping: bool },
@@ -878,7 +925,7 @@ pub const MAX_ONE_SHOT_WAIT: Duration = Duration::from_millis(150);
 
 /// Whether a request is a one-shot that [`MAX_ONE_SHOT_WAIT`] holds to.
 fn wait_limited(wanted: Wanted) -> bool {
-    matches!(wanted, Wanted::Once(_))
+    matches!(wanted, Wanted::Once(_) | Wanted::Scaled(..))
 }
 
 /// Drop the waiting requests `drop` picks; how many were dropped.
@@ -1378,7 +1425,7 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
             fade_in(out, sfx, wanted, begun);
             begun
         }
-        Wanted::Script { looping: false, .. } | Wanted::Once(_) => {
+        Wanted::Script { looping: false, .. } | Wanted::Once(_) | Wanted::Scaled(..) => {
             let (seconds, begun) = one_shot_ready(out, sfx, r, handle, sound, wanted, asked, asked_frame, None);
             one_shot_decided(out, sfx, heard, sound, wanted, seconds, begun);
             begun
@@ -1485,7 +1532,7 @@ fn reconcile(sfx: &mut Sfx, playing: &Voices) {
 #[allow(clippy::too_many_arguments)]
 fn play(
     mut commands: Commands,
-    mut requests: MessageReader<PlaySound>,
+    (mut requests, mut scaled): (MessageReader<PlaySound>, MessageReader<ScaledSound>),
     mut loops: MessageReader<LoopSound>,
     looping: Query<(Entity, &Looping)>,
     scripted: Query<(Entity, &ScriptPlayed)>,
@@ -1498,6 +1545,7 @@ fn play(
 ) {
     let (Some(mut sfx), Some(data)) = (sfx, data) else {
         requests.clear();
+        scaled.clear();
         loops.clear();
         return;
     };
@@ -1572,6 +1620,9 @@ fn play(
     start_decided(&mut out, sfx, vfs, &mut ss.heard, false);
     for r in requests.read() {
         request(&mut out, sfx, vfs, &mut ss.heard, r.sound, Wanted::Once(r.at));
+    }
+    for r in scaled.read() {
+        request(&mut out, sfx, vfs, &mut ss.heard, r.sound, Wanted::Scaled(r.at, r.gain.max(0.0)));
     }
     for (id, sound, at) in std::mem::take(&mut ss.plays) {
         if stopped_before(&stops, sound, id) {
@@ -1898,15 +1949,17 @@ fn slot_to_take(list: &[Slot]) -> Option<usize> {
 #[allow(clippy::too_many_arguments)]
 fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, wanted: Wanted, asked: Instant, asked_frame: u64, kept: Option<(Entity, f32)>) -> (f32, Begun) {
     let slot = kept.map(|k| k.0);
-    let at = match wanted {
-        Wanted::Once(at) | Wanted::Script { at, .. } => at,
-        Wanted::Loop => None,
+    let (at, scale) = match wanted {
+        Wanted::Once(at) | Wanted::Script { at, .. } => (at, 1.0),
+        // The player's Weapon Volume tweak's shots (`ScaledSound`).
+        Wanted::Scaled(at, gain) => (at, gain),
+        Wanted::Loop => (None, 1.0),
     };
     let (s, name, path) = (&r.s, &r.name, &r.path);
     let (settings, eye) = (out.settings, out.player.map(Player::eye));
     let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p)));
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
-    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0);
+    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0) * scale;
     // The pitch: a replacement's was chosen when it was asked for; only what hangs on the
     // listener (gain, pan, place) is worked out again.
     let speed = match kept {
@@ -1929,6 +1982,12 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
             sfx.release(sound, slot, true);
         }
         return (seconds, Begun::Refused);
+    }
+    // Heard at the listener, for the sound cover (`crate::sound_cover`): what the record
+    // and the distance leave, the effects volume not in it.
+    // At most a battle's worth waits, should nothing take them.
+    if let (true, Some(d), true) = (settings.play, distance, sfx.cover_notes.len() < 512) {
+        sfx.cover_notes.push((static_gain(s) * distance_gain(s, d), d, seconds));
     }
     let placed = match placed {
         Some(_) if s.has("2D") => {
@@ -2121,6 +2180,7 @@ impl Plugin for SfxPlugin {
         app.init_resource::<SfxSettings>()
             .add_audio_source::<PcmSound>()
             .add_message::<PlaySound>()
+            .add_message::<ScaledSound>()
             .add_message::<LoopSound>()
             .init_resource::<ScriptSounds>()
             .add_message::<SoundSource>()
@@ -2128,7 +2188,8 @@ impl Plugin for SfxPlugin {
             .configure_sets(Update, SfxSet.after(crate::PlaySet::Sync))
             .configure_sets(Update, (SfxStep::Prepare, SfxStep::Ambient, SfxStep::Play).chain().in_set(SfxSet))
             .add_systems(Update, (listener_submerged, prepare).chain().in_set(SfxStep::Prepare))
-            .add_systems(Update, (play, pan_sounds, script_fades).chain().in_set(SfxStep::Play))
+            .init_resource::<LoopScale>()
+            .add_systems(Update, (play, pan_sounds, script_fades, loop_scales).chain().in_set(SfxStep::Play))
             .add_systems(Last, (release_files, report));
         add_late_start(app);
         crate::reverb::build(app);
@@ -2509,6 +2570,7 @@ mod tests {
             .init_resource::<ScriptSounds>()
             .init_resource::<Assets<PcmSound>>()
             .add_message::<PlaySound>()
+            .add_message::<ScaledSound>()
             .add_message::<LoopSound>()
             .add_systems(Update, (prepare, play).chain());
         (app, dir)

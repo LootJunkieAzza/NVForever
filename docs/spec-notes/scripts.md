@@ -1128,6 +1128,13 @@ the GameYear / GameMonth (from 0) / GameDay globals [hypothesis; 18 October 2281
 masters' start date, is a Tuesday]. IsAlwaysHardcore: on now and never switched off
 [hypothesis].
 
+The source handler `functions::reputation::remove_reputation_exact` reuses the
+fractional reputation writer and its events for `RemoveReputationExact`.
+See [player source commands](player-source-commands.md) for limits, invalid-axis
+policy and revision-specific authored controls. Portable controls passed for c4 in
+hosted composite `23388a32d`; revision-specific results are recorded in PR #2772.
+Native parameter encoding and original-game parity are unmeasured for this contribution.
+
 ### 7.7 Menus, message boxes and dialogue lines (round 4, 2026-10-09)
 
 Evidence: the round 4 captures from the new-game save `nvfnew` (layer5-captures.md §10),
@@ -1196,8 +1203,31 @@ at random, Say Once a Day), and a response is timed in one place
   [observed: docs/spec-notes/voice.md §8]. Only game time counts (menus stop a line) [hypothesis, consistent with Doc's
   stage 60 line ending after the message boxes, §10.3].
 - A speaker saying a line that starts another (SayTo in a result script, or a new SayTo)
-  stops the first without its end script [hypothesis]; a speaker that is disabled,
+  stops the first without its end script [hypothesis]; a new Say or SayTo of another
+  topic takes over at once, and one of the topic already being said (by Say or SayTo)
+  renews the speaker's talking state without a queue [observed: observer batch o30, PR
+  #2580]. Since #2582 a script's Say or SayTo of the topic its speaker is saying leaves
+  that line playing (`Game::say_by_script`) [hypothesis: the voice and the subtitle do
+  not restart with each call, observer check 144 open]: the Strip gate's kill zone
+  (SCPT 0x00119786) SayTos its topic every frame the player is inside, and its line
+  restarted every frame before. A line's own end script runs after the line is over,
+  so a chain of SayTo of one topic from end scripts says a new line each time. A
+  difference: o30 saw IsTalking stay on about 4.9 s after a line's file ended; here it
+  ends with the line. A speaker that is disabled,
   deleted or dead stops its line [hypothesis]. IsTalking is 1 while a line is said.
+- A Say or SayTo on a speaker already talking takes over at once, for the same topic or
+  another: nothing is queued and the call is not ignored [observed: campaigns o30_say,
+  o30b_say, 2026-11-14 (#1858 batch o30), the Strip Gatekeeper VFSSecuritronGreeterREF with
+  the gate volumes disabled, IsTalking read every game loop]. One line said alone keeps
+  IsTalking on for its file's length plus about 4.9 s (Halt, 4.35 s: 9.21 s; Kill lines
+  1.1-2.9 s: 5.2-6.2 s). Halt and Halt again 1 s later: 10.23 s (= 1 + 9.21; ignored
+  would be 9.21, queued about 18); 3 s later: 12.24 s (= 3 + 9.21). Kill then Halt 0.33 s
+  later: 9.58 s; Halt then Kill 1 s later: 7.15 s; Kill then Kill 0.5 s later: 5.61 s.
+  SayTo every game loop for about 20 s (Say the same, the subtitle flag 0 the same) keeps
+  IsTalking on without a break and lets it go one span after the last call. What these
+  runs could not show is whether the voice and the subtitle restart with each call too:
+  the game, not in front, played no sound into the loopback recording and the screenshots
+  caught the desktop. That is observer check 161, for the owner.
 - What this reproduces [observed, §10.2–10.3]: Doc's SayTo VCG01Intro takes the next
   unsaid line each time; three lines' end scripts chain SayTo to reach the line that sets
   stage 10; the first line of the topic is said again at stage 60 when it was never said

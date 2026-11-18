@@ -100,6 +100,33 @@
 //!   device it stored [documented: `src/vulkan.cpp:1349-1407`]. Then the DLSS folder's checked
 //!   files, held open since the folder pass (`win.rs` `Pins`), are released. The interposer stays
 //!   loaded.
+//! - **Ending at once** ([`end_now`], #2733): a loaded save's handoff ends the old run with
+//!   `std::process::exit` from the main schedule (`handoff.rs` `end_now`), so `App::run` never
+//!   returns and [`shutdown`] above never ran: Streamline and DLSS-G were left to the DLLs'
+//!   detach at process exit. In a player's runs every such exit with DLSS-G set up ended in a
+//!   crash in `nvngx_dlssg.dll` [observed: the player's logs and dumps, 2026-11-15]; that the
+//!   detach without `slShutdown` is what crashes is a [hypothesis] this change tests. Before
+//!   that exit, with the device made through Streamline: the render app is taken back from the
+//!   render thread (Bevy renders nothing after), FSR frame generation's presenter threads are
+//!   stopped and joined (`crate::frame_gen::stop_presenters`: they present on threads of their
+//!   own and hold the window's surface), device polling and pipeline creation are held off
+//!   (`gpu_poll::quiet`), DLSS-G's mode goes off and the window's swapchain is released
+//!   (`frame_gen.rs`, "Exit"), and [`shutdown`] runs as above. The render world is not dropped
+//!   (the point of ending at once); so the swapchain is released by hand and the device
+//!   outlives `slShutdown`, as it does above.
+//!
+//!   The old run now waits, without a time limit, for the render thread's frame, the
+//!   presenters' last presents, the pipeline gate (a pipeline being compiled) and the GPU drain
+//!   (`Device::poll` wait, `vkDeviceWaitIdle`). Not bounded [design]: every other exit waits
+//!   for the same things without a limit (Bevy's `RenderAppChannels::drop` for the render
+//!   app, `Presenter::drop`, `win.rs` `shutdown`'s drain), and a limit that gave up would
+//!   leave exactly the exit that crashed. The new run is already shown by then (its loading
+//!   screen may still be up), so a short wait is not seen; the cost is the old process's RAM
+//!   and video memory held for as long as it waits, which a long wait would take from the new
+//!   run's loading or play. A renderer or driver that never returns would leave the old
+//!   process behind the new window holding that memory, as it would hang any exit. The
+//!   handoff's own limits (`handoff.rs` `ACK_WAIT_SECS`, `GIVE_UP_MARGIN_SECS`) time the new
+//!   run's start, not this.
 //!
 //! - **Frame generation** (#2317; docs/design/dlss-frame-generation.md): with the four files of
 //!   [`FG_FILES`] in the folder beside the four above, `slInit` asks for DLSS, DLSS Frame
@@ -121,7 +148,7 @@
 //! wait in a buffer, written each frame (`First`) and at shutdown.
 
 #[cfg(any(windows, test))]
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, PoisonError};
 
@@ -141,7 +168,11 @@ use crate::upscaler::{DlssModel, DlssState, UpscaleQuality, Unavailable, Upscale
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
-pub(crate) mod download;
+// The download, the signature checks and the folder rule live in `nvf-dlss-files`, shared with
+// the launcher (#2765); they keep their paths here.
+pub(crate) use nvf_dlss_files::download;
+#[cfg(any(windows, test))]
+mod fg_cap;
 #[cfg(windows)]
 mod frame_gen;
 #[cfg(windows)]
@@ -149,29 +180,20 @@ mod frame_token;
 #[cfg(any(windows, test))]
 mod preflight;
 #[cfg(windows)]
-mod security;
+use nvf_dlss_files::security;
 pub(crate) mod sizing;
 #[cfg(windows)]
 mod win;
 
 pub(crate) use sizing::OptimalSizes;
 
-/// The folder holding the four files instead of the one beside the program.
+/// The folder rule, the files it must hold (the interposer first) and the frame
+/// generation files (`nvf-dlss-files`).
 #[cfg(any(windows, test))]
-const ENV_DIR: &str = "NVF_DLSS_DIR";
-/// The folder beside the program.
-#[cfg(any(windows, test))]
-const FOLDER_NAME: &str = "dlss";
-/// The files the folder must hold, the interposer first.
-#[cfg(any(windows, test))]
-const FILES: [&str; 4] = ["sl.interposer.dll", "sl.common.dll", "sl.dlss.dll", "nvngx_dlss.dll"];
-/// DLSS Frame Generation's files beside [`FILES`] (#2317): the feature, its NGX model,
-/// and Reflex and PCL, which DLSS-G requires through Streamline [documented:
-/// `ProgrammingGuideDLSS_G.md` §8.0, `ProgrammingGuideReflex.md` §6.0;
-/// fork-notes `fg-facts.md` §1]. The preflight already pins the three `sl.*` files and accepts
-/// NVIDIA-signed `nvngx_*.dll` (`preflight.rs` `RELEASE_DLLS`).
-#[cfg(any(windows, test))]
-const FG_FILES: [&str; 4] = ["sl.dlss_g.dll", "nvngx_dlssg.dll", "sl.reflex.dll", "sl.pcl.dll"];
+use nvf_dlss_files::{resolve_folder, FolderSource, FG_FILES, FILES};
+/// The folder's variable, read where the loader runs (Windows).
+#[cfg(windows)]
+use nvf_dlss_files::ENV_DIR;
 
 /// Whether DLSS Frame Generation can run this session, as far as the loader knows: the files
 /// (none of the four frame generation files, or not the loader at all), the GPU's support (from
@@ -204,16 +226,24 @@ fn set_fg_availability(availability: FgAvailability) {
 
 /// Why DLSS Frame Generation cannot be chosen this session, in the settings page's words;
 /// `None` when it can (the Frame generation row's DLSS choice, `crate::frame_gen`).
-pub(crate) fn frame_generation_unavailable() -> Option<&'static str> {
-    if cfg!(not(windows)) {
+pub(crate) fn frame_generation_unavailable(download_offered: impl FnOnce() -> bool) -> Option<&'static str> {
+    frame_generation_reason(cfg!(windows), FG_AVAILABILITY.load(Ordering::Relaxed), download::current().map(|h| h.progress().phase).as_ref(), download_offered)
+}
+
+/// [design] Only missing-file refusals suggest a download or restart; the caller supplies
+/// whether its Upscaler row actually offers the download.
+fn frame_generation_reason(windows: bool, availability: u8, phase: Option<&download::Phase>, download_offered: impl FnOnce() -> bool) -> Option<&'static str> {
+    if !windows {
         return Some("Not on this GPU");
     }
-    match FG_AVAILABILITY.load(Ordering::Relaxed) {
+    match availability {
         6 => None,
         2 => Some("Needs an NVIDIA RTX 40 series or newer"),
         3 => Some("Needs hardware-accelerated GPU scheduling"),
         4 => Some("Needs a newer NVIDIA driver"),
         5 => Some("Not on this GPU"),
+        _ if matches!(phase, Some(download::Phase::Done(_))) => Some("Restart to use DLSS Frame Generation"),
+        _ if download_offered() => Some("Files missing: Download DLSS… on the Upscaler row"),
         _ => Some("The DLSS Frame Generation files are missing"),
     }
 }
@@ -267,9 +297,10 @@ pub(crate) fn frame_generation_on() -> bool {
 /// pacing's own ([`frame_generation_running`]).
 static FG_ENDED: AtomicBool = AtomicBool::new(false);
 
-/// Frames presented per real frame asked for (the Generated frames row + 1, `frame_gen.rs`
-/// `follow_request`); 1 otherwise.
-static FG_MULTIPLIER: AtomicU32 = AtomicU32::new(1);
+/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
+/// per real frame, 1 while it does not generate (menus, a pause in generation), from
+/// `frame_gen.rs` `state` (`fg_cap.rs`; #2731).
+static FG_DIVISOR: AtomicU32 = AtomicU32::new(1);
 
 /// The frame limit Reflex is to keep, in microseconds per real frame (0: none), from frame
 /// pacing's cap while frame generation runs (`frame_pace.rs` `wait_for_cap`).
@@ -279,14 +310,15 @@ static REFLEX_LIMIT_US: AtomicU32 = AtomicU32::new(0);
 /// ended by a failed status. While it does, latency reduction is on with it (`crate::frame_gen`
 /// `follow_switch`, `LatencyReduction::by_frame_generation`) and the frame cap is Reflex's
 /// (`frame_pace.rs`), also in menus, where DLSS-G's mode is off for a while but frame generation
-/// is not over.
+/// is not over (the cap then is not divided: [`frame_generation_divisor`]).
 pub(crate) fn frame_generation_running() -> bool {
     frame_generation_on() && !FG_ENDED.load(Ordering::Relaxed) && frame_generation_loaded()
 }
 
-/// Frames presented per real frame asked for while frame generation runs (1 otherwise).
-pub(crate) fn frame_generation_multiplier() -> u32 {
-    if frame_generation_running() { FG_MULTIPLIER.load(Ordering::Relaxed).max(1) } else { 1 }
+/// What frame pacing's cap is divided by while frame generation runs: the frames DLSS-G presents
+/// per real frame, smoothed, or 1 while it does not generate (`fg_cap.rs`); 1 otherwise.
+pub(crate) fn frame_generation_divisor() -> u32 {
+    if frame_generation_running() { FG_DIVISOR.load(Ordering::Relaxed).max(1) } else { 1 }
 }
 
 /// The frame limit Reflex keeps (microseconds per real frame, 0: none), set by frame pacing
@@ -310,24 +342,39 @@ pub(crate) fn reflex_running() -> bool {
 }
 
 /// Reflex's options for the latency reduction switch (`eLowLatency` on, `eOff` off) and the
-/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes
-/// (`slReflexSetOptions` is not thread safe: the main thread, `nv_low_latency.rs` at each
-/// frame's input). Each change is said. `Err`: Streamline refused, or Reflex does not run.
+/// frame limit frame pacing set ([`set_reflex_frame_limit`]), set only when either changes or a
+/// swapchain was made since they were set, which does not have them (`frame_token.rs`, "Reflex
+/// and the swapchain"; #2732) (`slReflexSetOptions` is not thread safe: the main thread,
+/// `nv_low_latency.rs` at each frame's input). Each is said, with the swapchains made so far:
+/// `Reflex options: … (swapchains made: N)` for a change, `Reflex options set again for a new
+/// swapchain: … (swapchains made: N)` for the other. A refused call is made again each frame; a
+/// refusal repeated frame after frame is said once, and the call that works after it says how
+/// many tries failed (`frame_token::Retries`). `Err`: Streamline refused, or Reflex does not run.
 pub(crate) fn reflex_options(on: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         use ffi::{REFLEX_MODE_LOW_LATENCY, REFLEX_MODE_OFF};
+        static RETRIES: Mutex<frame_token::Retries> = Mutex::new(frame_token::Retries::new());
         let mode = if on { REFLEX_MODE_LOW_LATENCY } else { REFLEX_MODE_OFF };
         let limit = REFLEX_LIMIT_US.load(Ordering::Relaxed);
         match frame_token::set_reflex_options(mode, limit) {
             None => Ok(()),
-            Some(result) => {
-                let line = format!("Reflex options: mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+            Some((why, swapchains, result)) => {
+                let options = format!("mode {}, frame limit {}: {}", frame_token::reflex_mode_name(mode), limit_text(limit), result.name());
+                let head = match why {
+                    frame_token::SetWhy::Changed => "Reflex options",
+                    frame_token::SetWhy::NewSwapchain => "Reflex options set again for a new swapchain",
+                };
+                let mut retries = RETRIES.lock().unwrap_or_else(PoisonError::into_inner);
                 if result.is_ok() {
-                    note_fg(Level::INFO, line);
+                    let failed = retries.worked();
+                    let after = if failed > 0 { format!(", after {failed} refused tries") } else { String::new() };
+                    note_fg(Level::INFO, format!("{head}: {options} (swapchains made: {swapchains}{after})"));
                     Ok(())
                 } else {
-                    note_fg(Level::WARN, &line);
+                    if retries.failed((mode, limit, result.0)) {
+                        note_fg(Level::WARN, format!("{head}: {options} (swapchains made: {swapchains}); tried again each frame, the same refusal said once"));
+                    }
                     Err(format!("slReflexSetOptions {}", result.name()))
                 }
             }
@@ -1020,13 +1067,14 @@ pub(crate) fn dlss_pass(
 /// defaults, with `WgpuSettings::adapter_name` set to the checked NVIDIA GPU when the loader
 /// pinned one. Without a pin it is `RenderPlugin::default()`. `main` sets it on
 /// `DefaultPlugins`, after [`DlssInitPlugin`] has run.
+///
+/// Both carry the GPU allocator's block sizes for this machine's GPU budget
+/// (memory_budget.rs, #2754).
 pub fn render_plugin() -> bevy::render::RenderPlugin {
     let adapter_name = adapter_pin();
-    if adapter_name.is_none() {
-        return bevy::render::RenderPlugin::default();
-    }
+    let memory_hints = crate::memory_budget::hints_at_start();
     bevy::render::RenderPlugin {
-        render_creation: bevy::render::settings::WgpuSettings { adapter_name, ..default() }.into(),
+        render_creation: bevy::render::settings::WgpuSettings { adapter_name, memory_hints, ..default() }.into(),
         ..default()
     }
 }
@@ -1052,33 +1100,87 @@ pub fn shutdown() {
     drain_log();
 }
 
-/// Where the folder came from, for the log.
-#[cfg(any(windows, test))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FolderSource {
-    /// `NVF_DLSS_DIR`.
-    EnvDir,
-    /// `<program folder>\dlss`.
-    BesideProgram,
+/// [`end_now`] has run (once a process).
+static ENDING: AtomicBool = AtomicBool::new(false);
+
+/// Whether this is the first time `flag` is taken (the run-once guard of [`end_now`]).
+fn first_time(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
 }
 
-/// The folder: `NVF_DLSS_DIR` when set (it must be absolute: Streamline wants absolute plugin
-/// paths [documented: `sl_core_types.h:565`] and the signature check a full path
-/// [documented: `sl_security.h:328-330`]), else `dlss` beside the program.
-#[cfg(any(windows, test))]
-fn resolve_folder(dir_var: Option<&std::ffi::OsStr>, exe_dir: Option<&Path>) -> Result<(PathBuf, FolderSource), String> {
-    match dir_var.filter(|v| !v.is_empty()) {
-        Some(v) => {
-            let path = PathBuf::from(v);
-            if path.is_absolute() {
-                Ok((path, FolderSource::EnvDir))
-            } else {
-                Err(format!("{ENV_DIR}={} is not an absolute path", path.display()))
-            }
-        }
-        None => exe_dir.map(|d| (d.join(FOLDER_NAME), FolderSource::BesideProgram)).ok_or_else(|| "the program's own folder is unknown".to_string()),
+/// The process is about to end without `App::run` returning (`handoff.rs` `end_now`, which
+/// calls `std::process::exit` from the main schedule, so `main` never reaches [`shutdown`]):
+/// the module's "Ending at once". With the renderer's device made through Streamline, the
+/// render app is taken back from the render thread (so Bevy renders nothing from here on),
+/// FSR frame generation's presenter threads are stopped and joined
+/// (`crate::frame_gen::stop_presenters`), device polling and pipeline creation are held off
+/// (`gpu_poll::quiet`), DLSS-G's mode is set off and the window's swapchain released
+/// (`frame_gen.rs` `end_now`), and then the shutdown runs as at any other exit ([`shutdown`]).
+/// `why` names the reason in the log lines (`exit: <why>: …`). Runs once; nothing to do
+/// without Streamline. Waits without a time limit (the module's "Ending at once" says why).
+/// The caller ends the process right after: the render app and the poll gate are kept (never
+/// given back) until then.
+pub fn end_now(main_world: &mut World, why: &str) {
+    if !first_time(&ENDING) {
+        return;
     }
+    #[cfg(windows)]
+    if streamline_loaded() {
+        let mut render_app = render_app_back(main_world);
+        match render_app.as_mut() {
+            // With the render thread idle no frame is handed to a presenter any more; each ends
+            // after presenting what it holds, before anything below drains or releases.
+            Some(app) => {
+                let stopped = crate::frame_gen::stop_presenters(app.world_mut());
+                if stopped > 0 {
+                    note(Level::INFO, format!("exit: {why}: {stopped} FSR frame generation presenter(s) stopped and joined"));
+                }
+            }
+            None => note(
+                Level::WARN,
+                format!("exit: {why}: the render app could not be taken back from the render thread (no pipelined rendering, or the thread stopped); presenters and the window's swapchain left in place"),
+            ),
+        }
+        // Taken only once the render thread has handed its app back and the presenters have
+        // ended (both may poll the device while finishing); held until the process ends.
+        let quiet = crate::gpu_poll::quiet();
+        frame_gen::end_now(render_app.as_mut().map(|a| a.world_mut()), why);
+        shutdown();
+        note(Level::INFO, format!("exit: {why}: Streamline shut down before the process ends"));
+        drain_log();
+        // Neither is dropped: the render world's non-send data belongs to this thread's
+        // teardown, which the process end skips; the poll gate stays shut until then.
+        std::mem::forget(render_app);
+        std::mem::forget(quiet);
+        return;
+    }
+    let _ = (main_world, why);
+    shutdown();
 }
+
+/// The render app back from the render thread (pipelined rendering), waiting for the frame it
+/// is rendering and running the main-thread tasks it may queue meanwhile, as Bevy's own
+/// extraction does [design: vendor/bevy_render/src/pipelined_rendering.rs `renderer_extract`];
+/// the render thread then waits for an app that never comes. `None` without pipelined
+/// rendering (no `RenderAppChannels`: the render app is the main app's and ran to the end of
+/// its frame before the main schedule) or when the render thread has stopped.
+#[cfg(windows)]
+fn render_app_back(main_world: &mut World) -> Option<bevy::app::SubApp> {
+    use bevy::ecs::schedule::MainThreadExecutor;
+    use bevy::render::pipelined_rendering::RenderAppChannels;
+    use bevy::tasks::ComputeTaskPool;
+
+    let executor = main_world.get_resource::<MainThreadExecutor>()?.clone();
+    let mut channels = main_world.get_resource_mut::<RenderAppChannels>()?;
+    ComputeTaskPool::get()
+        .scope_with_executor(true, Some(&*executor.0), |s| {
+            s.spawn(async { channels.recv().await });
+        })
+        .pop()
+        .flatten()
+}
+
+
 
 /// The files of [`FILES`] that `folder` lacks, in that order.
 #[cfg(any(windows, test))]
@@ -1090,6 +1192,16 @@ fn missing_files(folder: &Path) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    /// The end without Bevy's teardown runs once (#2733): the guard is taken the first time
+    /// only.
+    #[test]
+    fn the_end_at_once_runs_once() {
+        let flag = AtomicBool::new(false);
+        assert!(first_time(&flag), "the first end runs");
+        assert!(!first_time(&flag), "a second call does nothing");
+        assert!(!first_time(&flag));
+    }
 
     /// DLSS's resources are freed once DLSS is not the effective upscaler and no view is DLSS's;
     /// a frame without a DLSS view while DLSS still draws, or before the status exists, keeps
@@ -1226,8 +1338,22 @@ mod tests {
     #[test]
     fn frame_generation_reasons_follow_the_loader() {
         // The tests never run the loader: as without the files.
-        assert_eq!(frame_generation_unavailable(), Some(if cfg!(windows) { "The DLSS Frame Generation files are missing" } else { "Not on this GPU" }));
+        assert_eq!(frame_generation_unavailable(|| true), Some(if cfg!(windows) { "Files missing: Download DLSS… on the Upscaler row" } else { "Not on this GPU" }));
+        for (availability, expected) in [(2, Some("Needs an NVIDIA RTX 40 series or newer")), (3, Some("Needs hardware-accelerated GPU scheduling")), (4, Some("Needs a newer NVIDIA driver")), (5, Some("Not on this GPU")), (6, None)] {
+            assert_eq!(frame_generation_reason(true, availability, None, || panic!("only missing files need the offer")), expected);
+        }
         assert_eq!(frame_generation_max(), 0);
+    }
+
+    #[test]
+    fn frame_generation_missing_files_hint_follows_the_download() {
+        for availability in [0, FgAvailability::FilesMissing as u8] {
+            assert_eq!(frame_generation_reason(true, availability, None, || true), Some("Files missing: Download DLSS… on the Upscaler row"));
+            assert_eq!(frame_generation_reason(true, availability, None, || false), Some("The DLSS Frame Generation files are missing"));
+            let done = download::Phase::Done(std::path::PathBuf::from("dlss"));
+            assert_eq!(frame_generation_reason(true, availability, Some(&done), || panic!("installed: no offer needed")), Some("Restart to use DLSS Frame Generation"));
+            assert_eq!(frame_generation_reason(false, availability, None, || panic!("Windows only")), Some("Not on this GPU"));
+        }
     }
 
     #[test]

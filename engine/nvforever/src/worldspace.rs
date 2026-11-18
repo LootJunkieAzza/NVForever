@@ -30,13 +30,14 @@ use nvf_assets::GameData;
 /// The sky's entities, spawned by `sky::setup_sky`.
 type SkyEntity = Or<(With<SkyDome>, With<CloudLayer>, With<Sun>, With<Stars>, With<MoonDisc>)>;
 
-/// What a new sky keeps of the one it replaces: the settings, the clock, the scripts'
-/// wind and moons.
+/// [design: sky.rs::SkyState::carry_weather_from] A new sky keeps settings, clock,
+/// script wind, moons and weather overrides from the one it replaces.
 fn carry_sky(from: &SkyState, s: &mut SkyState) {
+    s.carry_weather_from(from);
     s.shadows = from.shadows;
     s.shadow_distance = from.shadow_distance;
     s.shadow_reach = from.shadow_reach;
-    s.shadow_cascades = from.shadow_cascades;
+    s.shadow_layout = from.shadow_layout;
     s.grade = from.grade;
     s.time_scale = from.time_scale;
     s.clock_running = from.clock_running;
@@ -45,6 +46,19 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
     s.fog_override = from.fog_override;
     s.script_wind = from.script_wind;
     s.moon_textures = from.moon_textures.clone();
+}
+
+/// Seed current gates before restoring sampled placement and selecting weather
+/// [design, #2531; `SkyState::carry_region_placement`]. Worldspace travel uses
+/// `carry_sky` instead.
+pub(crate) fn carry_climate_sky(from: &SkyState, s: &mut SkyState, global_value: impl Fn(u32) -> Option<f32>) {
+    for id in s.gate_globals() {
+        if let Some(value) = global_value(id) {
+            s.set_live_global(id, value);
+        }
+    }
+    carry_sky(from, s);
+    s.carry_region_placement(from);
 }
 
 /// The climate the scripts want (ForceClimate, SetCurrentClimate; `fnv_game::nvse_jip12`)
@@ -56,6 +70,7 @@ fn carry_sky(from: &SkyState, s: &mut SkyState) {
 pub fn script_sky(
     mut commands: Commands,
     script: Option<Res<nvf_play::script::ScriptState>>,
+    sim: Res<nvf_play::sim::SimState>,
     world: Res<WorldData>,
     mut sky: ResMut<SkyState>,
     sky_entities: Query<Entity, SkyEntity>,
@@ -75,7 +90,7 @@ pub fn script_sky(
         let weather = sky.weather.edid.clone();
         match SkyState::with_climate(&world, c, args.weather.as_deref(), weather.as_deref(), sky.hour, sky.rng) {
             Ok(mut s) => {
-                carry_sky(&sky, &mut s);
+                carry_climate_sky(&sky, &mut s, |id| sim.world.global(fnv_sim::FormId(id)).ok());
                 info!("sky: climate {:08X} -> {c:08X}{}: {}", sky.climate.form_id, if wanted.is_some() { " (a script's)" } else { "" }, s.describe());
                 *sky = s;
                 remake = true;

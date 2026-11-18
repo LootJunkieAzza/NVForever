@@ -1496,6 +1496,10 @@ pub struct Written {
     local: WorldRows,
     misc_list: Option<ListKind>,
     sizes: SizesWritten,
+    /// Actual own-image dimensions, including invisible metadata children used by
+    /// replacement map-marker templates to derive their zoom and crop.
+    file_sizes: HashMap<TileId, (String, f64)>,
+    file_texels: HashMap<String, Option<(f64, f64)>>,
     shown: Option<Shown>,
     /// What the last pass was asked to show, kept through a failure ([`Written::waits`]).
     asked: Option<Shown>,
@@ -1651,6 +1655,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         // After what the hints' and the lists' expressions read, before their words are measured.
         keep_hints(ui, &s.hints);
         keep_lists(ui, &s);
+        stats_menu::write_file_sizes(ui, menu, &mut w.file_sizes, &mut w.file_texels, fonts);
         let texts = menus::texts(ui, menu);
         ui.update();
         for _ in 0..3 {
@@ -2395,6 +2400,76 @@ mod tests {
     use super::*;
     use crate::pipboy::frame::Hint;
     use fnv_ui::MemSource;
+
+    struct ImageFonts {
+        data: nvf_assets::GameData,
+        images: Assets<Image>,
+        pictures: crate::interface::Pictures,
+    }
+
+    impl PageFonts for ImageFonts {
+        fn write_sizes(&mut self, ui: &mut Ui, texts: &[TileId], written: &mut SizesWritten) -> usize {
+            menus::write_text_sizes_of(ui, texts, written, &measure)
+        }
+
+        fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece> {
+            super::super::draw::pieces(ui, menu, &measure, super::super::draw::Select::Whole { kept: &[], strip: None }, true).0
+        }
+
+        fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+            self.pictures.own_sized(name, Some(&self.data), &mut self.images, false).map(|(_, _, size)| (f64::from(size.x), f64::from(size.y)))
+        }
+    }
+
+    #[test]
+    fn replacement_map_icon_dimensions_reach_the_actual_crop_expressions_and_pieces() {
+        use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        struct Owned(std::path::PathBuf);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                for name in ["icon_21.dds", "icon_22.dds"] { let _ = std::fs::remove_file(self.0.join("textures").join(name)); }
+                let _ = std::fs::remove_dir(self.0.join("textures"));
+                let _ = std::fs::remove_dir(&self.0);
+            }
+        }
+        let root = std::env::temp_dir().join(format!("nvf-owned-map-icon-size-{}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&root).unwrap(); std::fs::create_dir(root.join("textures")).unwrap();
+        let owned = Owned(root);
+        for (name, size) in [("icon_21.dds", 512), ("icon_22.dds", 1024)] {
+            std::fs::write(owned.0.join("textures").join(name), crate::interface::tests::authored_rgba_dds(size, size)).unwrap();
+        }
+        let data = nvf_assets::GameData { vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()), schema: Arc::new(fnv_nif::Schema::default()) };
+        let pictures = crate::interface::Pictures::load(Some(&data));
+        let mut fonts = ImageFonts { data, images: Assets::default(), pictures };
+        // Independently authored ratio-driven marker: the invisible child requests the
+        // own image's raw dimensions, while its parent computes zoom/crop from them.
+        let marker_start = r#"<image name="MapMarker"><clips>&true;</clips>"#;
+        let metadata = r#"<image name="MapMarker"><clips>&true;</clips>
+          <image name="SizeSource"><filename><copy src="parent()" trait="filename"/></filename></image>
+          <zoom><copy src="me()" trait="width"/><div src="child(SizeSource)" trait="filewidth"/><div>0.75</div><mul>100</mul></zoom>
+          <cropx><copy src="child(SizeSource)" trait="filewidth"/><mul>0.125</mul><mul src="me()" trait="zoom"/><div>100</div></cropx>
+          <cropy><copy src="child(SizeSource)" trait="fileheight"/><mul>0.125</mul><mul src="me()" trait="zoom"/><div>100</div></cropy>"#;
+        let mut ui = tree_changed(|x| with_world(x).replace(marker_start, metadata));
+        let mut tiles = MapTiles::default();
+        let mut shown = world(1.0, [0.5, 0.5], vec![marker(21, [0.5, 0.5], false)]);
+        let mut original_box = None;
+        for (name, expected) in [("icon_21.dds", 512.0), ("icon_22.dds", 1024.0)] {
+            shown.world.as_mut().unwrap().markers[0].icon = name.into();
+            page(&mut ui, Some(shown.clone()), true, &mut tiles, &mut fonts).expect("actual map page must remain ready");
+            let marker = tiles.written.world.markers[0].tile;
+            let child = find_named(&ui, marker, "SizeSource").unwrap();
+            assert_eq!(num(&ui, child, "filewidth"), expected, "selected image dimensions must reach the ratio child before drawing");
+            assert_eq!(num(&ui, child, "fileheight"), expected);
+            let piece = tiles.pieces.iter().find(|p| p.tile == marker).expect("actual marker draw piece");
+            let Look::Picture { fit: Fit::Zoom(zoom), .. } = &piece.look else { panic!("ratio image must retain numeric zoom") };
+            let full_width = expected * *zoom / 100.0;
+            assert!((full_width - piece.rect.width / 0.75).abs() < 0.001);
+            assert!((piece.crop.unwrap().0 / full_width - 0.125).abs() < 0.001, "selected high-resolution art must have its normalized left crop");
+            let geometry = (piece.rect.left, piece.rect.top, piece.rect.width, piece.rect.height);
+            if let Some(was) = original_box { assert_eq!(geometry, was, "a different density/file must not resize or move its marker"); } else { original_box = Some(geometry); }
+        }
+    }
 
     /// [design] A small layout written for these tests, with its own structure, numbers and
     /// expressions; it does not come from the game's files and says nothing about them. It keeps
@@ -3621,7 +3696,7 @@ mod tests {
     #[test]
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
-        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None };
+        let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv, detail: None, recent: false, outside: None };
         let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None, want: Vec2::new(5.0, 6.0) };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
@@ -3630,7 +3705,7 @@ mod tests {
         let w = s.world.expect("the World Map's parts");
         assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(1, false), (2, true)], "a mark without texture coordinates is not the World Map's");
         assert_eq!((w.picture, w.window, w.usable, w.cursor, w.label.as_deref()), (view.picture(), WORLD_W, Vec2::splat(1000.0), Vec2::new(5.0, 6.0), Some("P2")));
-        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None }.picture());
+        assert_eq!(w.markers[0].icon, data::MapMark { icon: Some((1, true)), highlighted: false, at: Vec2::ZERO, form: 1, name: String::new(), uv: None, detail: None, recent: false, outside: None }.picture());
         assert!(s.rows.is_empty() && s.pane == Pane::None);
         // The question box up: the same page, drawn under it.
         let mut boxed = p(data::WORLD, map.clone());

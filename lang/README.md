@@ -28,11 +28,14 @@ name = "Deutsch"
   order your language needs.
 - Write your own words. Don't copy the original game's strings into a file
   (LEGAL.md).
-- The settings page's own words are its tabs and headings (`Gameplay`, `Saving`, …),
-  `Search`, `Changed`, `Keyboard search`, `Previous heading`, `Next heading` and what an
-  empty list says (`No settings here.`, `No results.`, `No changed settings.`). The
+- The settings page's own words are its tabs and categories (`Gameplay`, `Saving`, …),
+  the Tweaks tab's groups and categories, `Search`, `Changed`, `Keyboard search`,
+  `Previous Category`, `Next Category` and what an empty list says (`No settings here.`, `No results.`, `No changed settings.`). The
   search finds a row by its words in the language shown and in English, and by its INI
-  key, so a translation never hides a row from it. `Stands for: {rows}.` begins the note
+  key, so a translation never hides a row from it. A word with no line reads in English, in
+  Title Case on the page. The menus' sharp letters (Display, Interface: Menu font) have
+  Latin and Cyrillic whatever the install's code page; the game's own font has only its
+  install's letters, so for a language it cannot write the menus are drawn sharp. `Stands for: {rows}.` begins the note
   of a row listed for others (its `{rows}` the rows it stands for).
 
 ## Where NVForever looks
@@ -68,6 +71,11 @@ name is translated in the notes too.
 The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fonts.md),
 so a translation can only use the letters that code page has: Cyrillic on a Russian
 install (`[Text] CodePage=1251`), but not Chinese.
+
+The ammo card's fallback labels also use these files when an AMEF has no FULL name:
+`Damage`, `Damage resist`, `Damage threshold`, `Spread`, `Weapon wear`, `Fatigue`,
+`Ammo effect` [design, #2502; `engine/nvf-play/src/pipboy/items.rs`]. An effect's own
+FULL remains the load order's text [design, #2502].
 
 So the language shown must suit the install's code page: German, French, Italian and
 Spanish need Windows-1252 (an English, German, French, Italian or Spanish install), and

@@ -827,7 +827,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             p.sort();
             if p.is_empty() { zero } else { let p = p.into_iter().map(|f| XVal::Ref(f.0)).collect(); list(g, p) }
         }
-        "getfollowers" | "getdroppedrefs" | "getdetectingactors" => zero,
+        // [documented: GetDroppedRefs] Associated world weapons, not carried inventory
+        // handles. Keep the ordinary world's enabled/deleted filtering and ordering.
+        "getdroppedrefs" => {
+            let holder = subject.filter(|&r| crate::functions::base_of(g, r).is_some_and(|b| g.template_source(b, r, |_| false).is_some()));
+            let refs = holder.map(|holder| {
+                g.world.dropped_beside(holder).into_iter().filter(|&r| {
+                    g.world.peek(r).is_some_and(|s| g.data.sig(g.unclone(s.base)) == Some(*b"WEAP"))
+                }).map(|r| XVal::Ref(r.0)).collect::<Vec<_>>()
+            }).unwrap_or_default();
+            if refs.is_empty() { zero } else { list(g, refs) }
+        }
+        "getfollowers" | "getdetectingactors" => zero,
         // The first member of the list the actor carries [observed: gaps7, the player
         // with the 10mm ammo list gives Ammo10mm, with a list it has none of 0].
         "pickfromlist" => {
@@ -1417,7 +1428,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `GetIsLAA == 0` showed "4GB patch missing" (TTW4GBMissingMessage)].
         "getislaa" => XVal::Num(1.0),
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
-        "getactivemenumode" => XVal::Num(g.menu.map_or(0.0, f64::from)),
+        "getactivemenumode" => XVal::Num(g.menu.or_else(|| g.menu_open(crate::game::menus::START).then_some(crate::game::menus::START)).map_or(0.0, f64::from)),
         // [observed: gaps3, 1]
         "getglobaltimemultiplier" => XVal::Num(g.ui.time_multiplier.unwrap_or(1.0)),
         // No water under the crosshair here [observed: gaps2, 0; hypothesis: the engine

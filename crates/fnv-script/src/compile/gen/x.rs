@@ -620,6 +620,20 @@ impl Gen<'_> {
         params.and_then(|ps| ps.get(k)).is_some_and(|p| matches!(p.kind.as_str(), "form" | "reference") || p.name.to_ascii_lowercase().contains("global"))
     }
 
+    /// A vanilla source-bridge call keeps its already resolved head spelling;
+    /// only its arguments use the extended parser. Its cursor includes nested
+    /// calls, without consuming binary operators of the surrounding expression.
+    pub(super) fn inline_bound_call(&mut self, head: Option<&str>, opcode: u16, params: usize, toks: &[XTok]) -> Option<(XExpr, usize)> {
+        let on = match head {
+            Some(name) => Some(Box::new(XExpr::Ref { r: RefIndex(self.reference(name)?) })),
+            None => None,
+        };
+        let f = XFn { func: FuncId::Opcode(opcode), params: Some(params), opcode: Some(opcode), aware: false };
+        let mut p = P::new(toks);
+        let args = self.xargs(&mut p, &f)?;
+        Some((XExpr::Call { call: XCall { on, func: f.func, args } }, p.i))
+    }
+
     fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
         let mut args = Vec::new();
         loop {

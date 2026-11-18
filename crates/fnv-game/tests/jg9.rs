@@ -202,6 +202,25 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
     g.other.jg9.third_person = true;
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 75.0);
+    // The settings page's values once the engine tells them (at start, then after a
+    // change), over the INI's; a SetCameraFOV value over both, until it is set back.
+    g.other.jg9.third_person = false;
+    g.ui.camera.settings_fov = (Some(90.0), Some(70.0));
+    assert_eq!(n(&mut g, "GetCameraFOV 0"), 90.0);
+    assert_eq!(n(&mut g, "GetCameraFOV 1"), 70.0);
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 90.0);
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 70.0);
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 70.0, "the viewmodel's in first person");
+    g.ui.camera.settings_fov = (Some(80.0), Some(45.0));
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 80.0);
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 45.0);
+    q(&mut g, "SetCameraFOV 100 60");
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 100.0, "the console's fov wins");
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 60.0);
+    q(&mut g, "SetCameraFOV 0 0");
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 80.0, "back to the setting");
+    assert_eq!(n(&mut g, "GetCameraFOV 1"), 45.0);
+    g.ui.camera.settings_fov = (None, None);
     // Karma: neutral at 0 between the globals; the level 1 neutral title.
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");

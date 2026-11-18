@@ -21,7 +21,13 @@ pub enum Goal {
     /// location", or no location).
     Here,
     /// Be within `radius` of a place.
-    Near { place: Place, radius: f32 },
+    Near {
+        place: Place,
+        radius: f32,
+        /// The effective destination selected for this walk, retained for arrival
+        /// facing without another object search [design, #2526; `stay_at`, `resolve`].
+        reference: Option<FormId>,
+    },
     /// Be anywhere inside an interior cell ("in cell": the radius is not used); `at` is
     /// a point of the cell's navmesh to walk towards.
     Inside { space: Space, at: Place },
@@ -83,6 +89,9 @@ pub struct Talk {
     pub say_to: bool,
     /// PKDD "No Headtracking": speaker and target are not made to look at each other.
     pub no_headtracking: bool,
+    /// PKDD "Do Not Control Target Movement" off: with a trigger location, the target
+    /// is to be in it when the conversation starts (`fnv_ai::carry`, `talk_step`).
+    pub control_target: bool,
 }
 
 /// What a Follow or Accompany package has its actor do: keep within `distance` of its
@@ -141,6 +150,16 @@ pub enum Wanted {
 pub struct Area {
     pub centre: Option<Place>,
     pub radius: f32,
+}
+
+impl Area {
+    /// No area at all: what it looks for counts wherever it is, in any cell (a Find for
+    /// one reference whose location gives no radius, packages.md §10).
+    pub const ANYWHERE: Area = Area { centre: None, radius: f32::INFINITY };
+
+    pub fn is_anywhere(&self) -> bool {
+        self.centre.is_none() && self.radius == f32::INFINITY
+    }
 }
 
 /// A search area of radius 0 is this wide [our choice: 16 of the masters' Find and Use
@@ -267,6 +286,12 @@ pub enum Trigger {
     Never,
 }
 
+/// How far inside a trigger box's sides a target is walked to ([`Trigger::lead_point`])
+/// [our choice].
+const LEAD_MARGIN: f32 = 48.0;
+/// The share of a trigger radius a target is walked to within [our choice].
+const LEAD_INSIDE_RADIUS: f32 = 0.75;
+
 /// How much of an actor is tested against a trigger location's volume: its feet, its
 /// middle and its head, this far apart [our choice; the game tests the actor's
 /// collision object against trigger volumes, docs/spec-notes/level-design.md §11.2].
@@ -309,6 +334,65 @@ impl Trigger {
             Trigger::NearActor { radius } => near(feet, *radius),
             Trigger::InCell(cell) => cell_of_place(game.world.placed, &target) == Some(*cell),
             Trigger::Never => false,
+        }
+    }
+
+    /// Where to walk a target standing at `target` so that it is in the trigger
+    /// location: the nearest point a little inside its volume, or inside its radius,
+    /// at the target's height. `None` for a cell or no room.
+    pub fn lead_point(&self, game: &Game, feet: Place, target: Place) -> Option<[f32; 3]> {
+        let toward = |centre: Place, radius: f32| -> Option<[f32; 3]> {
+            if centre.space != target.space || radius <= 0.0 {
+                return None;
+            }
+            let (dx, dy) = (target.pos[0] - centre.pos[0], target.pos[1] - centre.pos[1]);
+            let len = dx.hypot(dy);
+            let keep = radius * LEAD_INSIDE_RADIUS;
+            if len <= keep {
+                return Some(target.pos);
+            }
+            Some([centre.pos[0] + dx / len * keep, centre.pos[1] + dy / len * keep, target.pos[2]])
+        };
+        match self {
+            Trigger::NearReference { reference, radius } => {
+                let place = place_of_ref(game, *reference)?;
+                if place.space != target.space {
+                    return None;
+                }
+                match game.world.placed.get(*reference).and_then(|p| p.primitive.map(|prim| (p, prim))) {
+                    Some((placed, prim)) if !prim.sphere => {
+                        let (pos, rot) = game.world.peek(*reference).map_or((placed.pos, placed.rot), |s| (s.pos, s.rot));
+                        let r = fnv_world::transform::ref_rotation(rot);
+                        let scale = placed.scale.filter(|s| *s > 0.0).unwrap_or(1.0);
+                        let d = [target.pos[0] - pos[0], target.pos[1] - pos[1], target.pos[2] - pos[2]];
+                        let mut local = [0, 1, 2].map(|i| (r[i] * d[0] + r[3 + i] * d[1] + r[6 + i] * d[2]) / scale);
+                        // x and y into the box, a margin inside its sides; the height kept.
+                        for (i, l) in local.iter_mut().enumerate().take(2) {
+                            let half = prim.bounds[i];
+                            let keep = (half - LEAD_MARGIN.min(half / 2.0)).max(0.0);
+                            *l = l.clamp(-keep, keep);
+                        }
+                        let w = [0, 1, 2].map(|i| (r[3 * i] * local[0] + r[3 * i + 1] * local[1] + r[3 * i + 2] * local[2]) * scale);
+                        Some([pos[0] + w[0], pos[1] + w[1], target.pos[2]])
+                    }
+                    Some((_, prim)) => toward(place, prim.bounds[0]),
+                    None => toward(place, *radius),
+                }
+            }
+            Trigger::Near { place, radius } => toward(*place, *radius),
+            Trigger::NearActor { radius } => toward(feet, *radius),
+            Trigger::None | Trigger::InCell(_) | Trigger::Never => None,
+        }
+    }
+
+    /// Whether the trigger location is a place a target can be in: a volume, a radius
+    /// above 0 or a cell. A reference with radius 0 and no volume of its own is not.
+    pub fn has_room(&self, game: &Game) -> bool {
+        match self {
+            Trigger::None | Trigger::Never => false,
+            Trigger::NearReference { reference, radius } => *radius > 0.0 || game.world.placed.get(*reference).is_some_and(|p| p.primitive.is_some()),
+            Trigger::Near { radius, .. } | Trigger::NearActor { radius } => *radius > 0.0,
+            Trigger::InCell(_) => true,
         }
     }
 }
@@ -458,7 +542,7 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
                 let radius = def.location.map_or(0, |l| l.radius.max(0));
                 let radius = if radius > 0 { radius } else { def.target.map_or(0, |t| t.count_distance.max(0)) };
                 return match place_of_ref(game, guarded) {
-                    Some(place) => Goal::Near { place, radius: radius as f32 },
+                    Some(place) => Goal::Near { place, radius: radius as f32, reference: Some(guarded) },
                     None => Goal::Missing("the guarded reference is in no cell"),
                 };
             }
@@ -484,29 +568,29 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
 fn stay_at(game: &Game, nav: &NavGraph, actor: FormId, loc: &Location) -> Goal {
     let refs = game.world.placed;
     let radius = loc.radius.max(0) as f32;
-    let linked = refs.get(actor).and_then(|r| r.linked);
+    let reference = location_reference(game, actor, loc.kind);
     let near = |place: Option<Place>, why: &'static str| match place {
-        Some(place) => Goal::Near { place, radius },
+        Some(place) => Goal::Near { place, radius, reference },
         None => Goal::Missing(why),
     };
     match loc.kind {
-        LocationKind::NearReference(Some(r)) if r == FormId::PLAYER_REF => near(place_of_ref(game, r), "the location is the player, who is nowhere yet"),
-        LocationKind::NearReference(Some(r)) => near(place_of_ref(game, r), "the location's reference is in no cell"),
+        LocationKind::NearReference(Some(r)) if r == FormId::PLAYER_REF => near(reference.and_then(|r| place_of_ref(game, r)), "the location is the player, who is nowhere yet"),
+        LocationKind::NearReference(Some(_)) => near(reference.and_then(|r| place_of_ref(game, r)), "the location's reference is in no cell"),
         LocationKind::NearReference(None) => Goal::Missing("the location's reference is not in the load order"),
         LocationKind::InCell(Some(c)) => match (cell_anchor(nav, refs, c), refs.world_of(c)) {
             (Some(at), None) => Goal::Inside { space: at.space, at },
             // An exterior cell: be near the middle of its navmesh [our choice].
-            (Some(at), Some(_)) => Goal::Near { place: at, radius: 2048.0 },
+            (Some(at), Some(_)) => Goal::Near { place: at, radius: 2048.0, reference: None },
             (None, _) => Goal::Missing("the location's cell has no navmesh"),
         },
         LocationKind::InCell(None) => Goal::Missing("the location's cell is not in the load order"),
         LocationKind::NearCurrent => Goal::Here,
         LocationKind::NearEditor => near(editor_place_of(game, actor), "the actor has no editor location"),
-        LocationKind::NearLinked => near(linked.and_then(|l| place_of_ref(game, l)), "the actor has no linked reference"),
-        LocationKind::ObjectId(Some(b)) => near(nearest_object(game, actor, Wanted::Base(b)), "no reference of the location's object is near the actor"),
+        LocationKind::NearLinked => near(reference.and_then(|r| place_of_ref(game, r)), "the actor has no linked reference"),
+        LocationKind::ObjectId(Some(_)) => near(reference.and_then(|r| place_of_ref(game, r)), "no reference of the location's object is near the actor"),
         LocationKind::ObjectId(None) => Goal::Missing("the location's object is not in the load order"),
         LocationKind::ObjectType(0) => Goal::NotCarriedOut("a location of object type None"),
-        LocationKind::ObjectType(c) => near(nearest_object(game, actor, Wanted::Type(c)), "no reference of the location's object type is near the actor"),
+        LocationKind::ObjectType(_) => near(reference.and_then(|r| place_of_ref(game, r)), "no reference of the location's object type is near the actor"),
         // Location 1 is the package's location: as location 1 it names nothing else
         // (the masters use it as Eat's location 2 only, packages.md §7.7).
         LocationKind::AtPackageLocation => Goal::Here,
@@ -514,15 +598,28 @@ fn stay_at(game: &Game, nav: &NavGraph, actor: FormId, loc: &Location) -> Goal {
     }
 }
 
+/// The reference selected by a reference-valued location [design, #2526]: `stay_at`
+/// retains it in the goal for `carry::marker_heading`. Locations that describe a
+/// position or cell return none.
+fn location_reference(game: &Game, actor: FormId, kind: LocationKind) -> Option<FormId> {
+    match kind {
+        LocationKind::NearReference(r) => r,
+        LocationKind::NearLinked => game.world.placed.get(actor).and_then(|r| r.linked),
+        LocationKind::ObjectId(Some(b)) => nearest_object(game, actor, Wanted::Base(b)),
+        LocationKind::ObjectType(c) if c != 0 => nearest_object(game, actor, Wanted::Type(c)),
+        _ => None,
+    }
+}
+
 /// Stay-at locations given by an object (Near Object ID, Near Object Type) are looked for
 /// this far round the actor, game units [design: a cell; packages.md §7.7].
 pub const OBJECT_LOCATION_SEARCH: f32 = 4096.0;
 
-/// The place of the nearest reference round `actor` that `wanted` names (a base, the
+/// The nearest reference round `actor` that `wanted` names (a base, the
 /// bases of a form list, or an object type), present and enabled, within
 /// [`OBJECT_LOCATION_SEARCH`]; ties by FormID [hypothesis: no source says how the game
 /// picks the object, issue #961].
-fn nearest_object(game: &Game, actor: FormId, wanted: Wanted) -> Option<Place> {
+fn nearest_object(game: &Game, actor: FormId, wanted: Wanted) -> Option<FormId> {
     let at = place_of_ref(game, actor)?;
     let data = game.data;
     crate::errand::cells_around(game, at, OBJECT_LOCATION_SEARCH)
@@ -540,10 +637,10 @@ fn nearest_object(game: &Game, actor: FormId, wanted: Wanted) -> Option<Place> {
                 Wanted::Type(code) => crate::errand::of_type(game, r, base, &data.sig(base).unwrap_or(*b"    "), code),
                 _ => false,
             };
-            fits.then_some((d, r, p))
+            fits.then_some((d, r))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
-        .map(|(_, _, p)| p)
+        .map(|(_, r)| r)
 }
 
 /// The goal of a Follow or Accompany package: its target, a reference or the actor's
@@ -606,6 +703,7 @@ fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         topic: data.topic,
         say_to: data.say_to,
         no_headtracking: data.no_headtracking,
+        control_target: !data.dont_control_target_movement,
     })
 }
 
@@ -690,6 +788,16 @@ fn find(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         Ok(Wanted::Reference(r)) if r == actor => return Goal::Missing("the actor would find itself"),
         Ok(w) => w,
         Err(g) => return g,
+    };
+    // One reference to find, with no radius to its location (0, or no location): it is
+    // gone after wherever it is, from where the actor stands [hypothesis, issue #2473:
+    // Cachino's vGomorrahCachinoDialoguePackage finds the player anywhere in Gomorrah's
+    // four cells from "near editor location" radius 0; packages.md §10]. Before, the
+    // 512 of a radius 0 search held for it too, and he stood still.
+    let (search, area) = if matches!(wanted, Wanted::Reference(_)) && def.location.as_ref().is_none_or(|l| l.radius <= 0) {
+        (Goal::Here, Area::ANYWHERE)
+    } else {
+        (search, area)
     };
     let n = def.target.map_or(0, |t| t.count_distance.max(0));
     let (count, distance) = match wanted {

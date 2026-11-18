@@ -76,3 +76,37 @@ town's side.
     [design].
   - When nobody in the group detects the target any more, every member goes Lost the Lost
     timer after the group's last sighting, together.
+
+## 4. A faction Friend that Helps Friends and Allies joins a fight against the player
+
+Issue #2927: a player fought mole rats beside Gibson's scrap yard and the companion then
+killed Gibson's dogs.
+
+- **The records** [observed: FalloutNV.esm, `fnvtool actor factions`]: GibsonDog01-06 and
+  Rey (template CrDog) are Aggressive and Helps Friends and Allies; one of their factions,
+  VCrVoidCritterFaction, names MoleRatFaction a Friend. To the player they are Neutral.
+- **The original** [observed, base game, three runs of one observer job, 2026-11-17]: the
+  player (god mode, never attacking) stands 665 to 1,640 units from four of the dogs
+  (0x0008E447, 0x0008E44C, 0x0008E44D, 0x000CD22B) outside the yard; nothing happens for
+  300 frames. Three mole rats (base 0x0001CF9F) are placed 300 units from the player and
+  attack it.
+  - Runs 2 and 3: within 60 to 180 frames the dogs are in combat with the player as their
+    combat target, three of four in run 2 (the fourth, 1,300 to 1,400 units off, never)
+    and all four in run 3, before any mole rat is harmed. `GetShouldAttack player` reads
+    0 on every dog throughout: it is the mole rats' fight they take up, not their own
+    aggression.
+  - The mole rats are then killed one by one (`Kill player`). The dogs stay in combat with
+    the player, 80 to 200 units from it, to the end of the run (about 1,400 frames after
+    the last mole rat died).
+  - Run 1: no dog joined in 12 samples; the player's own combat ended after the fifth, so
+    the mole rats lost the player early (the run did not count them). Whether a dog joins
+    follows from whether it notices the fight.
+- **NVForever**: the same, by two paths: a dog that detects a mole rat fighting the player
+  takes an Assist grudge against the player (`Game::call_allies`), and a mole rat that
+  starts fighting alarms the dogs in reach (§1). The grudge outlasts the mole rats, as the
+  original's combat does. A companion then fights the dogs because they attack the player
+  [documented: GECK wiki, SetPlayerTeammate]. Nothing was changed for #2927; the test
+  `a_faction_friend_that_helps_friends_joins_a_fight_against_the_player` holds the rule.
+- Not measured: how far the original's dogs hear it (the one dog that stayed out was the
+  farthest, past 1,300 units, in run 2, and joined from 1,335 in run 3), and when their
+  combat with the player ends.

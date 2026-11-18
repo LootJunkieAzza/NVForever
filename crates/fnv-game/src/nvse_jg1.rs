@@ -63,6 +63,41 @@ fn lighting_trait(id: f64) -> Option<(&'static str, String)> {
 }
 
 impl Game<'_> {
+    /// Interior lighting at an engine cell-application boundary, including the
+    /// existing CELL LTMP/LNAM and selected LGTM DATA session writes (#2272).
+    /// This does not define native current-cell refresh timing or persist edits.
+    pub fn session_cell_lighting(&self, lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, cell: FormId) -> Option<fnv_world::lighting::CellLighting> {
+        // Only explicit session choices replace LTMP/LNAM. The unchanged world
+        // reader owns the base record's plugin-local -> global FormID mapping.
+        let template = match self.field_overrides.get(&(cell, "LTMP/".into())) {
+            Some(XVal::Ref(id)) => Some(*id),
+            _ => None,
+        };
+        let flags = self.field_overrides.get(&(cell, "LNAM/".into())).and_then(|v| v.num().ok()).map(|n| n as u32);
+        fnv_world::lighting::cell_lighting_with(lo, schema, cell.0, template, flags, |template, light| {
+            // Reuse the getters' field mapping for a LoadOrder-backed template.
+            // The world reader admits that record before this callback; runtime
+            // clone IDs are not resolved here. Casts retain the typed destinations.
+            for id in 1..=16 {
+                let (sub, path) = lighting_trait(f64::from(id)).expect("the documented sixteen lighting traits");
+                let Some(value) = crate::nvse::record_value(self, FormId(template), sub, &path).and_then(|v| v.num().ok()) else { continue };
+                match id {
+                    1..=3 => light.ambient[(id - 1) as usize] = value as u8,
+                    4..=6 => light.directional[(id - 4) as usize] = value as u8,
+                    7..=9 => light.fog_color[(id - 7) as usize] = value as u8,
+                    10 => light.fog_near = value as f32,
+                    11 => light.fog_far = value as f32,
+                    12 => light.directional_rotation_xy = value as i32,
+                    13 => light.directional_rotation_z = value as i32,
+                    14 => light.directional_fade = value as f32,
+                    15 => light.fog_clip_dist = value as f32,
+                    16 => light.fog_power = value as f32,
+                    _ => unreachable!(),
+                }
+            }
+        })
+    }
+
     /// A race's model path from its head (NAM0) or body (NAM1) part list, male (MNAM) or
     /// female (FNAM), the part's INDX followed by its MODL [documented: xEdit
     /// wbDefinitionsFNV.pas RACE, "Head Data" and "Body Data"; the parts' numbers:

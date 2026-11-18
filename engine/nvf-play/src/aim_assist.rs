@@ -330,7 +330,7 @@ impl Plugin for AimAssistPlugin {
                     set: |w, v| w.resource_mut::<AimAssist>().slowdown = v,
                     min: 0.0,
                     step: 0.05,
-                    shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { fnv_util::words::trf("{n}% slower", &[("n", &format!("{:.0}", v * MAX_SLOWDOWN * 100.0))]) }),
+                    shown: Some(|v| if v <= 0.0 { "Off".to_string() } else { fnv_util::words::trf("{n}% slower", &[("n", &format!("{:.0}", v * MAX_SLOWDOWN * 100.0))]) }),
                 },
             ),
         );
@@ -341,7 +341,7 @@ impl Plugin for AimAssistPlugin {
                 GROUP,
                 "Aim lock-on",
                 "How hard aiming down the sights turns the view onto a hostile near the crosshair (0: not at all). Push the right stick away to break it.",
-                Slider { get: |w| w.resource::<AimAssist>().lock, set: |w, v| w.resource_mut::<AimAssist>().lock = v, min: 0.0, step: 0.05, shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { format!("{:.0}%", v * 100.0) }) },
+                Slider { get: |w| w.resource::<AimAssist>().lock, set: |w, v| w.resource_mut::<AimAssist>().lock = v, min: 0.0, step: 0.05, shown: Some(|v| if v <= 0.0 { "Off".to_string() } else { format!("{:.0}%", v * 100.0) }) },
             ),
         );
     }

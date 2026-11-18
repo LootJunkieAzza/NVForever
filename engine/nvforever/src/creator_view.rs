@@ -34,7 +34,7 @@ use nvf_play::player::Player;
 use nvf_play::space;
 
 /// Render layer of the creator's studio (backdrop and floor).
-pub const STUDIO_LAYER: usize = 14;
+pub const STUDIO_LAYER: usize = 17;
 /// The backdrop's radius about the player's chest and the floor's, game units [design:
 /// beyond the creator's farthest camera, 260 units and its pan].
 const BACKDROP_RADIUS: f32 = 480.0;

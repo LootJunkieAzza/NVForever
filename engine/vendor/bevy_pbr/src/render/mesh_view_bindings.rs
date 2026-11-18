@@ -100,7 +100,31 @@ bitflags::bitflags! {
         const DISTANCE_FOG                     = 1 << 14;
         const AREA_LIGHT_LUTS                  = 1 << 15;
         const VIEW_TRANSMISSION_TEXTURE        = 1 << 16;
+        // NVForever sun visibility: bindings 39-42 ([`NvfSunVisibilityBindings`]).
+        const NVF_SUN_VISIBILITY               = 1 << 17;
     }
+}
+
+/// NVForever sun visibility (2026-11-17, engine/vendor/README.md): what a view's mesh
+/// view bind group holds for the game's sun visibility factor (nvforever
+/// `sun_visibility.rs`), at bindings 39 (uniform), 40 (cloud transmittance, a filterable
+/// float 2D texture), 41 (terrain shadow-height map, the same kind) and 42 (a filtering
+/// sampler). A view with it gets [`MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`] and
+/// those bindings, and its pipelines `MeshPipelineKey::NVF_SUN_VISIBILITY` with the
+/// shader def of the same name (`cloud` and `terrain` add `NVF_CLOUD_VISIBILITY` and
+/// `NVF_TERRAIN_VISIBILITY`). Both sides read this one component in the same frame, so
+/// it may be inserted or removed, and `cloud`/`terrain` changed, only during extraction;
+/// the texture views and the buffer's contents may change in any render set before
+/// `RenderSystems::PrepareBindGroups`. Bevy inserts none; without it views are as
+/// upstream's.
+#[derive(Component, Clone)]
+pub struct NvfSunVisibilityBindings {
+    pub uniform: Buffer,
+    pub cloud_texture: TextureView,
+    pub terrain_texture: TextureView,
+    pub sampler: Sampler,
+    pub cloud: bool,
+    pub terrain: bool,
 }
 
 impl MeshPipelineViewLayoutKey {
@@ -182,6 +206,10 @@ impl From<MeshPipelineKey> for MeshPipelineViewLayoutKey {
         }
         if value.contains(MeshPipelineKey::VIEW_TRANSMISSION_TEXTURE) {
             result |= MeshPipelineViewLayoutKey::VIEW_TRANSMISSION_TEXTURE;
+        }
+        // NVForever sun visibility.
+        if value.contains(MeshPipelineKey::NVF_SUN_VISIBILITY) {
+            result |= MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY;
         }
 
         result
@@ -492,6 +520,21 @@ fn layout_entries(
             (38, sampler(SamplerBindingType::Filtering)),
         ));
     }
+    // NVForever sun visibility ([`NvfSunVisibilityBindings`]).
+    if layout_key.contains(MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY) {
+        entries = entries.extend_with_indices((
+            (39, uniform_buffer_sized(false, None)),
+            (
+                40,
+                texture_2d(TextureSampleType::Float { filterable: true }),
+            ),
+            (
+                41,
+                texture_2d(TextureSampleType::Float { filterable: true }),
+            ),
+            (42, sampler(SamplerBindingType::Filtering)),
+        ));
+    }
 
     let mut binding_array_entries = DynamicBindGroupLayoutEntries::new(ShaderStages::FRAGMENT);
     if layout_key.contains(MeshPipelineViewLayoutKey::ENVIRONMENT_MAP) {
@@ -659,6 +702,8 @@ pub fn prepare_mesh_view_bind_groups(
         (
             Option<&RenderViewLightProbes<EnvironmentMapLight>>,
             Option<&RenderViewLightProbes<IrradianceVolume>>,
+            // NVForever sun visibility.
+            Option<&NvfSunVisibilityBindings>,
         ),
         Has<ExtractedAtmosphere>,
         (
@@ -729,7 +774,7 @@ pub fn prepare_mesh_view_bind_groups(
             atmosphere_textures,
             atmosphere_buffer,
             tonemapping,
-            (render_view_environment_maps, render_view_irradiance_volumes),
+            (render_view_environment_maps, render_view_irradiance_volumes, nvf_sun_visibility),
             has_atmosphere,
             (
                 view_uniform_offset,
@@ -912,6 +957,18 @@ pub fn prepare_mesh_view_bind_groups(
                     .map(|img| (&img.texture_view, &img.sampler))
                     .unwrap_or((&fallback_image.d2.texture_view, &fallback_image.d2.sampler));
                 entries = entries.extend_with_indices(((37, dfg_view), (38, dfg_sampler)));
+            }
+
+            // NVForever sun visibility: present exactly when `check_views_need_specialization`
+            // gave the view's pipelines `MeshPipelineKey::NVF_SUN_VISIBILITY`.
+            if let Some(sun) = nvf_sun_visibility {
+                layout_key |= MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY;
+                entries = entries.extend_with_indices((
+                    (39, sun.uniform.as_entire_binding()),
+                    (40, &sun.cloud_texture),
+                    (41, &sun.terrain_texture),
+                    (42, &sun.sampler),
+                ));
             }
 
             let environment_map_bind_group_entries =

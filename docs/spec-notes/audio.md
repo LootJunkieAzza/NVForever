@@ -342,6 +342,17 @@ were not read.
   `FST<family>Stairs<side>` on stairs, else `<gait><side>`, falling back to the walk,
   the side-less sound and Dirt's [design]. The gait is the clip's `Armor…`/`Foley…`
   keys' (else from its name: `fast` runs, `sneak` sneaks) [hypothesis].
+- **Armour's footfall** (#2541): beside the ground's step, an actor or the player in
+  armour with the Power Armor flag (ARMO BMDT general flags) plays `FSTArmorPowerL`/`R`,
+  in armour with the Heavy flag and not Power Armor `FSTArmorL`/`R`, not while swimming
+  [observed for walking NPCs: observer check 140, the in-game probe of 2026-11-14 (T-45d
+  FSTArmorPower beside FSTConcSolidWalk; NCR salvaged power armour, Heavy only,
+  FSTArmor; FSTArmorPowerWalkL/R never); hypothesis: the same for the player, in first
+  person, running and on other ground]. Each footstep NVForever plays also goes on the
+  game's list of playing sounds on its actor for half a second, so `IsSoundPlaying`
+  reads it as the original's does [observed: the same probe; engineering choice: the
+  half second] (Titans of the New West watches `FSTArmorPowerL`/`R` for its own
+  footsteps).
 - `Enum: Armor<gait>` plays the worn armour's `(Armor)` sound for that gait,
   `Foley<gait>` its plain one [hypothesis]; the gait is read from the sound's name, not
   the type (§10.1) [design]; the chance is applied. Of several pieces worn, the first

@@ -139,6 +139,23 @@ pub fn pipboy_ease(t: f32) -> f32 {
     e * e * (3.0 - 2.0 * e)
 }
 
+/// Where the Pip-Boy clip is shown at `t` seconds into it with movement inertia: eased into
+/// its hold at the `Hit` key and out of it, so the arm settles there and sets off from rest
+/// (a cubic with the clip's own speed at the far ends, none at the hold); without, the clip
+/// stopped dead at the hold with the arm still moving about 28 units/s, and set off at that
+/// speed [design: the owner's tenth playtest, 2026-11-14: "PipBoy jitters a lot also"; the
+/// motion trace]. The time spent is the clip's own.
+pub fn pipboy_clip_time(t: f32) -> f32 {
+    use nvf_play::pipboy::{CLIP_SECONDS, HOLD_SECONDS};
+    let out = |x: f32| x + x * x - x * x * x;
+    if t <= HOLD_SECONDS {
+        HOLD_SECONDS * out((t / HOLD_SECONDS).clamp(0.0, 1.0))
+    } else {
+        let down = CLIP_SECONDS - HOLD_SECONDS;
+        HOLD_SECONDS + down * (1.0 - out((1.0 - (t - HOLD_SECONDS) / down).clamp(0.0, 1.0)))
+    }
+}
+
 /// How much bigger the arms are drawn so that they look as through a view of `arms_fov`
 /// (the game's degrees across 4:3) inside the view's own vertical field of view
 /// `view_vfov` (radians): the ratio of the two views' half-widths.
@@ -181,6 +198,8 @@ const OWN_BODY_BACK: f32 = 4.0;
 /// way the body faces, radians [owner decision 2026-10-10: "limited to a real person's
 /// head movement"; engineering choice: 80 degrees, about what a neck turns].
 const NECK_TURN: f32 = 80.0 * std::f32::consts::PI / 180.0;
+/// The same with the player's Turn Further While Seated tweak: 115 degrees [design: docs/design/tweaks.md].
+const NECK_TURN_WIDE: f32 = 115.0 * std::f32::consts::PI / 180.0;
 /// How fast a view turned further than that when the body sits down comes round to it,
 /// radians per second [engineering choice].
 const NECK_RETURN_RATE: f32 = 4.0;
@@ -218,9 +237,11 @@ const ARMS_SHADE_REACH: f32 = 256.0;
 /// between it and the sun, so what shades the arms still does, while the pass draws only
 /// those (before 2026-10-12 it was the sun's first cascade, about 190 casters at
 /// Goodsprings against about 30 then; the arms' shadows are finer for it). Of those it
-/// draws only the ones by the eye toward the sun ([`near_shade_casters`]).
+/// draws only the ones by the eye toward the sun ([`near_shade_casters`]). It turns with the
+/// sun, so its cascade is snapped to a grid anchored near the camera as the sun's are
+/// (shadow_anchor.rs).
 #[derive(Component)]
-struct ArmsShade;
+pub(crate) struct ArmsShade;
 
 /// How far toward the sun from the eye the [`ArmsShade`] light's casters are looked for,
 /// and how far from that line they may lie (game units): the arms rig and its weapon reach
@@ -427,13 +448,220 @@ struct ClipInfo {
     speed: Option<f32>,
     /// Its track on the `Weapon` node.
     weapon_track: Option<usize>,
+    /// How its motion goes along its time ([`ClipMotion`]), worked out when first asked.
+    motion: std::sync::OnceLock<ClipMotion>,
+}
+
+/// How a clip's motion is spread over its time, for playing it by how far its motion has
+/// got instead of by its clock: a draw whose arm comes up in its first fifth (the fists')
+/// then follows the settling curve as a whole and not only its slow tail [design: the
+/// owner's eleventh playtest, 2026-11-15: "some equip animations are not affected - check
+/// that every animation for guns/melee weapons is affected, they can use the same curve";
+/// the trace `movement-inertia-trace-weapons`: the fists came up at 980 units/s in 0.1 s].
+#[derive(Debug, Clone, PartialEq)]
+struct ClipMotion {
+    /// The share of the motion done (0–1, rising) at each of [`MOTION_STEPS`] + 1 even
+    /// steps of the clip's time; the steps that jump are left out of it.
+    done: Vec<f32>,
+    /// Where the clip's own pose jumps (shares of its time): a step its keys take at once
+    /// (the straight razor's put-away swings the arm 34 units in one key at 97 %), eased
+    /// across when played (`Animator::smooth_jump`).
+    jumps: Vec<f32>,
+}
+
+/// Steps a clip's motion is measured in.
+const MOTION_STEPS: usize = 120;
+/// A turn of a bone counts as this many units of motion per radian (about an arm's reach
+/// from the shoulder to the hand), a move as itself.
+const MOTION_REACH: f32 = 25.0;
+/// A turn of a hand counts as this many units of motion per radian: about how far the held
+/// weapon's muzzle or blade swings with it [hypothesis].
+const MOTION_HAND_REACH: f32 = 12.0;
+/// A step (or two in a row) moving this many times as much as any of the steps two to
+/// four away, and at least the share after it of the clip's motion, is a jump of its pose:
+/// a key the clip takes at once, not a quick swing (which builds up over several steps).
+const MOTION_JUMP_RATIO: f32 = 6.0;
+const MOTION_JUMP_SHARE: f32 = 0.03;
+
+impl ClipMotion {
+    /// The motion of `clip` on skeleton `skel`: how far the hands go, as seen from the eye
+    /// ([`Self::hand_steps`]), or, on a skeleton without hands, its bones' own motion
+    /// ([`Self::bone_steps`]).
+    fn of(clip: &Clip, skel: &PreparedSkeleton) -> ClipMotion {
+        let step = Self::hand_steps(clip, skel).unwrap_or_else(|| Self::bone_steps(clip));
+        Self::from_steps(step)
+    }
+
+    /// The motion of each step of `clip`'s time: both hands' moves and turns (a turn by
+    /// [`MOTION_HAND_REACH`] units a radian) in the space of the first-person camera node
+    /// (`Camera1st`; the skeleton's root without one), the clip's tracks posed through the
+    /// skeleton's hierarchy with its bind pose where the clip has no track. `None` without
+    /// a hand bone. What is seen moves, not what the bones do on their own: summed by bone,
+    /// a turn of the upper arm (that swings the hand over a long arm) counted as little as
+    /// one of the wrist, so the razor's draw raced through its swing (two pushes of 390 and
+    /// 360 units/s where the original makes one) and the frag mine's ended with a flick (the
+    /// traces `movement-inertia-trace-weapons` and `-rest` against their `-original`s,
+    /// 2026-11-16).
+    fn hand_steps(clip: &Clip, skel: &PreparedSkeleton) -> Option<Vec<f32>> {
+        let find = |name: &str| {
+            skel.by_name.get(name).copied().or_else(|| skel.names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))))
+        };
+        let hands: Vec<usize> = ["Bip01 R Hand", "Bip01 L Hand"].into_iter().filter_map(find).collect();
+        if hands.is_empty() {
+            return None;
+        }
+        let camera = find("Camera1st");
+        let mut track = vec![None; skel.parents.len()];
+        for (name, k) in &clip.tracks {
+            if let Some(i) = find(name).filter(|&i| i < track.len()) {
+                track[i] = Some(k);
+            }
+        }
+        let (start, stop) = (clip.start, clip.stop.max(clip.start));
+        // The clip's local transform of node `n` at `t`, the bind pose where it has none.
+        let local = |n: usize, t: f32| -> Affine3A {
+            let mut l = skel.locals.get(n).copied().unwrap_or_default();
+            if let Some(k) = track[n] {
+                if let Some(p) = k.translation.sample(t) {
+                    l.translation = Vec3::from_array(p);
+                }
+                if let Some([w, x, y, z]) = k.rotation_at(t) {
+                    l.rotation = Quat::from_xyzw(x, y, z, w);
+                }
+                if let Some([s]) = k.scale.sample(t) {
+                    l.scale = Vec3::splat(s);
+                }
+            }
+            affine(l)
+        };
+        // Node `n` in the root's space (the root's own transform left out, as the animator
+        // poses it).
+        let model = |n: usize, t: f32| -> Affine3A {
+            let (mut m, mut cur, mut depth) = (Affine3A::IDENTITY, Some(n), 0);
+            while let Some(i) = cur.filter(|&i| i > 0 && depth < 256) {
+                m = local(i, t) * m;
+                cur = skel.parents.get(i).copied().flatten();
+                depth += 1;
+            }
+            m
+        };
+        let pose = |t: f32| -> Vec<(Vec3, Quat)> {
+            let eye = camera.map_or(Affine3A::IDENTITY, |c| model(c, t)).inverse();
+            hands
+                .iter()
+                .map(|&h| {
+                    let (_, r, p) = (eye * model(h, t)).to_scale_rotation_translation();
+                    (p, r)
+                })
+                .collect()
+        };
+        let mut last = pose(start);
+        let mut step = Vec::with_capacity(MOTION_STEPS);
+        for i in 1..=MOTION_STEPS {
+            let now = pose(start + (stop - start) * i as f32 / MOTION_STEPS as f32);
+            let moved: f32 = now.iter().zip(&last).map(|((p, q), (p0, q0))| p.distance(*p0) + MOTION_HAND_REACH * q.angle_between(*q0)).sum();
+            step.push(if moved.is_finite() { moved } else { 0.0 });
+            last = now;
+        }
+        Some(step)
+    }
+
+    /// The motion of each step of `clip`'s time as its bones' own moves and turns (a turn
+    /// by [`MOTION_REACH`] units a radian), summed: the arms only, the fingers' motion being
+    /// small and many, and the weapon's node (the flamer swinging off the back while the
+    /// hands hold still) made the playback all but stop with the hands (the trace
+    /// `movement-inertia-trace-weapons`, 2026-11-15).
+    fn bone_steps(clip: &Clip) -> Vec<f32> {
+        let (start, stop) = (clip.start, clip.stop.max(clip.start));
+        let arms = |n: &str| {
+            let n = n.to_ascii_lowercase();
+            !n.contains("finger") && n != "weapon"
+        };
+        let tracks: Vec<_> = clip.tracks.iter().filter(|(n, _)| arms(n)).map(|(_, t)| t).collect();
+        let pose = |t: f32| -> Vec<(Option<Vec3>, Option<Quat>)> {
+            tracks.iter().map(|k| (k.translation.sample(t).map(Vec3::from_array), k.rotation_at(t).map(|[w, x, y, z]| Quat::from_xyzw(x, y, z, w)))).collect()
+        };
+        let mut last = pose(start);
+        let mut step = Vec::with_capacity(MOTION_STEPS);
+        for i in 1..=MOTION_STEPS {
+            let now = pose(start + (stop - start) * i as f32 / MOTION_STEPS as f32);
+            let moved: f32 = now
+                .iter()
+                .zip(&last)
+                .map(|((p, q), (p0, q0))| {
+                    let along = p.zip(*p0).map_or(0.0, |(a, b)| a.distance(b));
+                    let turned = q.zip(*q0).map_or(0.0, |(a, b)| a.angle_between(b));
+                    along + MOTION_REACH * turned
+                })
+                .sum();
+            step.push(moved);
+            last = now;
+        }
+        step
+    }
+
+    /// The motion done along the clip's time from each step's motion, its jumps left out.
+    fn from_steps(mut step: Vec<f32>) -> ClipMotion {
+        let total: f32 = step.iter().sum();
+        let jumped: Vec<usize> = (0..step.len())
+            .filter(|&i| {
+                let around = (2..=4).flat_map(|d| [i.checked_sub(d), Some(i + d)]).flatten().filter_map(|k| step.get(k)).fold(0.0f32, |a, m| a.max(*m));
+                total > 1e-3 && step[i] > MOTION_JUMP_SHARE * total && step[i] > MOTION_JUMP_RATIO * around
+            })
+            .collect();
+        let jumps = jumped.iter().map(|&i| (i as f32 + 0.5) / MOTION_STEPS as f32).collect();
+        for &i in &jumped {
+            step[i] = 0.0;
+        }
+        let kept: f32 = step.iter().sum();
+        let mut done = Vec::with_capacity(MOTION_STEPS + 1);
+        done.push(0.0);
+        let mut sum = 0.0;
+        for (i, m) in step.iter().enumerate() {
+            sum += m;
+            // A clip that does not move (or only jumps) goes by its clock.
+            done.push(if kept > 1e-3 { sum / kept } else { (i + 1) as f32 / MOTION_STEPS as f32 });
+        }
+        ClipMotion { done, jumps }
+    }
+
+    /// The share of its time (0–1) at which `share` of the motion is done.
+    fn time_for(&self, share: f32) -> f32 {
+        let share = share.clamp(0.0, 1.0);
+        let i = self.done.partition_point(|d| *d < share).clamp(1, MOTION_STEPS);
+        let (a, b) = (self.done[i - 1], self.done[i]);
+        let within = if b > a { (share - a) / (b - a) } else { 0.0 };
+        (i as f32 - 1.0 + within) / MOTION_STEPS as f32
+    }
+
+    /// The share of the motion done at `time` (a share of the clip's time).
+    fn done_at(&self, time: f32) -> f32 {
+        let x = time.clamp(0.0, 1.0) * MOTION_STEPS as f32;
+        let i = (x.floor() as usize).min(MOTION_STEPS - 1);
+        self.done[i] + (self.done[i + 1] - self.done[i]) * (x - i as f32)
+    }
+
+    /// Whether a jump of the pose lies between the times `from` and `to` (shares).
+    fn jumps_between(&self, from: f32, to: f32) -> bool {
+        let (a, b) = if from <= to { (from, to) } else { (to, from) };
+        self.jumps.iter().any(|j| *j > a && *j <= b)
+    }
 }
 
 impl ClipInfo {
     fn new(path: String, clip: Arc<Clip>, speed: Option<f32>) -> ClipInfo {
         let keys = ClipKeys::parse(&clip.text_keys);
         let weapon_track = clip.tracks.iter().position(|(n, _)| n.eq_ignore_ascii_case("Weapon"));
-        ClipInfo { path, clip, keys, speed, weapon_track }
+        ClipInfo { path, clip, keys, speed, weapon_track, motion: std::sync::OnceLock::new() }
+    }
+
+    /// Its [`ClipMotion`] on skeleton `skel` (the rig's that plays it).
+    fn motion(&self, skel: &PreparedSkeleton) -> &ClipMotion {
+        self.motion.get_or_init(|| {
+            let m = ClipMotion::of(&self.clip, skel);
+            debug!("player rig: {} played by its motion, jumps of its pose at {:?}", self.path, m.jumps);
+            m
+        })
     }
 
     fn fade(&self) -> f32 {
@@ -536,6 +764,9 @@ struct Rig {
     /// The way down to the weapon model's `##SightingNode`, as `muzzle`
     /// (`iron_sights.rs`).
     sighting: Option<Vec<(Option<usize>, Transform)>>,
+    /// The way down to a second sighting node, `##SightingNode2`, which the player's
+    /// Toggle Sighting Node key switches to (docs/design/tweaks.md).
+    sighting2: Option<Vec<(Option<usize>, Transform)>>,
     /// The weapon model's scope eyepiece, when `scope_lens` knows the model (3D scopes),
     /// and the entity the lens is drawn on (`scope_lens::LensMount`, under the model).
     scope_eye: Option<crate::scope_lens::Eyepiece>,
@@ -557,6 +788,8 @@ struct Rig {
     /// The attack clip a wind-up started, until its shot leaves: the shot plays on in
     /// it rather than starting it again.
     wound_up: Option<Arc<Clip>>,
+    /// The wound-up clip's `Hit` key, from its start (where a held throw waits).
+    wound_hit: Option<f32>,
     /// The attack clip last started and its `Eject` key, seconds into the clip, when it
     /// has one; and whether its layer passed the key in the last pose.
     attack_eject: Option<(Arc<Clip>, f32)>,
@@ -641,7 +874,9 @@ impl Rig {
             return;
         }
         // A 3D scope: the point behind the eyepiece (`scope_lens`); else the sighting node.
-        let (sight, barrel) = match (self.use_lens.then_some(self.scope_eye).flatten(), self.sighting.as_deref()) {
+        let second = nvf_play::tweaks::SECOND_SIGHT.load(std::sync::atomic::Ordering::Relaxed) && self.sighting2.is_some();
+        let sighting = if second { self.sighting2.as_deref() } else { self.sighting.as_deref() };
+        let (sight, barrel) = match (self.use_lens.then_some(self.scope_eye).flatten(), sighting) {
             (Some(e), _) => {
                 let Some(model) = self.weapon_node_at(Transform::IDENTITY, &[]) else { return };
                 (model.transform_point3(crate::scope_lens::eye_point(&e)), model.transform_vector3(Vec3::X))
@@ -766,6 +1001,10 @@ struct Motion {
     speed: f32,
     last_feet: Option<[f32; 3]>,
     airborne: f32,
+    /// The fastest the character fell in this flight, and at the last landing (units/s):
+    /// a harder landing stands up slower (`nvf_play::inertia::MovementInertia::land_stretch`).
+    fall_speed: f32,
+    landed_speed: f32,
     /// Playing the jump loop: in the air long enough, with the ground far below
     /// ([`FALL_GAP`]); kept until the character is on the ground again.
     falling: bool,
@@ -812,6 +1051,15 @@ struct Motion {
     lower_told: bool,
     /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
     sights_share: f32,
+    /// The first-person view's way into a crouch and out of one (0 standing, 1 crouched): a
+    /// timer over the clips' cross-over (`Frame::stance_fade`).
+    crouch: nvf_play::ease::EaseOut,
+    /// The true iron sights' move along the settling curve, with movement inertia, and how
+    /// far the gun is moved by it this frame (0–1).
+    sights: nvf_play::ease::Settled,
+    sights_eased: f32,
+    /// The true iron sights could run last frame (the sway's raise follows their share).
+    sights_ran: bool,
 }
 
 impl Motion {
@@ -837,6 +1085,8 @@ impl Default for Motion {
             speed: 0.0,
             last_feet: None,
             airborne: 0.0,
+            fall_speed: 0.0,
+            landed_speed: 0.0,
             falling: false,
             falls: 0,
             landings: 0,
@@ -862,6 +1112,10 @@ impl Default for Motion {
             sights_told: false,
             lower_told: false,
             sights_share: 0.0,
+            crouch: nvf_play::ease::EaseOut::default(),
+            sights: nvf_play::ease::Settled::default(),
+            sights_eased: 0.0,
+            sights_ran: false,
         }
     }
 }
@@ -870,11 +1124,11 @@ impl Default for Motion {
 pub struct PlayerBody {
     /// Draw the body in first person too (`--first-person-body`, the settings page).
     pub first_person_body: bool,
-    /// Sway and bob the first-person arms and weapon (`view_sway.rs`; off with
-    /// `--no-weapon-sway`, the settings page).
+    /// Weapon Inertia: the first-person arms and weapon lag, bob, dip, breathe and recoil,
+    /// heavier weapons more (`view_sway.rs`; off with `--no-weapon-sway`, the settings page).
     pub weapon_sway: bool,
-    /// Bob the first-person camera while walking (`head_bob.rs`; off with
-    /// `--no-head-bob`, the settings page).
+    /// Camera Motion: the first-person view bobs, breathes, gets out of breath and jolts when
+    /// hit (`head_bob.rs`; off with `--no-head-bob`, the settings page).
     pub head_bob: bool,
     /// Lower the first-person weapon against a wall or a friendly actor close ahead
     /// (`weapon_lower.rs`; off with `--no-weapon-lower`, the settings page).
@@ -1010,7 +1264,7 @@ impl PlayerBody {
                 casing: None, casing_entity: None, sighting: None, scope_eye: None,
                 use_lens: false, drawn: Vec::new(), shown: Some(false), seen: None,
                 furniture: None, since_attack: f32::INFINITY, attack_loop: None,
-                wound_up: None, attack_eject: None, ejected: false, carry: None,
+                wound_up: None, wound_hit: None, sighting2: None, attack_eject: None, ejected: false, carry: None,
             }
         }
         Self {
@@ -1035,6 +1289,170 @@ impl PlayerBody {
     }
 }
 
+/// Seconds the first-person arms take to ease onto a looping clip again after its seam
+/// (95%) [design: the owner's sixth playtest, 2026-11-14, the idle's
+/// hitch every 2.5 s].
+const SEAM_SECONDS: f32 = 0.3;
+/// With movement inertia, the share of a draw's or a holster's time (along its settling
+/// curve) after which its clip hands the arms over to what follows (`pose_rig`).
+const EQUIP_HANDOVER_FROM: f32 = 0.35;
+
+/// How far a draw's or a holster's clip has handed the arms over (0–1) at `x`, the share of
+/// its time: from [`EQUIP_HANDOVER_FROM`] on, by a curve that starts with no speed and no
+/// pull, is quickest a little before the middle and tapers off over its last part, coming
+/// to rest with no speed, pull or jerk left (its speed goes as `u³(1 − u)⁴`: the integral
+/// `70u⁴ − 224u⁵ + 280u⁶ − 160u⁷ + 35u⁸`) [design: the owner, 2026-11-16: "make the last
+/// 25% of the equip and holster animations smoother without changing their timing"]. With
+/// `6u⁵ − 15u⁴ + 10u³` the hand-over came into the last quarter at nine tenths of its top
+/// speed with 29 % still to go and braked all of it there (the 10mm pistol's put-away, 105
+/// units/s to none in 0.16 s); now 15 % is left, braked over the whole quarter.
+fn handover_share(x: f32) -> f32 {
+    let u = ((x - EQUIP_HANDOVER_FROM) / (1.0 - EQUIP_HANDOVER_FROM)).clamp(0.0, 1.0);
+    if u < 0.5 {
+        u * u * u * u * (70.0 + u * (-224.0 + u * (280.0 + u * (-160.0 + u * 35.0))))
+    } else {
+        // The same from its end, where the expanded form loses its last digits in f32 (it
+        // stepped back by a thousandth): what is left is `v⁵(v³ + 8uv² + 28u²v + 56u³)`.
+        let v = 1.0 - u;
+        1.0 - v * v * v * v * v * (v * v * v + 8.0 * u * v * v + 28.0 * u * u * v + 56.0 * u * u * u)
+    }
+}
+
+/// The share of a draw's or a holster's time from which [`equip_curve`] leaves the settling
+/// curve for its own end.
+const EQUIP_TAIL_FROM: f32 = 0.75;
+
+/// How far a draw or a holster has got (0–1) at `x`, the share of its time, with movement
+/// inertia: the settling curve, its last quarter a quintic that carries on from it (place,
+/// speed and pull alike) and comes to rest with no speed and no pull left [design: the owner,
+/// 2026-11-16: "make the last 25% of the equip and holster animations smoother without
+/// changing their timing"]. The settling curve stops with the arms still braking (its pull
+/// at the end is 0.8 of a draw a time², the speed dropping to nothing at an angle); this end
+/// eases out of the braking too. Same time, still only rising.
+fn equip_curve(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    if x <= EQUIP_TAIL_FROM {
+        return nvf_play::ease::settle(x);
+    }
+    let h = 1.0 - EQUIP_TAIL_FROM;
+    let (p0, v, a) = nvf_assets::anim_blend::settle_slopes(EQUIP_TAIL_FROM);
+    // The quintic in s (0–1 over the tail) with p(0), p'(0), p''(0) the curve's and p(1) = 1,
+    // p'(1) = p''(1) = 0.
+    let (v0, a0, d) = (v * h, a * h * h, 1.0 - p0);
+    let c3 = 10.0 * d - 6.0 * v0 - 1.5 * a0;
+    let c4 = -15.0 * d + 8.0 * v0 + 1.5 * a0;
+    let c5 = 6.0 * d - 3.0 * v0 - 0.5 * a0;
+    let s = (x - EQUIP_TAIL_FROM) / h;
+    p0 + s * (v0 + s * (0.5 * a0 + s * (c3 + s * (c4 + s * c5))))
+}
+
+/// The `x` at which [`equip_curve`] is `y` (by halving; it only rises).
+fn equip_curve_inv(y: f32) -> f32 {
+    let y = y.clamp(0.0, 1.0);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if equip_curve(mid) < y {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// Test aid `NVF_PLAY_TEST_MOTION_TRACE=<file>`: one CSV line a frame of the first-person
+/// motion, for finding hitches and two-step moves by numbers: time, frame time, view
+/// heading and pitch, the eye (game space), the right hand from the camera node in the
+/// arms rig's model space and its turn from the camera node's (scaled axis; the clips'
+/// turn (yaw, pitch, roll), the true iron sights' share, aiming, falling, sneaking, the
+/// ground speed and a weapon out.
+#[derive(Default)]
+struct MotionTrace {
+    file: Option<std::io::BufWriter<std::fs::File>>,
+    /// Beside it (`<file>.layers`): the first-person rig's layers each frame (tag, shown
+    /// fade, weight, time / length, rate; `<` leaving), the hands' phase and time and
+    /// `seam` where the pose eased across a jump, for telling which clip a hitch in the
+    /// trace comes from.
+    layers: Option<std::io::BufWriter<std::fs::File>>,
+    tried: bool,
+}
+
+impl MotionTrace {
+    fn wanted(&mut self) -> bool {
+        if !self.tried {
+            self.tried = true;
+            if let Ok(path) = std::env::var("NVF_PLAY_TEST_MOTION_TRACE") {
+                match std::fs::File::create(&path) {
+                    Ok(f) => {
+                        let mut w = std::io::BufWriter::new(f);
+                        let _ = std::io::Write::write_all(&mut w, b"t,dt,heading,pitch,eye_x,eye_y,eye_z,hand_x,hand_y,hand_z,hand_rx,hand_ry,hand_rz,sway_x,sway_y,sway_z,sway_yaw,sway_pitch,sway_roll,sights,aiming,falling,sneaking,speed,drawn,feet_z,airborne,lhand_x,lhand_y,lhand_z,lens\n");
+                        info!("motion trace: writing {path}");
+                        self.file = Some(w);
+                        self.layers = std::fs::File::create(format!("{path}.layers")).ok().map(std::io::BufWriter::new);
+                    }
+                    Err(e) => warn!("NVF_PLAY_TEST_MOTION_TRACE: {path}: {e}"),
+                }
+            }
+        }
+        self.file.is_some()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write(&mut self, t: f64, dt: f32, player: &Player, eye: Option<Vec3>, hand: Option<(Vec3, Vec3)>, sway: SwayPose, flags: (f32, bool, bool, bool, f32, bool), airborne: f32, left: Option<Vec3>, lens: f32) {
+        let Some(w) = self.file.as_mut() else { return };
+        let e = eye.unwrap_or(Vec3::NAN);
+        let (h, r) = hand.unwrap_or((Vec3::NAN, Vec3::NAN));
+        let l = left.unwrap_or(Vec3::NAN);
+        let (yaw, pitch, roll) = sway.rotation.to_euler(EulerRot::ZXY);
+        let (sights, aiming, falling, sneaking, speed, drawn) = flags;
+        let b = |v: bool| u8::from(v);
+        let line = format!(
+            "{t:.5},{dt:.5},{:.5},{:.5},{:.3},{:.3},{:.3},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.4},{:.4},{:.4},{yaw:.5},{pitch:.5},{roll:.5},{sights:.4},{},{},{},{speed:.1},{},{:.3},{airborne:.3},{:.4},{:.4},{:.4},{lens:.5}\n",
+            player.heading, player.pitch, e.x, e.y, e.z, h.x, h.y, h.z, r.x, r.y, r.z, sway.offset.x, sway.offset.y, sway.offset.z, b(aiming), b(falling), b(sneaking), b(drawn), player.feet[2], l.x, l.y, l.z
+        );
+        let _ = std::io::Write::write_all(w, line.as_bytes());
+    }
+
+    /// One line of the layers' file (`layers`).
+    fn write_layers(&mut self, t: f64, hands: &WeaponHands, animator: Option<&Animator>) {
+        let Some(w) = self.layers.as_mut() else { return };
+        let mut line = format!("{t:.5} {:?} {:.4}{}", hands.phase, hands.time, if animator.is_some_and(|a| a.seamed) { " seam" } else { "" });
+        for l in animator.map(|a| a.layers.as_slice()).unwrap_or_default() {
+            let len = l.clip.length().max(1e-6);
+            line += &format!(" | {}{} e{:.4} w{:.3} x{:.4} r{:.3}", if l.is_leaving() { "<" } else { "" }, l.tag, l.shown_ease(), l.weight, l.time / len, l.rate);
+        }
+        line.push('\n');
+        let _ = std::io::Write::write_all(w, line.as_bytes());
+    }
+}
+
+/// Blows the player took since the body was last posed, as one punch (view frame: x
+/// right, y ahead, z up): the arms and the camera's place jolt and settle on their springs
+/// (`view_sway.rs`, `head_bob.rs`) [design: the owner, 2026-11-14, "damage screenshake";
+/// the camera's rotation is never shaken].
+#[derive(Resource, Default)]
+struct PlayerBlows {
+    punch: Vec3,
+    count: u32,
+}
+
+/// A blow of `share` (the part of the player's health it took) as a punch: down and back,
+/// a little aside by turns.
+fn blow_punch(share: f32, n: u32) -> Vec3 {
+    let strength = 0.6 + 1.4 * (share.max(0.0) * 4.0).min(1.0);
+    let side = if n.is_multiple_of(2) { 1.0 } else { -1.0 } * (0.3 + 0.2 * ((n as f32 * 7.31).sin()).abs());
+    Vec3::new(side, -0.4, -1.0) * strength
+}
+
+fn collect_blows(mut hits: MessageReader<nvf_play::combat::ActorHit>, mut blows: ResMut<PlayerBlows>) {
+    for h in hits.read().filter(|h| h.form_id == FormId::PLAYER_REF.0 && h.share > 0.0) {
+        blows.count = blows.count.wrapping_add(1);
+        let p = blow_punch(h.share, blows.count);
+        blows.punch += p;
+    }
+}
+
 #[path = "player_sequence_pose_aid.rs"]
 mod sequence_pose_aid;
 
@@ -1051,6 +1469,14 @@ pub struct PlayerBodyPlugin {
     pub true_iron_sights: bool,
 }
 
+/// The Tweaks tab's key turns true iron sights on and off [design: docs/design/tweaks.md].
+fn toggle_iron_sights(input: nvf_play::bindings::ControlInput, mut body: ResMut<PlayerBody>) {
+    if !input.suppressed() && input.just_pressed(nvf_play::bindings::Control::ToggleIronSights) {
+        body.true_iron_sights = !body.true_iron_sights;
+        info!("player body: true iron sights {} (key)", if body.true_iron_sights { "on" } else { "off" });
+    }
+}
+
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
@@ -1059,8 +1485,11 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
             .init_resource::<WarmPose>()
+            .init_resource::<PlayerBlows>()
+            .add_systems(Update, collect_blows.in_set(nvf_play::player::BodySet).before(drive_body))
             .init_resource::<crate::script_sequences::PlayerSequences>()
             .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, apply_anim_overrides, crate::script_sequences::prepare, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, toggle_iron_sights)
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(PostUpdate, sequence_pose_aid::observe.after(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
@@ -1182,9 +1611,19 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
     if exit.read().next().is_some() {
         let m = &body.motion;
         info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
-        info!("player body summary: weapon sway {}, most turn lag {:.2} degrees sideways and {:.2} up or down, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.x.to_degrees(), m.sway.peak_lag.y.to_degrees(), m.sway.peak_dip);
+        info!(
+            "player body summary: weapon sway {}, most turn lag {:.2} degrees sideways and {:.2} up or down, deepest bob {:.2} units, deepest jump or landing dip {:.2} units, weapon weight {}",
+            if body.weapon_sway { "on" } else { "off" },
+            m.sway.peak_lag.x.to_degrees(),
+            m.sway.peak_lag.y.to_degrees(),
+            m.sway.peak_dip,
+            m.sway.peak_lift_dip.max(0.0) + 0.0,
+            if body.weapon_sway { "on" } else { "off" }
+        );
         let (head, pivot) = m.head.pivot_rms();
         info!("player body summary: head bob {}, deepest first-person dip {:.2} units; third-person pivot over {} frames moved {pivot:.3} units a frame (rms) against the head's {head:.3}, pivot/head {:.2}", if body.head_bob { "on" } else { "off" }, m.head.peak_dip, m.head.frames, pivot / head.max(1e-3));
+        info!("player body summary: head inertia, deepest take-off or landing dip {:.2} units; breathing camera {}, highest rise {:.2} units", m.head.peak_land.max(0.0) + 0.0, if body.head_bob { "on" } else { "off" }, m.head.peak_breath.max(0.0) + 0.0);
+        info!("player body summary: most gun recoil back {:.2} units, most out of breath {:.2}", m.sway.peak_recoil.max(0.0) + 0.0, m.head.peak_exertion);
         info!("player body summary: weapon lowering {}, lowered {} times, most {:.2}", if body.weapon_lower { "on" } else { "off" }, m.lower.times, m.lower.peak);
     }
 }
@@ -1332,6 +1771,7 @@ fn ensure_body(
         rig.casing = None;
         rig.casing_entity = None;
         rig.sighting = None;
+        rig.sighting2 = None;
         rig.scope_eye = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
@@ -1393,6 +1833,9 @@ fn ensure_body(
                 rig.casing_entity = casing.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                rig.sighting2 = nvf_assets::model::node_path(&pm.nodes, &["##SightingNode2"]).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                // A new weapon starts on its first sight (the Toggle Sighting Node key).
+                nvf_play::tweaks::SECOND_SIGHT.store(false, std::sync::atomic::Ordering::Relaxed);
                 if rig.view == View::First {
                     // 3D scopes: the lens is drawn on an entity at the eyepiece, its disc
                     // (+Z of a Bevy circle) facing back up the barrel (−X), its up the
@@ -1508,10 +1951,27 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     }
     if let Some(shows) = shows {
         // Upper-body models show their `Arms` shapes and the left forearm sleeve only
-        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears).
+        // (`PipBoyOn…` or `PipBoyOff…`, whichever the player wears). A model with no
+        // `Arms…` shape draws the arm partitions of its skins instead
+        // (`first_person::arms_by_partition`, #2457).
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
-                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
+                let mut cut: Vec<String> = Vec::new();
+                if first_person::arms_by_partition(u.part.shapes.iter().filter_map(|s| s.name.as_deref())) {
+                    u.meshes.resize(u.part.shapes.len(), None);
+                    for (si, s) in u.part.shapes.iter().enumerate() {
+                        let Some(name) = s.name.as_deref() else { continue };
+                        if s.cap || !first_person::partition_arm_shape(name, s.partitions.iter().map(|p| p.body_part)) {
+                            continue;
+                        }
+                        let mesh = nvf_assets::actor::dismember_mesh(&s.cpu, &s.partitions, |p| !p.cap && first_person::is_arm_body_part(p.body_part));
+                        u.meshes[si] = Some(ctx.models.meshes.add(mesh));
+                        cut.push(name.to_string());
+                    }
+                    let p = &a.parts[*i];
+                    info!("player First rig part {} {}: no Arms shape, the arm partitions of {cut:?} are drawn", p.form, p.model);
+                }
+                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n) && !cut.contains(n)));
                 u.hidden_shapes.extend(hide);
             }
         }
@@ -1611,6 +2071,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         casing: None,
         casing_entity: None,
         sighting: None,
+        sighting2: None,
         scope_eye: None,
         use_lens: false,
         drawn,
@@ -1620,6 +2081,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         since_attack: f32::INFINITY,
         attack_loop: None,
         wound_up: None,
+        wound_hit: None,
         attack_eject: None,
         ejected: false,
         carry: None,
@@ -1628,6 +2090,39 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
 
 /// What both rigs play this frame.
 struct Frame {
+    /// Smooth weapon animations are on. In the first-person rig ([`pose_rig`]): every
+    /// clip's fade follows the settling curve (`anim_blend::Layer::smooth`: quick first,
+    /// slow at the end, never straight); and the turning-on-the-spot clips are left out
+    /// (they started and stopped with every turn of the view, restarting under an aim: "the
+    /// animation resets and kinda skips", the seventh playtest; the arms' turn is the sway's).
+    inertia: bool,
+    /// Eased crouch is on: in the first-person rig a crouch is kept through a jump (no
+    /// standing jump or landing clip while sneaking).
+    crouch_jump: bool,
+    /// With smooth weapon animations: the aim and block clips cross over this long (seconds)
+    /// along the settling curve, the same time and curve as the true iron sights' move to
+    /// the eye and the zoom, so going down the sights is one motion [design: the owner's
+    /// sixth and seventh playtests, 2026-11-14].
+    aim_fade: Option<f32>,
+    /// While the first-person view goes into a crouch or out of one: the standing and
+    /// sneaking clips (idle, movement, aim) cross over this long (seconds), so the view
+    /// and the arms' hold change together, slowly (`nvf_play::inertia::MovementInertia::crouch_seconds`).
+    stance_fade: Option<f32>,
+    /// With smooth weapon animations: the first-person idle and movement clips cross over
+    /// this long (seconds), so stopping and starting ease the arms over.
+    move_fade: Option<f32>,
+    /// With smooth weapon animations, while a weapon is drawn or put away: how far through its
+    /// clip the draw or holster is (0–1, along the settling curve: about the clip's own
+    /// speed at first, very slow at the end).
+    equip_at: Option<f32>,
+    /// With smooth weapon animations: how many times its own length the first-person
+    /// landing clip takes (`nvf_play::inertia::LAND_STRETCH`, longer for a hard landing
+    /// with Landing weight).
+    land_stretch: Option<f32>,
+    /// With smooth weapon animations: how many times their base times the hands take to
+    /// draw, put away, aim and come back from a reload or an attack (the weapon's handling,
+    /// `nvf_play::inertia::MovementInertia::hands`).
+    hands_pace: Option<f32>,
     dt: f32,
     stance: Stance,
     dirs: Option<[(Dir, f32); 2]>,
@@ -1674,6 +2169,9 @@ struct Frame {
     /// attack clip plays from the start now, and the shot does not restart it
     /// (`nvf_play::combat::WeaponAnim::wind_ups`).
     wind_now: bool,
+    /// The throw is held at its release (`nvf_play::combat::WeaponAnim::throw_held`): the
+    /// wound-up clip waits at its `Hit` key.
+    throw_held: bool,
 }
 
 /// Where a rig stands in the frame and what it plays beside its own clips.
@@ -1684,6 +2182,8 @@ struct Posed<'a> {
     /// The idles the rig plays (`idles.rs`).
     special: &'a IdleSlot<Arc<Clip>>,
     sequences: &'a [crate::script_sequences::Sample],
+    /// Script-layer blends can use the device-menu clock while the world is held.
+    sequence_dt: f32,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
     /// The sway of the arms (first person, `view_sway.rs`).
@@ -1710,7 +2210,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, sequences, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, sequences, sequence_dt, pipboy, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
@@ -1721,19 +2221,38 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     for ev in events {
         match ev {
             // At the Equip Speed perks' rate (Quick Draw), as the hands time it.
+            // With movement inertia in first person the clip shows at once and the arms ease
+            // across the step to its first pose (`Animator::smooth_jump`); its share is then
+            // the hand-over's (`EQUIP_HANDOVER_FROM`).
             HandEvent::StartDraw => {
                 if let Some(c) = &draw {
-                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let warped = f.inertia && rig.view == View::First && f.equip_at.is_some();
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, if warped { 0.0 } else { c.fade() });
                     rig.animator.layers[l].rate = f.equip_rate;
+                    if warped {
+                        rig.animator.smooth_jump();
+                    }
                 }
             }
             HandEvent::StartHolster => {
                 if let Some(c) = &put_away {
-                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let warped = f.inertia && rig.view == View::First && f.equip_at.is_some();
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, if warped { 0.0 } else { c.fade() });
                     rig.animator.layers[l].rate = f.equip_rate;
+                    if warped {
+                        rig.animator.smooth_jump();
+                    }
                 }
             }
-            HandEvent::ToHand => rig.animator.cut(TAG_HOLSTER),
+            // The holstered weapon's clip goes at once; with movement inertia in first person
+            // the arms ease across what it held (the flamer's draw: a 7 to 86 units/s step at the
+            // hand-over, the trace `movement-inertia-trace-weapons`, 2026-11-15).
+            HandEvent::ToHand => {
+                rig.animator.cut(TAG_HOLSTER);
+                if f.inertia && rig.view == View::First && f.equip_at.is_some() {
+                    rig.animator.smooth_jump();
+                }
+            }
             HandEvent::ToHolster | HandEvent::Drawn | HandEvent::Holstered => {}
         }
     }
@@ -1775,7 +2294,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     }
     let mut expected_speed = 0.0;
     let main_dir = f.dirs.map(|w| if w[0].1 >= w[1].1 { w[0].0 } else { w[1].0 });
-    if f.airborne >= AIRBORNE_LOOP {
+    // A crouched jump in first person keeps the crouch: no jump clip, and the crouched walk
+    // plays on through the air. The weapons' jump clips stand the body up, and so does the
+    // unarmed sneaking one (the eye 118 units over the feet instead of 78), which drew the
+    // view up mid-jump and back down after it; and dropping the walk for the idle after
+    // 0.15 s in the air lifted the eye 9 units on a hop off a slope [design: the owner's
+    // fifth playtest, 2026-11-14: "jumping from crouch … looks like the character stands and
+    // then jumps"; tenth: "sometimes still"; the trace `movement-inertia-trace-crouch-jump`].
+    let first_inertia = f.inertia && rig.view == View::First;
+    let keep_crouch = f.crouch_jump && rig.view == View::First && f.stance == Stance::Sneak;
+    if f.airborne >= AIRBORNE_LOOP && !keep_crouch {
         if let Some(c) = rig.clip(ctx, ClipKey::Jump(f.stance, f.drawn, main_dir, false)) {
             want.push((c, TAG_JUMP, 1.0, Mode::Loop));
         }
@@ -1789,13 +2317,15 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 want.push((c, TAG_MOVE + i as u32, weight, Mode::Synced));
             }
         }
-    } else if f.turn_rate.abs() > TURN_RATE {
+    } else if f.turn_rate.abs() > TURN_RATE && !first_inertia && !nvf_play::tweaks::NO_TURN_CLIP.load(std::sync::atomic::Ordering::Relaxed) {
+        // (The player's No Turning Animation tweak plays none, docs/design/tweaks.md.)
         // Heading grows clockwise: a negative rate turns left.
         if let Some(c) = rig.clip(ctx, ClipKey::Turn(f.stance, f.drawn, f.turn_rate < 0.0, f.limping)) {
             want.push((c, TAG_TURN, 1.0, Mode::Loop));
         }
     }
-    if f.landing {
+    // The player's No Landing Animation tweak plays none (docs/design/tweaks.md).
+    if f.landing && !keep_crouch && !nvf_play::tweaks::NO_LAND_CLIP.load(std::sync::atomic::Ordering::Relaxed) {
         if let Some(c) = rig.clip(ctx, ClipKey::Jump(f.stance, f.drawn, main_dir, true)) {
             rig.animator.restart(&c.clip, TAG_LAND, 1.0, Mode::Once, c.fade());
         }
@@ -1806,7 +2336,13 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         View::Third if !f.upright => aim_weights(f.pitch),
         _ => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
     };
-    if f.hands.in_hand && f.hands.phase != WeaponPhase::Drawing {
+    // With movement inertia the first-person hold is asked for through the draw too, under
+    // the draw clip (which outranks it): when the draw ends the hold is already there.
+    // Asked for only after it, it was still fading in as the draw clip faded out, and the
+    // arms-down idle showed through: the gun went down and came up again (seventh playtest).
+    // Putting the weapon away the arms go to the arms-down pose under the clip instead (below).
+    let holding = if first_inertia { f.hands.phase == WeaponPhase::Drawing || (f.hands.in_hand && f.hands.phase != WeaponPhase::Holstering) } else { f.hands.in_hand && f.hands.phase != WeaponPhase::Drawing };
+    if holding {
         if f.aiming && blocks(f.prefix) {
             if let Some(c) = rig.clip(ctx, ClipKey::Block(f.stance, f.prefix)) {
                 want.push((c, TAG_AIM, 1.0, Mode::Loop));
@@ -1843,7 +2379,9 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             }
         }
     }
-    if !f.hands.in_hand {
+    // With movement inertia in first person the arms-down pose is under the put-away clip all
+    // through it, so the clip hands over to it as it ends (below).
+    if !f.hands.in_hand || (first_inertia && f.hands.phase == WeaponPhase::Holstering) {
         if let Some(c) = &holster {
             want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
         }
@@ -1864,12 +2402,20 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let going = !f.spin_now && !f.wind_now && (wound || (rig.attack_loop.is_some() && playing));
             if f.wind_now {
                 rig.wound_up = Some(c.clip.clone());
+                rig.wound_hit = c.keys.hit.map(|h| h - c.clip.start);
                 info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
             }
             if !going {
                 // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
-                // perks, as combat times the shot.
-                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                // perks, as combat times the shot. With movement inertia in first person the
+                // clip starts at once and the arms ease across the jump back to its start
+                // (`Animator::smooth_jump`): its kick shows whole, with no snap between shots
+                // [design: the owner's eighth playtest, 2026-11-14, "the jump is not instant to
+                // the next recoil point"].
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, if first_inertia { 0.0 } else { ATTACK_FADE });
+                if first_inertia {
+                    rig.animator.smooth_jump();
+                }
                 rig.animator.layers[l].rate = f.attack_rate;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
@@ -1900,8 +2446,13 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // A round follows straight on from the opening clip or the last round: no
             // fade back through the held pose [hypothesis: the clips are made to chain,
             // the opening's end and the round's `Hit` close to its start pose].
-            let fade = if f.reload_round_now { 0.0 } else { c.fade() };
+            let fade = if f.reload_round_now || first_inertia { 0.0 } else { c.fade() };
             let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
+            // With movement inertia in first person the arms ease into the reload as across a
+            // loop's seam: the clip plays whole from its start, the step to it dies away.
+            if first_inertia {
+                rig.animator.smooth_jump();
+            }
             // At the player's reload rate, as the cycle times it (Agility, Rapid Reload).
             rig.animator.layers[layer].rate = f.reload_rate;
             info!("player {:?} rig: {} moves the weapon's {:?} (reload at x{:.2})", rig.view, c.path, rig.animator.extra_driven(&c.clip), f.reload_rate);
@@ -1911,7 +2462,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     // reload is [observed: the clips sit beside the reload clips in both rigs' folders].
     if f.hands.in_hand && f.jam_now {
         if let Some(c) = f.jam.and_then(|j| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, j))) {
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, if first_inertia { 0.0 } else { c.fade() });
+            if first_inertia {
+                rig.animator.smooth_jump();
+            }
             debug!("player {:?} rig: jam clip {}", rig.view, c.path);
         }
     }
@@ -1924,17 +2478,108 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let a = &mut rig.animator;
     a.begin();
     let covered = special.covers();
+    let is_aim = |tag: u32| (TAG_AIM..TAG_AIM + 3).contains(&tag);
+    let is_move = |tag: u32| tag == TAG_IDLE || (TAG_MOVE..TAG_MOVE + 4).contains(&tag);
+    // An aim clip coming in over another aim clip (the hold to the sights, to a block and
+    // back) crosses over the aim's time. One coming in with none there (after a draw)
+    // keeps its own, short time: over the aim's, slower than the draw clip leaves, the
+    // arms-down idle showed through and the gun went down and came up again (the seventh
+    // playtest: "starts pulling out the gun then quickly retracts it").
+    let aim_crossing = a.layers.iter().any(|l| is_aim(l.tag) && l.ease > 0.0);
+    // The fades with movement inertia, first person: a crouch's, the aim's, a start's or
+    // stop's, else the clip's own.
+    let crouch_fade = |tag: u32| f.stance_fade.filter(|_| rig.view == View::First && (is_aim(tag) || is_move(tag)));
+    let fade_for = |tag: u32| -> Option<f32> {
+        if let Some(t) = crouch_fade(tag) {
+            return Some(t);
+        }
+        if !first_inertia {
+            return f.aim_fade.filter(|_| is_aim(tag) && aim_crossing);
+        }
+        match (f.aim_fade, f.move_fade) {
+            (Some(t), _) if is_aim(tag) && aim_crossing => Some(t),
+            (_, Some(t)) if is_move(tag) => Some(t),
+            _ => None,
+        }
+    };
     for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
-        let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
+        let fade = if *tag == TAG_HOLSTER { 0.0 } else { fade_for(*tag).unwrap_or_else(|| c.fade()) };
         let l = a.want(&c.clip, *tag, *w, *mode, fade);
         if *tag == TAG_EQUIP {
             a.layers[l].rate = f.equip_rate;
+        }
+    }
+    let aims_in = a.layers.iter().any(|l| is_aim(l.tag));
+    // The layers leaving take the same times, and with movement inertia every first-person
+    // fade follows the settling curve.
+    for l in a.layers.iter_mut() {
+        if let Some(t) = fade_for(l.tag) {
+            l.fade_out = t;
+        }
+        // A draw's or a holster's clip keeps a straight fade: the hand-over sets it (below).
+        if (first_inertia && l.tag != TAG_EQUIP) || (f.aim_fade.is_some() && is_aim(l.tag)) || crouch_fade(l.tag).is_some() {
+            l.smooth = true;
+        }
+        // A draw's or a holster's clip lets go slowly: its last pose is not the pose that
+        // follows (the arms down after a holster), and over its own short time the
+        // hand-over was a second movement.
+        if let (true, TAG_EQUIP, Some(t)) = (first_inertia, l.tag, f.move_fade) {
+            // A draw's clip with the hold coming in: it goes as the hold comes (below).
+            l.fade_out = if aims_in && draw.as_ref().is_some_and(|c| Arc::ptr_eq(&c.clip, &l.clip)) { f32::INFINITY } else { t };
+        }
+        // A reload, a jam or an attack ending: the arms go back to the hold slowly, along
+        // the settling curve, the heavier the weapon the slower (`Frame::hands_pace`).
+        if let (true, Some(pace)) = (first_inertia, f.hands_pace) {
+            if l.tag == TAG_RELOAD {
+                l.fade_out = nvf_play::inertia::RELOAD_OUT_SECONDS * pace;
+            } else if (TAG_ATTACK..TAG_ATTACK + 3).contains(&l.tag) {
+                l.fade_out = nvf_play::inertia::ATTACK_OUT_SECONDS * pace;
+            }
+        }
+    }
+    // A draw or a holster with smooth weapon animations: the clip is played by its place,
+    // its motion along the settling curve (`ClipMotion`: `at` is the share of the motion
+    // done), and a jump of the clip's own pose is eased across.
+    if let Some(at) = f.equip_at {
+        let c = if f.hands.phase == WeaponPhase::Drawing { &draw } else { &put_away };
+        let mut jumped = false;
+        let skel = a.skel.clone();
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_EQUIP) {
+            let len = l.clip.length();
+            let x = match c.as_ref().filter(|c| Arc::ptr_eq(&c.clip, &l.clip)) {
+                Some(c) => {
+                    let x = c.motion(&skel).time_for(at);
+                    jumped |= len > 0.0 && c.motion(&skel).jumps_between(l.time / len, x);
+                    x
+                }
+                None => at.clamp(0.0, 1.0),
+            };
+            (l.time, l.rate) = (x * len, 0.0);
+        }
+        if jumped {
+            a.smooth_jump();
+        }
+    } else {
+        // Played by its rate again (Smooth weapon animations switched off part-way): the
+        // clip goes on from where it is instead of holding the place it was put at.
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_EQUIP && l.rate == 0.0) {
+            l.rate = f.equip_rate;
         }
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
         if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()).filter(|_| !covered) {
             a.want(&c, tag, w, Mode::Once, 0.0);
+        }
+    }
+    // A landing with movement inertia: the clip is played by its place along the settling
+    // curve over a longer time, so the view dips about as fast as the clip has it and
+    // stands up slowly to a soft end (at the clip's own pace the standing up took 0.4 s).
+    if let (View::First, Some(stretch)) = (rig.view, f.land_stretch) {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_LAND && !l.finished()) {
+            let length = l.clip.length().max(1e-3);
+            let x = nvf_play::ease::settle_inv((l.time / length).clamp(0.0, 1.0)) + f.dt.max(0.0) / (length * stretch.max(0.1));
+            (l.time, l.rate) = (nvf_play::ease::settle(x) * length, 0.0);
         }
     }
     // The idles: each at the time its playback is at. One that has ended holds its last
@@ -1974,7 +2619,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Some((c, t)) = &pipboy {
         let i = a.want(&c.clip, TAG_PIPBOY, 1.0, Mode::Once, 0.0);
         let l = &mut a.layers[i];
-        (l.rate, l.time) = (0.0, *t);
+        (l.rate, l.time) = (0.0, if f.inertia { pipboy_clip_time(*t) } else { *t });
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -1990,6 +2635,59 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let carried = if matches!(f.prefix, "h2h" | "1hm" | "2hm") { a.layers.iter().rev().find(|l| l.tag == TAG_ATTACK && !l.finished()).map(|l| (l.clip.clone(), l.time)) } else { None };
     let carried = carried.filter(|(c, _)| c.root_reach() > nvf_assets::anim_play::CARRY_MIN);
     a.advance(f.dt, rate);
+    if rig.view == View::First {
+        a.advance_pose_blends((sequence_dt - f.dt).max(0.0), |layer| layer.tag & 0x4000_0000 != 0);
+    }
+    // A draw or a holster with movement inertia: over the last part of its time the clip
+    // hands the arms over to what follows (the hold, the arms down) along the settling
+    // curve while it still slows to its end, so the two are one motion. Played to its end
+    // first and then faded out, its last pose (3 units off the hold for a 10mm pistol) made
+    // a second movement after the arms had nearly stopped [design: the owner's ninth
+    // playtest, 2026-11-14: "they slow down but then the animation speeds up"; the trace].
+    // The hand-over sets off with no speed and no sudden pull (`handover_share`): along the
+    // settling curve, whose start is sharp, the arms of the fists' and the 10mm pistol's
+    // holster, nearly stopped, set off again at 350 units/s within two frames (the trace
+    // `movement-inertia-trace-weapons`, 2026-11-15).
+    // A draw hands over no faster than the hold it hands over to comes in: the hold fades
+    // in under the draw at its own pace and shares a priority with it on the spine and
+    // the arms, so a draw that let go first left the two together short of the whole
+    // (98.7 %) and the arms-down idle under them showed through: the arms sagged towards
+    // it and came back, a kick and a second movement at the 10mm pistol's draw's end (the
+    // trace `movement-inertia-trace-weapons` and its layers' file; the owner, 2026-11-15,
+    // "pistol drawing animation is not smooth at all, it hitches multiple times").
+    // After the draw, its clip leaving keeps covering what the hold has not yet taken too
+    // (dropping its last 2 % in one frame was a second kick).
+    if first_inertia {
+        let over = f.equip_at.map(|at| handover_share(equip_curve_inv(at)));
+        // The aim clips together (the hold, or the hold crossing over to the sights or a block:
+        // their shares then add up to about the whole, so an aim taken up right after a draw
+        // does not bring the draw clip back).
+        let aims: Vec<f32> = a.layers.iter().filter(|l| is_aim(l.tag)).map(|l| l.shown_ease()).collect();
+        let hold = (!aims.is_empty()).then(|| aims.iter().sum::<f32>().min(1.0));
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_EQUIP) {
+            let a_draw = draw.as_ref().is_some_and(|c| Arc::ptr_eq(&c.clip, &l.clip));
+            let leaving = l.is_leaving();
+            let own = match over {
+                Some(o) if !leaving => 1.0 - o,
+                _ => l.ease,
+            };
+            let keep = match hold {
+                // Drawing: its own hand-over, or what the hold has not yet taken.
+                Some(h) if a_draw && !leaving => own.max(1.0 - h),
+                // Drawn and leaving (it does not fade by itself then): what the hold has not
+                // yet taken, never more than it had; gone once the hold is whole.
+                Some(h) if a_draw => own.min(1.0 - h),
+                _ => own,
+            };
+            (l.ease, l.smooth) = (keep.clamp(0.0, 1.0), false);
+        }
+    }
+    // A throw held at its release waits at the wound-up clip's `Hit` key.
+    if let (true, Some(clip), Some(hit)) = (f.throw_held, rig.wound_up.as_ref(), rig.wound_hit) {
+        for l in a.layers.iter_mut().filter(|l| (TAG_ATTACK..TAG_ATTACK + 3).contains(&l.tag) && Arc::ptr_eq(&l.clip, clip)) {
+            l.time = l.time.min(hit);
+        }
+    }
     rig.carry = carried.and_then(|(c, from)| Some(c.root_travel(from, a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c))?.time)));
     // The attack clip passing its `Eject` key: the casing leaves now (combat throws it).
     rig.ejected = match (before, attack_time(a), &rig.attack_eject) {
@@ -2166,7 +2864,8 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
 fn seated_heading(heading: f32, facing: f32, settled: &mut bool, dt: f32) -> (f32, bool) {
     use std::f32::consts::{PI, TAU};
     let turned = (heading - facing + PI).rem_euclid(TAU) - PI;
-    let over = turned.abs() - NECK_TURN;
+    let wide = nvf_play::tweaks::SEATED_WIDE.load(std::sync::atomic::Ordering::Relaxed);
+    let over = turned.abs() - if wide { NECK_TURN_WIDE } else { NECK_TURN };
     if over <= 0.0 {
         *settled = true;
         return (heading, true);
@@ -2436,7 +3135,7 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale, sequences): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>),
+    (time, turbo, sim, mut told_scale, sequences, mut trace): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Res<crate::script_sequences::PlayerSequences>, Local<MotionTrace>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -2449,7 +3148,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, vats, inertia, mut blows)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2459,7 +3158,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::vats_mode::VatsMode>>, Option<Res<nvf_play::inertia::MovementInertia>>, Option<ResMut<PlayerBlows>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2506,6 +3205,8 @@ fn drive_body(
 
     // What the character is doing.
     let (grounded, swimming, ground_gap) = phys.player.as_ref().map_or((true, false, None), |c| (c.grounded, c.swimming, c.ground_gap));
+    // The body's vertical velocity in the air, for the weapon's jump and landing.
+    let vertical = phys.player.as_ref().filter(|c| !c.grounded && !c.swimming).map_or(0.0, |c| c.vertical_speed);
     let stance = if swimming {
         Stance::Swim
     } else if control.sneak {
@@ -2513,7 +3214,14 @@ fn drive_body(
     } else {
         Stance::Stand
     };
-    let (forward, right, fast) = if d.auto_walk > 0.0 { (1.0, 0.0, true) } else { (intent.forward, intent.right, !intent.walk) };
+    // The movement clips: the keys', or with movement inertia the way the body glides
+    // once the keys are let go or brakes against them (`nvf_play::inertia`).
+    let (forward, right, fast) = if d.auto_walk > 0.0 {
+        (1.0, 0.0, true)
+    } else {
+        let (f, r, walk) = inertia.as_deref().map_or((intent.forward, intent.right, intent.walk), |i| i.clip_intent(intent.forward, intent.right, intent.walk, player.heading));
+        (f, r, !walk)
+    };
     let feet = player.feet;
     if dt > 0.0 {
         let step = m.last_feet.map_or(Vec2::ZERO, |l| Vec2::new(feet[0] - l[0], feet[1] - l[1]) / dt);
@@ -2539,6 +3247,15 @@ fn drive_body(
     let was_falling = m.falling;
     m.falling = m.airborne > 0.0 && (m.falling || (m.airborne >= AIRBORNE_LOOP && ground_gap.is_none_or(|g| g > FALL_GAP)));
     let landing = was_falling && airborne_before >= AIRBORNE_LAND && m.airborne == 0.0;
+    if m.airborne > 0.0 {
+        m.fall_speed = m.fall_speed.max(-vertical);
+    } else {
+        if landing {
+            m.landed_speed = m.fall_speed;
+            info!("player view: landed at {:.0} units/s", m.landed_speed);
+        }
+        m.fall_speed = 0.0;
+    }
     m.falls += u32::from(m.falling && !was_falling);
     m.landings += u32::from(landing);
     if m.falling != was_falling {
@@ -2634,13 +3351,53 @@ fn drive_body(
         _ => &mut body.third,
     };
     let (draw_t, away_t) = timing_rig.transitions(&mut ctx, stance, prefix);
-    // The Equip Speed perks (Quick Draw): the draw and holster take 1 ÷ the rate as long.
-    let eq = if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 };
-    let quick = |t: fnv_actor::player_clips::Transition| fnv_actor::player_clips::Transition { length: t.length / eq, switch_at: t.switch_at / eq };
-    let (draw_t, away_t) = (quick(draw_t), quick(away_t));
+    // The Equip Speed perks (Quick Draw): the draw and holster take 1 ÷ the rate as long;
+    // times the player's Agility (the original's), or with Weapon Handling the weapon's
+    // weight and the attributes by its class (`nvf_play::inertia::MovementInertia::equip_rate`).
+    let equip_pace = inertia.as_deref().map_or(1.0, |i| i.equip_rate());
+    let eq = if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 } * equip_pace;
+    // With movement inertia the clip is played along its curve (`equip_curve`, `Frame::equip_at`):
+    // the weapon changes hands when the curve reaches the clip's own moment for it.
+    let warped = inertia.as_deref().is_some_and(|i| i.smooth_hands());
+    // Played by its motion (`ClipMotion`): the moment is where the curve reaches the motion
+    // done by then.
+    let (draw_c, away_c) = (timing_rig.clip(&mut ctx, ClipKey::Equip(stance, prefix, true)), timing_rig.clip(&mut ctx, ClipKey::Equip(stance, prefix, false)));
+    let skel = timing_rig.animator.skel.clone();
+    let quick = |t: fnv_actor::player_clips::Transition, c: Option<&Arc<ClipInfo>>| {
+        let length = t.length / eq;
+        let moved = |x: f32| c.map_or(x, |c| c.motion(&skel).done_at(x));
+        let switch_at = if warped && t.length > 0.0 { length * equip_curve_inv(moved(t.switch_at / t.length)) } else { t.switch_at / eq };
+        fnv_actor::player_clips::Transition { length, switch_at }
+    };
+    let (draw_t, away_t) = (quick(draw_t, draw_c.as_ref()), quick(away_t, away_c.as_ref()));
     let want_out = control.weapon_out && stance != Stance::Swim;
     let mut events = std::mem::take(&mut m.events);
     m.hands.update(want_out, dt, draw_t, away_t, &mut events);
+    let equip_at = match m.hands.phase {
+        WeaponPhase::Drawing if warped && draw_t.length > 0.0 => Some(equip_curve(m.hands.time / draw_t.length)),
+        WeaponPhase::Holstering if warped && away_t.length > 0.0 => Some(equip_curve(m.hands.time / away_t.length)),
+        _ => None,
+    };
+    // The first-person view's way into a crouch and out of one (`Frame::stance_fade`): a
+    // timer over the cross-over's time, for the clips' fades while it runs and for the log.
+    let crouching = stance == Stance::Sneak;
+    let crouch_seconds = inertia.as_deref().filter(|i| i.eased_crouch() && stance != Stance::Swim).map(|i| i.crouch_seconds(crouching));
+    let stance_fade = match crouch_seconds {
+        Some(t) => {
+            let goal = f32::from(u8::from(crouching));
+            let was = m.crouch.value;
+            m.crouch.retarget(goal, t, 1.0);
+            m.crouch.step(dt);
+            if m.crouch.value == goal && was != goal {
+                info!("player view: {} (eased crouch)", if crouching { "crouched" } else { "standing" });
+            }
+            (m.crouch.value != goal || was != goal).then_some(t)
+        }
+        None => {
+            m.crouch = nvf_play::ease::EaseOut::at(f32::from(u8::from(crouching)));
+            None
+        }
+    };
 
     // Attacks and reloads (combat): the clips of the weapon, their timing in the rig in
     // view, and whether combat started one since the last frame.
@@ -2733,7 +3490,20 @@ fn drive_body(
             info!("player body: {} in first person", if driven.0 { "not drawn while the idle drives the view" } else { "drawn again" });
         }
     }
+    // The switches of Advanced movement (`nvf_play::inertia::MovementInertia`, the main
+    // switch over all; the sway's, the head bob's and the breath's are `PlayerBody`'s).
+    let smooth_with = inertia.as_deref().filter(|i| i.smooth_hands());
+    let smooth = smooth_with.is_some();
+    let advanced = inertia.as_deref().is_none_or(|i| i.advanced);
     let frame = Frame {
+        inertia: smooth,
+        crouch_jump: inertia.as_deref().is_some_and(|i| i.eased_crouch()),
+        aim_fade: inertia.as_deref().filter(|i| i.smooth_hands() || i.handles()).map(|i| i.aim_seconds(control.aiming)),
+        stance_fade,
+        move_fade: smooth.then_some(nvf_play::inertia::MOVE_FADE_SECONDS),
+        land_stretch: inertia.as_deref().filter(|i| i.landing_weight()).map(|i| i.land_stretch(m.landed_speed)),
+        hands_pace: smooth_with.map(|i| i.hands()),
+        equip_at,
         dt,
         stance,
         dirs: direction_weights(forward, right),
@@ -2763,9 +3533,10 @@ fn drive_body(
         reload_round_now,
         reload_rate: if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 },
         attack_rate: if anim.attack_rate > 0.0 { anim.attack_rate } else { 1.0 },
-        equip_rate: if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 },
+        equip_rate: eq,
         spin_now,
         wind_now,
+        throw_held: anim.throw_held,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
     // its eye counts from the feet as before: without the sink, and without the share of
@@ -2787,7 +3558,7 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, sequences:&sequences.third, sequence_dt: dt, pipboy: None, sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + eye_sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -2807,6 +3578,26 @@ fn drive_body(
         seat.hold = Some(h.feet);
     }
     let pipboy = (pip.on_arm() && pip.warming.is_none()).then_some(pip.clip_time);
+    // A heavier weapon in the hand sways slower and further, with its switch on.
+    let gun_weight = combat.as_deref().filter(|_| m.hands.in_hand).and_then(|c| c.forms.weapons.get(&c.player_weapon()?)).map_or(0.0, |w| w.weight);
+    let weight = gun_weight;
+    // A shot of a gun or launcher this frame: its recoil on the gun's springs, stronger for
+    // a heavier gun (`view_sway.rs`); thrown and melee weapons have none.
+    let soft_recoil = inertia.as_deref().is_none_or(|i| i.soft_recoil());
+    let kick = if attack_now && matches!(prefix, "1hp" | "2hr" | "2ha" | "2hh" | "2hl") { 0.7 + 0.6 * nvf_play::ease::smoothstep(2.0, 20.0, gun_weight) } else { 0.0 };
+    // The blows taken since last frame, as one punch (already in the view's frame).
+    let punch = blows.as_deref_mut().map_or(Vec3::ZERO, |b| std::mem::take(&mut b.punch));
+    let punch = if advanced && state.head_bob { punch } else { Vec3::ZERO };
+    let hard_landings = inertia.as_deref().is_some_and(|i| i.landing_weight());
+    // The arms' field of view: the console's `fov` can ask for another first-person field
+    // of view; otherwise the settings page's (`--viewmodel-fov`). The sway, tuned at the
+    // original's 55°, is scaled against the arms' size for it, so it looks the same size at
+    // any viewmodel field of view (`view_sway::rescale`).
+    let viewmodel_fov = {
+        let (asked_fov, args) = &first_fov;
+        asked_fov.as_ref().and_then(|f| f.0).or_else(|| args.as_ref().map(|a| a.viewmodel_fov)).unwrap_or(FIRST_PERSON_FOV)
+    };
+    let sway_share = arms_magnification(1.0, FIRST_PERSON_FOV) / arms_magnification(1.0, viewmodel_fov).max(1e-3);
     // The arms sway in first person by themselves: not under the Pip-Boy or an idle.
     let sway = body.first.as_ref().map_or(SwayPose::NONE, |f| {
         m.sway.update(SwayInput {
@@ -2814,13 +3605,33 @@ fn drive_body(
             heading: player.heading,
             pitch: player.pitch,
             velocity: m.velocity,
+            vertical,
             phase: f.animator.phase,
             sights: control.aiming,
             sneaking: stance == Stance::Sneak,
             airborne: m.falling,
-            on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            heft: crate::view_sway::heft(weight),
+            breathing: true,
+            hard_landings,
+            // How far the gun is up to aim or block: the true iron sights' own share
+            // while they ran last frame, else the aim or block clip asked for.
+            raised: if m.sights_ran { m.sights_eased } else { f32::from(u8::from(control.aiming && m.hands.in_hand)) },
+            // How far the weapon is drawn: with movement inertia the draw's and the holster's
+            // own progress, so their trail moves with the clip; a step at the draw's end
+            // dipped the gun 1.4 units after the clip had settled (ninth playtest's trace).
+            drawn: match (equip_at, m.hands.phase) {
+                (Some(at), WeaponPhase::Drawing) => at,
+                (Some(at), WeaponPhase::Holstering) => 1.0 - at,
+                _ => f32::from(u8::from(m.hands.in_hand && m.hands.phase == WeaponPhase::Drawn)),
+            },
+            kick,
+            punch,
+            exertion: if advanced && state.head_bob { m.head.exertion() } else { 0.0 },
+            reloading: f32::from(u8::from(f.animator.layers.iter().any(|l| l.tag == TAG_RELOAD && !l.finished() && !l.is_leaving()))),
+            on: advanced && state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
+    let sway = crate::view_sway::rescale(sway, sway_share);
     // The head bob in first person moves the whole arms rig, camera node, arms and
     // weapon together (`head_bob.rs`).
     if let Some(f) = body.first.as_ref() {
@@ -2832,7 +3643,17 @@ fn drive_body(
             sights: control.aiming,
             sneaking: stance == Stance::Sneak,
             airborne: m.falling,
-            on: state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            velocity: m.velocity,
+            vertical,
+            out_of_breath: advanced && state.head_bob,
+            hard_landings,
+            // The take-off and landing dip is Movement Inertia's, the rest Camera Motion's.
+            landing: hard_landings && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            breathing: advanced && state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+            // The view's nudge back from a shot is Advanced Recoil's.
+            kick: if soft_recoil { kick } else { 0.0 },
+            punch,
+            on: advanced && state.head_bob && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         });
         at = [at[0] + o.x, at[1] + o.y, at[2] + o.z];
     }
@@ -2874,38 +3695,68 @@ fn drive_body(
         f.use_lens = lens_aim;
     }
     let sights_can = !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()) && (lens_aim || (state.true_iron_sights && body.first.as_ref().is_some_and(|f| f.sighting.is_some())));
-    m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
-    let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
+    // With movement inertia the gun's way up to the eye takes the aim clips' cross-over time
+    // (`Frame::aim_fade`).
+    let aimed = zoom.as_deref().is_some_and(|z| z.aimed);
+    // `sights_share`: the way's progress (0 down, 1 on the eye); `sights_eased`: how far the
+    // gun is moved. With movement inertia along the settling curve over the aim's times
+    // (the aim clips' cross-over and the zoom run on the same), else straight and eased.
+    (m.sights_share, m.sights_eased) = match (sights_can, smooth_with) {
+        (false, _) => {
+            m.sights.reset();
+            (0.0, 0.0)
+        }
+        (true, None) => {
+            // Weapon Handling's pace, else the sights' own; the settling curve kept where
+            // the gun is, so Animation Smoothing switched on part-way goes on from there.
+            let s = match inertia.as_deref().filter(|i| i.handles()) {
+                Some(i) => crate::iron_sights::step_over(m.sights_share, aimed, dt, i.aim_seconds(true), i.aim_seconds(false)),
+                None => crate::iron_sights::step(m.sights_share, aimed, dt),
+            };
+            let eased = crate::iron_sights::ease(s);
+            m.sights.place(eased, aimed);
+            (s, eased)
+        }
+        (true, Some(i)) => {
+            let v = m.sights.step(aimed, dt, i.aim_seconds(true), i.aim_seconds(false));
+            (if m.sights.is_up() { 1.0 } else if m.sights.is_down() { 0.0 } else { v.clamp(1e-4, 1.0 - 1e-4) }, v)
+        }
+    };
+    m.sights_ran = sights_can;
+    let sights_in = (m.sights_share > 0.0).then_some(m.sights_eased);
     // The view's direction in the arms rig's own frame (turned by the heading only); a 3D
     // scope's sway turns the gun off it (`scope_view.rs`).
     let gun_dir = match lens_sway.as_deref().filter(|_| lens_aim) {
         Some(s) => s.look_dir(player.heading, player.pitch),
         None => nvf_play::space::look_dir(player.heading, player.pitch),
     };
-    let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(gun_dir)));
+    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(gun_dir)));
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {
         t.0 = lined;
     }
-    if sights_in.is_some_and(|s| s >= 1.0) != m.sights_told {
+    if (m.sights_share >= 1.0) != m.sights_told {
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences:&sequences.first, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, sequences: &sequences.first, sequence_dt: dt.max(sequences.first_menu_dt), pipboy, sway, sights };
+    // With movement inertia the arms' looping clips have their seams smoothed (the idle's
+    // hand turned back in one frame at each loop; `nvf_assets::anim_blend` `Seams`).
+    if let Some(f) = body.first.as_mut() {
+        f.animator.smooth_seams(smooth.then_some(SEAM_SECONDS));
+    }
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
     // the world's, and narrower still while the Pip-Boy shows.
+    let mut lens_k = 1.0;
     if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
         let vfov = cams.single().ok().and_then(|p| match p {
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
-        // The console's `fov` can ask for another first-person field of view; otherwise
-        // the settings page's (`--viewmodel-fov`).
-        let (asked_fov, args) = first_fov;
-        let first_fov = asked_fov.and_then(|f| f.0).or_else(|| args.map(|a| a.viewmodel_fov)).unwrap_or(FIRST_PERSON_FOV);
+        let first_fov = viewmodel_fov;
         let k = match (pip.on_arm() && pip.warming.is_none(), vfov) {
             (true, Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
@@ -2916,6 +3767,7 @@ fn drive_body(
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));
         place_lens(f, eye, forward, k, &mut transforms);
+        lens_k = k;
     }
     match first.and_then(|(_, v)| v) {
         Some(v) => {
@@ -2947,6 +3799,22 @@ fn drive_body(
         Some(e)
     });
     player.body_eye = eye.map(|e| e.to_array());
+    // Test aid: one line a frame of the first-person motion (`MotionTrace`).
+    if trace.wanted() {
+        let left = body.first.as_ref().and_then(|f| {
+            let bone = |n: &str| f.animator.skel.by_name.get(n).copied();
+            Some(Vec3::from(f.animator.model_space(bone("Bip01 L Hand")?).translation) - Vec3::from(f.animator.model_space(bone("Camera1st")?).translation))
+        });
+        let hand = body.first.as_ref().and_then(|f| {
+            let bone = |n: &str| f.animator.skel.by_name.get(n).copied();
+            let (h, c) = (f.animator.model_space(bone("Bip01 R Hand")?), f.animator.model_space(bone("Camera1st")?));
+            let rot = |a: Affine3A| a.to_scale_rotation_translation().1;
+            let turn = rot(c).inverse() * rot(h);
+            Some((Vec3::from(h.translation) - Vec3::from(c.translation), turn.to_scaled_axis()))
+        });
+        trace.write(time.elapsed_secs_f64(), dt, &player, eye, hand, sway, (m.sights_share, control.aiming, m.falling, stance == Stance::Sneak, m.speed, m.hands.phase == WeaponPhase::Drawn), m.airborne, left, lens_k);
+        trace.write_layers(time.elapsed_secs_f64(), &m.hands, body.first.as_ref().map(|f| &f.animator));
+    }
     state.head_eye = third_eye.filter(|_| third_view).map(|e| e.to_array());
     // The third-person pivot: the head's height above the feet without the stride's
     // rise and fall (`head_bob.rs`).
@@ -3069,6 +3937,92 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hand_over_sets_off_softly_and_ends_at_rest() {
+        assert_eq!(handover_share(0.0), 0.0);
+        assert_eq!(handover_share(EQUIP_HANDOVER_FROM), 0.0);
+        assert_eq!(handover_share(1.0), 1.0);
+        let d = 1e-3;
+        let speed = |x: f32| (handover_share(x + d) - handover_share(x)) / d;
+        assert!(speed(EQUIP_HANDOVER_FROM) < 1e-3 && speed(1.0 - d) < 1e-2, "no speed at either end");
+        // Its pull grows from nothing: a tenth of the way in it moves at under a fifth of its
+        // top speed (the settling curve's start was at about three fifths).
+        let top = speed(0.5 * (1.0 + EQUIP_HANDOVER_FROM));
+        assert!(speed(EQUIP_HANDOVER_FROM + 0.1 * (1.0 - EQUIP_HANDOVER_FROM)) < 0.2 * top);
+        // Its last quarter only tapers off: under a fifth of the way left, entered at under
+        // two thirds of its top speed (the owner, 2026-11-16: "make the last 25% smoother").
+        let top = (0..100).map(|i| speed(EQUIP_HANDOVER_FROM + i as f32 * 0.0064)).fold(0.0f32, f32::max);
+        assert!(1.0 - handover_share(EQUIP_TAIL_FROM) < 0.2, "{} left", 1.0 - handover_share(EQUIP_TAIL_FROM));
+        assert!(speed(EQUIP_TAIL_FROM) < 0.67 * top, "{} against {top}", speed(EQUIP_TAIL_FROM));
+        // (Steps of a hundredth: finer ones are lost to f32 rounding of the polynomial.)
+        let coarse = |x: f32| (handover_share(x + 0.01) - handover_share(x)) / 0.01;
+        assert!((1..=24).all(|i| coarse(EQUIP_TAIL_FROM + i as f32 * 0.01) <= coarse(EQUIP_TAIL_FROM + (i - 1) as f32 * 0.01)), "it only slows over the last quarter");
+    }
+
+    #[test]
+    fn a_draws_last_quarter_eases_to_rest_from_the_settling_curve() {
+        // The settling curve up to the last quarter, the same ends.
+        for x in [0.0, 0.2, 0.5, EQUIP_TAIL_FROM] {
+            assert_eq!(equip_curve(x), nvf_play::ease::settle(x), "at {x}");
+        }
+        assert!((equip_curve(1.0) - 1.0).abs() < 1e-6);
+        // Place, speed and pull carry on across the join.
+        let (_, v, a) = nvf_assets::anim_blend::settle_slopes(EQUIP_TAIL_FROM);
+        let d = 1e-3;
+        let (x0, x1, x2) = (EQUIP_TAIL_FROM, EQUIP_TAIL_FROM + d, EQUIP_TAIL_FROM + 2.0 * d);
+        let speed = (equip_curve(x1) - equip_curve(x0)) / d;
+        let pull = (equip_curve(x2) - 2.0 * equip_curve(x1) + equip_curve(x0)) / (d * d);
+        assert!((speed - v).abs() < 0.01 && (pull - a).abs() < 0.2, "speed {speed} against {v}, pull {pull} against {a}");
+        // It only rises, and arrives with no speed and no pull, where the settling curve
+        // still brakes.
+        let n = 1000;
+        assert!((1..=n).all(|i| equip_curve(i as f32 / n as f32) >= equip_curve((i - 1) as f32 / n as f32)));
+        let (_, end_speed, end_pull) = nvf_assets::anim_blend::settle_slopes(1.0);
+        assert!(end_speed.abs() < 1e-4 && end_pull < -0.5, "the settling curve brakes to its end: {end_pull}");
+        let h = 0.01;
+        let tail_speed = (1.0 - equip_curve(1.0 - h)) / h;
+        let settle_speed = (1.0 - nvf_play::ease::settle(1.0 - h)) / h;
+        assert!(tail_speed < 0.5 * settle_speed, "its last hundredth goes slower: {tail_speed} against {settle_speed}");
+        // The inverse finds the time again.
+        for x in [0.1, 0.5, 0.8, 0.95] {
+            assert!((equip_curve_inv(equip_curve(x)) - x).abs() < 1e-3, "at {x}");
+        }
+    }
+
+    #[test]
+    fn a_clip_is_played_by_its_motion_and_its_jumps_are_found() {
+        // All the motion in the first fifth of the time (the fists' draw).
+        let done: Vec<f32> = (0..=MOTION_STEPS).map(|i| (i as f32 / (0.2 * MOTION_STEPS as f32)).min(1.0)).collect();
+        let m = ClipMotion { done, jumps: vec![0.97] };
+        assert!((m.time_for(0.5) - 0.1).abs() < 1e-3, "half the motion at a tenth of the time: {}", m.time_for(0.5));
+        assert!((m.time_for(1.0) - 0.2).abs() < 1e-2 && m.time_for(0.0) == 0.0);
+        for share in [0.1, 0.3, 0.77, 0.95] {
+            assert!((m.done_at(m.time_for(share)) - share).abs() < 1e-3, "{share}");
+        }
+        assert!(m.jumps_between(0.9, 0.98) && m.jumps_between(0.98, 0.9) && !m.jumps_between(0.5, 0.96) && !m.jumps_between(0.97, 0.99));
+        // A still clip goes by its clock.
+        let still = ClipMotion { done: (0..=MOTION_STEPS).map(|i| i as f32 / MOTION_STEPS as f32).collect(), jumps: Vec::new() };
+        assert!((still.time_for(0.4) - 0.4).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_pip_boy_clip_settles_into_its_hold_and_sets_off_from_rest() {
+        use nvf_play::pipboy::{CLIP_SECONDS, HOLD_SECONDS};
+        let speed = |t: f32| (pipboy_clip_time(t + 1e-3) - pipboy_clip_time(t - 1e-3)) / 2e-3;
+        assert_eq!(pipboy_clip_time(0.0), 0.0);
+        assert!((pipboy_clip_time(HOLD_SECONDS) - HOLD_SECONDS).abs() < 1e-6);
+        assert!((pipboy_clip_time(CLIP_SECONDS) - CLIP_SECONDS).abs() < 1e-5);
+        assert!((speed(1e-3) - 1.0).abs() < 0.02, "starts at the clip's own speed: {}", speed(1e-3));
+        assert!(speed(HOLD_SECONDS - 1e-3).abs() < 0.03 && speed(HOLD_SECONDS + 1e-3).abs() < 0.03, "at rest at the hold");
+        assert!((speed(CLIP_SECONDS - 2e-3) - 1.0).abs() < 0.03, "ends at the clip's own speed");
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let t = pipboy_clip_time(CLIP_SECONDS * i as f32 / 100.0);
+            assert!(t >= last, "never backwards");
+            last = t;
+        }
+    }
 
     #[test]
     fn hidden_pose_cleanup_restores_transforms_visibility_and_only_its_own_culling() {

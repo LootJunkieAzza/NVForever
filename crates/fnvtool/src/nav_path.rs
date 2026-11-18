@@ -55,6 +55,9 @@ pub struct PathOpts {
     /// Locked doors may be used.
     #[arg(long)]
     pub open_locked: bool,
+    /// [design, #2716] In-place door known to stand open (FormID; repeatable).
+    #[arg(long = "open-door", value_parser = crate::parse_formid)]
+    pub open_doors: Vec<u32>,
     /// Keys the actor carries (FormIDs, comma-separated): the locked doors they open may
     /// be used.
     #[arg(long, value_delimiter = ',', value_parser = crate::parse_formid)]
@@ -71,6 +74,7 @@ impl PathOpts {
             large: self.large,
             water: !self.no_water,
             open_locked: self.open_locked,
+            open_doors: self.open_doors.clone(),
             keys: self.keys.clone(),
             ..d
         }
@@ -922,4 +926,25 @@ pub fn observed_cmd(lo: &LoadOrder, schema: &Schema, files: &[std::path::PathBuf
             "list": walks,
         },
     }))
+}
+
+#[cfg(test)]
+mod path_opts_tests {
+    use super::*;
+
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(flatten)]
+        options: PathOpts,
+    }
+
+    #[test]
+    fn repeated_open_door_options_feed_path_parameters() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["nav-test", "--open-door", "0xD00", "--open-door", "D01"]).unwrap();
+        let params = cli.options.params();
+        assert_eq!(params.open_doors, [0xD00, 0xD01]);
+        assert!(!params.open_locked);
+        assert!(Cli::try_parse_from(["nav-test", "--open-door", "invalid"]).is_err());
+    }
 }

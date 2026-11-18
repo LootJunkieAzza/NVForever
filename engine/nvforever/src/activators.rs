@@ -22,9 +22,8 @@
 
 use bevy::prelude::*;
 use nvf_assets::anim_play::Playing;
-use nvf_assets::material_anim::RigMaterials;
+use nvf_assets::material_anim::{RigMaterialDrawing, RigMaterials};
 use nvf_assets::model::PreparedModel;
-use nvf_assets::nif_material::NifMaterial;
 use nvf_play::doors::DoorTiming;
 use nvf_play::radio::RadioPlaces;
 use nvf_play::script::ScriptState;
@@ -72,7 +71,7 @@ pub fn drive(
     mut stats: ResMut<ActivatorStats>,
     mut rigs: Query<(&mut ActivatorRig, Option<&mut Playing>, Option<&mut RigMaterials>)>,
     mut transforms: Query<&mut Transform>,
-    mut materials: ResMut<Assets<NifMaterial>>,
+    mut materials: RigMaterialDrawing,
 ) {
     let (Some(places), Some(script)) = (places, script) else { return };
     // Not before the scripts' first frame: until then (the start's loading screen) the

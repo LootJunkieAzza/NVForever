@@ -118,6 +118,11 @@ pub struct Timing {
     pub attack_chance: f64,
 }
 
+/// The topics a companion's comments on its state come in, which the player's Remove
+/// Follower Topics tweak keeps it from saying [hypothesis: the readme's "injured, needing
+/// ammo, weapons"; the masters' Combat topics HealthHalf, HealthQuarter, Crippled, NoAmmo].
+pub const FOLLOWER_COMMENTS: [&str; 4] = ["HealthHalf", "HealthQuarter", "Crippled", "NoAmmo"];
+
 impl Default for Timing {
     fn default() -> Timing {
         Timing { hit_threshold: 0.01, hit_chance: 0.01, attack_wait: (5.0, 30.0), attack_chance: 0.01 }
@@ -223,6 +228,12 @@ impl Game<'_> {
     /// `Game::detection_bark`). Returns the line said.
     pub fn combat_line(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) -> Option<FormId> {
         if self.menu.is_some() || self.dialogue.is_some() || self.is_talking(actor) || self.is_dead(actor) {
+            return None;
+        }
+        // The player's Remove Follower Topics tweak: companions keep their hurts and wants
+        // to themselves [design: docs/design/tweaks.md; hypothesis: which topics the
+        // readme's "injured, needing ammo, weapons" means].
+        if self.tweaks.quiet_followers && FOLLOWER_COMMENTS.contains(&topic) && self.is_teammate(actor) {
             return None;
         }
         self.say_combat(actor, about, topic)
@@ -400,10 +411,17 @@ impl Game<'_> {
         if friendly && !self.package_allows(target, crate::package::fallout::FRIENDLY_FIRE_COMMENTS) {
             return;
         }
+        // The player's tweak: the player's pain line no more often than every so many
+        // seconds [design: docs/design/tweaks.md].
+        let gap = if target == FormId::PLAYER_REF { self.tweaks.player_pain_gap } else { 0.0 };
+        if gap > 0.0 && self.combat_lines.next_said.get(&(target, "Hit")).is_some_and(|&at| self.time < at) {
+            return;
+        }
         let t = self.combat_timing();
         let roll = self.combat_lines.unit();
-        if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) {
-            self.combat_line(target, attacker, "Hit");
+        if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) && self.combat_line(target, attacker, "Hit").is_some() && gap > 0.0 {
+            let at = self.time + gap;
+            self.combat_lines.next_said.insert((target, "Hit"), at);
         }
     }
 

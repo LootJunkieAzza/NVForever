@@ -107,8 +107,10 @@ fn face(image: Handle<Image>) -> Face {
             size: 20.0,
             texture: String::new(),
             glyphs,
+            extra: Default::default(),
         },
         image: Some((image, Vec2::splat(64.0))),
+        vector: None,
     }
 }
 
@@ -117,13 +119,15 @@ fn line() -> Line {
         // The second u begins 13 interface units later. At 720 px high that is
         // 9.75 physical pixels: the two copies are deliberately in different x phases.
         glyphs: vec![
-            Placed { code: b'u', x: 0.0 },
+            Placed { code: b'u', ch: 'u', x: 0.0 },
             Placed {
                 code: b'u',
+                ch: 'u',
                 x: U_WIDTH,
             },
             Placed {
                 code: b'x',
+                ch: 'x',
                 x: 2.0 * U_WIDTH,
             },
         ],

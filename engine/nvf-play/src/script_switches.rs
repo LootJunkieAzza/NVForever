@@ -59,7 +59,7 @@ fn category_index(c: SoundCategory) -> usize {
     }
 }
 
-fn sync(
+pub(crate) fn sync(
     mut script: Option<ResMut<ScriptState>>,
     mut switches: ResMut<ScriptSwitches>,
     volumes: Option<Res<SoundVolumes>>,
@@ -118,10 +118,16 @@ fn sync(
     let Ok(mut window) = windows.single_mut() else { return };
     let size = (f64::from(window.width()), f64::from(window.height()));
     j.window = Some(size);
+    let start_menu_warp = std::mem::take(&mut j.cursor_warp_start_menu);
     if let Some((x, y, xml)) = j.cursor_warp.take() {
         // XML units are the interface's 960-high frame (`crate::tiles::input::to_units`).
         let per = size.1.max(1.0) / 960.0;
-        let (px, py) = if xml { (x * per, y * per) } else { (x, y) };
+        let (mut px, mut py) = if xml { (x * per, y * per) } else { (x, y) };
+        if xml && start_menu_warp {
+            let at = crate::interface::to_menu_frame(Vec2::new(px as f32, py as f32), Vec2::new(size.0 as f32, size.1 as f32), crate::interface::MIDDLE);
+            px = f64::from(at.x);
+            py = f64::from(at.y);
+        }
         let at = Vec2::new(px.clamp(0.0, size.0) as f32, py.clamp(0.0, size.1) as f32);
         window.set_cursor_position(Some(at));
     }

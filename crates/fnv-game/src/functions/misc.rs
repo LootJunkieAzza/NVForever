@@ -41,8 +41,11 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
     // it [observed: MenuMode 1001 while the pack plugins' boxes were open,
     // layer5-captures.md §10.1]; other messages are corner notifications.
+    // `--no-messages` answers a box that asks nothing as it is shown (`Game::answer_ok_box`).
     if is_box || !buttons.is_empty() {
-        g.show_box(m);
+        if !g.answer_ok_box(m, buttons.len()) {
+            g.show_box(m);
+        }
     } else {
         let icon = match icon.and_then(|i| crate::nvse::record_value(g, i, "ICON", "")) {
             Some(fnv_script::vm::XVal::Str(p)) => p,
@@ -231,16 +234,21 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 /// `speaker.SayTo target topic [forceSubtitleFlag] [noTargetLookFlag]`: the speaker
 /// says the topic's first line it can say to the target (`Game::say`,
-/// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
-/// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
-/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
-/// subtitle flag shows the subtitle even out of hearing, as Say's ForceSubtitles.
+/// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said
+/// (`Game::facings`). With `noTargetLookFlag` 1 nobody turns, body or head
+/// (`LineLook::Nobody`): the target is not made to look at the speaker [documented: GECK
+/// wiki SayTo, owner export: "Joe is not forced to look at the speaker"] and the speaker
+/// does not turn to the target either [hypothesis, observer check 218, #2796: the name
+/// reads as "no look at the target", and 22 shipped calls pass it with the player as
+/// target, where the wiki's reading alone would do nothing; Curtis's radio call in the
+/// McCarran tower needs him to keep his back to the player]. The subtitle flag shows the
+/// subtitle even out of hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
     if g.say_by_script(speaker, Some(target), topic, true).is_some() {
         if a.num_or(3, 0.0) != 0.0 {
-            g.set_line_look(speaker, LineLook::Speaker);
+            g.set_line_look(speaker, LineLook::Nobody);
         }
         // forceSubtitleFlag as Say's ForceSubtitles (207 shipped calls pass 1).
         g.set_line_flags(speaker, a.num_or(2, 0.0) != 0.0, false);
@@ -433,6 +441,9 @@ pub fn show_repair_menu(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// ban and opens it) [documented: GECK wiki ShowBlackJackMenuParams; docs/spec-notes/
 /// blackjack.md §1]. Left out, the bets run from 1 to 200 (every table's script passes
 /// those [observed]); a max winnings of 0 is the casino's own [hypothesis].
+/// The No Casino Bet Limit tweak's limit: more than any purse holds [design: docs/design/tweaks.md].
+pub const NO_BET_LIMIT: u32 = 1_000_000;
+
 pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let casino = a.form(0)?;
     if !g.data.casinos.contains_key(&casino) {
@@ -440,6 +451,8 @@ pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, 
     }
     let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
     let max_bet = (a.num_or(2, 200.0).max(0.0) as u32).max(min_bet);
+    // The player's tweak lifts the table's limit [design: docs/design/tweaks.md].
+    let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
     g.blackjack_requests.push(crate::blackjack::BlackjackRequest { casino, min_bet, max_bet, max_winnings });
     none()
@@ -457,6 +470,7 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     }
     let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
     let max_bet = (a.num_or(2, 200.0).max(0.0) as u32).max(min_bet);
+    let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
     g.roulette_requests.push(crate::roulette::RouletteRequest { casino, min_bet, max_bet, max_winnings });
     none()
@@ -474,6 +488,7 @@ pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
     }
     let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
     let max_bet = (a.num_or(2, 75.0).max(0.0) as u32).max(min_bet);
+    let max_bet = if g.tweaks.no_max_casino_bet { NO_BET_LIMIT } else { max_bet };
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
     g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings });
     none()

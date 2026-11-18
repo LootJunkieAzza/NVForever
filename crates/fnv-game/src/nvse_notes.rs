@@ -59,6 +59,12 @@ impl Game<'_> {
         self.player.notes_read.insert(id);
     }
 
+    /// The player marks a note unread again (the Mark Notes Unread tweak [design: docs/design/tweaks.md]). Saved.
+    pub fn mark_note_unread(&mut self, id: FormId) {
+        self.note_read_session.remove(&id);
+        self.player.notes_read.remove(&id);
+    }
+
     /// Change a note for the session, starting from what it is now; false for a form
     /// that is not a note.
     fn edit_note(&mut self, id: FormId, f: impl FnOnce(&mut NoteDef)) -> bool {

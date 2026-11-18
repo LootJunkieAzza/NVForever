@@ -149,7 +149,11 @@ groups FalloutNV.esm's scripts play on which objects.
     when on]. The unlit shader ignores emissive (nif.md §6), so every unlit shape the
     idle drives (the jukebox's light tubes `JukeBox01:1`, opaque; the notes `Music` and
     `Bubbles`, additive: NiAlphaProperty 4097) is drawn black while off (alpha 0 if
-    blended), and gets its stored colour back when on. The original's tubes go dark when
+    blended), and gets its stored colour back when on. [design, #2685:
+    `material_anim::RigMaterials::apply`] Reactivation also restores the cached base
+    alpha when no alpha track or fade writes it; otherwise the animated/faded alpha
+    takes precedence, so the temporary dark alpha cannot keep a blended shape invisible.
+    The original's tubes go dark when
     switched off [observed: owner 2026-10-30, #1079]; the notes and bubbles vanishing
     with them is [hypothesis]. Before, the tubes froze at full texture brightness.
     Tube crop from the `NVF_PLAY_TEST_NEAR` spot (smoke `jukebox-tubes-off`), mean

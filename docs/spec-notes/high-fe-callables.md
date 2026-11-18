@@ -25,7 +25,11 @@ record over an existing lambda. Every newly written snapshot uses `/2`, includin
 old `/1`-only readers refuse ALL such new saves, not just saves containing lambdas.
 This unconditional writer change is unapproved, and is not backward-reader
 compatibility. It prevents old readers from ignoring explicit IDs and misreading
-sparse allocation.
+sparse allocation. A snapshot with retired scene provenance carries the same explicit
+IDs under `fnv.game.state/2-retired-scenes+lambda-ids`; the earlier
+`fnv.game.state/2-retired-scenes` is read with positional IDs, like `/1`
+([temporary scene bases](temporary-scene-bases.md)). That combined tag is part of the
+same unapproved writer policy.
 
 Implementation context (the same public pin, `fnv-save/src/lib.rs:498,573` and
 `nvf-play/src/save.rs:926`; not a native format observation): the JSON remapper

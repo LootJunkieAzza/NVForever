@@ -34,6 +34,9 @@
 //!     `crate::frame_gen::GeneratedFrames` (the performance overlay's count); a line every ten
 //!     seconds with real and presented frames; a status other than `eOk` while on turns frame
 //!     generation off for the session, said once with the flags' names [documented: §14.3].
+//!     The frames presented, with whether the mode was on, also decide what frame pacing's cap
+//!     is divided by (`fg_cap.rs`, #2731): the frames DLSS-G presents while it generates, 1 in
+//!     menus and while it presents one per real frame; each change is one `frame cap:` line.
 //! - **UI buffer** ([`ui_buffer`], stage 4 item 2; after the UI, before Bevy's upscaling blit,
 //!   where FSR's frame generation's `generate` sits): on a tagged frame a full-screen pass writes
 //!   a display-sized `R16Float` UI alpha from the frame (with the UI) and its HUD-less copy: 1
@@ -85,7 +88,34 @@
 //! - **Exit** ([`exit_watch`], in the extraction before Bevy's `extract_windows`): on `AppExit`
 //!   the mode is set off for the frame being extracted, which is still presented; on a window
 //!   closing the mode is set off at once (`extract_windows` queues the surface's removal, which
-//!   Bevy applies at the render world's `ExtractCommands`, before that frame renders).
+//!   Bevy applies at the render world's `ExtractCommands`, before that frame renders). Both
+//!   then reach `win.rs` `shutdown` from `main` once `App::run` has returned.
+//!   The order of the teardown, whatever ends the run:
+//!   1. the mode off ([`exit_mode_off`], once a run; the guide's way of disabling frame
+//!      generation, `mode` `eOff` [documented: `ProgrammingGuideDLSS_G.md` §6.4]) and the
+//!      window's swapchain released while it is off ("Turn DLSS-G off ... before any window
+//!      manipulation", §17; the swapchain released after the GPU is idle, §18.0's pseudocode);
+//!   2. the tags set null, the GPU drained and DLSS-G's resources freed with `slFreeResources`
+//!      ([documented: `ProgrammingGuide.md` §2.8 and the null tag before a resource goes,
+//!      `ProgrammingGuide.md:1017-1025`; `ProgrammingGuideDLSS_G.md` §6.4 step 2]);
+//!   3. `slShutdown`, "before destroying ... Vulkan instances, devices" [documented:
+//!      `ProgrammingGuideDLSS_G.md` §2.0; `ProgrammingGuide.md` §2.15], which unloads every
+//!      plugin (each one's `onShutdown`, then `FreeLibrary`) [documented: Streamline's source,
+//!      `src/sl.cpp:289-327` `slShutdown`, `src/pluginManager.cpp:1200-1229` `unloadPlugins`].
+//!
+//!   A loaded save's handoff ends the old run without `App::run` returning: `handoff.rs`
+//!   `end_now` calls `std::process::exit` from the `EndNow` schedule after `Last`, so neither
+//!   this frame's extraction (where [`exit_watch`] would see its `AppExit`) nor `main`'s
+//!   shutdown ran, and Streamline and DLSS-G were left to the DLLs' detach at process exit
+//!   [design]. In a player's runs every such exit with DLSS-G set up crashed in
+//!   `nvngx_dlssg.dll` on the main thread (#2733) [observed: the player's logs and dumps,
+//!   2026-11-15]; that the detach without `slShutdown` is the cause is a [hypothesis] the fix
+//!   tests. It now runs the same steps first (`super::end_now`): the render app taken back
+//!   from the render thread, FSR frame generation's presenters stopped and joined (they
+//!   present on threads of their own and hold the surface), then [`end_now`] here (step 1, the
+//!   mode off at once as for a closing window; the handoff's loading screen keeps the options
+//!   off before, `may_generate` needs play [design]), then `win.rs` `shutdown` (steps 2 and
+//!   3); the process ends after.
 //! - **Errors**: with DLSS-G loaded, `vkQueuePresentKHR` and `vkAcquireNextImageKHR` run
 //!   asynchronously inside Streamline and the host sees only "the last known error"; the
 //!   callback reports each call whose `VkResult` is not `VK_SUCCESS` and must return at once
@@ -216,6 +246,8 @@ struct FrameGen {
     pending_load: Option<bool>,
     /// The app is exiting: the mode stays off ([`exit_watch`]).
     exiting: bool,
+    /// The mode was set off at once for an exit ([`exit_mode_off`]): once a run.
+    exit_off: bool,
     /// This frame's HUD-less copy, for the UI buffer ([`ui_buffer`]); set by a tagged frame.
     ui_source: Option<wgpu::TextureView>,
     /// The UI buffer's pass and its two textures.
@@ -225,6 +257,8 @@ struct FrameGen {
     /// The swapchain was just made again by the live toggle: the mode stays off one frame more
     /// ([`window_changes`]).
     just_switched: bool,
+    /// What frame pacing's cap is divided by, from the frames presented ([`state`], `fg_cap.rs`).
+    cap: super::fg_cap::CapDivisor,
 }
 
 /// The UI buffer's full-screen pass, its textures (two used in turn, as the HUD-less) and the
@@ -274,6 +308,9 @@ impl FrameGen {
         shared.store(load, Ordering::Relaxed);
         self.applied = None;
         self.presented_off = true;
+        // Loaded or unloaded: the cap's divisor starts again at the full limit (`fg_cap.rs`).
+        self.cap = super::fg_cap::CapDivisor::default();
+        super::FG_DIVISOR.store(1, Ordering::Relaxed);
     }
 
     fn new(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) -> Self {
@@ -301,10 +338,12 @@ impl FrameGen {
             last_index: None,
             pending_load: None,
             exiting: false,
+            exit_off: false,
             ui_source: None,
             ui: None,
             ui_said: false,
             just_switched: false,
+            cap: super::fg_cap::CapDivisor::default(),
         }
     }
 }
@@ -348,11 +387,13 @@ fn on() -> bool {
 /// `slGetFeatureFunction` under `kFeatureDLSS_G`.
 pub(super) fn install(get_state: SlDlssgGetState, set_options: SlDlssgSetOptions, loaded: bool) {
     *frame_gen() = Some(FrameGen::new(get_state, set_options, loaded));
+    super::FG_DIVISOR.store(1, Ordering::Relaxed);
     ON.store(true, Ordering::Relaxed);
     ACTIVE.store(true, Ordering::Relaxed);
 }
 
-/// At shutdown (stage 4 item 6; `win.rs` `shutdown`, the render thread gone), the first steps of
+/// At shutdown (stage 4 item 6; `win.rs` `shutdown`, the render thread gone, or idle with the
+/// render app taken back from it at a handoff's end, `super::end_now`), the first steps of
 /// the order eOff, null tags, drain, `slFreeResources`, `slShutdown`: the mode set off and the frame's
 /// tags set null for the next frame number [documented:
 /// `ProgrammingGuide.md:1017-1025`, a tag set to null before the resource goes; fork-notes
@@ -768,6 +809,13 @@ fn state(world: &mut World) {
         period.presented += u64::from(state.num_frames_actually_presented);
     }
     let is_on = fg.applied.is_some_and(|a| a.on);
+    // What frame pacing's cap is divided by now (`fg_cap.rs`): the frames this present showed,
+    // whether the mode was on for it, the frames asked for.
+    let asked = fg.applied.map_or(1, |a| a.frames + 1);
+    if let Some(change) = fg.cap.after(super::fg_cap::Present { mode_on: is_on, presented: state.num_frames_actually_presented, asked }) {
+        super::FG_DIVISOR.store(change.to, Ordering::Relaxed);
+        note_fg(Level::INFO, change.line());
+    }
     {
         if let Some(generated) = &generated {
             generated.0.fetch_add(u64::from(state.num_frames_actually_presented.saturating_sub(1)), Ordering::Relaxed);
@@ -969,7 +1017,6 @@ fn follow_request(request: Extract<Option<Res<crate::frame_gen::DlssgRequest>>>)
     let mut guard = frame_gen();
     let Some(fg) = guard.as_mut() else { return };
     fg.requested_frames = request.frames.clamp(1, 3);
-    super::FG_MULTIPLIER.store(fg.requested_frames + 1, Ordering::Relaxed);
     if request.on == fg.loaded {
         // A newer choice cancels a switch that has not reached Streamline yet.
         fg.toggle = None;
@@ -1106,12 +1153,7 @@ fn toggle_switch(world: &mut World) {
     // is drained with the device.
     let quiet = crate::gpu_poll::quiet();
     let polled = world.resource::<bevy::render::renderer::RenderDevice>().wgpu_device().poll(wgpu::PollType::wait_indefinitely());
-    if let Some(mut window) = world.get_mut::<ExtractedWindow>(entity) {
-        drop(window.swap_chain_texture.take());
-        window.swap_chain_texture_view = None;
-    }
-    // wgpu waits for the device and destroys the swapchain, then the surface.
-    world.entity_mut(entity).remove::<SurfaceData>();
+    release_surface(world, entity);
     let freed = (!load).then(super::win::free_frame_generation);
     let result = super::win::set_frame_generation_loaded(load);
     drop(quiet);
@@ -1157,13 +1199,30 @@ fn exit_watch(mut exits: Extract<MessageReader<AppExit>>, mut closing: Extract<M
     if fg.exiting {
         return;
     }
-    fg.exiting = true;
     if !closes {
+        fg.exiting = true;
         note_fg(Level::INFO, "exit: DLSS-G's mode off for the last frame (AppExit)");
         return;
     }
+    // The render thread waits during the extraction: nothing else calls DLSS-G.
+    exit_mode_off(fg, "the window closes");
+}
+
+/// The mode set off at once for an exit (the module comment's "Exit", step 1), whatever ends
+/// the run: the window closing ([`exit_watch`]) or the run ending without Bevy's teardown
+/// ([`end_now`]). Once a run: a second call does nothing. The caller makes sure no other
+/// thread calls DLSS-G meanwhile (its functions are not thread safe, `sl_dlss_g.h:187-208`).
+/// Logs `exit: <why>: DLSS-G's mode off now: <result>`. Returns whether `slDLSSGSetOptions`
+/// was called.
+fn exit_mode_off(fg: &mut FrameGen, why: &str) -> bool {
+    fg.exiting = true;
+    if fg.exit_off {
+        return false;
+    }
+    fg.exit_off = true;
     if !fg.loaded {
-        return;
+        note_fg(Level::INFO, format!("exit: {why}: DLSS-G unloaded (the live toggle); no mode to set off"));
+        return false;
     }
     let mut options = off_options();
     if let Some(a) = fg.applied {
@@ -1171,12 +1230,62 @@ fn exit_watch(mut exits: Extract<MessageReader<AppExit>>, mut closing: Extract<M
     }
     let viewport = ViewportHandle::new(VIEWPORT);
     // SAFETY: DLSS-G's function with its header signature, options and viewport alive for the
-    // call; the render thread waits during the extraction.
+    // call; no other thread calls DLSS-G (the caller's condition).
     let result = unsafe { (fg.set_options)(&viewport, &options) };
     if result.is_ok() {
         fg.applied = fg.applied.map(|a| Applied { on: false, ..a });
     }
-    note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("exit: the window closes: DLSS-G's mode off now: {}", result.name()));
+    note_fg(if result.is_ok() { Level::INFO } else { Level::WARN }, format!("exit: {why}: DLSS-G's mode off now: {}", result.name()));
+    true
+}
+
+/// A window's image dropped and its surface released: wgpu waits for the device and destroys
+/// the swapchain (Streamline's proxy while DLSS-G is loaded), then the surface, when the last
+/// reference goes (wgpu-hal `Swapchain::release_resources`). For the live toggle's switch
+/// ([`toggle_switch`]) and a run's end ([`end_now`]); the caller drains the GPU first and holds
+/// `gpu_poll::quiet`.
+fn release_surface(world: &mut World, entity: Entity) {
+    if let Some(mut window) = world.get_mut::<ExtractedWindow>(entity) {
+        drop(window.swap_chain_texture.take());
+        window.swap_chain_texture_view = None;
+    }
+    world.entity_mut(entity).remove::<SurfaceData>();
+}
+
+/// The run ends without Bevy's teardown (`super::end_now`, the module comment's "Exit"): with
+/// the render thread idle (its render app taken back, `render_world`) and `gpu_poll::quiet`
+/// held by the caller, the mode off at once ([`exit_mode_off`]), the GPU drained and every
+/// window's swapchain released, before `win.rs` `shutdown` frees DLSS-G's resources and shuts
+/// Streamline down. Nothing while DLSS-G is not installed. Without the render world (no
+/// pipelined rendering, or the render thread stopped; `super::end_now` says so) only the mode
+/// goes off. The line says whether the options had the mode on until now: what is known of the
+/// last presents, not that one was presented off ([`state`] counts no present as off).
+pub(super) fn end_now(render_world: Option<&mut World>, why: &str) {
+    if !active() {
+        return;
+    }
+    let was_on = {
+        let mut guard = frame_gen();
+        let Some(fg) = guard.as_mut() else { return };
+        let was_on = fg.applied.is_some_and(|a| a.on);
+        exit_mode_off(fg, why);
+        was_on
+    };
+    let options = if was_on { "the mode was on in the options until now" } else { "the mode was off in the options already" };
+    let Some(world) = render_world else { return };
+    let polled = world.get_resource::<bevy::render::renderer::RenderDevice>().map(|d| d.wgpu_device().poll(wgpu::PollType::wait_indefinitely()));
+    let entities: Vec<Entity> = world.query_filtered::<Entity, (With<ExtractedWindow>, With<SurfaceData>)>().iter(world).collect();
+    for &entity in &entities {
+        release_surface(world, entity);
+    }
+    note_fg(
+        Level::INFO,
+        format!(
+            "exit: {why}: GPU drained ({}), {} window swapchain(s) released ({options})",
+            if matches!(&polled, Some(Ok(s)) if s.wait_finished()) { "ok" } else { "incomplete" },
+            entities.len()
+        ),
+    );
 }
 
 /// The state line, with the present and acquire results since the last one: errors (negative),
@@ -1315,6 +1424,35 @@ mod tests {
 
     unsafe extern "C" fn dummy_set_options(_: *const ViewportHandle, _: *const DlssgOptions) -> super::super::ffi::SlResult {
         super::super::ffi::SlResult::OK
+    }
+
+    /// Calls of [`counting_set_options`] and the mode of the last one.
+    static SET_CALLS: AtomicU32 = AtomicU32::new(0);
+    static SET_MODE: AtomicI32 = AtomicI32::new(-1);
+
+    unsafe extern "C" fn counting_set_options(_: *const ViewportHandle, options: *const DlssgOptions) -> super::super::ffi::SlResult {
+        SET_CALLS.fetch_add(1, Ordering::SeqCst);
+        // SAFETY: the options `exit_mode_off` passes, alive for the call.
+        SET_MODE.store(unsafe { (*options).mode } as i32, Ordering::SeqCst);
+        super::super::ffi::SlResult::OK
+    }
+
+    #[test]
+    fn an_exit_sets_the_mode_off_once_whatever_ends_the_run() {
+        let mut fg = FrameGen::new(dummy_get_state, counting_set_options, true);
+        fg.applied = Some(Applied { on: true, frames: 1, render: UVec2::new(853, 480), output: UVec2::new(1280, 720), back_buffers: 0 });
+        assert!(exit_mode_off(&mut fg, "the run hands over to a new one"), "the first exit sets the mode off");
+        assert_eq!(SET_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(SET_MODE.load(Ordering::SeqCst), DLSSG_MODE_OFF as i32);
+        assert!(fg.exiting && fg.exit_off && !fg.applied.unwrap().on, "the mode stays off for the frames left");
+        assert!(!exit_mode_off(&mut fg, "the window closes"), "a second exit path does nothing");
+        assert_eq!(SET_CALLS.load(Ordering::SeqCst), 1, "slDLSSGSetOptions called once");
+        assert!(!wanted(&fg, Some(Decision { generate: true, render: UVec2::new(853, 480), output: UVec2::new(1280, 720) })).on, "no frame turns it on again");
+
+        let mut unloaded = FrameGen::new(dummy_get_state, counting_set_options, false);
+        assert!(!exit_mode_off(&mut unloaded, "the run hands over to a new one"), "unloaded: no DLSS-G call");
+        assert!(unloaded.exiting && unloaded.exit_off);
+        assert_eq!(SET_CALLS.load(Ordering::SeqCst), 1);
     }
 
     #[test]

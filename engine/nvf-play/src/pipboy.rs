@@ -289,8 +289,13 @@ pub struct PipBoy {
     /// Hidden rendering interval; a real opening still reports its page [design: pipboy_arm.rs].
     pub warming: Option<Warming>,
     pub warmed: bool,
+    /// A page and tab to open on, asked by a Tweaks tab key before the inventory opens
+    /// (`crate::tweaks`) [design: docs/design/tweaks.md].
+    pub open_at: Option<(Page, usize)>,
     /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
     pub pose_hidden: bool,
+    /// The order of the item pages' list (the Clicking the Tab Sorts tweak).
+    pub item_sort: crate::menu::model::SortBy,
 }
 
 /// One hidden draw interval [design: nvforever/pipboy_arm.rs].
@@ -509,9 +514,29 @@ pub struct ScreenShade;
 
 pub struct PipBoyPlugin;
 
+/// [design, #2553] A repair/mod key stays consumed even if it closes its list before ITEMS.
+#[derive(Resource, Default)]
+pub struct KeysTaken(bool);
+
+impl KeysTaken {
+    pub fn take(&mut self) {
+        self.0 = true;
+    }
+
+    pub fn taken(&self) -> bool {
+        self.0
+    }
+}
+
+/// [design, #2553] First runs once per frame, before any Update key handler.
+fn clear_keys_taken(mut taken: ResMut<KeysTaken>) {
+    taken.0 = false;
+}
+
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PipBoy>()
+            .init_resource::<KeysTaken>()
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
             .init_resource::<PointerMoved>()
@@ -529,10 +554,15 @@ impl Plugin for PipBoyPlugin {
             .add_message::<stats::UseHint>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
+            .add_message::<data::SummonCompanions>()
+            .add_systems(Update, data::summon_companions.in_set(crate::PlaySet::Sync))
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
+            .init_resource::<data::travel::WeatherHold>()
             .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
+            .add_systems(First, clear_keys_taken)
+            .add_systems(Update, hotkey_panel::controller.before(crate::tiles::inventory_menu::feed).before(PlaySet::Activation))
             .add_systems(
                 Update,
                 (
@@ -540,8 +570,8 @@ impl Plugin for PipBoyPlugin {
                     reset_manager,
                     close_keys.run_if(|pip: Res<PipBoy>| pip.opening()).run_if(takes_keys),
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
-                    repair::keys.run_if(takes_keys),
-                    item_mod::keys.run_if(takes_keys),
+                    repair::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
+                    item_mod::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
                     hotkey_panel::track,
                     items::keys.run_if(takes_keys),
                     report_menu,
@@ -683,10 +713,19 @@ fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// The Pip-Boy is up while the player's inventory is open, and in first person (on the
 /// arm; the screen menu leaves the view alone).
-fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
+fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if inventory && !matches!(pip.phase, Phase::Raising | Phase::Up) {
         if pip.phase == Phase::Down {
+            // The player's tweak always opens on the inventory [design: docs/design/tweaks.md].
+            if tweaks.is_some_and(|t| t.pipboy_opens_items) {
+                pip.page = Page::Items;
+            }
+            // A Tweaks tab key asked for a page and tab [design: docs/design/tweaks.md].
+            if let Some((page, tab)) = pip.open_at.take() {
+                pip.page = page;
+                pip.tabs[page.index()] = tab;
+            }
             pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
             info!("pipboy: frame {:?}", pip.frame);
             if pip.frame == Frame::Device {
@@ -856,12 +895,13 @@ fn close_keys(
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
+    taken: Res<KeysTaken>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
     let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
-    if prompt.held(&active) {
+    if prompt.held(&active) || taken.taken() {
         return;
     }
     // Esc goes back from the repair list (`repair`) and the mod menu (`item_mod`), Tab
@@ -871,10 +911,10 @@ fn close_keys(
     }
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, taken: Res<KeysTaken>, mut out: MessageWriter<PipBoyInput>) {
     let keys = keys.snapshot();
     use KeyCode::*;
-    if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
+    if taken.taken() || prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
     }
     for (k, p) in [(F1, Page::Stats), (F2, Page::Items), (F3, Page::Data)] {
@@ -893,8 +933,18 @@ fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::Promp
     }
 }
 
-fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
+fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut hud: Option<ResMut<crate::activate::HudMessage>>) {
     for &i in input.read() {
+        // The player's tweak: a click on the ITEMS tab already open changes the list's
+        // order [design: docs/design/tweaks.md].
+        if i == PipBoyInput::Tab(pip.tab()) && pip.page == Page::Items && tweaks.as_ref().is_some_and(|t| t.tab_click_sorts) {
+            pip.item_sort = pip.item_sort.next();
+            info!("pipboy: items {} (tweak)", pip.item_sort.line().to_lowercase());
+            if let Some(h) = hud.as_mut() {
+                h.show(pip.item_sort.line().to_string());
+            }
+            continue;
+        }
         let before = (pip.page, pip.tab());
         pip.apply(i);
         if (pip.page, pip.tab()) != before {
@@ -1146,6 +1196,7 @@ mod tests {
             app.init_resource::<ButtonInput<KeyCode>>()
                 .init_resource::<crate::menu::PromptKeys>()
                 .init_resource::<ActiveMenu>()
+                .init_resource::<KeysTaken>()
                 .init_resource::<repair::PipRepair>()
                 .init_resource::<item_mod::PipItemMod>()
                 .add_message::<crate::menu::MenuInput>()

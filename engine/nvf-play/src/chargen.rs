@@ -134,6 +134,22 @@ pub struct TraitsOpen<'a> {
 }
 
 impl ChargenMenus {
+    /// [design, #2403 / file refs] Edited text or allocation sheet and list position;
+    /// excludes hover, redraw flags and attempted-navigation counters.
+    pub fn progress(&self) -> Option<(u16, impl std::fmt::Debug + '_)> {
+        self.open.as_ref().map(|o| {
+            (
+                o.code(),
+                (
+                    self.answered,
+                    match o {
+                        OpenMenu::Name(m) => (Some(m.text.as_str()), None),
+                        OpenMenu::List(m) => (None, Some((&m.sheet, m.selected, m.scroll))),
+                    },
+                ),
+            )
+        })
+    }
     /// [design] The requested selection page, from the sheet already opened by sync.
     /// SpecialSheet uses menu 1048 too and deliberately stays with its hand-built drawing.
     pub fn list_open(&self, code: u16) -> Option<TraitsOpen<'_>> {
@@ -746,6 +762,73 @@ fn draw_menus(
     });
 }
 
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> ChargenMenus {
+    ChargenMenus {
+        open: Some(OpenMenu::Name(NameMenu {
+            text: if step >= 1 { "Synthetic name".into() } else { String::new() },
+            hover_ok: step >= 2,
+            prompt: String::new(),
+            ok: String::new(),
+            script: None,
+            limit: 30,
+        })),
+        navigated: step as u32,
+        ..Default::default()
+    }
+}
+
+/// [design, #2403] Synthetic allocation sheet for each script character list.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_list_progress_fixture(code: u16, step: usize) -> ChargenMenus {
+    let sheet = match code {
+        menus::TRAITS => {
+            let start = rules::TraitSheet { traits: vec![FormId(42), FormId(43)], chosen: Default::default(), max: 2, free: None };
+            let mut now = start.clone();
+            if step >= 3 {
+                now.chosen.insert(FormId(42));
+            }
+            lists::Sheet::Traits { now, start, allowed: vec![true; 2] }
+        }
+        menus::TAG_SKILLS => {
+            let start = rules::TagSheet { skills: vec![32, 33], tagged: Default::default(), count: 2, locked: Default::default() };
+            let mut now = start.clone();
+            if step >= 3 {
+                now.tagged.insert(32);
+            }
+            lists::Sheet::Tags { now, start }
+        }
+        _ => {
+            let start = rules::SpecialSheet::new([5; 7]);
+            let mut now = start;
+            if step >= 3 {
+                now.values[0] += 1;
+            }
+            lists::Sheet::Special { now, start }
+        }
+    };
+    ChargenMenus {
+        open: Some(OpenMenu::List(ListMenu { code, sheet, selected: usize::from(step >= 1), scroll: usize::from(step >= 2), hover: (step >= 4).then_some(ListButton::Done) })),
+        navigated: step as u32,
+        dirty: step >= 4,
+        ..Default::default()
+    }
+}
+
+/// [design, #2403] AddSPECIALPoints uses the tag-skill menu's attribute sheet.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_special_progress_fixture(step: usize) -> ChargenMenus {
+    let mut c = report_list_progress_fixture(menus::LOVE_TESTER, step);
+    if let Some(OpenMenu::List(m)) = &mut c.open {
+        m.code = menus::TAG_SKILLS;
+    }
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -763,7 +846,7 @@ mod tests {
     #[test]
     fn a_tile_act_names_its_row_by_its_trait() {
         use fnv_game::chargen::TraitSheet;
-        let sheet = TraitSheet { traits: vec![FormId(7), FormId(9)], chosen: Default::default(), max: 2 };
+        let sheet = TraitSheet { traits: vec![FormId(7), FormId(9)], chosen: Default::default(), max: 2, free: None };
         let m = ListMenu { code: menus::TRAITS, sheet: lists::Sheet::Traits { now: sheet.clone(), start: sheet, allowed: vec![true, true] }, selected: 0, scroll: 0, hover: None };
         assert_eq!(tile_ops(&m, TileAct::Hover(FormId(9))), vec![(Op::Select(1), "pointer")]);
         assert_eq!(tile_ops(&m, TileAct::Click(FormId(9))), vec![(Op::Select(1), "pointer"), (Op::Click, "click")]);

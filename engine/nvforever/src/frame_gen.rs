@@ -167,7 +167,7 @@ pub struct DlssgRequest {
 /// fork-notes `fg-spike-results.md`; documented: "VSync with Frame Generation is only supported
 /// on D3D12", `ProgrammingGuideDLSS_G.md` §22.5]).
 pub fn dlss_unavailable_reason(world: &World) -> Option<&'static str> {
-    if let Some(why) = crate::dlss::frame_generation_unavailable() {
+    if let Some(why) = crate::dlss::frame_generation_unavailable(|| crate::settings::dlss_download_offered(world)) {
         Some(why)
     } else if !crate::upscaler::temporal_active(world) {
         Some("Needs an upscaler")
@@ -467,6 +467,20 @@ pub(crate) struct ReleasePresenter;
 #[cfg(windows)]
 pub(crate) fn presenters_released(world: &World) -> bool {
     world.get_resource::<Presenters>().is_none_or(|p| p.running.is_empty())
+}
+
+/// Every presenter stopped and joined at a run's end without Bevy's teardown (`dlss::end_now`,
+/// #2733): each presents what it was handed, then its thread ends and lets go of its window's
+/// surface ([documented: `fg_presenter.rs`, `Presenter::drop`]), so nothing presents or holds
+/// the swapchain while Streamline is shut down. Call it with the render thread idle (the render
+/// app taken back). Returns how many were stopped.
+#[cfg(windows)]
+pub(crate) fn stop_presenters(render_world: &mut World) -> usize {
+    let Some(mut presenters) = render_world.get_resource_mut::<Presenters>() else { return 0 };
+    let stopped = presenters.running.len();
+    // Each `Presenter::drop` closes its channel and joins its thread.
+    presenters.running.clear();
+    stopped
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]

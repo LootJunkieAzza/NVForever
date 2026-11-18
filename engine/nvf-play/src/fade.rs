@@ -149,7 +149,7 @@ fn step(
     time: Res<Time<Virtual>>,
     mut st: ResMut<Fades>,
     mut materials: ResMut<Assets<NifMaterial>>,
-    mut meshes: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&Fading>, &mut Visibility, Has<FadeHidden>)>,
+    mut meshes: Query<(Entity, &RefVisual, Option<&MeshMaterial3d<NifMaterial>>, Option<&nvf_assets::nif_surface_blend::BlendShape>, Option<&Fading>, &mut Visibility, Has<FadeHidden>, Option<&nvf_assets::nif_material::MaterialOverride>)>,
 ) {
     if st.active.is_empty() {
         return;
@@ -159,7 +159,8 @@ fn step(
     let out = |id: u32| going_out(&sim, script.as_deref(), id);
     let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || out(id) == a.fade_in;
     let culled = |id: u32| sim.present(id) && !crate::activate::drawn(&sim, script.as_deref(), id);
-    for (e, rv, mat, fading, mut vis, fade_hidden) in &mut meshes {
+    for (e, rv, mat, blend, fading, mut vis, fade_hidden, drawing) in &mut meshes {
+        let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
         let Some(a) = st.active.get(&rv.0) else { continue };
         let t = now - a.since;
         if over(rv.0, a) {
@@ -199,7 +200,9 @@ fn step(
                 }
                 continue;
             }
-            None => mat.0.clone(),
+            // [design, #2557] The field may discard its override when we replace it.
+            // Both the fade's copy and its restoration handle start from plain material.
+            None => nvf_assets::nif_material::plain_material(mat, drawing).clone(),
         };
         let Some(mut m) = materials.get(&copy).cloned() else { continue };
         let base = m.base.base_color.alpha();

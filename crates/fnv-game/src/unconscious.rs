@@ -80,12 +80,28 @@ pub const PLAYER_KNOCKDOWN_DOWN: f64 = 2.4;
 /// units/s at force 10 and 1,000-1,300 at force 40, campaign `knockdown_look`
 /// 2026-10-19, unconscious.md §5.5].
 pub const PUSH_SPEED: f32 = 30.0;
+/// Seconds of game time a shove not yet taken waits on an actor killed since
+/// ([`Game::take_shove`]): the engine takes it the frame it shows the death; an actor not
+/// drawn loses it [design: chosen].
+pub const DEAD_SHOVE_KEPT: f64 = 1.0;
 /// The upward speed a push gives the body, game units a second, whatever the force (no
 /// more than the push's own speed) [observed: the reference rose 42 units at force 10 and
 /// 31 at force 40, 220-240 units/s at the start under the game's gravity; same campaign].
 pub const PUSH_RISE: f32 = 220.0;
 /// The upward share of an explosion's knockdown velocity [design].
 pub const PUSH_LIFT: f32 = 0.25;
+/// The master's Stimpak (`Stimpak`) [observed: FalloutNV.esm], what the player's Revive
+/// Unconscious Companions tweak uses up.
+pub const STIMPAK: FormId = FormId(0x0001_5169);
+
+/// Why a companion could not be revived ([`Game::revive`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviveRefusal {
+    /// Not a knocked-out companion (or the tweak is off).
+    NotDown,
+    /// The player carries no Stimpak.
+    NoStimpak,
+}
 
 /// Why an actor is knocked out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,6 +237,11 @@ impl Game<'_> {
     fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
         // The player is knocked down but never knocked out (§2.1, §5.4).
         if (r == FormId::PLAYER_REF && !cause.awake()) || self.is_dead(r) {
+            // The player's tweak: a killing knockdown by the player still counts for the
+            // challenges [design: docs/design/tweaks.md].
+            if self.is_dead(r) && self.tweaks.lethal_knockdowns_count && by == Some(FormId::PLAYER_REF) && cause.knockdown() {
+                self.challenge_knockdown(r);
+            }
             return false;
         }
         let old = self.knockout(r);
@@ -272,6 +293,10 @@ impl Game<'_> {
             return false;
         }
         if r == FormId::PLAYER_REF {
+            // The player's tweak: never in god mode [design: docs/design/tweaks.md].
+            if self.tweaks.no_knockdown_in_god_mode && self.toggles.god_mode {
+                return false;
+            }
             return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
         self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)
@@ -388,8 +413,13 @@ impl Game<'_> {
         let mut up = Vec::new();
         for (r, k) in down {
             if self.is_dead(r) {
-                // Killed while down: it stays dead.
-                self.end_knockout(r);
+                // Killed while down: it stays dead. A shove the engine has not taken yet
+                // waits a moment for it: pushed and killed by the same script
+                // (`PushActorAway` then `KillActor`), the body is thrown as it dies
+                // (#2749) [design].
+                if k.shove.is_none() || now - k.at >= DEAD_SHOVE_KEPT {
+                    self.end_knockout(r);
+                }
                 continue;
             }
             if let Some(since) = k.rising {
@@ -401,7 +431,7 @@ impl Game<'_> {
             }
             let rises = match k.cause {
                 Cause::Fatigue => now - k.at + 1e-9 >= FATIGUE_DOWN,
-                Cause::Essential => now - k.at + 1e-9 >= ESSENTIAL_DOWN,
+                Cause::Essential => now - k.at + 1e-9 >= self.essential_down(r),
                 Cause::Pushed | Cause::KnockedDown => now - k.at + 1e-9 >= if r == FormId::PLAYER_REF { PLAYER_KNOCKDOWN_DOWN } else { KNOCKDOWN_DOWN },
                 // Down while a Paralysis effect lasts (`crate::magic_archetypes`).
                 Cause::Paralyzed => !self.paralysis_holds(r),
@@ -422,31 +452,72 @@ impl Game<'_> {
                 }
                 continue;
             }
-            if !k.cause.awake() {
-                actor::restore(self, r, FATIGUE, f64::MAX);
-            }
-            if k.cause == Cause::Essential {
-                let max = actor::actor_value_base(self, r, HEALTH);
-                let health = actor::actor_value(self, r, HEALTH).unwrap_or(max);
-                let want = max * ESSENTIAL_UP_HEALTH;
-                if health < want {
-                    actor::restore(self, r, HEALTH, want - health);
-                }
-            }
-            if let Some(k) = self.extra.get_mut(&r).and_then(|e| e.knocked_out.as_mut()) {
-                k.rising = Some(now);
-            }
-            self.emit(EventKind::GotUp { actor: r, cause: k.cause.name() });
-            self.knockout_news.push(News { actor: r, cause: k.cause, what: Happened::Up });
-            // "Said when an actor wakes from unconsciousness" [documented: GECK wiki
-            // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5]; not after a
-            // knockdown, which is no unconsciousness [design].
-            if !k.cause.awake() {
-                self.combat_line(r, None, "Wake");
-            }
+            self.begin_getting_up(r, k);
             up.push(r);
         }
         up
+    }
+
+    /// `r`, lying knocked out as `k`, begins to get up now: its Fatigue whole after
+    /// unconsciousness, an essential one's health back to [`ESSENTIAL_UP_HEALTH`], the
+    /// events, and its Wake line.
+    fn begin_getting_up(&mut self, r: FormId, k: KnockOut) {
+        if !k.cause.awake() {
+            actor::restore(self, r, FATIGUE, f64::MAX);
+        }
+        if k.cause == Cause::Essential {
+            let max = actor::actor_value_base(self, r, HEALTH);
+            let health = actor::actor_value(self, r, HEALTH).unwrap_or(max);
+            let want = max * ESSENTIAL_UP_HEALTH;
+            if health < want {
+                actor::restore(self, r, HEALTH, want - health);
+            }
+        }
+        let now = self.time;
+        if let Some(k) = self.extra.get_mut(&r).and_then(|e| e.knocked_out.as_mut()) {
+            k.rising = Some(now);
+        }
+        self.emit(EventKind::GotUp { actor: r, cause: k.cause.name() });
+        self.knockout_news.push(News { actor: r, cause: k.cause, what: Happened::Up });
+        // "Said when an actor wakes from unconsciousness" [documented: GECK wiki
+        // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5]; not after a
+        // knockdown, which is no unconsciousness [design].
+        if !k.cause.awake() {
+            self.combat_line(r, None, "Wake");
+        }
+    }
+
+    /// Whether the player may revive `r` under the Revive Unconscious Companions tweak:
+    /// a companion knocked out at zero health, still lying [design: docs/design/tweaks.md].
+    pub fn can_revive(&self, r: FormId) -> bool {
+        self.tweaks.revive_companions && !self.is_dead(r) && self.is_teammate(r) && self.knockout(r).is_some_and(|k| k.cause == Cause::Essential && k.lying())
+    }
+
+    /// The player revives the knocked-out companion `r` with a Stimpak (the tweak): one
+    /// is used up and `r` gets up at once, as when its time comes, whatever fight goes on
+    /// [design: docs/design/tweaks.md].
+    pub fn revive(&mut self, r: FormId) -> Result<(), ReviveRefusal> {
+        if !self.can_revive(r) {
+            return Err(ReviveRefusal::NotDown);
+        }
+        if self.world.item_count(FormId::PLAYER_REF, STIMPAK).unwrap_or(0) < 1 {
+            return Err(ReviveRefusal::NoStimpak);
+        }
+        let _ = self.world.remove_item(FormId::PLAYER_REF, STIMPAK, 1);
+        let Some(k) = self.knockout(r) else { return Err(ReviveRefusal::NotDown) };
+        self.begin_getting_up(r, k);
+        Ok(())
+    }
+
+    /// Seconds a knocked-out essential actor `r` lies at least: [`ESSENTIAL_DOWN`], or for
+    /// a companion the time the Revive Unconscious Companions tweak sets (0 keeps ours).
+    fn essential_down(&self, r: FormId) -> f64 {
+        let t = f64::from(self.tweaks.revive_down_seconds);
+        if self.tweaks.revive_companions && t > 0.0 && self.is_teammate(r) {
+            t
+        } else {
+            ESSENTIAL_DOWN
+        }
     }
 }
 

@@ -190,10 +190,10 @@ fn tabular(font: &Font, s: &str) -> Line {
         let code = code_of(c);
         let advance = font.glyph(code).advance();
         if c.is_ascii_digit() || c == ' ' {
-            line.glyphs.push(Placed { code, x: line.width + (cell - advance) / 2.0 });
+            line.glyphs.push(Placed { code, ch: c, x: line.width + (cell - advance) / 2.0 });
             line.width += cell;
         } else {
-            line.glyphs.push(Placed { code, x: line.width });
+            line.glyphs.push(Placed { code, ch: c, x: line.width });
             line.width += advance;
         }
     }
@@ -246,7 +246,7 @@ mod tests {
         glyphs[b' ' as usize].after = 5.0;
         glyphs[b'.' as usize] = fnv_font::Glyph { width: 3.0, height: 3.0, before: 1.0, after: 1.0, ..Default::default() };
         glyphs[b'm' as usize] = fnv_font::Glyph { width: 11.0, height: 8.0, before: 1.0, after: 1.0, ..Default::default() };
-        Font { size: 20.0, texture: String::new(), glyphs }
+        Font { size: 20.0, texture: String::new(), glyphs, extra: Default::default() }
     }
 
     #[test]

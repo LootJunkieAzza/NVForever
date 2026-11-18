@@ -128,6 +128,11 @@ const TABLE: u32 = u32::MAX - 2;
 /// at the table, away from them].
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub struct TableStation(pub Option<u32>);
+/// The Radiation Causes Radio Static tweak: rads a second that bring the most static,
+/// and that most, as a share (ours) [design: docs/design/tweaks.md].
+const RADS_FOR_FULL_STATIC: f64 = 10.0;
+const MAX_RAD_STATIC: f32 = 0.8;
+
 /// The Pip-Boy's static (see the module notes).
 const STATIC_SOUND: &str = "UIRadioStaticLP";
 
@@ -334,6 +339,14 @@ struct OnAir {
     started: f64,
 }
 
+/// A line on the air put at its end at radio clock `now`: on its last part, that part's
+/// time just run out.
+fn skip_to_end(on: &mut OnAir, now: f64) {
+    let Some(last) = on.parts.len().checked_sub(1) else { return };
+    on.part = last;
+    on.started = now - on.parts[last].seconds;
+}
+
 #[derive(Debug, Default)]
 struct Programme {
     on_air: Option<OnAir>,
@@ -422,7 +435,12 @@ pub struct Radio {
     /// The listener's worldspace and position when last outdoors.
     outdoors: Option<(u32, [f32; 3])>,
     /// The Pip-Boy's stations received now (bases, in the list's order), and as logged.
+    /// Under the player's Select Unavailable Radios tweak it also holds the stations it
+    /// has received before ([`Radio::received_once`]) that are out of range now.
     pub pipboy_list: Vec<u32>,
+    /// The Pip-Boy's stations (bases) it has ever received, kept with the save
+    /// ([`RECEIVED_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+    pub received_once: BTreeSet<u32>,
     logged_list: Option<Vec<u32>>,
     /// The Pip-Boy radio as last logged: on, the station, received.
     logged_pipboy: Option<(bool, Option<FormId>, bool)>,
@@ -444,6 +462,9 @@ pub struct Radio {
     pub refused: u32,
     pub conversations: u32,
     pub conversations_ignored: u32,
+    /// The Skip Radio Song key was pressed (`crate::tweaks`): the Pip-Boy's station ends
+    /// the line it is saying now [design: docs/design/tweaks.md].
+    pub skip: bool,
 }
 
 impl Radio {
@@ -616,13 +637,14 @@ fn received(sim: &SimState, places: &RadioPlaces, station_ref: u32, l: &Listener
 }
 
 /// The Pip-Boy's list: radio stations without the Non-Pipboy flag received at `l`, by
-/// name.
-fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener) -> Vec<u32> {
+/// name; with `also` (the Select Unavailable Radios tweak) the stations it holds as well
+/// while they are enabled, received here or not.
+fn pipboy_list(sim: &SimState, places: &RadioPlaces, l: &Listener, also: Option<&BTreeSet<u32>>) -> Vec<u32> {
     let mut list: Vec<(String, u32)> = places
         .station_ref
         .iter()
         .filter(|(b, _)| places.forms.stations.get(b).is_some_and(|s| s.on_pipboy()))
-        .filter(|(_, &r)| received(sim, places, r, l).is_some())
+        .filter(|(b, &r)| received(sim, places, r, l).is_some() || (also.is_some_and(|a| a.contains(b)) && enabled(sim, places, r)))
         .map(|(&b, _)| {
             let s = &places.forms.stations[&b];
             (s.name.clone().or_else(|| s.edid.clone()).unwrap_or_default().to_ascii_lowercase(), b)
@@ -748,12 +770,15 @@ fn play(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     (loc, state, paused, pw, table): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>, Res<TableStation>),
-    (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
+    (player, intro, mut cover): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>, Option<ResMut<crate::sound_cover::SoundCover>>),
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     // The sinks held with the radios: not those fading out after a stop (audio_out).
     (sinks, mut placed): (Query<&AudioSink, (With<RadioEntity>, Without<Retiring>)>, Query<&mut SoundAt, With<RadioEntity>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's tweak turns the radio down in a conversation [design: docs/design/tweaks.md].
+    let talk = if *state.get() == PlayState::Dialogue { tweaks.as_ref().map_or(1.0, |t| t.dialogue_radio_volume) } else { 1.0 };
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };
     let Some(rt) = script.rt.as_mut() else { return };
@@ -783,7 +808,7 @@ fn play(
         // Tale of Two Wastelands' radio fix: a child worldspace hears its parent's stations.
         parent: rt.game.small.ttw_radio_fix.then(|| pw.index.worldspaces.get(&loc.world).and_then(|w| w.parent)).flatten(),
     };
-    let volume = settings.volume.max(0.0);
+    let volume = settings.volume.max(0.0) * talk;
     let static_sound = radio.static_sound.get_or_insert_with(|| sfx.forms.sounds.values().find(|s| s.edid.as_deref() == Some(STATIC_SOUND)).cloned()).clone();
 
     // Receivers of this place switched on or off since the last frame.
@@ -806,11 +831,18 @@ fn play(
     }
 
     // The Pip-Boy: its list, a script's tuning, and its station.
-    radio.pipboy_list = pipboy_list(&sim, &places, &listener);
+    let received_now = pipboy_list(&sim, &places, &listener, None);
+    radio.received_once.extend(received_now.iter().copied());
+    // Turned on without a station: the first received here (not one only kept on the list).
+    let first_received = received_now.first().copied();
+    radio.pipboy_list = if rt.game.tweaks.select_unavailable_radios { pipboy_list(&sim, &places, &listener, Some(&radio.received_once)) } else { received_now };
     if radio.logged_list.as_ref() != Some(&radio.pipboy_list) {
         info!("pipboy radio: stations received: {}", radio.pipboy_list.iter().map(|&b| name(&places, b)).collect::<Vec<_>>().join(", "));
         radio.logged_list = Some(radio.pipboy_list.clone());
     }
+    // The player's tweak: radiation taken now brings static into the Pip-Boy's radio,
+    // whole at `RADS_FOR_FULL_STATIC` a second, never all of it [design: docs/design/tweaks.md].
+    let rad_static = if rt.game.tweaks.radiation_radio_static { (rt.game.radiation().rate / RADS_FOR_FULL_STATIC).clamp(0.0, 1.0) as f32 * MAX_RAD_STATIC } else { 0.0 };
     let pip = &mut rt.game.radio.pipboy;
     if let Some(t) = pip.tune.take() {
         if received(&sim, &places, t.0, &listener).is_some() {
@@ -822,10 +854,10 @@ fn play(
         }
     }
     if pip.on && pip.station.is_none() {
-        pip.station = radio.pipboy_list.first().map(|b| FormId(places.station_ref[b]));
+        pip.station = first_received.map(|b| FormId(places.station_ref[&b]));
     }
     let pip_station = pip.station.filter(|_| pip.on).and_then(|s| Some((s, places.base_of(s.0)?)));
-    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener));
+    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener)).map(|share| share.max(rad_static));
     let logged = (pip.on, pip.station, pip_share.is_some());
     if radio.logged_pipboy != Some(logged) {
         match pip_station {
@@ -893,6 +925,26 @@ fn play(
         }
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
             heard.push((PIPBOY, base, 1.0 - share, true, None));
+        }
+    }
+
+    // The Skip Radio Song key: the Pip-Boy's station, received, ends its line now, so the
+    // line's end script runs and the station's own order picks the next. Not a
+    // conversation a script started (quests wait on those) [design: docs/design/tweaks.md].
+    if std::mem::take(&mut radio.skip) {
+        match pip_station.filter(|_| pip_share.is_some()) {
+            Some((_, base)) => {
+                let p = radio.programmes.entry(base).or_default();
+                let conversation = p.conversation;
+                match p.on_air.as_mut().filter(|_| !conversation) {
+                    Some(on) => {
+                        skip_to_end(on, now);
+                        info!("pipboy radio: {} skips {} (Skip Radio Song)", name(&places, base), on.info);
+                    }
+                    None => info!("pipboy radio: nothing to skip on {}", name(&places, base)),
+                }
+            }
+            None => info!("pipboy radio: nothing to skip (off or not received)"),
         }
     }
 
@@ -1002,7 +1054,8 @@ fn play(
                     station: st,
                     track: Track::Line { info: on.info, part: on.part },
                     path,
-                    level: part.gain * dgain,
+                    // The player's tweak sets songs and talk apart [design: docs/design/tweaks.md].
+                    level: part.gain * dgain * tweaks.as_ref().map_or(1.0, |t| if part.song { t.radio_music_volume } else { t.radio_talk_volume }),
                     into: now - on.started,
                     response: Some((on.info, part.response, part.song)),
                     at,
@@ -1025,9 +1078,16 @@ fn play(
     }
 
     let mut sounding: HashSet<u32> = HashSet::new();
+    let cover_now = std::time::Instant::now();
     for w in &wants {
         let gain = w.level * volume;
         sounding.insert(w.key);
+        // A radio at a place, heard at the listener (`crate::sound_cover`).
+        if let (Some(at), Some(cover), true) = (w.at, cover.as_deref_mut(), settings.play) {
+            let eye = player.eye();
+            let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
+            cover.note(Some(crate::sound_cover::SoundCover::key(crate::sound_cover::RADIO_KIND, u64::from(w.key))), w.level, d, crate::sound_cover::LOOP_HOLD, cover_now);
+        }
         if let Some(p) = radio.playing.get(&w.key) {
             if p.track == w.track {
                 p.level.store(gain.to_bits(), Ordering::Relaxed);
@@ -1192,12 +1252,56 @@ impl Plugin for RadioPlugin {
             .add_systems(Startup, (init, load_aids))
             .add_systems(Update, (pipboy_controls, play).chain().after(crate::PlaySet::Scripts))
             .add_systems(Last, (release_files, report));
+        crate::save::add_save_hook(app, RECEIVED_SAVE_HOOK);
     }
 }
+
+/// The Pip-Boy's stations received once ([`Radio::received_once`]) in the save, by base
+/// FormID; remapped to the current load order, those of a plugin no longer loaded
+/// dropped. A save without them leaves none.
+pub const RECEIVED_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "radio_received",
+    save: |w| w.get_resource::<Radio>().filter(|r| !r.received_once.is_empty()).map(|r| serde_json::Value::from(r.received_once.iter().copied().collect::<Vec<u32>>())),
+    load: |w, v| {
+        if let Some(mut r) = w.get_resource_mut::<Radio>() {
+            r.received_once = v.as_array().into_iter().flatten().filter_map(|n| n.as_u64().map(|n| n as u32)).collect();
+        }
+    },
+    remap: Some(|v, r| {
+        if let Some(list) = v.as_array_mut() {
+            *list = list.iter().filter_map(|n| n.as_u64().and_then(|n| r.map(n as u32))).map(serde_json::Value::from).collect();
+        }
+    }),
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A skipped line is put on its last part with that part's time run out at once.
+    #[test]
+    fn a_skipped_line_ends_now() {
+        let part = |seconds| Part { response: 0, path: None, stereo: None, seconds, song: true, gain: 1.0 };
+        let mut on = OnAir { info: FormId(7), parts: vec![part(3.0), part(180.0)], part: 0, started: 10.0 };
+        skip_to_end(&mut on, 12.0);
+        assert_eq!(on.part, 1);
+        assert!(12.0 >= on.started + on.parts[1].seconds - 1e-9);
+    }
+
+    /// The stations received once go with the save and come back with it.
+    #[test]
+    fn received_stations_are_kept_with_the_save() {
+        let mut w = World::new();
+        w.init_resource::<Radio>();
+        assert_eq!((RECEIVED_SAVE_HOOK.save)(&w), None, "none received, nothing saved");
+        w.resource_mut::<Radio>().received_once.extend([0x0011_2233, 0x0001_0203]);
+        let v = (RECEIVED_SAVE_HOOK.save)(&w).expect("saved");
+        assert_eq!(v, serde_json::json!([0x0001_0203, 0x0011_2233]));
+        let mut fresh = World::new();
+        fresh.init_resource::<Radio>();
+        (RECEIVED_SAVE_HOOK.load)(&mut fresh, &v);
+        assert_eq!(fresh.resource::<Radio>().received_once, w.resource::<Radio>().received_once);
+    }
 
     /// A radio song plays at full level whatever its record's static attenuation (#1077).
     #[test]

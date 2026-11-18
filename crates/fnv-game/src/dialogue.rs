@@ -226,9 +226,11 @@ pub(crate) struct Link {
 /// function catalogue) (docs/spec-notes/actor-flags.md §9).
 pub(crate) const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
 
-/// GetIsID (function 0x48) on the subject: a line's own condition naming who says it.
-fn is_own_id_condition(c: &crate::cond::Condition) -> bool {
-    c.function == 0x48 && matches!(c.run_on, crate::cond::RunOn::Subject)
+/// A line's own condition on the subject naming who says it: GetIsID, or one of the
+/// others of [`VOICE_GATE_FUNCTIONS`] (GetInFaction, GetIsClass, GetIsRace,
+/// GetIsVoiceType, IsInList), which name a group of speakers (#2548).
+fn is_own_speaker_condition(c: &crate::cond::Condition) -> bool {
+    VOICE_GATE_FUNCTIONS.contains(&c.function) && matches!(c.run_on, crate::cond::RunOn::Subject)
 }
 
 /// Why a speaker cannot say a line now ([`Game::line_verdict`]), in the order the rules
@@ -299,8 +301,13 @@ impl<'a> Game<'a> {
     ///   greeting; hypothesis: one case, and the two may count as one speaker] (#1113);
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
-    ///   the line has a GetIsID condition on the subject of its own: then that condition
-    ///   decides. The wiki has the field act like GetIsID "when dialogue is exported";
+    ///   the line has a condition on the subject of its own that names who says it
+    ///   (GetIsID, or GetInFaction, GetIsClass, GetIsRace, GetIsVoiceType, IsInList):
+    ///   then that condition decides [hypothesis, #2548: Cottonwood Cove's "Halt!"
+    ///   greeting 0x0013AC97 names the AAM explorer and tests the explorers' faction,
+    ///   and the three other explorers have force-greet packages of their own on
+    ///   GREETING that would end on "Move along." otherwise; 19 lines of FalloutNV.esm
+    ///   have a fixed speaker and such a group condition without GetIsID]. The wiki has the field act like GetIsID "when dialogue is exported";
     ///   262 lines of FalloutNV.esm name a fixed speaker other than the actor of their
     ///   own GetIsID condition, 167 of them the end slides (fixed speaker a Boomer or
     ///   another character, GetIsID Narrator), which the narrator says
@@ -322,10 +329,11 @@ impl<'a> Game<'a> {
     }
 
     /// The fixed-speaker (ANAM) check alone, from the data: the line names a fixed speaker
-    /// that is neither `speaker` nor its base, and has no GetIsID condition of its own
+    /// that is neither `speaker` nor its base, and has no condition of its own naming
+    /// who says it (GetIsID, GetInFaction …)
     /// ([`Game::can_say`]). It does not look at run-time state (Say Once, conditions).
     pub(crate) fn fixed_speaker_refuses(&self, def: &InfoDef, speaker: FormId) -> bool {
-        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_id_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
+        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_speaker_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
     }
 
     /// Whether every line of `topic` ([`GameData::lines_tried`]) fails the fixed-speaker
@@ -706,6 +714,9 @@ impl<'a> Game<'a> {
         }
         self.dialogue_serial = self.dialogue_serial.wrapping_add(1);
         self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), topic_list: false, lines: 0, then: None, ending: false });
+        // [design, #2724] Opening by any route fulfils this actor's pending walk-up;
+        // consume it before the first line's scripts can run (`Game::speak`).
+        self.walk_up_greets.remove(&actor);
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);
@@ -776,6 +787,9 @@ impl<'a> Game<'a> {
     /// over the line ends ([`Game::finish_line`]). An actor that died, was disabled or
     /// deleted ends the conversation [hypothesis].
     pub(crate) fn update_dialogue(&mut self, dt: f64) {
+        /// What is left of a response the No Auto Continue Dialog tweak holds: next to
+        /// nothing, so a click ends it at once.
+        const HELD_RESPONSE: f64 = 1e-6;
         let Some(c) = self.dialogue.as_ref() else { return };
         let actor = c.actor;
         if !self.present(c.through.unwrap_or(actor)) || self.extra.get(&actor).is_some_and(|e| e.dead) {
@@ -787,6 +801,15 @@ impl<'a> Game<'a> {
         let Some(def) = dv.info(&line.info) else { return };
         let order = def.response_order();
         line.remaining -= dt;
+        // The player's tweak: a response that has run out waits for the player's click
+        // (`Game::skip_response`, which calls with no time passing) [design: docs/design/tweaks.md].
+        if self.tweaks.no_auto_continue_dialogue && dt > 0.0 && line.remaining <= 1e-9 {
+            line.remaining = HELD_RESPONSE;
+            if let Some(c) = self.dialogue.as_mut() {
+                c.line = Some(line);
+            }
+            return;
+        }
         while line.remaining <= 1e-9 {
             line.response += 1;
             match order.get(line.response) {
@@ -1551,11 +1574,12 @@ impl<'a> Game<'a> {
             self.talking_through = None;
             if let Some(f) = follow {
                 let topic = dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.say_line(talker, Some(to), topic, f, next);
+                // Said through the activator from the start, so it cuts a line the
+                // activator is saying (`Game::say_line_through`, #2768).
+                self.say_line_through(talker, Some(to), topic, f, next, via);
                 self.set_line_look(talker, said.look);
                 if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == talker && s.info == f) {
                     s.earlier_topics = earlier;
-                    s.through = via;
                 }
                 return;
             }
@@ -1579,11 +1603,10 @@ impl<'a> Game<'a> {
                 1 => linked[0],
                 n => linked[self.rng.next_u32() as usize % n],
             };
-            self.say_line(who, Some(to), topic, info, next);
+            self.say_line_through(who, Some(to), topic, info, next, through);
             self.set_line_look(who, said.look);
             if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == info) {
                 s.earlier_topics = earlier;
-                s.through = through;
             }
             return;
         }

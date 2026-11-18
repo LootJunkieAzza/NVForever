@@ -51,7 +51,7 @@
 //! Log: `main menu: open (…)`, `main menu: <entry>`, `main menu: slide <texture>`.
 
 use crate::interface::{bc_supported, face, plain_font, set_line, u, Face};
-use crate::start_menu::{color, highlight_colors, Shade, BASE, COLUMN, FONT, ITEM, LINE, RIGHT};
+use crate::start_menu::{color, entry_base, highlight_colors, Shade, FONT, ITEM, LINE, RIGHT};
 use crate::pause::{AidTime, Page, PageRequest, Paused};
 use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::asset::RenderAssetUsages;
@@ -180,6 +180,9 @@ pub struct MainMenu {
     slides: Vec<String>,
     slide: usize,
     phase: Option<Phase>,
+    /// The game's font 7, and the entries' face as drawn: bold in the vector font while the
+    /// Menu Font row says Sharp (`crate::pause::MenuFont::title`), else font 7.
+    raster: Option<Face>,
     face: Option<Face>,
     theme: Option<Theme>,
 }
@@ -205,6 +208,17 @@ struct Slide;
 struct Logo;
 #[derive(Component, Clone, Copy)]
 struct EntryNode(usize);
+/// The highlight box round an entry's words (as the pause menu's column, `crate::pause`).
+#[derive(Component)]
+struct EntryBox;
+/// The picture of the save Continue loads, under the logo while Continue is chosen (the
+/// player's Continue Shows Its Save tweak) [design: docs/design/tweaks.md].
+#[derive(Component)]
+struct ContinuePicture;
+
+/// The Continue picture's place and width in the menu's units, under the logo [design].
+const PICTURE_TOP: f32 = 620.0;
+const PICTURE_WIDTH: f32 = 360.0;
 
 pub struct MainMenuPlugin;
 
@@ -220,7 +234,7 @@ impl Plugin for MainMenuPlugin {
             }
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
-        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, theme).chain().in_set(PlaySet::Ui));
+        app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, relabel, show_entries, continue_picture, theme).chain().in_set(PlaySet::Ui));
     }
 }
 
@@ -250,6 +264,8 @@ fn open_at_start(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut music_assets: ResMut<Assets<crate::music::LayeredMusic>>,
+    mut menu_font: Option<ResMut<crate::pause::MenuFont>>,
+    mut fonts: Option<ResMut<Assets<bevy::text::Font>>>,
 ) {
     if start.is_none() {
         return;
@@ -268,7 +284,12 @@ fn open_at_start(
     menu.phase = Some(Phase::In(0.0));
     menu.selected = if menu.saves > 0 { 0 } else { 1 };
     let bc = bc_supported(formats.as_deref());
-    menu.face = Some(face(FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc));
+    let raster = face(FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc);
+    menu.face = Some(match menu_font.as_deref_mut() {
+        Some(m) => m.title(&raster, fonts.as_deref_mut()),
+        None => raster.clone(),
+    });
+    menu.raster = Some(raster);
     let logo = data.as_deref().and_then(|d| crate::interface::texture(LOGO, d, &mut images, bc));
     let edge = images.add(vignette());
     let theme = data.as_deref().and_then(|d| match d.vfs.read(THEME) {
@@ -360,40 +381,65 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
                     let h = LOGO_WIDTH * size.y / size.x.max(1.0);
                     root.spawn((Logo, ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
                 }
+                root.spawn((ContinuePicture, ImageNode::default(), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(PICTURE_TOP), width: u(PICTURE_WIDTH), ..default() }, Visibility::Hidden));
                 let Some(f) = menu.face.as_ref() else { return };
-                let n = Entry::ALL.len() as f32;
-                let top = (960.0 - n * ITEM) / 2.0;
-                let width = COLUMN - 5.0;
                 for (i, e) in Entry::ALL.iter().enumerate() {
-                    // The whole row takes the pointer; its border is the highlight box (`show_entries`).
-                    root.spawn((
-                        EntryNode(i),
-                        Button,
-                        Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top + i as f32 * ITEM), width: u(width), height: u(ITEM), border: UiRect::all(u(LINE)), ..default() },
-                        BorderColor::all(Color::NONE),
-                        BackgroundColor(Color::NONE),
-                    ))
-                    .with_children(|p| entry_label(p, f, *e));
+                    // The box round the words takes the pointer, not the rest of the row
+                    // (`entry_node`); its highlight box is lit by `show_entries`.
+                    root.spawn((EntryNode(i), Button, entry_node(f, i), BorderColor::all(Color::NONE), BackgroundColor(Color::NONE))).with_children(|p| entry_label(p, f, *e));
                 }
             });
         });
 }
 
-/// An entry's label in the language chosen, right-aligned in its row.
+/// An entry's label in the language chosen, right-aligned in its row, and the highlight box
+/// that hugs it (lit by `show_entries`), where the pause menu's column has its words and box
+/// (`crate::pause`, 12 units each side) so the words stay put as its pages open.
 fn entry_label(p: &mut ChildSpawnerCommands, f: &Face, e: Entry) {
     let label = fnv_util::words::tr(e.label());
     if let Some(line) = f.font.lines(label, None).into_iter().next() {
-        let w = f.font.width(label);
-        set_line(p, f, &line, COLUMN - 5.0 - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
+        // The box with its glow (`crate::menu_shapes::framed`), filling the entry's node,
+        // shown while the entry is chosen.
+        let (line_colour, fill) = highlight_colors();
+        p.spawn((EntryBox, crate::menu_shapes::filling(), Visibility::Hidden, Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line_colour, fill, LINE));
+        set_line(p, f, &line, ENTRY_PAD, entry_base(f), color(Shade::Bright));
     }
 }
 
-/// The entries' labels drawn again in the new language when it changes (a choice on the
-/// settings page, which opens over this menu).
-fn relabel(menu: Res<MainMenu>, mut seen: Local<Option<u32>>, entries: Query<(Entity, &EntryNode)>, mut commands: Commands) {
-    let now = fnv_util::words::generation();
+/// The room each side of an entry's words in its box (the pause menu's column's,
+/// `crate::pause`).
+const ENTRY_PAD: f32 = 12.0;
+
+/// Entry `i`'s node: the box round its words, right-aligned as the pause menu's column's
+/// entries (their words end `ENTRY_PAD` before the column's edge), and only it takes the
+/// pointer [design: owner 2026-11-16, "the main menu titles show the hover box even when you
+/// hover some distance from the box ... make the activation boxes the same size as the menu
+/// hover boxes"].
+fn entry_node(f: &Face, i: usize) -> Node {
+    let top = (960.0 - Entry::ALL.len() as f32 * ITEM) / 2.0 + i as f32 * ITEM;
+    let w = f.font.width(fnv_util::words::tr(Entry::ALL[i].label())) + 2.0 * ENTRY_PAD;
+    Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top), width: u(w), height: u(ITEM), ..default() }
+}
+
+/// The entries' labels drawn again in the new language, or in the new face when the Menu Font
+/// row changed (both chosen on the settings page, which opens over this menu).
+fn relabel(
+    mut menu: ResMut<MainMenu>,
+    mut seen: Local<Option<(u32, bool)>>,
+    mut menu_font: Option<ResMut<crate::pause::MenuFont>>,
+    mut fonts: Option<ResMut<Assets<bevy::text::Font>>>,
+    entries: Query<(Entity, &EntryNode)>,
+    mut commands: Commands,
+) {
+    let sharp = menu_font.as_deref().is_some_and(crate::pause::MenuFont::drawn_sharp);
+    let now = (fnv_util::words::generation(), sharp);
     if *seen == Some(now) {
         return;
+    }
+    if seen.is_some_and(|s| s.1 != sharp) {
+        if let (Some(raster), Some(m)) = (menu.raster.clone(), menu_font.as_deref_mut()) {
+            menu.face = Some(m.title(&raster, fonts.as_deref_mut()));
+        }
     }
     let Some(f) = menu.face.as_ref() else { return };
     if entries.is_empty() {
@@ -401,7 +447,7 @@ fn relabel(menu: Res<MainMenu>, mut seen: Local<Option<u32>>, entries: Query<(En
     }
     if seen.is_some() {
         for (id, e) in &entries {
-            commands.entity(id).despawn_related::<Children>().with_children(|p| entry_label(p, f, Entry::ALL[e.0]));
+            commands.entity(id).despawn_related::<Children>().insert(entry_node(f, e.0)).with_children(|p| entry_label(p, f, Entry::ALL[e.0]));
         }
     }
     *seen = Some(now);
@@ -423,6 +469,7 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    (tweaks, mut auto_done): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>),
 ) {
     let keys = keys.snapshot();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -480,6 +527,16 @@ fn choose(
     }
     if menu.selected != before {
         sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Focus });
+    }
+    // The player's tweak continues the newest save once, at the first menu; Shift held
+    // stays on the menu (a way back to it) [design: docs/design/tweaks.md].
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    if take.is_none() && !*auto_done && !shift && tweaks.as_ref().is_some_and(|t| t.auto_continue) {
+        *auto_done = true;
+        if Entry::Continue.enabled(saves) {
+            info!("main menu: continuing the newest save (tweak)");
+            take = Some(Entry::Continue);
+        }
     }
     let Some(e) = take else { return };
     info!("main menu: {}", e.label());
@@ -565,10 +622,11 @@ fn slideshow(
 fn show_entries(
     menu: Res<MainMenu>,
     page: Res<Page>,
-    mut entries: Query<(Entity, &EntryNode, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    mut entries: Query<(Entity, &EntryNode, &mut Visibility), Without<EntryBox>>,
     children: Query<&Children>,
+    mut boxes: Query<&mut Visibility, (With<EntryBox>, Without<EntryNode>, Without<Logo>)>,
     mut glyphs: Query<&mut ImageNode, Without<Slide>>,
-    mut texts: Query<&mut TextColor>,
+    mut texts: Query<&mut TextColor, Without<crate::interface::Halo>>,
     mut logo: Query<&mut Visibility, (With<Logo>, Without<EntryNode>)>,
     mut drawn: Local<[Option<(Color, usize)>; Entry::ALL.len()]>,
 ) {
@@ -578,20 +636,20 @@ fn show_entries(
     for mut v in &mut logo {
         v.set_if_neq(if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden });
     }
-    let (line, fill) = highlight_colors();
-    for (id, e, mut border, mut bg, mut vis) in &mut entries {
+    for (id, e, mut vis) in &mut entries {
         let shown = if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden };
         vis.set_if_neq(shown);
         let entry = Entry::ALL[e.0];
         let c = color(if entry.enabled(menu.saves) { Shade::Bright } else { Shade::Dim });
         let chosen = e.0 == menu.selected;
-        let want = if chosen { BorderColor::all(line) } else { BorderColor::all(Color::NONE) };
-        border.set_if_neq(want);
-        bg.set_if_neq(BackgroundColor(if chosen { fill } else { Color::NONE }));
         let (mut ink, mut count) = (None, 0);
         // [design, #2247] set_line/set_marked put the coloured nodes below a line
         // anchor (interface.rs); reach them even when the label has extra containers.
         for child in children.iter_descendants(id) {
+            if let Ok(mut b) = boxes.get_mut(child) {
+                b.set_if_neq(if chosen { Visibility::Inherited } else { Visibility::Hidden });
+                continue;
+            }
             if let Ok(mut g) = glyphs.get_mut(child) {
                 if g.color != c {
                     g.color = c;
@@ -613,6 +671,49 @@ fn show_entries(
                 info!("main menu: {} glyph colour rgba {:?} ({count} glyphs)", entry.label(), colour.to_srgba().to_u8_array());
             }
             drawn[e.0] = now;
+        }
+    }
+}
+
+/// The Continue Shows Its Save tweak: while Continue is the chosen entry on the main page,
+/// the newest save's thumbnail under the logo, read once (none for a save without one).
+#[allow(clippy::type_complexity)]
+fn continue_picture(
+    menu: Res<MainMenu>,
+    page: Res<Page>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mut images: ResMut<Assets<Image>>,
+    mut read: Local<Option<(PathBuf, Option<(Handle<Image>, f32)>)>>,
+    mut picture: Query<(&mut ImageNode, &mut Node, &mut Visibility), With<ContinuePicture>>,
+) {
+    let Ok((mut image, mut node, mut vis)) = picture.single_mut() else { return };
+    let wanted = menu.open && *page == Page::Main && tweaks.as_ref().is_some_and(|t| t.continue_shows_save) && Entry::ALL.get(menu.selected) == Some(&Entry::Continue);
+    let path = menu.newest.as_ref().filter(|_| wanted);
+    let Some(path) = path else {
+        vis.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    if read.as_ref().is_none_or(|(p, _)| p != path) {
+        let decoded = fnv_save::read_header(path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot));
+        let handle = decoded.and_then(|(w, h, rgba)| {
+            let format = TextureFormat::Rgba8UnormSrgb;
+            let mut img = nvf_assets::texture::checked_image(w, h, 1, format, rgba).map_err(|e| warn!("main menu: the newest save's picture: {e}")).ok()?;
+            img.asset_usage = RenderAssetUsages::default();
+            Some((images.add(img), h as f32 / (w as f32).max(1.0)))
+        });
+        info!("main menu: Continue's save picture {}", if handle.is_some() { "read" } else { "missing" });
+        *read = Some((path.clone(), handle));
+    }
+    match read.as_ref().and_then(|(_, h)| h.as_ref()) {
+        Some((h, aspect)) => {
+            if image.image != *h {
+                image.image = h.clone();
+                node.height = u(PICTURE_WIDTH * aspect);
+            }
+            vis.set_if_neq(Visibility::Inherited);
+        }
+        None => {
+            vis.set_if_neq(Visibility::Hidden);
         }
     }
 }
@@ -644,8 +745,9 @@ mod tests {
         let mut app = App::new();
         let glyph = fnv_font::Glyph { uv: [0.0, 0.0, 0.5, 0.75], width: 8.0, height: 12.0, ascent: 10.0, after: 1.0, ..default() };
         let face = Face {
-            font: fnv_font::Font { size: 16.0, texture: String::new(), glyphs: vec![glyph; 256] },
+            font: fnv_font::Font { size: 16.0, texture: String::new(), glyphs: vec![glyph; 256], extra: Default::default() },
             image: bitmap.then(|| (Handle::default(), Vec2::splat(16.0))),
+            vector: None,
         };
         let menu = MainMenu { open: true, selected: 1, face: Some(face), ..default() };
         spawn(&mut app.world_mut().commands(), &menu, None, Handle::default(), Handle::default());
@@ -657,9 +759,9 @@ mod tests {
         let entries = entries.into_iter().map(|(id, entry)| {
             let anchors = world.get::<Children>(id).unwrap();
             let mut glyphs = Vec::new();
-            for anchor in anchors {
-                assert!(world.get::<ImageNode>(*anchor).is_none() && world.get::<TextColor>(*anchor).is_none());
-                glyphs.extend(world.get::<Children>(*anchor).unwrap().iter());
+            for anchor in anchors.iter().filter(|a| world.get::<EntryBox>(*a).is_none()) {
+                assert!(world.get::<ImageNode>(anchor).is_none() && world.get::<TextColor>(anchor).is_none());
+                glyphs.extend(world.get::<Children>(anchor).unwrap().iter());
             }
             assert!(!glyphs.is_empty(), "{} has ink below its anchor", entry.label());
             (id, entry, glyphs)
@@ -684,8 +786,13 @@ mod tests {
                 }
                 let (line, fill) = highlight_colors();
                 let selected = *entry == Entry::New;
-                assert_eq!(*app.world().get::<BorderColor>(*id).unwrap(), BorderColor::all(if selected { line } else { Color::NONE }));
-                assert_eq!(app.world().get::<BackgroundColor>(*id).unwrap().0, if selected { fill } else { Color::NONE });
+                // The box hugging the words shows on the chosen entry only, the row itself is
+                // never lit.
+                let boxed = app.world().get::<Children>(*id).unwrap().iter().find(|c| app.world().get::<EntryBox>(*c).is_some()).expect("the entry's box");
+                assert_eq!(*app.world().get::<Visibility>(boxed).unwrap(), if selected { Visibility::Inherited } else { Visibility::Hidden });
+                let lines: Vec<(BorderColor, Color)> = app.world().get::<Children>(boxed).unwrap().iter().filter(|c| app.world().get::<crate::menu_shapes::LineBox>(*c).is_some()).map(|c| (*app.world().get::<BorderColor>(c).unwrap(), app.world().get::<BackgroundColor>(c).unwrap().0)).collect();
+                assert_eq!(lines, [(BorderColor::all(line), fill)]);
+                assert_eq!(*app.world().get::<BorderColor>(*id).unwrap(), BorderColor::all(Color::NONE));
             }
         }
         *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: None };

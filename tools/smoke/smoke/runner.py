@@ -562,6 +562,22 @@ def expand(arg: str, ctx: dict[str, str], masters: list[str] = ()) -> list[str] 
     return [out]
 
 
+def expand_game_value(value: str) -> str | None:
+    """Substitute invoking-process env variables in one scalar, without re-expanding data."""
+    parts = []
+    while "{env:" in value:
+        i = value.index("{env:")
+        j = value.find("}", i)
+        if j < 0:
+            return None
+        replacement = os.environ.get(value[i + 5:j])
+        if not replacement:
+            return None
+        parts.extend((value[:i], replacement))
+        value = value[j + 1:]
+    return "".join(parts) + value
+
+
 def launch_serve(launch: Launch) -> dict:
     """The `serve` table of a launch's members (load_text checked they agree), or {}."""
     return next((s.serve for s in launch.scenarios if s.serve), {})
@@ -611,11 +627,16 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     log = env.out / f"{launch.name}.log"
     started = time.monotonic()
     if launch.kind == GAME:
+        aids = {}
+        for key, value in game_env(launch).items():
+            expanded = expand_game_value(value)
+            if expanded is None:
+                return None, f"{key}: needs {value}", 0.0
+            aids[key] = expanded.replace("{repo}", str(env.repo))
         with serving(launch_serve(launch)) as served:
             cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
-            # `{repo}` in a value: the repository (a fixture's path); `{serve}`: the
-            # launch's loopback HTTP server (`serve`).
-            aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
+            # Environment values stay scalar: filenames, XML and script source are not
+            # tool arguments, so they must not be split or globbed by expand().
             if served:
                 aids = {k: v.replace("{serve}", served) for k, v in aids.items()}
             (env.out / f"{launch.name}.cmd.txt").write_text(

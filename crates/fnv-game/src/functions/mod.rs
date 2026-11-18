@@ -30,6 +30,7 @@ pub mod navigation;
 pub(crate) mod objects;
 pub use objects::{critical_stage_culls, CRITICAL_DISINTEGRATE_END, CRITICAL_GOO_END};
 pub(crate) mod player;
+pub(crate) mod player_source;
 mod quest;
 pub(crate) mod refs;
 pub use refs::FADE_OUT_HOLD;
@@ -674,6 +675,10 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1196, "SetCellImageSpace", Impl(misc::set_cell_image_space)),
             (0x1104, "SetWeather", Impl(crate::weather::set_weather)),
             (0x103E, "IsRaining", Impl(crate::weather::is_raining)),
+            (0x104B, "IsSnowing", Impl(crate::weather::is_snowing)),
+            (0x110A, "IsPleasant", Impl(crate::weather::is_pleasant)),
+            (0x110B, "IsCloudy", Impl(crate::weather::is_cloudy)),
+            (0x1094, "GetCurrentWeatherPercent", Impl(crate::weather::get_current_weather_percent)),
             (0x1095, "GetIsCurrentWeather", Impl(crate::weather::get_is_current_weather)),
             (0x11F7, "GetRadiationLevel", Impl(senses::get_radiation_level)),
             (0x11D6, "StartRadioConversation", Impl(crate::radio::start_radio_conversation)),

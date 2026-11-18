@@ -14,6 +14,9 @@ use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::{json, Value as Json};
 
+#[path = "common/inline_call_source_bridge.rs"]
+mod inline_call_source_bridge_tests;
+
 // ---- plugin builders ------------------------------------------------------------
 
 fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
@@ -1413,20 +1416,20 @@ fn a_moved_player_runs_no_on_load_at_a_cell_load() {
     assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
 }
 
-/// A player moved to a marker turns to the marker's heading and keeps the view's pitch;
-/// moved to itself it keeps its heading (issue #2226: the ending's XMarkerHeading faces
-/// the slide).
+/// A player moved to a marker turns to the marker's heading and takes its pitch (the X
+/// angle); moved to itself it keeps both (issue #2226: the ending's XMarkerHeading faces
+/// the slide; #2710: the slide markers are level, and the view held there was tilted).
 #[test]
-fn a_moved_player_takes_the_markers_heading() {
+fn a_moved_player_takes_the_markers_heading_and_pitch() {
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
     g.world.get(FormId(OTHER_REF)).unwrap().rot = [0.4, 0.0, 1.5];
     g.world.get(FormId::PLAYER_REF).unwrap().rot = [0.3, 0.0, 2.5];
     g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
-    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.4, 0.0, 1.5]);
     g.run_source("player.MoveTo player 0 0 10", Default::default()).unwrap();
-    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.3, 0.0, 1.5]);
+    assert_eq!(g.world.get(FormId::PLAYER_REF).unwrap().rot, [0.4, 0.0, 1.5]);
 }
 
 /// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
@@ -1791,6 +1794,65 @@ fn say_to_done_follows_say_as_well_as_say_to() {
     assert_eq!(done(&h), 1.0);
 }
 
+// [documented: #2714, spooknik's 2026-11-15 comment] Roy's plain Say uses a
+// Conversation/Goodbye line without a target or continuation. [design, #2714]
+// Exercise that shape with this file's authored fixture; check engine pause/audio in
+// the roy-say-pause-resume smoke scenario, not by this headless menu-mode test.
+#[test]
+fn plain_say_resumes_after_mid_line_pauses_and_finishes_once() {
+    let mut f = fixture();
+    let line = f.data.infos.get_mut(&FormId(INFO_A)).unwrap();
+    line.info_type = fnv_game::data::topic_type::CONVERSATION;
+    line.flags |= fnv_game::data::info_flag::GOODBYE;
+    line.goodbye = true;
+    assert!(line.choices.is_empty() && line.follow_ups.is_empty());
+    let end = line.end.unwrap();
+    let opcode = f.data.table.by_name("Say").unwrap();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let ctx = Ctx { unit: "test".into(), opcode, on: Some(speaker), self_ref: Some(speaker), action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(TOPIC))]);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    let ends = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineEnded { info, .. } if info == FormId(INFO_A))).count();
+    let total = g.speech[0].remaining;
+    g.frames(40);
+    assert!(g.speech[0].remaining > 0.0 && g.speech[0].remaining < total);
+    for _ in 0..2 {
+        let held = g.speech[0].clone();
+        assert_eq!((held.speaker, held.info, held.target, held.conversation), (speaker, FormId(INFO_A), None, None));
+        assert_eq!(held.response, 0);
+        assert!(!held.say_to && !held.leads_on && !held.greeting && !held.farewell);
+        g.open_menu(fnv_game::game::menus::START);
+        g.frames(600);
+        assert!(g.is_talking(speaker));
+        // [design: nvf-play/script_hud.rs::subtitles, voice.rs::speech_response]
+        // Retained INFO/response and remaining time let the HUD keep this subtitle.
+        assert_eq!(g.speech.len(), 1);
+        assert_eq!((g.speech[0].info, g.speech[0].response, g.speech[0].remaining), (held.info, held.response, held.remaining));
+        assert_eq!((ends(&g), done(&g)), (0, 0.0));
+        assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 5.0);
+        assert_eq!(g.close_menu(), Some(fnv_game::game::menus::START));
+        g.frames(10);
+        assert!(g.is_talking(speaker));
+        assert!(g.speech[0].remaining < held.remaining);
+    }
+    let left = g.speech[0].remaining;
+    let frames_left = (left / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames_left - 1);
+    assert!(g.is_talking(speaker));
+    assert_eq!((ends(&g), done(&g)), (0, 0.0));
+    g.tick();
+    assert!(!g.is_talking(speaker) && g.speech.is_empty());
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    g.frames(600);
+    assert_eq!((ends(&g), done(&g)), (1, 1.0));
+    assert_eq!(g.events.iter().filter(|e| matches!(&e.kind, EventKind::ResultScript { unit, on: Some(on) } if *on == speaker && *unit == f.data.unit(end).key())).count(), 1);
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. } | EventKind::ActorConversationStarted { .. })));
+}
+
 #[test]
 fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
     // docs/spec-notes/voice.md §8: the hook gives a response's length; a response it
@@ -1889,7 +1951,43 @@ fn a_scripts_say_does_not_fall_back_when_the_speakers_own_line_is_spent() {
     let mut g = game(&f);
     g.new_game();
     assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    // Once the line is over (a repeat while it plays leaves it playing, #2582).
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
     assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), None);
+}
+
+#[test]
+fn a_scripts_say_of_the_topic_being_said_leaves_the_line_playing() {
+    // #2582: the Strip gate's kill zone SayTos its topic every frame; the original renews
+    // the talking state without a queue (observer batch o30), and here the line being
+    // said goes on instead of restarting every frame.
+    let f = fixture();
+    let speaker = FormId(NPC_REF);
+    let mut g = game(&f);
+    g.new_game();
+    let started = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count();
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_A)));
+    // A SayTo or a Say of the same topic every frame while it plays: the same line.
+    for k in 0..60 {
+        g.frames(1);
+        assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), k % 2 == 0), Some(FormId(INFO_A)));
+    }
+    assert_eq!(started(&g), 1);
+    // Said to its end: its end script ran (GLOBAL 3, as in the SayTo test above), and
+    // the next call says the topic's next line.
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    assert_eq!(g.say_by_script(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    assert_eq!(started(&g), 2);
+    // A line started otherwise (here a Say by the engine, `Game::say`) is no different:
+    // a script's repeat of its topic leaves it playing too, while `Game::say` still cuts.
+    let mut h = game(&f);
+    h.new_game();
+    assert_eq!(h.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    assert_eq!(h.say_by_script(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    assert_eq!(h.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_B)));
 }
 
 #[test]
@@ -3528,6 +3626,60 @@ fn each_queued_box_keeps_its_own_button_count() {
     assert_eq!(g.queued.len(), g.boxes.len());
     // The two boxes left, the one pushed out of step, then the box shown.
     assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, None, Some(2)]);
+}
+
+#[test]
+fn answer_ok_boxes_answers_a_scripts_ok_box_without_opening_it() {
+    // `--no-messages` (GameConfig::answer_ok_boxes): the add-on packs' start-up boxes
+    // never open, so game time does not stop for them.
+    use fnv_game::game::menus;
+    let mut f = fixture();
+    f.data.messages.get_mut(&FormId(MESSAGE)).unwrap().buttons = vec!["Ok".into()];
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    g.new_game();
+    // The activator's ShowMessage (and SetStage Q 10, whose 1 s quest timer then runs).
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.len()), (None, 0), "the box never opened");
+    assert_eq!(g.message_box.as_ref().and_then(|m| m.pressed), Some(0), "answered with OK");
+    assert_eq!(g.take_answered_boxes(), vec![FormId(MESSAGE)]);
+    assert!(g.take_answered_boxes().is_empty(), "taken once");
+    let t0 = g.time;
+    g.frames(120);
+    assert!(g.time > t0, "game time runs on");
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+    // Off (the default): the same box opens and holds the game.
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(MESSAGE)]));
+    assert!(g.take_answered_boxes().is_empty());
+}
+
+#[test]
+fn answer_ok_boxes_leaves_a_box_with_a_choice_to_the_player() {
+    use fnv_game::game::menus;
+    use fnv_script::vm::XVal;
+    // The fixture's message asks Yes / No.
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!((g.menu, g.boxes.clone()), (Some(menus::MESSAGE), vec![FormId(MESSAGE)]));
+    assert_eq!(g.message_box.as_ref().and_then(|m| m.pressed), None);
+    assert!(g.take_answered_boxes().is_empty());
+    // A form-less MessageBoxEx box: OK alone is answered (GetButtonPressed of the script
+    // that showed it reads 0), Yes / No waits.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.answer_ok_boxes = true;
+    let ok = "Begin Function { }\nMessageBoxEx \"C|Ok\"\nSetFunctionValue (GetButtonPressed)\nEnd\n";
+    assert_eq!(g.run_query(ok, Default::default()), Ok(XVal::Num(0.0)));
+    assert_eq!((g.menu, g.boxes.len(), g.take_answered_boxes()), (None, 0, vec![FormId(0)]));
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!((g.menu, g.boxes.len()), (Some(menus::MESSAGE), 1));
+    assert!(g.take_answered_boxes().is_empty());
 }
 
 #[test]

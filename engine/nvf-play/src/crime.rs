@@ -165,6 +165,7 @@ fn show_notes(
     mut stats: ResMut<CrimeStats>,
     corner: Option<ResMut<CornerMessages>>,
     mut sounds: MessageWriter<PlaySound>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let notes = rt.game.crimes.take_notes();
@@ -181,7 +182,8 @@ fn show_notes(
                 stats.karma_first.get_or_insert(now - change);
                 stats.karma_last = Some(now);
                 info!("crime: karma {change:+} for {why}, now {now}");
-                if change == 0.0 {
+                // The player's tweak keeps karma quiet [design: docs/design/tweaks.md].
+                if change == 0.0 || tweaks.as_ref().is_some_and(|t| t.no_karma_messages) {
                     continue;
                 }
                 let (text, image, sound) = match (change > 0.0, change.abs() >= major) {
@@ -227,8 +229,8 @@ fn show_notes(
                 stats.faction_enemies += 1;
                 info!("crime: the player is now an enemy of {}", g.data.name(faction));
             }
-            // A crime's cooldown ran out (`Game::expire_crimes`, #2467).
-            Note::FactionEnemyEnded { faction, days } => info!("crime: the player is no longer an enemy of {}: the last crime against it is {days:.2} game days old", g.data.name(faction)),
+            // A crime's flag or cooldown ran out (`Game::expire_crimes`, #2467, #2498).
+            Note::FactionEnemyEnded { faction, days } => info!("crime: the player is no longer an enemy of {}: the last crime against it is {:.2} game hours old", g.data.name(faction), days * 24.0),
             Note::CrimeEnemyEnded { actor, days } => info!("crime: {} no longer counts the player's crimes: the last is {days:.2} game days old", name(g, actor)),
             Note::Trespassing { cell, owner, now } => {
                 let what = if now { "trespasses in" } else { "left" };

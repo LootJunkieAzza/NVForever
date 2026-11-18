@@ -1006,12 +1006,38 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     );
 }
 
+/// SetSoundSourceFile (`fnv_game::nvse_traits`): a SOUN whose file or folder a script
+/// changed plays from there [documented: SetSoundSourceFile, "Sets the source sound
+/// file/folder path used by the specified Sound"; observed: Titans of the New West points FSTArmorPowerL/R at its silence
+/// folders (`fx\fst\TNW_SilenceL\`) and plays its own footsteps when it hears them
+/// (#2541); before, the engine kept the record's file and the vanilla step sounded too].
+/// Only new or changed sources are applied: a source that leaves the map later (a new
+/// game, a load) is not put back to the record's file.
+fn script_sound_files(script: Option<Res<crate::script::ScriptState>>, sfx: Option<ResMut<Sfx>>, mut seen: Local<std::collections::HashMap<FormId, String>>) {
+    let (Some(script), Some(mut sfx)) = (script, sfx) else { return };
+    let Some(rt) = script.rt.as_ref() else { return };
+    let now = &rt.game.traits.sources;
+    if now.len() == seen.len() && now.iter().all(|(k, v)| seen.get(k) == Some(v)) {
+        return;
+    }
+    for (k, v) in now {
+        if seen.get(k) == Some(v) {
+            continue;
+        }
+        if let Some(sound) = sfx.forms.sounds.get_mut(k) {
+            info!("world sounds: {} plays from {v} (SetSoundSourceFile)", sound.edid.as_deref().unwrap_or("a sound"));
+            sound.file = Some(v.clone());
+        }
+    }
+    *seen = now.clone();
+}
+
 pub struct WorldSoundsPlugin;
 
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init)
-            .add_systems(Update, (knocks, objects, object_sources, water_sources).in_set(PlaySet::Sync))
+            .add_systems(Update, (knocks, objects, object_sources, water_sources, script_sound_files).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
 }

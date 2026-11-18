@@ -1443,6 +1443,19 @@ fn condition_and_ownership_travel_with_items() {
     assert_eq!(back.peek(p), w.peek(p));
 }
 
+/// The Equip Broken Items tweak's flag lets the player, and only the player, equip one.
+#[test]
+fn the_player_equips_a_broken_weapon_under_the_tweak() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item_extra(p, id(PISTOL), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    w.set_player_equips_broken(true);
+    w.equip(p, id(PISTOL)).unwrap();
+    assert!(w.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(id(PISTOL)));
+}
+
 #[test]
 fn a_broken_weapon_is_not_equipped() {
     use fnv_sim::inventory::Extra;
@@ -1505,6 +1518,37 @@ fn a_live_unit_is_not_equipped_removed_dropped_or_moved() {
     let snap = serde_json::to_string(&w.snapshot()).unwrap();
     let back = World::restore(&f.forms, &f.refs, &serde_json::from_str(&snap).unwrap()).unwrap();
     assert_eq!(back.peek(p).unwrap().inventory.as_ref().unwrap().live_count(mine), 1);
+}
+
+/// A resurrected actor's own items are made up again (World::restock_inventory, #2683):
+/// what was taken comes back, what it still has is not doubled, what it was given stays.
+#[test]
+fn a_restocked_inventory_gets_back_what_is_missing_of_its_own_list() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let before = w.peek(g).unwrap().inventory.clone().unwrap();
+    // Nothing missing: nothing added.
+    assert!(w.restock_inventory(g).unwrap().is_empty());
+    // Its gun and one of its two mines are gone (dropped beside the body, looted); it was
+    // given five caps.
+    let inv = w.inventory_mut(g).unwrap();
+    assert_eq!(inv.take(id(LONG_GUN), 1).len(), 1);
+    assert_eq!(inv.take(id(MINE), 1).len(), 1);
+    w.add_item(g, id(CAPS), 5).unwrap();
+    let mut added = w.restock_inventory(g).unwrap();
+    added.sort();
+    let mut want = vec![(id(LONG_GUN), 1), (id(MINE), 1)];
+    want.sort();
+    assert_eq!(added, want);
+    let inv = w.peek(g).unwrap().inventory.clone().unwrap();
+    for (item, n) in before.iter() {
+        assert_eq!(inv.count(item), n, "{item:?}");
+    }
+    assert_eq!(inv.count(id(CAPS)), 5, "what it was given stays");
+    // It holds the gun again; the suit it never lost is still worn, once.
+    assert!(inv.is_equipped(id(LONG_GUN)) && inv.is_equipped(id(SUIT)));
+    assert_eq!(inv.equipped().len(), before.equipped().len());
 }
 
 /// A rebuilt inventory (ResetInventory, a resurrection's empty pick) keeps the live units
@@ -2445,7 +2489,7 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     w.set_inventory_source(id(SAFE_REF), None);
     w.set_power_armor_training(true);
     w.set_carry_bonus(p, 25.0);
-    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None };
+    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None, ..Default::default() };
     w.set_weight_rules(p, rules);
     // Session only.
     w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
@@ -2555,4 +2599,74 @@ fn ref_state_json_contract() {
         let error = serde_json::from_str::<RefState>(&text(flags)).unwrap_err().to_string();
         assert!(error.contains(&format!("missing field `{missing}`")), "{error}");
     }
+}
+
+
+/// [design, #2538] Synthetic reciprocal doors: only the destination has XLOC.
+#[test]
+fn load_door_lock_reads_refuses_unlocks_and_restores_one_source() {
+    let mut f = fixture();
+    let (a, b, p) = (id(DOOR_A), id(DOOR_B), FormId::PLAYER_REF);
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(fnv_sim::refs::Lock { level: 255, key: None, leveled: false });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_source(a), b);
+    assert_eq!(w.lock_of(a), w.lock_of(b));
+    assert_eq!(w.lock_of(a).unwrap().level, 255);
+    assert_eq!(w.lock_status(a).unwrap(), 1);
+    assert!(w.peek(a).is_none() && w.peek(b).is_none());
+    let before = w.get(p).unwrap().clone();
+    let npc = w.place(id(GUARD), before.cell, before.pos, [0.0; 3], 1).unwrap();
+    for door in [a, b] {
+        assert_eq!(w.activate(p, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!(w.activate_scripted(p, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!(w.activate(npc, door).unwrap().outcome, Outcome::Locked { level: 255 });
+        assert_eq!((w.peek(p).unwrap().cell, w.peek(p).unwrap().pos), (before.cell, before.pos));
+    }
+    assert!(w.peek(a).unwrap().lock.is_none());
+    let serial = w.lock_serial();
+    w.unlock(a).unwrap();
+    assert!(w.lock_serial() > serial);
+    assert_eq!(w.lock_status(a).unwrap(), 0);
+    assert_eq!(w.lock_status(b).unwrap(), 0);
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut restored = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(restored.lock_status(a).unwrap(), 0);
+    assert!(restored.peek(a).unwrap().lock.is_none());
+    assert!(matches!(restored.activate(p, a).unwrap().outcome, Outcome::Teleported { .. }));
+    restored.lock(a, Some(25)).unwrap();
+    assert_eq!(restored.lock_source(a), a);
+    assert_eq!(restored.lock_of(a).unwrap().level, 25);
+    assert_eq!(restored.lock_status(b).unwrap(), 0);
+    restored.lock(b, Some(100)).unwrap();
+    restored.unlock(a).unwrap();
+    assert_eq!(restored.lock_status(b).unwrap(), 1);
+    assert_eq!(restored.lock_of(a).unwrap().level, 25);
+}
+
+#[test]
+fn load_door_lock_key_empty_pairs_and_non_doors() {
+    let mut f = fixture();
+    let (a, b, p) = (id(DOOR_A), id(DOOR_B), FormId::PLAYER_REF);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None);
+    assert_eq!(w.lock_source(a), a);
+    drop(w);
+    f.refs.refs.get_mut(&b).unwrap().lock = Some(fnv_sim::refs::Lock { level: 50, key: Some(id(KEY)), leveled: false });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a).unwrap().key, Some(id(KEY)));
+    w.add_item(p, id(KEY), 1).unwrap();
+    let result = w.activate(p, a).unwrap();
+    assert_eq!(result.unlocked_with, Some(id(KEY)));
+    assert!(matches!(result.outcome, Outcome::Teleported { .. }));
+    assert_eq!(w.lock_status(b).unwrap(), 0);
+    assert_eq!(w.item_count(p, id(KEY)).unwrap(), 1);
+    drop(w);
+    f.refs.refs.get_mut(&a).unwrap().base = id(SAFE);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None, "XTEL on a non-door does not inherit a lock");
+    drop(w);
+    f.refs.refs.get_mut(&a).unwrap().base = id(DOOR);
+    f.refs.refs.remove(&b);
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.lock_of(a), None, "missing partners are not locks");
 }

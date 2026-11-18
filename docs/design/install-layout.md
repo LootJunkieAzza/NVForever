@@ -82,7 +82,10 @@ floor lowered from 25% for 1600 dpi mice in #1632]. A hand-edited value under 5%
 values above 300% are kept. `Mouse Vertical Sensitivity` (`[Controls]`) and `Stick Vertical
 Sensitivity` (`[Controller]`) are each device's vertical look as a multiple of its
 horizontal, two decimals, 1.00 as the game has it, on the same steps and floor [design:
-#2201]; an INI without them reads 1.00 and gets the lines written.
+#2201]; an INI without them reads 1.00 and gets the lines written. `Mouse Aim Sensitivity` in
+`[Controls]` and `Stick Aim Sensitivity` in `[Controller]` is each device's look while
+aiming down the sights or through a scope as a multiple of its unzoomed look, kept and read
+the same way (1.00 leaves the look as unzoomed) [design: owner 2026-11-15].
 
 [design, #2200; `nvf_play::bindings`] `[Controls]` also keeps `Input Device` as
 `Keyboard and Mouse` or `Controller` and `Automatic Input Switching` as `1` (default)
@@ -102,7 +105,8 @@ SCharGenQuest=001FFFF8
 SIntroMovie=
 ```
 
-Both are read once at start and never written; unattended runs read them only under their
+The launcher's Mods page writes these two lines for the player with one box (launcher.md,
+Mods). Both are read once at start and never written by the game; unattended runs read them only under their
 own `NVFOREVER_HOME`.
 
 These lines go in NVForever's own `NVForever.ini`, not the original's

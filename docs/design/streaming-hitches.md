@@ -508,3 +508,47 @@ smoke game ran beside it for part of the lap): pressed at 77 s again and held, m
 kept about 3,990 at the end; mean 17.5 ms against 17.2, 1 % low 43.7 ms against 35.3,
 one 432 ms frame, actors drawn 1.4 s against 0.8 s. Still not measured on an idle
 machine, or with a real 2 GB card, which pages rather than pressing.
+
+## 6. A new game through character creation in Doc Mitchell's house (#2406, 2026-11-15)
+
+The reports (build 0.7.0, read 2026-11-13) put the most hitches (frames over 250 ms
+outside a load and the 10 s after one, counted only while `playing`) in
+GSDocMitchellHouse: 27 events from 4 installs, up to 3.9 s; on the worst install (Intel
+Core 5 210H laptop, RTX 5050, 16 GB) 3.4 s and 3.9 s frames 37 s and 125 s into the
+session. Measured here with the profile campaign's scenario `new-game-chargen`
+(tools/profile/campaign.toml: `--new-game`, each script menu held 1 s, frames of 100 ms
+or more listed with their spans) and variants of it in a scratch campaign (the Vigor
+Tester, tag skills and traits asked by `NVF_PLAY_TEST_SCRIPT` at 80, 105 and 120 s;
+the driver's shader cache emptied with `__GL_SHADER_DISK_CACHE_PATH`; reports collecting
+with `NVF_REPORTS=1` and a local endpoint; voice and the intro film on). Release profile
+builds, i9-14900K, RTX 4070, 48 GB, game files in the OS cache [observed, 2026-11-15]:
+
+| run | other programs' CPU | frames ≥ 100 ms outside the start's screen | slowest |
+| --- | --- | --- | --- |
+| warm caches, 150 s (wake-up, name, face editor, Doc's lines) | 14 % | none | 32 ms |
+| driver shader cache empty, 170 s (and the Vigor Tester, tag skills, traits) | 12 % | 1: the Vigor Tester's opening, 104 ms (`vigor::open_close` 79 ms, 16 texture reads 18 ms) | 104 ms |
+| the same with reports collecting | 60 % (other sessions compiling) | 227, the whole frame slower everywhere (`prepare_uniform_components`, batching); the Vigor Tester's opening 413 ms (`vigor::open_close` 319 ms) | 427 ms |
+| the fix below, driver shader cache empty | 23 % | none (the opening's window: 40 ms slowest) | 40 ms |
+| the fix, voice and the intro film on | — | none while the film played (8,692 frames, the whole run) | 65 ms |
+| the fix, voice on, the film skipped at 6 s (Doc's lines, face editor, Vigor Tester, tag skills, traits) | — | none | 66 ms |
+
+- **Not reproduced**: no frame over 250 ms in this stretch on this machine, cold driver
+  cache or not. The reports' 3.4-3.9 s frames are not explained by anything measured
+  here. Pipeline compiles with an empty driver cache are absorbed (they compile off the
+  render thread; the start's screen waits for them, `loading-screen.md`); the reports'
+  own systems (`refresh_snapshot`, the summary write) never showed in a slow frame's spans;
+  memory peaked at 3.1 GB private, far from a 16 GB machine's limit.
+- **The one discrete stall: the Vigor Tester's first opening.** It read and parsed its two
+  models (the activate model twice: once for its 16 sequences), spawned 508 parts and
+  read 16 textures in the frame the menu opened, on the main thread: 79 ms here, 104 ms
+  with an empty shader cache, 319 ms with the processor busy. That frame is still
+  `playing` (the menu state comes the frame after), so a slow machine counts it.
+  **Fixed**: in a new game the machine is spawned hidden and its sequences read behind
+  the start's loading screen (`nvf_play::chargen::vigor::warm`, 194-207 ms there, inside
+  a 5.3 s screen), and the first opening takes it; a later travel drops it unused. A
+  `--cell` start or a save loaded before the tester builds it on opening as before.
+  Smoke: `vigor-tester-new-game`.
+- **With the processor busy** every frame slows (60 % of the CPU taken by other programs
+  gave a 28 ms mean and 227 frames over 100 ms): a 6-core laptop running something beside
+  the game may be the reports' many 0.5-1.5 s frames [hypothesis]; what the 3.4-3.9 s
+  frames are stays open. The next build's reports will say whether the house's count falls.

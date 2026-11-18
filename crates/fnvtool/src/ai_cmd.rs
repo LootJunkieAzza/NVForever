@@ -115,6 +115,10 @@ pub enum AiCmd {
         /// quest state the run does not have (repeatable).
         #[arg(long)]
         quest_var: Vec<String>,
+        /// The actors are out of sight: in the low process (`fnv_ai::process`, the Low
+        /// level), as when the player is far away.
+        #[arg(long)]
+        out_of_sight: bool,
     },
 }
 
@@ -166,9 +170,9 @@ pub fn run(cmd: AiCmd) -> anyhow::Result<Value> {
                 crate::ai_packages::observed(lo, data, &forms, refs, &samples)
             })
         }
-        AiCmd::Run { w, functions, actor, start_hour, hours, step, timescale, samples, force, quest_var } => with_data(&w, functions, |lo, schema, data, refs, _| {
+        AiCmd::Run { w, functions, actor, start_hour, hours, step, timescale, samples, force, quest_var, out_of_sight } => with_data(&w, functions, |lo, schema, data, refs, _| {
             let furniture_facts = crate::ai_run::furniture_facts(lo, schema, &w);
-            let args = crate::ai_run::RunArgs { actors: actor, force, quest_vars: quest_var, start_hour, hours, step, timescale, samples, furniture_facts };
+            let args = crate::ai_run::RunArgs { actors: actor, force, quest_vars: quest_var, start_hour, hours, step, timescale, samples, furniture_facts, out_of_sight };
             crate::ai_run::run(lo, schema, data, refs, &args, &|n| crate::ai_packages::find_form(data, refs, n))
         }),
         AiCmd::Reach { w, functions } => with_data(&w, functions, |lo, schema, data, refs, _| crate::ai_run::reach(lo, schema, data, refs)),

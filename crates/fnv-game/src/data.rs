@@ -625,7 +625,14 @@ pub struct RegionDef {
     /// The map block (RDAT type 4, then RDMP), when the region has one: its name and the
     /// header's priority (schema `sky.json` REGN RDMP).
     pub map: Option<(String, u8)>,
+    /// The record's Border Region flag (header bit 6, 0x40) [documented: GECK wiki form
+    /// flags table, "Border Region" at 64]: the player is kept inside its areas
+    /// (`crate::borders`).
+    pub border: bool,
 }
+
+/// REGN record flag Border Region [documented: GECK wiki form flags table, 64].
+pub const BORDER_REGION: u32 = 0x40;
 
 /// A region's weather block [documented: xEdit wbRegionDataEntries type 3; schema
 /// `sky.json` REGN RDAT, RDWT]: its RDAT flags (bit 0 override,
@@ -2027,11 +2034,11 @@ impl GameData {
         // of a unit only what `source_compile::apply` leaves alone.
         let table = std::mem::take(&mut d.table);
         if long_way {
-            let recompiled = crate::source_compile::compile_picked(lo, &table, &units);
+            let recompiled = crate::source_compile::compile_picked(lo, schema, &table, &units);
             d.source_units.extend(crate::source_compile::apply(&mut units, recompiled, &mut d.issues));
         }
         let recompiled = std::thread::scope(|scope| {
-            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, &table, &units) });
+            let compile = scope.spawn(|| if long_way { crate::source_compile::Recompiled::none() } else { crate::source_compile::compile_picked(lo, schema, &table, &units) });
             // In form order, as one list read all at once was.
             let mut unit_reads: HashMap<u32, Box<Read>> = unit_reads.into_iter().collect();
             // The reads run a slice at a time inside the loop below: their time is summed here,
@@ -3499,7 +3506,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             });
         }
         b"REGN" => {
-            let mut rg = RegionDef::default();
+            let mut rg = RegionDef { border: r.header.flags & BORDER_REGION != 0, ..Default::default() };
             let num = |v: Option<&Json>| v.and_then(|x| x.as_f64().or_else(|| x.get("value")?.as_f64())).unwrap_or(0.0);
             let mut header: Option<&Json> = None;
             for (s, v) in &decoded {

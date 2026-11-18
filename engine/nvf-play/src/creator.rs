@@ -131,6 +131,11 @@ pub struct CreatorMenu {
 }
 
 impl CreatorMenu {
+    /// [design, #2403 / file refs] Read-only creator edits, navigation and camera view;
+    /// excludes drawing/pointer caches in `CreatorMenu`.
+    pub fn progress(&self) -> Option<impl std::fmt::Debug + '_> {
+        self.model.as_ref().map(|m| (m.progress(), self.answered))
+    }
     pub fn is_open(&self) -> bool {
         self.model.is_some()
     }
@@ -278,7 +283,7 @@ fn row_label(m: &Model, r: Row) -> Vec<String> {
     out
 }
 
-fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>) {
+fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let open = script.as_deref().and_then(crate::chargen::open_code) == Some(menus::RACE) && data.is_some();
     if open == st.model.is_some() {
         return;
@@ -308,7 +313,9 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         return;
     };
     let kind = rt.game.race_menu;
-    let m = Model::of_kind(data.0.clone(), start, kind);
+    let mut m = Model::of_kind(data.0.clone(), start, kind);
+    // The player's tweak: facial hair for a woman too [design: docs/design/tweaks.md].
+    m.female_beards = tweaks.as_ref().is_some_and(|t| t.female_facial_hair);
     if let Some(p) = &data.0.ctl_problem {
         warn!("creator: {p}; no sliders");
     }
@@ -318,7 +325,6 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         model::RaceMenu::Surgeon => info!("creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and brows only"),
         model::RaceMenu::Creator => {}
     }
-    let mut m = m;
     let c = m.camera();
     let what = if kind == model::RaceMenu::Barber { "the hair" } else { "the face" };
     info!("creator: camera on opening: {:.0} units away, looking {:.0} under the eye ({what})", c.distance, c.drop);
@@ -821,6 +827,32 @@ fn draw(
     // At the UI scale the menu keeps to the view's middle (#1631).
     commands.spawn((crate::interface::framed_root(root, crate::interface::MIDDLE), GlobalZIndex(30), CreatorRoot)).with_children(|r| hits = view::spawn(r, m, kit, view_w));
     st.hits = hits;
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> CreatorMenu {
+    let look = fnv_actor::Look {
+        race: fnv_sim::FormId(42),
+        female: false,
+        hair: None,
+        hair_color: None,
+        eyes: None,
+        head_parts: vec![],
+        facegen: fnv_actor::creator::full(&FaceGen::default()),
+    };
+    let mut m = Model::new(Arc::new(Creator::default()), look);
+    if step >= 1 {
+        m.tab = Tab::Hair;
+    }
+    if step >= 2 {
+        m.look.female = true;
+    }
+    if step >= 3 {
+        m.view.turn = 0.5;
+    }
+    CreatorMenu { model: Some(m), dirty: step >= 4, last_pointer: (step >= 4).then_some(Vec2::ONE), ..Default::default() }
 }
 
 #[cfg(test)]

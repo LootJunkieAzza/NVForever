@@ -202,6 +202,16 @@ pub fn build(ui: &mut Ui) {
             string(ui, tile, text);
         }
     }
+    if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
+        // [design] Materialize the local alpha already used by the renderer when this
+        // engine-created ammo copy omits it. Hover UI consumers read this trait before
+        // forwarding it to their own text; an absent trait otherwise reads -999.
+        // A template's explicit alpha, including an expression or zero, wins. Later
+        // script writes remain untouched because this runs only when copies are built.
+        if ui.tile(tile).trait_index("alpha").is_none() {
+            num(ui, tile, "alpha", 255.0);
+        }
+    }
     if let Some(tile) = find(ui, "HitPoints/justify_left_text") {
         // The left-text template starts hidden [documented: hudtemplates.xml];
         // showing this label through alpha/visible is a hypothesis [hypothesis: hud.md §14.6].
@@ -357,7 +367,9 @@ fn write_prompt(ui: &mut Ui, shown: Shown, input: &Frame) {
 
 fn write_enemy(ui: &mut Ui, shown: Shown, input: &Frame) {
     let enemy = input.enemy.as_ref();
-    let visible = shown.enemy && enemy.is_some_and(|e| share(e.health) < 1.0);
+    // [design, #2659] Shown owns visibility: classic VATS also shows full-health targets
+    // (engine/nvf-play/src/tiles/mod.rs::HudTiles::shown).
+    let visible = shown.enemy && enemy.is_some();
     if let Some(enemy) = enemy {
         if let Some(tile) = ui.find_tile("HUDMainMenu/EnemyHealth") {
             num(ui, tile, "systemcolor", if enemy.hostile { 2.0 } else { 1.0 });

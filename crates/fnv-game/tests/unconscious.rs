@@ -215,6 +215,55 @@ fn an_essential_teammate_dies_in_hardcore_and_stays_teammate_free() {
     assert!(!g.is_dead(HERO_REF));
 }
 
+/// Outside Hardcore the player's teammate is spared death though no flag marks it
+/// essential (no hired companion's ACBS has the bit, #2623): it is knocked out by a hit,
+/// DamageActorValue or KillActor, and IsEssential still reads its flag (0). In Hardcore,
+/// or once JIP's ToggleTeammateKillable made it killable, it dies (unconscious.md §2.2a).
+#[test]
+fn a_teammate_without_the_flag_is_knocked_out_outside_hardcore_and_dies_in_it() {
+    const SET_PLAYER_TEAMMATE: u16 = 0x11C5;
+    const IS_ESSENTIAL: u16 = 0x1162;
+    let f = fixture();
+    // Not a teammate: the unflagged boxer dies as before.
+    let mut g = game(&f);
+    assert!(g.hit(BOXER_REF, 10_000.0, by_player()).died);
+    // A teammate, outside Hardcore: a killing hit knocks it out, as an essential actor.
+    let mut g = game(&f);
+    ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    assert!(g.is_teammate(BOXER_REF));
+    assert_eq!(ask(&mut g, BOXER_REF, IS_ESSENTIAL, &[]), 0.0, "IsEssential reads the flag");
+    assert!(!g.hit(BOXER_REF, 10_000.0, by_player()).died);
+    assert!(!g.is_dead(BOXER_REF));
+    assert_eq!(g.knockout(BOXER_REF).map(|k| k.cause), Some(Cause::Essential));
+    assert!(g.is_teammate(BOXER_REF), "a knocked-out companion stays hired");
+    // It gets up and is still a teammate.
+    wait(&mut g, ESSENTIAL_DOWN + GETUP_MAX + 1.0);
+    assert!(g.knockout(BOXER_REF).is_none());
+    assert!(!g.is_dead(BOXER_REF) && g.is_teammate(BOXER_REF));
+    // KillActor and DamageActorValue knock it out too.
+    let mut g = game(&f);
+    ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    ask(&mut g, BOXER_REF, KILL_ACTOR, &[]);
+    assert!(!g.is_dead(BOXER_REF));
+    let mut g = game(&f);
+    ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    ask(&mut g, BOXER_REF, DAMAGE_ACTOR_VALUE, &[av(HEALTH), num(9999.0)]);
+    assert!(!g.is_dead(BOXER_REF));
+    assert_eq!(g.knockout(BOXER_REF).map(|k| k.cause), Some(Cause::Essential));
+    // In Hardcore it dies.
+    let mut g = game(&f);
+    g.set_hardcore(true);
+    ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    assert!(g.hit(BOXER_REF, 10_000.0, by_player()).died);
+    assert!(g.is_dead(BOXER_REF) && !g.is_teammate(BOXER_REF));
+    // Made killable by JIP's ToggleTeammateKillable, it dies outside Hardcore too.
+    let mut g = game(&f);
+    ask(&mut g, BOXER_REF, SET_PLAYER_TEAMMATE, &[num(1.0)]);
+    fnv_game::nvse::call(&mut g, &Default::default(), "toggleteammatekillable", Some(BOXER_REF), &[fnv_script::vm::XVal::Num(1.0)]).unwrap().unwrap();
+    ask(&mut g, BOXER_REF, KILL_ACTOR, &[]);
+    assert!(g.is_dead(BOXER_REF));
+}
+
 #[test]
 fn an_actor_out_of_fatigue_is_knocked_out_for_a_set_time() {
     let f = fixture();

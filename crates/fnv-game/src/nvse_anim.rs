@@ -123,16 +123,22 @@ impl Game<'_> {
         }
         for key in stop {
             let at = self.script_sequence_time_for(key.0, &key.2, key.1);
+            let stopped = self.script_sequence_now(key.0, key.1);
             let weight = self.anim_paths.sequences.get(&key).map_or(1.0, |s|s.weight);
             self.anim_paths.sequence_resume.insert(key.clone(), (at,weight));
             if let Some(sequence) = self.anim_paths.sequences.get_mut(&key) {
-                sequence.stopped = Some(self.time);
+                sequence.stopped = Some(stopped);
             }
             if let Some(paths) = self.anim_paths.played.get_mut(&key.0) {
                 paths.retain(|p| !same(p, &key.2));
             }
         }
-        self.anim_paths.sequences.retain(|_, sequence| sequence.stopped.is_none_or(|at| self.time - at < f64::from(sequence.ease_out)));
+        let world_now = self.time;
+        let first_now = self.script_sequence_now(FormId::PLAYER_REF, true);
+        self.anim_paths.sequences.retain(|&(actor, first, _), sequence| {
+            let now = if actor == FormId::PLAYER_REF && first { first_now } else { world_now };
+            sequence.stopped.is_none_or(|at| now - at < f64::from(sequence.ease_out))
+        });
     }
 
     /// Read the same established animation clock/offset as GetAnimCurrentTime,
@@ -142,9 +148,13 @@ impl Game<'_> {
     }
 
     pub(crate) fn script_sequence_clock(&self, actor: FormId, first: bool) -> f64 {
+        let now = self.script_sequence_now(actor, first);
+        let menu = if actor == FormId::PLAYER_REF && first {
+            self.knvse.first_person_menu_seconds - self.knvse.first_person_menu_start.unwrap_or(self.knvse.first_person_menu_seconds)
+        } else { 0.0 };
         self.knvse.global.get(&(actor, first)).map_or_else(
-            || self.time - self.knvse.clock_start.get(&actor).copied().unwrap_or(self.time) + self.cfg.frame_seconds,
-            |&(value, at)| value + self.time - at)
+            || self.time - self.knvse.clock_start.get(&actor).copied().unwrap_or(self.time) + menu + self.cfg.frame_seconds,
+            |&(value, at)| value + now - at)
     }
 
     pub fn script_sequence_time_for(&self, actor: FormId, path: &str, first: bool) -> f64 {
@@ -258,12 +268,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let ease = num(args, 1, 0.2);
             if !ease.is_finite() || ease < 0.0 || ease > f64::from(f32::MAX) { return Some(Ok(zero)); }
             let resume = g.script_sequence_time(a, &path);
+            let stopped = g.script_sequence_now(a, first);
             let weight = g.anim_paths.sequences.get(&key).map_or(1.0, |s|s.weight);
             g.anim_paths.sequence_resume.insert(key.clone(), (resume,weight));
             let mut changed = false;
             if let Some(sequence) = g.anim_paths.sequences.get_mut(&key).filter(|s| s.stopped.is_none()) {
                 sequence.ease_out = ease as f32;
-                sequence.stopped = Some(g.time);
+                sequence.stopped = Some(stopped);
                 changed = true;
             }
             if let Some(p) = g.anim_paths.played.get_mut(&a) {

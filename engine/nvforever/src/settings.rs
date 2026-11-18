@@ -9,8 +9,11 @@
 //! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--radius`; the volumes
 //! are the Sound tab, `nvf_play::audio_out::register_settings`)
 //! and the test aids. The draw distances are sliders here, each a part of the
-//! command line's distance (`draw_distance.rs`); the field of view, the frame-rate cap and the
-//! anti-aliasing and shadow-filter choices are sliders whose steps are the choices.
+//! command line's distance (`draw_distance.rs`), and the field of view a slider of whole
+//! degrees; a row of 7 or fewer values (the frame-rate cap, the shadow distance, the
+//! anti-aliasing, shadow-filter and shadow-resolution choices among them) is a list of its
+//! choices [design: the menu overhaul], whose INI value is the choice's name, an older
+//! slider's part still loading.
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
 use crate::fly::FlyCam;
@@ -31,7 +34,7 @@ use crate::world::Streamer;
 use crate::{Args, Overlay};
 use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
-use nvf_play::settings::{add_choice_list, add_setting, choice_index, choice_part, ChoiceList, Setting, Slider};
+use nvf_play::settings::{add_choice_list, add_setting, choice_index, ChoiceList, Setting, Slider};
 
 // The groups the rows register with, one short word each; which tab and heading the pause
 // menu shows each row under is nvf_play::settings_layout's table, not the group (#1953).
@@ -193,32 +196,39 @@ pub fn register(app: &mut App) {
                 slider: None,
             },
         );
+        // Advanced Movement's visual switches (NVF Features › Visual Only; nvf_play `player.rs`
+        // keeps the rest) [design: the owner, 2026-11-15]. A saved `weapon-sway` or `head-bob`
+        // (the rows they took over from) is read as theirs.
         add_setting(
             app,
             Setting {
-                key: "weapon-sway",
+                key: "weapon-inertia",
                 group: GROUP_PICTURE,
-                label: "Weapon sway",
-                note: "On: in first person the arms and weapon lag behind a turn and bob as you walk and run. Off: they stay still in the view.",
-                switches: "--no-weapon-sway",
+                label: "Weapon Inertia",
+                note: "On: in first person the arms and weapon lag behind turns and steps, bob, dip, breathe and recoil, heavier weapons more. Off: they stay still.",
+                switches: "--weapon-sway --no-weapon-sway",
                 get: |w| w.resource::<PlayerBody>().weapon_sway,
                 set: |w, on| w.resource_mut::<PlayerBody>().weapon_sway = on,
                 slider: None,
             },
         );
+        nvf_play::settings::set_older_key(app, "weapon-inertia", "weapon-sway");
+        nvf_play::settings::set_older_split(app, "weapon-sway", |v| vec![("weapon-inertia", v.to_string())]);
         add_setting(
             app,
             Setting {
-                key: "head-bob",
+                key: "camera-motion",
                 group: GROUP_PICTURE,
-                label: "Head bob",
-                note: "On: in first person the view dips with each step as you walk and run. Off: it stays level.",
-                switches: "--no-head-bob",
+                label: "Camera Motion",
+                note: "On: in first person the view bobs with each step, breathes, gets out of breath after running and jolts when you are hit. Off: it stays still.",
+                switches: "--head-bob --no-head-bob",
                 get: |w| w.resource::<PlayerBody>().head_bob,
                 set: |w, on| w.resource_mut::<PlayerBody>().head_bob = on,
                 slider: None,
             },
         );
+        nvf_play::settings::set_older_key(app, "camera-motion", "head-bob");
+        nvf_play::settings::set_older_split(app, "head-bob", |v| vec![("camera-motion", v.to_string())]);
         add_setting(
             app,
             Setting {
@@ -261,22 +271,41 @@ pub fn register(app: &mut App) {
     }
     {
         use crate::shadow_rate::{set_sun_shadow_choice, sun_shadow_choice, SUN_SHADOW_CHOICES};
-        let n = SUN_SHADOW_CHOICES.len();
-        add_setting(
+        // A list of its three choices [design: the menu overhaul, owner 2026-11-15: 7 or
+        // fewer values are a list]; the INI's older slider part still loads.
+        add_choice_list(
             app,
-            Setting::slider(
-                "sun-shadows",
-                GROUP_PICTURE,
-                "Sun shadows",
-                "The sun's shadows: Off, Performance (cheaper outdoors; moving shadows update at half the frame rate) or Quality. The original casts none from the world.",
-                Slider::choice(n, |w| choice_part(sun_shadow_choice(w), SUN_SHADOW_CHOICES.len()), |w, v| set_sun_shadow_choice(w, choice_index(v, SUN_SHADOW_CHOICES.len())), |v| {
-                    SUN_SHADOW_CHOICES[choice_index(v, SUN_SHADOW_CHOICES.len())].to_string()
-                }),
-            )
-            // `--shadow-distance` as the note named it ("out to"), not a part of it: kept so a
-            // test run's switches keep the row as before [design].
-            .with_switches("--shadow-distance, --sun-shadows, --no-sun-shadows"),
+            Setting {
+                key: "sun-shadows",
+                group: GROUP_PICTURE,
+                label: "Sun shadows",
+                note: "The sun's shadows: Off, Performance (cheaper outdoors; moving shadows update at half the frame rate) or Quality. The original casts none from the world.",
+                // `--shadow-distance` as the note named it ("out to"), not a part of it: kept so a
+                // test run's switches keep the row as before [design].
+                switches: "--shadow-distance, --sun-shadows, --no-sun-shadows",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            ChoiceList {
+                names: |_| SUN_SHADOW_CHOICES.iter().map(|c| (*c).to_string()).collect(),
+                chosen: |w| SUN_SHADOW_CHOICES[sun_shadow_choice(w).min(SUN_SHADOW_CHOICES.len() - 1)].to_string(),
+                pick: take_sun_shadows,
+                save: |w| SUN_SHADOW_CHOICES[sun_shadow_choice(w).min(SUN_SHADOW_CHOICES.len() - 1)].to_string(),
+                load: take_sun_shadows,
+                ask_keep: false,
+            },
         );
+        fn take_sun_shadows(w: &mut World, text: &str) -> bool {
+            let names: Vec<String> = SUN_SHADOW_CHOICES.iter().map(|c| (*c).to_string()).collect();
+            match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, SUN_SHADOW_CHOICES.len())) {
+                Some(i) => {
+                    set_sun_shadow_choice(w, i);
+                    true
+                }
+                None => false,
+            }
+        }
     }
     add_setting(
         app,
@@ -304,6 +333,31 @@ pub fn register(app: &mut App) {
             slider: None,
         },
     );
+    // How the landscape is smoothed (#2149, #2676): Off, 2 x 2, 4 x 4, 4 x 4 near; read when
+    // the game starts, so the row keeps the next start's choice (nvf_play::smooth_terrain).
+    // The INI's older on/off still reads (4 x 4 and Off).
+    add_choice_list(
+        app,
+        Setting {
+            key: nvf_play::smooth_terrain::KEY,
+            group: GROUP_GRAPHICS,
+            label: "Smooth terrain",
+            note: nvf_play::smooth_terrain::NOTE,
+            switches: "--smooth-terrain, --no-smooth-terrain",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| nvf_play::smooth_terrain::Smoothing::ALL.iter().map(|s| s.name().to_string()).collect(),
+            chosen: |_| nvf_play::smooth_terrain::setting().name().to_string(),
+            pick: pick_smoothing,
+            save: |_| nvf_play::smooth_terrain::setting().stored().to_string(),
+            load: pick_smoothing,
+            ask_keep: false,
+        },
+    );
+    nvf_play::settings::set_choice_labels(app, nvf_play::smooth_terrain::KEY, |_, name| fnv_util::words::tr_str(name).to_string());
     add_setting(
         app,
         Setting {
@@ -381,6 +435,29 @@ pub fn register(app: &mut App) {
             },
         );
     }
+    register_terrain_wireframe(app);
+}
+
+/// The Debug row Terrain wireframe (#2149, `crate::terrain_wireframe`): live, off by
+/// default, beside the navmesh's whether or not there is a navmesh.
+fn register_terrain_wireframe(app: &mut App) {
+    use crate::terrain_wireframe::TerrainWireframe;
+    if !app.world().contains_resource::<TerrainWireframe>() {
+        return;
+    }
+    add_setting(
+        app,
+        Setting {
+            key: crate::terrain_wireframe::KEY,
+            group: GROUP_DEVELOPER,
+            label: "Terrain wireframe",
+            note: crate::terrain_wireframe::NOTE,
+            switches: crate::terrain_wireframe::SWITCHES,
+            get: |w| w.resource::<TerrainWireframe>().on,
+            set: |w, on| w.resource_mut::<TerrainWireframe>().on = on,
+            slider: None,
+        },
+    );
 }
 
 /// The Frame rate counter switch's note.
@@ -438,7 +515,8 @@ fn register_display(app: &mut App) {
         .with_switches("--viewmodel-fov"),
     );
     // The HUD's size (#1631), kept by nvf-play's interface and fixed for the run at start.
-    add_setting(app, nvf_play::interface::ui_scale_row(GROUP_PICTURE));
+    let (row, list) = nvf_play::interface::ui_scale_row(GROUP_PICTURE);
+    nvf_play::settings::add_choice_list(app, row, list);
     nvf_play::menu_scale::register(app, GROUP_PICTURE);
     add_setting(
         app,
@@ -454,6 +532,9 @@ fn register_display(app: &mut App) {
         },
     );
     register_counter_rows(app);
+    // The physics rate (nvf_play::phys_rate) after the renderer's own Display rows, so their
+    // order in the registry and the INI is as it was before the row.
+    nvf_play::phys_rate::register_setting(app);
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;
     }
@@ -479,28 +560,42 @@ fn register_display(app: &mut App) {
         },
     );
     app.add_systems(PostStartup, read_old_vsync.after(nvf_play::settings::apply_stored));
-    let caps = frame_pace::CAPS.len();
-    add_setting(
+    // A list of the limits [design: the menu overhaul]; the INI's older slider part loads.
+    add_choice_list(
         app,
-        Setting::slider(
-            "frame-cap",
-            GROUP_PICTURE,
-            "Frame rate limit",
-            "At most this many frames a second (Off: no limit of its own). A lower limit keeps the computer cooler and quieter.",
-            Slider::choice(
-                caps,
-                |w| {
-                    let cap = w.resource::<FramePace>().cap;
-                    choice_part(frame_pace::CAPS.iter().position(|&c| c == cap).unwrap_or(0), frame_pace::CAPS.len())
-                },
-                |w, v| w.resource_mut::<FramePace>().cap = frame_pace::CAPS[choice_index(v, frame_pace::CAPS.len())],
-                |v| match frame_pace::CAPS[choice_index(v, frame_pace::CAPS.len())] {
-                    0 => "Off".to_string(),
-                    c => c.to_string(),
-                },
-            ),
-        ),
+        Setting {
+            key: "frame-cap",
+            group: GROUP_PICTURE,
+            label: "Frame rate limit",
+            note: "At most this many frames a second (Off: no limit of its own). A lower limit keeps the computer cooler and quieter.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| frame_cap_names(), chosen: frame_cap_chosen, pick: take_frame_cap, save: frame_cap_chosen, load: take_frame_cap, ask_keep: false },
     );
+}
+
+/// The Frame Rate Limit row's choices: Off, then each limit.
+fn frame_cap_names() -> Vec<String> {
+    frame_pace::CAPS.iter().map(|&c| if c == 0 { "Off".to_string() } else { c.to_string() }).collect()
+}
+
+fn frame_cap_chosen(w: &World) -> String {
+    let cap = w.resource::<FramePace>().cap;
+    frame_cap_names()[frame_pace::CAPS.iter().position(|&c| c == cap).unwrap_or(0)].clone()
+}
+
+/// The limit `text` names (or an older slider's part stands for).
+fn take_frame_cap(w: &mut World, text: &str) -> bool {
+    match nvf_play::settings::choice_of(text, &frame_cap_names(), |v| choice_index(v, frame_pace::CAPS.len())) {
+        Some(i) => {
+            w.resource_mut::<FramePace>().cap = frame_pace::CAPS[i];
+            true
+        }
+        None => false,
+    }
 }
 
 /// The frame rate counter's rows, listed under its switch (issue #1868; the
@@ -680,10 +775,14 @@ fn fov_part(deg: f32) -> f32 {
     degrees_part(deg, FOV_MIN, FOV_MAX)
 }
 
-/// A new field of view: kept in `Args` and put on the camera.
+/// A new field of view: kept in `Args` and put on the camera, where it takes the place of
+/// a console `fov`'s world angle, so scripts no longer read that one (GetCameraFOV 0).
 fn set_fov(world: &mut World, v: f32) {
     let deg = fov_degrees(v);
     world.resource_mut::<Args>().fov = deg;
+    if let Some(rt) = world.get_resource_mut::<nvf_play::script::ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        rt.game.ui.camera.fov_set.0 = None;
+    }
     let mut cams = world.query_filtered::<&mut Projection, With<FlyCam>>();
     for mut p in cams.iter_mut(world) {
         if let Projection::Perspective(p) = &mut *p {
@@ -705,6 +804,22 @@ fn viewmodel_fov_part(deg: f32) -> f32 {
 /// A new viewmodel field of view: kept in `Args`, where `player_body` reads it each frame.
 fn set_viewmodel_fov(world: &mut World, v: f32) {
     world.resource_mut::<Args>().viewmodel_fov = viewmodel_fov_degrees(v);
+}
+
+/// The two fields of view as the player set them (`--fov`, `--viewmodel-fov` and their
+/// sliders), told to the scripts (GetCameraFOV, GetPlayerCamFOV) before they run: at start,
+/// after a slider's change and for each new game state. A console `fov` still wins there,
+/// as on the screen.
+pub fn script_fov(args: Res<Args>, script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let Some(mut script) = script else { return };
+    let told = (Some(args.fov), Some(args.viewmodel_fov));
+    // Compared first, so an unchanged frame leaves the script state unchanged for Bevy.
+    if script.rt.as_ref().is_some_and(|rt| rt.game.ui.camera.settings_fov != told) {
+        if let Some(rt) = script.rt.as_mut() {
+            rt.game.ui.camera.settings_fov = told;
+            info!("settings: scripts read the field of view {:.0}, the viewmodel's {:.0}", args.fov, args.viewmodel_fov);
+        }
+    }
 }
 
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
@@ -737,13 +852,6 @@ fn register_distances(app: &mut App) {
             slider(|w| w.resource::<DrawDistances>().items, |w, v| draw_distance::set_part(w, DrawClass::Item, v)),
         ),
         Setting::slider(
-            "shadow-distance",
-            GROUP_PICTURE,
-            "Shadow distance",
-            "How far from you the sun casts shadows (with Sun shadows on), as a part of the farthest shadow distance.",
-            slider(|w| w.resource::<DrawDistances>().shadows, draw_distance::set_shadows),
-        ),
-        Setting::slider(
             "grass-distance",
             GROUP_PICTURE,
             "Grass distance",
@@ -754,6 +862,20 @@ fn register_distances(app: &mut App) {
     for s in sliders {
         add_setting(app, s);
     }
+    add_choice_list(
+        app,
+        Setting {
+            key: "shadow-distance",
+            group: GROUP_PICTURE,
+            label: "Shadow distance",
+            note: "How far from you the sun casts shadows, as a part of the farthest shadow distance; 0%: none.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| shadow_distance_names(), chosen: shadow_distance_chosen, pick: take_shadow_distance, save: shadow_distance_chosen, load: take_shadow_distance, ask_keep: false },
+    );
 }
 
 /// The Upscaler row's key and the Upscaling mode row's: two rows for the one request
@@ -794,6 +916,11 @@ pub(crate) const MODEL_NOTE: &str = "Which DLSS model rebuilds the picture (NVID
 /// The DLSS model row's command-line switch.
 pub(crate) const MODEL_SWITCHES: &str = "--dlss-model";
 
+/// The mesh terrain blend's row (#2661, mesh_terrain_blend.rs).
+pub(crate) const MESH_BLEND_KEY: &str = "mesh-terrain-blend";
+/// Its note, in NVForever's own words.
+pub(crate) const MESH_BLEND_NOTE: &str = "On: softens where outdoor roads, rocks and cliffs meet the landscape, giving them the ground's colour and light there. Not in the original.";
+
 /// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
@@ -833,7 +960,8 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_choice_labels(app, QUALITY_KEY, quality_label);
-    nvf_play::settings::set_disabled_status(app, QUALITY_KEY, |w| w.resource::<Graphics>().upscaler.quality().is_none().then_some("Needs an upscaler"));
+    // The upscaler's own rows show only for the upscaler chosen (the Upscaler row's choice),
+    // Anti-Aliasing only without one [design: owner 2026-11-15, the menu overhaul].
     // The DLSS model, under the mode: dimmed while DLSS is not what draws.
     add_choice_list(
         app,
@@ -877,36 +1005,65 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "fsr-library", fsr_library_dimmed);
-    let choices = [
-        Setting::slider(
-            "anti-aliasing",
-            GROUP_GRAPHICS,
-            "Anti-aliasing",
-            "How edges are smoothed: multisampling 2x, 4x or 8x (dearer at each step) or FXAA, SMAA or TAA afterwards. Reads Off while an upscaler is on.",
-            Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
-                graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
-            }),
-        )
-        .with_switches("--msaa, --graphics-only"),
-        Setting::slider(
-            "shadow-filter",
-            GROUP_GRAPHICS,
-            "Shadow filtering",
-            "How the sun's shadow edges are softened: Fast (harder, cheapest), Smooth (as vanilla) or Temporal (grainy unless Anti-aliasing is TAA).",
-            Slider::choice(
-                graphics::SHADOW_FILTERS.len(),
-                |w| {
-                    let f = w.resource::<Graphics>().shadow_filter;
-                    choice_part(graphics::SHADOW_FILTERS.iter().position(|&(_, m)| m == f).unwrap_or(1), graphics::SHADOW_FILTERS.len())
-                },
-                |w, v| w.resource_mut::<Graphics>().shadow_filter = graphics::SHADOW_FILTERS[choice_index(v, graphics::SHADOW_FILTERS.len())].1,
-                |v| graphics::SHADOW_FILTERS[choice_index(v, graphics::SHADOW_FILTERS.len())].0.to_string(),
-            ),
-        ),
-    ];
-    for s in choices {
-        add_setting(app, s);
-    }
+    // Lists [design: the menu overhaul: 7 or fewer values]; the INI's older slider part loads.
+    add_choice_list(
+        app,
+        Setting {
+            key: "anti-aliasing",
+            group: GROUP_GRAPHICS,
+            label: "Anti-aliasing",
+            note: "How edges are smoothed: multisampling 2x, 4x or 8x (dearer at each step) or FXAA, SMAA or TAA afterwards. Shown while no upscaler is chosen.",
+            switches: "--msaa, --graphics-only",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| graphics::AA_CHOICES.iter().map(|c| c.0.to_string()).collect(),
+            chosen: |w| graphics::AA_CHOICES[graphics::aa_choice(w).min(graphics::AA_CHOICES.len() - 1)].0.to_string(),
+            pick: take_aa,
+            save: |w| graphics::AA_CHOICES[graphics::aa_choice(w).min(graphics::AA_CHOICES.len() - 1)].0.to_string(),
+            load: take_aa,
+            ask_keep: false,
+        },
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "shadow-filter",
+            group: GROUP_GRAPHICS,
+            label: "Shadow filtering",
+            note: "How the sun's shadow edges are softened: Fast (harder, cheapest), Smooth (as vanilla) or Temporal (grainy unless Anti-aliasing is TAA).",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList { names: |_| graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect(), chosen: shadow_filter_chosen, pick: take_shadow_filter, save: shadow_filter_chosen, load: take_shadow_filter, ask_keep: false },
+    );
+    // The sun's shadow maps' side, 2048 (the default) or 4096, changed in play (#2843); saved
+    // as its name, the branch's older slider part (0 or 1) still loads.
+    add_choice_list(
+        app,
+        Setting {
+            key: "shadow-resolution",
+            group: GROUP_GRAPHICS,
+            label: "Shadow resolution",
+            note: "Size of the sun's and the flashlight's shadow maps: 4096 draws sharper shadows than 2048. It takes more video memory and a little frame rate.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect(),
+            chosen: shadow_resolution_chosen,
+            pick: take_shadow_resolution,
+            save: shadow_resolution_chosen,
+            load: take_shadow_resolution,
+            ask_keep: false,
+        },
+    );
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| crate::upscaler::temporal_active(w).then_some("Off (upscaling active)"));
     // Frame generation: Off, FSR 3.1 or DLSS (#2317), each choice dimmed with its reason; the
     // INI's old on/off still reads. Then DLSS's frames per real frame.
@@ -931,6 +1088,8 @@ fn register_graphics(app: &mut App) {
     );
     nvf_play::settings::set_choice_unavailable(app, FRAMES_KEY, frames_unavailable);
     nvf_play::settings::set_disabled_status(app, FRAMES_KEY, frames_dimmed);
+    // Only DLSS makes more than one frame (FSR 3.1: 2x) [design: owner 2026-11-15].
+    nvf_play::settings::set_note_now(app, FRAMES_KEY, frames_note_now);
     add_setting(
         app,
         Setting {
@@ -945,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 11] = [
+    let switches: [Switch; 15] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -961,6 +1120,14 @@ fn register_graphics(app: &mut App) {
             "--shadow-distance, --graphics",
             |w| w.resource::<Graphics>().fine_shadows,
             |w, on| w.resource_mut::<Graphics>().fine_shadows = on,
+        ),
+        (
+            "cloud-shadows",
+            "Cloud shadows (experimental)",
+            CLOUD_SHADOWS_NOTE,
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().cloud_shadows,
+            |w, on| w.resource_mut::<Graphics>().cloud_shadows = on,
         ),
         (
             "bloom",
@@ -1014,6 +1181,22 @@ fn register_graphics(app: &mut App) {
             },
         ),
         (
+            "terrain-height-blend",
+            "Terrain height blending",
+            "On: where ground textures meet, the new one shows through its brighter stones and clumps first instead of an even fade. Fully painted ground is unchanged.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().terrain_height_blend,
+            |w, on| w.resource_mut::<Graphics>().terrain_height_blend = on,
+        ),
+        (
+            "terrain-anti-tiling",
+            "Terrain anti-tiling",
+            "On: ground textures stop repeating as a visible grid, for some GPU time. Off: each repeats every 256 units, as in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().terrain_anti_tiling,
+            |w, on| w.resource_mut::<Graphics>().terrain_anti_tiling = on,
+        ),
+        (
             "light-shafts",
             "Sun shafts",
             "On: sunlight streams past what stands in front of the sun, stronger the hazier the weather's fog. Not in the original.",
@@ -1023,7 +1206,7 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "water-reflections",
-            "Screen-space water reflections",
+            "Screen-space reflections",
             "On: water the mirrored reflection does not reach (another height, interiors) reflects what is on the screen instead of only the sky.",
             "--graphics",
             |w| w.resource::<Graphics>().water_reflections,
@@ -1031,11 +1214,22 @@ fn register_graphics(app: &mut App) {
         ),
         (
             "water-mirror",
-            "Mirrored water reflections",
+            "Mirrored reflections",
             "On: water mirrors the world above it, as in the original, drawing the scene a second time. Off: it reflects the sky.",
             "--graphics-only",
             |w| w.resource::<Graphics>().water_mirror,
             |w, on| w.resource_mut::<Graphics>().water_mirror = on,
+        ),
+        // #2661: off in both looks and not part of `enhanced`; switched while the game runs
+        // (mesh_terrain_blend.rs `follow_setting`); the test aid NVF_PLAY_TEST_MESH_BLEND
+        // overrides it.
+        (
+            MESH_BLEND_KEY,
+            "Blend meshes into ground",
+            MESH_BLEND_NOTE,
+            "--graphics-only",
+            |w| w.resource::<Graphics>().mesh_terrain_blend,
+            |w, on| w.resource_mut::<Graphics>().mesh_terrain_blend = on,
         ),
     ];
     for (key, label, note, switches, get, set) in switches {
@@ -1043,11 +1237,19 @@ fn register_graphics(app: &mut App) {
     }
 }
 
+/// The Cloud shadows row's note (#2670; docs/design/sun-visibility.md): the label says the
+/// feature is experimental (as 3D scopes' says "(test)"), the note that its look is still
+/// being tuned (the relative rule, §7a, and the calibration, §8).
+const CLOUD_SHADOWS_NOTE: &str = "On: the weather's clouds cast soft shadows that drift over the land, only where the cover is heavier than around it. Still being tuned. Not in the original.";
+
 fn register_pipeline_waits(app: &mut App) {
+    // Cloud shadows switches the world views' material pipelines (the sun visibility's
+    // view key bits, sun_visibility.rs), so Continue waits for them like the others.
     for key in [
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
+        "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", MESH_BLEND_KEY,
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }
@@ -1214,8 +1416,77 @@ fn quality_text(state: RowsState, text: &str) -> Option<RowsState> {
 }
 
 /// The requested upscaler's name in the Upscaler row.
+/// The anti-aliasing `text` names (or an older slider's part stands for).
+fn take_aa(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = graphics::AA_CHOICES.iter().map(|c| c.0.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::AA_CHOICES.len())) {
+        Some(i) => {
+            graphics::set_aa_choice(w, i);
+            true
+        }
+        None => false,
+    }
+}
+
+fn shadow_filter_chosen(w: &World) -> String {
+    let f = w.resource::<Graphics>().shadow_filter;
+    graphics::SHADOW_FILTERS[graphics::SHADOW_FILTERS.iter().position(|&(_, m)| m == f).unwrap_or(1)].0.to_string()
+}
+
+/// The shadow filtering `text` names (or an older slider's part stands for).
+fn take_shadow_filter(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = graphics::SHADOW_FILTERS.iter().map(|f| f.0.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_FILTERS.len())) {
+        Some(i) => {
+            w.resource_mut::<Graphics>().shadow_filter = graphics::SHADOW_FILTERS[i].1;
+            true
+        }
+        None => false,
+    }
+}
+
+fn shadow_resolution_chosen(w: &World) -> String {
+    graphics::SHADOW_RESOLUTIONS[graphics::shadow_resolution_choice(w)].0.to_string()
+}
+
+/// The shadow resolution `text` names (or an older slider's part stands for: 0 is 2048, 1
+/// is 4096).
+fn take_shadow_resolution(w: &mut World, text: &str) -> bool {
+    let names: Vec<String> = graphics::SHADOW_RESOLUTIONS.iter().map(|r| r.0.to_string()).collect();
+    match nvf_play::settings::choice_of(text, &names, |v| choice_index(v, graphics::SHADOW_RESOLUTIONS.len())) {
+        Some(i) => {
+            graphics::set_shadow_resolution_choice(w, i);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The Shadow Distance row's choices: 0% (no shadow range) to 100% in steps of 20%
+/// [design: owner 2026-11-15, the menu overhaul; a 10-100% slider before].
+pub(crate) const SHADOW_DISTANCES: [f32; 6] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+
+fn shadow_distance_names() -> Vec<String> {
+    SHADOW_DISTANCES.iter().map(|v| format!("{:.0}%", v * 100.0)).collect()
+}
+
+fn shadow_distance_chosen(w: &World) -> String {
+    shadow_distance_names()[nvf_play::settings::nearest(&SHADOW_DISTANCES, w.resource::<DrawDistances>().shadows)].clone()
+}
+
+/// The shadow distance `text` names (or an older slider's part, the nearest).
+fn take_shadow_distance(w: &mut World, text: &str) -> bool {
+    match nvf_play::settings::choice_of(text, &shadow_distance_names(), |v| nvf_play::settings::nearest(&SHADOW_DISTANCES, v)) {
+        Some(i) => {
+            draw_distance::set_shadows(w, SHADOW_DISTANCES[i]);
+            true
+        }
+        None => false,
+    }
+}
+
 fn upscaler_chosen(world: &World) -> String {
-    let upscaler = world.resource::<Graphics>().upscaler.upscaler();
+    let upscaler = world.get_resource::<Graphics>().map_or(Upscaler::Off, |g| g.upscaler.upscaler());
     UPSCALERS.iter().find(|(_, u)| *u == upscaler).map_or("Off", |(name, _)| *name).to_string()
 }
 
@@ -1223,7 +1494,7 @@ fn upscaler_chosen(world: &World) -> String {
 /// missing (`dlss_download`: picking it opens its dialog; #2250).
 fn upscaler_names(world: &World) -> Vec<String> {
     let mut names: Vec<String> = UPSCALERS.iter().map(|(name, _)| (*name).to_string()).collect();
-    if crate::dlss_download::offered(dlss_files_missing(world)) {
+    if dlss_download_offered(world) {
         names.push(crate::dlss_download::CHOICE.to_string());
     }
     names
@@ -1233,7 +1504,7 @@ fn upscaler_names(world: &World) -> Vec<String> {
 /// (`Graphics::upscaler`) as it is.
 fn pick_upscaler(world: &mut World, name: &str) -> bool {
     if crate::dlss_download::is_choice(name) {
-        if !crate::dlss_download::offered(dlss_files_missing(world)) {
+        if !dlss_download_offered(world) {
             return false;
         }
         crate::dlss_download::ask(world);
@@ -1338,9 +1609,10 @@ fn dlss_reason(world: &World) -> Option<crate::upscaler::Unavailable> {
     }
 }
 
-/// DLSS is out of reach only because its files are missing: what Download DLSS… mends.
-fn dlss_files_missing(world: &World) -> bool {
-    dlss_reason(world) == Some(crate::upscaler::Unavailable::FilesMissing)
+/// [design] Offer the download for missing upscaling or frame generation files, without
+/// changing the upscaler's availability (`dlss::FILES` remains its four-file requirement).
+pub(crate) fn dlss_download_offered(world: &World) -> bool {
+    crate::dlss_download::offered(dlss_reason(world))
 }
 
 fn upscaler_unavailable(world: &World, name: &str) -> Option<String> {
@@ -1431,6 +1703,43 @@ fn pick_frames(world: &mut World, name: &str) -> bool {
     true
 }
 
+/// Real frames a second under which the Generated frames row's note warns ([`FRAMES_FEW_NOTE`]).
+const FEW_REAL_FRAMES: u32 = 60;
+
+/// The Generated frames row's note while the frame rate limit divided by the frames shown per
+/// real frame leaves fewer than [`FEW_REAL_FRAMES`] real frames a second (#2731): a player found
+/// 4x at a limit of 144 (36 real frames) choppy and 2x (72) fine [observed: the report in
+/// #2731]. Its `{choice}`, `{limit}` and `{real}` are filled in ([`frames_note_for`]).
+pub(crate) const FRAMES_FEW_NOTE: &str = "{choice} at a limit of {limit}: {real} real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.";
+
+/// [`FRAMES_FEW_NOTE`] for `frames` generated per real frame (1 for 2x) under a cap of `cap`
+/// frames shown a second (0: none), when the real frames left are fewer than
+/// [`FEW_REAL_FRAMES`]; `None` otherwise (the row's own note stands).
+fn frames_note_for(frames: u32, cap: u32) -> Option<String> {
+    let frames = frames.clamp(1, 3);
+    let real = cap / (frames + 1);
+    (cap > 0 && real < FEW_REAL_FRAMES).then(|| {
+        fnv_util::words::trf(FRAMES_FEW_NOTE, &[("choice", &FRAMES_CHOICES[(frames - 1) as usize]), ("limit", &cap), ("real", &real)])
+    })
+}
+
+/// The Generated frames row's note now ([`frames_note_for`]): with DLSS the Frame generation
+/// choice, the frames it generates (the choice, at most what the GPU offers, as
+/// `frame_gen::follow_switch` asks for) and the cap frame pacing hands Reflex while it runs
+/// (the page's or variable refresh's, `frame_pace::effective_cap`).
+fn frames_note_now(world: &World) -> Option<String> {
+    if world.resource::<crate::frame_gen::FrameGeneration>().kind != crate::frame_gen::FrameGenKind::Dlss {
+        return None;
+    }
+    let chosen = world.resource::<crate::frame_gen::DlssgFrames>().0.clamp(1, 3);
+    let frames = match crate::dlss::frame_generation_max() {
+        0 => chosen,
+        max => chosen.min(max.max(1)),
+    };
+    let cap = frame_pace::effective_cap(world.get_resource::<FramePace>().map_or(0, |p| p.cap), world.get_resource::<frame_pace::Refresh>().map_or(0, |r| r.vrr_cap));
+    frames_note_for(frames, cap)
+}
+
 /// A Generated frames choice the GPU does not offer (once its limit is known).
 fn frames_unavailable(_world: &World, name: &str) -> Option<String> {
     let max = crate::dlss::frame_generation_max();
@@ -1449,12 +1758,22 @@ fn frames_dimmed(world: &World) -> Option<&'static str> {
     }
 }
 
+/// Off while the frame generation's state is not there (a test app): the page's hidden rows
+/// ask every run (`settings_layout::SHOWN_WITH`).
 fn frame_generation_chosen(world: &World) -> String {
-    world.resource::<crate::frame_gen::FrameGeneration>().kind.name().to_string()
+    world.get_resource::<crate::frame_gen::FrameGeneration>().map_or(crate::frame_gen::FrameGenKind::Off, |f| f.kind).name().to_string()
 }
 
 fn frame_generation_saved(world: &World) -> String {
     world.resource::<crate::frame_gen::FrameGeneration>().kind.stored().to_string()
+}
+
+/// A Smooth terrain choice by its name or INI text (also the row's older on/off: #2149 kept
+/// `1`/`0`), for the next start (nvf_play::smooth_terrain).
+fn pick_smoothing(_: &mut World, name: &str) -> bool {
+    let Some(s) = nvf_play::smooth_terrain::Smoothing::parse(name) else { return false };
+    nvf_play::smooth_terrain::set_setting(s);
+    true
 }
 
 /// A Frame generation choice by its name or INI text (also the row's old on/off).
@@ -1507,8 +1826,29 @@ fn set_overlay(world: &mut World, on: bool) {
 mod fsr_settings_tests {
     use super::*;
 
+    /// The shared tables the page and the launcher hide and grey rows by
+    /// (`nvf_play::settings_layout::SHOWN_WITH`, `NEEDS_CHOICE`) name choices these lists have.
+    #[test]
+    fn the_shared_rules_name_real_choices() {
+        let upscalers: Vec<&str> = UPSCALERS.iter().map(|(n, _)| *n).collect();
+        let frame_gen: Vec<&str> = crate::frame_gen::FrameGenKind::ALL.iter().map(|k| k.name()).collect();
+        for (row, parent, choices) in nvf_play::settings_layout::SHOWN_WITH {
+            let names = match *parent {
+                UPSCALER_KEY => &upscalers,
+                FRAME_GENERATION_KEY => &frame_gen,
+                other => panic!("{row}: a rule on {other}; name its choices here"),
+            };
+            assert!(choices.iter().all(|c| names.contains(c)), "{row}: {choices:?} not all of {names:?}");
+        }
+        assert_eq!(nvf_play::settings_layout::SHOWN_WITH.iter().filter(|(_, p, c)| *p == UPSCALER_KEY && !c.contains(&"Off")).count(), 3, "upscaling mode, DLSS model, FSR library: only with an upscaler");
+    }
+
+    // [design] Menu tests install a scoped probe: choice validation and INI snapshots can
+    // reach offered indirectly, and neither the real folder nor the global cache is a fixture.
+
     #[test]
     fn renderer_registration_covers_aa_ao_fsr_and_defaults_without_latching_no_ops() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use nvf_play::{graphics_resume::GraphicsResume, pause::Paused, settings, PlayState};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
@@ -1521,11 +1861,12 @@ mod fsr_settings_tests {
         let ao = rows.index("ambient-occlusion").unwrap();
         let fsr = rows.index(UPSCALER_KEY).unwrap();
         let world = app.world_mut();
-        settings::set_slider(world, aa, 0.0);
+        // Anti-Aliasing is a list since the menu overhaul.
+        settings::pick(world, aa, "Off");
         settings::restore(world, ao, 0.0);
         assert!(!settings::pick(world, fsr, "Off"));
         assert!(world.resource_mut::<GraphicsResume>().request(0.0));
-        settings::set_slider(world, aa, 1.0);
+        settings::pick(world, aa, "TAA");
         assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
         world.resource_mut::<GraphicsResume>().reset();
         settings::restore(world, aa, 0.0);
@@ -1543,6 +1884,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn native_aa_row_is_off_and_locked_for_every_supported_fsr_mode_then_restores_the_saved_choice() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
             .insert_resource(graphics::MsaaSetting(Msaa::Sample8))
@@ -1553,25 +1895,25 @@ mod fsr_settings_tests {
             app.world_mut().resource_mut::<Graphics>().set_fsr(mode.quality());
             let settings = app.world().resource::<nvf_play::settings::Settings>();
             assert_eq!(settings.disabled_status(app.world(), row), Some("Off (upscaling active)"));
-            let saved = settings.list()[row].value(app.world());
-            assert_eq!(saved, choice_part(3, graphics::AA_CHOICES.len()));
-            assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_none());
-            assert!(nvf_play::settings::step_slider(app.world_mut(), row, 1).is_none());
+            // A list since the menu overhaul: its chosen index.
+            assert_eq!((settings.choices(row).unwrap().chosen)(app.world()), "8x");
+            assert!(!nvf_play::settings::pick(app.world_mut(), row, "Off"));
             assert_eq!(graphics::aa_choice(app.world()), 3, "disabled UI must preserve saved 8x");
             app.world_mut().resource_mut::<Graphics>().set_fsr(None);
             let settings = app.world().resource::<nvf_play::settings::Settings>();
             assert_eq!(settings.disabled_status(app.world(), row), None);
-            assert_eq!(settings.list()[row].slider.unwrap().text(saved), "8x");
+            assert_eq!((settings.choices(row).unwrap().chosen)(app.world()), "8x");
         }
         app.world_mut().resource_mut::<crate::fsr::FsrSupport>().0 = false;
         app.world_mut().resource_mut::<Graphics>().set_fsr(Some(crate::fsr::FsrQuality::NativeAa));
         assert_eq!(app.world().resource::<nvf_play::settings::Settings>().disabled_status(app.world(), row), None, "unsupported FSR leaves native AA editable");
-        assert!(nvf_play::settings::set_slider(app.world_mut(), row, 0.0).is_some());
+        assert!(nvf_play::settings::pick(app.world_mut(), row, "Off"));
         assert_eq!(graphics::aa_choice(app.world()), 0);
     }
 
     #[test]
     fn the_fsr_library_row_switches_between_the_built_in_upscaler_and_the_folders() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla));
         register_graphics(&mut app);
@@ -1597,6 +1939,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn native_aa_row_is_locked_while_dlss_draws_and_follows_the_effective_upscaler() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::upscaler::{DlssState, Session, UpscaleQuality, UpscalerStatus};
         let mut app = App::new();
         app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
@@ -1659,6 +2002,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn the_upscaler_and_its_quality_are_two_named_dropdowns_that_round_trip_every_choice() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
@@ -1698,6 +2042,7 @@ mod fsr_settings_tests {
     /// aids use stay the plain ones.
     #[test]
     fn the_mode_row_shows_the_share_each_upscaler_draws_at() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let q = row(&app, QUALITY_KEY);
@@ -1727,21 +2072,22 @@ mod fsr_settings_tests {
         assert!(!nvf_play::settings::pick(app.world_mut(), q, "Quality (67%)"), "the words are not a name");
     }
 
-    /// The quality row stands dimmed with a reason while the upscaler is Off, as the other rows
-    /// that wait on a switch do; the quality is kept meanwhile, so the next upscaler takes it up.
+    /// The quality row is hidden while the upscaler is Off (the menu overhaul, the owner:
+    /// the upscaler's own rows show only for it); the quality is kept meanwhile, so the next
+    /// upscaler takes it up. The Upscaler row stands for it on the search.
     #[test]
-    fn the_quality_row_is_dimmed_while_the_upscaler_is_off_and_keeps_its_quality() {
+    fn the_quality_row_is_hidden_while_the_upscaler_is_off_and_keeps_its_quality() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
-        let status = |app: &App| app.world().resource::<Settings>().disabled_status(app.world(), q);
-        assert_eq!(status(&app), Some("Needs an upscaler"));
-        assert!(!nvf_play::settings::pick(app.world_mut(), q, "Balanced"), "dimmed: not taken from the page or a test aid");
+        let hidden = |app: &App| app.world().resource::<Settings>().hidden(app.world()).contains(&(q, u));
+        assert!(hidden(&app));
         assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
-        assert_eq!(status(&app), None);
+        assert!(!hidden(&app));
         assert!(nvf_play::settings::pick(app.world_mut(), q, "Balanced"));
         assert!(nvf_play::settings::pick(app.world_mut(), u, "Off"));
-        assert_eq!((requested(&app), status(&app)), (UpscalerChoice::Off, Some("Needs an upscaler")));
+        assert_eq!((requested(&app), hidden(&app)), (UpscalerChoice::Off, true));
         assert_eq!(quality_chosen(app.world()), "Balanced", "kept while Off");
         assert!(nvf_play::settings::pick(app.world_mut(), u, "FSR 3.1"));
         assert_eq!(requested(&app), UpscalerChoice::Fsr(Balanced), "taken up again");
@@ -1755,6 +2101,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn choices_are_shown_in_short_words_and_dlss_says_restart_only_while_it_waits() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         let label = |app: &App, i: usize, name: &str| app.world().resource::<Settings>().choice_label(app.world(), i, name);
@@ -1782,6 +2129,7 @@ mod fsr_settings_tests {
     /// the request as it is.
     #[test]
     fn download_dlss_is_a_choice_only_while_the_files_are_missing() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(true));
         use crate::dlss_download::{Asked, CHOICE};
         let missing = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::FilesMissing), fsr: None };
         let mut app = rows_app();
@@ -1802,10 +2150,8 @@ mod fsr_settings_tests {
         assert!(app.world().contains_resource::<Asked>(), "the dialog asked for");
         assert_eq!(requested(&app), UpscalerChoice::Off, "the request unchanged");
         assert_eq!(upscaler_chosen(app.world()), "Off");
-        // Any other reason, or DLSS in reach: no download offered.
+        // Other refusals: no download offered. Ready/restart can still lack frame generation.
         for session in [
-            READY,
-            STOCK,
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::NotVulkan), fsr: None },
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::UpdaterInFolder), fsr: None },
             Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::GpuNotSupported), fsr: None },
@@ -1819,7 +2165,58 @@ mod fsr_settings_tests {
     }
 
     #[test]
+    fn missing_frame_generation_does_not_disable_upscaling() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(true));
+        for session in [READY, STOCK] {
+            let mut app = rows_app();
+            app.insert_resource(UpscalerStatus::new(session));
+            assert_eq!(dlss_unavailable(app.world()), None, "the four-file upscaler remains available");
+            assert_eq!(dlss_download_offered(app.world()), cfg!(windows), "missing frame generation files can still be downloaded");
+            let u = row(&app, UPSCALER_KEY);
+            assert!(nvf_play::settings::pick(app.world_mut(), u, "DLSS"));
+            let request = requested(&app);
+            assert!(request.is_dlss());
+            let mut status = app.world_mut().resource_mut::<UpscalerStatus>();
+            status.update(request);
+            if session.streamline_loaded {
+                assert_eq!(status.effective(), request, "upscaling still draws with only its four files");
+            } else {
+                assert!(status.restart_pending());
+            }
+        }
+    }
+
+    #[test]
+    fn download_choice_and_frame_generation_hint_follow_the_probe() {
+        use crate::dlss_download::{Asked, CHOICE, TestOfferProbe};
+        let missing = Session { streamline_loaded: false, dlss: DlssState::Unavailable(Unavailable::FilesMissing), fsr: None };
+        for probe in [Some(true), Some(false), None] {
+            let _offer_probe = TestOfferProbe::new(probe);
+            for session in [READY, STOCK, missing, READY] {
+                let mut app = rows_app();
+                app.insert_resource(UpscalerStatus::new(session));
+                let want = cfg!(windows) && probe.unwrap_or(session.dlss == missing.dlss);
+                let u = row(&app, UPSCALER_KEY);
+                let names = (app.world().resource::<Settings>().choices(u).unwrap().names)(app.world());
+                assert_eq!(names.iter().any(|name| name == CHOICE), want, "{probe:?}, {session:?}");
+                let hint = if !cfg!(windows) {
+                    "Not on this GPU"
+                } else if want {
+                    "Files missing: Download DLSS… on the Upscaler row"
+                } else {
+                    "The DLSS Frame Generation files are missing"
+                };
+                assert_eq!(frame_generation_unavailable(app.world(), "DLSS").as_deref(), Some(hint), "{probe:?}, {session:?}");
+                assert_eq!(nvf_play::settings::pick(app.world_mut(), u, CHOICE), want);
+                assert_eq!(app.world().contains_resource::<Asked>(), want);
+                assert_eq!(requested(&app), UpscalerChoice::Off);
+            }
+        }
+    }
+
+    #[test]
     fn dlss_is_out_of_reach_with_the_reason_but_a_stored_one_loads() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         for why in [Unavailable::FilesMissing, Unavailable::NotWindows, Unavailable::NotVulkan, Unavailable::GpuNotSupported, Unavailable::UpdaterInFolder, Unavailable::EvaluateFailed] {
             let mut app = rows_app();
             app.insert_resource(UpscalerStatus::new(Session { streamline_loaded: false, dlss: DlssState::Unavailable(why), fsr: None }));
@@ -1854,6 +2251,7 @@ mod fsr_settings_tests {
     /// DLSS request stays the request and the camera draws natively; FSR and off follow.
     #[test]
     fn dlss_that_stopped_working_says_why_and_fsr_still_follows() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let u = row(&app, UPSCALER_KEY);
         let want = UpscalerChoice::Dlss(Quality);
@@ -1873,6 +2271,7 @@ mod fsr_settings_tests {
 
     #[test]
     fn with_streamline_every_switch_is_live_and_without_it_dlss_waits_for_a_restart() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         // What follow_request does each frame, without the process-wide loader state.
@@ -1904,6 +2303,7 @@ mod fsr_settings_tests {
     /// there, those win.
     #[test]
     fn an_older_ini_loads_into_both_rows() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-older-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1935,6 +2335,7 @@ mod fsr_settings_tests {
     /// FSR with the command line's Quality, and the next start loads FSR Performance.
     #[test]
     fn a_test_run_keeps_the_older_inis_quality_through_a_save() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-kept-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1963,6 +2364,7 @@ mod fsr_settings_tests {
     /// rows, logged under the older key.
     #[test]
     fn the_older_key_is_still_taken_by_the_test_aid() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         let alias = app.world().resource::<Settings>().alias(LEGACY_KEY).map(|(_, a)| a.rows);
@@ -1982,6 +2384,7 @@ mod fsr_settings_tests {
     /// INI's text, an unknown stored value loads as Default, and it names its switch.
     #[test]
     fn the_dlss_model_row_round_trips_and_an_unknown_value_loads_as_default() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         app.insert_resource(UpscalerStatus::new(READY));
         app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(Quality);
@@ -2029,6 +2432,7 @@ mod fsr_settings_tests {
     /// the INI still loads into it.
     #[test]
     fn the_dlss_model_row_is_dimmed_while_dlss_does_not_draw() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         let m = row(&app, MODEL_KEY);
         let dimmed = |app: &App| app.world().resource::<Settings>().disabled_status(app.world(), m);
@@ -2066,6 +2470,7 @@ mod fsr_settings_tests {
     /// run a given `--dlss-model` keeps the command line's model.
     #[test]
     fn the_dlss_model_follows_the_settings_precedence() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-dlss-model-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2101,6 +2506,7 @@ dlss-model=Preset K
 
     #[test]
     fn both_upscaler_rows_name_the_same_switches() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let app = rows_app();
         let settings = app.world().resource::<Settings>();
         let switches = |key| {
@@ -2112,18 +2518,51 @@ dlss-model=Preset K
         assert_eq!(switches(QUALITY_KEY), switches(UPSCALER_KEY), "a switch given keeps both rows or neither");
     }
 
+    /// #2731: the Generated frames row's note says when the frame rate limit divided by the
+    /// frames shown per real frame leaves fewer than 60 real frames a second, within the budget.
+    #[test]
+    fn the_generated_frames_note_warns_under_sixty_real_frames() {
+        let at = |frames, cap| frames_note_for(frames, cap);
+        // A limit of 144: 2x leaves 72, fine; 3x 48 and 4x 36 are said.
+        assert_eq!(at(1, 144), None);
+        assert_eq!(
+            at(2, 144).as_deref(),
+            Some("3x at a limit of 144: 48 real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.")
+        );
+        assert_eq!(
+            at(3, 144).as_deref(),
+            Some("4x at a limit of 144: 36 real frames a second, which can feel choppy. Fewer generated frames, or a limit up to the display's refresh rate, give more.")
+        );
+        // A limit of 240 (variable refresh's on a fast screen): 120, 80 and 60, none under 60.
+        assert_eq!((at(1, 240), at(2, 240), at(3, 240)), (None, None, None));
+        // Lower limits; no limit says nothing.
+        assert!(at(1, 90).is_some_and(|n| n.starts_with("2x at a limit of 90: 45 real frames")));
+        assert!(at(3, 120).is_some_and(|n| n.contains(": 30 real frames")));
+        assert_eq!((at(1, 0), at(3, 0)), (None, None));
+        for frames in 1..=3 {
+            for cap in frame_pace::CAPS.into_iter().chain([240, 225, 1000]) {
+                if let Some(note) = at(frames, cap) {
+                    assert_eq!(nvf_play::settings::note_over_budget(&note), None, "{note}");
+                }
+            }
+        }
+    }
+
     /// #2377: the renderer's rows that register without the game's files or the command line
     /// (the Graphics tab's and the frame rate counter's) keep their notes within the budget.
     /// (`register` as a whole reads the quality presets from the game folder and the command
     /// line, so it is left to the start's own check, `nvf_play::settings::check_notes`.)
     #[test]
     fn the_renderer_notes_are_within_the_budget() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let mut app = rows_app();
         register_counter_rows(&mut app);
         let settings = app.world().resource::<Settings>();
         assert!(settings.list().len() > 25, "{}", settings.list().len());
         for s in settings.list() {
             assert_eq!(nvf_play::settings::note_over_budget(s.note), None, "{}: {}", s.key, s.note);
+            // The menu overhaul: 7 or fewer values are a list, never a slider.
+            assert!(!nvf_play::settings::few_step_slider(s), "{}: a slider of 7 or fewer values; make it a list", s.key);
         }
         for note in [FPS_COUNTER_NOTE, FPS_UPSCALING_NOTE, FPS_SPLIT_NOTE] {
             assert_eq!(nvf_play::settings::note_over_budget(note), None, "{note}");
@@ -2136,6 +2575,7 @@ dlss-model=Preset K
     /// note names one any more.
     #[test]
     fn the_graphics_rows_name_the_switches_their_notes_named() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let app = rows_app();
         let settings = app.world().resource::<Settings>();
         let want: &[(&str, &[&str])] = &[
@@ -2145,20 +2585,25 @@ dlss-model=Preset K
             ("fsr-library", &[]),
             ("anti-aliasing", &["--msaa", "--graphics-only"]),
             ("shadow-filter", &[]),
+            ("shadow-resolution", &[]),
             (FRAME_GENERATION_KEY, &["--frame-generation"]),
             (FRAMES_KEY, &[]),
             ("latency-reduction", &["--latency-reduction"]),
             ("ambient-occlusion", &["--graphics"]),
             ("fine-shadows", &["--shadow-distance", "--graphics"]),
+            ("cloud-shadows", &["--graphics", "--graphics-only"]),
             ("bloom", &["--graphics"]),
             ("glow", &["--graphics-only"]),
             ("eye-adaptation", &["--graphics-only"]),
             ("neon-glow", &["--graphics-only"]),
             ("sharpen", &["--graphics"]),
             ("anisotropic", &["--graphics"]),
+            ("terrain-height-blend", &["--graphics", "--graphics-only"]),
+            ("terrain-anti-tiling", &["--graphics", "--graphics-only"]),
             ("light-shafts", &["--graphics"]),
             ("water-reflections", &["--graphics"]),
             ("water-mirror", &["--graphics-only"]),
+            (MESH_BLEND_KEY, &["--graphics-only"]),
         ];
         for (key, switches) in want {
             let s = settings.list()[row(&app, key)];
@@ -2168,6 +2613,35 @@ dlss-model=Preset K
         assert!(settings.list().iter().all(|s| !s.note.contains("--")), "no Graphics row's note names a switch");
         assert_eq!(nvf_play::settings::note_switches(FPS_COUNTER_SWITCHES), ["--fps"]);
         assert!(nvf_play::settings::note_switches(FPS_SPLIT_SWITCHES).is_empty());
+    }
+
+    /// #2661: the mesh terrain blend's row stands among the Graphics switches, off in a
+    /// vanilla start, switches `Graphics::mesh_terrain_blend` on the page and is kept in
+    /// the INI, read back at the next start.
+    #[test]
+    fn the_mesh_blend_row_switches_the_blend_and_is_kept_in_the_ini() {
+        let mut app = rows_app();
+        let i = row(&app, MESH_BLEND_KEY);
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.note, s.switches), (GROUP_GRAPHICS, "Blend meshes into ground", MESH_BLEND_NOTE, "--graphics-only"));
+        assert!(!(s.get)(app.world()), "off in a vanilla start");
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(true));
+        assert!(app.world().resource::<Graphics>().mesh_terrain_blend);
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(false));
+        assert!(!app.world().resource::<Graphics>().mesh_terrain_blend);
+
+        let dir = std::env::temp_dir().join(format!("nvf-mesh-blend-row-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("NVForever.ini");
+        let mut app = ini_app(&path, "[Settings]\nmesh-terrain-blend=1\n", UpscalerChoice::Off, GivenSwitches::default());
+        assert!(app.world().resource::<Graphics>().mesh_terrain_blend, "the stored row turns it on at the start");
+        let i = row(&app, MESH_BLEND_KEY);
+        nvf_play::settings::flip(app.world_mut(), i);
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(fnv_install::ini_get(&ini, nvf_play::settings::SECTION, MESH_BLEND_KEY), Some("0".to_string()), "{ini}");
+        assert!(!ini_app(&path, &ini, UpscalerChoice::Off, GivenSwitches::default()).world().resource::<Graphics>().mesh_terrain_blend, "and off again at the next");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A settings page with the INI at `path` holding `text`, `apply_stored` run once.
@@ -2195,6 +2669,7 @@ dlss-model=Preset K
 
     #[test]
     fn saved_frame_generation_is_changed_and_defaults_restore_the_command_line() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::frame_gen::{FrameGenKind as K, FrameGeneration};
         use nvf_play::settings::{changed_rows, restore, StartChoices, StartStates};
         let dir = std::env::temp_dir().join(format!("nvf-frame-generation-defaults-{}", std::process::id()));
@@ -2231,6 +2706,7 @@ dlss-model=Preset K
     /// frames row's choices (#2317).
     #[test]
     fn frame_generation_choices_read_names_texts_and_the_old_switch() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         use crate::frame_gen::FrameGenKind as K;
         for (text, kind) in [("Off", K::Off), ("FSR 3.1", K::Fsr), ("DLSS", K::Dlss), ("dlss", K::Dlss), ("fsr", K::Fsr), ("true", K::Fsr), ("false", K::Off), ("on", K::Fsr), ("off", K::Off)] {
             assert_eq!(K::parse(text), Some(kind), "{text}");
@@ -2250,6 +2726,7 @@ dlss-model=Preset K
     /// agree for every precedence case, for the rows' keys and the older one.
     #[test]
     fn the_start_and_the_settings_read_the_upscaler_alike() {
+        let _offer_probe = crate::dlss_download::TestOfferProbe::new(Some(false));
         let dir = std::env::temp_dir().join(format!("nvf-upscaler-start-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2293,6 +2770,26 @@ dlss-model=Preset K
 }
 
 #[cfg(test)]
+mod shadow_resolution_tests {
+    use super::*;
+
+    /// The Shadow resolution list takes its choices by name (2048, 4096, as it saves them) and
+    /// the older slider's part of the row before the menu overhaul (0 is 2048, 1 is 4096).
+    #[test]
+    fn the_row_takes_its_names_and_the_older_slider_part() {
+        let mut w = World::new();
+        assert_eq!(shadow_resolution_chosen(&w), "2048", "the default without the map resource");
+        for (text, want) in [("4096", "4096"), ("0", "2048"), ("1", "4096"), (" 2048 ", "2048"), ("1.0", "4096")] {
+            assert!(take_shadow_resolution(&mut w, text), "{text}");
+            assert_eq!(shadow_resolution_chosen(&w), want, "{text}");
+            assert_eq!(w.resource::<bevy::light::DirectionalLightShadowMap>().size.to_string(), want, "{text}");
+        }
+        assert!(!take_shadow_resolution(&mut w, "big"));
+        assert_eq!(shadow_resolution_chosen(&w), "4096", "an unknown text leaves the choice");
+    }
+}
+
+#[cfg(test)]
 mod viewmodel_fov_tests {
     use super::*;
 
@@ -2309,5 +2806,50 @@ mod viewmodel_fov_tests {
         // Out of range stays at the ends.
         assert_eq!(viewmodel_fov_part(10.0), 0.0);
         assert_eq!(viewmodel_fov_part(120.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod terrain_wireframe_tests {
+    use super::*;
+    use crate::terrain_wireframe::{TerrainWireframe, KEY, NOTE};
+    use nvf_play::settings::Settings;
+
+    fn app(on: bool) -> App {
+        let mut app = App::new();
+        app.insert_resource(TerrainWireframe::new(on));
+        register_terrain_wireframe(&mut app);
+        app
+    }
+
+    /// The Debug row: registered with its own switch and a note within the page's budget;
+    /// off by default, `--terrain-wireframe` on; a click switches the wireframe live and
+    /// the page's Defaults puts it back off. No row without the wireframe.
+    #[test]
+    fn the_row_switches_the_wireframe_live() {
+        let mut app = app(false);
+        let i = row_of(&app, KEY);
+        let s = app.world().resource::<Settings>().list()[i];
+        assert_eq!((s.group, s.label, s.switches), (GROUP_DEVELOPER, "Terrain wireframe", "--terrain-wireframe"));
+        assert_eq!(nvf_play::settings::note_over_budget(NOTE), None);
+        assert!(NOTE.len() < 200);
+        assert!(!(s.get)(app.world()));
+        assert_eq!(nvf_play::settings::flip(app.world_mut(), i), Some(true));
+        assert!(app.world().resource::<TerrainWireframe>().on);
+        nvf_play::settings::restore(app.world_mut(), i, 0.0);
+        assert!(!app.world().resource::<TerrainWireframe>().on);
+        let on = app_on();
+        assert!((on.world().resource::<Settings>().list()[row_of(&on, KEY)].get)(on.world()));
+        let mut none = App::new();
+        register_terrain_wireframe(&mut none);
+        assert!(none.world().get_resource::<Settings>().is_none_or(|s| s.index(KEY).is_none()));
+    }
+
+    fn app_on() -> App {
+        app(true)
+    }
+
+    fn row_of(app: &App, key: &str) -> usize {
+        app.world().resource::<Settings>().index(key).unwrap()
     }
 }

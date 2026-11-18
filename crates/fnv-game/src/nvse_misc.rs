@@ -151,8 +151,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // the record's stats. A form that is no class changes nothing.
         "setclass" => {
             let (Some(r), Some(class)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
-            if g.data.sig(class) == Some(*b"CLAS") {
-                let b = crate::functions::base_of(g, r).unwrap_or(r);
+            let b = crate::functions::base_of(g, r).unwrap_or(r);
+            // Class changes belong to actors, including the actor selected for a
+            // placed leveled list; a carrier's signature alone does not classify it.
+            if g.data.sig(class) == Some(*b"CLAS") && g.template_source(b, r, |_| false).is_some() {
                 g.forms.classes.insert(b, class);
             }
             XVal::Num(0.0)

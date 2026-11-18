@@ -110,7 +110,9 @@ impl Game<'_> {
     /// foot through the door seconds later]. They go to [`Game::teleported`] like a MoveTo
     /// and to [`Game::brought_along`] for the log. Returns them.
     pub fn bring_teammates(&mut self, from: Option<(Option<FormId>, [f32; 3])>) -> Vec<FormId> {
-        let Some((Some(cell), pos, rot)) = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot)) else { return Vec::new() };
+        if self.world.peek(FormId::PLAYER_REF).and_then(|p| p.cell).is_none() {
+            return Vec::new();
+        }
         let mut who: Vec<FormId> = self.teammates().into_iter().filter(|&t| self.present(t) && !self.told_to_wait(t)).collect();
         if let Some((from_cell, from_pos)) = from {
             let candidates: Vec<FormId> = self
@@ -125,6 +127,21 @@ impl Game<'_> {
                 }
             }
         }
+        self.place_beside_player(who)
+    }
+
+    /// The player's Map Selectable Companions tweak: the teammates `who` (present ones only)
+    /// are put beside the player as [`Game::bring_teammates`] puts them, wherever they were
+    /// [design: docs/design/tweaks.md]. Returns them.
+    pub fn summon_teammates(&mut self, who: &[FormId]) -> Vec<FormId> {
+        let who: Vec<FormId> = who.iter().copied().filter(|&t| self.is_teammate(t) && self.present(t)).collect();
+        self.place_beside_player(who)
+    }
+
+    /// Put `who` beside the player: to its left (as observed), then right, one step further
+    /// for each, in the player's cell, facing the player's way.
+    fn place_beside_player(&mut self, who: Vec<FormId>) -> Vec<FormId> {
+        let Some((Some(cell), pos, rot)) = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot)) else { return Vec::new() };
         let mut out = Vec::new();
         for t in who {
             // To the player's left (as observed), then right, one step further for each.

@@ -151,6 +151,30 @@ fn push_actor_away_lays_an_actor_down_and_throws_it_away_from_the_source() {
     assert!(g.knockout(THUG_REF).is_none() && !g.is_out_cold(THUG_REF));
 }
 
+/// #2749: `PushActorAway` then `KillActor` in one script (the Legion sniper throwing the
+/// Ranger off Hoover Dam's tower): the shove is still there for the engine once the
+/// knockouts have ticked, and is let go after [`DEAD_SHOVE_KEPT`] if nothing took it.
+#[test]
+fn a_shove_outlives_a_kill_in_the_same_script() {
+    use fnv_game::unconscious::DEAD_SHOVE_KEPT;
+    let f = fixture();
+    let mut g = game(&f);
+    push(&mut g, Some(HERO_REF), THUG_REF, 4.0);
+    assert!(g.kill(THUG_REF, None));
+    wait(&mut g, 0.05);
+    assert!(g.is_dead(THUG_REF));
+    let v = g.take_shove(THUG_REF).expect("the push's shove waits for the engine after the kill");
+    assert!((v[0] - 4.0 * PUSH_SPEED).abs() < 1e-3 && v[2] > 0.0, "{v:?}");
+    wait(&mut g, 0.05);
+    assert!(g.knockout(THUG_REF).is_none(), "taken: the dead actor's knockout is over");
+    // Not taken (the actor is not drawn): let go after a moment.
+    let mut g = game(&f);
+    push(&mut g, Some(HERO_REF), THUG_REF, 4.0);
+    assert!(g.kill(THUG_REF, None));
+    wait(&mut g, DEAD_SHOVE_KEPT + 0.1);
+    assert!(g.knockout(THUG_REF).is_none() && g.take_shove(THUG_REF).is_none());
+}
+
 /// #1615: the player's own hand opens a pushed-down actor's inventory, as a script's
 /// activation does [documented: GECK wiki PushActorAway notes].
 #[test]
@@ -279,4 +303,31 @@ fn set_unconscious_holds_a_pushed_actor_down_until_it_is_cleared() {
     ask(&mut g, Some(HERO_REF), SET_UNCONSCIOUS, &[num(1.0)]);
     assert!(g.knockout(HERO_REF).is_none() && g.is_out_cold(HERO_REF));
     assert_eq!(knocked_state(&mut g, HERO_REF), 1.0);
+}
+
+/// The Revive Unconscious Companions tweak: only a companion knocked out at zero health,
+/// with the tweak on, and a Stimpak needed; its own time down.
+#[test]
+fn a_knocked_out_companion_can_be_revived_under_the_tweak() {
+    use fnv_game::unconscious::ReviveRefusal;
+    let f = fixture();
+    let mut g = game(&f);
+    ask(&mut g, Some(HERO_REF), KILL_ACTOR, &[]);
+    assert_eq!(g.knockout(HERO_REF).map(|k| k.cause), Some(Cause::Essential));
+    // Not a companion, or the tweak off: not revived.
+    g.tweaks.revive_companions = true;
+    assert!(!g.can_revive(HERO_REF));
+    g.extra.entry(HERO_REF).or_default().teammate = true;
+    g.tweaks.revive_companions = false;
+    assert_eq!(g.revive(HERO_REF), Err(ReviveRefusal::NotDown));
+    g.tweaks.revive_companions = true;
+    assert!(g.can_revive(HERO_REF));
+    // No Stimpak carried.
+    assert_eq!(g.revive(HERO_REF), Err(ReviveRefusal::NoStimpak));
+    // Its time down: 30 s under the tweak's setting, past the usual 10.
+    g.tweaks.revive_down_seconds = 30.0;
+    wait(&mut g, 15.0);
+    assert!(g.knockout(HERO_REF).is_some_and(|k| k.lying()), "still down at 15 s");
+    wait(&mut g, 20.0);
+    assert!(g.knockout(HERO_REF).is_none_or(|k| !k.lying()), "up after 30 s");
 }

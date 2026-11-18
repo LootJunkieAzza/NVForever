@@ -25,7 +25,9 @@
 //!    window was shown, while the old run still held its game (#1651).
 //! 3. This run sees the file, takes it away and ends: the frame's exit logs are written
 //!    (`Last`), then the process ends at once ([`EndNow`]) instead of taking its world
-//!    apart piece by piece, which held its memory for about 2 s more.
+//!    apart piece by piece, which held its memory for about 2 s more. Streamline (DLSS,
+//!    DLSS Frame Generation) is shut down first, as at any other exit (`crate::dlss::end_now`,
+//!    #2733: `main`'s shutdown after `App::run` never runs on this path).
 //!
 //! If the new run ends before it is shown (it stops at the start: a damaged archive, say),
 //! the screen comes down and this game goes on; when the new run's log says why it
@@ -220,6 +222,16 @@ pub fn new_run_args(keep: &[String], what: Option<&LoadRequest>, placement: Opti
     args
 }
 
+/// A successor keeps its profile and measuring aids, but does not repeat the
+/// script clock or driving aids from the run that requested the handoff.
+fn remove_driving_aids(command: &mut std::process::Command, keys: impl IntoIterator<Item = std::ffi::OsString>) {
+    for key in keys {
+        if key.to_str().is_some_and(|key| key == "NVF_PLAY_AIDS_FROM_SCRIPTS" || (nvf_play::drives_run(key) && key != EXIT_AID)) {
+            command.env_remove(&key);
+        }
+    }
+}
+
 /// Where the save starts, for the loading screen's picture.
 fn destination_of(r: &LoadRequest, here: nvf_play::Location) -> Option<fnv_world::loadscreen::Destination> {
     let f = fnv_save::read_header(&r.path).ok()?;
@@ -315,11 +327,7 @@ pub fn leave(
                     cmd.args(&args);
                     // The whole line, so a report shows what the new run was given (#1903).
                     info!("load: the new run's command line: {} {}", exe.display(), args.join(" "));
-                    for (k, _) in std::env::vars_os() {
-                        if k.to_str().is_some_and(|k| nvf_play::drives_run(k) && k != EXIT_AID) {
-                            cmd.env_remove(&k);
-                        }
-                    }
+                    remove_driving_aids(&mut cmd, std::env::vars_os().map(|(key, _)| key));
                     cmd.spawn().map_err(|e| format!("could not start {}: {e}", exe.display()))
                 });
             match started {
@@ -386,11 +394,15 @@ pub fn add_end_now(app: &mut App) {
 
 /// The old run, once the new one is up: its exit logs are written, its saves on disk
 /// (waited for before the screen came up), a frame capture finished (`--frame-telemetry`:
-/// its writer otherwise finishes in the teardown this skips); the process ends here, the
-/// system freeing its memory at once.
+/// its writer otherwise finishes in the teardown this skips), Streamline shut down
+/// (`crate::dlss::end_now`: `main`'s shutdown after `App::run` is skipped too; a player's
+/// runs that left DLSS Frame Generation to the DLLs' detach crashed on this exit [observed],
+/// the detach being the cause is [hypothesis], #2733); the process ends
+/// here, the system freeing its memory at once.
 fn end_now(world: &mut World) {
     if matches!(world.resource::<Handoff>().0, Leaving::HandedOver) {
         crate::frame_telemetry::finish_for_exit(world);
+        crate::dlss::end_now(world, "the run hands over to a new one");
         std::process::exit(0);
     }
 }
@@ -531,6 +543,9 @@ pub fn reveal(
         }
     }
 }
+
+#[cfg(test)]
+mod death_smoke_tests;
 
 #[cfg(test)]
 mod tests {

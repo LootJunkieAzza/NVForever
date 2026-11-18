@@ -212,6 +212,9 @@ struct Stats {
 pub struct DetectionState {
     settings: Option<Settings>,
     next: f32,
+    /// Whether the player's noise was under the sound cover at the last measurement
+    /// (#2688): told in the log when it changes.
+    covered: bool,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
     /// Each actor's compass heading at the last measurement, and when.
@@ -241,24 +244,24 @@ pub struct DetectionState {
     stats: Stats,
 }
 
-/// The heights of each exterior cell's LAND record, read when first needed (worldspace,
-/// grid square → heights; `None` for a square without land).
+/// The landscape surface of each exterior cell (smoothed or stored, as drawn), read when
+/// first needed (worldspace, grid square → surface; `None` for a square without land).
 #[derive(Default)]
 struct LandCache {
-    cells: HashMap<(u32, i32, i32), Option<Vec<f32>>>,
+    cells: HashMap<(u32, i32, i32), Option<fnv_world::land_surface::Surface>>,
 }
 
 impl LandCache {
     /// The land's height at game (x, y) in worldspace `ws`.
     fn height(&mut self, world: &WorldData, ws: u32, x: f32, y: f32) -> Option<f32> {
         let g = fnv_world::cell_of(x, y);
-        let h = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
+        let s = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
             let w = world.index.worldspaces.get(&ws)?;
-            let land = world.index.cells.get(w.grid.get(&g)?)?.land?;
-            fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+            let ids = fnv_world::land_surface::land_ids(g, |n| w.grid.get(&n).and_then(|c| world.index.cells.get(c)).and_then(|c| c.land));
+            fnv_world::land_surface::load_surface(world.lo, world.schema, &ids, nvf_play::smooth_terrain::spec())
         });
         let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-        h.as_deref().map(|h| fnv_world::grass::height_at(h, x - ox, y - oy))
+        s.as_ref().map(|s| s.height_at_clamped(x - ox, y - oy))
     }
 }
 
@@ -721,6 +724,13 @@ fn player_moving(speed: f32, intent: Option<&MoveIntent>) -> bool {
     speed > MOVING_SPEED && intent.is_none_or(|i| i.forward != 0.0 || i.right != 0.0)
 }
 
+/// fSneakCombatMod distracts a fighter only from actors outside its target list
+/// [observed: captures run15b_t1 and run15b_t2, 2026-11-15;
+/// docs/spec-notes/actor-behaviour.md §2.1a]. Lost keeps 1.2 [design: detection.md §9].
+fn in_combat_with_someone_else(aware: Option<&fnv_game::awareness::Awareness>, target: FormId) -> bool {
+    aware.is_some_and(|a| a.state == State::Combat && !a.targets.contains_key(&target))
+}
+
 /// Measure every pair (the module notes).
 #[allow(clippy::too_many_arguments)]
 fn measure(
@@ -736,6 +746,7 @@ fn measure(
     actors: Query<Watched>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
+    mut cover: Option<ResMut<nvf_play::sound_cover::SoundCover>>,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
@@ -985,11 +996,15 @@ fn measure(
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let player_shot = shots.get(&FormId::PLAYER_REF.0).copied().unwrap_or(0.0);
     let mut player_noise = 0.0;
+    let mut player_cover = 0.0;
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         // The player's own noise, for the sneak gauges (nvf_play::sneak_gauges).
         let me = &people[0];
         player_noise = settings.noise(&g.detection_pair(FormId::PLAYER_REF, FormId::PLAYER_REF), me.moving, me.running, player_shot);
+        // The loudest sound of the world heard at the player: a noise under it is not
+        // heard (`nvf_play::sound_cover`, #2688).
+        player_cover = cover.as_deref_mut().map_or(0.0, |c| f64::from(c.cover(std::time::Instant::now(), player_noise)));
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
@@ -1112,8 +1127,7 @@ fn measure(
             let by_player = i == 0;
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
-            // IsCombatTarget, in Combat only: a Lost fighter searches at 1.2 (§9 of the design).
-            let combat_target = aware.is_some_and(|a| a.state == State::Combat && a.targets.contains_key(&FormId(t.id)));
+            let in_combat_with_someone_else = in_combat_with_someone_else(aware, FormId(t.id));
             let dist = distance(d.feet, t.feet);
             let target = t.chest();
             let sit = Situation {
@@ -1126,9 +1140,10 @@ fn measure(
                 running: t.running,
                 sneaking: t.sneaking,
                 action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
+                sound_cover: if j == 0 { player_cover } else { 0.0 },
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
-                combat_target,
+                in_combat_with_someone_else,
                 camera_sight: d.camera.map(|_| camera_sight[k]),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
@@ -1233,6 +1248,16 @@ fn measure(
     });
     if let Some(g) = gauges.as_deref_mut() {
         g.noise = player_noise as f32;
+        g.cover = player_cover as f32;
+    }
+    let covered = fnv_game::detection::masked(player_noise, player_cover);
+    if covered != state.covered {
+        state.covered = covered;
+        if covered {
+            info!("sound cover: the player's noise {player_noise:.0} is under the world's {player_cover:.0}: not heard");
+        } else {
+            info!("sound cover: the player's noise {player_noise:.0} is heard again (cover {player_cover:.0})");
+        }
     }
 
     // The log and the counts.
@@ -1432,6 +1457,28 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combat_distraction_excludes_own_targets_and_lost_detectors() {
+        use fnv_game::awareness::{Awareness, Target};
+
+        let foe = FormId(1);
+        let bystander = FormId(2);
+        let mut aware = Awareness::default();
+        aware.targets.insert(foe, Target { band: Band::Detected, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: None });
+        assert!(!in_combat_with_someone_else(None, bystander));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            aware.state = state;
+            assert!(!in_combat_with_someone_else(Some(&aware), foe), "{state:?}: own foe");
+            assert_eq!(in_combat_with_someone_else(Some(&aware), bystander), state == State::Combat, "{state:?}: bystander");
+        }
+        // An unseen foe still on the list is not a bystander [design: detection.md §9].
+        aware.state = State::Combat;
+        aware.targets.get_mut(&foe).unwrap().band = Band::Hidden;
+        assert!(!in_combat_with_someone_else(Some(&aware), foe));
+        aware.targets.remove(&foe);
+        assert!(in_combat_with_someone_else(Some(&aware), foe));
+    }
 
     /// A player drifting while its capsule settles makes no footsteps; one walking does,
     /// and so does one stuck to a wall only when it gets anywhere (#2286).

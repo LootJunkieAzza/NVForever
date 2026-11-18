@@ -55,7 +55,7 @@ use crate::player_body::PlayerBody;
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::anim_sounds::{
-    armour_foley, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, passed, worn_foley, FoleySound, KeySound,
+    Side, armour_foley, armour_step, clip_gait, footstep_candidates, footstep_family, foley_for, land_texture_material, parse, passed, worn_foley, ArmourStep, FoleySound, KeySound,
 };
 use fnv_combat::rng::SplitMix;
 use fnv_phys::{layers, Filter, Key, Owner};
@@ -118,6 +118,8 @@ struct Counts {
     footsteps_player: u32,
     footsteps_actors: u32,
     rustles: u32,
+    /// Armour's footfalls beside the ground's step ([`ArmourStep`]).
+    armour_steps: u32,
     reload_keys: u32,
     other_keys: u32,
     door_sounds: u32,
@@ -148,8 +150,11 @@ pub struct AnimSounds {
     /// Clip time last frame, by clip playing.
     last: HashMap<Playing, f32>,
     /// Armour sounds by the worn list (player) or the reference (actors).
-    worn: HashMap<Vec<FormId>, Arc<Vec<FoleySound>>>,
-    actor_worn: HashMap<u32, Arc<Vec<FoleySound>>>,
+    worn: HashMap<Vec<FormId>, Worn>,
+    actor_worn: HashMap<u32, Worn>,
+    /// The footsteps played this frame and whose they are, for IsSoundPlaying
+    /// ([`tell_game`]).
+    told: Vec<(FormId, FormId)>,
     /// Landscape: per exterior cell, its texture coverage; per LTEX its material.
     land: HashMap<(u32, i32, i32), Option<Arc<Coverage>>>,
     ltex: HashMap<u32, Option<u32>>,
@@ -177,6 +182,7 @@ impl Default for AnimSounds {
             last: HashMap::new(),
             worn: HashMap::new(),
             actor_worn: HashMap::new(),
+            told: Vec::new(),
             land: HashMap::new(),
             ltex: HashMap::new(),
             unknown: HashSet::new(),
@@ -297,10 +303,22 @@ fn terrain_material(s: &mut AnimSounds, d: &PlayWorld, world: u32, x: i32, y: i3
     *s.ltex.entry(best).or_insert_with(|| land_texture_material(d.lo, d.schema, best))
 }
 
+/// What a worn list sounds like: its armour's rustles, and the footfall its armour adds
+/// beside the ground's step ([`ArmourStep`]).
+type Worn = Arc<(Vec<FoleySound>, Option<ArmourStep>)>;
+
 /// The armour sounds of a worn list.
-fn foley_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, worn: &[FormId]) -> Vec<FoleySound> {
-    worn_foley(worn.iter().map(|a| armour_foley(lo, schema, a.0)).collect())
+fn foley_of(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, worn: &[FormId]) -> Worn {
+    let foley = worn_foley(worn.iter().map(|a| armour_foley(lo, schema, a.0)).collect());
+    let step = ArmourStep::of_worn(worn.iter().map(|a| armour_step(lo, schema, a.0)));
+    Arc::new((foley, step))
 }
+
+/// How long a footstep the game played counts as playing for IsSoundPlaying: the sound's
+/// own length is not known here [engineering choice: half a second, inside the 0.5–1 s a
+/// step's sound read 1 in the probe of #2541; scripts that watch for a footfall (Titans of
+/// the New West's TNWFootstepUDF) look every frame for it starting].
+const TOLD_SECONDS: f64 = 0.5;
 
 #[allow(clippy::too_many_arguments)]
 fn sound_heard(
@@ -313,9 +331,11 @@ fn sound_heard(
     at: Option<[f32; 3]>,
     feet: [f32; 3],
     exclude: Vec<Key>,
-    foley: &[FoleySound],
+    worn: &(Vec<FoleySound>, Option<ArmourStep>),
     swimming: bool,
+    source: FormId,
 ) {
+    let (foley, armour) = (&worn.0, worn.1);
     match h.key {
         KeySound::Sound(edid) => {
             if h.clip.name.to_ascii_lowercase().starts_with("reload") {
@@ -348,6 +368,15 @@ fn sound_heard(
             *s.counts.grounds.entry(family).or_default() += 1;
             debug!("anim sounds: {:?} footstep {family}{} {:?} {side:?}", h.who, if stairs { " stairs" } else { "" }, gait);
             out.write(PlaySound { sound, at });
+            s.told.push((sound, source));
+            // Armour's footfall, beside the ground's step (#2541).
+            if let Some(step) = armour.filter(|_| !swimming) {
+                if let Some(sound) = s.sound(step.record(side)) {
+                    s.counts.armour_steps += 1;
+                    out.write(PlaySound { sound, at });
+                    s.told.push((sound, source));
+                }
+            }
         }
         KeySound::Foley { armor, gait } => {
             let Some(f) = foley_for(foley, armor, gait) else { return };
@@ -359,6 +388,10 @@ fn sound_heard(
             }
             s.counts.rustles += 1;
             debug!("anim sounds: {:?} rustle {} {gait:?}", h.who, if armor { "armour" } else { "cloth" });
+            // The player's tweak: in third person the player's own rustle is heard from the
+            // body, not at the ear (docs/design/tweaks.md).
+            let body = h.who == Who::Player(false) && nvf_play::tweaks::ARMOR_3D.load(std::sync::atomic::Ordering::Relaxed);
+            let at = if body { at.or(Some(feet)) } else { at };
             out.write(PlaySound { sound: FormId(f.sound), at });
         }
     }
@@ -387,7 +420,10 @@ fn player_keys(
     let foley = match s.worn.get(worn) {
         Some(f) => f.clone(),
         None => {
-            let f = Arc::new(foley_of(d.lo, d.schema, worn));
+            let f = foley_of(d.lo, d.schema, worn);
+            if let Some(step) = f.1 {
+                info!("anim sounds: the player's armour steps as {:?} ({})", step, step.record(Side::Left));
+            }
             s.worn.insert(worn.to_vec(), f.clone());
             f
         }
@@ -413,11 +449,40 @@ fn player_keys(
                 continue;
             }
         }
-        sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming);
+        sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, None, player.feet, exclude.clone(), &foley, swimming, FormId::PLAYER_REF);
     }
 }
 
-/// The drawn actors near the player.
+/// The footsteps played this frame go to the game's list of playing sounds, on the actor
+/// whose step it was, so IsSoundPlaying reads them (#2541).
+fn tell_game(mut s: ResMut<AnimSounds>, script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    if s.told.is_empty() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else {
+        s.told.clear();
+        return;
+    };
+    let frame = rt.game.frame;
+    for (sound, source) in s.told.drain(..).filter(|(_, src)| src.0 != 0) {
+        rt.game.gaps.sounds.engine_played(sound, source, frame, TOLD_SECONDS);
+    }
+}
+
+/// [design, #2352] Only regular layers supply events. When the creature's pose
+/// fallback is active, the real Idle owns its continuing sound timeline, unless
+/// an audible regular layer already owns that source.
+fn actor_sound_sources<'a>(bp: &'a BlendPlayer, lo: Option<&'a crate::locomotion::Locomotion>) -> impl Iterator<Item = (&'a Arc<Clip>, f32)> {
+    let audible = || bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT);
+    let idle = lo.filter(|_| bp.pose_only.as_ref().is_some_and(|l| l.weight > 0.0)).and_then(|l| l.idle_timeline())
+        .filter(|(c, _)| !audible().any(|l| Arc::ptr_eq(&l.clip.clip, c)));
+    audible().map(|l| (&l.clip.clip, l.phase)).chain(idle)
+}
+
+/// What `actor_keys` reads per animated actor.
+type ActorKeysItem<'a> = (Entity, &'a BlendPlayer, &'a GlobalTransform, Option<&'a ActorRig>, Option<&'a crate::locomotion::Locomotion>);
+
+/// [design: actor_sound_sources] Consume the actors' regular clips and real idle owner.
 #[allow(clippy::too_many_arguments)]
 fn actor_keys(
     time: Res<Time>,
@@ -428,7 +493,7 @@ fn actor_keys(
     d: Res<PlayWorld>,
     location: Res<Location>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
-    actors: Query<(Entity, &BlendPlayer, &GlobalTransform, Option<&ActorRig>)>,
+    actors: Query<ActorKeysItem>,
     script: Option<Res<ScriptState>>,
     mut out: MessageWriter<PlaySound>,
     mut loops: MessageWriter<SoundSource>,
@@ -442,7 +507,7 @@ fn actor_keys(
     seen.clear();
     let listener = Vec3::from_array(player.feet);
     let mut moved: HashMap<Entity, Vec3> = HashMap::new();
-    for (e, bp, gt, rig) in &actors {
+    for (e, bp, gt, rig, lo) in &actors {
         let feet = bevy_to_game(gt.translation());
         if feet.distance(listener) > ACTOR_RANGE {
             continue;
@@ -468,9 +533,8 @@ fn actor_keys(
             }
         }
         let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
-        for l in bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT) {
-            let clip = &l.clip.clip;
-            let now = clip.start + l.phase.clamp(0.0, 1.0) * clip.length();
+        for (clip, phase) in actor_sound_sources(bp, lo) {
+            let now = clip.start + phase.clamp(0.0, 1.0) * clip.length();
             for k in keys_of(&s.last, &mut seen, (who, Arc::as_ptr(clip) as usize, 0), clip, now, false) {
                 // A creature with sounds hears its `Enum:` keys as its sound types.
                 if let (Some(list), Some(kind)) = (&creature, creature_key_type(k)) {
@@ -492,22 +556,28 @@ fn actor_keys(
                 .entry(r)
                 .or_insert_with(|| {
                     let worn = rig.and_then(|g| w.resolve(g.base, r).ok()).map(|a| a.worn).unwrap_or_default();
-                    Arc::new(foley_of(d.lo, d.schema, &worn))
+                    foley_of(d.lo, d.schema, &worn)
                 })
                 .clone(),
-            _ => Arc::new(Vec::new()),
+            _ => Arc::new((Vec::new(), None)),
         };
         let exclude: Vec<Key> = reference.map(|r| vec![Key::Actor(r), Key::Character(r)]).unwrap_or_default();
         let swimming = reference.and_then(|r| phys.as_deref().and_then(|p| p.npcs.get(&r))).is_some_and(|n| n.ch.swimming);
+        let quiet_team = reference.is_some_and(|r| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quiet_teammate_steps && rt.game.is_teammate(fnv_sim::FormId(r))));
         let mut stepped = HashSet::new();
         for (clip, key) in heard {
             if let KeySound::Foot(side) = key {
+                // The player's tweak keeps teammates' feet quiet [design: docs/design/tweaks.md].
+                if quiet_team {
+                    continue;
+                }
                 if !stepped.insert(side) {
                     continue;
                 }
             }
             let at = feet.to_array();
-            sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, Some(at), at, exclude.clone(), &foley, swimming);
+            let source = FormId(reference.unwrap_or(0));
+            sound_heard(s, &mut out, &mut phys, &d, location.world, Heard { who, clip, key }, Some(at), at, exclude.clone(), &foley, swimming, source);
         }
     }
     s.last.retain(|(w, _, _), _| matches!(w, Who::Player(_)));
@@ -752,7 +822,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times; {} armour footfalls",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -773,7 +843,8 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.jumps,
         c.landings,
         c.actor_jumps,
-        c.actor_landings
+        c.actor_landings,
+        c.armour_steps
     );
 }
 
@@ -785,7 +856,7 @@ impl Plugin for AnimSoundsPlugin {
         app.init_resource::<AnimSounds>()
             .add_systems(
                 Update,
-                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain().before(nvf_play::sfx::SfxSet),
+                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits, tell_game).chain().before(nvf_play::sfx::SfxSet),
             )
             .add_systems(
                 Update,
@@ -798,7 +869,6 @@ impl Plugin for AnimSoundsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnv_actor::anim_sounds::Side;
 
     fn clip(keys: &[(f32, &str)]) -> Clip {
         Clip {
@@ -819,6 +889,112 @@ mod tests {
             free_visibility: Vec::new(),
             lights: Vec::new(),
         }
+    }
+
+    #[test]
+    fn creature_idle_under_keeps_sound_keys_across_upper_clip_changes() {
+        check_creature_idle_sound_keys(true);
+    }
+
+    #[test]
+    fn creature_idle_under_stationary_aim_hears_each_idle_sound_once() {
+        check_creature_idle_sound_keys(false);
+    }
+
+    fn check_creature_idle_sound_keys(moving: bool) {
+        use crate::creature_stance::{CreatureClips, CreatureStance};
+        use crate::locomotion::{drive, ActorAnimCost, ClipSet, Flinch, Locomotion, SetClip};
+        use fnv_actor::locomotion::{Blend, ClipInfo, Move};
+        use fnv_actor::weapon::{ClipFacts, EquipClip, StanceFacts};
+        use fnv_nif::anim::{Channel, TransformTrack};
+        use nvf_assets::anim_play::BoundClip;
+
+        // [design, #2352] Synthetic creature: movement drives the torso, aim or
+        // flinch drives the head, and the real Idle owns the sound timeline.
+        fn bound(mut source: Clip, names: &[&str]) -> Arc<BoundClip> {
+            let track = Arc::new(TransformTrack {
+                translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(None),
+                euler: None, scale: Channel::Static(None), per_cycle: None,
+            });
+            source.tracks = names.iter().map(|n| (n.to_string(), track.clone())).collect();
+            Arc::new(BoundClip::bind(Arc::new(source), |n| ["Torso", "Head", "Wing"].iter().position(|name| *name == n)))
+        }
+        let idle = bound(clip(&[(0.4, "Sound: First"), (0.6, "Sound: Second")]), &["Torso", "Head", "Wing"]);
+        let real_idle = idle.clip.clone();
+        let forward = bound(clip(&[]), &["Torso"]);
+        let upper = bound(clip(&[]), &["Head"]);
+        let mut set = ClipSet::default();
+        for (mv, bound, speed) in [(Move::Idle, idle, 0.0), (Move::Forward, forward, 10.0)] {
+            set.clips.insert(mv, SetClip { bound, path: String::new(), info: ClipInfo { duration: 1.0, speed, foot_phase: 0.0, blend_time: 0.0 } });
+        }
+        let mut lo = Locomotion::new(Arc::new(set), 0.0);
+        lo.idle_under = true;
+        if moving {
+            lo.velocity = [0.0, 10.0];
+            lo.blend = Blend::new(Move::Forward, 0.0);
+        }
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<ActorAnimCost>();
+        let bones = (0..3).map(|_| world.spawn(Transform::IDENTITY).id()).collect();
+        let mut clips = CreatureClips { clips: Default::default(), facts: StanceFacts::new() };
+        if !moving {
+            clips.facts.insert(EquipClip::Aim, ClipFacts::from_parts(0.0, 1.0, &[]));
+            clips.clips.insert(EquipClip::Aim, upper.clone());
+        }
+        let mut stance = CreatureStance::new(Arc::new(clips), !moving);
+        stance.anim = fnv_actor::weapon::WeaponAnim::new(!moving);
+        let actor = world.spawn((lo, BlendPlayer::new(bones, Arc::new(vec![Transform::IDENTITY; 3])), stance)).id();
+        let drive = world.register_system(drive);
+        let mut last = HashMap::new();
+        let mut previous = None;
+        for (secs, with_upper, phase, tracks, expected) in [
+            (0.3, false, 0.3, 2, vec![]),
+            (0.2, true, 0.5, 1, vec!["Sound: First"]),
+            (0.2, false, 0.7, 2, vec!["Sound: Second"]),
+            (0.0, false, 0.7, 2, vec![]),
+        ] {
+            if moving && with_upper {
+                world.entity_mut(actor).insert(Flinch { clip: upper.clone(), at: 0.3, forced: false });
+            } else {
+                world.entity_mut(actor).remove::<Flinch>();
+            }
+            world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(secs));
+            world.run_system(drive).unwrap();
+            let bp = world.get::<BlendPlayer>(actor).unwrap();
+            let lo = world.get::<Locomotion>(actor).unwrap();
+            let layer = bp.pose_only.as_ref().unwrap();
+            assert!((layer.phase - phase).abs() < 1e-6);
+            assert_eq!(bp.pose_only_mask.as_ref().unwrap().tracks.iter().filter(|b| **b).count(), if moving { tracks } else { 2 });
+            assert!(layer.clip.clip.text_keys.is_empty());
+            if !moving {
+                assert!(Arc::ptr_eq(&bp.layers[0].as_ref().unwrap().clip.clip, &real_idle));
+                assert!(bp.layers[2].is_some(), "stationary aim omits the wing");
+            }
+            let mut seen = Vec::new();
+            let mut heard = Vec::new();
+            for (source, phase) in actor_sound_sources(bp, Some(lo)) {
+                assert!(!Arc::ptr_eq(source, &layer.clip.clip), "pose-only view is never an event source");
+                let playing = (Who::Actor(actor), Arc::as_ptr(source) as usize, 0);
+                let now = source.start + phase.clamp(0.0, 1.0) * source.length();
+                heard.extend(keys_of(&last, &mut seen, playing, source, now, false));
+            }
+            assert_eq!(heard, expected);
+            assert_eq!(seen.iter().filter(|((_, c, _), _)| *c == Arc::as_ptr(&real_idle) as usize).count(), 1);
+            last = seen.into_iter().collect();
+            if let Some(before) = previous {
+                if moving && secs > 0.0 {
+                    assert!(Arc::ptr_eq(&before, &layer.clip), "upper changes preserve the fallback playback identity");
+                }
+            }
+            previous = Some(layer.clip.clone());
+        }
+        // [design, #2352] A zero-weight timeline anchor owns no fallback sounds;
+        // a regular Idle remains its own audible owner.
+        world.get_mut::<BlendPlayer>(actor).unwrap().pose_only.as_mut().unwrap().weight = 0.0;
+        let bp = world.get::<BlendPlayer>(actor).unwrap();
+        let lo = world.get::<Locomotion>(actor).unwrap();
+        assert_eq!(actor_sound_sources(bp, Some(lo)).filter(|(c, _)| Arc::ptr_eq(c, &real_idle)).count(), usize::from(!moving));
     }
 
     #[test]

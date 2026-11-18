@@ -16,8 +16,9 @@
 //! (beside `[Settings]`, `crate::settings::SettingsFile`), one line per control by its
 //! game INI name, the key and mouse button by name: `Forward=W`, `Block=Left Alt, Right
 //! Mouse`, `Use=Left Mouse`, `Auto Move=None` ([`KEY_NAMES`], [`MOUSE_NAMES`]), and
-//! `Always Run By Default`, `Invert Y` (1/0), `Mouse Sensitivity` and `Mouse Vertical
-//! Sensitivity` (#2201, read as 1 when missing). Each start reads
+//! `Always Run By Default`, `Invert Y` (1/0), `Mouse Sensitivity`, `Mouse Vertical
+//! Sensitivity` (#2201) and `Aim Sensitivity` (the look while aiming, owner 2026-11-15;
+//! both read as 1 when missing). Each start reads
 //! them ([`apply_stored`], `PostStartup`); a line missing from an INI that exists is
 //! written with the control's key then, so the file always lists every control to edit.
 //! A value that does not parse is skipped with a warning (the default stays). The pause
@@ -31,7 +32,8 @@
 //! `[Controls]` (`Keyboard and Mouse` or `Controller`, [`InputDevice`]) says which works
 //! the controls; the controller's buttons are kept in `[Controller]`, one line per
 //! control by the same names (`Activate=A`, `Forward=Left Stick Up`, `Hotkey5=None`),
-//! with `Look Speed Horizontal`, `Look Speed Vertical` and `Rumble` (1/0, the pad
+//! with `Look Speed Horizontal`, `Look Speed Vertical`, the stick's own `Stick Sensitivity`,
+//! `Stick Vertical Sensitivity` and `Aim Sensitivity`, and `Rumble` (1/0, the pad
 //! shakes, `crate::rumble`; the game's `bGamePadRumble=1` [observed 2026-10-16, the
 //! owner's `FalloutPrefs.ini`]). Their defaults are the game's
 //! (the `JJ` bytes and its `fXenonHorizLookSpeed`, `fXenonVertLookSpeed`); the D-pad,
@@ -87,13 +89,68 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    // The Tweaks tab's keys (`crate::tweaks`, docs/design/tweaks.md): none bound unless
+    // the player binds them.
+    /// Holster the weapon at once (Stewie's Tweaks iHolsterWeaponKey).
+    HolsterWeapon,
+    /// The Pip-Boy light on or off (iTogglePipboyLightKey).
+    ToggleLight,
+    /// The crosshair shown or hidden (iToggleCrosshairKey).
+    ToggleCrosshair,
+    /// The sneak label shown or hidden (iToggleSneakIndicatorKey).
+    ToggleSneakLabel,
+    /// Every menu and the HUD hidden or shown, as ToggleMenus (iToggleMenusKey).
+    ToggleMenus,
+    /// Back to the main menu at once (iExitToMainMenuKey).
+    ExitToMainMenu,
+    /// Quit at once (iExitGameKey).
+    ExitGame,
+    /// No collision while held (iDisableCollisionKey).
+    NoCollision,
+    /// The Pip-Boy opened on a page (iPipboyStatsKey, iPipboyItemsKey, iPipboyDataKey).
+    PipBoyStats,
+    PipBoyItems,
+    PipBoyData,
+    /// The Pip-Boy opened on a DATA tab (iOpenLocalMapKey, iOpenMapKey, iOpenQuestsKey,
+    /// iOpenRadioKey).
+    OpenLocalMap,
+    OpenWorldMap,
+    OpenQuests,
+    OpenRadio,
+    /// True iron sights on or off (iToggleTrueIronSightsKey).
+    ToggleIronSights,
+    /// The weapon in hand dropped (iDropEquippedWeaponKey).
+    DropWeapon,
+    /// The Radio volume a tenth up or down (iRadioVolumeUpKey, iRadioVolumeDownKey).
+    RadioVolumeUp,
+    RadioVolumeDown,
+    /// The weapon equipped before the one now (iEquipLastWeaponKey).
+    LastWeapon,
+    /// Smoothed looking on or off (iToggleSmoothCameraKey).
+    SmoothCamera,
+    /// Activate again and again while held (iRepeatActivateKey).
+    RepeatActivate,
+    /// The iron sights on the weapon's second sighting node or back (iToggleSightingNodeHotkey).
+    ToggleSightingNode,
+    /// The custom map marker where the player stands (iPlaceMapMarkerAtPlayerPosKey).
+    PlaceMarkerHere,
+    /// Hide the chosen parts of the HUD or show them again (iHideHUDKey).
+    HideHud,
+    /// End the Pip-Boy radio's song or talk now (iSkipRadioSongKey).
+    SkipRadioSong,
+    /// Open and close the console (the original's ` key; Stewie's Tweaks iConsoleKey), a
+    /// binding like any other [design: owner 2026-11-16: "make the console hotkey and
+    /// screenshot hotkey a normal rebindable key"].
+    Console,
+    /// Save a picture of the screen (NVForever's F12; Stewie's Tweaks iScreenshotKey).
+    Screenshot,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 57] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -123,7 +180,45 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
+    (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
+    (Control::ToggleCrosshair, "Toggle Crosshair", 0xFFFFFFFF),
+    (Control::ToggleSneakLabel, "Toggle Sneak Label", 0xFFFFFFFF),
+    (Control::ToggleMenus, "Toggle Menus", 0xFFFFFFFF),
+    (Control::ExitToMainMenu, "Exit to Main Menu", 0xFFFFFFFF),
+    (Control::ExitGame, "Exit Game", 0xFFFFFFFF),
+    (Control::NoCollision, "No Collision", 0xFFFFFFFF),
+    (Control::PipBoyStats, "Pip-Boy Stats", 0xFFFFFFFF),
+    (Control::PipBoyItems, "Pip-Boy Items", 0xFFFFFFFF),
+    (Control::PipBoyData, "Pip-Boy Data", 0xFFFFFFFF),
+    (Control::OpenLocalMap, "Local Map", 0xFFFFFFFF),
+    (Control::OpenWorldMap, "World Map", 0xFFFFFFFF),
+    (Control::OpenQuests, "Quests", 0xFFFFFFFF),
+    (Control::OpenRadio, "Radio", 0xFFFFFFFF),
+    (Control::ToggleIronSights, "Toggle Iron Sights", 0xFFFFFFFF),
+    (Control::DropWeapon, "Drop Weapon", 0xFFFFFFFF),
+    (Control::RadioVolumeUp, "Radio Volume Up", 0xFFFFFFFF),
+    (Control::RadioVolumeDown, "Radio Volume Down", 0xFFFFFFFF),
+    (Control::LastWeapon, "Last Weapon", 0xFFFFFFFF),
+    (Control::SmoothCamera, "Smooth Camera", 0xFFFFFFFF),
+    (Control::RepeatActivate, "Repeat Activate", 0xFFFFFFFF),
+    (Control::ToggleSightingNode, "Toggle Sighting Node", 0xFFFFFFFF),
+    (Control::PlaceMarkerHere, "Place Marker Here", 0xFFFFFFFF),
+    (Control::HideHud, "Hide HUD", 0xFFFFFFFF),
+    (Control::SkipRadioSong, "Skip Radio Song", 0xFFFFFFFF),
+    // Bound by default, as before they were bindings (the keys as the INI codes them).
+    (Control::Console, "Console", 0x0029FFFF),
+    (Control::Screenshot, "Screenshot", 0x0058FFFF),
 ];
+
+/// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
+/// player binds it (`crate::tweaks`), but the console's and the screenshot's at the end
+/// ([`BOUND_EXTRA_CONTROLS`]), bound by default.
+pub const TWEAK_CONTROLS: usize = 29;
+
+/// The controls after the Tweaks tab's that are bound by default: the console and the
+/// screenshot ([`Control::Console`], [`Control::Screenshot`]).
+pub const BOUND_EXTRA_CONTROLS: usize = 2;
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
 pub const GAME_INI_CONTROLS: usize = 28;
@@ -308,14 +403,22 @@ pub struct Bindings {
     pub rumble: bool,
     /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
     pub stick_sensitivity: f32,
+    /// A key may serve two controls (the Duplicate Binds tweak, set by `crate::tweaks`):
+    /// rebinding does not swap.
+    pub allow_duplicates: bool,
     /// The Controls tab's Vertical Sensitivity of keyboard and mouse and of the controller
     /// ([`device_slot`]): the vertical look's speed as a multiple of the horizontal's, 1 as
     /// the game has it (the mouse's one value for both axes, the stick's own vertical look
     /// speed) [design: #2201; the original has no such setting].
     pub vertical: [f32; 2],
+    /// The Controls tab's Aim Sensitivity of keyboard and mouse and of the controller
+    /// ([`device_slot`]): the look's speed while the player aims down the sights or through
+    /// a scope, as a multiple of the unzoomed look's; 1 leaves the look as it is unzoomed
+    /// (`crate::player::aim_scale`) [design: owner 2026-11-15].
+    pub aim: [f32; 2],
 }
 
-/// The place of `device` in [`Bindings::vertical`].
+/// The place of `device` in [`Bindings::vertical`] and [`Bindings::aim`].
 pub fn device_slot(device: InputDevice) -> usize {
     match device {
         InputDevice::KeyboardMouse => 0,
@@ -344,6 +447,11 @@ impl Bindings {
         self.vertical[device_slot(self.device)]
     }
 
+    /// The Aim Sensitivity of the device in use ([`Bindings::aim`]).
+    pub fn aim_sensitivity(&self) -> f32 {
+        self.aim[device_slot(self.device)]
+    }
+
     pub fn game_defaults() -> Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
@@ -356,7 +464,9 @@ impl Bindings {
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
+            allow_duplicates: false,
             vertical: [1.0, 1.0],
+            aim: [1.0, 1.0],
         }
     }
 
@@ -377,7 +487,8 @@ impl Bindings {
     pub fn rebind_pad(&mut self, c: Control, p: PadInput) -> Vec<Control> {
         let old = self.pad(c);
         let mut swapped = Vec::new();
-        for (k, x) in self.pad.iter_mut().filter(|(k, x)| *k != c && *x == Some(p)) {
+        let swaps = !self.allow_duplicates;
+        for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && *x == Some(p)) {
             *x = old;
             swapped.push(*k);
         }
@@ -432,7 +543,9 @@ impl Bindings {
     pub fn rebind(&mut self, c: Control, input: Input) -> Vec<Control> {
         let old = self.get(c);
         let mut swapped = Vec::new();
-        for (k, b) in self.map.iter_mut().filter(|(k, _)| *k != c) {
+        // The player's tweak lets two controls share an input [design: docs/design/tweaks.md].
+        let swaps = !self.allow_duplicates;
+        for (k, b) in self.map.iter_mut().filter(|(k, _)| swaps && *k != c) {
             match input {
                 Input::Key(key) if b.key == Some(key) => b.key = old.key,
                 Input::Mouse(m) if b.mouse == Some(m) => b.mouse = old.mouse,
@@ -505,6 +618,34 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        HolsterWeapon => "Holster Weapon",
+        ToggleLight => "Pip-Boy Light",
+        ToggleCrosshair => "Show/Hide Crosshair",
+        ToggleSneakLabel => "Show/Hide Sneak Label",
+        ToggleMenus => "Show/Hide HUD",
+        ExitToMainMenu => "Main Menu",
+        ExitGame => "Quit Game",
+        NoCollision => "No Collision (held)",
+        PipBoyStats => "Pip-Boy: Stats",
+        PipBoyItems => "Pip-Boy: Items",
+        PipBoyData => "Pip-Boy: Data",
+        OpenLocalMap => "Pip-Boy: Local Map",
+        OpenWorldMap => "Pip-Boy: World Map",
+        OpenQuests => "Pip-Boy: Quests",
+        OpenRadio => "Pip-Boy: Radio",
+        ToggleIronSights => "True Iron Sights",
+        DropWeapon => "Drop Weapon",
+        RadioVolumeUp => "Radio Volume Up",
+        RadioVolumeDown => "Radio Volume Down",
+        LastWeapon => "Last Weapon",
+        SmoothCamera => "Smooth Camera",
+        RepeatActivate => "Repeat Activate",
+        ToggleSightingNode => "Second Iron Sights",
+        PlaceMarkerHere => "Place Marker Here",
+        HideHud => "Hide HUD",
+        SkipRadioSong => "Skip Radio Song",
+        Console => "Console",
+        Screenshot => "Screenshot",
     }
 }
 
@@ -529,6 +670,8 @@ pub const KEY_NAMES: &[(KeyCode, &str)] = {
         (Digit6, "6"), (Digit7, "7"), (Digit8, "8"), (Digit9, "9"), (Digit0, "0"),
         (F1, "F1"), (F2, "F2"), (F3, "F3"), (F4, "F4"), (F5, "F5"), (F6, "F6"),
         (F7, "F7"), (F8, "F8"), (F9, "F9"), (F10, "F10"), (F11, "F11"), (F12, "F12"),
+        // The console's key, a binding now (`Control::Console`).
+        (Backquote, "`"),
         (Space, "Space"), (Tab, "Tab"), (Enter, "Enter"), (Backspace, "Backspace"), (CapsLock, "Caps Lock"),
         (ShiftLeft, "Left Shift"), (ShiftRight, "Right Shift"), (ControlLeft, "Left Ctrl"), (ControlRight, "Right Ctrl"),
         (AltLeft, "Left Alt"), (AltRight, "Right Alt"),
@@ -552,8 +695,19 @@ pub const MOUSE_NAMES: [(MouseButton, &str); 5] = [
     (MouseButton::Forward, "Mouse 5"),
 ];
 
-/// Keys no control may take: Esc (the pause menu) and the console's key.
-pub const RESERVED_KEYS: [KeyCode; 2] = [KeyCode::Escape, KeyCode::Backquote];
+/// Keys no control may take: Esc (the pause menu). The console's key is a binding of its own
+/// now ([`Control::Console`]).
+pub const RESERVED_KEYS: [KeyCode; 1] = [KeyCode::Escape];
+
+/// Whether `c`'s key or mouse button was pressed this frame, by `bindings` (none: never);
+/// for the controls read outside the game's own control handling (the console, the
+/// screenshot).
+pub fn binding_just_pressed(bindings: Option<&Bindings>, c: Control, keys: impl Fn(KeyCode) -> bool, mouse: impl Fn(MouseButton) -> bool) -> bool {
+    bindings.is_some_and(|b| {
+        let x = b.get(c);
+        x.key.is_some_and(&keys) || x.mouse.is_some_and(&mouse)
+    })
+}
 
 pub fn key_name(k: KeyCode) -> Option<&'static str> {
     KEY_NAMES.iter().find(|(c, _)| *c == k).map(|(_, n)| *n)
@@ -628,6 +782,9 @@ const STICK_SENSITIVITY_KEY: &str = "Stick Sensitivity";
 /// Where each device's Vertical Sensitivity is kept ([`Bindings::vertical`]): a multiple,
 /// two decimals.
 const VERTICAL_KEYS: [(&str, &str); 2] = [(SECTION, "Mouse Vertical Sensitivity"), (PAD_SECTION, "Stick Vertical Sensitivity")];
+/// Where each device's Aim Sensitivity is kept ([`Bindings::aim`]): a multiple, two
+/// decimals, under the same name in each device's section.
+const AIM_KEYS: [(&str, &str); 2] = [(SECTION, "Mouse Aim Sensitivity"), (PAD_SECTION, "Stick Aim Sensitivity")];
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -660,7 +817,7 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
     t = ini_set(&t, PAD_SECTION, STICK_SENSITIVITY_KEY, &format!("{:.2}", b.stick_sensitivity));
-    for ((section, k), v) in VERTICAL_KEYS.iter().zip(b.vertical) {
+    for ((section, k), v) in VERTICAL_KEYS.iter().zip(b.vertical).chain(AIM_KEYS.iter().zip(b.aim)) {
         t = ini_set(&t, section, k, &format!("{v:.2}"));
     }
     ini_set(&t, PAD_SECTION, RUMBLE_KEY, bit(b.rumble))
@@ -771,19 +928,22 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("[{PAD_SECTION}] {STICK_SENSITIVITY_KEY}={v} (not a number above 0)")),
         }
     }
-    for (i, (section, k)) in VERTICAL_KEYS.iter().enumerate() {
-        let Some(v) = ini_get(text, section, k) else { continue };
-        found += 1;
-        let name = if *section == PAD_SECTION { format!("[{PAD_SECTION}] {k}") } else { k.to_string() };
-        match v.trim().parse::<f32>() {
-            Ok(m) if m.is_finite() && m > 0.0 => {
-                let m = clamp_to_least(m, SENSITIVITY_LEAST);
-                if (m - b.vertical[i]).abs() > 1e-4 {
-                    changed.push(format!("{name} {m}"));
-                    b.vertical[i] = m;
+    // Each device's Vertical Sensitivity and Aim Sensitivity: multiples on the sliders' floor.
+    for (keys, values) in [(&VERTICAL_KEYS, &mut b.vertical), (&AIM_KEYS, &mut b.aim)] {
+        for (i, (section, k)) in keys.iter().enumerate() {
+            let Some(v) = ini_get(text, section, k) else { continue };
+            found += 1;
+            let name = if *section == PAD_SECTION { format!("[{PAD_SECTION}] {k}") } else { k.to_string() };
+            match v.trim().parse::<f32>() {
+                Ok(m) if m.is_finite() && m > 0.0 => {
+                    let m = clamp_to_least(m, SENSITIVITY_LEAST);
+                    if (m - values[i]).abs() > 1e-4 {
+                        changed.push(format!("{name} {m}"));
+                        values[i] = m;
+                    }
                 }
+                _ => bad.push(format!("{name}={v} (not a number above 0)")),
             }
-            _ => bad.push(format!("{name}={v} (not a number above 0)")),
         }
     }
     switch(PAD_SECTION, RUMBLE_KEY, &mut b.rumble, &mut found, &mut changed, bad);
@@ -791,7 +951,7 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len();
+const LINES: usize = 2 * GAME_CONTROLS.len() + 5 + LOOK_KEYS.len() + 2 + VERTICAL_KEYS.len() + AIM_KEYS.len();
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -991,6 +1151,19 @@ pub fn set_vertical(world: &mut World, m: f32) {
     store(world);
 }
 
+/// Set the Aim Sensitivity of the device in use to multiple `m` of its unzoomed look (the
+/// Controls tab's Aim Sensitivity, on the steps of the sensitivity sliders); acts at once.
+pub fn set_aim_sensitivity(world: &mut World, m: f32) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let i = device_slot(b.device);
+    if (b.aim[i] - m).abs() <= 1e-4 {
+        return;
+    }
+    b.aim[i] = m;
+    info!("controls: {} aim sensitivity {}", if i == 1 { "stick" } else { "mouse" }, sensitivity_text(m));
+    store(world);
+}
+
 /// Take the key off `c` (the Controls page's Delete), keeping its mouse button.
 pub fn clear_key(world: &mut World, c: Control) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
@@ -1039,6 +1212,7 @@ pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
         R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
         R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
         R::Vertical(dev) => (b.vertical[device_slot(dev)] - d.vertical[device_slot(dev)]).abs() <= 1e-4,
+        R::AimSensitivity(dev) => (b.aim[device_slot(dev)] - d.aim[device_slot(dev)]).abs() <= 1e-4,
         R::Rumble => b.rumble == d.rumble,
     };
     R::all().into_iter().filter(|r| !same(*r)).collect()
@@ -1065,6 +1239,7 @@ pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]
             R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
             R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
             R::Vertical(dev) => b.vertical[device_slot(dev)] = d.vertical[device_slot(dev)],
+            R::AimSensitivity(dev) => b.aim[device_slot(dev)] = d.aim[device_slot(dev)],
             R::Rumble => b.rumble = d.rumble,
         }
     }
@@ -1122,12 +1297,35 @@ pub struct ControlInput<'w, 's> {
     pub capture: Option<Res<'w, KeyboardCapture>>,
 }
 
+/// The player's Keyboard and Mouse With a Controller tweak: with the controller as the
+/// input device, the play controls' keys and mouse buttons (and the mouse's look) work
+/// too; menus keep the device's [design: docs/design/tweaks.md]. Set by `crate::tweaks`.
+static KEYS_WITH_PAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_keys_with_pad(on: bool) {
+    KEYS_WITH_PAD.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn keys_with_pad() -> bool {
+    KEYS_WITH_PAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// How a controller input is asked about.
 #[derive(Clone, Copy)]
 enum Ask {
     Pressed,
     JustPressed,
     JustReleased,
+}
+
+/// Existing controller held-state rule, also used by script control events. No
+/// gameplay/script blocking is applied here (control-input-events.md).
+pub(crate) fn pad_binding_held(binding: Option<PadInput>, pads: &crate::pad::ActionPads, sticks: Option<&crate::pad::StickButtons>) -> bool {
+    match binding {
+        Some(PadInput::Button(b)) => pads.iter().any(|g| g.pressed(b)),
+        Some(PadInput::Stick(d)) => sticks.is_some_and(|s| s.pressed(d) && pads.iter().any(|g| d.amount(g.left_stick()) >= crate::pad::STICK_PRESS)),
+        None => false,
+    }
 }
 
 impl ControlInput<'_, '_> {
@@ -1144,7 +1342,10 @@ impl ControlInput<'_, '_> {
     /// A playing kill camera holds `c`: every control but those that open a menu or
     /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
     pub fn held(&self, c: Control) -> bool {
-        self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+        self.kill_cam.as_ref().is_some_and(|k| k.active())
+            && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+            // The player's tweak leaves walking and running (docs/design/tweaks.md).
+            && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove))
     }
 
     /// A controller works the controls.
@@ -1158,6 +1359,9 @@ impl ControlInput<'_, '_> {
     }
 
     fn pad_is(&self, c: Control, ask: Ask) -> bool {
+        if matches!(ask, Ask::Pressed) {
+            return pad_binding_held(self.bindings.pad(c), &self.pads, self.sticks.as_deref());
+        }
         match self.bindings.pad(c) {
             Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
                 Ask::Pressed => g.pressed(b),
@@ -1185,8 +1389,12 @@ impl ControlInput<'_, '_> {
             return false;
         }
         if self.controller() {
-            return self.pad_is(c, Ask::Pressed);
+            return self.pad_is(c, Ask::Pressed) || (keys_with_pad() && self.keys_pressed(c));
         }
+        self.keys_pressed(c)
+    }
+
+    fn keys_pressed(&self, c: Control) -> bool {
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m) && self.open_button(m))
     }
@@ -1203,11 +1411,12 @@ impl ControlInput<'_, '_> {
         if self.suppressed() || self.held(c) {
             return false;
         }
-        if self.controller() {
-            return self.pad_is(c, Ask::JustPressed);
-        }
         let b = self.bindings.get(c);
-        b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m))
+        let keys = || b.key.is_some_and(|k| self.keys.just_pressed(k) && self.open_key(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m) && self.open_button(m));
+        if self.controller() {
+            return self.pad_is(c, Ask::JustPressed) || (keys_with_pad() && keys());
+        }
+        keys()
     }
 
     /// Released this frame, and neither of its inputs is still down.
@@ -1328,6 +1537,54 @@ mod tests {
         assert_eq!(app.world().resource::<Bindings>().vertical, [1.0, 1.0]);
     }
 
+    /// Each device's Aim Sensitivity (owner 2026-11-15) is kept under "Mouse Aim Sensitivity" or "Stick Aim
+    /// Sensitivity" in its own section and read back apart; an INI written before it reads as 1, the look
+    /// while aiming as before; the setter, the Changed list and its Defaults act on the
+    /// device's own.
+    #[test]
+    fn the_aim_sensitivities_are_kept_apart_and_missing_lines_read_as_one() {
+        use crate::settings_view::ControlRow as R;
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        let mut b = Bindings::game_defaults();
+        assert_eq!(b.aim, [1.0, 1.0]);
+        b.aim = [0.6, 1.5];
+        assert!(near(b.aim_sensitivity(), 0.6));
+        b.device = InputDevice::Controller;
+        assert!(near(b.aim_sensitivity(), 1.5));
+        let text = with_controls("", &b);
+        assert_eq!(ini_get(&text, SECTION, "Mouse Aim Sensitivity").as_deref(), Some("0.60"), "{text}");
+        assert_eq!(ini_get(&text, PAD_SECTION, "Stick Aim Sensitivity").as_deref(), Some("1.50"), "{text}");
+        let (mut back, mut bad) = (Bindings::game_defaults(), vec![]);
+        let (found, changed) = read_controls(&text, &mut back, &mut bad);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(found, LINES);
+        assert!(near(back.aim[0], 0.6) && near(back.aim[1], 1.5), "{changed:?}");
+        assert!(changed.contains(&"Mouse Aim Sensitivity 0.6".to_string()) && changed.contains(&"[Controller] Stick Aim Sensitivity 1.5".to_string()), "{changed:?}");
+        assert_eq!(back.vertical, [1.0, 1.0], "the vertical sensitivities untouched");
+        // Without the lines: 1 each, and two lines fewer found (written at the start).
+        let old: String = text.lines().filter(|l| !l.contains("Aim Sensitivity")).map(|l| format!("{l}\n")).collect();
+        let mut back = Bindings::game_defaults();
+        let (found, _) = read_controls(&old, &mut back, &mut bad);
+        assert_eq!((found, back.aim), (LINES - 2, [1.0, 1.0]));
+        // Below the slider's least: clamped; not a number: refused.
+        let low = ini_set(&ini_set(&text, SECTION, "Mouse Aim Sensitivity", "0.01"), PAD_SECTION, "Stick Aim Sensitivity", "x");
+        let mut back = Bindings::game_defaults();
+        read_controls(&low, &mut back, &mut bad);
+        assert!(near(back.aim[0], SENSITIVITY_LEAST) && near(back.aim[1], 1.0));
+        assert_eq!(bad, ["[Controller] Stick Aim Sensitivity=x (not a number above 0)"]);
+        // The setter sets the device in use's alone.
+        let mut app = App::new();
+        app.insert_resource(Bindings::game_defaults());
+        set_aim_sensitivity(app.world_mut(), 0.5);
+        app.world_mut().resource_mut::<Bindings>().device = InputDevice::Controller;
+        set_aim_sensitivity(app.world_mut(), 2.0);
+        assert_eq!(app.world().resource::<Bindings>().aim, [0.5, 2.0]);
+        // Away from the default: in the Changed list, and its Defaults puts it back.
+        assert_eq!(changed_controls(app.world().resource::<Bindings>()), [R::Device, R::AimSensitivity(InputDevice::KeyboardMouse), R::AimSensitivity(InputDevice::Controller)]);
+        restore_rows(app.world_mut(), &[R::AimSensitivity(InputDevice::Controller)]);
+        assert_eq!(app.world().resource::<Bindings>().aim, [0.5, 1.0]);
+    }
+
     /// #1632: centimetres of mouse travel for a full turn at 1600 dpi, reading the
     /// sensitivity as radians a count [hypothesis, as `MOUSE_SENSITIVITY`].
     fn cm_per_turn_at_1600_dpi(m: f32) -> f32 {
@@ -1403,11 +1660,28 @@ mod tests {
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
-        // Every control has a key or a button.
-        for (c, _, _) in GAME_CONTROLS {
-            let x = b.get(c);
+        // Every control has a key or a button, but the Tweaks tab's, which start unbound;
+        // the console and the screenshot at the end on their old keys.
+        for (c, _, _) in &GAME_CONTROLS[..TWEAK_CONTROLS] {
+            let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
+        let extra = GAME_CONTROLS.len() - BOUND_EXTRA_CONTROLS;
+        for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..extra] {
+            assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
+        }
+        assert_eq!(b.get(Control::Console), Binding { key: Some(KeyCode::Backquote), mouse: None });
+        assert_eq!(b.get(Control::Screenshot), Binding { key: Some(KeyCode::F12), mouse: None });
+    }
+
+    #[test]
+    fn shared_keys_leave_the_other_control_alone() {
+        let mut b = Bindings::game_defaults();
+        b.allow_duplicates = true;
+        let jump = b.get(Control::Jump).key;
+        assert!(b.rebind(Control::Activate, Input::Key(jump.unwrap())).is_empty());
+        assert_eq!(b.get(Control::Jump).key, jump, "Jump keeps its key");
+        assert_eq!(b.get(Control::Activate).key, jump);
     }
 
     #[test]

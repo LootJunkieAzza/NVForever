@@ -340,7 +340,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         | "setwatertrait" | "toggledepthclear" | "togglenomovementcombat" | "togglenozposreset" | "togglenodecollision"
         | "suppressquestmessages" | "unlockrecipemenuquantity" | "setitemfilter" | "settexturetransformkey" | "clearmodelalttextures"
         | "initrockitlauncher" | "enableimprovedrecipemenu" | "setwindspeedmult" | "swapobjectlod" | "scrollmousewheel"
-        | "inititemfilter" | "initminimap" | "updateminimap" | "projectuitile" | "reloadcharcontroller" | "reloadcloudtextures"
+        | "inititemfilter" | "initminimap" | "updateminimap" | "reloadcharcontroller" | "reloadcloudtextures"
         | "resetclouds" | "executescript" | "showlevelupmenuex" | "ccctaskpackageflags" | "gettranslatedpos" | "getworldmapposmults"
         | "transformworldtolocal" => XVal::Num(0.0),
         // 1 in a game started from the New Game menu until a save is loaded [observed:

@@ -1272,7 +1272,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-11-04 (the tutorial menu from its file, issue #978)
 
-82. **What does `clipwindow` do?** (P3; menu-xml.md §3.1.1.) Answered in part (private
+196. **What does `clipwindow` do?** (P3; menu-xml.md §3.1.1.) Answered in part (private
     capture hud_tutorial_more, 1280 x 720) [observed]: in the drawing it is a rectangular
     crop of the descendants, a scrolled line stopping part way at the column's top and bottom
     edges. Still open: whether a click below the column's edge reaches a tile inside it (a
@@ -2174,6 +2174,16 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      dirt and on concrete, first and third person, and record which SOUN records play
      at each footfall (the sound log): does `FSTArmorPowerWalkL`/`R` play, instead of
      or beside the ground's step, and does anything play for the run rustle?
+     **Answered for NPCs 2026-11-14** (#2541; Blue Moon sandbox stock game, save
+     nvfairport on concrete, `IsSoundPlaying <rec> <actor>` sampled on 130 frames)
+     [observed]: Doc Mitchell walking in ArmorPowerT45d read FSTArmorPowerL 49 and R 95
+     frames beside FSTConcSolidWalkL 59 and R 95; without armour only the ground step;
+     LvlNCRHeavyTrooper (ArmorPowerNCRSalvaged, Heavy but not Power Armor) FSTArmorL/R
+     beside the ground step; FSTArmorPowerWalkL/R never; standing still nothing. So the
+     armour's footfall plays beside the ground's step, power armour's by the Power Armor
+     flag and heavy armour's by Heavy, and IsSoundPlaying sees the game's own footsteps.
+     Still open: the player (an unattended run could not walk the player), first
+     person, running, dirt, medium armour.
 
 ## Added 2026-11-14 (the Fort's placed slave backpacks, #2439)
 
@@ -2196,3 +2206,1060 @@ heading 75) with NVFExtProbe.esp loaded, as the jip-probes sets run.
      anything explode on a second pass (the bottle-cap mine 0x0008424C, the frag mines
      0x00084257 and 0x00084258 by the entrance)? Ours since #2420: shown sprung, fires
      once.
+
+## Added 2026-11-14 (HELIOS One's guard dogs and troopers, #2547)
+
+144. **Do HELIOS One's guard dogs fight the troopers in the original, and what holds
+     them if not?** (P2; #2547, factions.md §4-5, combat-ai.md §13.1.) The three dogs
+     0x000A695E, 0x000A695F and 0x000A6944 (CrDogNCRAggressive 0x000A692B, "NCR Guard
+     Dog", placed at about (25542, 1960), linked to patrol markers there) are in no NCR
+     faction: their own factions are GeneralHostileToPlayerFaction (Enemy of
+     PlayerFaction), CreatureHitDog, DogFaction and AnimalFriendFaction; the template
+     CrDogNCR, which is in ArmorNCRFactionNV and VNCRSnifferFaction, does not supply
+     the factions or the AI data (template flags Traits, Stats, Actor Effect List,
+     Model/Animation, Base Data, Inventory, Script). They are Very Aggressive, Foolhardy,
+     Aggro Radius Behavior on with radius 2,000 [observed: the records]. The troopers
+     TestTrooperREF1-5 (HeliosExtLvlNCRTrooperGun: VNCRHeliosFaction, NCRFactionNV)
+     stand about 2,800 units west at (22778, 1293). No faction of either side lists one
+     of the other's, so they are Neutral both ways, and by the documented rule a Very
+     Aggressive actor attacks Neutrals it detects. Ours: the dogs notice the troopers at
+     2,800-3,200 units and attack, again and again [observed: the log of #2547]. To
+     check, the player standing in the solar field for two game minutes (`tdetect` so
+     the dogs leave the player out of it): on each dog `GetDetected TestTrooperREF4`,
+     `IsInCombat`, `GetCombatTarget`, `GetDistance TestTrooperREF4`,
+     `GetFactionRelation TestTrooperREF4`, `GetAV Aggression`; then `MoveTo` one dog to
+     1,900 and to 900 units from TestTrooperREF4 and read the same. That tells apart: no
+     detection at that range or through the yard's fence; an aggro radius that bounds
+     who a Very Aggressive actor attacks on sight (a fight at 1,900 and none at 2,800);
+     a relation that is not Neutral; or a fight in the original too.
+
+## Added 2026-11-14 (unseen actors whose package place cannot be walked to, #2405)
+
+145. **Where does the original put an actor nobody sees whose package place has no way
+     to it?** (P2; #2405, packages.md §9, actor-behaviour.md "processing levels".)
+     `GomezREF` (0x0015A02E) is placed in a side room of SafehouseNCRINT at (7691, 742,
+     6127), on a navmesh island of two triangles; from a new game the quest script holds
+     `vSafehouse.GomezGoToSleep` at 1 on every day but his visiting day, so his Leave
+     package (Travel to `GomezDoor` 0x0015A02B at (2811, 951, 6438), on another island
+     of the cell, no door between) is the one that is valid [observed: the records,
+     `fnvtool nav path`]. Ours: he cannot walk there and stays, reporting it every hour.
+     To check, on a new game, far from the safehouse, after three game hours and again
+     after a day: `GomezREF.GetPos x`, `GetPos y`, `GetUnconscious`, `GetCurrentAIPackage`,
+     `GetActorProcessingLevel`. At (2811, 951) or at `GomezSleep` and unconscious: the
+     original places unseen actors at their package's place (and the door trigger
+     0x0015A031 then fires). Still at (7691, 742): it leaves them. The same for
+     `AtticusREF` (0x0015A04E, SafehouseLegionINT). And `SSHQMalcolmHolmesREF`
+     (0x0010651A): after he has met the player outdoors and walked out of sight, is he
+     back in RandomEncounterNPCs at (1825, 2079, 6976)?
+     Ours since #2405 (packages.md §11): out of the high process, an actor whose
+     package's place no door at all joins to where it stands is put there; in the loaded
+     area (the player in the safehouse) it is still set aside every hour.
+
+160. **Where is Loyal once Volare! has failed, and can the player reach him?** (P2; #2566,
+     navmesh.md §4 "Disabled load doors".) Kill Argyll (NellisArgyllREF) at Nellis
+     before the B-29 is raised: VMS15 stage 116 fails Volare!, which GetQuestCompleted
+     reads as 1, so Loyal's first package, NellisLoyalB29SandboxAIPackage, wants him in
+     NellisHangar1b, whose only doors (0x001093DB/0x001093DC) stay disabled until the
+     B-29 is up. Where is Loyal then (NellisHangar2, NellisHangar1, NellisHangar1b), and
+     where does Render Unto Caesar's Boomer-leadership marker point? [hypothesis: the
+     original does not move him through a disabled door; ours keeps him where he is.]
+
+## Added 2026-11-14 (observer batch o30: Say / SayTo on a speaker already talking, #1858)
+
+Answered for the talking state (scripts.md §7.7): a Say or SayTo on a speaker that is
+already talking takes over at once, same topic or another; nothing is queued or ignored
+[observed: o30_say, o30b_say]. Open:
+
+161. **Do the voice and the subtitle restart with each call, as the talking state does?**
+    (P2; the Strip gate's every-frame SayTo, scripts.md §7.7.) Needs the game in front (its
+    sound and subtitles stop without focus), so the owner: stand in the gate kill zone at
+    the Freeside -> Strip gate (VFSVegasAnnihilationVolumeREF, FreesideWorld near
+    -6362, -9779) without a passport, in god mode (`tgm`), for about 30 s. Is one Gatekeeper
+    line heard and shown at a time, each to its end, or does the voice stutter and the
+    subtitle flicker? The campaign `o30c_say` (tools/capture/observe) does the same by
+    script with shots, if run with the window in front.
+
+## Added 2026-11-15 (Cottonwood Cove's explorers, #2548)
+
+162. **Does a fixed speaker give way to a faction condition?** (P2; #2548, dialogue.md,
+     the open case of check 29.) "Halt! What business have you in Cottonwood Cove,
+     outsider?" (0x0013AC97, VFreeformCottonwoodCove) names NVCCLegionaryGuardAAMExplorer
+     as its fixed speaker and has only `GetInFaction VCaesarsLegionCCoveExplorerFaction
+     == 1` [observed: the data]. At Cottonwood Cove with the Mark of Caesar, `prid
+     001364C3` then `disable` (the AAM explorer), and let NVCCExplorer2REF (0x00138A92)
+     walk up. Does he say the Halt line, voiced or silent, with the Mark of Caesar
+     choices, or "Move along."? Ours since #2548: the Halt line, in the AAM explorer's
+     voice [hypothesis].
+
+## Added 2026-11-15 (Very Aggressive actors, Neutrals and the aggro radius, #2547)
+
+163. **Does the aggro radius bound whom a Very Aggressive actor attacks on sight?** (P2;
+     #2547, factions.md §4; check 144 asks it of HELIOS One's dogs.) Ours since #2547: a
+     Very Aggressive actor with Aggro Radius Behavior on attacks a Neutral non-player
+     actor only inside its aggro radius [hypothesis]. A second pair that tells it apart
+     from the HELIOS fence: `player.placeatme CrDogNCRAggressive` (Very Aggressive,
+     radius 2,000) in the open at Goodsprings (`tdetect`), then `MoveTo` it 2,600 and
+     then 1,500 units from Sunny Smiles (SunnyREF, Neutral to the dog). At each distance
+     for 30 s: `IsInCombat`, `GetCombatTarget`, `GetDetected SunnyREF`. A fight at 1,500
+     and none at 2,600 (with detection at both) agrees with ours; a fight at both says
+     the bound is wrong. A spawned actor may start fights at once where a placed one
+     waits (aggro.rs, check 2); if the spawned dog fights at both, `MoveTo` one of
+     HELIOS's placed dogs instead (check 144).
+
+## Added 2026-11-15 (That Lucky Old Sun's ARCHIMEDES strike, #2544)
+
+164. **How does ARCHIMEDES's armed strike play out?** (P3; #2544, use-weapon.md §2.) With
+     VMS03 at objective 70, `set VMS03.bArchimedesArmed to 1` and activate the Reflector
+     Control Panel 0x000E07DF on the observation deck between 9 and 15 h. Note the time
+     from the activation to the first trooper's death and between deaths (TestTrooperREF1
+     0x000E35D5, then 0x000E35D4, 0x000E35D1, 0x000E35D3, 0x000E35D2: `GetDead`), whether
+     ARCHIMEDESMarkerREF2 (0x000E07DD) visibly turns between targets, and whether the
+     troopers fire at the player before the first shot. Ours since #2544: the first
+     death about 37 s after the activation, one every 1-4 s after, the turret turning
+     to each [hypothesis: the script's timers, ours turns at the combat rate].
+
+## Added 2026-11-15 (companions outside Hardcore, #2623)
+
+165. **Is an unflagged teammate knocked out, not killed, outside Hardcore?** (P2; #2623,
+     unconscious.md §2.2a.) Ours since #2623: outside Hardcore the player's teammate is
+     spared death as an essential actor, though no companion's ACBS has Essential; in
+     Hardcore it dies [hypothesis]. With Hardcore off: hire a companion who is not
+     flagged (Cass, or Easy Pete given `SetPlayerTeammate 1`), then `DamageAV Health
+     9999` and, on another try, `KillActor` on it. Each time read `GetDead`, `IsEssential`
+     and `GetKnockedState` for 15 s and whether it gets up and is still a teammate
+     (`GetPlayerTeammate`). Then the same with `SetHardcore 1`. Knocked out, up again and
+     still hired outside Hardcore, dead in it agrees with ours; IsEssential reading 1 for
+     the teammate says the engine counts teammates as essential by IsEssential too.
+
+## Added 2026-11-14 (actors at thin walls, #2511)
+
+166. **Which thin walls can a person-sized actor and a small creature cross?** (P2;
+     #2511, physics.md §6.9.2.) [design] NVForever uses a 56° actor slope limit, below
+     the cone face's roughly 57.7°, to cross a 24-unit zero-thickness wall and block
+     25/26/28, with the same 24-unit step height for people and small creatures.
+     Original actors blocking the higher walls is [hypothesis]. To check: in a
+     controlled test cell with a level floor, lead a person-sized actor and a small
+     creature straight into thin walls of 24, 25, 26 and 28 units at walk and run
+     pace, without jumping. Record whether each crosses, the feet heights through
+     the crossing or stop, and whether it first detours; keep a clear run-up and
+     prevent routes around the ends. Also check a 46–49° ramp so the actor's slope
+     behavior can be separated from its stepping over an edge.
+
+## Added 2026-11-14 (NPC launcher round visibility, #2512)
+
+167. **When does an NPC launcher show its loaded round?** (P2; #2512,
+     animation.md section 9.7.) [documented: issue #2512 and animation.md section 9.7]
+     The supplied missile launcher/Fat Man/dart-gun clips hide `##NifRound` in their
+     attack and show it during reload; the third-person launcher aim has no round
+     track. [hypothesis] The original retains the attack's hidden state through aim
+     until reload shows it, and restores the model default on equip/holster.
+     [design: #2512 settled owner decision] NVForever implements that provisional
+     rule. Record an NPC firing and reloading each weapon, then interrupt before
+     reload, wait in aim, and holster/draw again. Capture when the round disappears
+     and returns, including a weapon redrawn before reload. No original capture was
+     made in this writer run.
+
+## Added 2026-11-14 (Oliver's rigid cap frame, #2529)
+
+168. **Does Oliver's cap follow the full head frame, idle and speaking?** (P2; #2529,
+     actors.md §1.2.) [documented: #2529 writer brief, fnvtool FalloutNV.esm +
+     Fallout - Meshes.bsa] `VHDGeneralOliver` 0x001300A9 carries `NVGenOliverCap`
+     0x00134490; its worn `GenOliverCap.NIF` is unskinned, identity-root, with no
+     bone-naming extra data and vertices centred about +13 along X. [hypothesis]
+     It is authored in `Bip01 Head`'s local frame. [design, #2529] NVForever preserves
+     that frame when the bounds pass `BONE_LOCAL_HEAD_ALIGNMENT` (0.9), retaining
+     skeleton-axis attachment for other layouts. Check the original while Oliver is
+     idle, entering conversation, looking sideways/up/down while speaking, and leaving
+     conversation. Compare the cap's centre and orientation to the head throughout;
+     also compare a cowboy hat, beret and helmet using the skeleton-axis layout from
+     actors.md §1.2. Record which heads/items clip or shift, and the valid greeting's
+     quest/stage conditions for a repeatable conversation smoke setup. No original
+     capture or game run was made in the writer session.
+
+## Added 2026-11-14 (bloatfly side clips and combat wings, #2352)
+
+169. **Do bloatfly side darts move the actor, and do wings beat under combat clips?**
+     (P2; #2352, actors.md §§8.2–8.3.) [documented: supplied issue #2352 clip-root
+     survey] `mtleft.kf`/`mtright.kf` reach 225/243 units sideways before returning
+     to net travel 100. [hypothesis] NVForever provisionally removes the full drawn
+     root x/y excursion for moves past a 1.5 peak/net ratio; whether the original
+     moves the actor by that root is unknown. [design] Capture a bloatfly fighting
+     for about 20 seconds, including sideways movement, aim, firing and hover/special
+     idle. Record its actor x/y and body position frame by frame through a side dart:
+     does the actor follow the outward and return root motion, or does the body stay
+     at the actor while it strafes? Also compare wing beats during ordinary idle,
+     forward flight, aim, attack and hover, especially bones absent from the upper
+     clip. [hypothesis] NVForever keeps the set's idle on bones the active clips omit;
+     confirm whether those beats continue and whether their phase restarts on a
+     transition. Record clip names/times with the capture where available.
+
+## Added 2026-11-14 (actor stealth fields, #2557)
+
+170. **How do cloaked Nightkin and nightstalkers look and change state?** (P2; #2557,
+     refraction.md section 5.) [observed: owner's 2026-11-14 REPCONN playtest, issue #2557
+     comment] Nightkin there were drawn plain even as their uncloak sound/effect played.
+     [design, #2557] NVForever now refracts loaded living actors at Chameleon >= 1,
+     restoring the body, outfit and weapon when the value drops or the actor dies.
+     [hypothesis] The player's existing 0.03 screen shift and 2 s shimmer provisionally
+     apply to other actors. To check in the original: at REPCONN and in the caves near
+     Jacobstown, record the outline, weapon and outfit while cloaked, during an attack,
+     after combat and on death; compare the bend/shimmer to a player's Stealth Boy.
+     Check that Jacobstown's residents stay plain. Also record whether nightstalkers
+     cloak, which encountered variant does so, and under what conditions; the owner's
+     comment leaves that uncertain, and no nightstalker record facts were supplied.
+
+## Added 2026-11-14 (helipad ladder pair, #2528)
+
+171. **Which helipad ladder faces are usable, and can the upper endpoint be targeted
+     from the deck?** (P2; #2528, cells-refs.md §5.) [documented: supplied writer
+     brief #2528 round w4, fnvtool ESM decode of FalloutNV.esm] The nearly coincident
+     lower pair is teleporting `00164C64` (`VHDExteriorLadder`) at
+     (67942.66,19400.51,4663.61), z rotation 3.442, and plain `00164C65` (DOOR
+     `00060730`, `UtlHallBgEndSewerExLad01`, FULL Ladder) at
+     (67941.33,19400.33,4664.01), z rotation 0.300, with no XTEL/XATO/XESP or
+     reference flags. [observed: supplied main-session run 2026-11-14 23:14,
+     `ov15/smoke-2528b/*.log`] Ours at spot 3, feet near (67950,19440,4802),
+     selected plain `00164C65` at yaw 236, pitches 0/-30/-60, drawing Open / Ladder.
+     [hypothesis, #2528] Ours retains ordinary non-teleport Open/Close toggling for
+     that member; whether the original offers it at all is unknown. To check:
+     approach this face from that landing and the opposite face from the south
+     (the separate lower smoke approach is near (67942.7,19320.5,4806)). Record
+     actual feet/view, targeted reference (distinguish the two IDs), prompt or its
+     absence, and the result of pressing E twice: travel, visible movement, sound,
+     state-only toggle or nothing. Does the plain back-to-back ladder have a prompt
+     and activation, and does the opposite face select the teleporting member?
+
+     [observed: same supplied run] Only original sweep looks 11/23 on the deck
+     targeted upper `00164C63`: from (67900,19440,5101) yaw 121, pitch -60, and
+     (67915,19385,5101) yaw 54, pitch -60. Other sampled deck looks hit deck STAT
+     `0012CE4B` or nothing. To check in the original: try these views and small
+     yaw/pitch changes, and look straight down from the deck near the upper
+     endpoint (67939.5,19439.3,5028). Record target ID, exact prompt/absence and E
+     result, with actual feet and view. Is the top usable from the deck, only from
+     a narrow angle, or not there at all? Compare with activating the lower
+     teleporting member as a control. [design, #2528] Do not infer original
+     behavior from NVForever's successful teleport smoke scenarios.
+
+## Added 2026-11-15 (a script's Disable of the player, #2617)
+
+172. **Can a script disable the player, and can a disabled player use a scripted load
+     door?** (P2; #2617, doors.md §6.) VHDIntakeTowerLegionaryDespawnScript (SCPT
+     0x0013CA2C) disables whoever enters its trigger (VHDIntakeTowerLegionaryDespawnTriggerREF,
+     0x0013CA72) once VHDLegionBattle.IntakeTowerStrategy is 2 [observed: the data].
+     In any interior: `player.disable`, then `player.getdisabled` (1 or 0?), walk, and use a
+     load door, an unscripted one and one whose OnActivate ends in a bare Activate (the
+     Power Plant 01 elevator, VHDODeckElevREF 0x0013151C, in HooverDamIntODeck). Then, on a
+     save there, `set VHDLegionBattle.IntakeTowerStrategy to 2`, `player.moveto 0013CA72`
+     and `player.getdisabled`. Ours since #2617: Disable of the player does nothing
+     [hypothesis]; GetDisabled 1 or a door that stays shut in the original says otherwise.
+
+## Added 2026-11-15 (faction disguises, #2611)
+
+173. **Does the NCR armour fool the NCR when the player is an enemy of NCRFactionNV?**
+     (P2; #2611, disguises.md §3.) Ours since #2611: a faction enemy flag yields to the
+     disguise's friendship (ArmorNCRFactionNV, which every NCR soldier is in); only
+     sniffers (VNCRSnifferFaction) within the pulse's 25 ft (about 533 units) see
+     through [hypothesis]. At Hoover Dam by day, stand on the road at
+     VHDAssassinationSetupREF (0x0012FCF0), `player.additem 00129254 1`, equip it, then
+     `SetPCEnemyOfFaction 000A46E7 1`. For 30 s note whether the troopers and engineers
+     near (VHDPreBattleNCRTrooper4REF 0x0014633D, VHDPreBattleNCREngineer02REF
+     0x0014695E) attack, and read `VHDPreBattleNCRTrooper4REF.GetFactionRelation player`
+     and `GetCombatTarget` on the rangers by the vertibird pad (VHDPreBattleRanger04REF
+     0x0014694C, a sniffer about 2,000 units off). Then walk up to that ranger (under
+     500 units, in sight) and note whether it attacks and the others follow. Nobody
+     attacking until the ranger is near agrees with ours; everyone attacking at once
+     says the flag beats the disguise (then the disguise works only through the
+     reputation reset, reputation.md §4).
+
+## Added 2026-11-14 (a murder's faction enemies, #2456)
+
+184. **Which of a murder victim's factions does the player become an enemy of?** (P2;
+     #2456, crime-karma.md §3.4.) Ours: every crime-tracking faction of the victim, once a
+     witness who cares turned, except one whose members include enemies of each other
+     (ArmorVCaesarsLegionFaction, which also holds the four NCR troopers of the Strip
+     scene VStripSS3) [hypothesis]. To check, with a character neutral to the Legion: kill
+     a Legionary in front of another (Cottonwood Cove), then read
+     `GetPCEnemyOfFaction VCaesarsLegionFaction` and `GetPCEnemyOfFaction
+     ArmorVCaesarsLegionFaction` (0x00134B6E); then enter the Strip by the north gate and
+     watch the four troopers (VStripSS3Girl01REF/02REF, VStripSS3Watcher01REF/02REF) and
+     the Securitrons. If neither flag is set, the original sets no faction enemy on
+     murder and only the witnesses turn. **Answered by check 203** [observed, 2026-11-15]:
+     both flags are set by the murder and both clear by themselves about 0.18 game hours
+     later; the Strip part was not run. NVForever now flags every crime-tracking faction
+     for 0.18 game hours (#2498).
+
+## Added 2026-11-15 (Anders's head on the cross, #2471)
+
+174. **Does a crucified actor turn his head to the player, and is he ever seen climbing
+     onto the cross?** (P3; #2471, anders-cross-head.md.) At Cottonwood Cove, talk to
+     Anders (VRRCAndersREF 0x001413C3, cross 0x0013A4BA) from the front and from 90° to
+     his side. Note whether his head turns to the player in each, how far to the side it
+     goes, and whether it stays tilted down. Then leave the cell and come back (and, on
+     a new game, arrive by fast travel) and note whether he is ever seen getting onto the
+     cross (`GetSitting` reading 2) or always found on it (3). Ours since #2471: the head
+     turns up to 60° from his chest and up to 30° from the level; he is put on the cross
+     at once when he stands at it [design].
+
+## Added 2026-11-15 (Anders freed before Diane, #2472)
+
+175. **Can Anders be freed before Diane sends the player after him?** (P3; #2472,
+     anders-cross.md.) In the data the freeing choice (AndersFree 0x00142A8A) is a
+     choice of AndersJackandDiane 0x00142A89 alone, a topic that is not top-level and is
+     learnt only from Diane's lines 0x00146698 and 0x00144651. From a save that has not
+     met Diane (`GetObjectiveDisplayed VMS46 10` reads 0), go to
+     Cottonwood Cove and talk to VRRCAndersREF: list the topics offered, then pick each.
+     Only Who did this to you? / the drugs topic / Goodbye agrees with ours; a choice
+     that cuts him down says the original offers the topic some other way (then note
+     which and whether `GetQuestVariable VMS46 AndersFreed` goes to 1).
+
+## Added 2026-11-15 (Cachino finds the player in Gomorrah, #2473)
+
+176. **How does Cachino's Find package bring him to the player?** (P2; #2473,
+     packages.md §10.) From a game where VMS21 has not started, stand at the Brimstone
+     bar on Gomorrah's main level (Gomorrah01), more than 1,000 units from Cachino's
+     spot (7159, 1281), and ask a Gomorrah courtesan or guest where Cachino is
+     (topic `vDialogueGomorrahGenericTopic005`; his ref 0x0011118D is enabled by that line's end script). Note the time
+     from the end of that conversation to Cachino setting off, to his first line (his
+     Say Once greeting INFO 0x001133A0, about the player's questions), and how far from the
+     player he stands when he speaks (`GetDistance player` on him). Then once more with
+     the player on the floor below (Gomorrah00): does he come through the doors to
+     another cell? Ours since #2473: he sets off at once, walks to the player wherever
+     they are in the four Gomorrah cells, and the conversation opens when he is within
+     about 3x the arrival distance and can see the player [hypothesis]. Not seen
+     coming, or coming only within some distance of his spot, says the search area is
+     wrong; walking up and standing without a word says the talk is not the Find's.
+
+## Added 2026-11-15 (Vulpes Inculta in Caesar's tent, #2560)
+
+177. **Does a shared ally faction win over an enemy one?** (P2; #2560, factions.md §4.)
+     FortVulpesInculta 0x00122B9A is in VCaesarsLegionFaction (an Ally of itself) and in
+     ArmorNCRFactionNVEnemy, which VCaesarsLegionFaction names an Enemy [observed: the
+     data]. In Caesar's tent (TheFortCaesarTents) at 21:00, after a load there: do
+     Caesar, Lucius or the Praetorians ever go into combat with Vulpes? `prid 00121FF0`
+     then `getfactionrelation 00122B9A` (2 ally, 1 enemy). Ours since #2560: 2, and they
+     stay calm [hypothesis: the original agrees, as the owner never saw the fight].
+
+## Added 2026-11-14 (children in fights, #2438)
+
+178. **Does a child ever fight back?** (P3; #2438, combat-ai.md §12.2.) Ours, by the
+     owner's decision: a child (a race with the Child flag) set on the player flees at
+     once and never attacks. To check: `player.placeatme 0011E506` (a Legion child,
+     FortChildCM), `prid` it and `startcombat player`; then attack one with fists. Record whether it
+     draws a weapon, swings or runs, and its Flee line, if any.
+
+## Added 2026-11-14 (quest markers several doors deep, #2458)
+
+179. **Where does the original mark a target several doors deep, seen from another
+     worldspace?** (P2; #2458, quests-dialogue.md §2, hud.md §11.) Ours: the World Map
+     marks it at the door outdoors that starts the fewest-doors way into its interior,
+     and the compass and Local Map at the door of the player's own place that starts the
+     way there [hypothesis]. To check: with For the Republic, Part 2 (VMQ05) objective 10
+     shown and the quest active, stand on the Strip (NCR embassy) and note where the
+     World Map's quest marker sits (which door of Hoover Dam, or elsewhere) and which
+     door the compass marker points at (the gate to Freeside, or another); then again
+     from the Mojave outside Freeside and inside the dam's visitor centre. Also: does
+     the World Map draw a second marker at the Strip's gate while the player is on the
+     Strip?
+
+## Added 2026-11-14 (allies of an actor given StartCombat, #2520)
+
+180. **Do an actor's allies join a fight a script gave it against a player who did
+     nothing?** (P1; #2520, combat-ai.md §10.) Ours: no; Assistance answers an ally being
+     attacked (hit by the player, or fought by someone it did not start on), so a
+     StartCombat on a player it would leave alone draws neither its allies nor an alarm
+     [hypothesis]. Also ours: a Cowardly actor in a fight flees from its start, hurt or
+     not [hypothesis from GECK wiki Confidence, "will always flee from combat"]. To check:
+     in a game where VMS29a has not started, walk into the Silver Rush (FreesideSilverRush),
+     stand still by the door and watch the intro to its end (INFO 0012423E, the customer's
+     `startcombat player`): does Jean-Baptiste (0010D8E5) or a Van Graff thug draw on the
+     player, what stage is VMS29a afterwards (`GetStage VMS29a`), and does the customer
+     (00124121) run out without swinging? Then again, hitting the customer once as he
+     runs: do the Van Graffs turn on the player then?
+
+## Added 2026-11-14 (Mr. House's screens after his death, #2431)
+
+181. **Is Mr. House's penthouse screen ever hostile?** (P3; #2431, actor-flags.md §11.)
+     Ours: an Immobile, Unaggressive, Helps-Nobody, unarmed creature never fights
+     [hypothesis]. To check: kill Mr. House in his chamber (after the terminal unseals
+     it), go back up to the penthouse and look at the screen (Lucky38MrHouseREF
+     0x001264C5): red crosshair, red compass tick, does `GetCombatTarget` on it read the
+     player, does it turn? Then shoot it: does it take damage? The same for Festus
+     (NVCRFestus) when shot.
+
+## Added 2026-11-14 (Mr. House's chamber, #2425)
+
+182. **Does a special idle replace the base idle on its bones, whatever the priorities?**
+     (P3; #2425, animation.md §9.4.) Ours: an idle of a standing actor shows on every bone
+     it drives, above the base idle (`mtidle.kf`), though Mr. House's sleeping idle (40)
+     and opening (30) are under his base idle (50) [hypothesis]. To check: in
+     Lucky38ControlRoom before the terminal is used, a screenshot of the chamber from the
+     catwalk (sealed, House hidden?); then a Protectron playing `mtspecialidle_lookleft`
+     (11 of its 35 tracks under its base idle's priority): does its whole upper body turn,
+     or only the bones above the base idle's priority?
+
+## Added 2026-11-14 (Lucky 38 elevator, #2424)
+
+183. **Does AddScriptPackage of a package an actor has just finished start it again?**
+     (P3; #2424, packages.md.) Ours: the same package added again after its goal was met,
+     before the actor chose another, begins afresh; added while it still runs, nothing
+     changes [hypothesis]. To check: on the Lucky 38 casino floor, talk to the elevator
+     Victor (Lucky38VictorElevatorREF 0x0015725F), pick Stay Here, and talk to him again
+     at once (within a few seconds): does he greet again and show "Choose A Floor"? And
+     in the console, `Lucky38VictorElevatorREF.AddScriptPackage
+     Lucky38VictorElevatorTalkToPlayer` twice, the second right after his greeting ends:
+     does he greet twice?
+
+## Added 2026-11-14 (talking activators with no talking actor set, #2454)
+
+185. **Who speaks through a talking activator no script has given an actor?** (P2; #2454,
+     talking-activators.md §2.) Ours: the one actor the load order's scripts name for it
+     in SetTalkingActivatorActor (Ramos for HVIntercomREF), else the activator itself
+     [hypothesis]. On a save from before the Hidden Valley bunker, get in without
+     touching HVIntercomREF (sneak in), go through Ramos's escort, accept McNamara's
+     ranger task: when the screen fades and the player stands at the inner door, record
+     whether the dialogue menu opens, which INFO is said (Ramos's 000E3664 or none),
+     and when the controls come back. Also `HVIntercomREF.IsTalkingActivatorActor
+     RamosREF` just before McNamara's line.
+
+## Added 2026-11-14 (Dialogue packages that control the target, #2453)
+
+186. **Does a Dialogue package walk the player into its trigger location?** (P2; #2453,
+     packages.md §3.) The GECK wiki says the target "will walk towards that location when
+     the dialogue package starts" when Do Not Control Target Movement is off [documented];
+     ours walks the player, once within the activate distance and in sight, to 48 units
+     inside the trigger box at walking pace and greets there [hypothesis]. On a save before the Hidden Valley bunker, sneak past the
+     intercom into HiddenValley01 and stop on the stairs about 300 units from Ramos's
+     RamosWaitingMarker: record the player's position every frame, whether the controls
+     are taken, the pace, and when the dialogue menu opens, relative to the box
+     HVRamosTargetDialogTriggerREF (y from -6132 to -5408).
+
+## Added 2026-11-12 (the player's marker on the compass)
+
+187. **How does the compass show the custom map marker?** (P3; hud.md §11.) NVForever
+    marks it only in the player's own interior or worldspace, holds it at the band's
+    end when it is off the band (as a quest target), and draws it over the quest marks
+    [hypothesis]. Place a marker on the Local Map 20 m behind the player, close the
+    Pip-Boy and screenshot the compass; then walk through a door into an interior and
+    screenshot it again. Held at an end or gone behind the player, and shown or not
+    (at the door?) from the interior, settle both.
+
+## Added 2026-11-13 (companions on the World Map)
+
+188. **From how far does the World Map name a companion?** (P3; `pipboy::data::map_companions`.)
+    NVForever writes a teammate's name where it stands on the World Map, in font 2, only
+    4096 units (a cell) or more from the player, and not while it is knocked out
+    [documented: Stewie's Tweaks' readme says there is a minimum distance, font 2 and no
+    knocked-out companions; hypothesis: the distance, and that companions indoors are not
+    shown]. Tell a companion to wait, walk away in steps of about 20 m, and open the World
+    Map at each: the step where its name first shows gives the distance. Then send it home
+    (an interior) and check whether its name shows at all, and where.
+
+## Added 2026-11-13 (weapon poisons)
+
+189. **How do weapon poisons work?** (P3; `fnv_game::weapon_poison`.) NVForever puts a poison
+    (an aid item whose effects are all Hostile and Detrimental [documented: GECK wiki
+    Ingestible]) on a Melee Weapons or Unarmed weapon in hand for 5 landed hits, the same
+    poison used twice to confirm [hypothesis: which weapons, how many hits; the question
+    is ours; the original asks, Stewie's Tweaks' readme says]. With a knife in hand, use
+    Bleak Venom: note the prompt's words and buttons. Then hit a target and count the hits
+    until the poison's effect stops coming (watch its Health or the Pip-Boy's weapon
+    card). Try it with a pistol in hand too: refused (sPoisonNoWeaponMessage) or not?
+190. **Where does the grenade indicator stand?** (P3; `nvf_play::grenade_indicator`.) The menu
+    files give its picture (`template_explosive_indicator`, an arc with a point) and an
+    empty `Explosive_positioning_rect` the game's code moves [documented]. NVForever puts
+    it on the grenade upright while the grenade is in view, else on the view's edge
+    turned to point at it, for a grenade whose blast radius + 64 reaches the player
+    [hypothesis: all of it]. Throw a frag grenade near your feet, then one behind you, and
+    take a frame of each: where is the mark, is it turned, does it show for one landing
+    far off, and does it show for your own grenade?
+191. **What does the idle vanity camera do?** (P3; `nvf_play::vanity`.) The master sets
+    `fVanityModeAutoDelay` to 120 [observed]; NVForever takes it as the seconds without
+    input before the camera circles the player, turning 0.15 rad/s, ended by any input
+    with the view left in third person [hypothesis: all of it]. Stand still in first
+    person for two minutes: does the camera circle, how fast (time a full turn), which way,
+    at what distance and height, does mouse motion alone end it, and is the view first or
+    third person afterwards?
+192. **When does the low-health heartbeat play?** (P3; `nvf_play::heartbeat`.) The master has
+    two looping heartbeats, `UIHealthHeartbeatALP` and `UIHealthHeartbeatBLP` [observed].
+    NVForever plays A while the player's health is under 25 % [hypothesis: the threshold,
+    and that B is not used]. Take damage down slowly (falls): at what health share does
+    a heartbeat start, does a second, faster one take over lower down, and does it stop
+    the moment health rises past the line?
+193. **Does the Pip-Boy mark the loaded ammo?** (P3; `nvf_play::menu::model`, `Row::loaded`.)
+    NVForever now gives the ammo the equipped weapon loads the equipped square in the
+    Pip-Boy's ammo list [hypothesis: as the original; Stewie's Tweaks' bContainersShowEquippedAmmo
+    speaks of "equipped ammos" in containers]. With a 10mm pistol in hand, open the
+    Pip-Boy's AMMO list: does 10mm Round have the filled square, and does it move to JHP
+    after switching ammo?
+194. **Which need messages show when?** (P3; `fnv_game::needs`.) FalloutNV.esm holds
+    sDehydrationIncrease / Decrease / NotSick and the same three for Sleep Deprivation
+    [observed]. NVForever shows Increase when the stage goes up (from none too), Decrease
+    when it goes down to another stage, NotSick when it leaves the last [hypothesis]; hunger
+    and radiation say nothing (no such settings). In Hardcore, let dehydration rise past a
+    stage and drink back down: which lines show, and is there one for hunger or rads?
+195. **How does a border region stop the player?** (P3; `fnv_game::borders`,
+    `nvf_play::borders`.) NVForever reads REGN header flag 0x40 (Border Region
+    [documented: GECK wiki form flags]) as the area the player is kept inside, puts a
+    player who steps out back where they last stood inside and shows
+    `sPlayerLeavingBorderRegion` as a corner message, at most every 3 s [hypothesis: all
+    of it]. No master flags a region of a played worldspace [observed], so this needs a
+    test plugin: flag a region around Goodsprings as Border Region, walk out of it. Is the
+    player stopped at the edge like a wall, or pushed back; is the line a corner message
+    or a message box, and how often does it repeat? Does Edge Fall-off (RPLI) move the
+    edge?
+197. **What does a resurrected actor carry?** (P2; `fnv_game::resurrect`,
+    `fnv_sim::World::restock_inventory`, issue #2683.) NVForever makes the items of a
+    dead actor's own item list up again when it is resurrected (rolled anew; only what
+    it has fewer of is added) and keeps everything else it carries [hypothesis; capture
+    rs1 only showed that a given Stimpak stays and looted given ones do not come back].
+    Kill a Legionary Assassin of the reputation hit squad (or any NPC whose weapon is in
+    a leveled list of its own record, console `kill`), take everything from the body and
+    pick up its dropped weapon, then `resurrect` (and again with `resurrect 1`), kill it
+    and look: does it carry its weapons, armour and loot again? Same once more without
+    looting: is anything doubled, and is the weapon that fell beside the first body
+    still on the ground? Then with an NPC whose items are all fixed entries (Ringo):
+    do his own looted items come back?
+
+## Added 2026-11-15 (REPCONN test-site load-door lock, #2538)
+
+198. **Is a load door without lock data locked as its other side is?** (P1; #2538,
+     cells-refs.md section 6.) **Answered [observed: capture run15b_a, 2026-11-15;
+     xNVSE 6.4.9, JIP LN 57.30]: yes for reads and player activation.** Fresh
+     `coc RocketLabBasement` (0x0007EA61, REPCONN Basement) from a Goodsprings save
+     that never visited it: 0x000CE1AD, without XLOC, and its XTEL partner
+     0x0008F97C, with XLOC 255 / no key / flags 0, both read `GetLocked` 1 and
+     `GetLockLevel` 255. The tunnel-side door is at (9812, -2504, 7180); from
+     (9902, -2414, 7180), 130 units in front, `000CE1AD.Activate player` did not
+     move the player or teleport. Activating 0x0008F97C from inside the room was
+     refused too, with all four reads unchanged after each attempt. The hatch pair
+     0x000CD777 / 0x001694E6 read 0 / 0 on both sides. [observed: FalloutNV.esm,
+     fnvtool esm decode / world refs, 2026-11-15] The two load doors share base
+     UtlDoorBg01 0x0003D205 (no script); 0x0008F97C is at (9760, -2572, 7176),
+     85 units from 0x000CE1AD. The hatches use REPCONHatch2 0x001694DD (no name
+     or script), at (7756, -3644, 7316) / (8222, -3377, 6615); neither has XLOC.
+     No FalloutNV.esm script names any of these four references. [hypothesis,
+     #2538] Key/pick/script unlocking through either side changes the source lock;
+     creating an own lock leaves the partner independent. Those mutations, key
+     inheritance, broken-lock sharing and NPC use were not captured.
+
+## Answered 2026-11-15 (weather region lookup timing, #2531)
+
+199. **When does the weather follow a weather region: by its outline or the cell's
+     region list, and when is it looked up?** (P2; #2531, world.md §6.) **Answered
+     [observed: captures run15b_w and run15b_w2, 2026-11-15; first person, GameHour 12,
+     xNVSE 6.4.9, JIP LN 57.30 GetCurrentWeather/GetCurrentWeatherPercent]:** script
+     MoveTo to (110686, 19125), cell 27,4: NVWastelandClear; (109775, 18882), cell 26,4,
+     260 units outside NVLegateRegion's outline: clear for 40 s despite that cell's
+     XCLR listing the region [observed: FalloutNV.esm, fnvtool esm decode, 2026-11-15].
+     MoveTo (109330, 18852), inside: NVlegateCampWeather;
+     back outside: clear. All complete (percent 1.0) at the first sample 4 s after
+     moving. Walking east at y 18849 kept camp weather past outline x 109513 and
+     fall-off distance x 110537: last camp sample x 110567.9, first clear x 110596.0
+     at percent 0.000, across cell border x 110592. Fade rose 0.033/s, complete in
+     about 30 s. Walking west entered cell 26,4 outside the outline and kept clear
+     to (109067, 18849), 450 units inside, for another 49 s standing. Thus membership
+     uses the outline, sampled on exterior cell entry; walking inside a cell holds
+     the result, while script moves resample and snap. [hypothesis: extend that
+     placement refresh to load doors, other teleports, fast travel, loaded games,
+     worldspace changes and coming outdoors; only script MoveTo was captured.]
+
+## Answered 2026-11-15 (combat distraction, #2573)
+
+200. **Does a fighter detect its own foe better than a bystander? Answered: yes.**
+     (P2; #2573, [actor-behaviour §2.1a](../spec-notes/actor-behaviour.md#21a-combat-distraction-2573-answered-observer-check-200), detection.md §9.)
+
+     [observed: captures run15b_t1 and run15b_t2, 2026-11-15] xNVSE 6.4.9 and JIP LN
+     57.30 `GetDetectionValue`, Searchlight Airport's runway, GameHour 12; the player
+     sneaking, standing still, in god mode. Detectors GoodspringsSettler01Ref 0x00104F03
+     and GoodspringsSettler03Ref 0x00104F0A both had Perception 5 and line of sight.
+     "Fighter" used `StartCombat player` (IsInCombat 1, IsCombatTarget player 1);
+     "watcher" used `StartCombat` on a restrained gecko after RemoveFromAllFactions and
+     Assistance 0 (IsInCombat 1, IsCombatTarget player 0). Run 2 swapped the NPCs' roles.
+
+     [observed: captures run15b_t1 and run15b_t2, 2026-11-15] Distances and readings:
+
+     | State of the detector | Distance to the player | GetDetectionValue player |
+     |---|---|---|
+     | Not in combat, facing the player (both NPCs, both runs) | 695 | 79 |
+     | Not in combat, walking (both NPCs) | 669-674 / 650 / 633-640 / 621-627 / 601 / 567 | 80 / 82 / 83 / 84 / 85 / 86-87 |
+     | In Combat, the player its combat target (run 1) | 687-693 / 672-685 / 650 / 627 | 83 / 83-84 / 85 / 87 |
+     | In Combat, the player its combat target (run 2, the other NPC) | 695 / 675-681 / 650 / 618-627 | 83 / 84-86 / 86 / 87-88 |
+     | In Combat with the gecko, the player not its target (run 1) | 609-636 | 81 |
+     | In Combat with the gecko, the player not its target (run 2) | 547-591 | 83-84 |
+
+     [observed: captures run15b_t1 and run15b_t2, 2026-11-15] At comparable distances,
+     a fighter read its own target 3-4 higher than the same NPC out of combat, in both
+     role assignments. Fighting someone else read the player 2-4 lower; those samples
+     were fewer because line of sight came and went. This settles the direction in
+     favour of the setting's description: fSneakCombatMod applies to a detector in
+     Combat against actors outside its combat target list, giving 0.8 at defaults;
+     its own targets retain 1 + fSneakAlertMod = 1.2. The wiki formula's IsCombatTarget
+     reading and the Fallout Wiki's 0.8 / 1.2 table are reversed (§2.1).
+
+     [observed: captures run15b_t1 and run15b_t2, 2026-11-15] `SetRestrained 1` on a
+     combatant ended combat (IsInCombat 0 from the next sample), as `tcai` did.
+     GetDetectionValue read -100 for a detector in combat without line of sight.
+     These captures did not time detection loss or the search after breaking sight.
+
+     [design, #2573; tools/smoke/scenarios.toml] `detection-combat-target-sneak`
+     uses the cleared Searchlight Airport runway at hour 12 with god mode. The
+     player sneaks from 2 s and stands still. Fighter GoodspringsSettler01Ref
+     (00104F03) and watcher GoodspringsSettler03Ref (00104F0A) have Perception 5 and
+     Assistance 0; the watcher is removed from all factions. A gecko is created at
+     the watcher with Aggression 0 and Perception 0, then positioned 150 units
+     toward the player. Both settlers reset to mirrored 690-unit offsets at 5.8 s
+     and the gecko resets at 5.9 s. At 6 s the fighter starts combat with the player
+     and the watcher with the gecko. Five paired GetDetectionValue/GetDistance reads
+     run every 0.5 s from 6.6 to 8.6 s. Every fighter value must exceed its paired
+     watcher value; distances are logged without absolute ranges.
+
+     [observed: smoke runs on the combined build, 2026-11-15] With the fix, both
+     detectors at 690 units read fighter 64 / watcher 56; the fighter closing to 610
+     read 69 (PASS). With both detection.rs files reverted to upstream main, fighter
+     84-88 / watcher 91 in all five pairs (FAIL).
+
+## Added 2026-11-15 (Gomorrah Suites wall-sconce glow, #2435)
+
+201. **How strong and how wide is the glow on the wall above a lit Gomorrah Suites
+     sconce?** (P3; #2435, nif.md §6 "Fog on added light".) Ours: the card
+     `NeoclassicalSconce:9` (ONE / ONE, no texture, vertex colour 0.34 at the bowl to
+     black on its outline) adds its colour in display values, fog only dimming it; next
+     to the bowl it is about 100 grey levels over the wall, near the outline 10 to 25
+     [observed in NVForever; hypothesis for the game]. In Gomorrah03 by any hour, stand
+     at 5900, 2250, 6384 facing east (heading 90, level) towards the sconce 0x0011A90A,
+     take one frame, then one from heading 50; note the wall's grey level beside the
+     glow, the glow's level next to the bowl and halfway up, and whether an outline of
+     the card can be seen anywhere. Softer and dimmer than ours points at the
+     display-value sum ("Additive blend") on a ONE / ONE card; the same agrees with ours.
+
+## Added 2026-11-15 (gas traps, #2687)
+
+202. **What sets a gas cloud off: a ballistic gun fired inside it, one fired through it,
+     a frag grenade?** (P1; #2687, `engine/nvf-play/src/gas_traps.rs`.) Ours since
+     #2687: a shot that passes through a cloud hits it with its weapon, which sets it off
+     only for the weapons of `ExplodesGasTrapsOnHit` (FLST 0x0007627F: energy, fire,
+     launchers, no plain guns). A gun fired from inside a cloud, and any blast that
+     reaches one, also hit it with `GasTrapDummy` (WEAP 0x000001F6), which sets it off
+     [hypothesis; GECK wiki Traps documents "fired inside" and "explosions"]. In
+     Vault22e, on a save taken after Keely's line INFO 0x000F43F8 (or after
+     `0F0908.enable`), stand outside `V22SporePurgeGasRef` (0x000F0908, at 3592, 2469,
+     8469) and fire a 10mm pistol through the gas at the wall behind it. Then reload,
+     step inside it and fire the 10mm at the floor. Then reload and throw a frag grenade
+     in. Each time, read `0F0908.getdestructionstage` and `GetObjectiveCompleted VMS06 50`.
+     Our rule holds if the shot through it does nothing and the shot from inside and the
+     grenade set it off. If the shot from outside sets it off too, a ballistic hit counts
+     anywhere in the cloud. If the shot from inside does nothing, the "fired inside" rule
+     is wrong for New Vegas, and the dummy hit for a gun fired inside goes; the owner
+     asked in #2687 that any spark set the gas off, so that would be a ruling for them.
+
+## Answered 2026-11-15 (Karl at Red Rock and the Legion, #2728)
+
+203. **Does Karl at Red Rock turn on the player because of the Legion?** (P1; #2728, #2467,
+     PR #2498, owner-review item 65 there; crime-karma.md §3.4, §3.7.) Karl is VRRCKarlREF
+     0x00140E71 (base VRRCKarl 0x00140E60, Aggressive). His records put him in three
+     factions, not one: ArmorVCaesarsLegionFaction 0x00134B6E (Track Crime, no reputation),
+     vCaesarsLegionMilitaryDialogueFaction 0x00137BB7 and VRRCKarlFaction 0x0017B5B6 (Track
+     Crime, reputation RepNVCaesarsLegion, Ally of VCaesarsLegionFaction and of the Red Rock
+     ambush factions) [observed: FalloutNV.esm, fnvtool esm decode, 2026-11-15]. **Answered
+     [observed: nvf_capture observer campaigns `karl_murder`, `karl_murder2`,
+     `karl_legion_rep`, `karl_legion_rep2`, `karl_legion_rep3`, `karl_legion_rep_cove`,
+     `karl_flags` and `karl_flags2` (tools/capture/observe/), save nvfairport, god mode,
+     xNVSE 6.4.9, plugin version 10, 2026-11-15; outputs `obs_karl_*` in the private capture
+     folder]:**
+     - **The setup and baseline.** Every sample reads GetPCEnemyOfFaction on the three
+       factions, Karl's GetFactionRelation player, GetActorFactionPlayerEnemy and
+       GetActorCrimePlayerEnemy, IsPCAMurderer and the Legion's infamy and fame. With no
+       crime, Karl detects the player, sits (GetSitting 3), stays at relation 0 and never
+       fights, on entry and at noon on each of the next four days.
+     - **1. Seen murder.** The staging is #2498's `crime-karl-no-side` (since renamed `crime-karl-flag-clears`): the player at
+       (63363, -89150) at Cottonwood Cove, hour 12, NVCCAureliusREF 0x0012D6E2 about 400
+       units off. Shots by TapControl never fired in the unfocused game, and FireWeapon
+       never hit. The kill that worked is `NVCCLegionary4REF.Kill player`, with the
+       Legionary moved 120 units in front of the player first. The original counted it
+       as a murder: IsPCAMurderer 1 at once. About 40 samples later **both
+       VCaesarsLegionFaction and ArmorVCaesarsLegionFaction read GetPCEnemyOfFaction 1**
+       (VRRCKarlFaction 0). Legion infamy went from 0 to 60, Aurelius's relation to the
+       player became 1 (enemy), and the Cove's Legionaries started combat with the player.
+       So the original does flag the armour faction, which #2498 calls "no side".
+       But the flags did not last. In `karl_murder2` the player went by `cow` to the
+       Searchlight airport. The flags still read 1 there, then went to 0 at 12.45, about
+       0.18 game hours (11 minutes) after the murder, with no cell change and no script of
+       ours. Back at the Cove, Aurelius was still in combat with the player: his own grudge,
+       with the flags at 0. In Karl's longhouse (by MoveTo, 0.3 to 0.5 h after the murder,
+       and at noon one, two, three and four days later), all three flags read 0,
+       GetActorFactionPlayerEnemy 0, relation 0. **Karl detected the player, stayed seated
+       and never fought.** The murder stayed on record (IsPCAMurderer 1, infamy 60).
+     - **2. Legion infamy, no murder.** SetReputation RepNVCaesarsLegion (infamy 100,
+       fame 0) and AddReputation infamy deeds: 6 gave 72, and 15 gave 100 with
+       GetReputationThreshold axis 2 at 6, the top rank. **Karl stayed seated and calm on
+       entry and for 0.4 to 0.5 h each time**, relation 0, all flags 0. He spoke once but
+       never fought. The same reputation turned no Legionary at the Cove either: Aurelius
+       detected the player and stayed calm for a game hour. In the original, Vilified alone
+       puts no Legion member in combat at once; the scripts that read the Legion's rank
+       only start encounters, such as VEFR02LegionAssassinSCRIPT
+       [observed: FalloutNV.esm script text].
+     - **3. What does turn him.** Each case is a flag set by script, then Karl's cell
+       entered:
+       - SetPCEnemyOfFaction VRRCKarlFaction 1: the flag held through the move, Karl read
+         GetActorFactionPlayerEnemy 1 and relation 1, and he attacked on entry.
+       - SetEnemy ArmorVCaesarsLegionFaction PlayerFaction (the faction reaction, no crime
+         flag): relation 1, and he attacked on entry.
+       - SetPCEnemyOfFaction ArmorVCaesarsLegionFaction 1 **set with the player already in
+         front of him**: GetActorFactionPlayerEnemy 1, relation 1, and he went to combat
+         (OnStartCombat Karl → player) and hit the player.
+
+       Set outdoors instead, the armour flag and the VCaesarsLegionFaction flag each held
+       for 0.3 h at the airport, then read 0 as soon as MoveTo put the player in Karl's
+       cell, and Karl stayed calm. So the armour faction's flag does turn him while it is up.
+       Nothing in FalloutNV.esm's scripts clears those flags (no SetPCEnemyOfFaction … 0
+       or ClearFactionPlayerEnemyFlag on them) [observed: script text]. What clears them is
+       not known: after the murder it was a timer or something in the engine; for a flag
+       set by script it was the move [hypothesis].
+
+     **For item 65:** the original does not agree that a murder flags no faction that is
+     "no side": the Cove murder flagged ArmorVCaesarsLegionFaction too. Karl stays calm in
+     the original because that flag was gone within about 11 game minutes, long before
+     anyone could reach Red Rock, and not because it was never set. The armour flag is
+     enough to turn him while it is up. NVForever keeps a crime's flag for
+     iCoolDownTimerSetting (3) days (crime-karma.md §3.7), so it flags the armour faction
+     and keeps it, and Karl fights; that is what #2467 saw. Not checked: a murder by the
+     player's own shot (only the scripted Kill worked here), travel on foot or by fast
+     travel instead of MoveTo, and a murder seen by more witnesses or by Karl himself.
+
+## Added 2026-11-15 (the REPCONN ghouls' walk to the basement, #2405)
+
+204. **Do the REPCONN ghouls set off for the basement while its door is locked?** (P2;
+     #2405, packages.md §11.) `REPCONGhoulRocketWalkPACKAGE` (Travel to
+     `JasonBrightDialogMarker` 0x0008D47A in RocketLabBasement, valid at VMS01
+     variable 25 == 3) sends Jason Bright's ghouls from RocketLabTop through the Mid
+     floor and `REPCONMidToBasementDoor` (0x000840AC, lock level 25, key
+     `REPCONLowerKey` 0x000810E8 that no ghoul carries); `REPCONTopIntercomTrigger`
+     (0x000CD683) by the door out of Top moves every actor entering it to the basement
+     while `nightkinquest` is 3 [observed: the data]. Ours: no walk starts, since the
+     whole way is not open, so they never reach the trigger [observed in NVForever,
+     `fnvtool ai run --force Ghoul5=REPCONGhoulRocketWalkPACKAGE`]. In RocketLabTop
+     during Come Fly With Me, once the Nightkin are dealt with (`nightkinquest` 3,
+     before the player opens the basement door), watch Ghoul5 (0x00087AEF):
+     `GetCurrentAIPackage`, `GetPos x/y` every few seconds, and `0840AC.GetLocked`.
+     If he walks to the door out of Top and is moved on, the original starts a walk
+     whose way ends at a locked door (at least as far as the door); if he stands still
+     until the door is unlocked, ours is right and the trigger only serves after it.
+
+## Added 2026-11-16 (how far a spoken line carries, #2750)
+
+205. **How loud is a line between actors at 500 to 4,000 units?** (P1; #2750, voice.md
+     "Heard where it is said".) Ours: full level to 600 units (`fDialogMinDistance`),
+     600 ÷ distance beyond, faded to nothing at 2,000 (`fDialogMaxDistance`)
+     [hypothesis]. The owner hears President Kimball's speech in the original from the
+     sniper tower, 3,551 units from the podium, and nothing in the speech's records sets
+     it apart from other lines [observed: the data]. This check needs the game's sound
+     output recorded (a loopback recording; the observer has no such tool yet). In the
+     open, away from other sounds, music and radio off, voice volume 100%: have one
+     actor say the same long line (`Say` or `SayTo` of one topic) with the player put at
+     500, 1,000, 1,500, 2,000, 2,500, 3,000, 3,500 and 4,000 units from it
+     (`GetDistance` logged), facing it, and record the output's level over the line at
+     each distance. Then the same at Kimball's speech from the podium's foot, the
+     vertibird drop-off and the sniper tower. What to read off: whether the level
+     falls as min ÷ distance, where it stops falling or is cut, whether 2,000 units
+     means anything, and whether the speech differs from the ordinary line. Also
+     whether the subtitle shows at each distance.
+
+
+## Added 2026-11-15 (old-head hair outside the race list, #2714)
+
+210. **Which hair does the original use when an NPC's HAIR is outside its race's
+     list?** (P3; #2714; actors.md section 4.4.) [documented: #2714, spooknik's
+     2026-11-15 record/archive audit at main 1790ab94a] Roy, VFSRoyREF
+     0x0011365D / base VFSLocalVictim03 0x00113649, is CaucasianOldAged
+     0x000987DF (`headold.nif`) with HairAfricanAmericanBase 0x000306BE
+     (`hairbase.nif`, `hairafricanamericanbase.dds`, HCLR 192,192,192, no hat).
+     This hair is outside the race's old-hair-only HNAM list; the default male
+     hair is HairBaldingOld. Old-head alternatives exist: HairBaseOld 0x00044528
+     (`hairbaseold.nif`, `hairbaseoldnohat.egm` / `hairbaseoldhat.egm`) and
+     HairAfricanAmericanBaseOld 0x000987D9 (`hairafricanamericanbaseold.nif`).
+     The second case, VNovacDoctorMerc2, uses `hairraiderspike.nif` on an old
+     head and has no old version [documented: the same audit]. In the original,
+     at Old Mormon Fort courtyard during VMS19 objective 60, capture Roy from
+     behind and from the side, close enough to compare the scalp/hair seam;
+     also capture VNovacDoctorMerc2 from those angles. Does Roy retain the
+     record's hair with the same gap, wear the old-head version, or wear the
+     race default? Does the second case retain its hair or use a default when
+     no old version exists? [hypothesis, #2714] NVForever provisionally keeps
+     the record's model and its own EGM; a young-head model on an old head
+     could explain the reported gap. Resolve this before changing hair selection.
+
+## Added 2026-11-15 (Mick secret door, #2716)
+
+206. **Does an NPC path through an open locked door in the original?** (P2;
+    `fnv_nav::NavGraph::door_tri_open`.) [hypothesis, #2716] NVForever treats an
+    open in-place door as no barrier to any actor, even while locked. [documented:
+    issue #2716, spooknik comment 2026-11-15, supplied record findings] In
+    `FreesideMickandRalphs`, Mick reaches `SecretDoorMarkerREF`; his Travel end script
+    opens `MickSecretDoorREF` (0x00121FF2, Requires Key, no key) with SetOpenState 1
+    and chooses the secret-sales package. Watch whether he then walks through the
+    still-locked door to `SecretSalesMarkerREF` and starts the sales conversation.
+    Check another NPC without a key through an open locked door too, then close it
+    and compare. Record whether the live lock changes when the door opens.
+
+## Added 2026-11-16 (Pacer's cover, #2715)
+
+208. **Does Pacer keep cowering throughout the staged NCR fight, including after a load?**
+    (P2; `fnv_ai::sandbox`, #2715 part 3.) His VFSPacerCowerNCRFightPackage
+    (PACK 0x00129434) permits only idle markers; VFSNCRFightPacerMarkerREF
+    (REFR 0x001293EC) uses DefaultCowerIdleMarker (IDLM 0x000C47CC, timer 0),
+    with LooseCowerIdles (0x000C0A9A, looping 3rdP_Cowering.kf)
+    [documented: #2715 issue comment, supplied record findings]. With VMS19 ncrfight
+    at 1, watch Pacer from the start for at least 120 seconds without talking or
+    starting combat. Does he ever stand upright between cower loops? Save while
+    he cowers, reload, and measure the time until he cowers again. NVForever reuses
+    the sole marker at each timer expiry when every other behaviour is disabled
+    [design, #2715: `Allowed::only_idle_markers`, `Sandbox::next`]; continuous cower
+    in the original is provisional [hypothesis]. This leaves the general sole-object
+    60-second rule and observer check 114 intact [design, #1505, #2715].
+
+## Added 2026-11-15 (held weather across worldspace doors, #1997)
+
+209. **Does held weather survive a door into another worldspace?** (P3; #1997;
+    `worldspace.rs::carry_sky`, `sky.rs::SkyState::carry_weather_from`.) In Freeside,
+    use the console to `ForceWeather` a clearly different weather with override flag 1,
+    then go through the gate into the Strip. Does that weather remain shown? Repeat
+    with `SetWeather` and its override flag, allowing its fade to finish first; then
+    call `ReleaseWeatherOverride` and check that normal weather returns. Save after
+    the door and load: is it still held? Both setters say the weather will not change
+    until release [documented: offline GECK wiki ForceWeather / SetWeather /
+    ReleaseWeatherOverride, snapshot 2026-10-28]; keeping it across a worldspace door
+    is provisional [hypothesis]. NVForever carries it without destination filtering
+    [design: `sky.rs::SkyState::carry_weather_from`].
+
+## Added 2026-11-16 (controller hotkey assignment, #2312)
+
+211. **How does a controller choose a hotkey slot on ITEMS?** (P3; controller.md §3,
+    weapon-wheel.md §3.) [documented: issue #2312's supplied inventory_menu.xml facts]
+    `IM_HotkeyButton` uses RB and `sInventoryHotKey`, opening `IM_HotKeyWheel`.
+    [hypothesis] The original's slot-selection method is unknown; its prefab facts
+    supplied in #2312 bind no pad directions. Select a weapon on ITEMS, press RB, and
+    test D-pad taps/holds and both sticks in cardinal and diagonal directions. Record
+    which box is chosen on opening, whether selection points spatially or steps,
+    whether it wraps/repeats, and whether A assigns and B cancels. Include Ammo Swap
+    and an occupied slot. [design, #2312] NVForever provisionally opens at slot 1,
+    steps right/down forward and left/up backward through eight slots with wrapping,
+    assigns with A (closing on success), and cancels with B; Ammo Swap refuses items.
+
+## Added 2026-11-15 (House's chamber steam, glow and ground fog, #2685)
+
+212. **Do the steam, panel glow and ground fog of House's chamber linger, and do they survive a
+     load?** (P2; #2685, spec-notes/idles.md §10.1, particles.md §7.8.) [hypothesis] From a sealed
+     chamber in Lucky38ControlRoom, use the unseal terminal item and record the opening, steam
+     bursts, panel glow and ground fog at start, after 20 s and after 55 s. Check that glow and
+     haze linger, then save/load at the held end and compare. Also check whether replacing or
+     stopping the idle removes its effect model. The provisional engine rule holds CLAMP effect
+     tracks until replacement, using authored values throughout; actor idle playback is
+     currently not serialized. No original capture was performed in this run.
+
+## Added 2026-11-15 (Kimball's speech crowd heading, #2526)
+
+213. **Does Kimball's speech crowd face its editor heading?** (P2; #2526;
+    `fnv_ai::carry::marker_heading`, `docs/spec-notes/packages.md` §3.)
+    [documented: #2526 writer brief, main session's fnvtool ai show of FalloutNV.esm]
+    `VHDSpeechNPC01REF` (0012FCDC) and `VHDSpeechNPC02REF` (0012FCE2) have Travel
+    `VHDCivilianIdlePackage` (00133EC3), near editor location, radius 0.
+    [hypothesis, #2526] NVForever makes Travel and standing Guard at an editor location
+    below the existing 16-unit guard-wander cutoff face their placed z rotation.
+    In the original, during Kimball's speech at Hoover Dam cell 16,5, record one crowd
+    member's current package, position and z angle against its placed position/rotation.
+    Move it off its editor spot and reevaluate: does it return and turn to the placed
+    heading? Also check a small-radius standing Guard if a test plugin is available.
+
+## Added 2026-11-15 (the Ranger assassins' drop at the Legate's camp, #2532)
+
+214. **Legate showdown rangers and harmless drops without Allow Falls (#2532).**
+     [documented: supplied main-session fnvtool record brief, 2026-11-15] In the NCR
+     showdown, SCPT 0x001438CA enables 0x001438DA then 0x001438DB when battle state 1,
+     showdownstart 1 and controller 0x001438E3.spawnheroes 1. Their intended Patrol
+     0x001438E8 lacks Allow Falls and starts at VLegateCampRangerRunMarker01REF
+     (0x001438D3), then 02 (0x001438D4), 03 (0x001438D1), 04 (0x001438D2), 05
+     (form ID not supplied). [hypothesis, #2532] An authored downward link within
+     fJumpFallHeightMin is safe without Allow Falls; NVForever now uses that rule
+     if the ordinary route is unavailable (packages.md; actor-jumps.md). In the
+     original, sample both rangers' packages, positions and procedures from enable
+     through marker 01; record where they leave the ledge, land and enter combat.
+     With a synthetic test plugin, compare authored drops at, below and above the
+     damage threshold, with and without Allow Falls. Do harmless drops work without
+     the flag, do damaging ones require it, and is the height measured per link?
+     Separately ask the main session for both rangers' NPC_ PKID/conditions and
+     NAVM triangle/link/drop heights to marker 01 and between markers; no camp
+     navmesh facts or original captures were available to this writer.
+
+## Added 2026-11-15 (classic VATS screen layout, #2659)
+
+215. **Classic VATS unresolved comparisons (#2659, items 6–9).**
+    [documented: issue #2659, original capture description; quoted below with its
+    numbering and wording.] [hypothesis] Keep the existing AP meter, AP cost and
+    target-change rules until these checks settle them. The bottom enemy bar during
+    playback is implemented under item 3; the wider playback comparison stays open.
+
+    6. **AP meter while queueing.** NVForever takes the reserved AP off the HUD's AP bar as attacks are queued. In the original's pictures (1280 wide) the bar did not visibly drop with four .357 attacks queued on 80 AP; a closer capture (a crop of the bar, or `GetUIFloatAlt` reads of the AP meter's tiles before and after each queue) should say whether it drops, dims a share or stays.
+    7. **AP cost of a shot.** The original queued four .357 shots on 80 AP, so 20 AP or less each; NVForever charges 26 AP a shot (`vats mode: on (WeapNV357Revolver, 26 AP a shot ...)`) and allows three. The capture's save (a level 1 character) may have perks or stats that lower the cost; that was not checked. Compare `GetCalculatedAPCost` [documented: GECK wiki] in the original with NVForever's `shot_ap_cost` for the same character.
+    8. **Playback HUD.** In the original, the whole HUD but the enemy bar (bottom centre) is hidden while the queued attacks play, and comes back after with the XP gained. NVForever's playback was not shot in this pass.
+    9. **After a target change.** The original showed the new target with no part boxes at once (the capture moves no pointer); whether they come with the pointer on the body, or after a moment, was not settled.
+
+## Added 2026-11-15 (L'il Devil's crown, issue #2350)
+
+216. **Does L'il Devil's crown follow the hair colour?** (P3; nif.md §6 "Hair",
+     actors.md §3; #2350.) [documented: issue #2350, supplied `fnvtool esm decode`,
+     `fnvtool nif` and texture measurements] HAIR 0x000987DB `HairRaiderFCat`
+     "L'il Devil" uses `Characters\Hair\HairRaiderFCat.NIF`; Playable and Not Male
+     are set, Fixed Color is not. Its `NoHat` and `Hat` shapes have identical
+     BSShaderPPLightingProperty flags 0x82040101 (Specular, Alpha texture, Hair,
+     Remappable, Z-test), NiAlphaProperty blend + test, and textures
+     `HairRaider01.dds`, `HairRaider01_n.dds`, `HairRaider01_hl.dds`, matching the
+     other ten raider hairs' properties. At the crown, 9% of `NoHat`'s area samples
+     black, opaque diffuse texels (RGB ≈ 0.001, alpha ≈ 0.99); other raider hairs
+     have at most 1% there. The `_hl` texture carries strands there: 2,084 of the
+     2,506 black, opaque diffuse texels have `_hl` luma above 0.08; crown-region
+     luma is about 0.17 against diffuse 0.001, with overall luma correlation 0.97.
+     NVForever multiplies the diffuse by doubled HCLR and draws the model's solid
+     core at alpha ≥ 0.8 [design; `engine/nvforever/src/actors.rs::part_uses`,
+     `engine/nvf-assets/src/nif_spawn.rs::hair_model_cut_out`; provisional tint
+     hypothesis in actors.md §3]. The issue has no reproduction in NVForever or
+     observation of the original [documented: #2350]. The original may take crown
+     colour or brightness from `_hl` [hypothesis, #2350]. In the original's face
+     editor at Doc Mitchell's, select L'il Devil and capture the crown at two very
+     different hair colours, keeping the view and lighting fixed; compare with
+     NVForever at the same colours and view. Does the crown tint with the strands,
+     or stay black? Record both colours and frames in nif.md §6. Consider a shader
+     change only if the original tints it; then compare three or four other hairs
+     before choosing a rule [design, #2350].
+
+## Added 2026-11-16 (the Legate's camp Securitrons and General Oliver, #2794)
+
+217. **At the Legate's camp (House route), once their scripted guards are down, do the
+     four Securitrons fire on General Oliver and the fifth guard?** (P1; #2794,
+     combat-ai.md §10.3, owner-review item 85.) Ours: a faction ally of the player whose
+     Assistance helps allies takes up any fight against the player it sees, so the
+     Securitrons go on to Oliver and Guard05 [hypothesis: whether Assistance counts the
+     player as an ally to help is not documented; the maintainer expects them to help].
+     The scene: after the Legate, the camp trigger enables Oliver
+     (`vHDGeneralOliverRef2` 0x001483F1) and `LegateCampRangerOliverGuard01REF`..`05REF`;
+     `VHDLegateCampSecuritronMarker` 0x00155DC9 enables `LegateCampSecuritron01REF`..`04REF`
+     (0x00155DC2, C3, C4, C1; VHDSecuritronFaction, PlayerFaction Ally; Unaggressive,
+     Brave, Helps Allies). Pick the attack topic (INFO 0x0015993C): its end script runs
+     `StartCombat player` on Oliver and gives each Securitron one of Guard01-04, none
+     Guard05 or Oliver [documented: issue #2794, cited records]. Watch each Securitron's
+     `GetCombatTarget` every second once its guard is dead, and who damages Oliver and
+     Guard05 (their health). Also: does a Securitron help when the player alone fights
+     Oliver before the guards are down (it has its guard then)?
+
+## Added 2026-11-16 (SayTo's noTargetLookFlag, #2796)
+
+218. **Does `SayTo` with `noTargetLookFlag` 1 turn the speaker to its target?** (P2; #2796,
+     dialogue-play.md §9.2.) When an NPC runs `SayTo player <topic> 0 1`, does the speaker
+     turn to face the player? Ours: nobody turns, body or head [hypothesis]; without the
+     flag the speaker turns head and body to the target [owner decision 2026-10-11]. The
+     GECK wiki says only that the target "is not forced to look at the speaker"
+     [documented: GECK wiki SayTo]. Two places to watch: Camp McCarran's tower at night
+     during I Put a Spell on You (VMS08), entering the tower trigger with Curtis
+     (`CaptainCurtisREF` 0x000F6283) on the walkway behind the player's back: does he turn
+     for "Lupa, this is Frumentarius Picus, over." (VMS08CurtisRadio1) or keep talking
+     into the radio; and one of the McCarran monorail guards' warnings to the player.
+     Read his heading (`GetAngle Z`) and `GetHeadingAngle player` before and at the end of
+     the line. If he turns, the flag is the wiki's alone (only the target stays still).
+
+## Added 2026-11-16 (a talking activator's Say and SayTo, #2768)
+
+219. **When a talking activator given a talking actor says a line whose conditions test the
+     speaker (GetIsID), are the conditions tested on the talking actor?** (P2; #2768,
+     talking-activators.md §2, `Game::say`.) Ours: yes; the line is chosen with the actor
+     as the speaker and IsActorTalkingThroughActivator 1, said in the actor's voice from
+     the activator, its SayToDone blocks run on the activator and its result scripts on
+     the actor; with no line for the actor the activator's own lines are tried
+     [hypothesis]. Tale of Two Wastelands relies on it (Vault 101's intercom given Jonas,
+     CG02IntercomConv; the Pitt's Ashur intercom), FalloutNV.esm's talking activators may
+     not. With a talking activator placed near the player and a test topic whose one line
+     has GetIsID <an actor> (and nothing else), run `<activator>.SetTalkingActivatorActor
+     <that actor's ref>` then `<activator>.Say <topic>`: is the line said (subtitle,
+     voice)? Then without SetTalkingActivatorActor (cleared): nothing? While it plays,
+     read `<activator>.IsTalking` and `<actor>.IsTalking`, and note whether a SayToDone
+     block in the activator's script runs when it ends (a script print).
+
+## Added 2026-11-16 (an NPC saved while seated, #2797)
+
+220. **Does an NPC saved while seated come back seated after a load?** (P2; #2797,
+     save-load.md §3.4, furniture.md.) Ours: a load stands every actor up (the saved
+     furniture use is cleared, GetSitting reads 0) and the NPC's AI seats it again from
+     where it stands if its package still sends it to a seat; the provisional reading of
+     the original is the same, it stands up and re-seats through its AI [hypothesis].
+     In Goodsprings at 09:00, with Easy Pete (`EasyPeteRef`) on his porch chair
+     (0x0010634A, `GetSitting` 3), save, load that save at once and log
+     `EasyPeteRef.GetSitting` every half second from the first frame for 20 s, with
+     `GetPos x/y`. If it reads 3 from the first frame with no getting-on, the original
+     keeps the seat in the save and puts the body straight back on it; if it reads 0
+     then 2, 3 (or he walks first), ours matches. The same with Colonel Hsu on his office
+     chair (0x000FB33A, CampMCTermInt02) gives a second case.
+
+## Added 2026-11-16 (sentry bot missile pause, #2739)
+
+221. **How long does a sentry bot wait between two missile shots, and does it switch to its
+     gun between them?** (P1; #2739, combat-rules.md §4.1, combat-ai.md §19.) The owner saw
+     a pause between missiles in the original and none in NVForever [observed: owner
+     playtest]. The launcher `SentryBotMissileLauncher2HL` (0x00057E8F) has Clip Size 1,
+     Reload Animation ReloadB, 1.5789 Attack Shots/Sec and a Semi-Automatic Fire Delay of
+     0.1-0.5 s [documented: fnvtool esm decode, FalloutNV.esm]; the sentry bot's
+     `2hlattackleft.kf` runs 2.0 s with `Hit` at 0.067 s and `a:R` at 0.967 s, and its
+     folder has no reload clip [documented: fnvtool bsa list / nif decode, Fallout -
+     Meshes.bsa]. Ours now: a missile every 0.967 s (the player's rule: the next shot from
+     the `a:` key), no reload, the launcher kept until distance or a crippled limb makes
+     another gun suit [hypothesis]. Place a Hardened Sentry Bot (`CrSentryBotGLHard`
+     0x000E585D, launcher and laser gatling) about 1,500 units from the player in the
+     open, in combat with the player (god mode), and record a video of at least 30 s; then
+     the same with `CrSentryBotMGArmy` (0x000A5C6F, launcher and minigun), and once with
+     its gun arm crippled if the console allows. What to read off: the time from one
+     missile's launch to the next (0.97 s, 2.0 s for the whole clip, or longer); whether
+     anything like a reload plays between them; whether the gun fires between two
+     missiles and for how long; at what distances it uses the launcher at all; and how
+     many missiles it fires in a fight (does it run out: its inventory holds AmmoMissile
+     x1 plus up to four from AmmoMissilelauncher75). Also whether a robot whose folder has
+     no reload clip (Mister Gutsy's plasma gun or flamer) ever pauses as if reloading.
+
+## Answered 2026-11-16 (sky and grade, Capital Wasteland against the Mojave)
+
+222. **Why is our Capital Wasteland sky dark brown where the original's is pale green?**
+     (Owner 2026-11-16, Tale of Two Wastelands.) Answered [observed: 54 frames of the
+     original through `capture_frames.py`, the TTW game started from Mod Organizer 2's
+     "Tale of Two Wastelands" entry]: the adapter's tint was dropped where the base image
+     space has none, the high-noon colour column was not used, the dome's green weight
+     was read as the horizon colour, and Mojave-fitted daytime factors darkened and
+     warmed the sky. world.md section 6 "Sky and grade across two worldspaces" has the
+     figures. How to run it again: the capture plugin starts a queued job only after a
+     save has loaded, so a `coc` from the main menu is not enough; TTW's "missing
+     dependency" box pauses the game until it is clicked; the game can hang on its quit
+     line and has to be closed before the next run.
+     Sweep 2026-11-17 (27 worldspaces, world.md section 6 "Sweep of the other
+     worldspaces"): most match; Point Lookout, Anchorage, The Pitt's bridge and the
+     nuked Divide do not. To run a TTW capture: Mod Organizer 2 must be opened by the
+     owner first (started from a session it cannot launch the game: error 5), the
+     launch then goes through it (`moshortcut://:Tale of Two Wastelands`); the base
+     game's own load order has no add-ons, so their worldspaces need this route too.
+     Left to check: the sky level against "LUM Ramp No Tex" in a third worldspace
+     (Point Lookout, Zion, The Pitt); the Capital Wasteland's ground level; the sunrise
+     sky; the sky near the sun at noon.
+
+## Answered 2026-11-17 (ResetAI right after AddScriptPackage, #2865)
+
+223. **Does the original keep a script package added just before ResetAI in the same
+     script run?** (P2; #2865; `crates/fnv-game/src/functions/ai_state.rs` `reset_ai`.)
+     Answered [observed, base game]: no. GSVictorRef given VES01aVictorNovacGoHomePackage
+     alone holds it; given it and ResetAI in one script he is on his own package two
+     loops later and stays there (owner-decision-captures.md, od_06, "AddScriptPackage
+     and ResetAI in one script run"). The runtime already does this. A job script cannot
+     name a reference, package or quest by Editor ID: build each with `BuildRef 0
+     <decimal form ID>`.
+224. **Do Gibson's dogs take up a mole rat's fight against the player?** (P2; #2927;
+     `crates/fnv-game/src/provocation.rs` `call_allies`, `combat_group.rs` `raise_alarms`.)
+     Answered [observed, base game, three runs]: yes. With three mole rats attacking a
+     passive player beside the yard, three of four dogs (run 2) and four of four (run 3)
+     went into combat with the player before any mole rat was harmed and stayed in it
+     after all three were dead; `GetShouldAttack player` stayed 0. In run 1 the mole rats
+     lost the player early and no dog joined. The runtime already does this
+     (combat-groups.md §4). To count placed creatures in a job: walk `GetFirstRef 200 1`
+     and compare `GetBaseObject`.

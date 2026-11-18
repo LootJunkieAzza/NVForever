@@ -29,6 +29,8 @@ pub struct JipEvents {
     pub hits: std::collections::HashMap<FormId, JipHit>,
     /// The keys and mouse buttons held last frame, for the key-down and key-up events.
     pub keys_held: std::collections::BTreeSet<u16>,
+    /// Last 28-control event snapshot; shared by both control-event interfaces.
+    pub controls_held: u32,
     /// ScriptWait: the waiting block of each script instance (one at a time
     /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
     pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
@@ -164,7 +166,8 @@ fn slots(event: &str) -> &'static [Slot] {
         "animaction" | "playgroup" => &[Slot::On, Slot::ExactArg(0)],
         "criticalhit" => &[Slot::On, Slot::Arg(0), Slot::Arg(1)],
         "queststage" => &[Slot::Arg(0), Slot::Arg(1)],
-        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "controldown" | "controlup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
+        "controldown" | "controlup" => &[Slot::ExactArg(0)],
+        "useaiditem" | "dialogtopic" | "keydown" | "keyup" | "triggerdown" | "triggerup" | "menuopen" | "menuclose" | "mouseoverchange" => &[Slot::Arg(0)],
         _ => &[],
     }
 }
@@ -329,7 +332,36 @@ impl Game<'_> {
     /// handler gets the key]. The keys held are the player's whatever DisableKey says, as
     /// the events "still run even if the key has been disabled" [documented:
     /// SetOnKeyDownEventHandler].
+    /// Both control-event interfaces follow the same frame entry point, after key
+    /// callbacks, against a snapshot taken before callbacks (control-input-events.md).
     pub(crate) fn jip_keys(&mut self) {
+        let controls = self.input.controls_for_events();
+        self.jip_key_edges();
+        self.control_edges(controls);
+    }
+
+    fn control_edges(&mut self, now: u32) {
+        let before = std::mem::replace(&mut self.jip.controls_held, now);
+        let changed = now ^ before;
+        if changed == 0 { return; }
+        let jip = self.jip.handlers.iter().any(|h| h.event == "controldown" || h.event == "controlup");
+        let named = self.handlers.iter().any(|h| h.event.starts_with("oncontroldown:") || h.event.starts_with("oncontrolup:"));
+        if !jip && !named { return; }
+        // Snapshot all edges before callbacks can rebind or disable controls. The
+        // existing dispatchers own filters, callable admission and source context.
+        for c in 0..crate::script_input::CONTROLS {
+            if changed & (1 << c) == 0 { continue; }
+            let down = now & (1 << c) != 0;
+            if jip {
+                self.jip_event(if down { "controldown" } else { "controlup" }, None, vec![XVal::Num(c as f64)]);
+            }
+            if named {
+                self.dispatch_event(&format!("OnControl{}:{c}", if down { "Down" } else { "Up" }), vec![XVal::Num(c as f64)], None);
+            }
+        }
+    }
+
+    fn jip_key_edges(&mut self) {
         if self.jip.keys_held == self.input.held {
             return;
         }

@@ -2,7 +2,8 @@
 //! refresh) and an optional cap on the frame rate (docs/design/graphics-enhanced.md §3.10).
 //! Both are settings-page rows (`settings.rs`); vsync starts on, as Bevy's default, except
 //! while `--log-frame-times` measures (then off and not on the page), and there is no cap
-//! unless one is chosen. Neither changes the picture.
+//! unless one is chosen (while measuring, the cap is off the page too, and the test aid
+//! `--frame-cap <fps>` sets one for the run). Neither changes the picture.
 //!
 //! **Variable refresh** (G-Sync, FreeSync; #1082) keeps vsync on and caps the frame rate a
 //! few frames below the monitor's refresh rate ([`vrr_cap`]), so a frame never comes in
@@ -257,7 +258,11 @@ pub struct ApplyFramePace;
 
 impl Plugin for FramePacePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0).init_resource::<Refresh>().init_resource::<CapClock>().add_systems(Update, (apply_vsync, watch_refresh).chain().in_set(ApplyFramePace)).add_systems(Last, cap_rate);
+        app.insert_resource(self.0)
+            .init_resource::<Refresh>()
+            .init_resource::<CapClock>()
+            .add_systems(Update, (apply_vsync, watch_refresh, tell_physics).chain().in_set(ApplyFramePace))
+            .add_systems(Last, cap_rate);
         if *PACE_LOG {
             app.init_resource::<PaceLog>().add_systems(First, pace_log_frame_start.before(bevy::time::TimeSystems));
         }
@@ -290,6 +295,17 @@ pub fn effective_cap(cap: u32, vrr: u32) -> u32 {
         (c, 0) => c,
         (c, v) => c.min(v),
     }
+}
+
+/// The physics rate's Match FPS ceiling (`nvf_play::phys_rate::display_hz`):
+/// the cap the limiter keeps ([`wait_for_cap`]: the page's, variable refresh's and frame
+/// generation's real-frame cap), with vsync and the window's refresh rate. Frame generation's
+/// cap is the one its switch set last frame.
+fn tell_physics(pace: Res<FramePace>, refresh: Res<Refresh>, fg: Option<Res<crate::frame_gen::FrameGenCap>>, physics: Option<ResMut<nvf_play::phys_rate::DisplayPace>>) {
+    let Some(mut physics) = physics else { return };
+    let cap = effective_cap(effective_cap(pace.cap, refresh.vrr_cap), fg.map_or(0, |c| c.0));
+    let hz = nvf_play::phys_rate::display_hz(cap, pace.sync.vsync(), refresh.millihertz);
+    physics.set_if_neq(nvf_play::phys_rate::DisplayPace(hz));
 }
 
 /// The window's present mode as `sync` asks, when that changes. (DLSS Frame Generation needs
@@ -391,16 +407,18 @@ pub fn reflex_frame_limit_us(cap: u32, multiplier: u32) -> u32 {
 /// (the spike's `on`, #2317, Stage 3; `dlss::frame_generation_running`) the cap is Reflex's
 /// instead (`ReflexOptions::frameLimitUs`, the limiter NVIDIA documents for frame generation
 /// [documented: `ProgrammingGuideDLSS_G.md` §6.3, §12.1]): the page's or variable refresh's cap
-/// on frames shown, divided by the frames shown per real frame, handed to Reflex
+/// on frames shown, divided by the frames DLSS-G presents per real frame, handed to Reflex
 /// ([`reflex_frame_limit_us`], `dlss::set_reflex_frame_limit`), and nothing waits here, so the
-/// driver and DLSS-G's pacer see one limiter [design: fork-notes `fg-facts.md` §3 item 5]. In
-/// menus, where DLSS-G's mode is off for a while, the same limit holds, so real frames are
-/// capped as if generated ones were shown [design: a spike's simplification].
+/// driver and DLSS-G's pacer see one limiter [design: fork-notes `fg-facts.md` §3 item 5]. The
+/// divisor follows what DLSS-G presents (`dlss::frame_generation_divisor`, `dlss/fg_cap.rs`;
+/// #2731): in menus, where DLSS-G's mode is off, and while it presents one frame per real frame
+/// (the window not in front) it is 1 and real frames have the full limit; when generation comes
+/// back it divides again.
 fn wait_for_cap(world: &mut World) {
     let Some(pace) = world.get_resource::<FramePace>() else { return };
     if crate::dlss::frame_generation_running() {
         let cap = effective_cap(pace.cap, world.get_resource::<Refresh>().map_or(0, |r| r.vrr_cap));
-        crate::dlss::set_reflex_frame_limit(reflex_frame_limit_us(cap, crate::dlss::frame_generation_multiplier()));
+        crate::dlss::set_reflex_frame_limit(reflex_frame_limit_us(cap, crate::dlss::frame_generation_divisor()));
         if let Some(mut clock) = world.get_resource_mut::<CapClock>() {
             clock.0 = None;
         }

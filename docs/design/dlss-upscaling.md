@@ -75,17 +75,17 @@ detail in the module notes of the file named.
   A file added after the second pass is not seen; with the default folder beside the program,
   whose own folder is searched first anyway, that adds no place an attacker could not already
   write to. (The second review of #2206.)
-- **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
+- **The signature** (`nvf-dlss-files` `security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
-- **The tested build** (`dlss/security.rs` `TESTED_INTERPOSERS`). The interposer's SHA-256 must
+- **The tested build** (`nvf-dlss-files` `security.rs` `TESTED_INTERPOSERS`). The interposer's SHA-256 must
   also be a tested build's, today only Streamline 2.14.16's
   (`b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf` [observed: the release
   zip's `bin\x64\sl.interposer.dll` and the tested bundle, 2026-11-12]). Both checks must pass;
   either failing is `SignatureRejected`, with the file's hash in the log. The hash comes from
   the `sha2` crate through `fnv_util::sha256`, already a dependency. A new Streamline release
   takes a new entry once it was tested. (The review of #2206; the PR owner's decision.)
-- **One file, checked and loaded** (`dlss/security.rs` `check_interposer`, `dlss/win.rs`). The
+- **One file, checked and loaded** (`nvf-dlss-files` `security.rs` `check_interposer`, `dlss/win.rs`). The
   interposer is opened once, sharing read access only, so no one can write, rename or delete it
   while the handle is open; its hash is read and `WinVerifyTrust` runs through that handle
   (`WINTRUST_FILE_INFO.hFile`), and the handle is held until Streamline is shut down.
@@ -320,8 +320,9 @@ detail in the module notes of the file named.
 
 ## Download (#2250)
 
-[design], code in `engine/nvforever/src/dlss/download/` (module notes there). The player can
-fetch the four files from the settings (Download DLSS..., the dialog of #2250) instead of
+[design], code in `crates/nvf-dlss-files/src/download/` (module notes there). The player can
+fetch the eight upscaling and frame generation files from the settings (Download DLSS...,
+the dialog of #2250, extended by #2409) instead of
 copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
 
 - **The player's acceptance first.** The download starts only from the dialog's accept
@@ -330,13 +331,21 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   maintainer's condition on #2250). NVForever still hosts, mirrors and ships none of NVIDIA's
   files: they come from NVIDIA's own release, on the player's click. Why the files cannot be
   shipped: NVIDIA's RTX SDKs licence (its §1c, §4b, §4e [documented: the licence as published
-  with the files, `bin/x64/nvngx_dlss.license.txt` of the archive below]); the three `sl.*`
+  with the files, `bin/x64/nvngx_dlss.license.txt` of the archive below, including the DLSS SDK
+  supplement covering both `nvngx_dlss.dll` and `nvngx_dlssg.dll`]); the six `sl.*`
   files are Streamline's, MIT.
 - **One pinned source.** The official asset of NVIDIA-RTX/Streamline's release v2.14.16,
   `streamline-sdk-v2.14.16.zip`, 276,016,170 bytes [observed: the archive, 2026-11-13]. Only
-  the four entries `bin/x64/<name>` are fetched, by HTTP range requests: the archive's last
+  the eight entries `bin/x64/<name>` are fetched, by HTTP range requests: the archive's last
   64 KiB and a little more for its end record and central directory, then each entry from its
-  local header to the next (the four unpack to about 61 MB). The asset's address answers with a
+  local header to the next, and only the entries the DLSS folder lacks
+  (`install::still_missing`, each looked up by its name, as the offer looks): a listed file
+  already there is kept and never compared with its pin, since players may bring another
+  DLSS version (the maintainer's review of #2565). The four frame generation entries (`sl.dlss_g.dll`,
+  `nvngx_dlssg.dll`, `sl.reflex.dll`, `sl.pcl.dll`) add about 4.6 MB compressed [observed: the
+  official archive, 2026-11-13]. `NvLowLatencyVk.dll` is omitted: Reflex uses the driver's
+  `VK_NV_low_latency2`, with that DLL only as a fallback (see
+  [DLSS frame generation](dlss-frame-generation.md), Reflex). The asset's address answers with a
   redirect, followed only to `https` on GitHub's asset hosts; every answer must be a `206`
   whose `Content-Range` names the range asked for out of that size; a `200` (no ranges), any
   other status or size, and the download fails. A connect and a per-read timeout, and each
@@ -349,21 +358,37 @@ copying them by hand; the manual way stays ([dlss.md](../dlss.md)).
   [documented: ureq 3.5.1 `src/util.rs`, its debug header and URI formatting].
 - **Every file pinned.** Each entry's size and the SHA-256 of its unpacked bytes are pinned
   in the source (`download/files.rs`: the `sl.*` hashes are the loader's `RELEASE_DLLS`;
-  `nvngx_dlss.dll` 310.9.16, which the loader leaves unpinned so players may bring another
-  DLSS, has its own pin there), changed only with an NVForever release. While unpacking
-  (stored or deflated) the size may not pass the declared one and the CRC-32 must be the
+  `nvngx_dlss.dll` 310.9.16 and `nvngx_dlssg.dll`, which the loader leaves unpinned so players
+  may bring another DLSS, have their own `NGX_PINS` there), changed only with an NVForever
+  release. While unpacking (stored or deflated) the size may not pass the declared one and the CRC-32 must be the
   directory's. On the staged files, before any move, the hashes are read again and the
   loader's own checks run: the interposer's signature and tested hash
-  (`security::check_interposer`) and the NGX runtime's NVIDIA signature (`check_ngx`).
+  (`security::check_interposer`) and both NGX runtimes' NVIDIA signatures (`check_ngx`).
 - **Nothing written unless all pass.** The files are unpacked into `.dlss-download-<process
   id>` beside the DLSS folder (same volume), removed on a failure or a cancel and after the
   install; staging folders an earlier run left (`.dlss-download-<digits>`, of an NVForever that is no
   longer running) are removed at the next start. An absent DLSS
   folder is made by renaming the staging folder; a present one gets only the listed files it
-  lacks, moved one by one and taken back if a later move fails. A folder that holds
-  `nvngx_update.exe` (any case) or a listed file with other bytes is left as it is: no file of
-  the player's is overwritten. Only the listed names are ever written; `nvngx_update.exe`
+  lacks, moved one by one and taken back if a later move fails. Only the files it lacked
+  when the download started are fetched, so a listed file already there is kept unexamined; a
+  folder that holds `nvngx_update.exe` (any case) or a folder of a listed name, or one where a
+  listed file with other bytes appeared during the download, is left as it is: no file of the
+  player's is overwritten. Only the listed names are ever written; `nvngx_update.exe`
   never is.
+- **Four-file folders.** The Upscaler row keeps Download DLSS… offered while any of the
+  eight files is missing, including when upscaling is ready or only needs a restart
+  (`settings::dlss_download_offered` / `dlss_download::offered`). The all-eight-file probe is
+  shared by choices and hints, cached for one second, and discarded when the download phase
+  changes. Other loader refusals and a download completed this session suppress the offer
+  before probing. If the folder cannot be resolved, only the loader's `FilesMissing` reason
+  retains the offer; choosing it lets the download dialog report the folder error.
+  Upscaling still needs only `dlss::FILES`, the first four; frame generation needs
+  `dlss::FG_FILES`, the other four. A second download fetches, checks and adds only the
+  missing files, leaving the files already there as they are (`install::still_missing`).
+- **Missing-file hints.** The dimmed Frame generation DLSS choice uses three states
+  (`dlss::frame_generation_unavailable`): "Files missing: Download DLSS… on the Upscaler row"
+  while the download is offered; "Restart to use DLSS Frame Generation" after a download
+  completed this session; otherwise "The DLSS Frame Generation files are missing".
 - **The install guard first.** `fnv_install::guard_write(path, None)` checks the target,
   its parent and the staging folder before anything is created or cleaned up, then checks
   file destinations before writing or moving them. `None` still checks the game install
@@ -478,7 +503,7 @@ only where `NVF_DLSS_DIR` names a bundle.
 
 ## Open points
 
-- **The secondary signature is not bound to the file** (`dlss/security.rs`). The check verifies
+- **The secondary signature is not bound to the file** (`nvf-dlss-files` `security.rs`). The check verifies
   the primary signature against the file and compares the secondary signer's public key with
   Streamline's NVIDIA key, as Streamline's header does; nothing shows that the secondary
   signature signs this file [hypothesis: a file validly signed by someone else carrying a copy

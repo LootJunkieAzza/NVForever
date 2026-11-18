@@ -132,7 +132,8 @@ pub(crate) struct Props {
     /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
     /// used only with it (`fix_vertex_colors`).
     vertex_alpha: bool,
-    double_sided: bool,
+    /// NiStencilProperty draw mode DRAW_BOTH; also set on dismemberment caps (actor.rs).
+    pub(crate) double_sided: bool,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
@@ -590,7 +591,18 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 }
 
 /// The vertex colours of an unlit shape (BSShaderNoLightingProperty) taken as display
-/// values: their colour is converted to linear, the alpha kept.
+/// values: the mesh keeps them as stored, and the material marks them so
+/// (`NifSurface::emissive_rule` z = 1); the shader blends them across the triangles as
+/// display values and makes the colour linear per fragment (sRGB transfer,
+/// [`display_to_linear`]), the alpha kept.
+///
+/// Per fragment, not at the vertices (#2435): the game blends the stored values across
+/// a triangle [hypothesis: a DirectX 9 frame without sRGB conversion, as in nif.md §6
+/// "Additive blend"]. Made linear at the vertices, a colour falling to black across a
+/// triangle stayed bright almost to its black edge (display 0.096 at nine tenths of the
+/// way from 0.34 to 0, where the stored values give 0.034): the Gomorrah Suites' wall
+/// sconce glow (`neoclassicalsconce.nif`, `NeoclassicalSconce:9`, ONE / ONE, no texture,
+/// 0.34 at the bowl to black on its outline) was a pale board with a hard outline.
 ///
 /// An unlit shape's colour is texture × vertex colour, which the game forms in display
 /// values [hypothesis, as for the landscape's vertex colours (terrain.rs) and the grass
@@ -600,13 +612,14 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 /// texture) is a grey near the desert floor's in the game, where it can barely be seen
 /// (owner's screenshots, 2026-10-12), and drew as a white plume here
 /// (docs/spec-notes/nif.md §6 "Vertex colours").
-pub(crate) fn unlit_vertex_colors(mesh: &mut Mesh) {
-    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
-    for c in colors.iter_mut() {
-        for v in &mut c[..3] {
-            *v = Color::srgb(*v, 0.0, 0.0).to_linear().red;
-        }
-    }
+pub(crate) fn unlit_vertex_colors(material: &mut NifMaterial) {
+    material.extension.emissive_rule.z = 1.0;
+}
+
+/// A display value made linear by the sRGB transfer (CPU mirror of nif_material.wesl
+/// `display_to_linear`, which [`unlit_vertex_colors`] has the shader apply per fragment).
+pub fn display_to_linear(v: f32) -> f32 {
+    Color::srgb(v, 0.0, 0.0).to_linear().red
 }
 
 /// Reflectance for a shape, and whether its normal map's alpha (the specular mask,
@@ -641,7 +654,7 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
 /// their mean alpha 21 / 35 / 58; the choice of the median is a hypothesis].
 pub const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
 
-/// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
+/// Whether an unexpanded loaded format has no alpha channel to hold a specular mask.
 pub fn lacks_alpha(image: &Image) -> bool {
     format_lacks_alpha(image.texture_descriptor.format)
 }
@@ -649,7 +662,7 @@ pub fn lacks_alpha(image: &Image) -> bool {
 /// [`lacks_alpha`] by the texture's format.
 pub fn format_lacks_alpha(format: bevy::render::render_resource::TextureFormat) -> bool {
     use bevy::render::render_resource::TextureFormat;
-    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
+    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb | TextureFormat::Bc5RgUnorm | TextureFormat::Bc5RgSnorm | TextureFormat::Rg8Unorm | TextureFormat::Rg8Snorm)
 }
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
@@ -759,6 +772,13 @@ fn mesh_extent(mesh: &Mesh) -> f32 {
 pub(crate) trait TextureSource {
     /// The texture at a NIF texture path, loaded once.
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
+    /// A normal map and its source alpha classification (BC5 expansion must not
+    /// turn its synthetic storage alpha into a specular mask).
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        let h = self.texture(raw_path, false)?;
+        let unmasked = self.lacks_alpha(&h);
+        Some((h, unmasked))
+    }
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
     /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
@@ -779,6 +799,10 @@ pub(crate) struct StoreTextures<'a> {
 impl TextureSource for StoreTextures<'_> {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
         self.textures.get(raw_path, srgb, self.data, self.images, self.formats)
+    }
+
+    fn normal(&mut self, raw_path: &str) -> Option<(Handle<Image>, bool)> {
+        self.textures.normal(raw_path, self.data, self.images, self.formats)
     }
 
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
@@ -858,14 +882,12 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
 
 fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, keep_tangents: bool) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
-    if props.unlit {
-        unlit_vertex_colors(mesh);
-    }
     let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, true));
-    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
+    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.normal(t));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && ((keep_tangents && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some()) || mesh.generate_tangents().is_ok()));
+    let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
     let cutout = blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t)));
@@ -877,7 +899,6 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.texture(t, true));
-    let unmasked = normal.as_ref().is_some_and(|h| textures.lacks_alpha(h));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
@@ -910,6 +931,9 @@ fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl Text
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.emissive_rule = shape_emissive_rule(props, alpha_mode);
+    if props.unlit {
+        unlit_vertex_colors(&mut material);
+    }
     material.extension.decal = props.decal;
     if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some(), burns(props)) {
         material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
@@ -1285,6 +1309,53 @@ mod tests {
         fn alpha_is_mask(&self, raw_path: &str) -> bool {
             raw_path.contains("mask")
         }
+    }
+
+    #[test]
+    fn a_dismemberment_cap_is_alpha_tested_and_drawn_from_both_sides() {
+        let mut tri = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        tri.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        // `upperbody.nif` `bodycaps`: NiAlphaProperty 0x12EC (test GREATER 127), no stencil;
+        // actor.rs sets `double_sided` on shapes with cap partitions.
+        let cap = Props { alpha: Some((0x12EC, 127)), textures: vec![r"gore\meatcapgore01.dds".into()], double_sided: true, ..Default::default() };
+        let (m, _) = shape_material_with(&cap, &mut tri.clone(), &mut NoTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Mask(_)));
+        assert!(m.base.double_sided && m.base.cull_mode.is_none());
+        let (m, _) = shape_material_with(&Props { double_sided: false, ..cap }, &mut tri, &mut NoTextures);
+        assert!(!m.base.double_sided && m.base.cull_mode.is_some());
+    }
+
+    #[test]
+    fn unlit_vertex_colours_are_blended_as_display_values() {
+        // The Gomorrah Suites sconce glow (neoclassicalsconce.nif, NeoclassicalSconce:9):
+        // unlit, additive ONE / ONE (0x1001), no texture, vertex colour 0.34 at the bowl
+        // and black on the outline (#2435).
+        let glow = Props { unlit: true, alpha: Some((0x1001, 0)), textures: vec![String::new()], ..Default::default() };
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        let stored = vec![[0.34f32, 0.32, 0.27, 1.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]];
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, stored.clone());
+        let (m, _) = shape_material_with(&glow, &mut mesh, &mut NoTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Add);
+        assert!(m.base.unlit);
+        // The mesh keeps the stored display values; the shader makes them linear.
+        assert_eq!(m.extension.emissive_rule.z, 1.0);
+        let Some(VertexAttributeValues::Float32x4(kept)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!("colours") };
+        assert_eq!(kept, &stored);
+        // Nine tenths of the way to the black outline: blended as display values and made
+        // linear there, the colour is a tenth of the bowl's display value; blended after
+        // being made linear (before #2435), 0.096, almost three times as bright.
+        let t = 0.9;
+        let per_fragment = display_to_linear(0.34 * (1.0 - t));
+        let per_vertex = display_to_linear(0.34) * (1.0 - t);
+        assert!((Color::linear_rgb(per_fragment, 0.0, 0.0).to_srgba().red - 0.034).abs() < 1e-3);
+        assert!(Color::linear_rgb(per_vertex, 0.0, 0.0).to_srgba().red > 0.09);
+        // At the vertices both readings agree.
+        assert!((display_to_linear(0.34) - Color::srgb(0.34, 0.0, 0.0).to_linear().red).abs() < 1e-6);
+        // A lit shape's vertex colours stay linear factors.
+        let lit = Props { textures: vec![String::new()], ..Default::default() };
+        let (m, _) = shape_material_with(&lit, &mut Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()), &mut NoTextures);
+        assert_eq!(m.extension.emissive_rule.z, 0.0);
     }
 
     #[test]
@@ -1847,5 +1918,50 @@ mod tests {
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
         assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
+    }
+}
+
+
+#[cfg(test)]
+mod bc5_material_tests {
+    use super::*;
+    use crate::texture::bc5_tests::{OwnedData, triangle};
+    use bevy::render::render_resource::TextureFormat;
+
+    #[test]
+    fn actual_nif_normal_slot_keeps_bc5_orientation_and_original_alpha_semantics() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        // Preload the same path as generic linear data. It cannot answer Normal.
+        let linear = cache.get("signed.dds", false, &owned.data, &mut images, None).unwrap();
+        let props = Props { textures: vec!["old.dds".into(), "signed.dds".into()], specular: true, ..Default::default() };
+        let (material, missing) = shape_material(&props, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let normal = material.base.normal_map_texture.as_ref().expect("real normal slot");
+        assert_ne!(normal, &linear);
+        assert_eq!(images.get(normal).unwrap().texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(images.get(normal).unwrap().data.as_deref(), Some([0, 255, 128, 255].repeat(16).as_slice()));
+        assert!(material.base.flip_normal_map_y, "the existing DirectX green flip still applies exactly once");
+        assert!(material.base.specular_texture.is_none(), "generated alpha 255 must not become a full mask");
+        assert_eq!(material.base.reflectance, UNMASKED_SPECULAR);
+        let base = material.base.base_color_texture.as_ref().unwrap();
+        assert_eq!(images.get(base).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnormSrgb);
+        // The same ordinary DXT5 retains its mask, native bytes and normal convention.
+        let old = Props { textures: vec!["old.dds".into(), "old.dds".into()], specular: true, ..Default::default() };
+        let (old_material, missing) = shape_material(&old, &mut triangle(), &mut cache, &owned.data, &mut images, None);
+        assert!(missing.is_none());
+        let old_normal = old_material.base.normal_map_texture.as_ref().unwrap();
+        assert_eq!(old_material.base.specular_texture.as_ref(), Some(old_normal));
+        assert_eq!(old_material.base.reflectance, 2.0);
+        assert_eq!(images.get(old_normal).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(images.get(old_normal).unwrap().data.as_deref(), Some([255; 16].as_slice()));
+        // Tangent/UV admission remains in force even though decoding succeeded.
+        let mut no_uv = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD);
+        no_uv.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        let refused = shape_material(&props, &mut no_uv, &mut cache, &owned.data, &mut images, None).0;
+        assert!(refused.base.normal_map_texture.is_none());
+        assert!(refused.base.specular_texture.is_none());
+        assert_eq!(refused.base.reflectance, 0.3);
     }
 }

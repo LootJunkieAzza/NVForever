@@ -112,6 +112,25 @@ Editor ID names its form. In an enum position (actor values, animation groups) a
 spelling from encodings.json `enums`. `Head.var` is variable `var` of the script that
 `Head` runs: a quest's script, or a reference's base form's script.
 
+[observed: original installed plugin records, inspected through SCVR declarations
+and each plugin's master table] A master script can declare a variable which a later
+override omits, while a third plugin depends on the master and does not list that
+override as a master.
+
+[design] The running engine indexes every standalone script record's variable
+metadata for this lookup, including overridden master versions. Execution still
+uses the winning script. An empty script override supplies an empty variable list,
+so it cannot expose declarations from an older version when that override is visible.
+
+Implementation validation: four synthetic `source_metadata::` integration tests run
+through ordinary Auto selection and `GameData::build`. The identical-fixture baseline
+had one passing control and three assertion failures; source commit `9948cf526` passed
+all four, with zero ignored and 917 other integration tests filtered out. The controls
+check quest and placed-reference indices/types, visible replacement variables,
+nonvisible and missing names, empty overrides, unchanged execution winners and retained
+compiled bytes on source failure. These are compiler tests, not original-game gameplay
+or complete mod compatibility evidence.
+
 - **Seeded** (the default for `fnvtool script compile`, and what a running engine should
   use for a unit that has lists): the unit's own variable and reference lists start the
   compiler, so every index stays the same. This matters because other scripts' bytes
@@ -120,6 +139,22 @@ spelling from encodings.json `enums`. `Head.var` is variable `var` of the script
 - **Fresh** (`--fresh`): empty lists. Variables get indices 1, 2, … in declaration order,
   and references are added in order of first use. This mode tests name resolution
   through the load order.
+
+[observed: original installed SCTX, SCRO and compiled vanilla call] A source command
+uses a bare five-digit hexadecimal receiver; its compiled `StartConversation` call
+names the corresponding placed actor through the reference list. The same source
+uses a six-digit topic argument, which is evidence for an argument, not for a
+six-digit receiver.
+
+[design] Source recompilation also admits a known file-local form for a bare
+five-digit receiver, using the existing short-form argument lookup. The rule follows
+`Seed::unknown_calls`, which mod runtime compilation (`compile_mod_runtime`) also
+enables. The shared receiver lookup serves direct, inline, Set and extended calls;
+Auto selection is one entry point. A local variable and then an Editor ID still take
+precedence. Strict fresh compilation, eight-digit
+and quoted receiver lookup, and bytecode fallback on source failure keep their
+existing rules. Other bare short receiver widths remain open for a GECK compilation
+probe; no new native byte encoding is introduced.
 
 ## 5. Parity (`L5.script.compile.vanilla`, `fnvtool script compile`)
 

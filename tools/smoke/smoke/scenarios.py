@@ -20,6 +20,12 @@ HTTP server on the loopback address for its launch, answering every request with
 status; `{serve}` in an env value becomes its address (`http://127.0.0.1:<port>`). For the
 failure paths of code that downloads, without the network. Scenarios sharing a launch
 that set `serve` must set the same one.
+
+A `--play` game scenario runs with `--no-messages` (added to its arguments) unless it sets
+`messages = true`: the add-on packs' OK-only start-up boxes, at the start and again on a new
+game once the player leaves Doc Mitchell's house, are then answered as the scripts show
+them and never open (engine/nvf-play/src/script.rs). A scenario whose checks read message
+boxes (opens, closes, buttons, MenuMode 1001) sets `messages = true` to keep them.
 """
 from __future__ import annotations
 
@@ -34,8 +40,9 @@ PLATFORMS = ("linux", "windows", "macos")  # what a scenario's `platforms` may n
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
     "expect", "expect_file", "order", "forbid", "manual", "requires", "platforms", "commands", "exit", "note",
-    "timeout", "ends", "front", "serve",
+    "timeout", "ends", "front", "serve", "messages",
 }
+NO_MESSAGES = "--no-messages"  # added to every `--play` game scenario without `messages = true`
 SERVE_KEYS = {"status", "body"}
 
 
@@ -80,6 +87,8 @@ class Scenario:
     # for checks that need the foreground (DLSS Frame Generation); needs --slots 1.
     front: bool = False
     serve: dict = field(default_factory=dict)  # a loopback HTTP server for the launch: status, body
+    # Game scenarios with --play: keep message boxes as a player gets them (no --no-messages added).
+    messages: bool = False
 
     def all_expectations(self):
         yield from self.expect
@@ -176,6 +185,10 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
     if not isinstance(front, bool):
         raise ScenarioError(f"{name}: front must be true or false")
     s.front = front
+    messages = d.get("messages", False)
+    if not isinstance(messages, bool):
+        raise ScenarioError(f"{name}: messages must be true or false")
+    s.messages = messages
     if "serve" in d:
         s.serve = _serve(name, d["serve"])
     s.expect = _expects(d.get("expect", []), f"{name}.expect")
@@ -191,6 +204,10 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
             raise ScenarioError(f"{name}: a game scenario needs run_seconds")
         if any(a.startswith("--run-seconds") or a == "--data" for a in s.args):
             raise ScenarioError(f"{name}: give run_seconds as its own key and leave --data to the runner")
+        if "--play" in s.args and not s.messages and NO_MESSAGES not in s.args:
+            s.args.append(NO_MESSAGES)
+        if s.messages and NO_MESSAGES in s.args:
+            raise ScenarioError(f"{name}: messages = true keeps the boxes; drop {NO_MESSAGES} from args")
         # Every unattended run ends with this line (nvforever main.rs), or with the one the
         # scenario names for a run that ends another way (`ends`); always expected.
         s.expect.insert(0, Expect.parse(s.ends))
@@ -198,6 +215,8 @@ def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
         raise ScenarioError(f"{name}: a tool scenario needs commands")
     if s.front and s.kind != GAME:
         raise ScenarioError(f"{name}: front applies to game scenarios only")
+    if s.messages and (s.kind != GAME or "--play" not in s.args):
+        raise ScenarioError(f"{name}: messages applies to --play game scenarios only")
     if s.serve and s.kind != GAME:
         raise ScenarioError(f"{name}: serve is for game scenarios")
     if not s.serve and any("{serve}" in v for v in s.env.values()):

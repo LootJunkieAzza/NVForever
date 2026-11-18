@@ -462,7 +462,17 @@ A speaker **can say** a line when:
   unless the line has its own GetIsID condition on the speaker, which then decides
   [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
   speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
-  observer check 29];
+  observer check 29]. A condition on the speaker naming a group (GetInFaction,
+  GetIsClass, GetIsRace, GetIsVoiceType, IsInList) decides as well [hypothesis, #2548,
+  observer check 162]: Cottonwood Cove's "Halt!" greeting 0x0013AC97 names the AAM
+  explorer and tests VCaesarsLegionCCoveExplorerFaction, which all four explorers are
+  in, and the other three have GREETING force-greet packages of their own
+  (0x001789B6-B8) that would end on the generic "Move along." otherwise. 19 lines of
+  FalloutNV.esm have a fixed speaker and such a condition without GetIsID [observed]:
+  the Cottonwood Cove explorer lines (7), the Tops' random bartender (3) and the
+  Strip's Securitron messenger (9 with VVictorFaction, said by the messenger itself).
+  Such a line said by another actor plays the fixed speaker's voice file when the
+  actor's own voice has none (voice.rs, as for a GetIsID line);
   - **a script's Say or SayTo** whose topic has no line passing this check, judged from
     the data alone (every line names another fixed speaker and has no own-ID condition;
     a line the speaker passes the check for but cannot say now, because it was said
@@ -563,6 +573,12 @@ All of it is in `GameSnapshot`.
   within 300 units of the player, never from afar; out of the loaded area (the low
   process) the walk-up waits. Without the AI (headless runners) the
   conversation opens at once, as before [design: the distances and the run].
+  [design, #2724] Any successful opening of a player conversation consumes that
+  speaker's pending walk-up, before the first line's result scripts run
+  (`Game::open_dialogue`). A repeated StartConversation that opens within 300 units,
+  another force greet, or the player's own opener therefore cannot leave an old
+  walk-up to greet again after the conversation. Refused opens and greetings that
+  do not open a conversation leave it pending; other speakers' walks are unchanged.
   [observed 2026-11-05] The Legion explorers about Nelson (nvNelsonExplorerBarkSCRIPT
   calls StartConversation Player once its GameMode runs) greeted from 10,099 units off.
   Now explorer 01 runs over and greets from 147 units (smoke

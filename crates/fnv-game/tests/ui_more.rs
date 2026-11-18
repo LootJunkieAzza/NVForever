@@ -1137,3 +1137,60 @@ fn authored_tile_smoke_scripts_compile_against_the_function_table() {
         assert!(errors.is_empty(), "{path}: {errors:?}");
     }
 }
+
+
+#[test]
+fn compiled_projection_source_command_reaches_typed_state_without_writing_ui_traits() {
+    let f=fixture();let mut g=game(&f);let before=g.ui_tree.trait_write_counts();
+    let ctx=fnv_game::game::RunCtx {self_ref:Some(FormId(REFERENCE)),..Default::default()};
+    let value=g.run_query("ref target\nBegin Function { }\nlet target := GetSelf\ntarget.ProjectUITile \"TestMenu/Box\" \"screen\" -10 -20 80 40\nSetFunctionValue 7\nEnd\n",ctx).unwrap();
+    assert_eq!(value,x(7.));assert_eq!(g.ui_tree.trait_write_counts(),before);
+    let requests:Vec<_>=g.ui_extra.projections.source_requests(&g.ui_tree).collect();assert_eq!(requests.len(),1);
+    assert_eq!(requests[0].0.reference,FormId(REFERENCE));assert_eq!(requests[0].1.source,g.ui_tree.find_tile("TestMenu/Box").unwrap());
+    assert_eq!((requests[0].1.viewport.x,requests[0].1.viewport.y,requests[0].1.viewport.width,requests[0].1.viewport.height),(-10.,-20.,80,40));
+    drop(requests);
+    let value=g.run_query("Begin Function { }\nProjectUITile \"TestMenu/Box\" \"screen\" 0 0 1 1\nSetFunctionValue 9\nEnd\n",fnv_game::game::RunCtx {self_ref:Some(FormId(REFERENCE)),..Default::default()}).unwrap();
+    assert_eq!(value,x(9.));assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(),0);
+}
+
+#[test]
+fn projection_source_route_requires_reference_and_real_tree_reset_clears_requests() {
+    let f=fixture();let mut g=game(&f);let args=[s("TestMenu/Box"),s("screen"),x(0.),x(0.),x(80.),x(40.)];
+    assert!(fnv_game::nvse::call(&mut g,&Default::default(),"projectuitile",None,&args).unwrap().is_err());
+    assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(),0);
+    assert!(fnv_game::nvse::call(&mut g,&Default::default(),"projectuitile",Some(FormId(REFERENCE)),&args).unwrap().is_ok());
+    assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(),1);
+    fnv_game::ui_more::tree_rebuilt(&mut g);assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(),0);
+}
+
+#[test]
+fn corrected_projection_catalogue_metadata_drives_the_real_source_vm() {
+    let f = fixture();
+    let command = f.data.table.unnumbered.get("projectuitile").expect("source command is catalogued");
+    assert_eq!(command.params.iter().map(|p| p.kind.as_str()).collect::<Vec<_>>(),
+        vec!["string", "string", "float", "float", "float", "float"]);
+    assert!(command.params.iter().all(|p| !p.optional));
+    assert_eq!(f.data.table.by_name("ProjectUITile"), None, "no native opcode is admitted");
+    let mut g = game(&f);
+    let before = g.ui_tree.trait_write_counts();
+    let context = fnv_game::game::RunCtx { self_ref: Some(FormId(REFERENCE)), ..Default::default() };
+    let returned = g.run_query("ref target\nfloat returned\nBegin Function { }\nlet target := GetSelf\nlet returned := target.ProjectUITile \"TestMenu/Box\" \"SCREEN\" -7 11 80 40\nSetFunctionValue returned\nEnd\n", context).unwrap();
+    assert_eq!(returned, x(0.));
+    assert_eq!(g.ui_tree.trait_write_counts(), before);
+    {
+        let requests: Vec<_> = g.ui_extra.projections.source_requests(&g.ui_tree).collect();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0.reference, FormId(REFERENCE));
+        assert_eq!(requests[0].0.block, "screen");
+        assert_eq!(requests[0].1.source, g.ui_tree.find_tile("TestMenu/Box").unwrap());
+        let viewport = requests[0].1.viewport;
+        assert_eq!((viewport.x, viewport.y, viewport.width, viewport.height), (-7., 11., 80, 40));
+    }
+    let old_stub_shape = [x(1.), x(2.), x(3.), x(4.), x(5.), x(6.)];
+    assert!(fnv_game::nvse::call(&mut g, &context, "projectuitile", Some(FormId(REFERENCE)), &old_stub_shape).unwrap().is_err());
+    assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(), 1);
+    let withdrawn = g.run_query("float returned\nBegin Function { }\nlet returned := ProjectUITile \"missing\" \"screen\" 0 0 1 1\nSetFunctionValue returned\nEnd\n", context).unwrap();
+    assert_eq!(withdrawn, x(0.));
+    assert_eq!(g.ui_extra.projections.source_requests(&g.ui_tree).count(), 0);
+    assert_eq!(g.ui_tree.trait_write_counts(), before);
+}

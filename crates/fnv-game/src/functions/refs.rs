@@ -62,7 +62,17 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 /// Disable `r` (its own flag), fading out or not: Disable without the enable-parent test
 /// (ShowOff's DisableAlt, `nvse_showoff4`).
+///
+/// The player is never disabled: a script's Disable of the player does nothing
+/// [hypothesis: VHDIntakeTowerLegionaryDespawnScript disables whoever enters its trigger,
+/// the player too, and the original's Legion route still takes the player through the
+/// Power Plant 01 elevator, whose bare `Activate` a disabled actor cannot make;
+/// docs/spec-notes/doors.md §6, #2617, observer check 172].
 pub fn disable_ref(g: &mut Game, r: FormId, fade: bool) -> Result<Value, String> {
+    if r == FormId::PLAYER_REF {
+        tracing::info!("script: Disable of the player ignored: the player stays enabled (doors.md §6)");
+        return none();
+    }
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
         return none();
@@ -221,14 +231,24 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
         if r != FormId::PLAYER_REF {
             s.rot = rot;
         } else if marker != FormId::PLAYER_REF {
-            // The player turns to the marker's heading and keeps the view's pitch (its X
-            // angle): the ending moves the player to an XMarkerHeading (0x001639F6,
-            // heading 0) whose heading faces the slide (0x001680A7, straight ahead along
-            // +Y) [observed: the slide room's references, fnvtool world refs; the owner's
-            // playtest 2026-11-12, issue #2226: ours faced 90 degrees away while the
-            // original faces the slide]. The GECK wiki's MoveTo page does not say
-            // [hypothesis: MoveTo to any reference turns the player to its heading].
+            // The player turns to the marker's heading: the ending moves the player to an
+            // XMarkerHeading (0x001639F6, heading 0) whose heading faces the slide
+            // (0x001680A7, straight ahead along +Y) [observed: the slide room's
+            // references, fnvtool world refs; the owner's playtest 2026-11-12, issue
+            // #2226: ours faced 90 degrees away while the original faces the slide]. The
+            // GECK wiki's MoveTo page does not say [hypothesis: MoveTo to any reference
+            // turns the player to its heading].
+            //
+            // The view's pitch (its X angle) is the marker's too: both slide markers
+            // (the ending's, Honest Hearts' NVDLC02SlideShowMarkerREF 0x0101012F) are
+            // level, with the slide's centre 118-121 units over the feet and 118 ahead,
+            // and the scripts hold the player's looking there (DisablePlayerControls),
+            // so a pitch kept from before left the slide tilted off the screen
+            // [observed: the owner's playtest 2026-11-15, #2710: Honest Hearts' intro
+            // looked down at the slide; fnvtool world refs of both rooms]
+            // [hypothesis: the original levels the view on any MoveTo of the player].
             s.rot[2] = rot[2];
+            s.rot[0] = rot[0];
         }
     }
     g.note_relocated(r, cell, pos);
@@ -338,6 +358,7 @@ pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
     g.world.get(r).map_err(|e| e.to_string())?.cell = cell;
     placed_by_script(g, r, true);
+    g.projectile_placed_by_script(r, pos);
     none()
 }
 
@@ -494,14 +515,14 @@ pub fn get_locked(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
         return Ok(Value::Num(if in_loaded_cell(g, r) { crate::terminal::locked(g, r) as f64 } else { 0.0 }));
     }
     let status = g.world.lock_status(r).map_err(|e| e.to_string())?;
-    Ok(Value::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { status as f64 }))
+    Ok(Value::Num(if status == 1 && g.locks.broken.contains(&g.world.lock_source(r)) { 2.0 } else { status as f64 }))
 }
 
 /// 1 for a lock broken by forcing it (`crate::lockpick`) [documented: GECK wiki
 /// GetIsLockBroken].
 pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::bool(g.locks.broken.contains(&r)))
+    Ok(Value::bool(g.locks.broken.contains(&g.world.lock_source(r))))
 }
 
 /// `Ref.Activate [actor] [flag]`: with no actor the calling reference's action reference

@@ -6,7 +6,7 @@
     Each place is a set of nvforever arguments (and sometimes test aids) taken from the
     smoke scenarios and the playtest notes. Places play as the player (--play) unless
     -FreeCam is given or the place is a free-camera view. The add-on packs' start-up
-    message boxes are closed at once (--no-messages) unless -Messages is given.
+    message boxes are answered without opening (--no-messages) unless -Messages is given.
 
     .\tools\play\Play.ps1 -List            every place with what it is for
     .\tools\play\Play.ps1 Saloon           the Prospector Saloon

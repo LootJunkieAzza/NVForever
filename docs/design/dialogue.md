@@ -247,6 +247,34 @@ everything a script can see.
   with the player), has its sound paused there and resumed after. A line of the
   conversation itself goes on in real time by design and is held only by a message box
   on top of it, and by the pause menu.
+
+**Plain Say across the pause menu (#2714).** [design: `nvf-play/script.rs::run_scripts`,
+`voice.rs::play`, `script_hud.rs::subtitles`; `fnv-game/game.rs::tick`, `end_line`]
+The pause menu returns before the script tick, retaining the speech and its remaining
+time. The voice sink pauses, its deadline moves by the held time, and it resumes when
+the menu closes. The HUD selects the retained speech's current response; completion
+removes that speech, emits an uncut `LineEnded`, runs its end result and dispatches
+SayToDone once. The headless regression
+`synthetic::plain_say_resumes_after_mid_line_pauses_and_finishes_once` exercises two
+mid-response menu holds, retained subtitle inputs, the end result and SayToDone; the
+`roy-say-pause-resume` smoke scenario checks the actual pause menu, voice and subtitle.
+[design, #2714: `nvf-play/test_aid.rs::real_presses`, `pause.rs::WorldAidClock`]
+The scenario uses Escape-key aids on the same world clock as Say, keeping the pause
+mid-line even when script loading starts that clock late. [design:
+`nvf-play/script_hud.rs::Subtitles::log_change`, `draw`] The HUD logs
+`subtitle: cleared` once when its logged subtitle selection becomes empty; the smoke
+requires that marker after Roy's line ends.
+This records the existing implementation, not an original-game capture [design].
+
+[documented: issue #2714, spooknik's 2026-11-15 record audit] Roy's object script
+SCPT 0x00113643 calls plain `Say 0x001135FA`, with no target. Its INFO 0x0011361F
+is Conversation/Goodbye with no choices, follow-ups or end script; no Wayne reply
+follows it. Wayne's INFO 0x0011363B is his GREETING when the player speaks to him after
+VMS19.RoyState becomes 1. [documented: GECK wiki
+[Say](https://geckwiki.com/index.php?title=Say), offline snapshot 2026-10-28]
+Say speaks one dialogue line. [design, #2714] Keep the existing resume behavior and
+do not synthesize a Wayne response or route this call through `Game::say_package_line`.
+
 - **Leaving**: a conversation is left where the data offers a goodbye (Tab). Breaking
   one off with the line cut is a debug switch, off by default, not part of a release
   [owner decision 2026-10-10] (docs/design/dialogue-play.md §4).

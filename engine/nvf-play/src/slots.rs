@@ -398,9 +398,14 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<SlotsScreen>, mut out: MessageWriter<SlotsInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
+    // The player's tweak: W held spins again each time the reels stop [design: docs/design/tweaks.md].
+    if tweaks.is_some_and(|t| t.slots_hold_to_spin) && keys.pressed(KeyCode::KeyW) && !keys.just_pressed(KeyCode::KeyW) && s.betting() {
+        out.write(SlotsInput::Spin);
+        return;
+    }
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
             out.write(SlotsInput::CloseHelp);
@@ -621,6 +626,33 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<SlotsStats>) {
     }
     let s = &*stats;
     info!("slots summary: {} asked, {} opened ({} refused); {} spins, {} won, {} chips won, {} lost; {} bans", s.asked, s.opened, s.refused, s.spins, s.wins, s.won, s.lost, s.bans);
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> SlotsScreen {
+    SlotsScreen(Some(Session {
+        casino: FormId(42),
+        casino_name: String::new(),
+        chip: FormId(43),
+        symbols: vec![],
+        reel: vec![0, 1],
+        max_winnings: 1000,
+        limits: Limits::new(1, 10),
+        bet: if step >= 1 { 2 } else { 1 },
+        stops: if step >= 2 { [1; REELS] } else { [0; REELS] },
+        phase: if step >= 3 { Phase::Paid { until: step as f32 } } else { Phase::Betting },
+        chips: 100,
+        earnings: 0,
+        status: None,
+        help: None,
+        payouts: step >= 4,
+        banned: false,
+        forced: None,
+        increases: step,
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+    }))
 }
 
 #[cfg(test)]

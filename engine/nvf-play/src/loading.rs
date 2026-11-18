@@ -124,6 +124,17 @@ struct StartHold {
 /// The loading screen's state.
 #[derive(Resource, Default)]
 pub struct Loading {
+    /// The player's tweak: no tip text or band (`crate::tweaks`).
+    pub hide_tips: bool,
+    /// The player's Click to Exit Load Screens tweak: a finished screen stays up, saying
+    /// so, until a key or a button is pressed [design: docs/design/tweaks.md].
+    pub click_to_exit: bool,
+    /// The player's No Exterior Load Screens tweak: a trip out of an interior shows the
+    /// black alone, no picture or tip [design: docs/design/tweaks.md].
+    pub plain_going_out: bool,
+    /// The next screen is the plain one (set for one [`spawn_screen`]).
+    plain_once: bool,
+    waiting_click: bool,
     trip: Option<Trip>,
     /// The start of the run, held until the world can be played ([`StartCover`]).
     start: Option<StartHold>,
@@ -172,6 +183,66 @@ pub struct Loading {
     /// The start's screen is not on the window yet (since this real time): the world holds
     /// off, so that its reads and pipelines do not come first ([`Loading::world_held`]).
     picture_hold: Option<std::time::Instant>,
+    /// The screen that is up so far, timed as [`LoadPhases`].
+    phases: LoadPhases,
+    /// The last screen that came down, timed (issue #2407): nvforever's reports send it
+    /// with a slow load.
+    pub last_phases: Option<LoadPhases>,
+}
+
+/// Where a loading screen's time went (issue #2407): for each thing it waited for
+/// ([`missing`]: cells to draw, cells in physics, actors to draw, pipelines, the scripts,
+/// the Pip-Boy warm-up), the real seconds from the screen coming up to the last frame it was
+/// still missing, and the longest frame under the screen. A wait that ends last is what held
+/// the screen; a long frame is work on the main thread (a cell built, a save read) where a
+/// long wait made of short frames is work elsewhere (reads from the disk, the model and
+/// texture pools, pipeline compiles) [engineering choice].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LoadPhases {
+    /// Seconds the screen was up.
+    pub total: f64,
+    /// Each wait and when it ended, in the order first seen.
+    pub until: Vec<(&'static str, f64)>,
+    /// The longest frame under the screen (real seconds) and the frames counted.
+    pub longest_frame: f64,
+    pub frames: u32,
+    /// What the game files gave under the screen: files, bytes, time in the reads and
+    /// time queued for an archive (`fnv_vfs::read_stats`; from its first frame counted).
+    pub reads: fnv_vfs::ReadStats,
+    reads_from: Option<fnv_vfs::ReadStats>,
+}
+
+impl LoadPhases {
+    /// Count a frame `at` seconds after the screen came up, `frame` long, still waiting for `wait`.
+    fn note(&mut self, wait: &[&'static str], at: f64, frame: f64) {
+        let now = fnv_vfs::read_stats();
+        self.reads = now.since(self.reads_from.get_or_insert(now));
+        self.frames += 1;
+        self.total = self.total.max(at);
+        self.longest_frame = self.longest_frame.max(frame);
+        for &w in wait {
+            match self.until.iter_mut().find(|(n, _)| *n == w) {
+                Some((_, t)) => *t = t.max(at),
+                None => self.until.push((w, at)),
+            }
+        }
+    }
+
+    /// The log line's text: `up 3.40 s; cells to draw 3.10 s, pipelines 0.40 s; longest frame 0.90 s of 41; read 812 files, 95.0 MB, 0.30 s reading, 0.10 s queued for an archive`.
+    pub fn text(&self) -> String {
+        let waits = if self.until.is_empty() { "nothing waited for".to_string() } else { self.until.iter().map(|(n, t)| format!("{n} {t:.2} s")).collect::<Vec<_>>().join(", ") };
+        let r = &self.reads;
+        format!(
+            "up {:.2} s; {waits}; longest frame {:.2} s of {}; read {} files, {:.1} MB, {:.2} s reading, {:.2} s queued for an archive",
+            self.total,
+            self.longest_frame,
+            self.frames,
+            r.files,
+            r.bytes as f64 / 1e6,
+            r.read_ns as f64 / 1e9,
+            r.queued_ns as f64 / 1e9
+        )
+    }
 }
 
 impl Loading {
@@ -367,6 +438,7 @@ fn begin(
         return;
     }
     let to = (!std::mem::take(&mut loading.generic_next)).then(|| destination(&travel, *location));
+    loading.plain_once = loading.plain_going_out && location.interior.is_some() && travel.destination(*location).interior.is_none();
     spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
     clock.pause();
     next.set(PlayState::Loading);
@@ -426,7 +498,11 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
     let anywhere = Destination { interior: None, exterior: None };
     let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
-    let screen = art.screens.as_deref().and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let plain = std::mem::take(&mut loading.plain_once);
+    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    if plain {
+        info!("loading screen: out of an interior, no picture (tweak)");
+    }
     let picture = match (screen.and_then(|s| s.texture.as_deref()), art.data.as_deref(), art.textures.as_mut(), art.images.as_mut()) {
         (Some(path), Some(data), Some(textures), Some(images)) => textures.get(path, true, data, images, art.formats.as_deref()),
         _ => None,
@@ -459,7 +535,7 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
         commands.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }, picture_node(), ChildOf(root)));
     }
     // Drawn by `look::fit_tip` (this frame too). No text, no band.
-    if let Some(text) = screen.map(|s| s.text.trim()).filter(|t| !t.is_empty()) {
+    if let Some(text) = screen.map(|s| s.text.trim()).filter(|t| !t.is_empty() && !loading.hide_tips) {
         let style = screen.and_then(|s| s.tip).unwrap_or(TipStyle::FALLBACK);
         let node = Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
         commands.spawn((look::Tip { text: text.to_string(), style, drawn_for: None }, node, ChildOf(root)));
@@ -560,22 +636,46 @@ fn settled(ready: &mut Option<(f64, u32)>, ok: bool, now: f64) -> bool {
     *frames >= SETTLE_FRAMES && now - *since >= SETTLE_SECS
 }
 
+/// What a finished loading screen says under the Click to Exit tweak (our words) [design: docs/design/tweaks.md].
+const PRESS_LINE: &str = "Press any key to continue";
+
 /// Everything is in: take the screen down and let the game go on. A travel's screen waits
 /// for the destination's cells (drawn and in physics) and its actors; the start's
 /// ([`StartCover`]) for those and the scripts too (made, and a save put back).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn finish(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
     phys: Option<Res<PhysState>>,
-    scripts: Option<Res<crate::script::ScriptState>>,
+    mut scripts: Option<ResMut<crate::script::ScriptState>>,
     real: Res<Time<Real>>,
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
     roots: Query<Entity, With<LoadingRoot>>,
+    (keys, mouse): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<ButtonInput<MouseButton>>>),
 ) {
+    // The player's tweak: the screen waits for a press once all is in [design: docs/design/tweaks.md].
+    if loading.waiting_click {
+        let pressed = keys.is_some_and(|k| k.get_just_pressed().next().is_some()) || mouse.is_some_and(|m| m.get_just_pressed().next().is_some());
+        if !pressed {
+            return;
+        }
+        loading.waiting_click = false;
+        info!("loading screen: taken down on a press (tweak)");
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        clock.unpause();
+        next.set(PlayState::Playing);
+        return;
+    }
     let now = real.elapsed_secs_f64();
     let starting = loading.start.is_some();
+    // Timed from the screen that is up: the start's for a travel under it.
+    if let Some(origin) = loading.start.map(|s| s.started).or(loading.trip.map(|t| t.started)) {
+        let wait = if loading.trip.as_ref().is_some_and(|t| !t.sent) { vec!["the travel to go out"] } else { missing(&loading, phys.as_deref(), scripts.as_deref(), starting && loading.trip.is_none()) };
+        loading.phases.note(&wait, now - origin, real.delta_secs_f64());
+    }
     if loading.trip.as_ref().is_some_and(|t| t.sent) {
         let wait = waiting_for(&mut loading, phys.as_deref(), None, false, now);
         let trip = loading.trip.as_mut().expect("trip");
@@ -606,10 +706,33 @@ fn finish(
         }
         loading.start = None;
         info!("loading screen down after {waited:.2} s (the start: cells, actors and scripts ready); the test aids and --run-seconds count from now");
+        // The player's tweak: a loaded save starts in the pause menu [design: docs/design/tweaks.md]; asked as
+        // ShowPauseMenu asks (`crate::pause`).
+        if let Some(rt) = scripts.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.restored_from_save && rt.game.tweaks.pause_on_load) {
+            rt.game.showoff.b5.pause_asks += 1;
+            rt.game.showoff.b5.pause_mode = 0;
+            info!("loading screen: the save starts paused (tweak)");
+        }
     } else {
         return;
     }
+    let phases = std::mem::take(&mut loading.phases);
+    info!("loading screen phases: {}", phases.text());
+    loading.last_phases = Some(phases);
     (loading.pipelines_since, loading.pipelines_capped) = (None, false);
+    if loading.click_to_exit {
+        loading.waiting_click = true;
+        for e in &roots {
+            commands.entity(e).with_children(|p| {
+                let node = Node { position_type: PositionType::Absolute, bottom: Val::Percent(6.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() };
+                p.spawn(node).with_children(|n| {
+                    n.spawn((Text::new(PRESS_LINE), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::srgb(1.0, 0.75, 0.3))));
+                });
+            });
+        }
+        info!("loading screen: all is in, waiting for a press (tweak)");
+        return;
+    }
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -620,6 +743,18 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phases_keep_each_waits_last_frame_and_the_longest_frame() {
+        let mut p = LoadPhases::default();
+        p.note(&["cells to draw", "pipelines"], 0.5, 0.1);
+        p.note(&["cells to draw"], 2.0, 1.4);
+        p.note(&["actors to draw"], 3.0, 0.2);
+        p.note(&[], 3.3, 0.05);
+        assert_eq!(p.until, vec![("cells to draw", 2.0), ("pipelines", 0.5), ("actors to draw", 3.0)]);
+        assert_eq!((p.total, p.longest_frame, p.frames), (3.3, 1.4, 4));
+        assert!(p.text().starts_with("up 3.30 s; cells to draw 2.00 s, pipelines 0.50 s, actors to draw 3.00 s; longest frame 1.40 s of 4; read "), "{}", p.text());
+    }
 
     #[test]
     fn start_waits_for_pipboy_teardown_even_when_pipelines_are_quiet() {
@@ -652,9 +787,9 @@ mod tests {
     #[test]
     fn where_a_travel_arrives() {
         let outside = Location { world: 0xDA726, interior: None };
-        let indoors = Travel { world: None, interior: Some(0x100), feet: [0.0; 3], heading_deg: 0.0 };
+        let indoors = Travel { world: None, interior: Some(0x100), feet: [0.0; 3], heading_deg: 0.0, pitch_deg: None };
         assert_eq!(destination(&indoors, outside), Destination { interior: Some(0x100), exterior: None });
-        let out = Travel { world: None, interior: None, feet: [-69_500.0, -5_000.0, 0.0], heading_deg: 0.0 };
+        let out = Travel { world: None, interior: None, feet: [-69_500.0, -5_000.0, 0.0], heading_deg: 0.0, pitch_deg: None };
         let inside = Location { world: 0xDA726, interior: Some(0x100) };
         assert_eq!(destination(&out, inside), Destination { interior: None, exterior: Some((0xDA726, (-17, -2))) });
     }
@@ -723,7 +858,7 @@ mod tests {
     fn busy_pipelines_hold_a_travels_screen() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         for _ in 0..3 {
             app.update();
@@ -766,7 +901,7 @@ mod tests {
     fn the_screen_is_up_before_the_travel_and_holds_the_game() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.update();
         // Up at once, the clock stopped; the travel has not gone out.
@@ -807,7 +942,7 @@ mod tests {
         let mut app = app();
         app.update();
         app.world_mut().resource_mut::<Loading>().generic_next = true;
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.update();
         let l = app.world().resource::<Loading>();
@@ -913,7 +1048,7 @@ mod tests {
     fn a_travel_screen_waits_for_the_destinations_actors() {
         let mut app = app();
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.world_mut().resource_mut::<Loading>().actors_busy = true;
         for _ in 0..10 {
@@ -930,7 +1065,7 @@ mod tests {
         let mut app = app();
         app.insert_resource(StartCover);
         app.update();
-        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: None };
         app.world_mut().write_message(TravelRequest(t));
         app.world_mut().resource_mut::<Loading>().actors_busy = true;
         app.update();

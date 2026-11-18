@@ -66,6 +66,14 @@ fn acbs(female: bool) -> fnv_esm::raw::Subrecord {
     sub(b"ACBS", d)
 }
 
+/// AIDT with a Confidence code (byte 1: 0 Cowardly … 4 Foolhardy), the rest as an NPC
+/// with none (Aggression 0).
+fn aidt_confidence(confidence: u8) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0, confidence, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    d.extend(0i32.to_le_bytes());
+    sub(b"AIDT", d)
+}
+
 fn npc(fid: u32, edid: &str, race: u32, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), acbs(false), sub(b"RNAM", race.to_le_bytes().to_vec()), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())];
     subs.extend(extra);
@@ -110,7 +118,10 @@ fn plugin_bytes() -> Vec<u8> {
     );
     let npcs = [
         npc(0x7, "Player", HUMAN, vec![]),
-        npc(JOE, "Joe", HUMAN, vec![sub(b"CNTO", [BLADES.to_le_bytes(), 1i32.to_le_bytes()].concat())]),
+        // Confidence 2 (Average): with no AIDT his confidence reads 0, Cowardly, and a coward
+        // flees every fight from its start (#2520), so he would not stand as the adult
+        // that fights in `a_child_in_a_fight_only_flees`.
+        npc(JOE, "Joe", HUMAN, vec![sub(b"CNTO", [BLADES.to_le_bytes(), 1i32.to_le_bytes()].concat()), aidt_confidence(2)]),
         npc(GHOUL_NPC, "Gus", GHOUL, vec![]),
     ]
     .concat();
@@ -219,6 +230,32 @@ fn age_race_follows_the_links_and_clamps() {
     assert!(g.take_appearance_changes().is_empty());
     // Kept on the reference.
     assert_eq!(g.extra[&joe].race, Some(FormId(HUMAN_CHILD)));
+}
+
+/// A child never fights (#2438, `Game::never_fights`): in a fight its flee check always
+/// fails, unhurt and whatever its confidence, and its weapon stays away; the same actor
+/// as an adult fights with its weapon out and does not flee from nobody.
+#[test]
+fn a_child_in_a_fight_only_flees() {
+    let f = fixture();
+    let mut g = game(&f);
+    let joe = FormId(JOE_REF);
+    g.start_combat(joe, P);
+    assert!(!g.never_fights(joe), "an adult fights");
+    assert!(!g.flee_check(joe, 0.0).flees, "an adult with no threat does not flee");
+    assert!(g.wants_weapon_out(joe), "an adult fighting draws its weapon");
+    call(&mut g, Some(joe), AGE_RACE, &[num(-1.0)]);
+    assert!(is_race(&mut g, joe, HUMAN_CHILD));
+    assert!(g.never_fights(joe));
+    assert!(g.awareness.state(joe).in_combat(), "a child still turns hostile");
+    assert!(g.flee_check(joe, 0.0).flees, "a child flees, unhurt");
+    assert!(!g.wants_weapon_out(joe), "a child keeps its weapon away");
+    // At its flee spot it checks again and flees on: it never turns to fight.
+    g.start_flight(joe, P, [0.0; 3]);
+    g.boost_confidence(joe);
+    g.boost_confidence(joe);
+    assert!(g.flee_check(joe, 0.0).flees, "boosted to foolhardy, a child still flees");
+    assert!(!g.never_fights(P), "the player is never held to the rule");
 }
 
 /// SexChange on an NPC: a given sex, or the other one; GetIsSex reads it; reset counts

@@ -148,6 +148,9 @@ pub struct PlayerControl {
     pub orbit: Orbit,
     /// How long Ready Item has been held with the weapon out (a hold holsters).
     pub ready_held: Option<f32>,
+    /// A Ready Item tap waiting [`DOUBLE_TAP`] for a second one (the player's Double-Tap
+    /// Reload Changes Ammo tweak): seconds since it.
+    pub reload_wait: Option<f32>,
     /// Use held with the weapon out (the trigger; `crate::combat` reads it).
     pub trigger: bool,
     /// A reload was asked for (Ready Item tapped with the weapon out); `crate::combat`
@@ -188,6 +191,7 @@ impl Default for PlayerControl {
             distance: DEFAULT_DISTANCE,
             orbit: Orbit::default(),
             ready_held: None,
+            reload_wait: None,
             trigger: false,
             reload: false,
             lowered: false,
@@ -510,6 +514,9 @@ pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, 
 /// the eye the view counts as first person, so the body goes while the camera is still
 /// behind the head, not through it [design].
 pub const TALK_CAMERA_CLOSE: f32 = 0.85;
+/// Under the player's Double-Tap Reload Changes Ammo tweak, a second Ready Item tap within
+/// this many seconds swaps the ammo instead of reloading, seconds [design].
+pub const DOUBLE_TAP: f32 = 0.3;
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
 pub const HOLSTER_HOLD: f32 = 0.5;
 /// The circling camera swings back behind the player with this time constant, seconds
@@ -578,10 +585,15 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 /// The controls that are bound but not built yet.
 const NOT_BUILT: [Control; 0] = [];
 
+/// The real clock and the tweaks, for the holster hold (`crate::tweaks`).
+type HoldClock<'w> = (Option<Res<'w, Time<Real>>>, Option<Res<'w, crate::tweaks::TweakSettings>>);
+
 /// Toggles, holds, the third-person zoom; see the module notes.
+#[allow(clippy::too_many_arguments)]
 pub fn read_controls(
     input: ControlInput,
     time: Res<Time>,
+    (real, tweaks): HoldClock,
     scroll: Res<AccumulatedMouseScroll>,
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
@@ -597,7 +609,15 @@ pub fn read_controls(
     }
     let mut message: Option<String> = None;
     let c = &mut *control;
-    if input.just_pressed(Control::CrouchSneak) {
+    let was_out = c.weapon_out;
+    // The player's tweak: sneak while the key is held, not by toggling [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.hold_to_sneak) {
+        let held = input.pressed(Control::CrouchSneak);
+        if held != c.sneak && (input.just_pressed(Control::CrouchSneak) || input.just_released(Control::CrouchSneak)) {
+            c.sneak = held;
+            info!("Crouch/Sneak held: sneaking {} asked", if c.sneak { "on" } else { "off" });
+        }
+    } else if input.just_pressed(Control::CrouchSneak) {
         c.sneak = !c.sneak;
         info!("Crouch/Sneak pressed: sneaking {} asked", if c.sneak { "on" } else { "off" });
     }
@@ -611,22 +631,53 @@ pub fn read_controls(
     if input.just_pressed(Control::ReadyItem) {
         if c.weapon_out {
             c.ready_held = Some(0.0);
+        } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
+            // The player's tweak: Ready Item does not draw [design: docs/design/tweaks.md].
+            info!("Ready Item pressed: not drawn (tweak)");
         } else {
             c.weapon_out = true;
             info!("Ready Item pressed: the weapon drawn");
         }
     }
     if let Some(t) = c.ready_held.as_mut() {
-        *t += time.delta_secs();
+        // The player's tweak times the hold on the real clock, not the slowed one [design: docs/design/tweaks.md].
+        *t += match real.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.holster_real_time)) {
+            Some(r) => r.delta_secs(),
+            None => time.delta_secs(),
+        };
         if *t >= HOLSTER_HOLD {
             c.weapon_out = false;
             c.ready_held = None;
             info!("Ready Item held: the weapon holstered");
         } else if input.just_released(Control::ReadyItem) || !input.pressed(Control::ReadyItem) {
             c.ready_held = None;
-            c.reload = true;
             c.lowered = false;
+            // The player's tweak: a second tap within [`DOUBLE_TAP`] swaps the ammo, so a
+            // tap waits for it before reloading [design: docs/design/tweaks.md].
+            if tweaks.as_ref().is_some_and(|t| t.double_tap_ammo) {
+                if c.reload_wait.take().is_some() {
+                    c.ammo_swap = true;
+                    info!("Ready Item tapped twice: ammo swap (tweak)");
+                } else {
+                    c.reload_wait = Some(0.0);
+                }
+            } else {
+                c.reload = true;
+            }
         }
+    }
+    if let Some(t) = c.reload_wait.as_mut() {
+        *t += time.delta_secs();
+        if *t >= DOUBLE_TAP && c.ready_held.is_none() {
+            c.reload_wait = None;
+            c.reload = true;
+        }
+    }
+    // The Tweaks tab's Holster Weapon key [design: docs/design/tweaks.md].
+    if input.just_pressed(Control::HolsterWeapon) && c.weapon_out {
+        c.weapon_out = false;
+        c.ready_held = None;
+        info!("Holster Weapon pressed: the weapon holstered");
     }
     if input.just_pressed(Control::LowerWeapon) && c.weapon_out {
         c.lowered = !c.lowered;
@@ -648,6 +699,11 @@ pub fn read_controls(
         }
     }
     c.aiming = input.pressed(Control::Block) && !c.wheel;
+    // The player's tweak: aiming draws the weapon [design: docs/design/tweaks.md].
+    if c.aiming && !c.weapon_out && tweaks.as_ref().is_some_and(|t| t.aiming_draws_weapon) {
+        c.weapon_out = true;
+        info!("Block/aim held: the weapon drawn (tweak)");
+    }
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }
@@ -666,14 +722,22 @@ pub fn read_controls(
             };
         } else {
             c.orbit = c.orbit.released();
-            c.pov = Pov::Third;
+            // The player's tweak puts a first-person view back [design: docs/design/tweaks.md].
+            c.pov = crate::vanity::end_view(c.pov == Pov::First, tweaks.as_ref().is_some_and(|t| t.vanity_returns_first));
         }
     }
     // Not while a script turned the vanity wheel off (ToggleVanityWheel,
     // `crate::script_switches`).
     let wheel = switches.is_none_or(|s| s.vanity_wheel);
+    // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
+    let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
     if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
         c.distance = zoom(c.distance, scroll.delta.y);
+    }
+    // The player's tweak: drawing goes to first person, holstering to third [design: docs/design/tweaks.md].
+    if c.weapon_out != was_out && tweaks.as_ref().is_some_and(|t| t.pov_follows_weapon) {
+        c.pov = if c.weapon_out { Pov::First } else { Pov::Third };
+        info!("view: {:?} with the weapon {} (tweak)", c.pov, if c.weapon_out { "drawn" } else { "holstered" });
     }
     if let Some(m) = message {
         info!("{m}");

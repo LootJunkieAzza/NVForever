@@ -197,16 +197,20 @@ pub struct ModelEmitter {
     /// holder's clips say, by system name: on, and the clip's birth rate where it keys
     /// one. A system not named does not emit.
     pub driven: Option<HashMap<String, Option<f32>>>,
+    /// A factor on the size of the particles it gives birth to from now on (1: as the
+    /// file says). The reference's scale leaves the size alone (particles.md §7.7); a grass
+    /// fire's flames grow and die down with this (`crate::grass_fire_fx`) [design].
+    pub size: f32,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r), clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
@@ -215,14 +219,37 @@ impl ModelEmitter {
     /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
     /// with the rig and its sounds.
     pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None }
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None, driven: None, size: 1.0 }
     }
 
     /// The model of a weapon in an actor's hand: its systems stay off until the actor's
     /// clips switch them on (the dynamite's fuse sparks while the throw clip lights it,
     /// particles.md §7.6); `driven` is set each frame by whoever plays the clips.
     pub fn held(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()) }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None, clock: None, driven: Some(HashMap::new()), size: 1.0 }
+    }
+}
+
+/// [design, #2685] An ANIO hierarchy driven by an actor idle's external KF.
+#[derive(Component)]
+pub struct IdleParticleRig {
+    pub nodes: HashMap<String, Entity>,
+    pub clip: Arc<nvf_assets::anim_play::Clip>,
+}
+
+/// [design, #2685] Particle meshes live in world space, but their materials use
+/// the attachment's idle clock and the ordinary rig material player.
+#[derive(Component)]
+pub struct IdleParticleMaterial(Entity);
+
+pub fn sync_idle_materials(
+    owners: Query<&Playing, Without<IdleParticleMaterial>>,
+    mut particles: Query<(&IdleParticleMaterial, &mut Playing)>,
+) {
+    for (owner, mut player) in &mut particles {
+        if let Ok(source) = owners.get(owner.0) {
+            player.time = source.time;
+        }
     }
 }
 
@@ -682,6 +709,7 @@ fn systems_of<'a>(
     models: &mut ModelCtx,
     commands: &mut Commands,
     root: Entity,
+    idle: Option<&IdleParticleRig>,
 ) -> Option<&'a mut Vec<Live>> {
     let source = &key.source;
     if !p.systems.contains_key(key) {
@@ -720,7 +748,18 @@ fn systems_of<'a>(
                     let entity = commands
                         .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(def.material.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root)))
                         .id();
-                    Live { def: def.clone(), particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0 }
+                    if let (Some(idle), Some(owner)) = (idle, key.instance) {
+                        if let Some(materials) = def.idle_materials(entity, &idle.clip) {
+                            let mut player = Playing::new(&idle.clip.name, &idle.clip, |_| None);
+                            player.held = true;
+                            commands.entity(entity).insert((IdleParticleMaterial(owner), player, materials));
+                        }
+                    }
+                    let mut def = def.clone();
+                    if let Some(idle) = idle {
+                        def.bind_idle(&idle.clip);
+                    }
+                    Live { def, particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0 }
                 })
                 .collect()
         });
@@ -758,6 +797,7 @@ type ModelEmitterItem = (
     &'static mut ModelEmitter,
     Option<&'static InheritedVisibility>,
     Option<&'static crate::object_anims::GroupRig>,
+    Option<&'static IdleParticleRig>,
     Option<&'static Playing>,
     Option<&'static crate::effect_shaders::PlayerEffectEmitter>,
 );
@@ -765,7 +805,9 @@ type ModelEmitterItem = (
 /// An emitter to serve this frame: its entity, systems, time, placed reference and drive.
 /// An emitter, its systems' key, age, placed reference, the sequence driving its drawn
 /// model, and the clips' word on a held model's systems ([`ModelEmitter::driven`]).
-type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>);
+/// The emitter, its systems' key, its age, its placed reference, its drive, its held
+/// clips' word and the factor on its particles' size ([`ModelEmitter::size`]).
+type EmitSource = (Entity, Key, f32, Option<u32>, Option<Drive>, Option<HashMap<String, Option<f32>>>, f32);
 
 /// Births: each add-on node in the world emits into the systems of its ADDN, each
 /// model emitter into its file's own.
@@ -781,6 +823,7 @@ fn emit(
     mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>, Option<&crate::effect_shaders::PlayerEffectEmitter>)>,
     mut model_emitters: Query<ModelEmitterItem>,
     rigs: Query<&crate::object_anims::GroupRig>,
+    idle_rigs: Query<&IdleParticleRig>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
     body: Option<Res<crate::player_body::PlayerBody>>,
@@ -810,11 +853,11 @@ fn emit(
             p.placed_seen.insert(r);
         }
         if part_seen(part) && !hidden(em.age, v) {
-            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None));
+            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed, None, None, 1.0));
         }
         em.age += dt;
     }
-    for (e, mut em, v, rig, playing, part) in &mut model_emitters {
+    for (e, mut em, v, rig, idle_rig, playing, part) in &mut model_emitters {
         // A placed model's systems are its own (particles.md §7.1).
         let instance = em.placed.map(|_| e);
         if let Some(r) = em.placed {
@@ -825,7 +868,7 @@ fn emit(
         // Drawn with its own nodes: the sequence playing on it and the span of its time
         // since last frame; a sequence just begun counts from its start, unless it was
         // shown already well into it (drawn at a group's held end).
-        let drive = rig.map(|_| {
+        let drive = (rig.is_some() || idle_rig.is_some()).then(|| {
             let now = playing.map(|p| (p.name.clone(), (p.time - p.start).max(0.0)));
             let last = em.clock.take();
             let mut began = false;
@@ -848,7 +891,7 @@ fn emit(
         // A held model whose clips switch nothing on costs nothing.
         let idle = em.driven.as_ref().is_some_and(HashMap::is_empty);
         if part_seen(part) && !hidden(em.age, v) && !idle {
-            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone()));
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed, drive, em.driven.clone(), em.size.max(0.0)));
         }
         em.age += dt;
     }
@@ -861,11 +904,12 @@ fn emit(
         order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
     }
     for i in order {
-        let (_, key, age, placed, drive, driven) = &sources[i];
+        let (_, key, age, placed, drive, driven, size) = &sources[i];
+        let size = *size;
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, key.instance.and_then(|e| idle_rigs.get(e).ok())) else { continue };
         let node = places[i];
         let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
@@ -905,7 +949,9 @@ fn emit(
             live.served += 1;
             *owed += rate * on;
             // From its emitter object's node as the drawn model's sequence moves it.
-            let moved = rig.filter(|_| d.emitter.mesh.is_none()).and_then(|r| r.node(d.emitter.object.as_deref()?)).map(|e| game_affine(e, &transforms, &parents, root));
+            let moved = d.emitter.object.as_deref().filter(|_| d.emitter.mesh.is_none()).and_then(|name| {
+                rig.and_then(|r| r.node(name)).or_else(|| drive.as_ref().and_then(|dr| idle_rigs.get(dr.rig).ok()).and_then(|r| r.nodes.get(name).copied()))
+            }).map(|e| game_affine(e, &transforms, &parents, root));
             let frame = moved.unwrap_or(node * d.emitter.frame);
             let (_, turn, origin) = frame.to_scale_rotation_translation();
             // The reference's scale and the system node's set the spray's speed and its
@@ -975,7 +1021,7 @@ fn emit(
                     life: (vals.life + vals.life_variation * spread(&mut rng) * 0.5).max(0.02),
                     // Sized by the system node's scale; the reference's scale moves and speeds
                     // the spray but leaves the drops' size (particles.md §3, §7.7).
-                    radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0) * d.system_scale,
+                    radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0) * d.system_scale * size,
                     angle: rot.angle + rot.angle_variation * spread(&mut rng),
                     spin,
                     tex: if d.subtextures.is_empty() { 0 } else { ((rng.next_f32() * d.subtextures.len() as f32) as usize).min(d.subtextures.len() - 1) },
@@ -1332,6 +1378,7 @@ mod tests {
             name: "test".into(),
             max: 0,
             material: default(),
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
             emitter: Emitter {
                 frame: Affine3A::IDENTITY,
                 size: Vec3::ZERO,

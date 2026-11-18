@@ -182,9 +182,9 @@ pub(crate) fn apply_ranges(
     mut commands: Commands,
     distances: Res<DrawDistances>,
     world: Option<Res<WorldData>>,
-    changed: Query<Entity, (With<RefVisual>, With<MeshMaterial3d<NifMaterial>>, Or<(Added<RefVisual>, Changed<VisibilityRange>)>)>,
-    all: Query<Entity, (With<RefVisual>, With<MeshMaterial3d<NifMaterial>>)>,
-    mut meshes: Query<(&RefVisual, &mut MeshMaterial3d<NifMaterial>, Option<&VisibilityRange>, Option<&DrawClass>)>,
+    changed: Query<Entity, (With<RefVisual>, Or<(With<MeshMaterial3d<NifMaterial>>, With<MeshMaterial3d<nvf_assets::nif_surface_blend::NifBlendMaterial>>)>, Or<(Added<RefVisual>, Changed<VisibilityRange>)>)>,
+    all: Query<Entity, (With<RefVisual>, Or<(With<MeshMaterial3d<NifMaterial>>, With<MeshMaterial3d<nvf_assets::nif_surface_blend::NifBlendMaterial>>)>)>,
+    mut meshes: Query<(&RefVisual, Option<&mut MeshMaterial3d<NifMaterial>>, Option<&mut MeshMaterial3d<nvf_assets::nif_surface_blend::NifBlendMaterial>>, Option<&VisibilityRange>, Option<&DrawClass>)>,
     parents: Query<&ChildOf>,
     marks: Query<(Has<CellEntity>, Has<ActorRig>, Has<DroppedRoot>)>,
     mut known: Local<HashMap<u32, DrawClass>>,
@@ -201,7 +201,7 @@ pub(crate) fn apply_ranges(
         );
     }
     for e in entities {
-        let Ok((r, mut material, range, class)) = meshes.get_mut(e) else { continue };
+        let Ok((r, material, blend, range, class)) = meshes.get_mut(e) else { continue };
         let class = match class {
             Some(c) => *c,
             None => {
@@ -217,7 +217,8 @@ pub(crate) fn apply_ranges(
                 if let Some(d) = want {
                     commands.entity(e).insert(fade::drawn_within(Some(d), FADE));
                     // Its pipeline is chosen again, with the dither (fade.rs notes).
-                    material.set_changed();
+                    if let Some(mut material) = material { material.set_changed(); }
+                    if let Some(mut blend) = blend { blend.set_changed(); }
                 }
             }
             // Fading in or out: the fade's own range until it rests.
@@ -280,6 +281,28 @@ pub fn set_grass(world: &mut World, v: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enabled_mesh_keeps_fading_then_receives_object_slider_updates() {
+        let mut app = App::new();
+        let mut d = distances(); d.objects = 0.5;
+        app.insert_resource(d).add_systems(Update, apply_ranges);
+        let e = app.world_mut().spawn((RefVisual(42), DrawClass::Object,
+            MeshMaterial3d::<nvf_assets::nif_surface_blend::NifBlendMaterial>(Handle::default()), fade::drawn(8))).id();
+        app.update();
+        assert!(app.world().get::<VisibilityRange>(e).unwrap() == &fade::drawn(8));
+        app.world_mut().entity_mut(e).insert(fade::drawn(fade::STEPS));
+        app.update();
+        let reach = app.world().resource::<DrawDistances>().reach;
+        assert!(app.world().get::<VisibilityRange>(e).unwrap() == &fade::drawn_within(Some(reach * 0.5), FADE));
+        app.world_mut().resource_mut::<DrawDistances>().objects = 0.25;
+        app.update();
+        assert!(app.world().get::<VisibilityRange>(e).unwrap() == &fade::drawn_within(Some(reach * 0.25), FADE));
+        app.world_mut().entity_mut(e).remove::<VisibilityRange>();
+        app.world_mut().resource_mut::<DrawDistances>().objects = 0.75;
+        app.update();
+        assert!(app.world().get::<VisibilityRange>(e).unwrap() == &fade::drawn_within(Some(reach * 0.75), FADE));
+    }
 
     fn distances() -> DrawDistances {
         DrawDistances { objects: 1.0, actors: 0.5, items: 0.25, shadows: 1.0, grass: 1.0, reach: full_reach(2), shadow_full: 8000.0, grass_full: (7000.0, 1000.0) }

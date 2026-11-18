@@ -99,6 +99,59 @@ impl Rules {
     }
 }
 
+/// The Pickpocket Overhaul tweak's formula [documented: Stewie's Tweaks' readme,
+/// bPickpocketOverhaul: `fBaseChance + Agility × fPlayerAgilityMult + Luck ×
+/// fPlayerLuckMult + Sneak × fPlayerSneakMult − target Perception × fTargetPerceptionMult −
+/// detection value × fDetectionValueMult − item value × fItemValueMult − item weight ×
+/// fItemWeightMult`, × fWornItemChanceMult for a worn item, then the game's
+/// fPickPocketMinChance and fPickPocketMaxChance; design: the multipliers' defaults, the
+/// readme gives none], with the figures read as the menu opens.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Overhaul {
+    pub agility: f64,
+    pub luck: f64,
+    pub sneak: f64,
+    pub perception: f64,
+    /// How well the victim detects the player now (0 to 100, `crate::detection`).
+    pub detection: f64,
+    pub base: f64,
+    pub agility_mult: f64,
+    pub luck_mult: f64,
+    pub sneak_mult: f64,
+    pub perception_mult: f64,
+    pub detection_mult: f64,
+    pub value_mult: f64,
+    pub weight_mult: f64,
+    pub worn_mult: f64,
+    /// Free items (worth nothing) are always taken unseen (its `bIgnoreFreeItems`).
+    pub free_items: bool,
+}
+
+impl Overhaul {
+    /// The chance in percent of moving items worth `value` and weighing `weight`, `worn`
+    /// ones (on the victim) or not, within `rules`' bounds.
+    pub fn chance(&self, rules: &Rules, value: f64, weight: f64, worn: bool) -> i32 {
+        if self.free_items && value <= 0.0 {
+            return 100;
+        }
+        let c = self.base + self.agility * self.agility_mult + self.luck * self.luck_mult + self.sneak * self.sneak_mult
+            - self.perception * self.perception_mult
+            - self.detection * self.detection_mult
+            - value * self.value_mult
+            - weight * self.weight_mult;
+        let c = if worn { c * self.worn_mult } else { c }.floor();
+        let (lo, hi) = (rules.min_chance.min(rules.max_chance), rules.max_chance.max(rules.min_chance));
+        c.clamp(lo, hi) as i32
+    }
+
+    /// The experience its Reward XP gives for items worth `value` and weighing `weight`:
+    /// `weight × fItemWeightMult + value × fItemValueMult + target Perception`
+    /// [documented: the tweak's menu file, bRewardXP].
+    pub fn xp(&self, value: f64, weight: f64) -> f64 {
+        (weight * self.weight_mult + value * self.value_mult + self.perception).max(0.0)
+    }
+}
+
 /// Why the player may not pickpocket an actor now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
@@ -186,10 +239,13 @@ impl Game<'_> {
             return Some(Refusal::NotAllowed);
         }
         let fighting_player = self.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-        if fighting_player || self.would_attack(r, FormId::PLAYER_REF) {
+        // The player's tweak lets a fleeing actor's pockets be picked [design: docs/design/tweaks.md].
+        let fleeing = self.tweaks.pickpocket_fleeing && self.awareness.tactics.flights.contains_key(&r);
+        if !fleeing && (fighting_player || self.would_attack(r, FormId::PLAYER_REF)) {
             return Some(Refusal::NotAllowed);
         }
-        if self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
+        // The player's tweak lets the player try again [design: docs/design/tweaks.md].
+        if !self.tweaks.pickpocket_after_caught && self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
             return Some(Refusal::CaughtBefore);
         }
         None
@@ -203,6 +259,34 @@ impl Game<'_> {
         (thief, target)
     }
 
+    /// The Pickpocket Overhaul tweak's figures for `victim`, when the tweak is on.
+    pub fn pickpocket_overhaul(&mut self, victim: FormId) -> Option<Overhaul> {
+        if !self.tweaks.pickpocket_overhaul {
+            return None;
+        }
+        let av = |g: &mut Game, r: FormId, code: u16| actor::actor_value_capped(g, r, code);
+        let t = &self.tweaks;
+        let mut o = Overhaul {
+            base: f64::from(t.pp_base),
+            agility_mult: f64::from(t.pp_agility) / 10.0,
+            luck_mult: f64::from(t.pp_luck) / 10.0,
+            sneak_mult: f64::from(t.pp_sneak) / 10.0,
+            perception_mult: f64::from(t.pp_perception) / 10.0,
+            detection_mult: f64::from(t.pp_detection) / 10.0,
+            value_mult: f64::from(t.pp_value) / 100.0,
+            weight_mult: f64::from(t.pp_weight) / 10.0,
+            worn_mult: f64::from(t.pp_worn) / 10.0,
+            free_items: t.pp_free_items,
+            ..Overhaul::default()
+        };
+        o.agility = av(self, FormId::PLAYER_REF, crate::actor_values::AGILITY);
+        o.luck = av(self, FormId::PLAYER_REF, crate::actor_values::LUCK);
+        o.sneak = av(self, FormId::PLAYER_REF, crate::actor_values::SNEAK);
+        o.perception = av(self, victim, crate::actor_values::PERCEPTION);
+        o.detection = self.detection.get(victim, FormId::PLAYER_REF).map_or(0.0, |d| d.value).clamp(0.0, 100.0);
+        Some(o)
+    }
+
     /// The chance of taking or placing items worth `value` from or on `victim`.
     pub fn pickpocket_chance(&mut self, victim: FormId, value: f64) -> i32 {
         let rules = self.pickpocket_rules();
@@ -214,7 +298,7 @@ impl Game<'_> {
     /// EquippedItems 1, and the victim is no child ("Child actors still cannot have their
     /// equipped items stolen" [documented: SetPlayerCanPickpocketEquippedItems]).
     pub fn pickpocket_worn(&self, victim: FormId) -> bool {
-        self.pickpocket.worn_items && !self.actor_race(victim).is_some_and(|race| self.data.child_races.contains(&race))
+        (self.pickpocket.worn_items || self.tweaks.pickpocket_worn_items) && !self.actor_race(victim).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// The rules as read from the load order.
@@ -250,9 +334,26 @@ impl Game<'_> {
             return false;
         }
         let turned = self.crime_turn(victim, Kind::Pickpocket);
+        // The player's tweak: the victim that caught the player detects them [design: docs/design/tweaks.md].
+        if self.tweaks.pickpocket_caught_detects {
+            self.caught_detects(victim);
+        }
         let owner = base_of(self, victim);
         self.crimes.notes.push(Note::Crime { kind: Kind::Pickpocket, victim: owner, seen_by: vec![victim], hostile: if turned { vec![victim] } else { Vec::new() } });
         turned
+    }
+
+    /// `victim` caught the player's hand in its pocket: it has the player in the detected
+    /// band now (the sneak word's `[DETECTED]` until the engine measures the pair again),
+    /// and one that would attack the player takes them as a known target
+    /// (`Game::observe_threat`) [design: docs/design/tweaks.md].
+    pub fn caught_detects(&mut self, victim: FormId) {
+        let det = crate::detection::Detection { value: 100.0, band: crate::detection::Band::Detected, seen: true, clear: true, ..Default::default() };
+        let now = self.time;
+        self.detection.record(victim, FormId::PLAYER_REF, det, now);
+        if let Some(at) = crate::awareness::position(self, FormId::PLAYER_REF) {
+            self.observe_threat(victim, FormId::PLAYER_REF, &det, at);
+        }
     }
 
     /// The player placed `item` in `victim`'s pocket, a live explosive (the engine knows
@@ -413,5 +514,23 @@ mod tests {
         // Within the bounds.
         assert_eq!(r.chance(100.0, 0.0, 0.0), 85);
         assert_eq!(r.chance(0.0, 100.0, 1000.0), 5);
+    }
+}
+
+#[cfg(test)]
+mod overhaul_tests {
+    use super::*;
+
+    #[test]
+    fn the_overhaul_counts_its_figures_within_the_games_bounds() {
+        let rules = Rules::default();
+        let o = Overhaul { agility: 6.0, luck: 5.0, sneak: 50.0, perception: 5.0, detection: 20.0, base: 40.0, agility_mult: 2.0, luck_mult: 1.0, sneak_mult: 0.5, perception_mult: 3.0, detection_mult: 0.3, value_mult: 0.05, weight_mult: 2.0, worn_mult: 0.5, free_items: true };
+        // 40 + 12 + 5 + 25 - 15 - 6 - 5 - 2 = 54.
+        assert_eq!(o.chance(&rules, 100.0, 1.0, false), 54);
+        assert_eq!(o.chance(&rules, 100.0, 1.0, true), 27);
+        // Free items always; the game's bounds hold.
+        assert_eq!(o.chance(&rules, 0.0, 1.0, false), 100);
+        assert_eq!(o.chance(&rules, 5000.0, 1.0, false), rules.min_chance as i32);
+        assert!((o.xp(100.0, 1.0) - (2.0 + 5.0 + 5.0)).abs() < 1e-9);
     }
 }

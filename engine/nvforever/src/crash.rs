@@ -18,13 +18,29 @@
 //! where the camera was (worldspace or interior, cell, position; [`note_place`], kept
 //! every frame) and the name of the run log; the panic is logged too, and the console gets
 //! the words Rust's default hook prints, redacted (the default hook is not called: it would
-//! print the home folder).
+//! print the home folder). If several panics share a second and process id, the first
+//! report and its optional sidecars keep that name; later panics are still logged.
 //!
 //! **Structured events** (events_log.rs): the same events at `info` and up, as JSON lines
 //! with where and when they happened, in `events-<UTC time>-<pid>.jsonl` beside the run log.
 //!
 //! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
 //! (native_crash.rs) and a line in the run log, and the run log check above still names them.
+//!
+//! **A run that just stops** (no panic, no dump: a stack overflow, an abort, the process
+//! ended from outside): a watcher process adds the process's exit code to the end of the run
+//! log (exit_watch.rs, #2755), and an allocation that fails says so in the log first
+//! ([`SaysWhenEmpty`]).
+//!
+//! **A lost graphics device** (#2934: the driver stopped answering, or the card was
+//! reset). wgpu says so once, and Bevy asks the game what to do at the next frame
+//! ([`render_error`]); but the frame in flight goes on drawing with the dead device and
+//! usually panics first (a buffer made on it "is invalid"), so the run used to end as that
+//! panic. Bevy logs the loss the moment wgpu reports it; the console writer notes that
+//! line ([`note_device_lost`]), and from then on a panic is the loss's consequence: its
+//! crash report says `graphics device lost` (with the panic under it), the player is told
+//! the driver stopped ([`DEVICE_LOST_TEXT`]) and the run ends. Without a panic,
+//! [`render_error`] writes the same report and says the same.
 //!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
@@ -249,6 +265,8 @@ pub fn install(data: &Path, previous_running: bool) {
     match File::create(&path) {
         Ok(f) => {
             let _ = RUN_LOG.set(RunLog { path: path.clone(), writer: Mutex::new(Some(LineWriter::new(f))) });
+            // How this process ends, when nothing in it sees that (exit_watch.rs).
+            crate::exit_watch::start(&path);
         }
         Err(e) => eprintln!("run log: {}: {e}", redact(&path.display().to_string())),
     }
@@ -263,11 +281,164 @@ pub fn install(data: &Path, previous_running: bool) {
     crate::native_crash::install(&dir, &run_stamp);
     crate::events_log::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
-    let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
+    let unclean = previous.filter(|_| !previous_running).and_then(|p| {
+        let text = std::fs::read_to_string(&p).ok().filter(|t| ended_abnormally(t))?;
+        let exit = crate::exit_watch::said(&text).map(str::to_string);
+        Some((p, exit))
+    });
     let _ = UNCLEAN.set(unclean);
 }
 
-static UNCLEAN: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// The run before this one, when it did not end normally: its log, and what the log says
+/// of its process's exit code (exit_watch.rs).
+static UNCLEAN: OnceLock<Option<(PathBuf, Option<String>)>> = OnceLock::new();
+
+/// Lines an allocation failure may write (a loop of failing allocations must not fill the log).
+const ALLOC_FAIL_LINES: u32 = 4;
+/// Allocations that failed in this run.
+static ALLOC_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The system allocator, which says in the run log when it has no memory to give (#2755).
+/// Rust aborts when an allocation fails and its caller cannot go on: on Windows that is a
+/// fail-fast, which no exception filter sees (native_crash.rs), so the run log just stopped.
+/// Rust's own "memory allocation of N bytes failed" goes to the console only.
+pub struct SaysWhenEmpty;
+
+// SAFETY: every call goes to the system allocator unchanged; a null answer is only noted.
+unsafe impl std::alloc::GlobalAlloc for SaysWhenEmpty {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        // SAFETY: the caller's contract is System's.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.alloc_zeroed(layout) };
+        if p.is_null() {
+            alloc_failed(layout.size());
+        }
+        p
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the caller's contract is System's.
+        let p = unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
+        if p.is_null() {
+            alloc_failed(new_size);
+        }
+        p
+    }
+}
+
+/// An allocation of `size` bytes failed: a line in the run log, written straight to the
+/// file. Nothing here allocates (there is no memory), and the log's lock is never waited on
+/// (the failing allocation can be the log's own).
+fn alloc_failed(size: usize) {
+    if ALLOC_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= ALLOC_FAIL_LINES {
+        return;
+    }
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        let t = now_secs();
+        let (y, m, d) = civil_from_days((t / 86_400) as i64);
+        let s = t % 86_400;
+        let _ = writeln!(
+            f,
+            "{y:04}{m:02}{d:02}-{:02}{:02}{:02} ERROR nvforever::crash: out of memory: an allocation of {size} bytes failed (the process aborts when its caller cannot go on without it)",
+            s / 3600,
+            s / 60 % 60,
+            s % 60
+        );
+        let _ = f.flush();
+    }
+}
+
+/// The words Bevy logs when wgpu reports the device lost, before the reason and wgpu's
+/// text [observed: bevy_render 0.19.1 `error_handler.rs`, `Caught DeviceLost error:
+/// {reason:?} {str}`; the player report of #2934].
+const LOST_LINE: &str = "Caught DeviceLost error:";
+
+/// What the player is told when the graphics device is lost (#2934), as for running out
+/// of GPU memory (#2754).
+pub const DEVICE_LOST_TEXT: &str = "The graphics driver stopped responding, so NVForever has to close. Update the graphics driver; if it happens again, lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.";
+
+/// The lost device's reason and text, once Bevy has logged it.
+static DEVICE_LOST: Mutex<Option<String>> = Mutex::new(None);
+/// Set by the first thread to end the run for a lost device: it alone tells the player.
+static LOST_ENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The reason and text of a lost device in a log line, when the line is Bevy's.
+fn lost_in_line(line: &str) -> Option<&str> {
+    line.split_once(LOST_LINE).map(|(_, rest)| rest.trim())
+}
+
+/// Note a lost device from a log line (the console writer sees every line).
+fn note_device_lost(line: &str) {
+    if let Some(what) = lost_in_line(line) {
+        // Never waits: a line logged while the lock is held is not the first.
+        if let Ok(mut lost) = DEVICE_LOST.try_lock() {
+            lost.get_or_insert_with(|| if what.is_empty() { "no reason given".to_string() } else { what.to_string() });
+        }
+    }
+}
+
+/// The lost device's reason and text, when the device is lost.
+pub fn device_lost() -> Option<String> {
+    DEVICE_LOST.try_lock().ok().and_then(|l| l.clone())
+}
+
+/// A crash report's message for a lost device: the same words whatever panic followed, so
+/// the reports group under the loss.
+fn lost_message(what: &str) -> String {
+    format!("graphics device lost: {what}")
+}
+
+/// A crash report's backtrace part for a lost device: the panic that followed, then its
+/// backtrace.
+fn lost_backtrace(thread: &str, location: &str, message: &str, backtrace: &str) -> String {
+    format!("the panic that followed the loss, on thread '{thread}' at {location}:\n{message}\n\n{backtrace}")
+}
+
+/// The flight recorder's last 60 s and the world snapshot beside a crash report, when
+/// reports are on (reports/anomaly.rs, reports/snapshot.rs).
+fn write_sidecars(dir: &Path, when: &str) {
+    if crate::reports::active().is_some() {
+        let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{when}-{}.jsonl", std::process::id())));
+        let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{when}-{}.json", std::process::id())));
+        match (rec.is_ok(), snap.is_ok()) {
+            (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
+            (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
+            (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
+            (false, false) => {}
+        }
+    }
+}
+
+/// Test aid `NVF_PLAY_TEST_DEVICE_LOST=<seconds>`: the graphics device is destroyed that
+/// long after the start, so what the game does about a lost device can be checked. The
+/// frames after it fail as they do after a real loss (the same panic as the player report
+/// of #2934) [observed, this aid, GTX 1050]; wgpu 30 does not call the loss callback for a
+/// device destroyed this way, so the aid logs the loss in Bevy's words itself.
+pub fn test_device_lost(time: Res<Time>, device: Option<Res<bevy::render::renderer::RenderDevice>>, mut at: Local<Option<Option<f32>>>) {
+    let wanted = *at.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_DEVICE_LOST").ok().and_then(|v| v.trim().parse::<f32>().ok()));
+    let (Some(secs), Some(device)) = (wanted, device) else { return };
+    if time.elapsed_secs() >= secs {
+        *at = Some(None);
+        warn!("test aid: destroying the graphics device (NVF_PLAY_TEST_DEVICE_LOST)");
+        error!("{LOST_LINE} Destroyed by the test aid NVF_PLAY_TEST_DEVICE_LOST");
+        device.wgpu_device().destroy();
+    }
+}
 
 /// Test aid `NVF_PLAY_TEST_PANIC=<seconds>`: a thread of its own ("nvf-test-panic")
 /// panics that long after the first frame (when the camera's place is known), so the
@@ -311,7 +482,9 @@ struct ConsoleWriter;
 
 impl Write for ConsoleWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        std::io::stderr().write_all(redact(&String::from_utf8_lossy(buf)).as_bytes())?;
+        let text = String::from_utf8_lossy(buf);
+        note_device_lost(&text);
+        std::io::stderr().write_all(redact(&text).as_bytes())?;
         Ok(buf.len())
     }
 
@@ -438,6 +611,22 @@ fn report_text(thread: &str, message: &str, location: &str, place: &str, command
     )
 }
 
+/// Write one panic report and its optional sidecars. `false` means an earlier report
+/// already owns this name; its evidence must stay together.
+fn write_panic_report(path: &Path, text: &str, sidecars: impl FnOnce()) -> std::io::Result<bool> {
+    let result = match File::options().write(true).create_new(true).open(path) {
+        Ok(mut file) => file.write_all(redact(text).as_bytes()),
+        // Reserve the report name before collecting sidecars: concurrent or reentrant
+        // panics must not replace the report or the context belonging to it.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_file() => return Ok(false),
+        Err(e) => Err(e),
+    };
+    // As before, try the sidecars even if the text could not be written.
+    sidecars();
+    result?;
+    Ok(true)
+}
+
 fn set_hook() {
     std::panic::set_hook(Box::new(move |info| {
         // A broken model, texture or animation: caught, and that file counts as failed
@@ -459,25 +648,35 @@ fn set_hook() {
         let location = info.location().map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         let place = PLACE.try_lock().map(|p| p.clone()).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-        let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
-        let written = LOG_DIR.get().map(|dir| {
-            let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
-            // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
-            if crate::reports::active().is_some() {
-                let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
-                let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
-                match (rec.is_ok(), snap.is_ok()) {
-                    (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
-                    (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
-                    (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
-                    (false, false) => {}
+        // After a lost graphics device a panic is its consequence (module notes): the
+        // report is the loss's, with the panic under it.
+        let lost = device_lost();
+        if let Some(what) = &lost {
+            // Another thread is already ending the run for it (the player may be reading
+            // its message): this one waits for the process to end.
+            if LOST_ENDING.load(std::sync::atomic::Ordering::SeqCst) {
+                loop {
+                    std::thread::park();
                 }
             }
-            (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
+            error!("render: the graphics device was lost ({what}); the panic below is its consequence and the game stops");
+        }
+        let text = match &lost {
+            Some(what) => {
+                report_text("the graphics driver", &lost_message(what), "reported by wgpu", &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &lost_backtrace(&thread, &location, &message, &backtrace))
+            }
+            None => report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace),
+        };
+        let written = LOG_DIR.get().map(|dir| {
+            let when = stamp(now_secs());
+            let path = dir.join(format!("crash-{when}-{}.txt", std::process::id()));
+            let result = write_panic_report(&path, &text, || write_sidecars(dir, &when));
+            (result, path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
         match &written {
-            Some((Ok(p), _)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; crash report written to {}", p.display()),
+            Some((Ok(true), p)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; crash report written to {}", p.display()),
+            Some((Ok(false), p)) => error!("panic on thread '{thread}' at {location}: {message}; where: {place}; earlier crash report preserved at {}", p.display()),
             Some((Err(e), p)) => error!("panic on thread '{thread}' at {location}: {message}; the crash report could not be written to {}: {e}", p.display()),
             None => error!("panic on thread '{thread}' at {location}: {message} (no logs folder for a crash report)"),
         }
@@ -497,7 +696,28 @@ fn set_hook() {
         } else {
             eprint_line(format_args!("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"));
         }
+        // A lost device: the player is told why the game closes, and it closes here (the
+        // frame cannot be finished, and the threads still drawing would only panic too).
+        if lost.is_some() && !LOST_ENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            tell_player_at_start(DEVICE_LOST_TEXT, false);
+            std::process::exit(1);
+        }
     }));
+}
+
+/// The crash report of a lost device that no panic followed ([`render_error`]): the same
+/// message as the panic hook's, so both group together.
+fn write_lost_report(what: &str) {
+    let place = PLACE.try_lock().map(|p| p.clone()).unwrap_or_default();
+    let text = report_text("the graphics driver", &lost_message(what), "reported by wgpu", &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), "none: no panic followed the loss");
+    let Some(dir) = LOG_DIR.get() else { return };
+    let when = stamp(now_secs());
+    let path = dir.join(format!("crash-{when}-{}.txt", std::process::id()));
+    match write_panic_report(&path, &text, || write_sidecars(dir, &when)) {
+        Ok(true) => error!("render: crash report written to {}", path.display()),
+        Ok(false) => error!("render: earlier crash report preserved at {}", path.display()),
+        Err(e) => error!("render: the crash report could not be written to {}: {e}", path.display()),
+    }
 }
 
 /// Say where the run log is, and whether the run before this one ended abnormally.
@@ -509,8 +729,12 @@ pub fn report_start(mut commands: Commands) {
     if let Some(p) = crate::events_log::path() {
         info!("events log: {}", p.display());
     }
-    if let Some(Some(p)) = UNCLEAN.get() {
+    if let Some(Some((p, exit))) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
+        match exit {
+            Some(e) => warn!("run log: the previous run's process ended with exit code {e}"),
+            None => warn!("run log: the previous run's exit code was not recorded"),
+        }
     }
     commands.insert_resource(bevy::render::error_handler::RenderErrorHandler(render_error));
 }
@@ -536,6 +760,17 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
         }
     }
     error!("render: {:?} GPU error, the game stops: {}", error.ty, error.description);
+    if matches!(error.ty, ErrorType::OutOfMemory) {
+        // The player must see why the game closes (#2754); none in unattended runs.
+        tell_player_at_start("The graphics card ran out of memory, so NVForever has to close. Lower the graphics settings (resolution, shadows, draw distances) and close other programs that use the graphics card.", false);
+    }
+    if matches!(error.ty, ErrorType::DeviceLost) && !LOST_ENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // No panic came first (#2934): the loss gets its crash report here, and the
+        // player is told. Bevy asks again every frame until the game has stopped; once.
+        let what = device_lost().unwrap_or_else(|| error.description.clone());
+        write_lost_report(&what);
+        tell_player_at_start(DEVICE_LOST_TEXT, false);
+    }
     main.write_message(AppExit::error());
     RenderErrorPolicy::StopRendering
 }
@@ -590,6 +825,126 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ReportDir(PathBuf);
+
+    impl ReportDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!("nvf-panic-report-test-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for ReportDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// #2934: Bevy's line for a lost device is recognised, and its report names the loss
+    /// whatever panic followed.
+    #[test]
+    fn a_lost_device_is_read_from_bevys_line_and_named_in_the_report() {
+        let line = "2026-11-17T19:42:37.625Z ERROR bevy_render::error_handler: Caught DeviceLost error: Unknown Unexpected error variant (driver implementation is at fault)\n";
+        assert_eq!(lost_in_line(line), Some("Unknown Unexpected error variant (driver implementation is at fault)"));
+        assert_eq!(lost_in_line("ERROR bevy_render::error_handler: Caught rendering error: Validation Error"), None);
+        assert_eq!(lost_in_line("ERROR bevy_render::view::window: Couldn't get swap chain texture: Validation"), None);
+        let what = lost_in_line(line).unwrap();
+        let panic_a = lost_backtrace("Compute Task Pool (7)", "device.rs:72:18", "Failed to get mapped range for buffer", "frames");
+        let panic_b = lost_backtrace("main", "other.rs:1:1", "another consequence", "frames");
+        let a = report_text("the graphics driver", &lost_message(what), "reported by wgpu", "cell", "command", None, &panic_a);
+        let b = report_text("the graphics driver", &lost_message(what), "reported by wgpu", "cell", "command", None, &panic_b);
+        // The lines a report is grouped by are the loss's, the same for both panics.
+        let head = |t: &str| t.lines().filter(|l| l.starts_with("thread: ") || l.starts_with("message: ") || l.starts_with("at: ")).map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(head(&a), ["thread: the graphics driver", "message: graphics device lost: Unknown Unexpected error variant (driver implementation is at fault)", "at: reported by wgpu"]);
+        assert_eq!(head(&a), head(&b));
+        // The panic is kept under it.
+        assert!(a.contains("the panic that followed the loss, on thread 'Compute Task Pool (7)' at device.rs:72:18:\nFailed to get mapped range for buffer\n\nframes"));
+        assert!(DEVICE_LOST_TEXT.contains("graphics driver stopped responding") && DEVICE_LOST_TEXT.contains("Update the graphics driver"));
+    }
+
+    #[test]
+    fn same_second_panics_preserve_the_first_report_and_sidecars() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        let recorder = dir.0.join("recorder-20261116-120000-42.jsonl");
+        let snapshot = dir.0.join("snapshot-20261116-120000-42.json");
+        let first = report_text("render worker", "first panic", "first.rs:1:1", "cell", "command", None, "first backtrace");
+        let later = report_text("readback worker", "later panic", "later.rs:2:2", "cell", "command", None, "later backtrace");
+        let write_sidecars = |text: &str| {
+            std::fs::write(&recorder, text).unwrap();
+            std::fs::write(&snapshot, text).unwrap();
+        };
+        assert!(write_panic_report(&path, &first, || write_sidecars("first context")).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), redact(&first));
+        assert!(!write_panic_report(&path, &later, || write_sidecars("later context")).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), redact(&first));
+        assert_eq!(std::fs::read_to_string(&recorder).unwrap(), "first context");
+        assert_eq!(std::fs::read_to_string(&snapshot).unwrap(), "first context");
+        // A later second still gets its own report with the established name.
+        let next = dir.0.join("crash-20261116-120001-42.txt");
+        assert!(write_panic_report(&next, &later, || {}).unwrap());
+        assert_eq!(std::fs::read_to_string(next).unwrap(), redact(&later));
+    }
+
+    #[test]
+    fn concurrent_panics_keep_one_complete_report_with_its_sidecars() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        let sidecar = dir.0.join("snapshot-20261116-120000-42.json");
+        let barrier = std::sync::Barrier::new(4);
+        let winners = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4).map(|i| {
+                let (path, sidecar, barrier) = (&path, &sidecar, &barrier);
+                scope.spawn(move || {
+                    let text = format!("panic {i}\n{}", "backtrace\n".repeat(1000));
+                    barrier.wait();
+                    write_panic_report(path, &text, || std::fs::write(sidecar, &text).unwrap()).unwrap()
+                })
+            }).collect();
+            handles.into_iter().map(|h| usize::from(h.join().unwrap())).sum::<usize>()
+        });
+        assert_eq!(winners, 1);
+        let report = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(report, std::fs::read_to_string(sidecar).unwrap());
+        assert!((0..4).any(|i| report == format!("panic {i}\n{}", "backtrace\n".repeat(1000))));
+    }
+
+    #[test]
+    fn a_reentrant_report_attempt_preserves_the_reserved_report() {
+        let dir = ReportDir::new();
+        let path = dir.0.join("crash-20261116-120000-42.txt");
+        assert!(write_panic_report(&path, "first", || {
+            assert!(!write_panic_report(&path, "nested", || panic!("a collision must not collect sidecars again")).unwrap());
+        }).unwrap());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "first");
+    }
+
+    #[test]
+    fn a_report_io_error_is_not_a_preserved_report() {
+        let dir = ReportDir::new();
+        let absent = dir.0.join("missing").join("crash-20261116-120000-42.txt");
+        let mut collected = false;
+        assert_eq!(write_panic_report(&absent, "panic", || collected = true).unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(collected, "failure to write the text must still try to collect the sidecars");
+        // A directory occupying the name is an error, not an earlier report.
+        let sidecar = dir.0.join("snapshot-20261116-120000-42.json");
+        assert!(write_panic_report(&dir.0, "panic", || std::fs::write(&sidecar, "context").unwrap()).is_err());
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), "context");
+    }
+
+    /// #2755: an allocation the system cannot give is noted (and, with a run log, written).
+    #[test]
+    fn a_failed_allocation_is_noted() {
+        let before = ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed);
+        let layout = std::alloc::Layout::from_size_align(isize::MAX as usize - 4095, 4096).unwrap();
+        // SAFETY: a non-zero size; the null answer is not used.
+        let p = unsafe { std::alloc::GlobalAlloc::alloc(&SaysWhenEmpty, std::hint::black_box(layout)) };
+        assert!(p.is_null(), "no system gives half the address space");
+        assert!(ALLOC_FAILS.load(std::sync::atomic::Ordering::Relaxed) > before);
+    }
 
     /// #2203: a system reading AppExit in Last after `ExitSystems` sees the exit Bevy writes
     /// when the last window closes (here: no window at all) in that same, final frame.

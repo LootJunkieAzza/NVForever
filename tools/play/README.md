@@ -20,7 +20,7 @@ They run in Windows PowerShell 5.1 and in PowerShell 7.
   (`tools/smoke/scenarios.toml`) and the playtest notes; the named exterior cells (Primm,
   Novac, Camp McCarran …) start above the cell's centre, so the player may land on a roof.
 - Playing (`--play`) is the default; `-FreeCam` flies the free camera instead. The add-on
-  packs' start-up message boxes are closed at once (`--no-messages`); `-Messages` keeps them.
+  packs' start-up message boxes are answered without opening (`--no-messages`); `-Messages` keeps them.
 - `-God` sets the test aid `NVF_PLAY_TEST_GOD=1` (no damage to the player); places such as
   `Battle` set their own test aids. Test aids are set for that run only.
 - The game data comes from `-Data`, `NVFOREVER_DATA` or the Steam install; the game from
