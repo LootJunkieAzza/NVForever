@@ -1703,6 +1703,14 @@ impl App {
                         launch::open_folder(&h.mods());
                     }
                 }
+                let can_backup = self.backup_keep > 0 && self.mods.is_some();
+                let tip = if self.backup_keep == 0 { "Set Backups above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
+                if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
+                    match self.save_order_backup() {
+                        Ok(said) => self.message = Some((said.into(), false)),
+                        Err(e) => self.message = Some((e, true)),
+                    }
+                }
                 let mut keep = self.backup_keep as i32;
                 let drag = ui.add(egui::DragValue::new(&mut keep).range(0..=30));
                 ui.label(RichText::new("Backups").small().color(WEAK));
@@ -2104,6 +2112,54 @@ impl App {
             }
         }
         std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
+    }
+
+    fn store_backup(&self, path: &Path, body: &[u8]) -> Result<bool, String> {
+        let keep = self.backup_keep;
+        if keep == 0 {
+            return Err("Set Backups above 0.".into());
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
+        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
+        if let Some(parent) = bak(1).parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(body) {
+            return Ok(false);
+        }
+        for i in (1..keep).rev() {
+            let from = bak(i);
+            if from.is_file() {
+                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
+            }
+        }
+        for i in (keep + 1)..(keep + 40) {
+            let extra = bak(i);
+            if extra.is_file() {
+                let _ = std::fs::remove_file(&extra);
+            }
+        }
+        std::fs::write(bak(1), body).map_err(|e| format!("{}: {e}", bak(1).display()))?;
+        Ok(true)
+    }
+
+    fn save_order_backup(&self) -> Result<&'static str, String> {
+        if self.backup_keep == 0 {
+            return Err("Set Backups above 0.".into());
+        }
+        let home = self.home.as_ref().ok_or("no home folder")?;
+        let list = self.mods.as_ref().ok_or("no plugin list")?;
+        let mut order = String::from("; A star means this folder is on.\n");
+        for row in &self.mod_rows {
+            if row.on {
+                order.push('*');
+            }
+            order.push_str(&row.name);
+            order.push('\n');
+        }
+        let plugins_new = self.store_backup(&home.plugins_file(), list.to_text().as_bytes())?;
+        let order_new = self.store_backup(&home.root.join("mod-order.txt"), order.as_bytes())?;
+        if plugins_new || order_new { Ok("Backup saved.") } else { Ok("That backup is already the newest.") }
     }
 
     fn save_mods(&mut self) -> Result<(), String> {
