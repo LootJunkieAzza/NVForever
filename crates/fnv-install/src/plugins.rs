@@ -229,10 +229,6 @@ fn outside_plugins() -> &'static [(String, PathBuf)] {
             return Vec::new();
         }
         let mut roots = Vec::new();
-        let media = PathBuf::from("/run/media/original-none");
-        if media.is_dir() {
-            roots.push(media);
-        }
         if let Some(extra) = std::env::var_os("NVFOREVER_PLUGIN_SEARCH") {
             for part in extra.to_string_lossy().split(':') {
                 let path = PathBuf::from(part);
@@ -326,6 +322,8 @@ pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, I
     Ok(names)
 }
 
+/// The file to open for plugin `name`: a file of that name anywhere under `mods`
+/// when `mods` is set, else a file of that name directly in `data`, else `data/name`.
 pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
     if let Some(m) = mods {
         if let Some(path) = mod_plugin_map(m).get(&name.to_ascii_lowercase()) {
@@ -335,6 +333,10 @@ pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
     child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name))
 }
 
+/// [`plugin_path`] over `roots`, first root wins. A name is also matched in a
+/// subdirectory of a root. If none of those and `data` have the file, and a search
+/// root was set, the file may be linked into the first root. The game Data folder
+/// is not written. Otherwise `data/name`.
 pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
     let key = name.to_ascii_lowercase();
     for root in roots {
