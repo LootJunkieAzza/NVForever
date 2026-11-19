@@ -111,6 +111,16 @@ pub struct App {
     plugin_folders: HashMap<String, Vec<String>>,
     /// Lowercase plugin name, then the master names in the file that wins.
     plugin_masters: HashMap<String, Vec<String>>,
+    /// Lowercase plugin name, then the folder it belongs to. A lower row wins.
+    plugin_home: HashMap<String, String>,
+    /// How many plugin files are in each mod folder.
+    folder_counts: HashMap<String, usize>,
+    /// The find box on the plugin list.
+    plugin_find: String,
+    /// How many older copies of the plugin list to keep.
+    backup_keep: usize,
+    /// Apply is asking before it saves.
+    apply_ask: bool,
     /// Bottom bar height. Saved when the user lets go of the grip.
     bar_h: f32,
     /// The displays, for the Resolution and Monitor lists (asked once at start).
@@ -189,6 +199,11 @@ impl App {
             mods_present: HashSet::new(),
             plugin_folders: HashMap::new(),
             plugin_masters: HashMap::new(),
+            plugin_home: HashMap::new(),
+            folder_counts: HashMap::new(),
+            plugin_find: String::new(),
+            backup_keep: 5,
+            apply_ask: false,
             bar_h: 86.0,
             monitors: crate::display::monitors(),
             languages: crate::display::language_choices(&fnv_util::words::dirs(
@@ -248,6 +263,7 @@ impl App {
         // The INI first: the mod list's sync needs its game folder.
         app.reload_ini();
         app.bar_h = ini_get(&app.ini_text, LAUNCHER, "BottomBar").and_then(|s| s.parse::<f32>().ok()).unwrap_or(86.0).clamp(28.0, 280.0);
+        app.backup_keep = ini_get(&app.ini_text, LAUNCHER, "PluginBackups").and_then(|s| s.parse().ok()).unwrap_or(5).clamp(0, 30);
         if app.page == Page::Mods {
             app.load_mods();
         }
@@ -774,7 +790,10 @@ impl App {
                         if let Some(s) = self.newest.clone() {
                             if let Some(shot) = s.shot.clone() {
                                 let uri = format!("bytes://{}", s.path.file_name().and_then(|n| n.to_str()).unwrap_or("save"));
-                                ui.add(egui::Image::from_bytes(uri, Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(bar_h * 1.7, bar_h * 0.95)).corner_radius(3));
+                                let resp = ui.add(egui::Image::from_bytes(uri, Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(bar_h * 1.7, bar_h * 0.95)).corner_radius(3).sense(Sense::click())).on_hover_text("Load this save");
+                                if resp.clicked() {
+                                    self.start(ctx, Start::Load(s.path));
+                                }
                             }
                         }
                     });
@@ -830,55 +849,6 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
         }
     }
     order
-}
-
-fn data_root_of(src: &Path) -> PathBuf {
-    let direct = src.join("Data");
-    if direct.is_dir() {
-        return direct;
-    }
-    if let Ok(rd) = std::fs::read_dir(src) {
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("Data").is_dir() {
-                return path.join("Data");
-            }
-        }
-    }
-    src.to_path_buf()
-}
-
-fn copy_data_tree(src: &Path, dest: &Path) -> Result<(), String> {
-    let from = data_root_of(src);
-    let mut stack = vec![from.clone()];
-    while let Some(dir) = stack.pop() {
-        let rd = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.is_symlink() {
-                continue;
-            }
-            if path.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-            let lower = name.to_ascii_lowercase();
-            if lower.ends_with(".esm") || lower.ends_with(".esp") {
-                continue;
-            }
-            let Ok(rel) = path.strip_prefix(&from) else { continue };
-            let target = dest.join(rel);
-            if target.starts_with(src) {
-                continue;
-            }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-            }
-            std::fs::copy(&path, &target).map_err(|e| format!("{}: {e}", path.display()))?;
-        }
-    }
-    Ok(())
 }
 
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
@@ -1663,15 +1633,20 @@ impl App {
     fn refresh_plugin_notes(&mut self) {
         self.plugin_folders.clear();
         self.plugin_masters.clear();
+        self.plugin_home.clear();
+        self.folder_counts.clear();
         let Some(home) = self.home.clone() else { return };
         let mods = home.mods();
         let mut files: HashMap<String, PathBuf> = HashMap::new();
         for row in &self.mod_rows {
-            if !row.on {
-                continue;
-            }
-            for (name, path) in plugins::plugins_in_tree(&mods.join(&row.name)) {
+            let listed = plugins::plugins_in_tree(&mods.join(&row.name));
+            self.folder_counts.insert(row.name.clone(), listed.len());
+            for (name, path) in listed {
                 let key = name.to_ascii_lowercase();
+                self.plugin_home.insert(key.clone(), row.name.clone());
+                if !row.on {
+                    continue;
+                }
                 self.plugin_folders.entry(key.clone()).or_default().push(row.name.clone());
                 files.insert(key, path);
             }
@@ -1728,6 +1703,13 @@ impl App {
                         launch::open_folder(&h.mods());
                     }
                 }
+                let mut keep = self.backup_keep as i32;
+                let drag = ui.add(egui::DragValue::new(&mut keep).range(0..=30));
+                ui.label(RichText::new("Backups").small().color(WEAK));
+                if drag.changed() {
+                    self.backup_keep = keep.clamp(0, 30) as usize;
+                    self.set_launcher_key("PluginBackups", &self.backup_keep.to_string());
+                }
             });
         });
         ui.label(
@@ -1735,7 +1717,7 @@ impl App {
                 .small()
                 .color(WEAK),
         );
-        ui.label(RichText::new("Left: every mod folder. Right: the plugin load order.").small().color(WEAK));
+        ui.label(RichText::new("Left: mod order. A check turns that mod's plugins on. Right: the plugin load order.").small().color(WEAK));
         self.start_box(ui);
         ui.separator();
         let list_h = (ui.available_height() - 40.0).max(80.0);
@@ -1753,17 +1735,27 @@ impl App {
         });
         ui.add_space(6.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("Apply").clicked() {
-                match self.apply_mods() {
-                    Ok(n) => self.message = Some((format!("Copied data folders from {n} mods."), false)),
-                    Err(e) => self.message = Some((e, true)),
+            let running = self.running();
+            if self.apply_ask {
+                if ui.add_enabled(!running, egui::Button::new("Apply")).clicked() {
+                    self.apply_ask = false;
+                    match self.apply_mods() {
+                        Ok(()) => self.message = Some(("Load order saved. Files were left in their folders.".into(), false)),
+                        Err(e) => self.message = Some((e, true)),
+                    }
                 }
+                if ui.button("Cancel").clicked() {
+                    self.apply_ask = false;
+                }
+                ui.label(RichText::new("Files stay in their folders.").small().color(WEAK));
+            } else if ui.add_enabled(!running, egui::Button::new("Apply")).on_hover_text("Saves the list. Does not copy files.").clicked() {
+                self.apply_ask = true;
             }
         });
     }
 
     fn mod_column(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("MODS").small().color(GOLD));
+        ui.label(RichText::new("Mod Order").small().color(GOLD));
         egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
             if self.mod_rows.is_empty() {
                 ui.label(RichText::new("No folders in the mods folder.").small().color(WEAK));
@@ -1793,13 +1785,28 @@ impl App {
                                 box_changed = true;
                             }
                             ui.label(&name);
+                            let count = self.folder_counts.get(&name).copied().unwrap_or(0);
+                            if count > 0 {
+                                ui.label(RichText::new(count.to_string()).small().color(WEAK));
+                            }
                         });
                     });
                 });
                 if box_changed {
                     self.mod_rows[i].on = on;
+                    let folder = self.mod_rows[i].name.clone();
+                    let keys: HashSet<String> = self.plugin_home.iter().filter(|(_, owned)| *owned == &folder).map(|(key, _)| key.clone()).collect();
+                    if let Some(list) = &mut self.mods {
+                        for entry in &mut list.entries {
+                            if entry.name.eq_ignore_ascii_case("FalloutNV.esm") {
+                                continue;
+                            }
+                            if keys.contains(&entry.name.to_ascii_lowercase()) {
+                                entry.active = on;
+                            }
+                        }
+                    }
                     self.mods_dirty = true;
-                    self.refresh_plugin_notes();
                 }
                 let resp = row.response;
                 if resp.drag_started() {
@@ -1839,7 +1846,6 @@ impl App {
                 let row = self.mod_rows.remove(from);
                 self.mod_rows.insert(to, row);
                 self.mods_dirty = true;
-                self.refresh_plugin_notes();
             }
         });
     }
@@ -1857,15 +1863,27 @@ impl App {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
             return;
         };
+        ui.add(egui::TextEdit::singleline(&mut self.plugin_find).hint_text("Find a plugin").desired_width(ui.available_width()));
+        let find = self.plugin_find.trim().to_ascii_lowercase();
         let active_names: HashSet<String> = list.entries.iter().filter(|e| e.active).map(|e| e.name.to_ascii_lowercase()).collect();
         let present = self.mods_present.clone();
+        let is_esm: Vec<bool> = list.entries.iter().map(|e| e.name.to_ascii_lowercase().ends_with(".esm")).collect();
         let n = list.entries.len();
         let is_base: Vec<bool> = list.entries.iter().map(|e| e.name.eq_ignore_ascii_case("FalloutNV.esm")).collect();
         let fixed = is_base.iter().take_while(|b| **b).count();
         let mut moved: Option<(usize, usize)> = None;
         egui::ScrollArea::vertical().id_salt("plugin-rows").auto_shrink([false, false]).show(ui, |ui| {
             let mut rects = Vec::with_capacity(n);
+            let mut last_esm = false;
+            let mut toggled = false;
             for (i, e) in list.entries.iter_mut().enumerate() {
+                if !find.is_empty() && !e.name.to_ascii_lowercase().contains(&find) {
+                    continue;
+                }
+                if last_esm && !is_esm[i] {
+                    ui.separator();
+                }
+                last_esm = is_esm[i];
                 let base = is_base[i];
                 let dragged = self.mods_drag == Some(i);
                 let fill = if dragged { theme::SELECTED } else { CARD };
@@ -1888,6 +1906,7 @@ impl App {
                             ui.label(RichText::new(format!("{:02X}", i)).monospace().color(WEAK));
                             if ui.add_enabled(!base, egui::Checkbox::without_text(&mut e.active)).changed() {
                                 self.mods_dirty = true;
+                                toggled = true;
                             }
                             name_rect = ui.label(&e.name).rect;
                             let key = e.name.to_ascii_lowercase();
@@ -1918,10 +1937,25 @@ impl App {
                     if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| name_rect.contains(p)) {
                         e.active = !e.active;
                         self.mods_dirty = true;
+                        toggled = true;
                     }
                     let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 }
                 rects.push(resp.rect);
+            }
+            if toggled {
+                let homes = self.plugin_home.clone();
+                let active_now: HashSet<String> = list.entries.iter().filter(|e| e.active).map(|e| e.name.to_ascii_lowercase()).collect();
+                for row in &mut self.mod_rows {
+                    let has = homes.values().any(|folder| folder == &row.name);
+                    if !has {
+                        continue;
+                    }
+                    row.on = homes.iter().any(|(plugin, folder)| folder == &row.name && active_now.contains(plugin));
+                }
+            }
+            if !find.is_empty() {
+                return;
             }
             let Some(from) = self.mods_drag else { return };
             let ctx = ui.ctx().clone();
@@ -1959,7 +1993,7 @@ impl App {
     fn write_mod_order(&self) -> Result<(), String> {
         let home = self.home.as_ref().ok_or("no home folder")?;
         let path = home.root.join("mod-order.txt");
-        let mut body = String::from("; A star means Apply includes this folder.\n");
+        let mut body = String::from("; A star means this folder is on.\n");
         for row in &self.mod_rows {
             if row.on {
                 body.push('*');
@@ -1973,23 +2007,10 @@ impl App {
         std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))
     }
 
-    fn apply_mods(&mut self) -> Result<usize, String> {
-        let home = self.home.clone().ok_or("no home folder")?;
-        self.write_mod_order()?;
-        let mods = home.mods();
-        let mut n = 0usize;
-        for row in &self.mod_rows {
-            if !row.on {
-                continue;
-            }
-            let src = mods.join(&row.name);
-            if !src.is_dir() {
-                continue;
-            }
-            copy_data_tree(&src, &mods)?;
-            n += 1;
-        }
-        Ok(n)
+    fn apply_mods(&mut self) -> Result<(), String> {
+        self.save_mods()?;
+        self.mods_dirty = false;
+        Ok(())
     }
 
     /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
@@ -2015,7 +2036,7 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.start_edit.quest).hint_text("VCG00 (New Vegas opening); TTW: 001FFFF8").desired_width(w));
                 ui.end_row();
                 ui.label("Intro film");
-                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(r"fnvintro.bik (a file in Data\Video)").desired_width(w));
+                ui.add_enabled(!self.start_edit.no_film, egui::TextEdit::singleline(&mut self.start_edit.film).hint_text(if cfg!(windows) { r"fnvintro.bik (a file in Data\Video)" } else { "fnvintro.bik (a file in Data/Video)" }).desired_width(w));
                 ui.end_row();
                 ui.label("");
                 ui.checkbox(&mut self.start_edit.no_film, "No intro film");
@@ -2036,6 +2057,10 @@ impl App {
             if self.start_edit.is_ttw() && ttw == Some(false) {
                 ui.label(RichText::new(format!("{} is off in the list below: turn it on, or this start quest is not found.", start::TTW_PLUGIN)).small().color(BAD));
             }
+            let quest = self.start_edit.quest.trim();
+            if ttw == Some(true) && !self.start_edit.is_ttw() && (quest.is_empty() || quest.eq_ignore_ascii_case("VCG00")) {
+                ui.label(RichText::new("Tale of Two Wastelands is on, and a new game still starts at the New Vegas opening.").small().color(BAD));
+            }
         });
         if save {
             let fields = self.start_edit.clone();
@@ -2052,37 +2077,68 @@ impl App {
         }
     }
 
+    fn keep_plugin_backup(&self, path: &Path, next: &[u8]) -> Result<(), String> {
+        let keep = self.backup_keep;
+        if keep == 0 || !path.is_file() {
+            return Ok(());
+        }
+        let old = std::fs::read(path).unwrap_or_default();
+        if old.is_empty() || old.as_slice() == next {
+            return Ok(());
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
+        let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
+        if bak(1).is_file() && std::fs::read(bak(1)).ok().as_deref() == Some(old.as_slice()) {
+            return Ok(());
+        }
+        for i in (1..keep).rev() {
+            let from = bak(i);
+            if from.is_file() {
+                std::fs::rename(&from, bak(i + 1)).map_err(|e| format!("{}: {e}", from.display()))?;
+            }
+        }
+        for i in (keep + 1)..(keep + 40) {
+            let extra = bak(i);
+            if extra.is_file() {
+                let _ = std::fs::remove_file(&extra);
+            }
+        }
+        std::fs::write(bak(1), &old).map_err(|e| format!("{}: {e}", bak(1).display()))
+    }
+
     fn save_mods(&mut self) -> Result<(), String> {
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
         guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
-        write_whole(&path, list.to_text().as_bytes()).map_err(|e| e.to_string())?;
+        let body = list.to_text();
+        self.keep_plugin_backup(&path, body.as_bytes())?;
+        write_whole(&path, body.as_bytes()).map_err(|e| e.to_string())?;
         self.write_mod_order()
     }
 
-    fn game_folders() -> Vec<PathBuf> {
-        fn add_game(path: &Path, found: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
+    fn game_folders() -> Vec<(PathBuf, &'static str)> {
+        fn add_game(path: &Path, store: &'static str, found: &mut Vec<(PathBuf, &'static str)>, seen: &mut HashSet<PathBuf>) {
             if GameInstall::open(path).is_err() {
                 return;
             }
             let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             if seen.insert(key) {
-                found.push(path.to_path_buf());
+                found.push((path.to_path_buf(), store));
             }
         }
-        fn consider(path: &Path, found: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
+        fn consider(path: &Path, store: &'static str, found: &mut Vec<(PathBuf, &'static str)>, seen: &mut HashSet<PathBuf>) {
             if !path.is_dir() {
                 return;
             }
             if GameInstall::open(path).is_ok() {
-                add_game(path, found, seen);
+                add_game(path, store, found, seen);
                 return;
             }
             let Ok(rd) = std::fs::read_dir(path) else { return };
             for entry in rd.flatten() {
                 let child = entry.path();
                 if child.is_dir() {
-                    add_game(&child, found, seen);
+                    add_game(&child, store, found, seen);
                 }
             }
         }
@@ -2118,48 +2174,62 @@ impl App {
         let mut seen = HashSet::new();
         let Some(home_os) = std::env::var_os("HOME") else { return found };
         let home = PathBuf::from(home_os);
-        let mut parents = Vec::new();
+        let mut parents: Vec<(PathBuf, &'static str)> = Vec::new();
         for rel in [".steam/steam", ".local/share/Steam", ".var/app/com.valvesoftware.Steam/data/Steam"] {
             let steam = home.join(rel);
             if !steam.is_dir() {
                 continue;
             }
-            parents.push(steam.join("steamapps/common"));
+            parents.push((steam.join("steamapps/common"), "Steam"));
             if let Ok(text) = std::fs::read_to_string(steam.join("steamapps/libraryfolders.vdf")) {
                 for line in text.lines() {
                     let Some(rest) = line.trim().strip_prefix("\"path\"") else { continue };
                     let rest = rest.trim().trim_matches('"');
                     if !rest.is_empty() {
-                        parents.push(PathBuf::from(rest).join("steamapps/common"));
+                        parents.push((PathBuf::from(rest).join("steamapps/common"), "Steam"));
                     }
                 }
             }
         }
-        for rel in [
-            "Games",
-            "Games/Heroic",
-            "GOG Games",
-            ".wine/drive_c/GOG Games",
-            ".wine/drive_c/Program Files/Epic Games",
-            ".wine/drive_c/Program Files (x86)/GOG Galaxy/Games",
-            ".wine/drive_c/Program Files (x86)/Epic Games",
-        ] {
-            parents.push(home.join(rel));
+        for rel in ["GOG Games", ".wine/drive_c/GOG Games", ".wine/drive_c/Program Files (x86)/GOG Galaxy/Games"] {
+            parents.push((home.join(rel), "GOG"));
         }
-        for rel in [
-            ".config/legendary/installed.json",
-            ".config/heroic/legendaryConfig/legendary/installed.json",
-            ".var/app/com.heroicgameslauncher.hgl/config/heroic/legendaryConfig/legendary/installed.json",
-            ".config/heroic/gog_store/installed.json",
-            ".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json",
-            ".config/minigalaxy/config.json",
-        ] {
-            if let Ok(text) = std::fs::read_to_string(home.join(rel)) {
-                parents.extend(paths_in_json(&text));
+        for rel in [".wine/drive_c/Program Files/Epic Games", ".wine/drive_c/Program Files (x86)/Epic Games"] {
+            parents.push((home.join(rel), "Epic"));
+        }
+        for rel in ["Games", "Games/Heroic"] {
+            let root = home.join(rel);
+            let Ok(rd) = std::fs::read_dir(&root) else { continue };
+            for entry in rd.flatten() {
+                let child = entry.path();
+                if !child.is_dir() {
+                    continue;
+                }
+                let store = match child.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase() {
+                    n if n.contains("epic") => "Epic",
+                    n if n.contains("gog") => "GOG",
+                    n if n.contains("steam") => "Steam",
+                    _ => "Heroic",
+                };
+                parents.push((child, store));
             }
         }
-        for parent in parents {
-            consider(&parent, &mut found, &mut seen);
+        for (rel, store) in [
+            (".config/legendary/installed.json", "Epic"),
+            (".config/heroic/legendaryConfig/legendary/installed.json", "Epic"),
+            (".var/app/com.heroicgameslauncher.hgl/config/heroic/legendaryConfig/legendary/installed.json", "Epic"),
+            (".config/heroic/gog_store/installed.json", "GOG"),
+            (".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json", "GOG"),
+            (".config/minigalaxy/config.json", "GOG"),
+        ] {
+            if let Ok(text) = std::fs::read_to_string(home.join(rel)) {
+                for folder in paths_in_json(&text) {
+                    parents.push((folder, store));
+                }
+            }
+        }
+        for (parent, store) in parents {
+            consider(&parent, store, &mut found, &mut seen);
         }
         found
     }
@@ -2181,16 +2251,19 @@ impl App {
                 if !cfg!(windows) && ui.button("Find game folder").clicked() {
                     match Self::game_folders().as_slice() {
                         [] => self.message = Some(("No Fallout: New Vegas folder in Steam, GOG, or Epic.".into(), true)),
-                        [one] => self.game_edit = one.display().to_string(),
+                        [one] => {
+                            self.game_edit = one.0.display().to_string();
+                            self.message = Some((format!("Filled in {} from {}.", one.0.display(), one.1), false));
+                        }
                         many => {
                             let pick = many.iter().find(|p| {
-                                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                                p.0.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
                                     let n = n.to_ascii_lowercase();
                                     n.contains("vegas") || n.contains("fallout")
                                 })
                             }).unwrap_or(&many[0]);
-                            self.game_edit = pick.display().to_string();
-                            self.message = Some((format!("Found {}. Filled in {}.", many.len(), pick.display()), false));
+                            self.game_edit = pick.0.display().to_string();
+                            self.message = Some((format!("Found {}. Filled in {} from {}.", many.len(), pick.0.display(), pick.1), false));
                         }
                     }
                 }
