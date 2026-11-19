@@ -1828,19 +1828,12 @@ impl App {
                     }
                 }
                 let can_backup = self.backup_keep > 0 && self.mods.is_some();
-                let tip = if self.backup_keep == 0 { "Set Backups above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
+                let tip = if self.backup_keep == 0 { "Set Max backups kept above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
                 if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
                     match self.save_order_backup() {
                         Ok(said) => self.message = Some((said.into(), false)),
                         Err(e) => self.message = Some((e, true)),
                     }
-                }
-                let mut keep = self.backup_keep as i32;
-                let drag = ui.add(egui::DragValue::new(&mut keep).range(0..=30));
-                ui.label(RichText::new("Backups").small().color(WEAK));
-                if drag.changed() {
-                    self.backup_keep = keep.clamp(0, 30) as usize;
-                    self.set_launcher_key("PluginBackups", &self.backup_keep.to_string());
                 }
             });
         });
@@ -1901,15 +1894,9 @@ impl App {
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
         if self.show_overwrites {
-            ui.label(RichText::new("Open circle: this folder's file is not used.").small().color(WEAK));
-            ui.label(RichText::new("Filled circle: this folder's file is used.").small().color(WEAK));
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("\u{25cb}").color(GOLD));
-                ui.label(RichText::new("not used").small().color(WEAK));
-                ui.label(RichText::new("\u{25cf}").color(GOLD));
-                ui.label(RichText::new("used").small().color(WEAK));
-            });
-            ui.label(RichText::new("One color is one shared file. A color is not a mod name.").small().color(WEAK));
+            ui.label(RichText::new("Folders run from the top of this list to the bottom. The game checks the bottom folder last.").small().color(WEAK));
+            ui.label(RichText::new("If two checked folders contain the same file, the lower folder's copy is the one used. The higher folder's copy is skipped.").small().color(WEAK));
+            ui.label(RichText::new("A note under a folder names the other folder with that file. The same color only joins those two notes. The color is not a mod's name. Rest the pointer on a note to see the file names.").small().color(WEAK));
             if self.clashes.is_empty() {
                 ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
             }
@@ -1963,9 +1950,9 @@ impl App {
                                         let n = note.files.len();
                                         let word = if n == 1 { "file" } else { "files" };
                                         let (color, line) = if note.wins {
-                                            (pair_color(&note.other, &name), format!("Its {n} {word} {} {}", if n == 1 { "replaces" } else { "replace" }, note.other))
+                                            (pair_color(&note.other, &name), format!("{n} shared {word} here {} used. {} is higher in the list, so its copy is skipped.", if n == 1 { "is" } else { "are" }, note.other))
                                         } else {
-                                            (pair_color(&name, &note.other), format!("Its {n} {word} replaced by {}", note.other))
+                                            (pair_color(&name, &note.other), format!("{n} shared {word} here {} skipped. {} is lower in the list, so its copy is used.", if n == 1 { "is" } else { "are" }, note.other))
                                         };
                                         ui.label(RichText::new(line).small().color(color)).on_hover_text(note.files.join("\n"));
                                     }
@@ -2002,28 +1989,6 @@ impl App {
                 }
                 let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 rects.push(resp.rect);
-            }
-            if self.show_overwrites {
-            let at: HashMap<String, usize> = self.mod_rows.iter().enumerate().map(|(n, r)| (r.name.clone(), n)).collect();
-            for (i, row) in self.mod_rows.iter().enumerate() {
-                let Some(notes) = self.clashes.get(&row.name) else { continue };
-                for note in notes {
-                    if !note.wins {
-                        continue;
-                    }
-                    let Some(&from) = at.get(&note.other) else { continue };
-                    if from >= rects.len() || i >= rects.len() || rects[from].width() <= 0.0 || rects[i].width() <= 0.0 {
-                        continue;
-                    }
-                    let color = pair_color(&note.other, &row.name);
-                    let lost = rects[from];
-                    let win = rects[i];
-                    let x = lost.right().min(win.right()) - 8.0;
-                    ui.painter().line_segment([egui::pos2(x, lost.center().y), egui::pos2(x, win.center().y)], Stroke::new(2.0, color));
-                    ui.painter().circle_stroke(egui::pos2(x, lost.center().y), 3.0, Stroke::new(1.5, color));
-                    ui.painter().circle_filled(egui::pos2(x, win.center().y), 3.0, color);
-                }
-            }
             }
             if mod_find.is_empty() { if let Some(from) = self.mod_drag {
                 let ctx = ui.ctx().clone();
@@ -2339,7 +2304,7 @@ impl App {
     fn store_backup(&self, path: &Path, body: &[u8]) -> Result<bool, String> {
         let keep = self.backup_keep;
         if keep == 0 {
-            return Err("Set Backups above 0.".into());
+            return Err("Set Max backups kept above 0.".into());
         }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("plugins.txt");
         let bak = |i: usize| path.with_file_name(format!("{name}.bak.{i}"));
@@ -2386,6 +2351,10 @@ impl App {
 
     fn backup_row(&mut self, ui: &mut egui::Ui) {
         let Some(home) = self.home.clone() else { return };
+        if self.backup_keep != self.backup_max as usize {
+            self.backup_keep = self.backup_max as usize;
+            self.set_launcher_key("PluginBackups", &self.backup_max.to_string());
+        }
         let files = plugin_backups(&home);
         ui.horizontal(|ui| {
             ui.label(RichText::new("Max backups kept").small().color(WEAK))
@@ -2396,6 +2365,8 @@ impl App {
                         match write_backup_max(&home, *n) {
                             Ok(()) => {
                                 self.backup_max = *n;
+                                self.backup_keep = *n as usize;
+                                self.set_launcher_key("PluginBackups", &n.to_string());
                                 prune_plugin_backups(&home, *n);
                                 self.backup_pick = self.backup_pick.take().filter(|pick| plugin_backups(&home).iter().any(|p| backup_label(p) == *pick));
                                 self.message = Some((format!("At most {n} load-order backups are kept."), false));
