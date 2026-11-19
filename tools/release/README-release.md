@@ -38,6 +38,9 @@ nvf-viewer.cmd --mesh meshes\clutter\...
 The explorer used to be what `nvforever` opened without `--play`; it now needs `--explore`
 (or `--cell` / `--pos` without `--play`).
 
+The Linux programs need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40 and later); on an
+older system they stop at once, before any window or log.
+
 On Linux use the `.sh` launchers and pass `--data` (or set `Path=` under `[Game]` in the
 home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 `Documents\My Games\NVForever` (or `NVFOREVER_HOME`); caches to `%LOCALAPPDATA%\NVForever\cache`.
