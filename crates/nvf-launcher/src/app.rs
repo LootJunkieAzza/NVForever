@@ -101,6 +101,10 @@ pub struct App {
     mods_dirty: bool,
     /// The row being dragged on the Mods page.
     mods_drag: Option<usize>,
+    /// Maximum load-order backups kept. This is the cap, not how many exist.
+    backup_max: u32,
+    /// The backup the Load backup button puts into the list (`plugins-<this>.txt`).
+    backup_pick: Option<String>,
     /// Mod folders on the left of the Mods page. A lower row overwrites on Apply.
     mod_rows: Vec<ModRow>,
     /// The mod-folder row being dragged.
@@ -186,6 +190,7 @@ impl App {
         }
         let home = EngineHome::user();
         let menu = Catalog::load(home.as_ref().map(EngineHome::config_file).as_deref());
+        let backup_max = read_backup_max(home.as_ref());
         let mut app = App {
             page: Page::Home,
             home,
@@ -204,6 +209,8 @@ impl App {
             mods: None,
             mods_dirty: false,
             mods_drag: None,
+            backup_max,
+            backup_pick: None,
             mod_rows: Vec::new(),
             mod_drag: None,
             mods_present: HashSet::new(),
@@ -1831,6 +1838,7 @@ impl App {
                 .color(WEAK),
         );
         ui.label(RichText::new("Left: mod order. A check turns that mod's plugins on. Right: the plugin load order.").small().color(WEAK));
+        self.backup_row(ui);
         self.start_box(ui);
         ui.separator();
         let list_h = (ui.available_height() - 40.0).max(80.0);
@@ -2309,9 +2317,60 @@ impl App {
         if plugins_new || order_new { Ok("Backup saved.") } else { Ok("That backup is already the newest.") }
     }
 
+    fn backup_row(&mut self, ui: &mut egui::Ui) {
+        let Some(home) = self.home.clone() else { return };
+        let files = plugin_backups(&home);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Max backups kept").small().color(WEAK))
+                .on_hover_text("The most load-order copies to keep. Not how many exist now.");
+            egui::ComboBox::from_id_salt("plugin-backup-max").selected_text(self.backup_max.to_string()).show_ui(ui, |ui| {
+                for n in BACKUP_MAX {
+                    if ui.selectable_label(self.backup_max == *n, n.to_string()).clicked() && self.backup_max != *n {
+                        match write_backup_max(&home, *n) {
+                            Ok(()) => {
+                                self.backup_max = *n;
+                                prune_plugin_backups(&home, *n);
+                                self.backup_pick = self.backup_pick.take().filter(|pick| plugin_backups(&home).iter().any(|p| backup_label(p) == *pick));
+                                self.message = Some((format!("At most {n} load-order backups are kept."), false));
+                            }
+                            Err(e) => self.message = Some((e, true)),
+                        }
+                    }
+                }
+            });
+            let shown = self.backup_pick.clone().unwrap_or_else(|| if files.is_empty() { "no backups".into() } else { "choose a backup".into() });
+            egui::ComboBox::from_id_salt("plugin-backup-which").selected_text(shown).show_ui(ui, |ui| {
+                for path in &files {
+                    let label = backup_label(path);
+                    if ui.selectable_label(self.backup_pick.as_deref() == Some(label.as_str()), &label).clicked() {
+                        self.backup_pick = Some(label);
+                    }
+                }
+            });
+            if ui.add_enabled(self.backup_pick.is_some(), egui::Button::new("Load backup")).clicked() {
+                if let Some(label) = self.backup_pick.clone() {
+                    let path = backup_dir(&home).join(format!("plugins-{label}.txt"));
+                    match std::fs::read_to_string(&path) {
+                        Ok(text) => {
+                            self.mods = Some(plugins::PluginList::parse(&text));
+                            self.mods_dirty = true;
+                            self.message = Some(("Backup loaded into the list. Save to keep it.".into(), false));
+                        }
+                        Err(e) => self.message = Some((e.to_string(), true)),
+                    }
+                }
+            }
+        });
+    }
+
     fn save_mods(&mut self) -> Result<(), String> {
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
+        let next = list.to_text();
+        let previous = std::fs::read(&path).unwrap_or_default();
+        if previous.as_slice() != next.as_bytes() {
+            keep_plugin_backup(home, &previous, self.backup_max)?;
+        }
         guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
         let body = list.to_text();
         self.keep_plugin_backup(&path, body.as_bytes())?;
@@ -3118,4 +3177,82 @@ mod tests {
         assert_eq!(preview(&wide_end, false), (wide_end.as_str(), false));
         assert_eq!(preview(&long, true), (long.as_str(), true));
     }
+}
+
+const BACKUP_MAX: &[u32] = &[1, 3, 5, 10, 20];
+const BACKUP_MAX_DEFAULT: u32 = 5;
+
+fn backup_dir(home: &EngineHome) -> PathBuf {
+    home.root.join("plugin-backups")
+}
+
+fn backup_label(path: &std::path::Path) -> String {
+    path.file_name().and_then(|n| n.to_str()).unwrap_or("backup").trim_start_matches("plugins-").trim_end_matches(".txt").to_string()
+}
+
+fn read_backup_max(home: Option<&EngineHome>) -> u32 {
+    let Some(home) = home else { return BACKUP_MAX_DEFAULT };
+    std::fs::read_to_string(backup_dir(home).join("max")).ok().and_then(|t| t.trim().parse().ok()).filter(|n| BACKUP_MAX.contains(n)).unwrap_or(BACKUP_MAX_DEFAULT)
+}
+
+fn write_backup_max(home: &EngineHome, max: u32) -> Result<(), String> {
+    let dir = backup_dir(home);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("max");
+    guard_write(&path, None).map_err(|e| e.to_string())?;
+    write_whole(&path, max.to_string().as_bytes()).map_err(|e| e.to_string())
+}
+
+fn plugin_backups(home: &EngineHome) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(backup_dir(home)).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("plugins-") && n.ends_with(".txt"))).collect();
+    files.sort();
+    files
+}
+
+fn prune_plugin_backups(home: &EngineHome, max: u32) {
+    let files = plugin_backups(home);
+    let keep = max as usize;
+    if files.len() > keep {
+        for path in &files[..files.len() - keep] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn backup_stamp() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+    let days = secs.div_euclid(86400);
+    let sod = secs.rem_euclid(86400) as u32;
+    let (h, min, sec) = (sod / 3600, (sod % 3600) / 60, sod % 60);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    if m <= 2 { y += 1; }
+    format!("{y:04}-{m:02}-{d:02}-{h:02}{min:02}{sec:02}")
+}
+
+fn keep_plugin_backup(home: &EngineHome, bytes: &[u8], max: u32) -> Result<(), String> {
+    if bytes.is_empty() || max == 0 {
+        prune_plugin_backups(home, max);
+        return Ok(());
+    }
+    let dir = backup_dir(home);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = backup_stamp();
+    let mut dest = dir.join(format!("plugins-{stamp}.txt"));
+    let mut n = 2u32;
+    while dest.exists() {
+        dest = dir.join(format!("plugins-{stamp}-{n}.txt"));
+        n += 1;
+    }
+    guard_write(&dest, None).map_err(|e| e.to_string())?;
+    write_whole(&dest, bytes).map_err(|e| e.to_string())?;
+    prune_plugin_backups(home, max);
+    Ok(())
 }
