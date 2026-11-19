@@ -505,6 +505,7 @@ impl Plugin for CaravanPlugin {
                 group: crate::pause::GROUP_MENUS,
                 label: "Caravan tips",
                 note: "On: the Caravan table says what the chosen card does there and why a card can't be played. Off: only the game's short messages. T) at the table.",
+                switches: "",
                 get: |_| tips(),
                 set: |_, on| set_tips(on),
                 slider: None,
@@ -907,7 +908,8 @@ fn open(
     next.set(PlayState::Menu);
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, screen: Res<CaravanScreen>, mut out: MessageWriter<CaravanInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, wheel: Res<AccumulatedMouseScroll>, screen: Res<CaravanScreen>, mut out: MessageWriter<CaravanInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;
@@ -970,7 +972,8 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
 
 type Clicked<'a> = (&'a PointerState, AnyOf<(&'a screen::CaravanButton, &'a crate::lockpick::screen::LockButton)>);
 
-fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: Res<ButtonInput<MouseButton>>, mut out: MessageWriter<CaravanInput>) {
+fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: crate::pad::ActionButtons<MouseButton>, mut out: MessageWriter<CaravanInput>) {
+    let mouse = mouse.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.stage == Stage::Results && s.help.is_none() && mouse.just_pressed(MouseButton::Left) {
         out.write(CaravanInput::Continue);
@@ -1793,6 +1796,43 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CaravanStats>) {
     }
     let s = &*stats;
     info!("caravan summary: {} asked, {} opened ({} refused); {} games: {} won, {} lost; net {}; {} moves", s.asked, s.opened, s.refused, s.games, s.won, s.lost, s.net, s.moves);
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> CaravanScreen {
+    CaravanScreen(Some(Session {
+        opponent: FormId(42),
+        opponent_name: String::new(),
+        deck_form: FormId(43),
+        opponent_deck: vec![],
+        skill: 50.0,
+        stage: if step >= 1 { Stage::Deck } else { Stage::Bet },
+        bet: Bet::new(100, 100, 0.5),
+        owned: vec![],
+        deck: if step >= 2 { vec![FormId(44)] } else { vec![] },
+        cursor: usize::from(step >= 3),
+        game: None,
+        hand: 0,
+        pick: Pick::Hand,
+        forfeit_armed: step >= 4,
+        record: Default::default(),
+        status: None,
+        help: None,
+        queued_help: vec![],
+        think_until: step as f32,
+        over_at: None,
+        leaving: None,
+        staked: false,
+        settled: false,
+        auto: false,
+        textures: Default::default(),
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+        pvp: None,
+        moods: vec![],
+        sent_move: None,
+    }))
 }
 
 #[cfg(test)]

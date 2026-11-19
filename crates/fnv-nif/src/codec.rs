@@ -55,7 +55,7 @@ impl<'a> Codec<'a> {
         }
     }
 
-    fn present(&self, f: &Field, scope: &dyn Scope, path: &str) -> Result<bool, CodecError> {
+    fn present(&self, f: &Field, scope: &dyn Scope, path: &Path<'_>) -> Result<bool, CodecError> {
         let v = self.file.version;
         if f.since.is_some_and(|s| v < s) || f.until.is_some_and(|u| v > u) {
             return Ok(false);
@@ -75,7 +75,7 @@ impl<'a> Codec<'a> {
         }
     }
 
-    fn resolve<'t>(&self, ty: &'t TypeRef, template: Option<&'t TypeRef>, path: &str) -> Result<&'t TypeRef, CodecError> {
+    fn resolve<'t>(&self, ty: &'t TypeRef, template: Option<&'t TypeRef>, path: &Path<'_>) -> Result<&'t TypeRef, CodecError> {
         match ty {
             TypeRef::Template => template.ok_or_else(|| err(path, "T used without a template".into(), None)),
             t => Ok(t),
@@ -90,11 +90,11 @@ impl<'a> Codec<'a> {
         c: &mut Cursor<'_>,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
     ) -> Result<Struct, CodecError> {
         let mut st = Struct::default();
         for f in fields {
-            let fpath = format!("{path}.{}", f.name);
+            let fpath = Path::Field(path, &f.name);
             let scope = self.scope(&st.fields, arg);
             if !self.present(f, &scope, &fpath)? {
                 continue;
@@ -119,7 +119,7 @@ impl<'a> Codec<'a> {
                             let widths = self.widths(w, n, &scope, &fpath, c.pos, c.remaining())?;
                             let mut rows = Vec::with_capacity(widths.len());
                             for (i, w) in widths.into_iter().enumerate() {
-                                rows.push(self.read_array(ty, w, c, sub_arg, sub_template, &format!("{fpath}[{i}]"))?);
+                                rows.push(self.read_array(ty, w, c, sub_arg, sub_template, &Path::Index(&fpath, i))?);
                             }
                             Value::List(rows)
                         }
@@ -138,7 +138,7 @@ impl<'a> Codec<'a> {
         w: &crate::expr::Expr,
         rows: i64,
         scope: &FieldScope<'_>,
-        path: &str,
+        path: &Path<'_>,
         pos: usize,
         remaining: usize,
     ) -> Result<Vec<i64>, CodecError> {
@@ -165,7 +165,7 @@ impl<'a> Codec<'a> {
         c: &mut Cursor<'_>,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
     ) -> Result<Value, CodecError> {
         check_count(n, path, c.pos)?;
         let n = n as usize;
@@ -217,7 +217,7 @@ impl<'a> Codec<'a> {
                 let mut empty = 0;
                 for i in 0..n {
                     let before = c.pos;
-                    v.push(self.read_one(ty, c, arg, template, &format!("{path}[{i}]"))?);
+                    v.push(self.read_one(ty, c, arg, template, &Path::Index(path, i))?);
                     if c.pos == before {
                         empty += 1;
                         if empty > MAX_EMPTY {
@@ -236,7 +236,7 @@ impl<'a> Codec<'a> {
         c: &mut Cursor<'_>,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
     ) -> Result<Value, CodecError> {
         let at = c.pos;
         let oob = |e: fnv_util::OutOfBounds| err(path, e.to_string(), Some(at));
@@ -295,12 +295,12 @@ impl<'a> Codec<'a> {
         st: &Struct,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
         out: &mut Vec<u8>,
     ) -> Result<(), CodecError> {
         let mut idx = 0;
         for f in fields {
-            let fpath = format!("{path}.{}", f.name);
+            let fpath = Path::Field(path, &f.name);
             let scope = self.scope(&st.fields[..idx], arg);
             if !self.present(f, &scope, &fpath)? {
                 continue;
@@ -327,7 +327,7 @@ impl<'a> Codec<'a> {
                 (Some(_), Some(_)) => {
                     let Value::List(rows) = v else { return Err(err(&fpath, "2D array is not a list".into(), None)) };
                     for (i, r) in rows.iter().enumerate() {
-                        self.write_array(ty, r, sub_arg, sub_template, &format!("{fpath}[{i}]"), out)?;
+                        self.write_array(ty, r, sub_arg, sub_template, &Path::Index(&fpath, i), out)?;
                     }
                 }
             }
@@ -345,7 +345,7 @@ impl<'a> Codec<'a> {
         v: &Value,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
         out: &mut Vec<u8>,
     ) -> Result<(), CodecError> {
         match (ty, v) {
@@ -377,7 +377,7 @@ impl<'a> Codec<'a> {
             }
             (_, Value::List(items)) => {
                 for (i, it) in items.iter().enumerate() {
-                    self.write_one(ty, it, arg, template, &format!("{path}[{i}]"), out)?;
+                    self.write_one(ty, it, arg, template, &Path::Index(path, i), out)?;
                 }
             }
             _ => return Err(err(path, format!("array value {v:?} does not fit {ty:?}"), None)),
@@ -391,7 +391,7 @@ impl<'a> Codec<'a> {
         v: &Value,
         arg: i64,
         template: Option<&TypeRef>,
-        path: &str,
+        path: &Path<'_>,
         out: &mut Vec<u8>,
     ) -> Result<(), CodecError> {
         let mismatch = || err(path, format!("value {v:?} does not fit {ty:?}"), None);
@@ -437,11 +437,31 @@ impl<'a> Codec<'a> {
     }
 }
 
-fn err(path: &str, msg: String, offset: Option<usize>) -> CodecError {
+/// Where in a block a field is, for an error's message: the block type, then fields and
+/// indices (`NiNode.children[3]`). Borrowed down the decoder and turned into text only
+/// for an error, not built for every field and element as it was (#1994).
+#[derive(Clone, Copy, Debug)]
+pub enum Path<'a> {
+    Root(&'a str),
+    Field(&'a Path<'a>, &'a str),
+    Index(&'a Path<'a>, usize),
+}
+
+impl std::fmt::Display for Path<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Path::Root(s) => f.write_str(s),
+            Path::Field(p, name) => write!(f, "{p}.{name}"),
+            Path::Index(p, i) => write!(f, "{p}[{i}]"),
+        }
+    }
+}
+
+fn err(path: &Path<'_>, msg: String, offset: Option<usize>) -> CodecError {
     CodecError { path: path.to_string(), msg, offset }
 }
 
-fn check_count(n: i64, path: &str, pos: usize) -> Result<(), CodecError> {
+fn check_count(n: i64, path: &Path<'_>, pos: usize) -> Result<(), CodecError> {
     if !(0..=MAX_ELEMENTS).contains(&n) {
         return Err(err(path, format!("implausible element count {n}"), Some(pos)));
     }

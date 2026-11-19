@@ -27,16 +27,18 @@ What exists already and is reused, not rewritten:
 
 - Built: the popup and INI keys (§2), the session summary with plugin sizes and CRC32s
   (§3.1), crash reports with the run log, the flight recorder, the world snapshot and, on
-  Windows, a minidump (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
+  Windows, a minidump, on Linux a native crash's signal line and top frames in the run log
+  (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
   (§4.1), the structured events file (§4.1, local only, not sent), the flight recorder
   (§4.2, log events only), the world snapshot (§4.3) and the anomaly detectors in
-  `anomaly.rs` (§4.4).
+  `anomaly.rs` (§4.4), and the hand report form (§3.3, #2151).
 - Not yet:
-  - the hand report form (§3.3);
+  - the settings page's "Open reports folder" button and last-sent line (§1 point 3, §2.2:
+    the Reports rows are only Send reports and Delete my reports);
   - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
   - breadcrumbs the log does not already carry (§4.2);
   - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
-  - the actor-stuck, quest-stall and script-time detectors, and thresholds set from
+  - the script-time detector and thresholds set from
     `/v1/config` (§4.4);
   - symbolising dumps (§5.4: the release PDB is over the Workers request limit).
 
@@ -71,7 +73,7 @@ menu, on a player's start only (not with `--data`, `NVFOREVER_DATA`, a test aid 
 > NVForever can send a report after each session: the build, your PC's hardware and
 > settings, your mod list, how it ran, the game's log and any problems it noticed.
 > No personal details, no saves.
-> You can change this at any time in Settings → General → Reports.
+> You can change this at any time in Settings → Gameplay → Reports.
 >
 > [ Send reports ]  [ Not now ]   *What is sent?* (opens §3 in the browser)
 
@@ -94,8 +96,9 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
-- Settings → General → Reports: a toggle (Send reports), "Open reports folder",
-  "Delete my reports" (§6), last sent time. The hand report (§3.3) is opened from the
+- Settings → Gameplay → Reports (`engine/nvf-play/src/settings_layout.rs`): a toggle
+  (Send reports) and "Delete my reports" (§6); "Open reports folder" and the last sent
+  time are designed but not built. The hand report (§3.3) is opened from the
   pause menu's "Report a bug", not from Settings.
 - `NVF_REPORTS=0` forces off for any run (developers, CI, the smoke tests set it).
 
@@ -133,6 +136,16 @@ Not in it: save names, character name, screenshots, typed console text (console
 
 ### 3.2 Crash report (automatic when opted in)
 
+[documented: `engine/nvforever/src/crash.rs`] Local panic reports keep the established
+`crash-<UTC second>-<pid>.txt` name. Concurrent or successive panics using that same
+name preserve the first report and its recorder/snapshot sidecars. Each later panic
+still logs its own thread, message and location, and says that the earlier report was
+preserved. A later second can produce another report; the collector's existing latest
+report selection is unchanged. This preserves same-name panic evidence only: earlier
+GPU errors remain in the run log and structured events, and the panic report does not
+establish a GPU failure's cause. Report write errors are still logged, and sidecar
+collection is still attempted when writing the text fails.
+
 [design] When a session ends `panic` or `native`, the next start sends with its summary:
 
 - the panic report that `crash.rs` already writes (already redacted), now with the
@@ -148,9 +161,67 @@ Not in it: save names, character name, screenshots, typed console text (console
   files by hand); sending it does. Symbols (PDBs) for each release are uploaded to the
   server's private store at release time (§5.4), never shipped.
 
+  Linux [documented: `engine/nvforever/src/native_crash_unix.rs`, #2167]: there is no
+  minidump; a `sigaction` handler for `SIGSEGV`, `SIGBUS`, `SIGABRT`, `SIGFPE` and
+  `SIGILL`, on a `sigaltstack` of its own (so a stack overflow is covered too), writes the
+  evidence into the session's run log at the moment of the signal — a line, then the top
+  frames:
+
+  ```
+  20261112-183005 ERROR nvforever::crash: native crash, signal SIGSEGV (11), fault address 0x10; at 0x7f2c1a0b2e40 /usr/lib/libc.so.6+0x2a2e0
+  20261112-183005 ERROR nvforever::crash:   frame 1: 0x7f2c1a0b2e40 /usr/lib/libc.so.6+0x2a2e0
+  ```
+
+  The line is written with `write(2)` from a fixed buffer (no allocation, no lock: the
+  log plugin itself may be what crashed); the module and offset come from
+  `/proc/self/maps`, the frames from libgcc's `_Unwind_Backtrace` (addresses only; the
+  release's line tables symbolise them later, §5.4). The handler is armed from
+  `.init_array`, before Rust's std installs its own SIGSEGV handler (std's per-thread
+  alternate stacks are too small for the unwinder); the alternate stack this module
+  installs is the main thread's, so a stack overflow there leaves the line, while one on
+  another thread (none of which has an alternate stack) does not. The handler then restores the
+  default disposition and re-raises, so the process still ends by the same signal (exit
+  status `-11`, which `tools/smoke` reports as a failed scenario rather than a pass). The
+  home folder and the removable-drive mounts under the player's name (`/run/media/<user>`,
+  `/media/<user>`) are written `~` as everywhere else. Because the evidence is in the run log,
+  a Linux `native` end is log-only (`native-nofile`) until a Linux dump pipeline exists;
+  nothing new is uploaded. (`native-nofile` is a server-side report kind: nothing in this
+  repo implements it yet — planned, and its home is the reports service, not the engine.)
+
+**A run that just stops** (#2755) [documented: `engine/nvforever/src/exit_watch.rs`,
+`crash.rs`]: 13 sessions on 0.7.0 ended mid-play with no panic, no dump and no line. The
+exception filter does not see a stack overflow (it returns at once: no stack to write
+with), a fail-fast or abort (no handler runs; Rust's abort on a failed allocation is one),
+a crash after a driver replaced the filter, or the process being ended from outside. What
+tells them apart is the process's exit code, which only another process can read:
+
+- At its start the game starts a watcher: the same executable with `--watch-exit <pid>
+  <run log>`, no window, which waits for the game's process, reads its exit code and, when
+  it is not 0, adds a line to the end of that run's log: `run log: the process ended with
+  exit code 0xC00000FD (stack overflow)`. Codes named: `0xC00000FD` stack overflow,
+  `0xC0000409` fail-fast, `0xC0000005` access violation, `0xC0000374` heap corruption,
+  `0xC0000017` no memory, `0xC000013A` console closed, 1 an error exit or ended from
+  outside, 101 a panic in the main thread. Windows only; `NVF_EXIT_WATCH=0` turns it off.
+- The line is part of the run log, so it is in the log sent with the crash, and the next
+  start repeats it (`run log: the previous run's process ended with exit code …`).
+- An allocation that fails writes `out of memory: an allocation of N bytes failed` into
+  the run log before Rust aborts (the game's global allocator, crash.rs).
+- A lost graphics device (the driver stopped answering) ends the run as one (#2934): the
+  frames in flight usually panic first on the dead device, so from Bevy's loss line on a
+  panic's crash report says `thread: the graphics driver`, `message: graphics device lost:
+  <reason>`, `at: reported by wgpu`, with the panic that followed and its backtrace under
+  `backtrace:`. The session's `end` is `panic` as before; the message, and so the
+  signature, is the loss's whatever panic followed. With no panic the handler Bevy asks
+  writes the same report. The player gets a message saying the graphics driver stopped
+  responding and what to try (not in unattended runs), as for GPU memory running out.
+- [design, not built] The summary carries no `exit_code` field yet: the server's schema
+  check would have to know it first. Until then the dashboard can split `native` ends by
+  the log's line.
+
 The crash is grouped server-side by a **signature**: for panics, the message with numbers
 stripped plus the top 3 frames inside NVForever's own crates; for dumps, the faulting
-module + offset bucket plus the top 3 symbolised frames.
+module + offset bucket plus the top 3 symbolised frames; for a Linux `native` end, the run
+log's signal line (module + offset) and its top frames.
 
 ### 3.3 Report by hand (any player, opted in or not)
 
@@ -233,27 +304,111 @@ expensive scripts this second, loaded cells, memory (RAM, VRAM, asset cache size
 
 ### 4.4 Anomaly detectors
 
-Checks that run every second (or on the event) and log a `nvf::anomaly` event with a
-snapshot, so bugs that never crash still reach us. Each fires at most 3 times per kind per
-session.
+[design / file refs: `engine/nvforever/src/reports/{mod,anomaly,controls,snapshot}.rs`]
+Checks sampled each frame or from log events, recorded in the session summary's `events`
+with place, cell, position, game hour and state. The world snapshot is refreshed separately
+(§4.3). Each kind fires at most 3 times per session; `controls_locked` also fires only once
+per unchanged lock. The detectors are registered only while reports are enabled.
 
 | Anomaly | When |
 |---|---|
 | fell out of world | the player or an actor is below the land height by > 500 units, or outside the cell grid |
 | player stuck | movement input held for 5 s with < 16 units moved, not in a menu |
-| actor stuck | an actor on a travel package has not moved 32 units toward its goal in 30 s |
+| controls locked (`controls_locked`) | [design, #2403] unchanged dialogue, menu or scripted control groups for 60 real seconds, with at least 5 key/mouse/controller button press edges in the trailing 60 seconds |
 | path failure | pathfinding fails 3 times in a row for one actor |
-| quest stall | (opt-in, for the main quest) a stage's objective target is unreachable: the target ref is disabled, dead or in no cell |
 | script loop | one script runs > 5 ms in a frame, or the same script errors 100 times |
 | hitch | a frame > 250 ms outside a load |
-| slow load | a load > 20 s |
+| slow load | a load > 20 s; it says where the time went: each wait's end, the longest frame, the files read and the time in the reads (docs/design/loading-screen.md §1 step 7, #2407) |
 | memory | RAM or VRAM within 10 % of the budget |
 | missing asset | the first failure of each path |
 | save trouble | a save that fails to write, or a load that falls back (#1360) |
 | audio | the device lost or a voice file missing for a spoken line |
+| soft lock | the player is held and nothing moves on to let them go: scripts hold the movement controls (or the player is restrained) for 30 s with no story event; a conversation with no line and no choice for 5 s; one response said for 120 s; a menu set under a conversation that never opens (`fnv_game::softlock`, #2365) |
 
-The detectors' thresholds are constants in `reports/anomaly.rs` [our choice] and can be
-tuned from the server's `/v1/config` without a new build.
+[design, #2403 / file refs: `reports/controls.rs`, `reports/anomaly.rs`]
+`controls_locked` resets its timer, input window and once-per-lock latch when the dialogue
+line/response or offered choices change, a menu/page/tab/selection changes, any effective
+control group changes (including a group re-enabled), or the hold ends. Loading clears the
+watch. Countdown and animation clocks do not count as progress. Keyboard auto-repeat and
+holding a button do not add presses; controller menu keys synthesized by `nvf_play::pad`
+are not counted again. The built-in progress audit below follows `nvf-play/src/script.rs::{hold_player,
+EngineMenus,is_script_menu}` and the resources read by `reports/controls.rs::Menus`.
+Every fingerprint stays local; screen text and input identities are not report fields.
+
+[design, #2403 / file refs: `reports/controls.rs`; resource paths below are under
+`engine/nvf-play/src/` unless prefixed `crates/`]
+
+| Built-in hold | Logical state sampled | State owner |
+|---|---|---|
+| Recipes / crafting | Station/category, filter, selected/first row, quantity prompt/amount; recipe readiness, ingredients held/required and skill figures | `crafting.rs::RecipeMenu` |
+| Lockpicking | Reference, pin angle, cylinder turn, pins remaining, phase identity, status/help, leaving flag | `lockpick.rs::LockpickScreen` |
+| Hacking | Reference/base, page, cursor, puzzle characters, remaining attempts, log and outcome; lockout lines | `terminal.rs::TerminalScreen` |
+| Terminal | Reference/base, page, submenu ancestry, item IDs/labels, selected row, result, note and note scroll | `terminal.rs::TerminalScreen` |
+| Inventory / Pip-Boy ITEMS | Mode/focus, selection/scroll/category, folder, quantity prompt/amount, status; list sizes/values and selected item/count/condition/equipped/mod state; hotkey slot, assignment feedback and assignments | `menu/model.rs::MenuModel`, `pipboy/hotkey_panel.rs::HotkeyHold`, `hotkeys.rs::Hotkeys` |
+| Barter | Inventory signals plus offered units, purses and trade balance | `menu/model.rs::MenuModel` |
+| Container | Inventory signals plus Take All confirmation | `menu/model.rs::MenuModel` |
+| Repair services | Vendor, selected/first row, confirmation, item conditions/quotes/readiness, skill, caps and total | `repair.rs::RepairServices` |
+| Pip-Boy repair | Selected/first row, preview, target condition, offered parts and merge parameters | `pipboy/repair.rs::PipRepair` |
+| Item modification | Selected/first row, target unit/mod flags and offered modifications/counts/attachment state | `pipboy/item_mod.rs::PipItemMod` |
+| Sleep / wait | Sleep/wait mode, chosen hours, accepted hours and whole hours remaining | `wait.rs::WaitMenu` |
+| Local / world map | Page/tab, map centre, magnification, cursor, custom marker; popup identity/text/answers and selected answer | `pipboy.rs::PipBoy`, `pipboy/data.rs::DataState` |
+| Pip-Boy DATA lists | Selected/first row, challenges and active-note filters, pane identity/scroll, active quest; tuned radio station/on state; playing holotape identity/pause state | `pipboy/data.rs::DataState`, `holotape.rs::Holotape`, `crates/fnv-game/src/game.rs::Game` |
+| Pip-Boy STATS | Page/tab, status subpage, selected/top rows, description scroll, reputation mode and limb; displayed HP/AP/XP, limb condition, rads and needs | `pipboy/stats/mod.rs::{StatsView,Prepared}` |
+| Dialogue | Speaker, line/response IDs, line serial/count, offered choices/topic-list mode and selected choice | `dialogue.rs::DialogueScreen`, `crates/fnv-game/src/dialogue.rs::Conversation` |
+| Level-up | Level/page, selected row/scroll, skill allocation, perk choices and answered flag | `levelup.rs::LevelUpMenu` |
+| Messages | Box serial, panel content/buttons, selected button and initial choice flag | `message_menu.rs::MessagePanel`, `crates/fnv-game/src/game.rs::Game` |
+| Standalone quantity | Chosen amount and maximum | `script_quantity.rs::ScriptQuantity` |
+| Vigor Tester | Page, review row and attribute allocation | `chargen/vigor.rs::VigorMenu` |
+| Tutorial | Page, message IDs and text scroll | `tutorial_menu.rs::TutorialView` |
+| Name / tag skills / traits / attributes | Name text, list selection/scroll, allocation sheet and answered flag | `chargen.rs::ChargenMenus` |
+| Race / appearance / barber | Look, tab, rows/groups/scroll, preset, action selection, camera view and answered flag | `creator.rs::CreatorMenu`, `creator/model.rs::Model` |
+| Pause / settings / save pages | Page, logical `PauseView::progress` and settings tab | `pause.rs::{Page,PauseView,SettingsTabStore}` |
+| Console | Input, history recall, output scroll/lines and selected reference | `console.rs::Console` |
+| Companion wheel | Companion, selected command, command state and reply line | `companion_wheel.rs::WheelScreen`, `script_hud.rs::ScriptHud` |
+| Blackjack | Bet/chips/earnings, help/status, phase, hands/active hand, dealer cards/reveal, completed rounds and leaving flag | `blackjack.rs::BlackjackScreen` |
+| Roulette | Bet/cursor, placed bets/completed spins, phase identity, chips/earnings, help/status, last pocket and ban flag | `roulette.rs::RouletteScreen` |
+| Slots | Bet, reel stops, phase identity, chips/earnings, help/status, payout-page and ban flags | `slots.rs::SlotsScreen` |
+| Poker | Raise amount, status/end reason/leaving flag, seats, button, board/street/turn, current bet, hand number and winners/showdown | `poker.rs::PokerScreen` |
+| Caravan | Stage, bet/deck/cursor, hand/pick, forfeit confirmation, help/status, sides/turn/phase/winner and leaving flag | `caravan.rs::CaravanScreen` |
+| Script control locks / fallback menu | Effective standard/Alt control-group flags, runtime menu code/prompt, message serial and dialogue signals above | `crates/fnv-game/src/game.rs::Game` |
+
+[design, #2403 / file refs: the state owners in the table]
+Redraw flags, pointer-only hover bookkeeping, attempted-navigation counters, RNG,
+scheduled sounds, radio/holotape playback clocks, partial-hour wait timers, pin-break
+age and fade/animation timestamps do not count as progress. Actual selection movement
+from the pointer does count. Hidden inactive STATS state is ignored. Regressions in
+`reports/controls.rs` exercise each menu family through the detector: logical changes
+restart the 60-second watch, while unchanged state and incidental counters/clocks with
+ineffective presses still raise one finding. The detector does not inspect pixels or
+arbitrary scripted tile values; a page change entirely inside a mod's tile tree is not
+currently a progress signal.
+
+[design, #2403 / file refs: `reports/controls.rs`, `fnv-game/src/nvse_other.rs`]
+The finding names the menu or speaker (reference and bounded name) and the current topic,
+INFO and response, if a line is active, plus up to ten offered topic IDs. It includes the
+locked groups, their known source API, and up to ten Alt-lock plugin sources, plus an
+omitted count. Standard
+`DisablePlayerControls` flags retain no caller, so their script is explicitly unknown
+(`null`); no script is inferred from a running quest. Up to ten running, uncompleted
+quests (including background quests), in FormID order, supply their IDs and current stages.
+Names are capped at 128 characters. No input key identities, dialogue text or quest text
+are added. These limits and the 60-second/five-press rule are named together in
+`reports/anomaly.rs`.
+
+[design, #2403 / file refs: `residents.rs`, `fnv-ai/src/carry.rs`,
+`fnv-nav/src/follow.rs`, `fnv-game/src/{quest,quest_targets}.rs`]
+Removed from this reports specification: `actor_stuck` and `quest_stall`. Reports can read
+actor positions and current package IDs, but not a travel goal/progress contract spanning
+detours, doors and replans; distance travelled alone is not progress toward the goal.
+That requires coordinated AI/navigation state beyond a small read-only reports hook.
+Quest target checks exist, but reports has no main-quest-only selection or separate
+quest-stall opt-in. Applying the old rule to all quests would broaden its scope and flag
+intentionally dead/disabled targets; an absent snapshot reference also does not establish
+that it has no cell. These detectors need those contracts before being specified again.
+The separate existing `softlock` watchdog remains built as listed above.
+
+[design / file refs: `reports/anomaly.rs`] Thresholds are local constants. Server
+`/v1/config` tuning is not built.
 
 ## 5. The server (Cloudflare)
 

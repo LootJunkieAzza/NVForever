@@ -116,7 +116,11 @@ pub fn wanted(b: &Bindings) -> bool {
     b.device == InputDevice::Controller && b.rumble
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The Pip-Boy buzz of the Haptic Pip-Boy tweak: the weak motor's strength and its
+/// seconds [design: docs/design/tweaks.md].
+const PIPBOY_BUZZ: (f32, f32) = (0.35, 0.06);
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn rumble(
     bindings: Option<Res<Bindings>>,
     pads: Query<Entity, With<Gamepad>>,
@@ -125,7 +129,18 @@ fn rumble(
     (mut shots, mut hits, mut booms, mut landed): (MessageReader<ShotFired>, MessageReader<ActorHit>, MessageReader<ExplosionFx>, MessageReader<Landed>),
     mut out: MessageWriter<GamepadRumbleRequest>,
     mut logged: Local<[bool; 4]>,
+    (pip, tweaks, mut last_tab): (Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::tweaks::TweakSettings>>, Local<Option<(crate::pipboy::Page, usize)>>),
 ) {
+    // The player's tweak: a short buzz on a Pip-Boy page or tab change [design: docs/design/tweaks.md].
+    let now = pip.as_deref().filter(|p| p.open()).map(|p| (p.page, p.tab()));
+    let changed = now.is_some() && last_tab.is_some() && now != *last_tab;
+    *last_tab = now;
+    if changed && tweaks.is_some_and(|t| t.pipboy_buzz) && bindings.as_deref().is_some_and(wanted) {
+        let intensity = GamepadRumbleIntensity { strong_motor: 0.0, weak_motor: PIPBOY_BUZZ.0 };
+        for gamepad in &pads {
+            out.write(GamepadRumbleRequest::Add { duration: Duration::from_secs_f32(PIPBOY_BUZZ.1), intensity, gamepad });
+        }
+    }
     let mut pulses: Vec<(Kind, Pulse)> = Vec::new();
     for s in shots.read().filter(|s| s.shooter == FormId::PLAYER_REF) {
         let w = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon));

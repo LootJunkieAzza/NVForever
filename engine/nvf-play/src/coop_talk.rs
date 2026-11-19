@@ -93,6 +93,7 @@ impl Plugin for CoopTalkPlugin {
                 group: "Co-op",
                 label: "Players can kill NPCs in conversation",
                 note: "On: a player can hurt and kill an NPC another player is talking to (nothing else can meanwhile). Off: nobody can until the talk ends. The host's choice counts for everyone.",
+                switches: "",
                 get: |w| w.resource::<TalkGuard>().players_may_kill,
                 set: |w, on| {
                     info!("co-op talk: players can{} kill NPCs in conversation", if on { "" } else { "not" });

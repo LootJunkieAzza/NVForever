@@ -250,6 +250,7 @@ impl Plugin for WorldMarksPlugin {
                 group: "Co-op",
                 label: "Player name tags",
                 note: "On: the other players' names are shown over their heads, through walls. Off: not shown.",
+                switches: "",
                 get: |w| w.resource::<NameTags>().on,
                 set: |w, on| {
                     info!("world marks: name tags {}", if on { "on" } else { "off" });

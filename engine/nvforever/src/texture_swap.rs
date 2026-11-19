@@ -77,97 +77,111 @@ fn release_swapped(time: Res<Time<Real>>, mut swapped: ResMut<Swapped>, mut sinc
     }
 }
 
-/// Whether a model's shape `name` is the shape a swap names (`shape`, lower case with its
-/// leading `#`s taken off, `texture_swap_names`). The model's own name keeps them: the
-/// DLC intro slide screens' only shape is `##NVDLC01_IntroMovie00:0` and
-/// `##NVDLC02_Intro:0`, and their lines swap `"##nvdlc01_intromovie00:0"` and
-/// `"##nvdlc02_intro:0"` [observed: DeadMoney - Main.bsa
-/// nvdlc01introslide.nif, HonestHearts - Main.bsa nvdlc02_introslide.nif; the lines'
-/// begin scripts, e.g. DeadMoney.esm INFO 0x01013C5B].
-fn shape_is(name: &str, shape: &str) -> bool {
-    name.trim().trim_start_matches('#').eq_ignore_ascii_case(shape)
+/// Whether a model's shape name is the shape a swap names: the call's name comes with its
+/// leading `#`s dropped and in lower case (`fnv_game::functions::misc::texture_swap_names`),
+/// the model's keeps them. The end slides swap `"##gs01:0"` on `gs01.nif`, whose shape is
+/// `##GS01:0` [observed: fnvtool nif decode of meshes\interface\endgame\gs01.nif]; compared
+/// with its `##` kept the swap never matched and the model's own first slide stayed up
+/// (issue #2226).
+fn same_shape(model_name: &str, swap: &str) -> bool {
+    model_name.trim_start_matches('#').eq_ignore_ascii_case(swap)
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn apply(
-    mut commands: Commands,
-    script: Option<Res<ScriptState>>,
-    sim: Option<Res<SimState>>,
-    world: Option<Res<WorldData>>,
-    mut models: ModelCtx,
-    mut swapped: ResMut<Swapped>,
-    mut drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>, Option<&mut crate::effect_shaders::Faded>, Option<&Fading>)>,
-    added: Query<(), Added<RefVisual>>,
-) {
+pub(crate) fn apply(script: Option<Res<ScriptState>>, sim: Option<Res<SimState>>, world: Option<Res<WorldData>>, mut drawing: Swapping) {
     let (Some(script), Some(sim), Some(world)) = (script, sim, world) else { return };
     let Some(rt) = script.rt.as_ref() else { return };
-    let swaps = &rt.game.texture_swaps;
-    if swaps.by_ref.is_empty() || (swaps.generation == swapped.generation && added.is_empty()) {
-        return;
-    }
-    swapped.generation = swaps.generation;
-    for (&r, list) in &swaps.by_ref {
-        let model = sim
-            .base_of(r.0)
-            .and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b.0))
-            .and_then(|b| b.model)
-            .map(|m| fnv_actor::resolve::mesh_path(&m))
-            .and_then(|path| models.model(&path));
-        for (shape, texture) in list {
-            let targets: Vec<AssetId<NifMaterial>> = model
-                .iter()
-                .flat_map(|m| m.shapes.iter())
-                .filter(|s| s.name.as_deref().is_some_and(|n| shape_is(n, shape)))
-                .map(|s| s.material.id())
-                .collect();
-            for (e, rv, mat, name, mut faded, fading) in &mut drawn {
-                if rv.0 != r.0 {
-                    continue;
-                }
-                // A mesh drawn see-through wears a copy: the swap goes to its own material
-                // (module notes).
-                let own = match (&faded, fading) {
-                    (_, Some(f)) => f.original().id(),
-                    (Some(f), None) => f.original.id(),
-                    (None, None) => mat.id(),
-                };
-                let original = swapped.original.get(&own).copied().unwrap_or(own);
-                if !targets.contains(&original) && name.is_none_or(|n| !shape_is(&n.0, shape)) {
-                    continue;
-                }
-                let key = (original, texture.clone());
-                let copy = match swapped.made.get(&key) {
-                    Some(h) => h.clone(),
-                    None => {
-                        let a = &mut models;
-                        let Some(image) = a.textures.get(texture, true, &a.data, &mut a.images, a.formats.as_deref()) else {
-                            warn!("SwapTexture: {texture} not found (reference {:08X}, shape {shape})", r.0);
-                            continue;
-                        };
-                        let Some(mut m) = models.materials.get(original).cloned() else { continue };
-                        m.base.base_color_texture = Some(image);
-                        let h = models.materials.add(m);
-                        swapped.original.insert(h.id(), original);
-                        swapped.made.insert(key, h.clone());
-                        info!("SwapTexture: reference {:08X} shape {shape}: {texture}", r.0);
-                        h
+    drawing.sync(&rt.game.texture_swaps, &sim, &world);
+}
+
+/// [design, #2557] Production swap application, shared with synthetic ECS tests.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Swapping<'w, 's> {
+    commands: Commands<'w, 's>,
+    models: ModelCtx<'w>,
+    swapped: ResMut<'w, Swapped>,
+    #[allow(clippy::type_complexity)]
+    drawn: Query<'w, 's, (Entity, &'static RefVisual, Option<&'static MeshMaterial3d<NifMaterial>>, Option<&'static crate::mesh_terrain_blend::BlendShape>, Option<&'static ShapeName>, Option<&'static mut crate::effect_shaders::Faded>, Option<&'static Fading>, Option<&'static nvf_assets::nif_material::MaterialOverride>)>,
+    added: Query<'w, 's, (), NewSwapTargets>,
+}
+
+/// What makes the retained swaps apply again: a reference's mesh drawn anew, as on main,
+/// and, for the mesh terrain blend's shapes only (test aid; no entity has `BlendShape`
+/// without it), their marker or a restored ordinary material arriving [design, #2661].
+type BlendShapeRef = (With<crate::mesh_terrain_blend::BlendShape>, With<RefVisual>);
+type NewSwapTargets = Or<(Added<RefVisual>, (Added<MeshMaterial3d<NifMaterial>>, BlendShapeRef), (Added<crate::mesh_terrain_blend::BlendShape>, With<RefVisual>))>;
+
+impl Swapping<'_, '_> {
+    pub(crate) fn sync(&mut self, swaps: &fnv_game::functions::misc::TextureSwaps, sim: &SimState, world: &WorldData) {
+        let Self { commands, models, swapped, drawn, added } = self;
+        if swaps.by_ref.is_empty() || (swaps.generation == swapped.generation && added.is_empty()) {
+            return;
+        }
+        swapped.generation = swaps.generation;
+        for (&r, list) in &swaps.by_ref {
+            let model = sim
+                .base_of(r.0)
+                .and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b.0))
+                .and_then(|b| b.model)
+                .map(|m| fnv_actor::resolve::mesh_path(&m))
+                .and_then(|path| models.model(&path));
+            for (shape, texture) in list {
+                let targets: Vec<AssetId<NifMaterial>> = model
+                    .iter()
+                    .flat_map(|m| m.shapes.iter())
+                    .filter(|s| s.name.as_deref().is_some_and(|n| same_shape(n, shape)))
+                    .map(|s| s.material.id())
+                    .collect();
+                for (e, rv, mat, blend, name, mut faded, fading, drawing) in &mut *drawn {
+                    let Some(mat) = nvf_assets::nif_surface_blend::source_material(mat, blend) else { continue };
+                    if rv.0 != r.0 {
+                        continue;
                     }
-                };
-                match (faded.as_mut(), fading) {
-                    (_, Some(f)) if f.original().id() != copy.id() => {
-                        models.materials.remove(f.copy());
-                        commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
+                    // A mesh drawn see-through wears a copy: the swap goes to its own material
+                    // (module notes).
+                    let own = match (&faded, fading) {
+                        (_, Some(f)) => f.original().id(),
+                        (Some(f), None) => f.original.id(),
+                        // [design, #2557] Texture copies must not inherit the cloak.
+                        (None, None) => nvf_assets::nif_material::plain_material(mat, drawing).id(),
+                    };
+                    let original = swapped.original.get(&own).copied().unwrap_or(own);
+                    if !targets.contains(&original) && name.is_none_or(|n| !same_shape(&n.0, shape)) {
+                        continue;
                     }
-                    (_, Some(_)) => {}
-                    (Some(f), None) => {
-                        if f.original.id() != copy.id() {
-                            f.original = copy;
+                    let key = (original, texture.clone());
+                    let copy = match swapped.made.get(&key) {
+                        Some(h) => h.clone(),
+                        None => {
+                            let a = &mut *models;
+                            let Some(image) = a.textures.get(texture, true, &a.data, &mut a.images, a.formats.as_deref()) else {
+                                warn!("SwapTexture: {texture} not found (reference {:08X}, shape {shape})", r.0);
+                                continue;
+                            };
+                            let Some(mut m) = models.materials.get(original).cloned() else { continue };
+                            m.base.base_color_texture = Some(image);
+                            let h = models.materials.add(m);
+                            swapped.original.insert(h.id(), original);
+                            swapped.made.insert(key, h.clone());
+                            info!("SwapTexture: reference {:08X} shape {shape}: {texture}", r.0);
+                            h
                         }
+                    };
+                    match (faded.as_mut(), fading) {
+                        (_, Some(f)) if f.original().id() != copy.id() => {
+                            models.materials.remove(f.copy());
+                            commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
+                        }
+                        (_, Some(_)) => {}
+                        (Some(f), None) => {
+                            if f.original.id() != copy.id() {
+                                f.original = copy;
+                            }
+                        }
+                        (None, None) if copy.id() != mat.id() => {
+                            commands.entity(e).insert(MeshMaterial3d(copy));
+                        }
+                        (None, None) => {}
                     }
-                    (None, None) if copy.id() != mat.id() => {
-                        commands.entity(e).insert(MeshMaterial3d(copy));
-                    }
-                    (None, None) => {}
                 }
             }
         }
@@ -176,13 +190,14 @@ pub(crate) fn apply(
 
 #[cfg(test)]
 mod tests {
-    use super::shape_is;
+    use super::same_shape;
 
     #[test]
-    fn a_swap_finds_a_shape_named_with_hashes() {
-        let (shape, _) = fnv_game::functions::misc::texture_swap_names("##nvdlc01_intromovie00:0", r"nvdlc01\interface\intromovie\nvdlc01_intromovie14");
-        assert!(shape_is("##NVDLC01_IntroMovie00:0", &shape));
-        assert!(shape_is("pipboycard01:0", "pipboycard01:0"));
-        assert!(!shape_is("##NVDLC01_IntroMovie00:1", &shape));
+    fn a_swap_finds_shapes_named_with_or_without_hashes() {
+        // The end slides' shape keeps its `##` in the model; the call's name has none.
+        assert!(same_shape("##GS01:0", "gs01:0"));
+        assert!(same_shape("PipBoyCard01:0", "pipboycard01:0"));
+        assert!(!same_shape("##GS01:1", "gs01:0"));
+        assert!(!same_shape("GS01", "gs01:0"));
     }
 }

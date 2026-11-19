@@ -629,7 +629,9 @@ pub fn table_staff(sim: &SimState, table: FormId) -> Vec<FormId> {
 }
 
 /// The keys.
-fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, mouse: crate::pad::ActionButtons<MouseButton>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
@@ -992,6 +994,40 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<RouletteStats>) {
         "roulette summary: {} asked, {} opened ({} refused); {} bets placed, {} refused; {} spins, {} chips won, {} lost; {} bans",
         s.asked, s.opened, s.refused, s.placed, s.refused_bets, s.spins, s.won, s.lost, s.bans
     );
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> RouletteScreen {
+    let mut table = Table::default();
+    if step >= 3 {
+        table.bets.push((rules::spot("S01").unwrap(), 1));
+    }
+    RouletteScreen(Some(Session {
+        casino: FormId(42),
+        casino_name: String::new(),
+        chip: FormId(43),
+        model: None,
+        max_winnings: 1000,
+        table,
+        bet: if step >= 1 { 2 } else { 1 },
+        cursor: if step >= 2 { "S01".into() } else { "S02".into() },
+        phase: if step >= 4 { Phase::Spinning { since: step as f32, clip: 1, pocket: 1 } } else { Phase::Betting },
+        chips: 100,
+        earnings: 0,
+        status: None,
+        help: None,
+        last: None,
+        banned: false,
+        forced: None,
+        rng: ChaCha8Rng::seed_from_u64(step as u64),
+        table_ref: None,
+        coop: None,
+        others: vec![],
+        confirmed: false,
+        wait_line: None,
+    }))
 }
 
 #[cfg(test)]

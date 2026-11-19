@@ -1,16 +1,26 @@
 # FSR 3.1 frame generation
 
-An optional switch: a frame is generated between each two real frames, so motion looks
+NVForever has two kinds of frame generation on one row, **Settings > Graphics > Frame
+generation**: Off, **FSR 3.1** (this page) and **DLSS**, NVIDIA's DLSS Frame Generation through
+Streamline ([dlss-frame-generation](dlss-frame-generation.md)). They never run together: FSR's
+waits while DLSS-G is loaded. `--frame-generation` with no value (or `fsr`) chooses FSR 3.1's,
+`--frame-generation dlss` DLSS's; an INI saved when the row was a switch reads its on as FSR 3.1.
+
+FSR 3.1's: a frame is generated between each two real frames, so motion looks
 smoother. It is the second half of #1778, after [latency reduction](latency-reduction.md),
 and builds on [FSR 3.1 upscaling](fsr-upscaling.md). Code: `engine/nvforever/src/frame_gen.rs`;
 the passes are in the vendored `wgpu-ffx` (`opticalflow.rs`, `frameinterpolation.rs`).
 
 ## Using it
 
-**Settings > Graphics > Frame generation**, or `--frame-generation`. Off by default, saved like
-every switch. It runs when:
+**Settings > Graphics > Frame generation: FSR 3.1**, or `--frame-generation`. Off by default,
+saved like every row. It runs when:
 
-- FSR 3.1 upscaling is on, in any mode (Native AA too): it reads the depth and motion FSR gets;
+- FSR 3.1 is the upscaler that draws, in any mode (Native AA too): it reads the depth and
+  motion FSR gets. Not with DLSS ([dlss-upscaling](dlss-upscaling.md)): frame generation
+  assumes FSR drew the frame, and DLSS's pass makes none of FSR's state; with FSR asked for
+  in a session that loaded Streamline (`NVF_DLSS_PRELOAD=1`), it runs as usual
+  (`frame_gen::usable`, `graphics::fsr_active`, by the effective upscaler);
 - vsync is on (Vertical sync or Variable refresh): the two frames are paced by the swapchain;
 - the GPU runs the passes: Vulkan with SPIR-V passthrough and read-write storage textures in
   the formats they use (`frame_gen::FrameGenPlugin::finish`);
@@ -21,7 +31,8 @@ every switch. It runs when:
   capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
   1.0 features that would allow them otherwise.
 
-Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
+Otherwise the FSR 3.1 choice is dimmed with the reason ("Not on this GPU", "Not with DLSS", "Needs FSR 3.1",
+"Needs vsync", checked in that order)
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
 capped slightly below half the refresh rate (78 at 160 Hz) and latency reduction is on
 ([latency-reduction](latency-reduction.md), AMD GPUs only).
@@ -39,7 +50,8 @@ runs AMD's GLSL compiled to SPIR-V and a Rust port of AMD's host code
 Per real frame, in the camera's render schedule (`Core3d`):
 
 1. After FSR (`fsr::fsr_pass`): frame interpolation's prepare pass on FSR's depth
-   (`PreparedFsr::fsr_depth`, render size, first-person depth unsqueezed) and Bevy's motion
+   (the common preparation's `PreparedUpscale::depth`, `upscaler/prep.rs`, render size,
+   first-person depth unsqueezed; only on a camera FSR draws) and Bevy's motion
    vectors, with FSR's scale (minus the render size), reversed infinite depth and FSR's
    jitter. AMD's host code passes the upscaler's jitter on
    (`ffxFsr3ContextDispatchFrameGenerationPrepare`); its pass reads it only to find
@@ -83,7 +95,7 @@ frame differed from the real one by 0.2-0.4 of 255.
 ### When no frame is generated
 
 Menus, dialogue, loading screens and pauses (every `PlayState` but Playing), a camera cut
-(`FsrCamera::cut_from`, as for FSR's history), a frame FSR did not reconstruct (its spatial
+(`UpscaleCamera::cut_from`, as for FSR's history), a frame FSR did not reconstruct (its spatial
 fallback), and the first frame after any of them: those frames go through the passes with a
 reset (to start the history again) and are presented once. AMD's scene-change detection also
 stops interpolation for four frames after a detected cut; such frames show the real frame.
@@ -134,8 +146,9 @@ Limits and notes:
   78 fps), as before within 0.1 ms. The generated frame is presented when the presenter sees the
   GPU finish the frame (polled about every 0.5 ms), where the driver showed it before: about
   0.3-0.5 ms later at the same frame rate, and much earlier where the old path fell below the
-  cap. Latency reduction is turned on to offset it where the driver has it (AMD). NVIDIA's
-  `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
+  cap. Latency reduction is turned on to offset it where the driver has it: AMD Anti-Lag, or
+  NVIDIA low latency, whose markers map both presents to the rendered frame
+  ([latency-reduction](latency-reduction.md), "Frame generation").
 - **Catching up**: at the cap two paced presents take nearly a whole real frame, so a backlog
   (a late frame followed by an early one) drained by only about 0.2 ms a frame, and frames
   waited in the presenter for up to another frame [observed 2026-11-09, 4K, 78 real fps: the

@@ -384,12 +384,7 @@ fn draw_waiting(
     let data = data.as_deref();
     let kit = kit.get_or_insert_with(|| {
         let large = face(crate::hud::FONT, plain_font(36.0, 15.0), data, &mut images, bc);
-        let mut font = large.font.clone();
-        font.size *= 0.72;
-        for gl in &mut font.glyphs {
-            (gl.width, gl.height, gl.before, gl.after, gl.ascent) = (gl.width * 0.72, gl.height * 0.72, gl.before * 0.72, gl.after * 0.72, gl.ascent * 0.72);
-        }
-        let small = Face { font, image: large.image.clone() };
+        let small = crate::interface::scaled_face(&large, 0.72);
         Kit { large, small, pictures: Pictures::load(data) }
     });
     let bright = amber(255.0);

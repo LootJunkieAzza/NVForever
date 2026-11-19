@@ -41,7 +41,8 @@ pub const TEXT: f32 = 255.0;
 /// measured: the screen menu (Use Pip-Boy off) keeps the file's 255. The flat image a
 /// Pip-Boy model without a screen falls back to shows the device's drawing, so it takes 213
 /// with it [design: the canvas is drawn once per frame kind]. The pages drawn from their
-/// menu files keep the file's 255 on the device too (docs/spec-notes/pipboy.md §3).
+/// menu files take it on the device too, for their pieces at the file's full bright level
+/// (`crate::tiles::draw::device_brightness`, docs/spec-notes/pipboy.md §3).
 pub const DEVICE_TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
@@ -57,6 +58,9 @@ const LEAD_LINE: f32 = 50.0;
 const CARD_TEXT_X: f32 = 5.0;
 const CARD_TEXT_Y: f32 = 20.0;
 const CARD_VALUE_IN: f32 = 10.0;
+/// The least room kept between a card's title and its value when the value is broken
+/// into lines ([`card_value_lines`]) [design, #2537].
+const CARD_GAP: f32 = 10.0;
 /// A button's text under the button's own y: `text_box.xml` centres the text in a box
 /// `_verbuf` (15 in the menus' buttons) taller than it, then 7 + 3 lower (not glowing)
 /// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
@@ -404,101 +408,49 @@ pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, nam
     }
 }
 
+/// A card's value as the lines it is drawn in, each right-aligned under the one before:
+/// one line while it fits beside the title, else broken between its comma-separated parts
+/// (an item's effects, "HP +5, Rads -3, FOD +41, STR -1") so that no line reaches the
+/// title; a part is never cut, so one wider than the room stands on a line of its own.
+/// `width` is the card's, `font` the face both are set in (issue #2537: a long effects
+/// line ran over its "EFFECTS" title) [design: where it breaks; the original's
+/// `card_info.xml` gives `CI_ValueText` a `wrapwidth` (441 of the effects card's 466)
+/// [documented], so its value is broken into lines too; how its lines look is not
+/// captured].
+pub fn card_value_lines(font: &Font, title: &str, width: f32, value: &str) -> Vec<String> {
+    let room = width - CARD_VALUE_IN - CARD_TEXT_X - font.width(title) - CARD_GAP;
+    if value.is_empty() {
+        return Vec::new();
+    }
+    if font.width(value) <= room {
+        return vec![value.to_string()];
+    }
+    let parts: Vec<&str> = value.split(", ").collect();
+    let mut lines: Vec<Vec<&str>> = Vec::new();
+    for (i, part) in parts.iter().enumerate() {
+        // A line that another follows ends with the comma between the parts.
+        let comma = if i + 1 < parts.len() { "," } else { "" };
+        match lines.last_mut() {
+            Some(last) if font.width(&format!("{}, {part}{comma}", last.join(", "))) <= room => last.push(part),
+            _ => lines.push(vec![part]),
+        }
+    }
+    let n = lines.len();
+    lines.iter().enumerate().map(|(i, l)| format!("{}{}", l.join(", "), if i + 1 < n { "," } else { "" })).collect()
+}
+
 /// A card: a line along its top, one fading down its right side, the title at the left
-/// and the value right-aligned, both in font 2. The value keeps between the title and the
-/// right border ([`value_span`]): one too long for it is clipped there and scrolls
-/// sideways ([`Marquee`]).
+/// and the value right-aligned, both in font 2; a value too long for the room beside the
+/// title goes on in further lines under it ([`card_value_lines`]).
 pub fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, width: f32, title: &str, value: &str) {
     let line = amber(LINE);
     let bright = c.bright();
     c.line(p, x, y, width, THICK, line);
     c.fade(p, x + width - THICK, y, FADE, false, line);
-    let title_w = c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
-    if value.is_empty() {
-        return;
-    }
-    let span = value_span(CARD_TEXT_X + title_w, width, c.width(2, value));
-    if span.over <= 0.0 {
-        c.text(p, 2, value, x + span.left, y + CARD_TEXT_Y, Align::Left, bright);
-        return;
-    }
-    // Clipped to its room, the text on a strip the marquee moves left and back.
-    let high = CARD_TEXT_Y + 1.5 * c.line_height(2);
-    let room = Node { overflow: Overflow::clip(), ..at(x + span.left, y, span.room, high) };
-    p.spawn((room, Pickable::IGNORE)).with_children(|r| {
-        r.spawn((at(0.0, 0.0, span.room + span.over, high), Marquee { over: span.over, since: None }, Pickable::IGNORE)).with_children(|t| {
-            c.text(t, 2, value, 0.0, CARD_TEXT_Y, Align::Left, bright);
-        });
-    });
-}
-
-/// The gap from a card's title to where its value may start [documented:
-/// `menus\prefabs\card_info.xml`, `CI_ValueText` `user1`: the title text's width + 15].
-pub const CARD_VALUE_GAP: f32 = 15.0;
-
-/// Where a card's value is drawn, in the card's units.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ValueSpan {
-    /// The value's left end: right-aligned to the right border, or at the left bound.
-    pub left: f32,
-    /// The room between the bounds.
-    pub room: f32,
-    /// How much wider than the room the value is (0 when it fits).
-    pub over: f32,
-}
-
-/// The value's place on a card of `width` whose title ends at `title_end`, for a value
-/// `value_w` wide [documented: `card_info.xml` `CI_ValueText`: its x is the right border
-/// (the card's width − 10) less the text's width, but not left of the title's width + 15;
-/// the text keeps left-justified from there]. What does not fit is clipped at the right
-/// border and scrolls (`Marquee`) [owner 2026-11-14: the original "keeps the line inside the
-/// effects box, clips it, and scrolls it sideways"; the file has no scroll of its own, so
-/// the engine's (hypothesis)].
-pub fn value_span(title_end: f32, width: f32, value_w: f32) -> ValueSpan {
-    let lo = title_end + CARD_VALUE_GAP - CARD_TEXT_X;
-    let right = width - CARD_VALUE_IN;
-    let room = (right - lo).max(0.0);
-    let left = (right - value_w).max(lo);
-    ValueSpan { left, room, over: (value_w - room).max(0.0) }
-}
-
-/// A card value too long for its room, scrolling sideways: held at its start, moved left
-/// until its end shows, held there, then back to the start, over and over, in real time
-/// (the Pip-Boy pauses the world) [hypothesis: the original's speed and holds are not in
-/// the menu files; observer-checks.md 128].
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub struct Marquee {
-    /// How far it moves: the text's width less the room.
-    pub over: f32,
-    /// When it started, set on its first frame.
-    pub since: Option<f32>,
-}
-
-/// Seconds a marquee holds at each end.
-pub const MARQUEE_HOLD: f32 = 1.5;
-/// Its speed, in canvas units a second.
-pub const MARQUEE_SPEED: f32 = 45.0;
-
-/// How far left a marquee that moves `over` stands `t` seconds after it started.
-pub fn marquee_offset(over: f32, t: f32) -> f32 {
-    if over <= 0.0 {
-        return 0.0;
-    }
-    let run = over / MARQUEE_SPEED;
-    let cycle = 2.0 * MARQUEE_HOLD + run;
-    let t = t.rem_euclid(cycle);
-    ((t - MARQUEE_HOLD) * MARQUEE_SPEED).clamp(0.0, over)
-}
-
-/// Move every marquee's strip to its place now.
-pub fn marquees(real: Res<Time<Real>>, mut strips: Query<(&mut Node, &mut Marquee)>) {
-    let now = real.elapsed_secs();
-    for (mut node, mut m) in &mut strips {
-        let since = *m.since.get_or_insert(now);
-        let left = crate::interface::u(-marquee_offset(m.over, now - since));
-        if node.left != left {
-            node.left = left;
-        }
+    c.text(p, 2, title, x + CARD_TEXT_X, y + CARD_TEXT_Y, Align::Left, bright);
+    let pitch = c.line_height(2);
+    for (i, l) in card_value_lines(&c.kit.face(2).font, title, width, value).iter().enumerate() {
+        c.text(p, 2, l, x + width - CARD_VALUE_IN, y + CARD_TEXT_Y + pitch * i as f32, Align::Right, bright);
     }
 }
 
@@ -643,6 +595,7 @@ pub fn draw(
     inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
     repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
     map_tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
+    item_mod_tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>,
     mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -651,6 +604,8 @@ pub fn draw(
     let tiled = tiles.is_some_and(|t| t.ready.is_some()) || inventory.is_some_and(|t| t.ready.is_some());
     // The repair page likewise (`crate::tiles::repair_menu::RepairTiles::ready`).
     let tiled = tiled || repair_tiles.is_some_and(|t| t.ready.is_some());
+    // The weapon mod menu likewise (`crate::tiles::item_mod_menu::ItemModTiles::ready`).
+    let tiled = tiled || item_mod_tiles.is_some_and(|t| t.ready.is_some());
     // The DATA page likewise, on the tabs it draws (`crate::tiles::map_menu::MapTiles::ready`).
     let tiled = tiled || map_tiles.is_some_and(|t| t.ready.is_some());
     let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
@@ -764,6 +719,16 @@ fn on_header_out(out: On<PointerOut>, children: Query<&Children>, mut boxes: Que
 // ---- Added for the STATS page ------------------------------------------------------
 
 impl Ctx<'_> {
+    /// Adjust only an actually selected own image. Atlas pieces retain the existing
+    /// texel layout; a loose file shadowed by an atlas must not set their density.
+    pub fn picture_zoom(&mut self, path: &str, logical_height: f32) -> f32 {
+        let Some((image, None)) = self.picture(path) else { return 1.0 };
+        self.images.get(&image).map_or(1.0, |image| {
+            let height = image.size().y;
+            if height == 0 { 1.0 } else { logical_height / height as f32 }
+        })
+    }
+
     /// A picture's size in its file's pixels: its atlas piece's, or the whole file's.
     pub fn picture_size(&mut self, path: &str) -> Option<Vec2> {
         let (image, rect) = self.picture(path)?;
@@ -786,40 +751,67 @@ impl Ctx<'_> {
             Some(r) => r,
             None => Rect::from_corners(Vec2::ZERO, self.images.get(&image)?.size().as_vec2()),
         };
-        let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
-        let size = cut.size() * zoom;
+        let (cut, size) = cut_picture(full, w, h, zoom);
         p.spawn((at(x, y, size.x, size.y), ImageNode { rect: Some(cut), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
         Some(size)
     }
+}
+
+fn cut_picture(full: Rect, w: f32, h: f32, zoom: f32) -> (Rect, Vec2) {
+    let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
+    (cut, cut.size() * zoom)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A card's value keeps right of its title and left of its right border
-    /// (card_info.xml): a short one right-aligned, a long one from the left bound,
-    /// clipped, and scrolled by what does not fit.
+    /// Issue #2537: an aid item's Hardcore effects ran over the card's "EFFECTS" title.
+    /// Every character 13 wide: the effects card (466) has room for 26 beside its title.
     #[test]
-    fn a_long_card_value_keeps_inside_its_card_and_scrolls() {
-        // The EFFECTS card of the Atomic Cocktail: 530 wide, its title 70 wide.
-        let (title_end, width) = (CARD_TEXT_X + 70.0, 530.0);
-        let short = value_span(title_end, width, 100.0);
-        assert_eq!((short.left, short.over), (width - CARD_VALUE_IN - 100.0, 0.0), "right-aligned");
-        let long = value_span(title_end, width, 900.0);
-        assert_eq!(long.left, 70.0 + CARD_VALUE_GAP, "never over the title");
-        assert_eq!(long.room, width - CARD_VALUE_IN - long.left);
-        assert_eq!(long.over, 900.0 - long.room);
-        assert!(long.left + long.room <= width - CARD_VALUE_IN, "clipped at the right border");
-        // Held at the start, moved to the end, held, back to the start.
-        let over = 90.0;
-        assert_eq!(marquee_offset(over, 0.0), 0.0);
-        assert_eq!(marquee_offset(over, MARQUEE_HOLD), 0.0);
-        let run = over / MARQUEE_SPEED;
-        assert!((marquee_offset(over, MARQUEE_HOLD + run / 2.0) - over / 2.0).abs() < 1e-3);
-        assert_eq!(marquee_offset(over, MARQUEE_HOLD + run + 0.5), over, "the end held");
-        assert_eq!(marquee_offset(over, 2.0 * MARQUEE_HOLD + run + 0.1), 0.0, "back to the start");
-        assert_eq!(marquee_offset(0.0, 5.0), 0.0, "a value that fits never moves");
+    fn a_long_card_value_breaks_between_its_parts() {
+        let font = plain_font(31.0, 13.0);
+        let lines = |width: f32, value: &str| card_value_lines(&font, "EFFECTS", width, value);
+        assert_eq!(lines(466.0, "HP +40"), ["HP +40"]);
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +41, STR -1"), ["HP +5, Rads -3, FOD +41,", "STR -1"]);
+        // Just fitting stays one line; one character more breaks before the last part.
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +4, S1"), ["HP +5, Rads -3, FOD +4, S1"]);
+        assert_eq!(lines(466.0, "HP +5, Rads -3, FOD +41, S1"), ["HP +5, Rads -3, FOD +41,", "S1"]);
+        // A part wider than the room is not cut: a line of its own.
+        assert_eq!(lines(150.0, "Speech +2, Melee Weap. +2"), ["Speech +2,", "Melee Weap. +2"]);
+        assert!(lines(466.0, "").is_empty());
+        // No line reaches the title.
+        let room = 466.0 - CARD_VALUE_IN - CARD_TEXT_X - font.width("EFFECTS") - CARD_GAP;
+        for l in lines(466.0, "HP +5, Rads -3, FOD +41, STR -1, H2O +10, AGL -2, END +1") {
+            assert!(font.width(&l) <= room, "{l}");
+        }
+    }
+
+    #[test]
+    fn paperdoll_hd_cut_keeps_logical_size_and_samples_the_same_art() {
+        // Authored atlas rectangles with the same normalized art at 1x and 4x.
+        let native = Rect::new(128.0, 256.0, 255.0, 383.0);
+        let hd = Rect::new(512.0, 1024.0, 1020.0, 1532.0);
+        let (a, sa) = cut_picture(native, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        let (b, sb) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45 / 4.0);
+        assert!((sa - sb).length() < 0.001);
+        assert!((b.min - a.min * 4.0).length() < 0.001);
+        assert!((b.max - a.max * 4.0).length() < 0.001);
+        // The old 1px/unit zoom on HD samples only a quarter of each intended edge.
+        let (wrong, _) = cut_picture(hd, 85.0 * 1.45, 92.0 * 1.45, 1.45);
+        assert!((wrong.width() * 4.0 - b.width()).abs() < 0.001);
+    }
+
+    #[test]
+    fn paperdoll_density_adjustment_retains_partial_piece_clipping_and_native_rectangles() {
+        let native = Rect::new(9.0, 7.0, 29.0, 17.0);
+        let hd = Rect::new(36.0, 28.0, 116.0, 68.0);
+        let (a, sa) = cut_picture(native, 50.0, 50.0, 1.0);
+        let (b, sb) = cut_picture(hd, 50.0, 50.0, 0.25);
+        assert_eq!(a, native);
+        assert_eq!(b, hd);
+        assert_eq!(sa, Vec2::new(20.0, 10.0));
+        assert_eq!(sb, sa);
     }
 
     /// A hint column's words end at the heading's right end while every key fits in the

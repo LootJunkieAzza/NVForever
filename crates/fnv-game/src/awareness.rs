@@ -22,9 +22,8 @@
 //! Only actors the detector would attack count ([`Game::would_attack`]): what others do
 //! is never a threat.
 //!
-//! The timers' lengths are not documented and no game setting in FalloutNV.esm names
-//! them; [`Timers`] holds NVForever's choices. Combat itself (attacking, cover, fleeing)
-//! is not built: an actor in Combat stands facing its target.
+//! [design, #2010] [`Timers::read`] reads detection timers from the load order;
+//! Lost searches finish through [`Game::searched_once`], with a separate stall bound.
 
 use crate::detection::{Band, Detection};
 use crate::functions::actor::{actor_value, faction_relation, factions_of};
@@ -185,19 +184,21 @@ pub struct Target {
     pub hidden_since: Option<f64>,
 }
 
-/// The timers of the detection states, seconds of `Game::time` [engineering choice: the
-/// documentation names the timers but not their lengths, and FalloutNV.esm has no game
-/// setting for them].
+/// Detection timers, seconds of `Game::time` [design, #2010: setting-to-timer mapping;
+/// observed defaults: issue #2010 capture, docs/spec-notes/npc-behaviour-compare.md §15.6].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timers {
-    /// An alarm runs out this long after it was last raised or refreshed.
+    /// An alarm (noticed, hurt, an ally's call, an event heard) runs out this long after
+    /// refresh [design: existing Alert policy]. fDetectionEventExpireTime is not read for
+    /// it: by its name it is how long an event itself can be heard, and ours are heard in
+    /// the round they are raised [hypothesis: the setting's name]; a 10 s alarm sent a
+    /// camp's alarmer back to Normal before the party it called had searched (smoke
+    /// `group-search`, #2010).
     pub alarm: f64,
-    /// A target hidden this long leaves the target list.
+    /// fCombatTargetLostRemoveTime; does not interrupt a Lost search [design, #2010].
     pub forget_target: f64,
-    /// In Combat, no target detected for this long: Lost [design: owner 2026-10-19,
-    /// fighters said CombatToLost almost as soon as they broke line of sight with 3 s;
-    /// shorter than `forget_target`, or a target hidden the whole time is forgotten before
-    /// it is lost and the fighter goes to Normal instead of searching].
+    /// fCombatDetectionLostTime: no target detected for this long enters Lost
+    /// [design, #2010; documented: GECK wiki Combat Search, a GameSetting delay].
     pub lost: f64,
     /// AlertIdle and LostIdle are said every this many seconds, a random time between the
     /// two [documented: Detection Tab, fCombatDetectionDialogueIdleMin/MaxElapsedTime;
@@ -214,19 +215,29 @@ pub struct Timers {
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, forget_target: 15.0, lost: 10.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
+        Timers { alarm: 20.0, forget_target: 30.0, lost: 15.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
 impl Timers {
-    /// The defaults, with the bark timer from the load order's game settings.
+    /// [design, #2010] Defaults overridden by the load order's game settings.
     pub fn read(g: &Game) -> Timers {
         let d = Timers::default();
         let s = |name: &str, v: f64| crate::combat::setting(g, name, v);
         let idle_bark = (s("fCombatDetectionDialogueIdleMinElapsedTime", d.idle_bark.0), s("fCombatDetectionDialogueIdleMaxElapsedTime", d.idle_bark.1));
-        Timers { idle_bark, bark_cooldown: idle_bark.1.max(idle_bark.0), ..d }
+        Timers {
+            lost: s("fCombatDetectionLostTime", d.lost),
+            forget_target: s("fCombatTargetLostRemoveTime", d.forget_target),
+            idle_bark,
+            bark_cooldown: idle_bark.1.max(idle_bark.0),
+            ..d
+        }
     }
 }
+
+/// A Lost search without a completed share for this many seconds may expire
+/// [design, #2010: safety for unavailable navigation/AI; not an original-game timer].
+pub const LOST_SEARCH_STALL_SECONDS: f64 = 300.0;
 
 /// Members of a group within this many game units of a Detection line's speaker do not
 /// say a line of the same kind while its cooldown lasts [design: one exterior cell's
@@ -293,6 +304,13 @@ pub struct Awareness {
     /// (`fnv_ai::alert::COMBAT_REACTION_SECONDS`, docs/spec-notes/actors.md §8.9).
     #[serde(default)]
     pub combat_began: Option<f64>,
+    /// The player's Hostiles Prioritize Player tweak: it fights the player, while it
+    /// detects it, over the companion it would have chosen ([`Game::prefer_player`]), and
+    /// the companion that roll was made for (one roll each) [design: docs/design/tweaks.md].
+    #[serde(default)]
+    pub prefer_player: bool,
+    #[serde(default)]
+    pub rolled_for: Option<FormId>,
 }
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
@@ -362,7 +380,10 @@ impl Awareness {
     /// An alert actor that hears an event adds its owner to its target list (not
     /// detected) [documented: Category:Detection].
     pub fn alarm(&mut self, owner: FormId, at: [f32; 3], size: f64, cause: Cause, now: f64, t: &Timers) {
-        let expires = now + t.alarm;
+        let expires = now + match cause {
+            Cause::LostTarget => LOST_SEARCH_STALL_SECONDS,
+            _ => t.alarm,
+        };
         match self.alarms.iter_mut().find(|a| a.owner == owner && a.cause == cause) {
             Some(a) => {
                 a.at = at;
@@ -389,6 +410,16 @@ impl Awareness {
     /// of the highest or within [`TARGET_COMMIT`] of turning to it, the highest not much
     /// nearer ([`TARGET_COMMIT_NEARER`]).
     pub fn combat_target(&self) -> Option<(FormId, &Target)> {
+        if self.prefer_player {
+            if let Some(t) = self.targets.get(&FormId::PLAYER_REF).filter(|t| t.band == Band::Detected) {
+                return Some((FormId::PLAYER_REF, t));
+            }
+        }
+        self.own_target()
+    }
+
+    /// [`Awareness::combat_target`] by its own choice, without the player's tweak.
+    pub fn own_target(&self) -> Option<(FormId, &Target)> {
         let best = self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))?;
         let away = |t: &Target| self.at.map_or(f32::INFINITY, |m| (t.at[0] - m[0]).hypot(t.at[1] - m[1]));
         let held = |t: &Target| self.committed && away(best.1) >= away(t) * TARGET_COMMIT_NEARER;
@@ -406,10 +437,17 @@ impl Awareness {
     /// become Alert (its package does not forbid it). Returns the change, if any.
     pub fn settle(&mut self, actor: FormId, now: f64, t: &Timers, may_alert: bool) -> Option<Change> {
         self.alarms.retain(|a| a.expires > now);
-        // A target a member of its group detected within the forget timer stays on the
-        // list (docs/spec-notes/combat-groups.md §3).
+        // [design, #2010] Previously detected targets survive the wait to enter Lost
+        // and their active search. Group sightings also retain targets (§3 of
+        // docs/spec-notes/combat-groups.md), even with inverted timer overrides.
         let shared = &self.shared;
-        self.targets.retain(|id, x| !x.hidden_since.is_some_and(|h| now - h >= t.forget_target) || shared.get(id).is_some_and(|s| now - s < t.forget_target));
+        let pending_lost = self.state == State::Combat && self.combat_target().is_none();
+        self.targets.retain(|id, x| {
+            (pending_lost && x.detected.is_some())
+                || self.alarms.iter().any(|a| a.owner == *id && a.cause == Cause::LostTarget)
+                || !x.hidden_since.is_some_and(|h| now - h >= t.forget_target)
+                || shared.get(id).is_some_and(|s| now - s < t.forget_target)
+        });
         self.shared.retain(|id, _| self.targets.contains_key(id));
         // Called by an ally and not fighting yet: it takes the alarm's owner, the first of
         // the foe's side to start, while it detects it (§2).
@@ -464,6 +502,10 @@ impl Awareness {
         self.state = to;
         self.since = now;
         self.next_idle_bark = None;
+        if to == State::Combat {
+            // [design, #2010] Re-detection ends this search; a later loss starts anew.
+            self.alarms.retain(|a| a.cause != Cause::LostTarget);
+        }
         if to == State::Combat && from != State::Lost {
             self.combat_began = Some(now);
         }
@@ -554,7 +596,7 @@ impl Awarenesses {
 
     /// A number in [0, 1) from the module's own sequence (the bark timer), so that the
     /// game's random numbers stay as they were.
-    fn unit(&mut self) -> f64 {
+    pub(crate) fn unit(&mut self) -> f64 {
         self.rng = self.rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (self.rng >> 11) as f64 / (1u64 << 53) as f64
     }
@@ -664,11 +706,50 @@ impl Game<'_> {
         self.hostility(actor, other, &aggression).unwrap_or(false)
     }
 
+    /// Whether `r` is a fixture that never fights: a creature flagged Immobile whose AI
+    /// data (Aggression Unaggressive, Assistance Helps Nobody) never starts or joins a
+    /// fight and that carries no weapon. It cannot move, turn to a foe or hurt one, so
+    /// it never takes a combat target, never answers an alarm or a call for help and is
+    /// never hostile ([`Game::hostility`], [`Game::start_combat`],
+    /// [`Game::settle_awareness`]), whatever the player did to it or to its factions,
+    /// and the engine never turns it (`nvforever` residents.rs). [documented: GECK wiki
+    /// Stats Tab for Creatures, Immobile; AI Data, Aggression "Unaggressive: will not
+    /// initiate combat", Assistance "Helps Nobody"; observed: in FalloutNV.esm these are
+    /// the placed MrHouse and MrHouseOFFLINE (his screens), NVCRMrHouse (his life-support
+    /// chamber) and NVCRFestus (a ghosted robot), YesManMainframe too though it is placed
+    /// nowhere; the turrets, also Immobile and Unaggressive, carry their guns (CNTO), and
+    /// no other placed actor of the masters is one (tests/fixtures_data.rs); hypothesis: that the original lets such an actor take no part in a
+    /// fight, as the owner ruled for the screens and the chamber, issue #2431.] The
+    /// screens are Invulnerable by their records ([`Game::is_immune`]); the chamber is a
+    /// ghost while sealed (its script's SetGhost 1) and House's body killable once the
+    /// terminal unseals it (owner ruling 2026-11-13).
+    pub fn is_fixture(&self, r: FormId) -> bool {
+        if r == FormId::PLAYER_REF || !self.base_data_def(r).is_some_and(|d| d.immobile && &d.sig == b"CREA") {
+            return false;
+        }
+        let calm = self.def_following(r, |d| d.template_ai).is_some_and(|d| d.aggression == Some(0) && d.assistance == Some(0));
+        // Armed: a weapon in its inventory, or, before it has one (not loaded yet), a
+        // weapon or leveled item list among its base's items (CNTO, from the definition
+        // supplying its inventory): the turrets carry their guns so.
+        let armed = || match self.world.peek(r).and_then(|s| s.inventory.as_ref()) {
+            Some(inv) => inv.iter().any(|(item, n)| n > 0 && self.data.sig(item).as_ref() == Some(b"WEAP")),
+            None => crate::functions::base_of(self, r)
+                .and_then(|b| self.template_source(b, r, |d| d.template_inventory))
+                .and_then(|(id, _)| self.world.forms.entries(id))
+                .is_some_and(|items| items.iter().any(|e| matches!(self.data.sig(e.item).as_ref(), Some(b"WEAP") | Some(b"LVLI")))),
+        };
+        calm && !armed()
+    }
+
     /// The rule of [`Game::hostile_to`], read-only: `aggression` gives an actor's
     /// Aggression; `None` when it gives none for an actor the rule asks about. Another
     /// player's actor (co-op) is never hostile by this rule.
     fn hostility(&self, actor: FormId, other: FormId, aggression: &dyn Fn(FormId) -> Option<i64>) -> Option<bool> {
         if actor == other || actor == FormId::PLAYER_REF || self.is_coop_actor(actor) || !self.world.is_enabled(actor).unwrap_or(false) {
+            return Some(false);
+        }
+        // A fixture never fights (issue #2431): before StartCombat, grudges and crimes.
+        if self.is_fixture(actor) {
             return Some(false);
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
@@ -747,13 +828,14 @@ impl Game<'_> {
         self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(flags::NO_COMBAT_ALERT))
     }
 
-    /// Whether `actor`'s current package goes on while the actor is in a combat state
-    /// (Alert, Combat, Lost): the package flag "Continue During Combat" [hypothesis: what
-    /// the flag's name says, no source describes it; 399 of FalloutNV.esm's 4,163
-    /// packages set it, among them sniper posts, "stand in place" and "flee the scene"
-    /// packages, observed 2026-10-11]. Such an actor keeps carrying its package out
-    /// instead of searching or holding its ground (`fnv_ai`); its state, weapon and barks
-    /// are as for any other actor.
+    /// Whether `actor`'s current package has the flag "Continue During Combat" in a way
+    /// that may keep it on its package while it is in a combat state (Alert, Combat,
+    /// Lost). 399 of FalloutNV.esm's 4,163 packages set it [observed 2026-10-11]. When
+    /// it does hold the actor is the AI's to decide by the package type and where the
+    /// actor and its target are (`fnv_ai` alert, docs/design/alert.md §5.2, #2155): only
+    /// on the way of a Travel-kind package, and on a Guard while the target is outside
+    /// [`Game::guard_combat_radius`]. A held actor keeps carrying its package out instead
+    /// of searching or closing in; its state, weapon and barks are as for any other actor.
     ///
     /// Not for a teammate of the player on a Follow package: it fights as any other
     /// actor does (closes in, its combat style's radius holding it) and follows again
@@ -768,6 +850,19 @@ impl Game<'_> {
         on && !(follow && self.is_teammate(actor))
     }
 
+    /// How far from its post a Guard package with Continue During Combat lets its actor
+    /// pursue a target: the package's location radius × fCombatGuardRadiusMult (1.5) or
+    /// fCombatGuardRadiusMin (384), whichever is higher [documented: GECK wiki export,
+    /// "Combat Package Flags"; the defaults are FalloutNV.esm's, read from the load order
+    /// when a plugin sets them; observed: two Guard packages held their trooper so,
+    /// docs/handoff/observer-checks.md check 106].
+    pub fn guard_combat_radius(&self, def: &crate::package::PackageDef) -> f32 {
+        let mult = crate::combat::setting(self, "fCombatGuardRadiusMult", 1.5) as f32;
+        let min = crate::combat::setting(self, "fCombatGuardRadiusMin", 384.0) as f32;
+        let radius = def.location.filter(|l| !matches!(l.kind, crate::package::LocationKind::InCell(_))).map_or(0, |l| l.radius.max(0));
+        (radius as f32 * mult).max(min)
+    }
+
     /// The engine measured `target` from `detector` at `at` (game space): when the
     /// detector would attack the target, the measurement feeds its detection state.
     /// What others do is no threat; a target it no longer would attack is forgotten.
@@ -776,6 +871,9 @@ impl Game<'_> {
             if let Some(a) = self.awareness.actors.get_mut(&detector) {
                 a.forget(target);
             }
+            return;
+        }
+        if self.neutral_out_of_reach(detector, target, at) {
             return;
         }
         let t = self.awareness_timers();
@@ -806,6 +904,35 @@ impl Game<'_> {
         }
     }
 
+    /// `detector` would attack `target` only as a Very Aggressive actor attacks a
+    /// Neutral (no grudge, no forced fight, not the player), it has an aggro radius
+    /// that its package allows, and `at` (where it measured the target) is outside that
+    /// radius, and it is not in Combat: it leaves the target alone for now [hypothesis, #2547: HELIOS One's guard
+    /// dogs (CrDogNCRAggressive, Very Aggressive, aggro radius 2,000 on) went for the NCR
+    /// troopers 2,800 units off, which the owner never saw in the original; the radius
+    /// is the one distance the records give such an actor; observer checks 144 and 163].
+    /// The player is left to the aggro radius rules ([`Game::aggro_tick`]) and the
+    /// on-sight rule as before.
+    pub(crate) fn neutral_out_of_reach(&mut self, detector: FormId, target: FormId, at: [f32; 3]) -> bool {
+        // A fight once begun goes on wherever the target runs [design].
+        if target == FormId::PLAYER_REF || detector == FormId::PLAYER_REF || self.awareness.state(detector) == State::Combat {
+            return false;
+        }
+        if self.awareness.forced.contains(&(detector, target)) || self.provocations.holds(detector, target) {
+            return false;
+        }
+        if self.aggression_kept(detector) != 2 || self.relation_in_round(detector, target) != 0 {
+            return false;
+        }
+        let Some(radius) = self.aggro_radius(detector) else { return false };
+        if !self.package_allows_aggro(detector) {
+            return false;
+        }
+        let Some(me) = position(self, detector) else { return false };
+        let d = ((me[0] - at[0]).powi(2) + (me[1] - at[1]).powi(2) + (me[2] - at[2]).powi(2)).sqrt() as f64;
+        d > radius
+    }
+
     /// Raise a detection event for the engine to measure (CreateDetectionEvent, an
     /// impact, an explosion).
     pub fn queue_detection_event(&mut self, ev: DetectionEvent) {
@@ -823,6 +950,9 @@ impl Game<'_> {
     /// they are already in Combat"]. Returns whether it was.
     pub fn hear_event(&mut self, detector: FormId, ev: &DetectionEvent, det: &Detection) -> bool {
         if det.band == Band::Hidden || self.awareness.state(detector) == State::Combat || !self.would_attack(detector, ev.owner) {
+            return false;
+        }
+        if self.neutral_out_of_reach(detector, ev.owner, ev.at) {
             return false;
         }
         let t = self.awareness_timers();
@@ -860,6 +990,17 @@ impl Game<'_> {
                 self.awareness.tactics.calm(id);
                 continue;
             }
+            // A fixture keeps no targets or alarms, from whatever gave them (an ally's
+            // call, a hit, a crime): it stays Normal (`Game::is_fixture`, issue #2431).
+            if self.is_fixture(id) {
+                if let Some(a) = self.awareness.actors.remove(&id).filter(|a| a.state != State::Normal) {
+                    self.awareness.changes.push(Change { actor: id, from: a.state, to: State::Normal, time: now, about: None, cause: None, at: None, value: None });
+                }
+                self.awareness.forced.retain(|(a, _)| *a != id);
+                self.provocations.calm(id);
+                self.awareness.tactics.calm(id);
+                continue;
+            }
             // Targets and alarm owners that died or went are forgotten, and so are those
             // knocked out: no longer a threat until they are up and seen again
             // (docs/spec-notes/unconscious.md §3) [design, owner request 2026-10-17]. A
@@ -879,6 +1020,10 @@ impl Game<'_> {
                 a.forget(o);
             }
             let change = a.settle(id, now, &t, may_alert);
+            if self.tweaks.hostiles_prefer_player {
+                self.prefer_player(id, change.is_some_and(|c| c.to == State::Combat));
+            }
+            let a = self.awareness.actors.get_mut(&id).expect("listed");
             let idle_due = a.state.idle_topic().is_some() && a.next_idle_bark.is_some_and(|due| now >= due);
             let schedule = a.state.idle_topic().is_some() && (a.next_idle_bark.is_none() || idle_due);
             if schedule {
@@ -895,6 +1040,7 @@ impl Game<'_> {
                 }
                 // When it first fought in this fight, for the alarms' first starter.
                 if c.to == State::Combat {
+                    self.awareness.tactics.searched.retain(|(actor, _), _| *actor != id);
                     self.awareness.tactics.started.entry(id).or_insert(now);
                 }
                 self.awareness.changes.push(c);
@@ -1103,7 +1249,8 @@ impl Game<'_> {
     /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
     /// catalogue's second case) is not built: there are no combat groups yet.
     pub fn start_combat(&mut self, actor: FormId, target: FormId) {
-        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) {
+        // A fixture takes no combat target (`Game::is_fixture`, issue #2431).
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) || self.is_fixture(actor) {
             return;
         }
         self.awareness.forced.insert((actor, target));
@@ -1118,6 +1265,28 @@ impl Game<'_> {
                 self.detection_bark(actor, Some(target), topic);
             }
         }
+    }
+
+    /// Whether `actor` fights `foe` only because a script told it to: a StartCombat on the
+    /// player, who has not hit it and whom it would not attack otherwise (no grudge, its
+    /// records leave the player alone). Such a fight is the actor's own, not an attack on
+    /// it, so its allies do not take it up and it sends them no alarm
+    /// (`crate::provocation` module notes, "Assistance") [hypothesis: Assistance answers
+    /// an ally being attacked; the Silver Rush intro's customer, whose StartCombat makes
+    /// him run out and whose OnHit player alone sets the Van Graffs against the player,
+    /// FalloutNV.esm SCPT 0x0012424C, #2520; observer-checks.md question 180].
+    pub fn unprovoked_scripted_fight(&mut self, actor: FormId, foe: FormId) -> bool {
+        // A dead actor's fight is over; it calls no allies either way.
+        if foe != FormId::PLAYER_REF || self.is_dead(actor) || !self.awareness.forced.contains(&(actor, foe)) || self.provocations.holds(actor, foe) {
+            return false;
+        }
+        if self.awareness.get(actor).is_some_and(|a| a.alarms.iter().any(|x| x.cause == Cause::Hurt && x.owner == foe)) {
+            return false;
+        }
+        self.awareness.forced.remove(&(actor, foe));
+        let own = self.hostile_to_now(actor, foe);
+        self.awareness.forced.insert((actor, foe));
+        !own
     }
 
     /// `actor.StopCombat`: the actor leaves its combat state [documented: catalogue
@@ -1230,6 +1399,36 @@ pub fn get_combat_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
 }
 
 impl Game<'_> {
+    /// The player's Hostiles Prioritize Player tweak, after `id`'s targets settled: when
+    /// the target it would choose is one of the player's companions and the player is
+    /// detected at the threshold or above, one roll (the start chance when it has just
+    /// gone into Combat, else the mid-fight one) sets it on the player instead while it
+    /// detects the player. Out of Combat the choice is cleared [design: docs/design/tweaks.md].
+    pub fn prefer_player(&mut self, id: FormId, started: bool) {
+        let Some(a) = self.awareness.actors.get(&id) else { return };
+        if a.state != State::Combat {
+            if a.prefer_player || a.rolled_for.is_some() {
+                let a = self.awareness.actors.get_mut(&id).expect("listed");
+                (a.prefer_player, a.rolled_for) = (false, None);
+            }
+            return;
+        }
+        let own = a.own_target().map(|(t, _)| t);
+        let player = a.targets.get(&FormId::PLAYER_REF).filter(|t| t.band == Band::Detected).map(|t| t.value);
+        let Some(companion) = own.filter(|&t| t != FormId::PLAYER_REF && self.is_teammate(t)) else { return };
+        if a.rolled_for == Some(companion) {
+            return;
+        }
+        let tw = &self.tweaks;
+        let (chance, threshold) = (if started { tw.prefer_player_start } else { tw.prefer_player_mid }, tw.prefer_player_detection);
+        let Some(_) = player.filter(|&v| v >= f64::from(threshold)) else { return };
+        let roll = self.awareness.unit();
+        let a = self.awareness.actors.get_mut(&id).expect("listed");
+        a.rolled_for = Some(companion);
+        a.prefer_player = roll < f64::from(chance);
+        tracing::info!("awareness: {id} would fight companion {companion}: {} (Hostiles Prioritize Player, roll {roll:.2} against {chance:.2})", if a.prefer_player { "fights the player" } else { "keeps it" });
+    }
+
     /// The actor `r` fights, as scripts read it ([`get_combat_target`]); also what a
     /// condition run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5) and
     /// what the extender queries that ask for it read.
@@ -1378,6 +1577,22 @@ mod tests {
         assert_eq!(Timers::default().bark_cooldown, Timers::default().idle_bark.1);
     }
 
+    /// Hostiles Prioritize Player: with the choice set, the player while detected, else
+    /// its own choice.
+    #[test]
+    fn a_fighter_set_on_the_player_fights_it_while_detected() {
+        let t = Timers::default();
+        let mut a = Awareness::default();
+        a.observe(FOE, &det(50.0), [100.0, 0.0, 0.0], 0.0, &t);
+        a.observe(FormId::PLAYER_REF, &det(10.0), [900.0, 0.0, 0.0], 0.0, &t);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FOE));
+        a.prefer_player = true;
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId::PLAYER_REF));
+        assert_eq!(a.own_target().map(|x| x.0), Some(FOE));
+        a.forget(FormId::PLAYER_REF);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FOE));
+    }
+
     #[test]
     fn a_noticed_hostile_alerts_and_the_alert_runs_out() {
         let t = Timers::default();
@@ -1488,14 +1703,15 @@ mod tests {
         let s = t.lost + 1.0;
         a.observe(FOE, &det(1.0), [30.0, 0.0, 0.0], s, &t);
         assert_eq!(step(&mut a, s), Some((State::Lost, State::Combat)));
-        // Hidden: Lost after the lost timer (the target still on the list), then the
-        // target is forgotten and the alarms run out: Normal.
+        // [design, #2010] Hidden: Lost after the lost timer, retained through a search;
+        // without AI progress the safety deadline eventually releases it.
         a.observe(FOE, &det(-50.0), [30.0, 0.0, 0.0], s + 1.0, &t);
         assert_eq!(step(&mut a, s + t.lost - 0.5), None);
         assert_eq!(step(&mut a, s + t.lost), Some((State::Combat, State::Lost)));
         assert!(a.targets.contains_key(&FOE), "lost before it is forgotten");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm - 0.5), None, "the alarm still runs");
-        assert_eq!(step(&mut a, s + t.lost + t.alarm), Some((State::Lost, State::Normal)));
+        assert_eq!(step(&mut a, s + t.lost + 30.0), None, "ordinary timers cannot interrupt the search");
+        assert!(a.targets.contains_key(&FOE));
+        assert_eq!(step(&mut a, s + t.lost + LOST_SEARCH_STALL_SECONDS), Some((State::Lost, State::Normal)));
     }
 
     #[test]

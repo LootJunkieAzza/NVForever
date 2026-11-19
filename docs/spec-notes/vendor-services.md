@@ -115,7 +115,7 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. Implement
 
 ## 5. Checks
 
-- `cargo test -p fnv-game --test vendor_services` (flags from AIDT, class and template;
+- `cargo test -p fnv-game --test integration vendor_services::` (flags from AIDT, class and template;
   item categories; GetOffersServicesNow by package, on the way, combat) and the unit tests
   of `services.rs`; `cargo test -p fnv-ai --test errands` (the buying test's vendor sells
   Miscellaneous).

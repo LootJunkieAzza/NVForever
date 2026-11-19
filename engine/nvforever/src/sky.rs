@@ -128,7 +128,7 @@ pub(crate) fn sorts_with_sky(sort_key: f32) -> bool {
     sort_key > SKY_SORT_BIAS * 1.5 && sort_key <= nvf_assets::nif_material::SORT_FIRST_BIAS * 1.5
 }
 /// How far the sun's shadows reach when they are switched on in a run started without
-/// them (game units): the default of `--shadow-distance`. With [`DEFAULT_SHADOW_CASCADES`]
+/// them (game units): the default of `--shadow-distance`. With the default cascades
 /// [engineering choice, 2026-10-12, owner's playtest "shadow rendering seriously affects
 /// performance"]: every cascade is a pass over its casters, and at Goodsprings by day the
 /// earlier 16,000 in 4 cascades took the frame from about 7.6 ms without sun shadows to
@@ -136,8 +136,50 @@ pub(crate) fn sorts_with_sky(sort_key: f32) -> bool {
 /// The original casts no sun shadows from the world, so shadows ending nearer are no
 /// further from its look.
 pub const DEFAULT_SHADOW_DISTANCE: f32 = 8_000.0;
-/// The sun's shadow cascades by default (see [`DEFAULT_SHADOW_DISTANCE`]).
-pub const DEFAULT_SHADOW_CASCADES: usize = 3;
+/// How the sun's shadow cascades are laid out ([`shadow_cascade_layout`]): the Sun shadows
+/// mode picks Quality or Performance (shadow_rate.rs `set_performance`); the test aid
+/// `--graphics-cycle cascades=<n>` asks for a count spaced as before #2843.
+///
+/// The default, Quality's (see [`DEFAULT_SHADOW_DISTANCE`]): 4 cascades, laid out by [`shadow_cascade_layout`] [engineering choice: the contributor's proposal in
+/// #2843, for the maintainer to decide; 3 from 2026-10-12 until then]. The 4 cascades of
+/// before 2026-10-12 reached 16,000 units, and every cascade was drawn every frame (8,000 in
+/// 4 then took 15.0-16.8 ms against 13.7-15.2 for 3: graphics-enhanced.md §5.3); now the
+/// reach stays 8,000, the casters are culled to each cascade's slice
+/// ([`sun_casters_over_slice`]) and the cascades are staggered (shadow_rate.rs
+/// `STAGGERED_SCHEDULE`: two drawn in a frame while they are staggered, all four in the
+/// frame after a change of bounds, map size or texture; 2 of 4 on average against
+/// 1.75 of 3). [observed 2026-11-16: Goodsprings' start view at 09:00 standing still,
+/// 2560 × 1440, RTX 5070 Ti, ambient occlusion, longer shadows (reach 12,000), light glow,
+/// 16x anisotropic filtering, sun shafts, `--no-actors`; sun shadows off 2.81-2.85 ms a
+/// frame] with 2048² maps, 3 cascades with far bounds 667, 2,828, 12,000 (texels 0.77,
+/// 3.2, 13.8 units) 3.15-3.16 ms; 4 with 700, 2,000, 5,000, 12,000 (texels 0.80, 2.3, 5.7,
+/// 13.8) 3.22 ms. With 4096² maps 4 with 1,500, 3,500, 7,000, 12,000 and a blend band of
+/// 0.4 (texels 0.86, 2.0, 4.0, 6.9) 3.43-3.48 ms (docs/design/frame-rate-audit.md §12).
+/// Without Longer shadows the 4096² layout is 1,500, 2,400, 4,800, 8,000, derived by
+/// [`SHADOW_CAPS_QUALITY_WIDE`]'s rule; its cost was not measured.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CascadeLayout {
+    /// Quality's 4 cascades (the default), their bounds following the shadow maps' size.
+    #[default]
+    Quality,
+    /// Performance's 3 cascades (shadow_rate.rs, the Sun shadows row's middle choice).
+    Performance,
+    /// This many cascades in Bevy's geometric spacing from a first bound of a twelfth of
+    /// the distance, as every count had it before #2843 (`--graphics-cycle cascades=<n>`,
+    /// so that measurements of then still compare; 1 is the moon's single cascade).
+    Spaced(usize),
+}
+
+impl CascadeLayout {
+    /// The number of cascades.
+    pub const fn count(self) -> usize {
+        match self {
+            CascadeLayout::Quality => SHADOW_SHARES_QUALITY.len() + 1,
+            CascadeLayout::Performance => SHADOW_SHARES_PERFORMANCE.len() + 1,
+            CascadeLayout::Spaced(n) => if n == 0 { 1 } else { n },
+        }
+    }
+}
 
 /// Shares of the weather's and the interior's light colours (display values) in the
 /// display-value lighting sum (lights.rs `DISPLAY_HELPERS`; world.md §8 "Light on
@@ -252,8 +294,8 @@ pub struct SkyState {
     /// The cascades reach this many times `shadow_distance` (1; more with the finer
     /// shadows of `graphics.rs`), the first cascade as near as without.
     pub shadow_reach: f32,
-    /// Number of the sun's shadow cascades.
-    pub shadow_cascades: usize,
+    /// How the sun's shadow cascades are laid out (their number and far bounds).
+    pub shadow_layout: CascadeLayout,
     /// The picture is graded by the image space (`--no-grade` and the settings page turn
     /// it off).
     pub grade: bool,
@@ -263,6 +305,9 @@ pub struct SkyState {
     pub clock_running: bool,
     /// Game days passed at midnight of the current day (moon phase).
     pub days_passed: f32,
+    /// The next change the sky would make is skipped (a short fast travel under the
+    /// player's Improved Weather tweak, [`SkyState::keep_weather_once`]).
+    keep_once: bool,
     /// The weather being faded out, while a change is in progress.
     pub prev: Option<Weather>,
     /// Progress of the fade from `prev` to `weather` (1 = done).
@@ -288,9 +333,17 @@ pub struct SkyState {
     /// The camera's place has been looked at once ([`weather_region`]); until then the
     /// weather is the one the start chose and no roll is made.
     placed: bool,
+    /// Last sampled worldspace and exterior cell [design, #2531; `Self::place_outdoors`].
+    region_cell: Option<(u32, (i32, i32))>,
     /// The game clock has moved the sky (fades take game time; without a clock a change
     /// is at once).
     pub(crate) clock_seen: bool,
+    /// The game clock's hour as it is this frame (`--play`), which the sun light's
+    /// direction follows; `hour` follows it in half-game-minute steps
+    /// ([`Self::follow_game_clock`]), and turning the light by each step made every sun
+    /// shadow jump about once a real second. `None` until the clock is seen, and again
+    /// after the hour is set another way. [engineering choice]
+    sun_hour: Option<f32>,
     /// The list (region FormID, `None` for the climate) and its eligible weathers the
     /// last roll was made for.
     rolled_for: Option<(Option<u32>, Vec<u32>)>,
@@ -486,11 +539,12 @@ impl SkyState {
             shadows: false,
             shadow_distance: DEFAULT_SHADOW_DISTANCE,
             shadow_reach: 1.0,
-            shadow_cascades: DEFAULT_SHADOW_CASCADES,
+            shadow_layout: CascadeLayout::Quality,
             grade: true,
             time_scale: 0.0,
             clock_running: false,
             days_passed: 0.0,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices,
@@ -502,7 +556,9 @@ impl SkyState {
             regions,
             source: None,
             placed: false,
+            region_cell: None,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: wid,
             rolls: 0,
@@ -515,6 +571,46 @@ impl SkyState {
             moon_textures: Default::default(),
             lightning_request: false,
         })
+    }
+
+    /// [documented: GECK wiki ForceWeather / SetWeather / ReleaseWeatherOverride]
+    /// An override lasts until released. [hypothesis, #1997; observer check 209 in
+    /// docs/handoff/observer-checks.md] This also holds across worldspace doors.
+    /// [design: worldspace.rs::carry_sky] Keep override visuals and their adapters,
+    /// including an unfinished fade, without importing the old climate's roll lists.
+    pub(crate) fn carry_weather_from(&mut self, from: &SkyState) {
+        if from.script.is_none() && !from.pinned {
+            return;
+        }
+        self.pinned = from.pinned;
+        self.resume = from.resume;
+        self.script = from.script.map(|sw| ScriptWeather { roll: self.rolls, ..sw });
+        self.weather = from.weather.clone();
+        self.prev = from.prev.clone();
+        self.fade = from.fade;
+        for w in std::iter::once(&self.weather).chain(self.prev.iter()) {
+            if let Some(a) = from.adapters.get(&w.form_id) {
+                self.adapters.insert(w.form_id, *a);
+            }
+        }
+        self.changed = true;
+        if self.script.is_some_and(|sw| sw.hold) {
+            info!("weather: {} ({:08X}) held after sky replacement", self.weather.edid.as_deref().unwrap_or("?"), self.weather.form_id);
+        }
+    }
+
+    /// Preserve the sampled cell and region across a climate-only rebuild [design,
+    /// #2531; `worldspace::script_sky`]. Rebind the source by FormID into the new list.
+    /// An invalidated travel placement stays invalidated (`Self::set_interior`).
+    /// The caller seeds current live gates before this selects weather [design, #2531;
+    /// `worldspace::carry_climate_sky`].
+    pub(crate) fn carry_region_placement(&mut self, from: &Self) {
+        self.region_cell = from.region_cell;
+        self.source = from.source.and_then(|i| self.regions.iter().position(|r| r.region.form_id == from.regions[i].region.form_id));
+        self.placed = from.placed;
+        if self.region_cell.is_some() {
+            self.follow_climate(true);
+        }
     }
 
     /// A loaded game's part of the sky ([`SAVE_HOOK`]), before the first look at the weather
@@ -533,10 +629,9 @@ impl SkyState {
         }
     }
 
-    /// The camera stands in the overriding weather region `region` (FormID; `None`: in
-    /// none), or indoors with `at` = `None`, where the list followed stays as it was:
-    /// follow that region's list, or the climate's.
-    pub fn place(&mut self, at: Option<Option<u32>>) {
+    /// Follow the sampled region (FormID; `Some(None)`: climate), or keep the list
+    /// indoors (`None`). Placement can snap without repeating startup [design, #2531].
+    pub fn place(&mut self, at: Option<Option<u32>>, instant: bool) {
         let first = !self.placed;
         self.placed = true;
         // Said here, not in `new`, which runs before the log is set up.
@@ -557,10 +652,30 @@ impl SkyState {
         if let Some(region) = at {
             self.source = region.and_then(|f| self.regions.iter().position(|r| r.region.form_id == f));
         }
-        self.follow_climate(first || !self.clock_seen);
+        self.follow_climate(instant || first || !self.clock_seen);
         // A release waits for the roll after this one, not for the start's own.
         if let Some(sw) = self.script.as_mut().filter(|_| first) {
             sw.roll = self.rolls;
+        }
+    }
+
+    /// Sample the outline on exterior cell entry, holding the result within that cell
+    /// [observed: captures run15b_w and run15b_w2, 2026-11-15; world.md §6, #2531].
+    /// A fresh or invalidated placement snaps; walking across a cell border fades
+    /// [observed: same captures, script MoveTo versus walking; hypothesis: other Travel].
+    fn place_outdoors(&mut self, regions: &[RegionWeather], world: u32, x: f32, y: f32) {
+        let cell = (world, fnv_world::cell_of(x, y));
+        if self.region_cell == Some(cell) {
+            return;
+        }
+        let instant = self.region_cell.is_none_or(|(previous_world, _)| previous_world != world);
+        self.region_cell = Some(cell);
+        let inside = fnv_world::sky::region_at(regions, world, x, y)
+            .map(|r| r.form_id)
+            .filter(|f| self.regions.iter().any(|r| r.region.form_id == *f));
+        let now = self.source.map(|i| self.regions[i].region.form_id);
+        if instant || !self.placed || inside != now {
+            self.place(Some(inside), instant);
         }
     }
 
@@ -617,6 +732,17 @@ impl SkyState {
         let src = self.source.map(|i| self.regions[i].region.form_id);
         let el = self.eligible_now();
         let key = (src, el.iter().map(|w| w.weather).collect::<Vec<u32>>());
+        // The player's Improved Weather tweak: after a short fast travel nothing rolls,
+        // the hours it took and a new region alike, and the weather shown stays
+        // [design: docs/design/tweaks.md].
+        if self.keep_once && self.clock_seen {
+            self.keep_once = false;
+            self.rolled_for = Some(key);
+            self.hour_index = Some((self.days_passed as f64 * 24.0 + self.hour as f64).floor() as i64);
+            self.pick = self.weather.form_id;
+            info!("weather: kept through a short fast travel (tweak)");
+            return;
+        }
         let mut why = None;
         if self.rolled_for.as_ref() != Some(&key) {
             why = Some(match &self.rolled_for {
@@ -694,19 +820,39 @@ impl SkyState {
         }
     }
 
-    /// Show `w`: a fade from the weather shown, or at once.
+    /// Show `w`: a fade from the weather shown, or at once. A change while a fade is under
+    /// way starts from what the screen shows: back to the weather fading out, the fade
+    /// turns round where it stands; to a third one, it fades from whichever of the two
+    /// shows more (crossing a region's edge and back mid-fade jumped the whole way).
     fn switch_to(&mut self, w: Weather, instant: bool) {
         let h = self.hour;
+        self.fade_to(w, instant);
+        info!("weather: {} at {:02}:{:02}", self.weather.edid.as_deref().unwrap_or("?"), h as u32, (h.fract() * 60.0) as u32);
+        self.changed = true;
+    }
+
+    /// Make `w` the weather and set the fade to it ([`SkyState::switch_to`]).
+    fn fade_to(&mut self, w: Weather, instant: bool) {
         let old = std::mem::replace(&mut self.weather, w);
         if instant {
             self.prev = None;
             self.fade = 1.0;
         } else {
-            self.prev = Some(old);
-            self.fade = 0.0;
+            match self.prev.take() {
+                Some(p) if p.form_id == self.weather.form_id => {
+                    self.fade = 1.0 - self.fade.clamp(0.0, 1.0);
+                    self.prev = Some(old);
+                }
+                Some(p) if self.fade < 0.5 => {
+                    self.prev = Some(p);
+                    self.fade = 0.0;
+                }
+                _ => {
+                    self.prev = Some(old);
+                    self.fade = 0.0;
+                }
+            }
         }
-        info!("weather: {} at {:02}:{:02}", self.weather.edid.as_deref().unwrap_or("?"), h as u32, (h.fract() * 60.0) as u32);
-        self.changed = true;
     }
 
     /// A script's weather (SetWeather fades to it, ForceWeather is `instant`), held
@@ -723,14 +869,7 @@ impl SkyState {
         if w.form_id == self.weather.form_id {
             return;
         }
-        let old = std::mem::replace(&mut self.weather, w);
-        if instant {
-            self.prev = None;
-            self.fade = 1.0;
-        } else {
-            self.prev = Some(old);
-            self.fade = 0.0;
-        }
+        self.fade_to(w, instant);
         self.changed = true;
     }
 
@@ -759,8 +898,15 @@ impl SkyState {
     /// Set the hour; `instant` skips weather fades (a jump rather than time passing).
     pub fn set_hour(&mut self, hour: f32, instant: bool) {
         self.hour = hour.rem_euclid(24.0);
+        self.sun_hour = None;
         self.follow_climate(instant);
         self.changed = true;
+    }
+
+    /// Keep the weather through the next change the sky would make (the Improved Weather
+    /// tweak's short trip).
+    pub fn keep_weather_once(&mut self) {
+        self.keep_once = true;
     }
 
     /// `--play`: the sky shows the game's time of day (GameHour, which the simulation
@@ -778,6 +924,15 @@ impl SkyState {
             self.days_passed = days_passed.floor();
             self.set_hour(hour, true);
         }
+        // Between the steps the sun light still moves with the clock (`sun_hour`).
+        let ahead = (hour - self.hour).rem_euclid(24.0);
+        self.sun_hour = (ahead < 1.0 / 120.0).then_some(hour.rem_euclid(24.0));
+    }
+
+    /// The hour the sun light's direction is taken from: the game clock's own between the
+    /// sky's half-minute steps, otherwise the sky's.
+    pub fn sun_light_hour(&self) -> f32 {
+        self.sun_hour.unwrap_or(self.hour)
     }
 
     /// Advance a weather fade by `hours` of game time.
@@ -925,6 +1080,9 @@ impl SkyState {
     /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).
     pub fn set_interior(&mut self, lighting: Option<fnv_world::lighting::CellLighting>) {
         self.interior = lighting;
+        // Every Travel calls this, including same-cell exterior moves [design, #2531;
+        // world.rs::travel]. Recheck the destination without repeating startup logs.
+        self.region_cell = None;
         self.changed = true;
     }
 
@@ -985,6 +1143,12 @@ impl SkyState {
         sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
     }
 
+    /// Sun elevation in degrees at another `hour` of the same climate (any value; the
+    /// heat haze's afternoon lag, `heat_haze.rs`).
+    pub fn sun_elevation_at(&self, hour: f32) -> f32 {
+        sun_direction(&self.climate, hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
+    }
+
     /// Star and moon visibility (0..1) at this hour.
     pub fn night_visibility(&self) -> (f32, f32) {
         let e = self.sun_elevation();
@@ -1036,25 +1200,18 @@ impl SkyState {
     }
 }
 
-/// The weather follows the region the camera stands in (the player's eye in play mode, as
-/// for imposters): an overriding weather region's list, else the climate's; indoors the
-/// list stays as it was [hypothesis].
+/// Sample weather regions at cell entry or placement, using the camera point
+/// [design: `SkyState::place_outdoors`, #2531]. Indoors keep the list [hypothesis].
 pub fn weather_region(world: Res<WorldData>, cam: Query<&Transform, With<FlyCam>>, mut sky: ResMut<SkyState>) {
     let Ok(t) = cam.single() else { return };
     if sky.interior.is_some() {
         if !sky.placed {
-            sky.place(None);
+            sky.place(None, true);
         }
         return;
     }
     let g = crate::world::bevy_to_game(t.translation);
-    let inside = fnv_world::sky::region_at(world.weather_regions, world.world, g.x, g.y)
-        .map(|r| r.form_id)
-        .filter(|f| sky.regions.iter().any(|r| r.region.form_id == *f));
-    let now = sky.source.map(|i| sky.regions[i].region.form_id);
-    if !sky.placed || inside != now {
-        sky.place(Some(inside));
-    }
+    sky.place_outdoors(world.weather_regions, world.world, g.x, g.y);
 }
 
 /// The worldspace's image space (WRLD INAM), or its parent's.
@@ -1114,6 +1271,13 @@ pub struct CloudLayer {
     set: usize,
     /// Form ID of the weather whose texture this layer shows.
     shows: Option<u32>,
+}
+
+impl CloudLayer {
+    /// The WTHR cloud layer (0-3) this dome shape draws (cloud_shadows.rs).
+    pub(crate) fn layer(&self) -> usize {
+        self.layer
+    }
 }
 
 #[derive(Component)]
@@ -1263,6 +1427,7 @@ pub fn setup_sky(
     mut textures: ResMut<TextureCache>,
     data: Res<GameData>,
     sky: Res<SkyState>,
+    map: Option<Res<bevy::light::DirectionalLightShadowMap>>,
 ) {
     let sun_tex = sky.climate.sun_texture.as_deref().and_then(|t| textures.get(t, true, &data, &mut images, None));
     let glare_tex = sky.climate.sun_glare_texture.as_deref().and_then(|t| textures.get(t, true, &data, &mut images, None));
@@ -1380,7 +1545,7 @@ pub fn setup_sky(
         RenderLayers::from_layers(&[0, SHADOW_LAYER, BODY_LAYER]),
     ));
     if sky.shadows {
-        sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades));
+        sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_layout, map_side(map.as_deref())));
     }
 }
 
@@ -1413,7 +1578,9 @@ pub fn reach_toward_light(cascade: &mut bevy::light::cascade::Cascade, extra: f3
 }
 
 /// Stretch the sun's shadow cascades [`SUN_REACH_BACK`] toward the sun (PostUpdate, after
-/// Bevy builds them each frame and before their frusta and shadow views are made).
+/// Bevy builds them each frame and before their frusta and shadow views are made; after
+/// they are anchored and before the held ones are given back: shadow_anchor.rs
+/// `cascade_edits` says why).
 pub fn reach_toward_sun(mut suns: Query<&mut bevy::light::Cascades, With<Sun>>) {
     for mut cascades in &mut suns {
         for view in cascades.cascades.values_mut() {
@@ -1494,17 +1661,170 @@ fn overlaps(outline: &[Vec2], centre: Vec2, reach: Vec2) -> bool {
     })
 }
 
-/// The sun's shadow cascades, in game units: the first covers the area right around the
-/// camera (a twelfth of `distance`), the last ends at `distance` × `reach`.
-pub(crate) fn shadow_cascades(distance: f32, reach: f32, count: usize) -> CascadeShadowConfig {
-    CascadeShadowConfigBuilder {
-        num_cascades: count.max(1),
-        minimum_distance: 5.0,
-        first_cascade_far_bound: (distance / 12.0).max(200.0),
-        maximum_distance: distance * reach.max(1.0),
-        overlap_proportion: 0.2,
+/// Whether the sun casts shadows with its shadows switched `on` and a shadow distance of
+/// `distance`: a distance of 0 (the Shadow distance row's 0%, the menu overhaul) casts none.
+/// The one test for both [`set_shadows`] and graphics.rs `SunShadowKey::wanted`.
+pub(crate) fn casts_sun_shadows(on: bool, distance: f32) -> bool {
+    on && distance > 0.0
+}
+
+/// The sun's shadow cascades, in game units ([`shadow_cascade_layout`]), for shadow maps
+/// `map` texels on a side.
+pub(crate) fn shadow_cascades(distance: f32, reach: f32, layout: CascadeLayout, map: usize) -> CascadeShadowConfig {
+    let (bounds, overlap_proportion) = shadow_cascade_layout(distance, reach, layout, map);
+    CascadeShadowConfig { bounds, overlap_proportion, minimum_distance: SHADOW_MINIMUM_DISTANCE }
+}
+
+/// The side of the sun's shadow maps (texels): the resource's, or Bevy's default without
+/// it (2048, graphics.rs `SHADOW_MAP` too).
+pub(crate) fn map_side(map: Option<&bevy::light::DirectionalLightShadowMap>) -> usize {
+    map.map_or_else(|| bevy::light::DirectionalLightShadowMap::default().size, |m| m.size)
+}
+
+/// Where the sun's cascades start (game units from the camera) and how far each overlaps
+/// the one before it (a share of its far bound), as Bevy's builder was given them here
+/// before; Quality with the larger maps blends over [`WIDE_SHADOW_OVERLAP`].
+const SHADOW_MINIMUM_DISTANCE: f32 = 5.0;
+const SHADOW_OVERLAP: f32 = 0.2;
+/// The first cascade's far bound is no nearer than this (game units) at short shadow
+/// distances, unless half the last bound is nearer still ([`shadow_cascade_layout`]).
+const FIRST_CASCADE_FLOOR: f32 = 200.0;
+/// The least step between two neighbouring far bounds, as a share of the room between the
+/// first bound and the last ([`shadow_cascade_layout`]) [engineering choice: small enough
+/// to leave every layout's shares alone at the usual distances; with at most 4
+/// cascades the steps take at most 15 % of the room].
+const MIN_CASCADE_STEP: f32 = 0.05;
+/// The far bounds of all cascades but the last, as shares of the shadow distance
+/// [engineering choice: the contributor's proposal in #2843, for the maintainer to decide.
+/// The shadows were sharp only in a small radius around the player and coarse beyond,
+/// worst on Performance, where everything past the first bound's 667 units lay on the last
+/// cascade]. [observed 2026-11-16, the view and settings of [`CascadeLayout`]]
+///
+/// Performance's 3 cascades: at 8,000 units 1,500 and 4,500. With 2048² maps 3.09-3.11 ms
+/// a frame against 3.05-3.10 for the 2 cascades of before (667, 12,000), and a telegraph
+/// pole's crossarm past 667 units cast a clean shadow instead of a shapeless blob.
+const SHADOW_SHARES_PERFORMANCE: [f32; 2] = [0.1875, 0.5625];
+/// Quality's 4 cascades with maps smaller than [`WIDE_SHADOW_MAP`] (2048²): at 8,000 units
+/// 700, 2,000, 5,000, 3.22 ms against 3.15-3.16 for the 3 of before. A farther first bound
+/// costs sharpness at the player's feet with these maps (a wire's shadow crisp at 0.77
+/// units a texel, soft at 1.15, blurred at 1.72), so their first bound stays near.
+const SHADOW_SHARES_QUALITY: [f32; 3] = [0.0875, 0.25, 0.625];
+/// Quality's 4 cascades with maps of [`WIDE_SHADOW_MAP`] or more (4096²): 0.1875, 0.4375
+/// and 0.875 of the distance, the second and third capped at [`SHADOW_CAPS_QUALITY_WIDE`]
+/// of the last bound, blended over [`WIDE_SHADOW_OVERLAP`]. With Longer shadows (reach
+/// 1.5) at 8,000 units: 1,500, 3,500, 7,000, 12,000, the layout measured and pictured on
+/// 2026-11-16: 3.43-3.48 ms against 3.38 for the 3 of before with these maps; the near
+/// shadow stays crisp (0.86 units a texel) with the seams farther out.
+const SHADOW_SHARES_QUALITY_WIDE: [f32; 3] = [0.1875, 0.4375, 0.875];
+/// The caps of Quality's in-between bounds with the larger maps, as shares of the last
+/// bound (none on the first) [engineering choice, #2843 review, for the maintainer to
+/// decide: without Longer shadows (reach 1) the uncapped bounds end at 1,500, 3,500, 7,000
+/// of 8,000, and with the 0.4 blend band the fourth cascade (4,200-8,000) would add almost
+/// nothing beside the third (2,100-7,000) for a fourth draw]. At reach 1.5 they leave the
+/// measured layout as it is (3,500 under 3,600, 7,000 under 7,200); at reach 1 they give
+/// 1,500, 2,400, 4,800, 8,000, derived by this rule; its cost was not measured.
+const SHADOW_CAPS_QUALITY_WIDE: [f32; 3] = [f32::INFINITY, 0.3, 0.6];
+/// The shadow map side from which Quality takes [`SHADOW_SHARES_QUALITY_WIDE`].
+const WIDE_SHADOW_MAP: usize = 4096;
+/// The overlap (blend band) of Quality's cascades with the larger maps: seams farther out
+/// are wider apart in texel size, and a wider band hides them [engineering choice, #2843].
+const WIDE_SHADOW_OVERLAP: f32 = 0.4;
+
+/// The far bounds of the sun's shadow cascades (game units from the camera, nearest
+/// first) and their overlap, for `layout` and shadow maps `map` texels on a side. The last
+/// bound is `distance` × `reach` (`reach` 1, or more with the longer shadows of
+/// `graphics.rs`), so the Shadow distance slider and `--shadow-distance` move them all; the
+/// others are not stretched by `reach`.
+///
+/// - Performance: the shares of `distance` in [`SHADOW_SHARES_PERFORMANCE`], whatever the
+///   map size; overlap [`SHADOW_OVERLAP`].
+/// - Quality: [`SHADOW_SHARES_QUALITY`] and [`SHADOW_OVERLAP`] with maps under
+///   [`WIDE_SHADOW_MAP`]; from it [`SHADOW_SHARES_QUALITY_WIDE`], each in-between bound
+///   capped at its [`SHADOW_CAPS_QUALITY_WIDE`] share of the last, and
+///   [`WIDE_SHADOW_OVERLAP`].
+/// - Spaced(n) (`--graphics-cycle cascades=<n>`): Bevy's geometric spacing from a first
+///   bound of a twelfth of `distance`, as every count had it before #2843, so that
+///   measurements of then still compare; overlap [`SHADOW_OVERLAP`].
+/// - One cascade (the moon's, Spaced(1)): `distance` × `reach`.
+///
+/// At short distances (the Shadow distance row's least step above 0 % is a fifth of
+/// `--shadow-distance`, and `--shadow-distance` itself may be short; at 0 the sun casts
+/// none, [`casts_sun_shadows`], though the layout is still well formed there) the first bound stays at [`FIRST_CASCADE_FLOOR`] but under half the
+/// last, and the last at four times the minimum distance at least. The floor on the first
+/// bound (or a cap) can then push a share to or past its neighbour, so each in-between
+/// bound `i` of `n` is its (capped) share held between `first + i × step` and
+/// `last − (n − 1 − i) × step`, a step being [`MIN_CASCADE_STEP`] of the room between the
+/// first bound and the last. Both limits rise by a step from one bound to the next and the
+/// capped shares rise strictly (with a distance above 0; at 0 they are all 0 and the lower
+/// limits decide), so the bounds always rise strictly, the first and the last included.
+/// The limits only act when a share comes within a step of them: at 8,000 units, with or
+/// without Longer shadows, every layout keeps its shares exactly (Quality with 4096² maps
+/// at reach 1, for one, has its second bound 2,400 against a lower limit of 1,825 and its
+/// third 4,800 against 2,150) [engineering choice].
+pub(crate) fn shadow_cascade_layout(distance: f32, reach: f32, layout: CascadeLayout, map: usize) -> (Vec<f32>, f32) {
+    let count = layout.count();
+    let last = (distance * reach.max(1.0)).max(4.0 * SHADOW_MINIMUM_DISTANCE);
+    let (shares, caps, overlap): (&[f32], &[f32], f32) = match layout {
+        CascadeLayout::Performance => (&SHADOW_SHARES_PERFORMANCE[..], &[][..], SHADOW_OVERLAP),
+        CascadeLayout::Quality if map >= WIDE_SHADOW_MAP => (&SHADOW_SHARES_QUALITY_WIDE[..], &SHADOW_CAPS_QUALITY_WIDE[..], WIDE_SHADOW_OVERLAP),
+        CascadeLayout::Quality => (&SHADOW_SHARES_QUALITY[..], &[][..], SHADOW_OVERLAP),
+        CascadeLayout::Spaced(_) => (&[][..], &[][..], SHADOW_OVERLAP),
+    };
+    if count == 1 {
+        return (vec![last], overlap);
     }
-    .build()
+    let first_share = shares.first().copied().unwrap_or(1.0 / 12.0);
+    let first = (distance * first_share).max(FIRST_CASCADE_FLOOR).min(last / 2.0);
+    if shares.is_empty() {
+        let bounds = CascadeShadowConfigBuilder {
+            num_cascades: count,
+            minimum_distance: SHADOW_MINIMUM_DISTANCE,
+            first_cascade_far_bound: first,
+            maximum_distance: last,
+            overlap_proportion: overlap,
+        }
+        .build()
+        .bounds;
+        return (bounds, overlap);
+    }
+    let step = MIN_CASCADE_STEP * (last - first);
+    let bounds = std::iter::once(first)
+        .chain(shares.iter().enumerate().skip(1).map(|(i, share)| {
+            let cap = caps.get(i).map_or(f32::INFINITY, |c| c * last);
+            let (low, high) = (first + i as f32 * step, last - (count - 1 - i) as f32 * step);
+            (distance * share).min(cap).min(high).max(low)
+        }))
+        .chain(std::iter::once(last))
+        .collect();
+    (bounds, overlap)
+}
+
+/// Log the sun's cascades whenever their far bounds or the shadow maps' size change (the
+/// first frame with cascades, the day's and the moon's, a change of mode, distance or
+/// Shadow resolution): `sun shadows: cascades far bounds [..] texels [..] units`, with each
+/// cascade's texel size as Bevy built it for the main camera. Runs after Bevy builds the
+/// cascades and before the hold can give back a cascade of an earlier frame
+/// (shadow_anchor.rs `cascade_edits`); a few floats compared a frame.
+pub fn log_sun_cascades(
+    suns: Query<(&DirectionalLight, &CascadeShadowConfig, &bevy::light::Cascades), With<Sun>>,
+    cams: Query<Entity, With<FlyCam>>,
+    map: Option<Res<bevy::light::DirectionalLightShadowMap>>,
+    mut said: Local<(Vec<f32>, usize)>,
+) {
+    let Some(cam) = cams.iter().next() else { return };
+    let side = map_side(map.as_deref());
+    for (light, config, cascades) in &suns {
+        if !light.shadow_maps_enabled || (config.bounds == said.0 && side == said.1) {
+            continue;
+        }
+        // Wait for the cascades Bevy builds from this config.
+        let Some(list) = cascades.cascades.get(&cam).filter(|l| l.len() == config.bounds.len()) else { continue };
+        let bounds: Vec<String> = config.bounds.iter().map(|b| format!("{b:.0}")).collect();
+        let texels: Vec<String> = list.iter().map(|c| format!("{:.3}", c.texel_size)).collect();
+        info!("sun shadows: cascades far bounds [{}] texels [{}] units", bounds.join(", "), texels.join(", "));
+        said.0.clone_from(&config.bounds);
+        said.1 = side;
+    }
 }
 
 /// Height of the sun's direction above the horizon (the sine of its elevation; below 0
@@ -1518,11 +1838,17 @@ pub fn sun_height_and_fade(sky: &SkyState) -> (f32, f32) {
 /// Switch the sun's shadows on or off now (the settings page); they reach
 /// [`SkyState::shadow_distance`].
 pub fn set_shadows(world: &mut World, on: bool) {
+    if let Some(mut work) = world.get_resource_mut::<crate::quality_probe::Work>() {
+        work.shadow_updates += 1;
+    }
     let distance = {
         let mut sky = world.resource_mut::<SkyState>();
         sky.shadows = on;
-        (sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades)
+        (sky.shadow_distance, sky.shadow_reach, sky.shadow_layout)
     };
+    let map = map_side(world.get_resource::<bevy::light::DirectionalLightShadowMap>());
+    // A shadow distance of 0% (the menu overhaul) casts none.
+    let on = casts_sun_shadows(on, distance.0);
     let mut suns = world.query_filtered::<(Entity, &mut DirectionalLight), With<Sun>>();
     let lit: Vec<Entity> = suns
         .iter_mut(world)
@@ -1533,7 +1859,7 @@ pub fn set_shadows(world: &mut World, on: bool) {
         .collect();
     if on {
         for e in lit {
-            world.entity_mut(e).insert(shadow_cascades(distance.0, distance.1, distance.2));
+            world.entity_mut(e).insert(shadow_cascades(distance.0, distance.1, distance.2, map));
         }
     }
 }
@@ -1562,7 +1888,8 @@ pub fn update_clouds(
         }
         return;
     }
-    let secs = time.elapsed_secs_f64();
+    // Elapsed seconds, or the frozen phase of NVF_PLAY_DEBUG_CLOUD_PHASE (cloud_shadows.rs).
+    let secs = crate::cloud_shadows::cloud_seconds(&time);
     // Set 0 shows the current weather while no fade runs; during a fade the set whose
     // texture already shows the new weather keeps it.
     for (mut cl, m, mut t, mut vis) in &mut clouds {
@@ -1599,8 +1926,16 @@ pub fn update_clouds(
         if !unchanged {
             let Some(mut mat) = materials.get_mut(&m.0) else { continue };
             if new_texture {
-                mat.base.base_color_texture =
-                    w.cloud_textures[cl.layer].as_deref().and_then(|p| textures.get(p, true, &data, &mut images, None));
+                mat.base.base_color_texture = w.cloud_textures[cl.layer].as_deref().and_then(|p| {
+                    // A texture the base game's own weather names and no archive has is
+                    // no fault to report (#2408): the layer stays without a texture.
+                    let absent = official_plugin(w.plugin.as_deref()) && !data.vfs.exists(&nvf_assets::texture::resolved_path(p, |q| data.vfs.exists(q)));
+                    if absent {
+                        debug!("clouds: layer {} of {}: {p} is in no archive (named by {}): no texture", cl.layer, w.edid.as_deref().unwrap_or("?"), w.plugin.as_deref().unwrap_or("?"));
+                        return None;
+                    }
+                    textures.get(p, true, &data, &mut images, None)
+                });
                 cl.shows = Some(w.form_id);
             }
             mat.base.base_color = Color::LinearRgba(color);
@@ -1731,7 +2066,8 @@ fn to_color(c: [f32; 3]) -> Color {
 /// The explorer's `[` and `]`: the hour back or on (a quarter with left Shift). Not run
 /// with `--play`: there they are the radio's stations, and the hour moved here became the
 /// game's hour, schedules and timers shifted with it [#1988].
-pub fn sky_keys(input: Res<ButtonInput<KeyCode>>, mut sky: ResMut<SkyState>) {
+pub fn sky_keys(input: nvf_play::pad::ActionButtons<KeyCode>, mut sky: ResMut<SkyState>) {
+    let input = input.snapshot();
     let step = if input.pressed(KeyCode::ShiftLeft) { 0.25 } else { 1.0 };
     if input.just_pressed(KeyCode::BracketRight) {
         let h = sky.hour + step;
@@ -1765,6 +2101,10 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
     }
 }
 
+/// Interior fog's far distance with the No Interior Fog tweak: farther than any room
+/// [design: docs/design/tweaks.md].
+const NO_FOG_FAR: f32 = 1_000_000.0;
+
 /// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
 /// interior, which shows no sky.
 pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
@@ -1787,6 +2127,7 @@ pub fn update_sky(
     mut dome_shown: Local<Option<DomeShown>>,
     screen: Option<Res<crate::imagespace::ScreenModifiers>>,
     photo: Option<Res<nvf_play::photo_mode::PhotoMode>>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     let mut cam = cam;
     // What the image space modifiers on the screen do to the Sunlight Dimmer and the
@@ -1839,13 +2180,13 @@ pub fn update_sky(
         }
         let fogged = interior_fog_on(l.fog_near, l.fog_far);
         fog.color = c(l.fog_color).with_alpha(if fogged { 1.0 } else { 0.0 });
-        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
+        // The player's tweak pushes interior fog out of sight [design: docs/design/tweaks.md].
+        let far = if tweaks.as_ref().is_some_and(|t| t.no_interior_fog) { NO_FOG_FAR } else { l.fog_far };
+        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), far, l.fog_power, false, 1.0);
         info!("interior lighting: fog {:.0}..{:.0} power {:.2}{}", l.fog_near, l.fog_far, l.fog_power, if fogged { "" } else { " (no fog: far not beyond near)" });
         return;
     }
-    let (h, c) = (sky.hour, &sky.climate);
-    let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_SOUTH));
-    let sun_dir = to_bevy.rotation * sun_dir_game;
+    let c = &sky.climate;
 
     // Follow the camera every frame; clouds drift with their ONAM speeds. The dome is
     // shrunk to nothing in interiors: give it its size back (the sun disc and glare are
@@ -1857,6 +2198,12 @@ pub fn update_sky(
             info!("sky: outdoors again, the sky dome (with the sun disc and glare) shown");
         }
         t.scale = sky_transform(cam_pos).scale;
+    }
+    // The sun light turns with the game clock every frame, not with the sky's half-minute
+    // steps (`SkyState::sun_light_hour`); its colour still changes with the sky below.
+    let light_dir = to_bevy.rotation * Vec3::from_array(sun_direction(c, sky.sun_light_hour(), SUN_SOUTH));
+    if let Ok((mut light, mut t)) = sun.single_mut() {
+        aim_sun(&mut light, &mut t, light_dir, to_bevy.rotation * Vec3::Y, PI * unit * sky.sun_scale() * sun_mod);
     }
     if !changed {
         return;
@@ -1909,17 +2256,8 @@ pub fn update_sky(
     clear.0 = to_color(lower);
 
     let sunlight = sky.color(ColorType::Sunlight);
-    if let Ok((mut light, mut t)) = sun.single_mut() {
-        // Below the horizon the light comes from the opposite side (moonlight colour is
-        // the weather's night "sunlight") [hypothesis].
-        let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
-        *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
+    if let Ok((mut light, _)) = sun.single_mut() {
         light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
-        // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
-        // switch between the two does not flip shadows at full strength [interim].
-        // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
-        // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * sun_mod * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
@@ -1960,6 +2298,29 @@ pub fn initial_fog() -> DistanceFog {
     DistanceFog { color: Color::WHITE, falloff: FogFalloff::Linear { start: 8_000.0, end: 20_000.0 }, ..default() }
 }
 
+/// Aim the sun light along `sun_dir` (towards the sun, Bevy axes) and set its strength
+/// from `full` (the light at full strength before the sun/moon share).
+///
+/// `axis` is the line the sun's path turns about (`fnv_world::sky::sun_direction` keeps
+/// the game's north axis fixed). Taken as the light's up, the shadow maps turn rigidly
+/// about it as the sun moves, instead of also rolling as they did with the world's up:
+/// less crawl along the shadows' edges while the sun light follows the clock every frame
+/// (`SkyState::sun_light_hour`). [engineering choice]
+fn aim_sun(light: &mut Mut<DirectionalLight>, t: &mut Mut<Transform>, sun_dir: Vec3, axis: Vec3, full: f32) {
+    // Below the horizon the light comes from the opposite side (moonlight colour is the
+    // weather's night "sunlight") [hypothesis].
+    let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
+    t.set_if_neq(Transform::IDENTITY.looking_to(-from, axis));
+    // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
+    // switch between the two does not flip shadows at full strength [interim]. `full` is
+    // scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's sun
+    // is about twice it, Dead Money's West Town's under half) [hypothesis].
+    let illuminance = full * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
+    if light.illuminance != illuminance {
+        light.illuminance = illuminance;
+    }
+}
+
 /// The direction towards an interior's directional light, in game axes, from its XCLL
 /// (or lighting template) rotation in degrees: `xy` an azimuth about z, `z` a pitch,
 /// together the direction the light shines in (270 straight down) [hypothesis, world.md
@@ -1967,6 +2328,29 @@ pub fn initial_fog() -> DistanceFog {
 pub fn interior_light_from(xy: i32, z: i32) -> Vec3 {
     let (az, el) = ((xy as f32).to_radians(), (z as f32).to_radians());
     -Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin())
+}
+
+/// Whether a record's plugin is the base game or one of its add-ons
+/// (`crate::reports::OFFICIAL_PLUGINS`, by file name whatever its case). Their data is
+/// the game's as shipped: FalloutNV.esm's NVWastelandClearNight names
+/// `sky\NVWastelandStarfieldSky.dds` for its first cloud layer and no base archive has
+/// it [observed: world.md, "Stars and moon"; `missing_asset` from 25 of 43 installs,
+/// issue #2408], so a file such a record names and nobody has is not reported as missing.
+fn official_plugin(name: Option<&str>) -> bool {
+    name.is_some_and(|n| crate::reports::OFFICIAL_PLUGINS.iter().any(|o| o.eq_ignore_ascii_case(n)))
+}
+
+#[cfg(test)]
+#[path = "sky_weather_percent_tests.rs"]
+mod weather_percent_tests;
+
+#[cfg(test)]
+#[path = "sky_lighting_session_tests.rs"]
+mod session_lighting_tests;
+
+#[cfg(test)]
+pub(crate) fn authored_session_sky() -> SkyState {
+    session_lighting_tests::sky()
 }
 
 #[cfg(test)]
@@ -1979,6 +2363,18 @@ mod tests {
     }
 
     use super::*;
+
+    /// Issue #2408: the base game's and its add-ons' weathers may name a cloud texture
+    /// no archive has without a warning; a mod's weather, or one of no known file, may not.
+    #[test]
+    fn only_the_games_own_plugins_are_excused_a_missing_cloud_texture() {
+        for name in ["FalloutNV.esm", "falloutnv.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "CaravanPack.esm"] {
+            assert!(official_plugin(Some(name)), "{name}");
+        }
+        for name in [Some("MyWeatherMod.esp"), Some("FalloutNV.esm.bak"), Some("TaleOfTwoWastelands.esm"), None] {
+            assert!(!official_plugin(name), "{name:?}");
+        }
+    }
 
     /// The common template pitch (z = 270) puts the light straight overhead, and the Gas
     /// Station's (xy 180, z 250, #1645) puts it high above, not below the floor.
@@ -2012,11 +2408,12 @@ mod tests {
             shadows: false,
             shadow_distance: DEFAULT_SHADOW_DISTANCE,
             shadow_reach: 1.0,
-            shadow_cascades: DEFAULT_SHADOW_CASCADES,
+            shadow_layout: CascadeLayout::Quality,
             grade: true,
             time_scale: 0.0,
             clock_running: false,
             days_passed: sky_day,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices: vec![choice(SAVED), choice(2)],
@@ -2028,7 +2425,9 @@ mod tests {
             regions: Vec::new(),
             source: None,
             placed: false,
+            region_cell: None,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: SAVED,
             rolls: 0,
@@ -2041,7 +2440,7 @@ mod tests {
             moon_textures: Default::default(),
             lightning_request: false,
         };
-        sky.place(Some(None));
+        sky.place(Some(None), false);
         assert_eq!((sky.rolls, sky.pick), (0, SAVED), "the first look keeps the saved weather");
         sky.follow_game_clock(12.0 + 1.0 / 60.0, 25.375);
         assert_eq!(sky.days_passed, 25.0);
@@ -2077,11 +2476,12 @@ mod tests {
             shadows: false,
             shadow_distance: DEFAULT_SHADOW_DISTANCE,
             shadow_reach: 1.0,
-            shadow_cascades: DEFAULT_SHADOW_CASCADES,
+            shadow_layout: CascadeLayout::Quality,
             grade: true,
             time_scale: 0.0,
             clock_running: false,
             days_passed: 25.0,
+            keep_once: false,
             prev: None,
             fade: 1.0,
             choices: vec![Choice { weather: weather(LISTED), chance: 100, global: None }, Choice { weather: weather(GATED), chance: 100, global: Some(gate) }],
@@ -2093,7 +2493,9 @@ mod tests {
             regions: Vec::new(),
             source: None,
             placed: false,
+            region_cell: None,
             clock_seen: false,
+            sun_hour: None,
             rolled_for: None,
             pick: HELD,
             rolls: 0,
@@ -2108,15 +2510,416 @@ mod tests {
         }
     }
 
+    // Synthetic region and weather fixtures [design, #2531; no game data].
+    fn region_test_sky() -> (SkyState, Vec<RegionWeather>) {
+        let mut sky = sky_started_on_held();
+        sky.clock_seen = true;
+        let region = RegionWeather {
+            form_id: 3,
+            edid: Some("TestRegion".into()),
+            world: Some(11),
+            areas: vec![vec![[100.0, 100.0], [200.0, 100.0], [200.0, 200.0], [100.0, 200.0]]],
+            flags: fnv_world::sky::REGION_WEATHER_OVERRIDE,
+            ..Default::default()
+        };
+        sky.regions = vec![RegionList {
+            region: region.clone(),
+            choices: vec![Choice { weather: Weather { form_id: 4, ..Default::default() }, chance: 100, global: None }],
+        }];
+        (sky, vec![region])
+    }
+
+    #[test]
+    fn weather_region_holds_across_outline_until_cell_entry() {
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id, sky.fade), (Some("TestRegion"), 4, 1.0));
+        assert!(sky.prev.is_none());
+        let rolls = sky.rolls;
+        let rng = sky.rng;
+        sky.place_outdoors(&regions, 11, 250.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id, sky.rolls, sky.rng), (Some("TestRegion"), 4, rolls, rng));
+        sky.place_outdoors(&regions, 11, 4096.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id, sky.rolls), (None, LISTED, rolls + 1));
+        assert_eq!(sky.prev.as_ref().map(|w| w.form_id), Some(4));
+        assert_eq!(sky.fade, 0.0);
+
+        sky.place_outdoors(&regions, 11, 300.0, 150.0);
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id, sky.rolls), (None, LISTED, rolls + 1));
+    }
+
+    #[test]
+    fn weather_region_cell_entry_inside_outline_fades_on_either_axis() {
+        for axis in 0..2 {
+            let (mut sky, mut regions) = region_test_sky();
+            for point in &mut regions[0].areas[0] {
+                point[axis] -= 150.0;
+            }
+            let mut at = [150.0, 150.0];
+            at[axis] = -100.0;
+            sky.place_outdoors(&regions, 11, at[0], at[1]);
+            assert_eq!(sky.weather.form_id, LISTED);
+            let rolls = sky.rolls;
+            at[axis] = -25.0;
+            sky.place_outdoors(&regions, 11, at[0], at[1]);
+            assert_eq!((sky.region(), sky.rolls), (None, rolls));
+            at[axis] = 0.0;
+            sky.place_outdoors(&regions, 11, at[0], at[1]);
+            assert_eq!((sky.region(), sky.weather.form_id, sky.rolls), (Some("TestRegion"), 4, rolls + 1));
+            assert_eq!(sky.prev.as_ref().map(|w| w.form_id), Some(LISTED));
+            assert_eq!(sky.fade, 0.0);
+        }
+    }
+
+    // Synthetic equivalent of with_climate's fresh state and retained start weather
+    // [design, #2531; SkyState::with_climate, worldspace::script_sky].
+    fn climate_rebuild_test_sky(from: &SkyState) -> SkyState {
+        let (mut sky, _) = region_test_sky();
+        sky.climate.form_id = 12;
+        sky.choices = vec![Choice { weather: Weather { form_id: 5, ..Default::default() }, chance: 100, global: None }];
+        sky.weather = from.weather.clone();
+        sky.pick = from.weather.form_id;
+        sky.resume = Some(from.weather.form_id);
+        sky.rng = from.rng;
+        sky
+    }
+
+    #[test]
+    fn weather_region_climate_rebuild_keeps_sample_outside_outline() {
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        sky.place_outdoors(&regions, 11, 250.0, 150.0);
+        let mut rebuilt = climate_rebuild_test_sky(&sky);
+        // A rebuilt list may have a different order [design: synthetic fixture].
+        rebuilt.regions.insert(0, RegionList { region: RegionWeather { form_id: 13, ..Default::default() }, choices: Vec::new() });
+        crate::worldspace::carry_climate_sky(&sky, &mut rebuilt, |_| None);
+        assert_eq!(rebuilt.source, Some(1));
+        assert!(rebuilt.placed);
+        assert_eq!(rebuilt.region_cell, sky.region_cell);
+        rebuilt.place_outdoors(&regions, 11, 250.0, 150.0);
+        rebuilt.set_hour(12.1, false);
+        assert_eq!((rebuilt.region(), rebuilt.weather.form_id, rebuilt.rolls, rebuilt.rng), (Some("TestRegion"), 4, 0, sky.rng));
+        assert!(rebuilt.prev.is_none());
+        assert_eq!(rebuilt.fade, 1.0);
+
+        rebuilt.place_outdoors(&regions, 11, 4096.0, 150.0);
+        assert_eq!((rebuilt.region(), rebuilt.weather.form_id, rebuilt.rolls), (None, 5, 1));
+        assert_eq!(rebuilt.prev.as_ref().map(|w| w.form_id), Some(4));
+        assert_eq!(rebuilt.fade, 0.0);
+    }
+
+    #[test]
+    fn weather_region_climate_rebuild_seeds_current_gates_before_selecting() {
+        for previous_value in [None, Some(0.0), Some(1.0)] {
+            let gated_region = |sky: &mut SkyState| {
+                sky.regions[0].choices.push(Choice {
+                    weather: Weather { form_id: GATED, ..Default::default() },
+                    chance: 100,
+                    global: Some(Gate { id: GATE, edid: None, stored: Some(0.0) }),
+                });
+            };
+            let (mut sky, regions) = region_test_sky();
+            gated_region(&mut sky);
+            sky.set_live_global(GATE, 1.0);
+            sky.place_outdoors(&regions, 11, 150.0, 150.0);
+            assert_eq!(sky.weather.form_id, GATED);
+            // The old cache may lag a script's current gate [design: synthetic fixture].
+            sky.live_globals = previous_value.map(|v| (GATE, v)).into_iter().collect();
+            let mut rebuilt = climate_rebuild_test_sky(&sky);
+            gated_region(&mut rebuilt);
+            crate::worldspace::carry_climate_sky(&sky, &mut rebuilt, |id| {
+                assert_eq!(id, GATE);
+                Some(1.0)
+            });
+            let assert_retained = |s: &SkyState| {
+                assert_eq!((s.region(), s.weather.form_id, s.pick), (Some("TestRegion"), GATED, GATED));
+                assert_eq!((s.rolls, s.rng), (0, sky.rng), "previous gate: {previous_value:?}");
+                assert!(s.prev.is_none());
+                assert_eq!(s.fade, 1.0);
+            };
+            assert_retained(&rebuilt);
+            rebuilt.set_live_global(GATE, 1.0);
+            rebuilt.place_outdoors(&regions, 11, 250.0, 150.0);
+            rebuilt.set_hour(12.1, false);
+            assert_retained(&rebuilt);
+        }
+    }
+
+    #[test]
+    fn weather_region_climate_rebuild_keeps_sample_inside_outline() {
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 250.0, 150.0);
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        let mut rebuilt = climate_rebuild_test_sky(&sky);
+        crate::worldspace::carry_climate_sky(&sky, &mut rebuilt, |_| None);
+        rebuilt.place_outdoors(&regions, 11, 150.0, 150.0);
+        assert_eq!((rebuilt.region(), rebuilt.weather.form_id, rebuilt.rolls), (None, 5, 1));
+        assert!(rebuilt.placed);
+        assert_eq!(rebuilt.region_cell, sky.region_cell);
+        assert!(rebuilt.prev.is_none());
+        assert_eq!(rebuilt.fade, 1.0);
+    }
+
+    #[test]
+    fn weather_region_climate_rebuild_preserves_travel_invalidation() {
+        for travel_before_rebuild in [true, false] {
+            let (mut sky, regions) = region_test_sky();
+            sky.place_outdoors(&regions, 11, 150.0, 150.0);
+            if travel_before_rebuild {
+                sky.set_interior(None);
+            }
+            let mut rebuilt = climate_rebuild_test_sky(&sky);
+            crate::worldspace::carry_climate_sky(&sky, &mut rebuilt, |_| None);
+            if !travel_before_rebuild {
+                rebuilt.set_interior(None);
+            }
+            assert!(rebuilt.region_cell.is_none());
+            rebuilt.place_outdoors(&regions, 11, 250.0, 150.0);
+            assert_eq!((rebuilt.region(), rebuilt.weather.form_id), (None, 5));
+            assert!(rebuilt.prev.is_none());
+            assert_eq!(rebuilt.fade, 1.0);
+        }
+
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        let mut rebuilt = climate_rebuild_test_sky(&sky);
+        crate::worldspace::carry_climate_sky(&sky, &mut rebuilt, |_| None);
+        rebuilt.place_outdoors(&regions, 22, 150.0, 150.0);
+        assert_eq!((rebuilt.region(), rebuilt.weather.form_id), (None, 5));
+        assert!(rebuilt.prev.is_none());
+        assert_eq!(rebuilt.fade, 1.0);
+    }
+
+    #[test]
+    fn weather_region_same_cell_travel_rechecks_and_snaps() {
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        let rolls = sky.rolls;
+        sky.set_interior(None);
+        sky.place_outdoors(&regions, 11, 250.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id, sky.rolls), (None, LISTED, rolls + 1));
+        assert!(sky.prev.is_none());
+        assert_eq!(sky.fade, 1.0);
+        sky.set_interior(Some(Default::default()));
+        sky.set_interior(None);
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id), (Some("TestRegion"), 4));
+        assert!(sky.prev.is_none());
+        assert_eq!(sky.fade, 1.0);
+    }
+
+    #[test]
+    fn weather_region_world_change_rechecks_same_grid_and_snaps() {
+        let (mut sky, regions) = region_test_sky();
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        sky.place_outdoors(&regions, 22, 150.0, 150.0);
+        assert_eq!((sky.region(), sky.weather.form_id), (None, LISTED));
+        assert!(sky.prev.is_none());
+        assert_eq!(sky.fade, 1.0);
+    }
+
+    #[test]
+    fn weather_region_negative_cell_entry_uses_floor() {
+        let (mut sky, mut regions) = region_test_sky();
+        for point in &mut regions[0].areas[0] {
+            point[0] -= 300.0;
+        }
+        sky.place_outdoors(&regions, 11, -150.0, 150.0);
+        sky.place_outdoors(&regions, 11, -0.5, 150.0);
+        assert_eq!(sky.region(), Some("TestRegion"));
+        sky.place_outdoors(&regions, 11, 0.0, 150.0);
+        assert_eq!(sky.region(), None);
+        assert_eq!(sky.fade, 0.0);
+    }
+
+    #[test]
+    fn weather_region_travel_preserves_script_hold() {
+        let (mut sky, regions) = region_test_sky();
+        sky.restore_saved(&saved_held());
+        sky.place_outdoors(&regions, 11, 150.0, 150.0);
+        sky.set_interior(None);
+        sky.place_outdoors(&regions, 11, 250.0, 150.0);
+        assert_eq!((sky.weather.form_id, sky.pick), (HELD, LISTED));
+        assert!(sky.script.is_some_and(|sw| sw.hold));
+    }
+
+    #[test]
+    fn stepping_back_out_of_a_region_mid_fade_turns_the_fade_round() {
+        const REGION: u32 = 500;
+        const CAMP: u32 = 3;
+        let mut sky = sky_started_on_held();
+        sky.resume = None;
+        sky.clock_seen = true;
+        let camp = Weather { form_id: CAMP, edid: Some("Camp".into()), ..Default::default() };
+        sky.regions = vec![RegionList {
+            region: RegionWeather { form_id: REGION, ..Default::default() },
+            choices: vec![Choice { weather: camp, chance: 100, global: None }],
+        }];
+        sky.place(Some(None), false);
+        assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id)), (LISTED, None));
+        // Into the region: a fade from the climate's weather (30 s, a quarter game hour).
+        sky.place(Some(Some(REGION)), false);
+        assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), sky.fade), (CAMP, Some(LISTED), 0.0));
+        sky.follow_game_clock(12.1, 25.0);
+        assert!((sky.fade - 0.4).abs() < 1e-3, "{}", sky.fade);
+        // Back out before it ends: the screen shows 40 % camp, and stays there to fade back
+        // (it went to the whole camp look and faded from there).
+        sky.place(Some(None), false);
+        assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id)), (LISTED, Some(CAMP)));
+        assert!((sky.fade - 0.6).abs() < 1e-3, "{}", sky.fade);
+        // A third weather mid-fade fades from the one showing more.
+        sky.fade_to(Weather { form_id: 4, ..Default::default() }, false);
+        assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), sky.fade), (4, Some(LISTED), 0.0));
+        sky.fade = 0.3;
+        sky.fade_to(Weather { form_id: 5, ..Default::default() }, false);
+        assert_eq!((sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), sky.fade), (5, Some(LISTED), 0.0));
+    }
+
+    #[test]
+    fn the_sun_light_follows_the_clock_between_the_skys_steps() {
+        let mut sky = sky_started_on_held();
+        sky.set_hour(12.0, true);
+        assert_eq!(sky.sun_light_hour(), 12.0);
+        // Less than the sky's half-minute step: the sky holds, the sun light moves.
+        let a_little = 12.0 + 1.0 / 600.0;
+        sky.follow_game_clock(a_little, 25.0);
+        assert_eq!((sky.hour, sky.sun_light_hour()), (12.0, a_little));
+        // A whole step: both at the clock.
+        let a_step = 12.0 + 1.0 / 100.0;
+        sky.follow_game_clock(a_step, 25.0);
+        assert_eq!((sky.hour, sky.sun_light_hour()), (a_step, a_step));
+        // An hour set another way wins over the last clock reading.
+        sky.follow_game_clock(a_step + 1.0 / 600.0, 25.0);
+        sky.set_hour(18.0, true);
+        assert_eq!(sky.sun_light_hour(), 18.0);
+    }
+
     fn saved_held() -> serde_json::Value {
         serde_json::json!({"weather": format!("W{HELD}"), "held": true, "rng": "123"})
+    }
+
+    #[test]
+    fn held_weather_survives_sky_replacement_and_releases_to_the_new_climate() {
+        let mut from = sky_started_on_held();
+        from.place(Some(None), false);
+        from.rolls = 41;
+        from.script_weather(Weather { form_id: HELD, ..Default::default() }, [None; 6], true, true);
+        let mut to = sky_started_on_held();
+        to.climate.form_id = 100;
+        to.resume = None;
+        to.weather = to.choices[0].weather.clone();
+
+        to.carry_weather_from(&from);
+        assert_eq!((to.weather.form_id, to.climate.form_id), (HELD, 100));
+        assert_eq!(to.script.unwrap().roll, to.rolls);
+        assert!(to.script.unwrap().hold);
+        assert!(!to.pinned);
+        to.place(Some(None), false);
+        assert_eq!((to.weather.form_id, to.pick), (HELD, LISTED));
+        to.release_script_weather();
+        assert_eq!(to.weather.form_id, HELD);
+        to.set_live_global(GATE, 1.0);
+        assert_eq!(to.weather.form_id, GATED);
+        assert!(to.script.is_none());
+    }
+
+    #[test]
+    fn held_weather_carries_its_fade_and_both_weathers_adapters() {
+        let mut from = sky_started_on_held();
+        from.place(Some(None), false);
+        let old_adapters = [Some(Adapter { tint: Some(([0.1, 0.2, 0.3], 0.4)), ..Default::default() }); 6];
+        let held_adapters = [Some(Adapter { tint: Some(([0.5, 0.6, 0.7], 0.8)), ..Default::default() }); 6];
+        from.adapters.insert(LISTED, old_adapters);
+        from.script_weather(Weather { form_id: HELD, ..Default::default() }, held_adapters, false, true);
+        from.fade = 0.375;
+        let mut to = sky_started_on_held();
+        to.adapters.clear();
+
+        to.carry_weather_from(&from);
+        to.place(Some(None), false);
+        assert_eq!((to.weather.form_id, to.prev.as_ref().unwrap().form_id, to.fade), (HELD, LISTED, 0.375));
+        assert_eq!(to.adapters.get(&HELD), Some(&held_adapters));
+        assert_eq!(to.adapters.get(&LISTED), Some(&old_adapters));
+        to.script_weather(Weather { form_id: GATED, ..Default::default() }, [None; 6], true, false);
+        assert_eq!(to.weather.form_id, GATED);
+        assert!(!to.script.unwrap().hold);
+        assert!(to.prev.is_none());
+    }
+
+    #[test]
+    fn natural_weather_does_not_gain_an_override_on_sky_replacement() {
+        let mut from = sky_started_on_held();
+        from.place(Some(None), false);
+        let mut to = sky_started_on_held();
+        to.weather = to.choices[1].weather.clone();
+        to.resume = None;
+        to.carry_weather_from(&from);
+        assert_eq!(to.weather.form_id, GATED);
+        assert!(to.script.is_none());
+        assert!(!to.pinned);
+        assert!(to.resume.is_none());
+        to.place(Some(None), false);
+        assert_eq!(to.weather.form_id, LISTED);
+
+        // [design: worldspace.rs::script_sky] A climate rebuild's own start weather
+        // remains resumable when there is no override to carry.
+        let mut climate = sky_started_on_held();
+        climate.weather = climate.choices[0].weather.clone();
+        climate.resume = Some(LISTED);
+        climate.carry_weather_from(&from);
+        assert_eq!(climate.resume, Some(LISTED));
+        climate.place(Some(None), false);
+        assert_eq!((climate.weather.form_id, climate.rolls), (LISTED, 0));
+    }
+
+    #[test]
+    fn a_command_line_pin_and_resume_survive_sky_replacement() {
+        let mut from = sky_started_on_held();
+        from.pinned = true;
+        let mut to = sky_started_on_held();
+        to.weather = to.choices[0].weather.clone();
+        to.resume = None;
+        to.carry_weather_from(&from);
+        assert!(to.pinned);
+        assert_eq!(to.resume, Some(HELD));
+        assert!(to.script.is_none());
+        to.place(Some(None), false);
+        assert_eq!(to.weather.form_id, HELD);
+    }
+
+    #[test]
+    fn a_held_weather_saved_after_sky_replacement_loads_held() {
+        let mut from = sky_started_on_held();
+        from.script_weather(from.weather.clone(), [None; 6], true, true);
+        let mut to = sky_started_on_held();
+        to.resume = None;
+        to.weather = to.choices[0].weather.clone();
+        to.carry_weather_from(&from);
+        to.place(Some(None), false);
+
+        let mut world = World::new();
+        world.insert_resource(to);
+        let saved = (SAVE_HOOK.save)(&world).unwrap();
+        assert_eq!(saved["held"], true);
+        assert_eq!(saved["weather"], format!("W{HELD}"));
+        let saved: serde_json::Value = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        let mut loaded = sky_started_on_held();
+        loaded.restore_saved(&saved);
+        loaded.place(Some(None), false);
+        loaded.set_live_global(GATE, 1.0);
+        assert_eq!(loaded.weather.form_id, HELD);
+        assert!(loaded.script.unwrap().hold);
+        loaded.release_script_weather();
+        loaded.set_live_global(GATE, 0.0);
+        assert_eq!(loaded.weather.form_id, LISTED);
     }
 
     #[test]
     fn a_saved_hold_outlasts_the_first_look_and_what_follows() {
         let mut sky = sky_started_on_held();
         sky.restore_saved(&saved_held());
-        sky.place(Some(None));
+        sky.place(Some(None), false);
         // The climate still rolls under the hold; what it picks waits for a release.
         assert_eq!((sky.weather.form_id, sky.rolls, sky.pick), (HELD, 1, LISTED));
         let mut rng = 123;
@@ -2133,7 +2936,7 @@ mod tests {
     fn a_release_after_the_load_stands_and_the_next_roll_takes_over() {
         let mut sky = sky_started_on_held();
         sky.restore_saved(&saved_held());
-        sky.place(Some(None));
+        sky.place(Some(None), false);
         // A load script releases it before the engine's part of the save is put back.
         sky.release_script_weather();
         assert_eq!(sky.weather.form_id, HELD, "until the next roll, as any release");
@@ -2155,7 +2958,7 @@ mod tests {
         for saved in [serde_json::json!({"weather": format!("W{HELD}"), "held": false}), serde_json::json!({"weather": "Gone", "held": true})] {
             let mut sky = sky_started_on_held();
             sky.restore_saved(&saved);
-            sky.place(Some(None));
+            sky.place(Some(None), false);
             assert_eq!(sky.weather.form_id, LISTED, "{saved}");
             assert!(sky.script.is_none());
         }
@@ -2219,6 +3022,93 @@ mod tests {
         let before = cascade.clip_from_world;
         reach_toward_light(&mut cascade, 0.0);
         assert_eq!(before, cascade.clip_from_world);
+    }
+
+    /// The far bounds and overlap of each layout at the default 8,000 units, without and
+    /// with the longer shadows' reach: only the last bound takes the reach.
+    #[test]
+    fn cascade_layouts_at_the_default_distance() {
+        use CascadeLayout::{Performance, Quality, Spaced};
+        let near = |(got, overlap): (Vec<f32>, f32), want: &[f32], want_overlap: f32| {
+            assert_eq!(got.len(), want.len(), "{got:?} against {want:?}");
+            assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.5), "{got:?} against {want:?}");
+            assert_eq!(overlap, want_overlap, "{got:?}");
+        };
+        for map in [2048, 4096] {
+            // Performance, whatever the maps: 1,500, 4,500, then the distance times the reach.
+            near(shadow_cascade_layout(8000.0, 1.0, Performance, map), &[1500.0, 4500.0, 8000.0], 0.2);
+            near(shadow_cascade_layout(8000.0, 1.5, Performance, map), &[1500.0, 4500.0, 12000.0], 0.2);
+            // 3 spaced as before (`--graphics-cycle cascades=3`): geometric from a twelfth
+            // of the distance (667, 2,828, 12,000 with the reach, as measured on 2026-11-16).
+            near(shadow_cascade_layout(8000.0, 1.0, Spaced(3), map), &[666.7, 2309.4, 8000.0], 0.2);
+            near(shadow_cascade_layout(8000.0, 1.5, Spaced(3), map), &[666.7, 2828.4, 12000.0], 0.2);
+            // The moon's single cascade.
+            near(shadow_cascade_layout(3000.0, 1.0, Spaced(1), map), &[3000.0], 0.2);
+            near(shadow_cascade_layout(8000.0, 1.5, Spaced(1), map), &[12000.0], 0.2);
+        }
+        // Quality with 2048² maps: 700, 2,000, 5,000, overlap 0.2.
+        near(shadow_cascade_layout(8000.0, 1.0, Quality, 2048), &[700.0, 2000.0, 5000.0, 8000.0], 0.2);
+        near(shadow_cascade_layout(8000.0, 1.5, Quality, 2048), &[700.0, 2000.0, 5000.0, 12000.0], 0.2);
+        // Quality with 4096² maps, overlap 0.4: with Longer shadows 1,500, 3,500, 7,000 (the
+        // layout measured); without, the middle two capped at 0.3 and 0.6 of the last.
+        near(shadow_cascade_layout(8000.0, 1.5, Quality, 4096), &[1500.0, 3500.0, 7000.0, 12000.0], 0.4);
+        near(shadow_cascade_layout(8000.0, 1.0, Quality, 4096), &[1500.0, 2400.0, 4800.0, 8000.0], 0.4);
+        near(shadow_cascade_layout(16000.0, 1.0, Quality, 4096), &[3000.0, 4800.0, 9600.0, 16000.0], 0.4);
+        // The shares follow the distance (the Shadow distance slider).
+        near(shadow_cascade_layout(16000.0, 1.0, Quality, 2048), &[1400.0, 4000.0, 10000.0, 16000.0], 0.2);
+        near(shadow_cascade_layout(16000.0, 1.0, Performance, 2048), &[3000.0, 9000.0, 16000.0], 0.2);
+        // The counts.
+        assert_eq!((Quality.count(), Performance.count(), Spaced(3).count(), Spaced(0).count()), (4, 3, 3, 1));
+        // The config carries them with the layout's overlap and the minimum distance of before.
+        let config = shadow_cascades(8000.0, 1.0, Quality, 4096);
+        assert_eq!((config.bounds.clone(), config.overlap_proportion), shadow_cascade_layout(8000.0, 1.0, Quality, 4096));
+        assert_eq!(config.minimum_distance, 5.0);
+        // Without the map resource: Bevy's default side, the smaller maps' layout.
+        assert_eq!(map_side(None), 2048);
+    }
+
+    /// Over the Shadow distance row's whole range and below (from 0 to twice the default
+    /// distance, every 25 units, and the row's steps), the bounds rise strictly and the
+    /// first stays past the minimum distance, for every layout, reach and map size. At 0 the
+    /// sun casts none (`casts_sun_shadows`), but the layout stays well formed.
+    #[test]
+    fn cascade_bounds_rise_at_short_distances() {
+        use CascadeLayout::{Performance, Quality, Spaced};
+        let layouts = [Quality, Performance, Spaced(1), Spaced(2), Spaced(3), Spaced(4), Spaced(5)];
+        let sweep = (0..=640).map(|k| k as f32 * 25.0);
+        let steps = crate::settings::SHADOW_DISTANCES.map(|v| DEFAULT_SHADOW_DISTANCE * v);
+        for distance in sweep.chain(steps).chain([DEFAULT_SHADOW_DISTANCE * crate::draw_distance::MIN, 10.0, 3.0, 0.5]) {
+            for reach in [1.0, 1.5] {
+                for layout in layouts {
+                    for map in [2048, 4096] {
+                        let (b, _) = shadow_cascade_layout(distance, reach, layout, map);
+                        assert_eq!(b.len(), layout.count());
+                        assert!(b[0] > SHADOW_MINIMUM_DISTANCE, "{distance} x {reach}, {layout:?} {map}: {b:?}");
+                        assert!(b.windows(2).all(|w| w[1] > w[0]), "{distance} x {reach}, {layout:?} {map}: {b:?}");
+                    }
+                }
+            }
+        }
+        // The Shadow distance row's least step above 0 % (a fifth of 8,000): 1,600, a step
+        // of the room 70 (65 from a first bound of 300); every share and cap stays as it is.
+        assert_eq!(crate::settings::SHADOW_DISTANCES[1], 0.2);
+        near_eq(&shadow_cascade_layout(1600.0, 1.0, Quality, 2048).0, &[200.0, 400.0, 1000.0, 1600.0]);
+        near_eq(&shadow_cascade_layout(1600.0, 1.0, Quality, 4096).0, &[300.0, 480.0, 960.0, 1600.0]);
+        near_eq(&shadow_cascade_layout(1600.0, 1.0, Performance, 2048).0, &[300.0, 900.0, 1600.0]);
+        // At a tenth of the default distance (the slider's low end before the overhaul; a
+        // short `--shadow-distance` at 20 %) the first bound is held at 200 and the room to
+        // the last is 600 (a step 30): Quality's second share (200) is lifted one step above
+        // the first; the 4096 caps (240, 480) and the other shares stay as they are.
+        near_eq(&shadow_cascade_layout(800.0, 1.0, Quality, 2048).0, &[200.0, 230.0, 500.0, 800.0]);
+        near_eq(&shadow_cascade_layout(800.0, 1.0, Quality, 4096).0, &[200.0, 240.0, 480.0, 800.0]);
+        near_eq(&shadow_cascade_layout(800.0, 1.0, Performance, 2048).0, &[200.0, 450.0, 800.0]);
+        // With no distance at all (the row's 0 %, which casts none: `casts_sun_shadows`):
+        // the last at 20, the first at half of it, the rest a step apart above it.
+        near_eq(&shadow_cascade_layout(0.0, 1.0, Quality, 2048).0, &[10.0, 10.5, 11.0, 20.0]);
+        fn near_eq(got: &[f32], want: &[f32]) {
+            assert!(got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.5), "{got:?} against {want:?}");
+        }
+        assert!(!casts_sun_shadows(true, 0.0) && !casts_sun_shadows(false, 1600.0) && casts_sun_shadows(true, 1600.0));
     }
 
     #[test]

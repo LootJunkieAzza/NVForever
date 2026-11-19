@@ -119,7 +119,7 @@ pub(super) fn rejoin_host(
     } else {
         info!("co-op: joined: beside the host at {:?} {feet:?} (from its own save's place, {from})", host.place);
     }
-    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees(), pitch_deg: None }));
     coop.last_leash = Some(now);
 }
 

@@ -21,11 +21,14 @@ pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
+pub mod clutter_pose;
+pub mod collision_view;
 pub mod creator;
 pub mod combat;
 pub mod compass;
 pub mod compass_strip;
 pub mod console;
+pub mod editor;
 pub mod container_anim;
 pub mod control;
 pub mod campfire;
@@ -62,20 +65,26 @@ pub mod doors;
 pub mod created_spots;
 pub mod drink_world;
 pub mod dropped;
+pub mod ease;
 pub mod effect_sounds;
 pub mod fade;
 pub mod drowning;
 pub mod falls;
 pub mod file_bytes;
+pub mod key_repeat;
+pub mod query_job;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
 pub mod script_camera;
 pub mod photo_mode;
+pub mod shake;
+pub mod sprint;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
 pub mod hitvol;
+pub mod inertia;
 pub mod holotape;
 pub mod interface;
 pub mod intro;
@@ -84,6 +93,10 @@ pub mod hotkeys;
 pub mod hud;
 pub mod hud_breath;
 pub mod hud_limbs;
+pub mod heartbeat;
+pub mod marker_added;
+pub mod vanity;
+pub mod grenade_indicator;
 pub mod hud_needs;
 pub mod hud_target;
 pub mod aim_assist;
@@ -93,13 +106,17 @@ pub mod loading;
 pub mod lobby;
 pub mod loading_look;
 pub mod main_menu;
+pub mod menu_scale;
 pub mod location_markers;
 pub mod safe_zone;
 pub mod world_marks;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
+pub mod smooth_terrain;
+pub mod softlock;
 pub mod blackjack;
+pub mod borders;
 pub mod companion_wheel;
 pub mod caravan;
 pub mod stake;
@@ -112,6 +129,9 @@ pub mod casino_hud;
 pub mod match_lobby;
 pub mod poker_tables;
 pub mod menu;
+pub mod menu_shapes;
+pub mod mod_log;
+pub mod gas_traps;
 pub mod grass_fire;
 pub mod mines;
 pub mod thrown;
@@ -120,10 +140,13 @@ pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
+pub mod full_screen_key;
 pub mod pause;
+pub mod vector_font;
 pub mod graphics_resume;
 pub mod phys;
 pub mod phys_load;
+pub mod phys_rate;
 pub mod pickpocket;
 pub mod pipboy;
 pub mod player;
@@ -134,6 +157,7 @@ pub mod reverb;
 pub mod repair;
 pub mod repeat;
 pub mod reputation;
+pub mod quick_loot;
 pub mod reticle;
 pub mod rumble;
 pub mod save;
@@ -151,14 +175,17 @@ pub mod sup_shots;
 pub mod script_trigger;
 pub mod settings;
 pub mod settings_layout;
+pub mod settings_menu;
 pub mod settings_view;
 pub mod start_menu;
 pub mod mod_defaults;
 pub mod sim;
 pub mod space;
+pub mod stance;
 pub mod terminal;
 pub mod tiles;
 pub mod tutorial_menu;
+pub mod tweaks;
 pub mod ui_pointer;
 pub mod credits;
 mod test_aid;
@@ -167,6 +194,7 @@ pub use test_aid::{drives_run, MEASURING_AIDS};
 pub mod sfx;
 pub mod start_read;
 pub mod sneak_gauges;
+pub mod sound_cover;
 pub mod sound_grid;
 pub mod ui_colour;
 pub mod language;
@@ -338,6 +366,11 @@ pub struct Travel {
     pub feet: [f32; 3],
     /// Compass heading in degrees on arrival.
     pub heading_deg: f32,
+    /// The view's pitch in degrees on arrival (negative looks down, as `Player::pitch`);
+    /// `None` keeps the pitch the player had. A script's MoveTo of the player sets it to
+    /// the marker's (`fnv_game` `move_ref`): the add-ons' intro slides and the ending's
+    /// slides are framed for a level view, and the player cannot look there (#2710).
+    pub pitch_deg: Option<f32>,
 }
 
 impl Travel {
@@ -435,13 +468,14 @@ impl Plugin for PlayPlugin {
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, player_voice::PlayerVoicePlugin, party_quips::PartyQuipsPlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
-            .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
+            .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, quick_loot::QuickLootPlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin, borders::BordersPlugin))
             .add_plugins(billboards::BillboardPlugin)
-            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
+            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, key_repeat::KeyRepeatPlugin, rumble::RumblePlugin, shake::ShakePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
             .add_plugins(script_switches::ScriptSwitchesPlugin)
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
-            .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
+            .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin, sound_cover::SoundCoverPlugin))
             .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins(softlock::SoftlockPlugin)
             .add_plugins(sup_screen::SupScreenPlugin)
             .add_plugins(sup_shots::SupShotsPlugin)
             .add_plugins(tiles::TilesPlugin)
@@ -465,10 +499,12 @@ impl Plugin for PlayPlugin {
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
+            .add_plugins(editor::EditorPlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(world_marks::WorldMarksPlugin)
             .add_plugins(emotes::EmotesPlugin)
             .add_plugins(safe_zone::SafeZonePlugin)
+            .add_plugins(collision_view::CollisionViewPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(photo_mode::PhotoModePlugin)
@@ -497,11 +533,13 @@ impl Plugin for PlayPlugin {
             .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin)
+            .add_plugins(tweaks::TweaksPlugin)
             .add_plugins(hardcore::HardcorePlugin)
             .add_plugins((ui_colour::UiColourPlugin, language::LanguagePlugin));
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);
+        full_screen_key::setup(app);
     }
 }
 
@@ -514,7 +552,7 @@ mod tests {
     const HOUSE: u32 = 0x100;
 
     fn travel(world: Option<u32>, interior: Option<u32>) -> Travel {
-        Travel { world, interior, feet: [0.0; 3], heading_deg: 0.0 }
+        Travel { world, interior, feet: [0.0; 3], heading_deg: 0.0, pitch_deg: None }
     }
 
     /// Every plugin of this crate is added somewhere (here or by nvforever): the crosshair's

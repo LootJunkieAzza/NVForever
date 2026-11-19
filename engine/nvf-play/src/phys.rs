@@ -6,7 +6,12 @@
 //! rapier shapes: [`prepare`]) happens on the loader thread ([`loader`]); the main thread
 //! inserts at most [`CELLS_PER_FRAME`] prepared cells per frame, in the order they were
 //! requested, and loads the player's own cell on the spot if it is not in yet (the
-//! player never stands in a cell without collision). What a reference contributes is
+//! player never stands in a cell without collision). An exterior square holds the
+//! references its cell lists, the worldspace's persistent references standing in it, and
+//! the references placed in other squares whose bounds reach into it
+//! (`fnv_world::reach::ReachIndex`, built once per worldspace; #2795: HELIOS One's plaza,
+//! placed two squares north of its south end); one held by several loaded squares is in
+//! the world once, removed with the last of them [design, #2795]. What a reference contributes is
 //! `fnv_phys::ref_collision`, the rule `fnvtool phys cell` uses; whether it is in the
 //! world is the simulation's call ([`in_world`]), made when the cell is inserted.
 //! `RefChanged` removes or restores one reference's collision; `Travel` rebuilds
@@ -35,6 +40,7 @@ pub mod cells;
 pub mod drawn;
 mod loader;
 pub mod prepare;
+pub mod sinking;
 pub mod step_lift;
 #[cfg(test)]
 mod tests;
@@ -47,11 +53,11 @@ use crate::{Location, PlayData, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use cells::{PhysCell, Space};
 use fnv_collide::{Iso, Motion};
-use fnv_phys::terrain::height_at;
 use drawn::DrawnFloors;
 use fnv_phys::{Arrival, Character, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RayHit, RefPose, Stepper, WaterArea};
 use fnv_sim::{FormId, World};
 use fnv_world::placed::placement;
+use fnv_world::reach::ReachIndex;
 use fnv_world::transform::{max_diff, ref_angles, ref_rotation};
 use fnv_world::{cell_of, Placement, WorldIndex, CELL_SIZE};
 use nvf_assets::GameData;
@@ -101,6 +107,9 @@ pub struct PhysState {
     /// does not write them back, so this game's own simulation of them never overrides
     /// the host's pose; their collision is built again where the host puts them.
     pub follow_only: BTreeSet<u32>,
+    /// Placed clutter and dropped items drawn between physics steps this frame
+    /// ([`PhysState::drawn_ref_pose`]).
+    pub between: DrawnBetween,
     /// Doors that open in place, in the world now: their keyframed bodies follow
     /// `crate::doors::Doors` ([`pose_doors`]).
     pub doors: BTreeMap<u32, PosedDoor>,
@@ -144,14 +153,29 @@ pub struct PhysState {
     /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
     /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
     pub actor_heights: HashMap<u32, f32>,
-    /// Actors drawn standing without a character: their feet and how far below them
-    /// the body is drawn ([`PhysState::standing_drawn_feet`]).
-    standing: HashMap<u32, ([f32; 3], f32)>,
+    /// Actors drawn standing without a character: their feet, whether they may follow the
+    /// landscape, and how far below them the body is drawn
+    /// ([`PhysState::standing_drawn_feet`]).
+    standing: HashMap<u32, ([f32; 3], bool, f32)>,
+    /// Where each actor's character stood, and how far below it its body was drawn, when
+    /// the character was taken away ([`PhysState::remove_npc`]): feet still there came
+    /// from physics and are drawn as the character was, never lifted onto the landscape
+    /// again ([`PhysState::standing_drawn_feet`], #2149).
+    left: HashMap<u32, ([f32; 3], f32)>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
     /// The worldspace's persistent references by the grid square they stand in.
     persistent_by_grid: HashMap<(i32, i32), Vec<u32>>,
+    /// The worldspace's references placed in one square whose bounds reach into others
+    /// (`fnv_world::reach`, #2795): each exterior square loads them too.
+    pub(crate) reach: Arc<ReachIndex>,
+    /// [`Self::reach`] of each worldspace played so far, built on the first entry.
+    reach_by_world: HashMap<u32, Arc<ReachIndex>>,
+    /// How many loaded cells list each placed reference ([`LoadedCell::refs`]): a
+    /// reference whose bounds reach over several loaded squares is in the world once, added
+    /// with the first of them and removed with the last (#2795).
+    held: HashMap<u32, u16>,
     /// Collision objects per model path, shared with the loader thread.
     models: Arc<ModelCache>,
     /// Cells being prepared on the loader thread.
@@ -165,8 +189,9 @@ pub struct PhysState {
 /// default `max_delta`): longer frames are slowed down to it.
 pub const MAX_FRAME_SECONDS: f32 = 0.25;
 
-/// The physics settings of play: as `PhysParams::default`, with enough fixed steps for a
-/// whole frame of the virtual clock ([`MAX_FRAME_SECONDS`]). With the default 8 steps of
+/// The physics settings play starts with: as `PhysParams::default` (60 steps a second;
+/// `crate::phys_rate` sets the step and the catch-up for the chosen rate each frame), with
+/// enough fixed steps for a whole frame of the virtual clock ([`MAX_FRAME_SECONDS`]). With the default 8 steps of
 /// 1/60 s a frame longer than 0.133 s lost the rest, so on a busy machine (6 frames a
 /// second) the player and the actors walking near it covered less ground than the game's
 /// clock passed: Goodsprings' settlers came into view seconds of game time late
@@ -211,6 +236,7 @@ impl Default for PhysState {
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
             follow_only: BTreeSet::new(),
+            between: DrawnBetween::default(),
             doors: BTreeMap::new(),
             animated: BTreeMap::new(),
             destruction_models: HashMap::new(),
@@ -225,9 +251,13 @@ impl Default for PhysState {
             player_wish: 0.0,
             actor_heights: HashMap::new(),
             standing: HashMap::new(),
+            left: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
+            reach: Arc::default(),
+            reach_by_world: HashMap::new(),
+            held: HashMap::new(),
             models: Arc::default(),
             loader: loader::Loader::default(),
             #[cfg(test)]
@@ -267,6 +297,13 @@ pub fn drawn_sink(c: &Character, drawn: Option<f32>) -> f32 {
 /// 0.35 either side of the shell, physics.md §6.2].
 pub const REST_TOLERANCE: f32 = 0.5;
 
+/// Feet without a character this close to the stored LAND triangles under them, with
+/// nothing but the landscape below, stand on the landscape: drawn as far above or below
+/// the stored triangles on the smoothed surface (#2149) as they were on the stored one
+/// [design, #2149: authored and navmesh heights follow the ground the data's triangles
+/// make, within a few units; beyond this band an actor stands on something else].
+pub const TERRAIN_STAND_BAND: f32 = 32.0;
+
 /// The ground under a point ([`PhysState::ground_drawn`]): the bare collision surface,
 /// the drawn ground and the collision's contact shell.
 struct GroundUnder {
@@ -295,6 +332,27 @@ fn drawn_floor(floors: &DrawnFloors, pose: &RefPose, at: [f32; 3]) -> Option<f32
     let w = DRAWN_FLOOR_WINDOW / s;
     let top = floors.height_at(x, y, z - w, z + w)?;
     Some(at[2] + (top - z) * s)
+}
+
+/// The references whose bodies are drawn between physics steps (`fnv_phys::drawn`,
+/// docs/spec-notes/physics.md §5.2): placed clutter physics has moved
+/// ([`PlacedDynamic::moved`]) and dropped items with a dynamic body, while their body
+/// moves. The systems that draw them (`crate::moved`, `crate::dropped`,
+/// `crate::script_draw`) draw them at [`PhysState::drawn_ref_pose`]; the simulation keeps
+/// the stepped pose ([`PhysState::settle_placed`], [`PhysState::settle_created`]).
+#[derive(Debug, Default)]
+pub struct DrawnBetween {
+    /// Drawn between steps this frame, sorted.
+    pub now: Vec<u32>,
+    /// Those and the ones drawn between steps the frame before, sorted: a reference whose
+    /// body stopped is drawn once more, where it came to rest.
+    pub redraw: Vec<u32>,
+    /// Drawn between steps the frame before.
+    last: Vec<u32>,
+    /// The most references drawn between steps in one frame, and the frames with any
+    /// (the exit report).
+    pub most: usize,
+    pub frames: u64,
 }
 
 /// An actor's character in the physics world: who moves it sets `velocity`.
@@ -332,10 +390,9 @@ pub enum NpcSpotRefused {
 /// the border is not known until that square is in].
 const NPC_SPOT_MARGIN: f32 = 256.0;
 
-/// The steepest slope an actor's character walks: navmeshes cross slopes a little above
-/// the player's limit [observed: 46 to 49 degrees on paths of the walk tests,
-/// docs/design/navmesh.md §5; the value is an engine choice].
-pub const NPC_MAX_SLOPE_DEG: f32 = 60.0;
+/// Shared actor slope limit [design, #2511; physics.md §6.4.1/§6.9]: below the cone
+/// face's angle so thin walls higher than the step height block actors too.
+pub use fnv_phys::character::ACTOR_MAX_SLOPE_DEG as NPC_MAX_SLOPE_DEG;
 
 /// The shortest character an actor gets, game units [design: a capsule at least twice
 /// [`crate::blocking::MIN_RADIUS`] tall].
@@ -369,10 +426,13 @@ pub fn npc_params(height: Option<f32>) -> CharacterParams {
 #[derive(Debug, Clone, Default)]
 pub struct LoadedCell {
     /// Its references (and, outdoors, the worldspace's persistent references standing in
-    /// the square), by FormID, in the world or not.
+    /// the square and the references placed in other squares whose bounds reach into it,
+    /// `fnv_world::reach`), by FormID, in the world or not. A reference listed by several
+    /// loaded cells is in the world once (`PhysState::held`).
     pub refs: Vec<u32>,
-    /// LAND heights (exterior squares with terrain).
-    pub heights: Option<Vec<f32>>,
+    /// The landscape surface its terrain collides as (exterior squares with terrain):
+    /// the LAND grid as stored or smoothed (`crate::smooth_terrain`).
+    pub surface: Option<fnv_world::land_surface::Surface>,
 }
 
 /// The collision of a reference created at run time (a dropped item).
@@ -386,13 +446,23 @@ pub struct CreatedBody {
     pub dynamic: bool,
     /// Its position when its collision was added.
     pub start: [f32; 3],
-    /// The world's step count then.
-    pub added_step: u64,
+    /// The game seconds the world had stepped then (`PhysWorld::stepped_secs`).
+    pub added_at: f64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
     /// How many of the pose marks (`CREATED_MARKS`) were logged.
     pub marks: usize,
+    /// The game seconds the world had stepped when it last came to rest, if it has
+    /// (`sinking`, #2753).
+    pub rested_at: Option<f64>,
+    /// Its sinking under the terrain was logged (`sinking`, #2753): once.
+    pub sank: bool,
 }
+
+/// The most a created dynamic reference may reach into the contact shell under it and be
+/// lifted onto it ([`PhysState::lift_onto_support`]), game units [design: twice the
+/// terrain's shell].
+pub const LIFT_ONTO_SUPPORT_MOST: f32 = 7.0;
 
 /// Seconds after its collision was added at which a moving dynamic created reference's
 /// pose is logged, so a log shows where it went.
@@ -675,20 +745,50 @@ impl PhysState {
     /// `world` as cells load. Loaded exterior cells belong to the previous worldspace:
     /// [`PhysState::reset`] first.
     ///
-    /// Each worldspace's own records are used. A child worldspace (WRLD `WNAM`) may take
-    /// land, water and other data from its parent by its `PNAM` flags [documented: xEdit
-    /// names, schemas/fnv/world.json]; every child worldspace in the ten masters sets only
-    /// "Use Map Data" and has its own land, `DNAM` and `NAM2` [observed: `fnvtool world
-    /// list`, `esm decode`], so taking the parent's is not implemented (logged when a
-    /// plugin asks for it).
+    /// A child worldspace (WRLD `WNAM`) takes land, water and other data from its parent
+    /// by its `PNAM` flags; the world index has followed them already
+    /// (`fnv_world::WorldIndex::take_parent_data`, #2345: a cell without LAND has its
+    /// parent's, the default heights and water type are the parent's where the child has
+    /// none), so the records read here are the ones to use. Logged once per start of
+    /// play in such a worldspace.
+    ///
+    /// The first time a worldspace is played its reach index is built
+    /// (`fnv_world::reach::ReachIndex`: every placed reference of its exterior cells read
+    /// once, #2795) and kept for the session. What that costs in time and memory is
+    /// [hypothesis: tens to hundreds of milliseconds for WastelandNV, not measured yet]; the
+    /// log line below says.
     pub fn set_world(&mut self, d: &PlayData, world: u32) {
         self.worldspace = world;
         self.persistent_by_grid.clear();
+        self.reach = match self.reach_by_world.get(&world) {
+            Some(r) => r.clone(),
+            None => {
+                let t = Instant::now();
+                let r = Arc::new(ReachIndex::build(d.lo, d.schema, d.index, world));
+                info!(
+                    "physics: worldspace {world:08X}: {} references reach beyond their own square ({} square entries), indexed in {:.0} ms",
+                    r.refs,
+                    r.entries(),
+                    ms_since(t)
+                );
+                self.reach_by_world.insert(world, r.clone());
+                r
+            }
+        };
         let ws = d.index.worldspaces.get(&world);
         if let Some(w) = ws.filter(|w| w.parent.is_some() && w.parent_flags & !PNAM_USE_MAP_DATA != 0) {
-            warn!(
-                "worldspace {world:08X} takes data from its parent (PNAM 0x{:X}); NVForever uses its own records only",
-                w.parent_flags
+            let cells = w.grid.values().filter_map(|c| d.index.cells.get(c));
+            let (own, theirs) = cells.fold((0, 0), |(o, t), c| match (c.land, c.land_of_parent) {
+                (Some(_), false) => (o + 1, t),
+                (Some(_), true) => (o, t + 1),
+                _ => (o, t),
+            });
+            info!(
+                "worldspace {world:08X} takes data from its parent {:08X} (PNAM 0x{:X}): land of {theirs} cell(s) from the parent, {own} of its own; default land height {:?}, water height {:?}",
+                w.parent.unwrap_or(0),
+                w.parent_flags,
+                w.default_land_height,
+                w.default_water_height
             );
         }
         if let Some(pc) = ws.and_then(|w| w.persistent_cell).and_then(|c| d.index.cells.get(&c)) {
@@ -737,6 +837,51 @@ impl PhysState {
         }
     }
 
+    /// Where between the last two physics steps the frame is drawn: the share of a step
+    /// the clock has gone since the last one (the stepper's remainder over the step), in
+    /// [0, 1]. Everything physics moves is drawn this far from its pose before the last
+    /// step to its pose after it: the characters ([`PhysState::npc_drawn_feet`]), the
+    /// bodies (`fnv_phys::drawn`, [`PhysState::drawn_ref_pose`]), nvforever's corpses, gore,
+    /// wrecks and swing traps. Worked out in one place, `fnv_phys::Stepper::alpha`.
+    pub fn draw_alpha(&self) -> f32 {
+        self.stepper.alpha(self.world.params.dt)
+    }
+
+    /// The reference pose (position, row-major rotation) to draw reference `id` at this
+    /// frame, from its body drawn between the last two steps (`fnv_phys::drawn`,
+    /// [`PhysState::draw_alpha`]): for placed clutter physics has moved and dropped items
+    /// with one dynamic body. `None` for any other reference, which is drawn at the
+    /// simulation's pose. For drawing only: the simulation's pose is the stepped one
+    /// ([`PhysState::settle_placed`], [`PhysState::settle_created`]).
+    pub fn drawn_ref_pose(&self, id: u32) -> Option<([f32; 3], [f32; 9])> {
+        let (local, scale) = match self.placed_dynamic.get(&id) {
+            // Not moved yet: drawn at its placement, which the simulation still holds.
+            Some(p) if !p.moved => return None,
+            Some(p) => (p.local, p.scale),
+            None => self.created.get(&id).and_then(|c| c.local.filter(|_| c.dynamic)).map(|l| (l, 1.0))?,
+        };
+        let b = self.world.drawn_ref_body(id, 0, self.draw_alpha())?;
+        Some(dropped::ref_pose_from_body(&b, &local, scale))
+    }
+
+    /// Bring [`PhysState::between`] up to date after the frame's steps.
+    pub fn update_between(&mut self) {
+        let b = &mut self.between;
+        std::mem::swap(&mut b.last, &mut b.now);
+        self.world.drawn_refs_into(&mut b.now);
+        let (placed, created) = (&self.placed_dynamic, &self.created);
+        b.now.retain(|id| match placed.get(id) {
+            Some(p) => p.moved,
+            None => created.get(id).is_some_and(|c| c.dynamic && c.local.is_some()),
+        });
+        b.redraw.clear();
+        b.redraw.extend(b.now.iter().chain(&b.last).copied());
+        b.redraw.sort_unstable();
+        b.redraw.dedup();
+        b.most = b.most.max(b.now.len());
+        b.frames += !b.now.is_empty() as u64;
+    }
+
     /// Where an actor's character is drawn this frame: between its feet before and after
     /// the last physics step, by the time accumulated towards the next (as the player's
     /// body), so a walk is as smooth on screen as the frame rate allows. `None` when the
@@ -744,7 +889,7 @@ impl PhysState {
     /// The body is drawn [`drawn_sink`] below the character's feet.
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.draw_alpha();
         Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink - b.lift.at(a) } else { 0.0 }))
     }
 
@@ -755,7 +900,7 @@ impl PhysState {
         if id == fnv_sim::FormId::PLAYER_REF.0 {
             if self.player.is_some() { self.player_sink } else { 0.0 }
         } else {
-            self.npcs.get(&id).map(|b| b.sink).or_else(|| self.standing.get(&id).map(|l| l.1)).unwrap_or(0.0)
+            self.npcs.get(&id).map(|b| b.sink).or_else(|| self.standing.get(&id).map(|l| l.2)).unwrap_or(0.0)
         }
     }
 
@@ -771,11 +916,19 @@ impl PhysState {
     /// that surface, or, when it is a placed model with drawn floors, the highest of its
     /// drawn floors within [`DRAWN_FLOOR_WINDOW`] of it (`drawn::DrawnFloors`).
     pub fn ground_drawn(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<(f32, f32)> {
-        self.ground_under(at, down, exclude).map(|g| (g.bare, g.drawn))
+        self.ground_under(at, down, exclude, false).map(|g| (g.bare, g.drawn))
     }
 
-    fn ground_under(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<GroundUnder> {
-        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    /// [`PhysState::ground_drawn`] under fixed collision only: dynamic bodies (clutter,
+    /// wind-blown tumbleweeds) are left out. For measuring the ground itself (the
+    /// `actor_feet` test aid), where a loose body resting on the spot is not the ground;
+    /// characters still stand on dynamic bodies through `ground_drawn` [design, #2149].
+    pub fn fixed_ground_drawn(&mut self, at: [f32; 3], down: f32) -> Option<(f32, f32)> {
+        self.ground_under(at, down, None, true).map(|g| (g.bare, g.drawn))
+    }
+
+    fn ground_under(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>, no_dynamic: bool) -> Option<GroundUnder> {
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_dynamic, ..Default::default() };
         filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()).chain(exclude));
         let hit = self.ray(at, [0.0, 0.0, -1.0], down, filter)?;
         Some(GroundUnder { bare: hit.point[2], drawn: self.drawn_over(&hit), shell: hit.shell })
@@ -818,11 +971,23 @@ impl PhysState {
     /// a step or a bump ([`step_lift::StepLift`]; the player is `FormId::PLAYER_REF`); 0
     /// for an actor without a character.
     pub fn drawn_lift_of(&self, id: u32) -> f32 {
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.draw_alpha();
         if id == fnv_sim::FormId::PLAYER_REF.0 {
             if self.player.is_some() { self.player_lift.at(a) } else { 0.0 }
         } else {
             self.npcs.get(&id).map_or(0.0, |b| b.lift.at(a))
+        }
+    }
+
+    /// The share of [`PhysState::drawn_lift_of`] that changes of the drawn ground under
+    /// the feet put there ([`step_lift::StepLift::ground_at`]): the view leaves it out, as
+    /// it leaves out the drawn sink.
+    pub fn drawn_ground_lift_of(&self, id: u32) -> f32 {
+        let a = self.draw_alpha();
+        if id == fnv_sim::FormId::PLAYER_REF.0 {
+            if self.player.is_some() { self.player_lift.ground_at(a) } else { 0.0 }
+        } else {
+            self.npcs.get(&id).map_or(0.0, |b| b.lift.ground_at(a))
         }
     }
 
@@ -838,8 +1003,8 @@ impl PhysState {
             return None;
         }
         let (gx, gy) = cell_of(x, y);
-        let h = self.cells.get(&PhysCell::Exterior(gx, gy))?.heights.as_deref()?;
-        height_at(h, x - gx as f32 * CELL_SIZE, y - gy as f32 * CELL_SIZE)
+        let s = self.cells.get(&PhysCell::Exterior(gx, gy))?.surface.as_ref()?;
+        s.height_at(x - gx as f32 * CELL_SIZE, y - gy as f32 * CELL_SIZE)
     }
 
     /// Whether a reference has collision bodies in the world now.
@@ -890,14 +1055,26 @@ impl PhysState {
         };
         let mut refs: Vec<u32> = record.map(|c| c.refs.clone()).unwrap_or_default();
         refs.extend(persistent.into_iter().flatten());
+        // References placed in other squares whose bounds reach into this one (#2795).
+        if let PhysCell::Exterior(x, y) = cell {
+            refs.extend(self.reach.reaching((x, y)));
+        }
         refs.sort_unstable();
         refs.dedup();
         let land = match cell {
             PhysCell::Exterior(..) => record.and_then(|c| c.land),
             PhysCell::Interior(_) => None,
         };
+        // The neighbours' LAND, which a smoothed surface reads along its edges (#2149).
+        let lands = match cell {
+            PhysCell::Exterior(x, y) if land.is_some() => {
+                let ws = d.index.worldspaces.get(&self.worldspace);
+                fnv_world::land_surface::land_ids((x, y), |g| ws.and_then(|w| w.grid.get(&g)).and_then(|id| d.index.cells.get(id)).and_then(|c| c.land))
+            }
+            _ => Default::default(),
+        };
         let models = refs.iter().filter_map(|r| self.destruction_models.get(r).map(|m| (*r, m.clone()))).collect();
-        Job { cell, refs, land, poses: Vec::new(), scales: Vec::new(), models }
+        Job { cell, refs, land, lands, surface: crate::smooth_terrain::spec(), poses: Vec::new(), scales: Vec::new(), models }
     }
 
     fn source(&self, ctx: &LoadCtx) -> Source {
@@ -931,8 +1108,9 @@ impl PhysState {
     /// job's (FormID) order, those not in the world now left out.
     fn insert(&mut self, ctx: &LoadCtx, p: Prepared) {
         let t0 = Instant::now();
-        let Prepared { cell, heights, terrain, refs, times } = p;
+        let Prepared { cell, surface, terrain, refs, times } = p;
         let d = ctx.d;
+        self.forget_standing_near(cell);
         // An exterior cell's water (`Cell::water_surface`, the rule the renderer draws it
         // with); not an interior's XCLW, where the game swam at a placed water object's
         // height instead [observed: physics.md §6.6; placed water not modelled yet].
@@ -949,6 +1127,13 @@ impl PhysState {
         let mut with_collision = 0;
         for e in refs {
             ids.push(e.form_id);
+            // Held by another loaded square already (its bounds reach over both, #2795):
+            // that square added it, or left it out, and `sync_ref` keeps it up to date.
+            let holders = self.held.entry(e.form_id).or_default();
+            *holders += 1;
+            if *holders > 1 {
+                continue;
+            }
             self.ref_cell.insert(e.form_id, cell);
             let shapes = e.shapes;
             with_collision += self.apply(ctx, e.placement, |_| shapes.expect("prepared with its placement")) as usize;
@@ -969,7 +1154,7 @@ impl PhysState {
             ids.push(r);
         }
         let n = ids.len();
-        self.cells.insert(cell, LoadedCell { refs: ids, heights });
+        self.cells.insert(cell, LoadedCell { refs: ids, surface });
         let insert_ms = ms_since(t0);
         self.stats.times.add(&times);
         self.stats.times.insert += insert_ms;
@@ -1098,11 +1283,26 @@ impl PhysState {
             debug!("physics cell {cell:?} no longer wanted before it was ready");
         }
         let Some(c) = self.cells.remove(&cell) else { return };
+        self.forget_standing_near(cell);
         self.world.set_water(water_area(cell), None);
         if let PhysCell::Exterior(x, y) = cell {
             self.world.remove_terrain((x, y));
         }
         for r in c.refs {
+            // Still held by another loaded square (#2795): its collision stays, owned by
+            // that square now.
+            if let Some(n) = self.held.get_mut(&r) {
+                *n -= 1;
+                if *n > 0 {
+                    if self.ref_cell.get(&r) == Some(&cell) {
+                        if let Some(other) = self.cells.iter().find(|(_, o)| o.refs.contains(&r)).map(|(k, _)| *k) {
+                            self.ref_cell.insert(r, other);
+                        }
+                    }
+                    continue;
+                }
+                self.held.remove(&r);
+            }
             self.world.remove_ref(r);
             self.created.remove(&r);
             self.placed_dynamic.remove(&r);
@@ -1355,7 +1555,7 @@ impl PhysState {
     pub fn add_created(&mut self, ctx: &LoadCtx, id: u32) -> bool {
         let Some(s) = ctx.sim.world.peek(FormId(id)).filter(|s| dropped::present(s)) else { return false };
         let counts = &mut self.stats.counts;
-        let Some(path) = dropped::model_path(ctx.d, s.base, s.extra.mods) else {
+        let Some(path) = dropped::created_model_path(ctx.d, &ctx.sim.world, s.base, s.extra.mods) else {
             *counts.entry("created_no_model").or_default() += 1;
             return false;
         };
@@ -1424,9 +1624,33 @@ impl PhysState {
             s.pos[2],
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
-        let added_step = self.world.steps();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false, marks: 0 });
+        if dynamic {
+            self.lift_onto_support(id);
+            self.lift_out_of_terrain(id);
+        }
+        let added_at = self.world.stepped_secs();
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0, rested_at: None, sank: false });
         true
+    }
+
+    /// A created dynamic reference made reaching into the contact shell of what it rests on
+    /// is lifted onto that shell, at its rest height: an ash or goo pile is made at its
+    /// actor's feet (`fnv_game::ash_piles`), and a standing actor's feet rest the ground's
+    /// shell above the bare surface, which put the pile's own shell about 1.7 units into
+    /// the terrain's; pushed out a little each step, it crept at about 2 units/s and never
+    /// rested [observed: smoke goo-pile-roach, 2026-11-11]. Only a reach into the shell of
+    /// up to [`LIFT_ONTO_SUPPORT_MOST`] is taken up (more is not a body resting there).
+    fn lift_onto_support(&mut self, id: u32) {
+        let Some(low) = self.world.ref_lowest_z(id) else { return };
+        let Some(c) = self.world.ref_center(id) else { return };
+        let filter = Filter { exclude: vec![fnv_phys::Key::Ref(id)], no_actors: true, exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+        let Some(hit) = self.ray([c[0], c[1], c[2] + 100.0], [0.0, 0.0, -1.0], 100.0 + (c[2] - low) + LIFT_ONTO_SUPPORT_MOST + 10.0, filter) else { return };
+        let rest = hit.point[2] + hit.shell;
+        let reach = rest - low;
+        if reach > 0.01 && reach <= LIFT_ONTO_SUPPORT_MOST {
+            self.world.lift_ref(id, reach);
+            info!("collision of dropped 0x{id:08X} lifted {reach:.1} units onto the contact shell of what it rests on (made reaching into it)");
+        }
     }
 
     /// Write the poses of moving dynamic created references back to the simulation (and,
@@ -1436,12 +1660,22 @@ impl PhysState {
     pub fn settle_created(&mut self, index: &WorldIndex, world_id: u32, sim: &mut World) -> Vec<u32> {
         let mut moved = Vec::new();
         let mut lost = Vec::new();
-        let elapsed = |since: u64| (self.world.steps() - since) as f32 * self.world.params.dt;
+        // Moving bodies to check against the terrain, and those that woke after resting
+        // (`sinking`, #2753).
+        let mut awake = Vec::new();
+        let mut woke = Vec::new();
+        let now = self.world.stepped_secs();
+        // Game seconds stepped since: under a slowed clock the steps are shorter, so the steps
+        // times the step now would count the ones before at the wrong length.
+        let elapsed = |since: f64| (self.world.stepped_secs() - since) as f32;
         for (&id, cb) in self.created.iter_mut() {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
-            let t = elapsed(cb.added_step);
+            if !b.sleeping && !cb.sank {
+                awake.push((id, b.linvel));
+            }
+            let t = elapsed(cb.added_at);
             if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
                 cb.marks += 1;
                 info!(
@@ -1473,18 +1707,23 @@ impl PhysState {
             }
             if b.sleeping && !cb.settled {
                 cb.settled = true;
+                cb.rested_at = Some(now);
                 info!(
                     "dropped 0x{id:08X} came to rest at ({:.1}, {:.1}, {:.2}), {:.1} below where its collision was added, {:.2} s after",
                     pos[0],
                     pos[1],
                     pos[2],
                     cb.start[2] - pos[2],
-                    elapsed(cb.added_step)
+                    elapsed(cb.added_at)
                 );
             } else if !b.sleeping {
+                if cb.settled {
+                    woke.push((id, cb.rested_at.map_or(0.0, |r| (now - r) as f32), pos));
+                }
                 cb.settled = false;
             }
         }
+        self.note_created_sinking(woke, awake);
         for id in lost {
             let start = self.created.remove(&id).map(|c| c.start);
             self.world.remove_ref(id);
@@ -1625,7 +1864,20 @@ impl PhysState {
 
     pub fn remove_npc(&mut self, id: u32) {
         if let Some(b) = self.npcs.remove(&id) {
+            self.left.insert(id, (b.ch.feet, b.sink));
             self.world.remove_character(b.ch);
+        }
+    }
+
+    /// Forget what [`PhysState::standing_drawn_feet`] found for actors standing in or next
+    /// to `cell`, whose collision came or went (the support under them may have changed).
+    fn forget_standing_near(&mut self, cell: PhysCell) {
+        match cell {
+            PhysCell::Exterior(x, y) => self.standing.retain(|_, (feet, _, _)| {
+                let (gx, gy) = cell_of(feet[0], feet[1]);
+                (gx - x).abs() > 1 || (gy - y).abs() > 1
+            }),
+            PhysCell::Interior(_) => self.standing.clear(),
         }
     }
 
@@ -1633,22 +1885,70 @@ impl PhysState {
     /// character rests (the contact shell above the collision under them, within
     /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on
     /// the ground left them) are drawn as a character's would be, on the drawn ground
-    /// ([`PhysState::ground_drawn`]); others (a placed height, the navmesh's height) at
-    /// `feet`. Looked up again only when the feet move.
-    pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3]) -> [f32; 3] {
+    /// ([`PhysState::ground_drawn`]). Feet where its character was taken away from it
+    /// ([`PhysState::remove_npc`]) are drawn as the character was. Others (a placed
+    /// height, the navmesh's height) are drawn at `feet`, except that with `on_landscape`
+    /// (not for an actor under the furniture's control) feet standing on the bare
+    /// landscape follow the smoothed surface: drawn as far above it as they were above the
+    /// stored triangles ([`PhysState::landscape_lift`], #2149). Looked up again when the
+    /// feet or `on_landscape` change and when collision comes or goes next to them.
+    pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3], on_landscape: bool) -> [f32; 3] {
         let sink = match self.standing.get(&id) {
-            Some((at, sink)) if *at == feet => *sink,
+            Some((at, on, sink)) if *at == feet && *on == on_landscape => *sink,
             _ => {
                 let down = 1.0 + fnv_phys::TERRAIN_SHELL + REST_TOLERANCE;
-                let sink = match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
-                    Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
-                    _ => 0.0,
+                let physics = match self.left.get(&id) {
+                    Some((at, sink)) if *at == feet => Some(*sink),
+                    Some(_) => {
+                        self.left.remove(&id);
+                        None
+                    }
+                    None => None,
                 };
-                self.standing.insert(id, (feet, sink));
+                let sink = match physics {
+                    Some(sink) => sink,
+                    None => self.authored_sink(feet, down, on_landscape),
+                };
+                self.standing.insert(id, (feet, on_landscape, sink));
                 sink
             }
         };
         [feet[0], feet[1], feet[2] - sink]
+    }
+
+    /// [`PhysState::standing_drawn_feet`]'s sink for feet that did not come from a
+    /// character: on the drawn ground when they rest on the collision, else lifted with
+    /// the landscape when `on_landscape` and they stand on it, else none.
+    fn authored_sink(&mut self, feet: [f32; 3], down: f32, on_landscape: bool) -> f32 {
+        match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None, false) {
+            Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
+            _ if on_landscape => self.landscape_lift(feet).map_or(0.0, |lift| -lift),
+            _ => 0.0,
+        }
+    }
+
+    /// How far the smoothed landscape surface lies above the stored LAND triangles under
+    /// `feet` (#2149; `Surface::lift_at`), when the feet stand on the bare landscape:
+    /// outdoors, within [`TERRAIN_STAND_BAND`] of the stored triangles, and with the
+    /// landscape the first collision below them (not a static, furniture or another
+    /// placed floor). `None` otherwise, and on the stored surface.
+    pub fn landscape_lift(&mut self, feet: [f32; 3]) -> Option<f32> {
+        if self.space != Space::Exterior {
+            return None;
+        }
+        let (gx, gy) = cell_of(feet[0], feet[1]);
+        let s = self.cells.get(&PhysCell::Exterior(gx, gy))?.surface.as_ref().filter(|s| s.is_smoothed())?;
+        let (x, y) = (feet[0] - gx as f32 * CELL_SIZE, feet[1] - gy as f32 * CELL_SIZE);
+        let (stored, lift) = (s.stored_height_at(x, y)?, s.lift_at(x, y)?);
+        if (feet[2] - stored).abs() > TERRAIN_STAND_BAND {
+            return None;
+        }
+        // From over the feet and the surface down past the surface: the landscape first.
+        let top = feet[2].max(stored + lift) + 1.0;
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+        filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()));
+        let hit = self.ray([feet[0], feet[1], top], [0.0, 0.0, -1.0], top - (stored + lift) + 2.0, filter)?;
+        matches!(hit.owner, Owner::Terrain { .. }).then_some(lift)
     }
 
     pub fn reset(&mut self, space: Space) {
@@ -1656,6 +1956,7 @@ impl PhysState {
             self.remove_npc(id);
         }
         self.standing.clear();
+        self.left.clear();
         self.loader.clear();
         let all: Vec<PhysCell> = self.cells.keys().copied().collect();
         for c in all {
@@ -1789,8 +2090,9 @@ impl Plugin for PhysPlugin {
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
-            .add_systems(Update, pace_steps.after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
+        // The physics rate, the slow clock's pace and the cost guard (`crate::phys_rate`).
+        crate::phys_rate::setup(app);
     }
 }
 
@@ -1799,40 +2101,39 @@ impl Plugin for PhysPlugin {
 /// `kill_cam::SLOWEST`].
 pub const SLOWEST_PACED: f32 = 0.02;
 
-/// The fixed step for a clock running at `speed` of full speed, the usual step `full`:
-/// that share of it while the clock runs slow, so the physics takes as many steps a real
-/// second as at full speed; the usual one otherwise (a stopped or a faster clock).
+/// The fastest clock the physics adds steps for: faster than this many times full speed
+/// (a script's SetGlobalTimeMultiplier) the step grows instead, so the steps a real second
+/// never pass this many times the rate [design: bounds the physics' cost at any clock;
+/// until 2026-11-11 a faster clock kept the usual step at any speed, which at 10× ran 600
+/// steps a real second].
+pub const FASTEST_PACED: f32 = 4.0;
+
+/// The shortest step the physics takes, seconds: 1/240 s, the full-speed step of the
+/// highest rate the menu offered until 2026-11-11 (it now stops at 160,
+/// `crate::phys_rate::MAX_HZ`); it stays as the floor of a slowed clock's step. rapier keeps positions in f32 metres from the
+/// worldspace's origin, and a shorter step moves a slow body by less than the position can
+/// show, so it stands still [observed: `probe_slow_steps_far_from_the_origin`,
+/// crates/fnv-phys/tests/synthetic.rs, 2026-11-11: at Goodsprings (x -68,000) a body at
+/// 5-20 units/s did not move at all over steps of 1/3000 s, the step of a 2 % kill camera
+/// at 60 Hz; at 1/240 s it moved 82-102 % of its way; 150,000 units out, 1/3000 s stopped
+/// everything under 200 units/s]. Under a clock slower than a quarter (VATS, kill cameras)
+/// there are fewer steps a real second than the rate: what moves is drawn between steps
+/// (`fnv_phys::drawn`), so it moves smoothly still, and each step stays one the positions
+/// can resolve.
+pub const SHORTEST_STEP: f32 = 1.0 / 240.0;
+
+/// The fixed step for a clock running at `speed` of full speed, the usual step `full`
+/// (`1/rate`, `crate::phys_rate`): that share of it while the clock runs slow, so the
+/// physics takes as many steps a real second as at full speed, down to [`SHORTEST_STEP`];
+/// the usual one at full speed, stopped or up to [`FASTEST_PACED`]; past that, longer by
+/// what the clock is over it.
 pub fn paced_step(full: f32, speed: f32) -> f32 {
     if speed > 0.0 && speed < 1.0 {
-        full * speed.max(SLOWEST_PACED)
+        (full * speed.max(SLOWEST_PACED)).max(SHORTEST_STEP.min(full))
+    } else if speed > FASTEST_PACED {
+        full * speed / FASTEST_PACED
     } else {
         full
-    }
-}
-
-/// The physics keeps its steps a real second while the game's clock runs slow
-/// ([`paced_step`]). The step is 1/60 s of the game's clock; with that clock at an eighth
-/// (VATS mode's shots, a kill camera) a step came every eighth frame, and what the
-/// physics moves, a falling corpse, its severed parts, a head's pieces, went in jerks
-/// [design: the fork owner 2026-11-10, "vats slows down time by X in the shooting/kill
-/// slowmo cutscenes so the physics ticks are increased by X"].
-fn pace_steps(virt: Res<Time<Virtual>>, mut phys: ResMut<PhysState>, mut told: Local<Option<f32>>) {
-    let full = play_params().dt;
-    let speed = if virt.is_paused() { 1.0 } else { virt.relative_speed() };
-    let dt = paced_step(full, speed);
-    if (phys.world.params.dt - dt).abs() <= f32::EPSILON * dt {
-        return;
-    }
-    phys.world.set_step(dt);
-    // Once a change of pace, not every frame of an easing clock.
-    let paced = dt < full;
-    if told.is_some() != paced {
-        *told = paced.then_some(dt);
-        if paced {
-            info!("phys: the clock runs at {speed:.2}: the step follows it, {:.2} ms ({:.0} steps a real second)", dt * 1000.0, speed / dt);
-        } else {
-            info!("phys: the clock is back at full speed: the step is {:.2} ms again", dt * 1000.0);
-        }
     }
 }
 
@@ -1893,6 +2194,9 @@ fn travel(
     player.feet = feet;
     player.placed = Some(feet);
     player.heading = t.heading_deg.to_radians();
+    if let Some(p) = t.pitch_deg {
+        player.pitch = p.to_radians().clamp(-crate::player::MAX_PITCH, crate::player::MAX_PITCH);
+    }
     info!(
         "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}, terrain {}",
         to.interior.map_or_else(|| format!("worldspace {:08X} ({})", to.world, world_name(&d, to.world)), |c| format!("interior {c:08X}")),
@@ -1991,6 +2295,9 @@ pub(crate) fn piles_pass_their_corpses(mut phys: ResMut<PhysState>, script: Opti
 /// frame's fixed steps (in the player's chain, after its step).
 pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>) {
     phys.moved_now = if phys.placed_dynamic.is_empty() { Vec::new() } else { phys.settle_placed(&mut sim.world) };
+    // What is drawn between the steps this frame (after `settle_placed`, which marks
+    // clutter moved).
+    phys.update_between();
     if phys.created.is_empty() {
         return;
     }
@@ -2065,6 +2372,8 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         info!("physics: the player's drawn height took up {} steps and bumps, lifted {:.1} units at most", l.taken_up, l.most);
         let (feet, drawn) = l.rough.rms();
         info!("physics: walking on the ground for {} steps, vertical acceleration {feet:.0} units/s2 of the feet and {drawn:.0} of the drawn height (rms), drawn/feet {:.2}", l.rough.steps, drawn / feet.max(1.0));
+        // The view counts from the feet: the lift without the drawn ground's share.
+        info!("physics: the view's vertical acceleration while walking {:.0} units/s2 (rms)", l.rough.view_rms());
     }
     // Loose items in water (`fnv_phys::buoyancy`): floating at the surface or sunk.
     let wet = phys.world.loose_in_water();
@@ -2072,6 +2381,17 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         let list: Vec<String> = wet.iter().map(|(id, floats, top)| format!("{id:08X} ({}, its top {top:.0} units from the surface)", if *floats { "floats" } else { "sinks" })).collect();
         info!("physics: {} loose item bodies in water at exit: {}", wet.len(), list.join(", "));
     }
+    // Drawing between steps (`fnv_phys::drawn`) and bodies taken out for NaN state
+    // (`fnv_phys::quarantine`), over the run.
+    let (_, kept) = phys.world.drawn_counts();
+    let st = phys.world.stats();
+    info!(
+        "physics: drawn between steps: {} references at most in a frame, over {} frames; {kept} bodies at most kept before a step; quarantined {} bodies and {} colliders",
+        phys.between.most, phys.between.frames, st.quarantined_bodies, st.quarantined_colliders
+    );
+    // Bodies a query's refresh had to put back into rapier's islands (`fnv_phys::islands`):
+    // without it they froze, and could crash rapier later.
+    info!("physics: island repairs after query refreshes: {} bodies", phys.world.refresh_stats().repair_islands);
     // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
     for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
         if let Some(b) = phys.world.ref_bodies(id).first() {

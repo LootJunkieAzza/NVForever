@@ -24,10 +24,13 @@ pub mod uio;
 pub mod value;
 pub mod xml;
 
-pub use tree::{MemSource, Origin, Source, Tile, TileId, Trait, Ui};
+pub use tree::{ConditionalTraitWrite, Count, MemSource, Origin, Source, Tile, TileId, Trait, TraitWriteSerial, Ui};
 pub use index::MenuIndex;
 pub use strings::GameStrings;
 pub use value::Value;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod rgb_integer_consumer_tests;

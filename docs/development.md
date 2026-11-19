@@ -28,14 +28,25 @@ Python 3.11+.
 
 ```bash
 cargo build --release -p fnvtool            # the command-line tool: target/release/fnvtool(.exe)
-cargo test --workspace --release
+(cd engine && cargo build --release)        # Bevy viewer and game (first build takes a while)
+```
+
+The checks, the commands CI runs in its order (`python tools/smoke plan` lists the ones your
+changed files call for; the cargo deny ones need `cargo install cargo-deny`):
+
+```bash
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
-cargo clippy --workspace --all-targets --release -- -D warnings
-cd engine && cargo build --release          # Bevy viewer and game (first build takes a while)
-cargo clippy --release --all-targets -- -D warnings   # in engine/: the Bevy workspace
+python -m unittest discover -s tools/profile/tests
+python -m unittest discover -s tools/release/tests
 ```
 
 With the game installed, two more checks run against your own data:
@@ -86,8 +97,11 @@ playtests, `tools/play/Play.ps1` starts the game at named places
 - `--cell <EditorID or x,y>`: where to start; `--pos x,y,z`, `--heading` and `--hour`
   refine it. `--new-game` (with `--play`) starts the opening instead, `--load <save>` a
   saved game (saves live in `Documents\My Games\NVForever\saves`).
-- `--no-messages` (with `--play`): message boxes with only an OK button close at once;
-  their text is still logged.
+- `--no-messages` (with `--play`): message boxes with only an OK button (or none) are
+  answered with OK; a script's never opens, so game time does not stop for it (the
+  add-on packs' start-up boxes, at the start and once the player leaves Doc Mitchell's
+  house). Their text is still logged; a box with a choice still waits for the player.
+  Every `--play` smoke scenario runs with it unless it sets `messages = true`.
 - `--graphics enhanced`: the optional modern look
   ([design/graphics-enhanced.md](design/graphics-enhanced.md)). The default, `vanilla`, is
   the original's look and the one every test compares. `--sun-shadows` turns on sun

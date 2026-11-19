@@ -39,6 +39,16 @@ impl DoorRig {
     }
 }
 
+/// A door a script enabled at run time (`nvf_play::script_draw`) gets a [`DoorRig`] as
+/// render streaming's do (world.rs), so it is posed open and shut (#2420).
+pub fn script_drawn(mut commands: Commands, mut models: nvf_assets::model::ModelCtx, added: Query<(Entity, &nvf_play::script_draw::ScriptDrawnDoor), Added<nvf_play::script_draw::ScriptDrawnDoor>>) {
+    for (e, d) in &added {
+        let Some(model) = models.model(&d.path) else { continue };
+        commands.entity(e).insert(DoorRig::new(d.reference, model, &d.path, d.nodes.clone(), d.open_by_default));
+        info!("door: 0x{:08X} drawn at run time, posed as a door", d.reference);
+    }
+}
+
 /// Know newly drawn doors in [`Doors`] (as the simulation has them, else as placed).
 pub fn register(rigs: Query<&DoorRig, Added<DoorRig>>, mut doors: ResMut<Doors>, sim: Option<Res<SimState>>) {
     for rig in &rigs {

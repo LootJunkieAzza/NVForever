@@ -29,6 +29,10 @@
 //!   the original's warning gecko drew and put away its stance every 2 s (capture
 //!   `warnings`, idles.md §14.3), which looks like an unintended quirk; draw and hold
 //!   instead]. The draw clip is the gecko's hiss.
+//! - **Standing while it draws**: while the draw clip plays the creature stands, its walk
+//!   held as a staggering actor's (`residents.rs`, [`CreatureStance::holds_in_place`]);
+//!   it moves again once the stance is drawn [observed: owner's playtest 2026-11-15, the
+//!   original's ghoul roars standing; #2686].
 //! - Attacks (`attack_anims.rs`) play over the aim on layers 4 and 5 and are found as
 //!   before: a creature with a stance still has no `WeaponHold`.
 
@@ -94,6 +98,15 @@ impl CreatureStance {
     /// own attack again after a body weapon, `body_weapons.rs`).
     pub fn new(clips: Arc<CreatureClips>, drawn: bool) -> CreatureStance {
         CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered, mode: Mode::Calm, warn_only: false }
+    }
+
+    /// Whether the creature stands in place: while its draw clip plays (the ghoul's
+    /// roar, the gecko's hiss), as a staggering actor does (`residents.rs`; #2686: an
+    /// alerted ghoul slid across the floor roaring) [observed: owner's playtest
+    /// 2026-11-15, the original's ghoul roars standing]. Holding the aim, putting it
+    /// away and at rest it moves.
+    pub fn holds_in_place(&self) -> bool {
+        self.anim.stage == Stage::Equipping
     }
 
     /// Advance the draw cycle by `dt`.
@@ -242,13 +255,19 @@ mod tests {
         let clips = Arc::new(CreatureClips { clips: BTreeMap::new(), facts });
         let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm, warn_only: false };
         let mut stages = vec![s.anim.stage];
+        let mut held = 0;
         for i in 0..300 {
             s.drawn = i < 150;
             s.step(1.0 / 60.0);
             if stages.last() != Some(&s.anim.stage) {
                 stages.push(s.anim.stage);
             }
+            assert_eq!(s.holds_in_place(), s.anim.stage == Stage::Equipping);
+            held += usize::from(s.holds_in_place());
         }
         assert_eq!(stages, [Stage::Holstered, Stage::Equipping, Stage::Drawn, Stage::Unequipping, Stage::Holstered]);
+        // Held for the draw clip's second (60 frames, give or take the blend), not while
+        // aiming or putting it away (#2686).
+        assert!((50..=70).contains(&held), "held {held} frames");
     }
 }

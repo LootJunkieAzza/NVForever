@@ -70,6 +70,7 @@ pub fn row_of(forms: &FormStore, item: u32, count: u16) -> Row {
         icon: it.and_then(|i| i.icon.clone()),
         price: None,
         bartered: false,
+        loaded: false,
         mods: 0,
         mods_value: 0,
         folder: None,

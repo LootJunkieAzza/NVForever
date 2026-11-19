@@ -198,7 +198,11 @@ impl<'a> Game<'a> {
     /// source, the actor its leveled list gave it included [observed: tmpl3 (#1057)]; an
     /// actor base's along its Traits templates through NPC records, the record's own
     /// when the chain reaches a list [hypothesis, as GetRace].
+    /// A class SetClass gave the actor's base wins over the records'.
     pub(crate) fn traits_class(&self, f: FormId) -> Option<FormId> {
+        if let Some(c) = self.forms.classes.get(&base_of(self, f).unwrap_or(f)) {
+            return Some(*c);
+        }
         match base_of(self, f) {
             Some(_) => self.traits_def(f).and_then(|d| d.class),
             None => self.data.actors.get(&self.data.base_template_source(f, |d| d.template_traits)).and_then(|d| d.class),
@@ -218,7 +222,7 @@ impl<'a> Game<'a> {
     /// VATS Melee" on its own record, which a template's Base Data does not supply
     /// [documented: GECK wiki Category:NPC] (docs/spec-notes/actor-flags.md §1).
     pub fn no_vats_melee(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && base_of(self, r).is_some_and(|b| self.data.no_vats_melee(b, self.pick_seed(r), self.leveled_at(r)))
+        r != FormId::PLAYER_REF && self.def_following(r, |_| false).is_some_and(|d| d.no_vats_melee)
     }
 
     /// Whether hits on `r` leave no blood spray and no blood decal (ACBS "No Blood Spray",
@@ -226,7 +230,7 @@ impl<'a> Game<'a> {
     /// Model/Animation includes the Blood … tabs" [documented: GECK wiki Category:NPC];
     /// hypothesis: the two flags go with that tab) (actor-flags.md §2).
     pub fn no_blood(&self, r: FormId) -> (bool, bool) {
-        base_of(self, r).map_or((false, false), |b| self.data.no_blood(b, self.pick_seed(r), self.leveled_at(r)))
+        self.def_following(r, |d| d.template_model).map_or((false, false), |d| (d.no_blood_spray, d.no_blood_decal))
     }
 
     /// Whether creature `r` may be talked to: CREA ACBS "Allow PC Dialogue", from the

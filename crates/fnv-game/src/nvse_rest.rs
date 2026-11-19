@@ -120,6 +120,23 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
+        // Two typed strings; preserve the text rather than parsing console tokens
+        // (docs/spec-notes/string-settings.md).
+        "setstringsetting" => {
+            let (Some(XVal::Str(name)), Some(XVal::Str(value))) = (args.first(), args.get(1)) else {
+                return Some(Err("SetStringSetting requires a setting name and string value".into()));
+            };
+            match g.world.setting_value(name) {
+                Some(fnv_sim::settings::Setting::Str(_)) => {
+                    if let Err(e) = g.world.change_setting(name, fnv_sim::settings::Setting::Str(value.clone())) {
+                        return Some(Err(e.to_string()));
+                    }
+                }
+                Some(_) => return Some(Err(format!("{name} is not a string setting"))),
+                None => return Some(Err(format!("No game setting {name}"))),
+            }
+            zero
+        }
         // `"Name|Value"` (the format already applied): as SetStringSetting [documented:
         // SetStringGameSettingEx; the page calls it broken, its replacement working].
         "setstringgamesettingex" => {

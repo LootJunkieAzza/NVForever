@@ -16,6 +16,8 @@ fnv-dds.workspace = true
 fnv-vfs.workspace = true
 fnv-install.workspace = true
 fnv-util.workspace = true
+# The DLSS download, its checks and the DLSS folder, shared with the launcher (#2765).
+nvf-dlss-files.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
@@ -28,7 +30,7 @@ fnv-combat.workspace = true
 fnv-collide.workspace = true
 fnv-phys.workspace = true
 # The Caravan pot falls as rigid bodies (caravan_pot.rs): the same pinned rapier as fnv-phys.
-rapier3d = { version = "=0.36.0", features = ["enhanced-determinism"] }
+rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
 fnv-nav.workspace = true
 fnv-ai.workspace = true
 fnv-game.workspace = true
@@ -67,21 +69,42 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
 # Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
-# certificates), not rustls, whose ring and webpki parts are ISC/CDLA, outside deny.toml.
-# ureq and native-tls MIT/Apache-2.0, schannel MIT.
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
+# certificates), not rustls. `native-tls-no-default`, not `native-tls`: the latter also
+# bundles webpki's root certificates (webpki-root-certs, CDLA-Permissive-2.0, outside
+# deny.toml), which the reports never use (they ask for RootCerts::PlatformVerifier, the
+# system's roots) (#1998). ureq and native-tls MIT/Apache-2.0, schannel MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
 # `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
 # reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
 # (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
-# and working set (perf_overlay/usage.rs: performance counters, process memory counters); a
-# version already in the build; MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel"] }
+# and working set (perf_overlay/usage.rs: performance counters, process memory counters),
+# DLSS's library loading and signature check (dlss/: LibraryLoader, WinTrust,
+# Cryptography; the functions themselves are looked up at run time, not linked; FileSystem
+# for the share flag the checked file is opened with) and a FidelityFX API library loaded
+# from the game's folder (ffx_api.rs: LibraryLoader), and Download DLSS...'s "Open release
+# page" and "Open dlss folder" (dlss_download/: ShellExecuteW in UI_Shell, its show flag in
+# UI_WindowsAndMessaging, COM set up for it in System_Com); a version already in the build;
+# MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_Security_WinTrust", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# [design, #2249] Optional NVML at runtime; reuse engine/Cargo.lock's libloading.
+libloading = "0.8.9"
+# The Linux native crash handler (native_crash_unix.rs, #2167): sigaction, the altstack,
+# write(2), /proc reads and gettid, no crate of our own. A version already in the build
+# (MIT/Apache-2.0).
+libc = "0.2"
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
 winresource = "0.1"
+
+[dev-dependencies]
+# [design, #2403] Exercise the real reports system with synthetic UI navigation states.
+# [design, #2652] Authored-plugin runtimes for the Use Weapon shooter tests.
+nvf-play = { workspace = true, features = ["test-support", "report-test-support"] }
 
 [features]
 default = ["intro-video"]

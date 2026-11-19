@@ -1,0 +1,10 @@
+[package]
+name = "nvf-settings-layout"
+description = "The settings page's tabs, categories and row order, and the menu file the game writes beside NVForever.ini: shared by the game's pause menu and the launcher so their menus are one"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

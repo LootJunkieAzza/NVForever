@@ -271,3 +271,85 @@ One row per function E1–E3 cover, then one row per built-in event, from §2–
 | RuntimeScriptError | a script raises an extender error | error message | an int |
 | DeleteGame / RenameGame / RenameNewGame | a save is deleted / renamed (old full name / new full name) | file name | its length |
 | DeleteGameName / RenameGameName / RenameNewGameName | the same, relative names | relative file name | its length |
+
+
+## Activation-range crosshair acquisition
+
+[documented] [OnCrosshairOn](https://geckwiki.com/index.php/OnCrosshairOn)
+notifies a registered UDF when a new reference is under the crosshair within
+activation range. Its argument is that reference. The event supports a form or
+form-list filter and a colon-qualified form-type event name. This is separate
+from the JohnnyGuitar-specific crosshair registration API.
+
+[observed: original installed mod data] ySI Contextual Prompts registers a
+CompileScript callback for this event. Its callback chooses an image from the
+current reference and updates HUD root traits that an injected image reads.
+The original restart guard requires yUI 140 as one dependency. That requirement
+alone does not establish that every yUI feature is implemented or executed.
+
+[design] The existing activation ray and its activation distance remain the
+source of GetCrosshairRef, and the event is delivered through the existing
+registration/filter machinery.
+
+[hypothesis] A new nonempty reference produces one plain event and its
+corresponding type-qualified event. Repeating the same reference does not produce
+another acquisition; leaving to no target updates the getter without an On event;
+acquiring a reference after that gap produces a new event. The callback sees the
+new reference through GetCrosshairRef. None of this per-transition behaviour has
+been observed in the original game; the page only says a new reference raises it.
+
+[design] The existing JohnnyGuitar callback remains before getter publication. The
+newly added event runs before the normal Scripts set. Plain then type-qualified
+delivery is a mapped engine ordering; native relative ordering and timing are not
+measured [hypothesis].
+
+[design] No extra ray, per-frame target cache, replacement HUD, provider version
+change or original mod/configuration edit is introduced. With no relevant
+handlers, the new source-event path performs no type lookup or argument-vector
+allocation. Session registration, removal and load behavior remain those of the
+existing SetEventHandler implementation. Full original initialization, provider
+coverage, selected XML/layout and native timing remain separate acceptance work.
+GetCrosshairWater's existing unsupported result is not repaired by this event.
+
+[validation plan] One standalone core test owns the process-wide CompileScript
+file reader. Independently authored source and XML exercise real compilation,
+registration, injection, current-reference readback, resolved image filename and
+alpha, one acquisition per transition, form/list/type filters, existing Johnny
+order and removal. One engine library control uses the existing production
+activation ray against real collision, the registered source callback, injected
+image and actual draw pieces; it retains a nonempty title, repeated target,
+parent hiding, collision eviction and subsequent acquisition. The engine test's
+callback is an in-memory compiled lambda; the file-backed core path covers
+CompileScript without racing the engine suite's global file readers. All cases
+were unexecuted when first authored. Hosted `35677cf5` and `22b8138c`
+engine controls each passed once; their file-backed core controls failed at
+separate earlier boundaries. In a later qualified runtime-only check of
+`d27e4e0b`, file compilation, original callable admission, plain-event callback,
+current getter, Johnny ordering and exact decimal source-value readback passed.
+The first failure was the CONT type-qualified counter, not the plain callback.
+The associated compile controller remained unqualified after descendant cleanup;
+this does not invalidate or promote its separately admitted runtime result.
+
+[design] Type-qualified delivery uses the existing canonical source-VM form-type
+mapping, rather than the inventory-item subset. The source regression queries
+GetType for its actual CONT and DOOR targets, then checks distinct type listeners
+and a nonmatching armor listener. Existing base-reference lookup and callback
+ordering are retained; cloned or dynamically substituted base-type parity is not
+newly established. The new canonical-mapping successor and its two identical-
+fixture baselines require their own compile, strict-lint and execution results.
+The original absent-event baseline is distinct from the d27 typed-delivery
+baseline. No original-mod, native, GPU or popup-resolution acceptance is claimed.
+
+[design] Event filters retain their value kinds: numeric literals are numbers, not
+forms with the same integer value. The crosshair fixture supplies actual reference
+and form-list values, then reads the original registered filters through live
+GetEventHandlers arrays to verify both kind and exact FormID. Raw numeric literals
+remain nonmatching controls; no general filter coercion is added.
+
+[validation] Hosted 6a04897b passed file compilation, original callable, plain
+callback, getter/order/literal and typed CONT controls, then failed the form-filter
+counter. Its filter source supplied numeric literals. Later list/image/lifecycle
+controls were unreached. The engine control passed once (full engine 3422 passed,
+zero failed, three ignored; strict engine Clippy passed). The typed-filter fixture
+correction and its identical-fixture baseline are unexecuted at authoring. This
+changes fixture inputs and diagnostics only, preserving production policy.

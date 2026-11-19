@@ -338,7 +338,7 @@ fn fast_travel_to_host(coop: &mut Coop, g: &fnv_game::Game, now: f32, loading: O
         Place::Exterior(w) => (Some(w), None),
     };
     info!("co-op: story wait: fast travel to the host at {:?} {feet:?}", host.place);
-    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees(), pitch_deg: None }));
     coop.last_leash = Some(now);
 }
 
@@ -608,7 +608,7 @@ pub(super) fn share_scene(
             Place::Exterior(w) => (Some(w), None),
         };
         info!("co-op: scene: on the host's spot at {:?} {:?}: the scene holds the view", host.place, host.feet);
-        travel.write(TravelRequest(Travel { world, interior, feet: host.feet, heading_deg: host.yaw.to_degrees() }));
+        travel.write(TravelRequest(Travel { world, interior, feet: host.feet, heading_deg: host.yaw.to_degrees(), pitch_deg: None }));
         return;
     }
     if coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
@@ -624,7 +624,7 @@ pub(super) fn share_scene(
         Place::Exterior(w) => (Some(w), None),
     };
     info!("co-op: scene: beside the host at {:?} {feet:?}", host.place);
-    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees(), pitch_deg: None }));
     coop.last_leash = Some(now);
 }
 

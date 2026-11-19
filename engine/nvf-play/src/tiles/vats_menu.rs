@@ -5,8 +5,8 @@
 //!   game's own file first and the engine-drawn screen as the fallback]; `[UI]
 //!   VatsMenuFile=0` in the home's `NVForever.ini` or the test aid
 //!   `NVF_PLAY_TEST_VATS_MENU_FILE=0` keeps the engine-drawn screen ([`VatsTiles::on`]).
-//!   It is its own key and not a name in `[UI] TileMenus=`: that list is empty by default
-//!   and turns menus on.
+//!   It is its own key and not a name in `[UI] TileMenus=`: that list defaults to the
+//!   Pip-Boy menus [design, #2215; super::vanilla] and turns menus on.
 //! - **The menu's life**: VATS is no `Game::menu` in NVForever, so the file is built only
 //!   while the classic style chooses targets (`Game::ui_vats`, [`write_system`]), at once
 //!   on the frame the screen comes up, and dropped on the frame it goes. While it is up
@@ -742,7 +742,8 @@ pub struct VatsTiles {
     pub drawn: bool,
     /// The part the pointer is on (its `ClassicPart::index`), whether the pointer moved
     /// this frame, and the arrow it is on (-1 the left one, 1 the right one): read by the
-    /// mode's keys on the next frame (`crate::vats_mode`).
+    /// mode's keys on the next frame (`crate::vats_mode`). A click does not go by this
+    /// `arrow` or `button`, a frame old, but by [`VatsTiles::clicked`].
     pub hover: Option<usize>,
     pub hover_moved: bool,
     pub arrow: Option<i32>,
@@ -758,11 +759,82 @@ pub struct VatsTiles {
     /// left stick ([`VatsTiles::toward`]).
     places: Vec<(usize, (f64, f64), bool)>,
     pointer: Option<(f32, f32)>,
+    /// The arrows' and the buttons' boxes as last drawn (interface units), with the
+    /// window's size and the UI scale they were drawn at: a click is tested against these
+    /// at the pointer's place at the click ([`VatsTiles::clicked`], issue #2657). `None`
+    /// while the screen has no pointer (Dead Eye's, a controller's).
+    boxes: Option<DrawnBoxes>,
+    /// The test aid's pointer ([`POINTER_AID`]), window pixels: in the mouse's place while
+    /// the screen is up.
+    pub aid_pointer: Option<(f32, f32)>,
+    /// The aid's items not yet due: seconds, the arrow's step, whether it clicks.
+    aid_due: Vec<(f32, i32, bool)>,
     /// Why the file is not used for the rest of the run, once it failed.
     failed: Option<String>,
     told: Option<Told>,
     sizes: SizesWritten,
     crop: Option<CropKept>,
+}
+
+/// [`VatsTiles::boxes`]: the arrows with their steps, the buttons, the window's size
+/// (logical pixels) and the UI scale.
+type DrawnBoxes = (Vec<(i32, super::layout::Rect)>, Vec<(ScreenButton, super::layout::Rect)>, (f32, f32), f32);
+
+/// Test aid `NVF_PLAY_TEST_VATS_POINTER=<seconds>:<left|right>[:click][,...]`: at that
+/// time (the real clock, as `crate::vats_mode`'s keys) the pointer of the classic target
+/// screen is put on the middle of that arrow as last drawn, and with `click` the attack
+/// control is pressed in the same frame: the pointer coming onto an arrow and clicking at
+/// once (issue #2657). An item that comes due with the screen down is dropped.
+pub const POINTER_AID: &str = "NVF_PLAY_TEST_VATS_POINTER";
+
+/// The aid's items: seconds, the arrow's step (-1 left, 1 right), whether it clicks.
+pub fn pointer_aid(v: &str) -> Result<Vec<(f32, i32, bool)>, String> {
+    crate::test_aid::timed(v)?
+        .into_iter()
+        .map(|(t, rest)| {
+            let mut words = rest.split(':').map(str::trim);
+            let step = match words.next() {
+                Some(w) if w.eq_ignore_ascii_case("left") => -1,
+                Some(w) if w.eq_ignore_ascii_case("right") => 1,
+                other => return Err(format!("{rest:?}: expected left or right, found {other:?}")),
+            };
+            let click = match words.next() {
+                None => false,
+                Some(w) if w.eq_ignore_ascii_case("click") => true,
+                Some(w) => return Err(format!("{rest:?}: expected click, found {w:?}")),
+            };
+            Ok((t, step, click))
+        })
+        .collect()
+}
+
+impl VatsTiles {
+    /// The arrow (its step) and the button at `pointer` (window pixels), by the boxes as
+    /// last drawn: what a click there is on ([`click`]). Not the hover of the frame
+    /// before ([`VatsTiles::arrow`]), which a pointer that came onto an arrow this frame
+    /// has not reached yet (issue #2657).
+    pub fn clicked(&self, pointer: Option<(f32, f32)>) -> (Option<i32>, Option<ScreenButton>) {
+        let (Some(p), Some((arrows, buttons, window, scale))) = (pointer, self.boxes.as_ref()) else { return (None, None) };
+        let at = to_units(p, *window, *scale);
+        (arrows.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(step, _)| *step), buttons.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(b, _)| *b))
+    }
+
+    /// The test aid's items due at `now` ([`POINTER_AID`]): the pointer put on the arrow
+    /// of the last of them; whether it clicks.
+    pub fn aid_fire(&mut self, now: f32) -> bool {
+        let Some(&(_, step, click)) = self.aid_due.iter().filter(|(t, ..)| *t <= now).max_by(|a, b| a.0.total_cmp(&b.0)) else { return false };
+        self.aid_due.retain(|(t, ..)| *t > now);
+        let name = if step < 0 { "left" } else { "right" };
+        let Some((r, window, scale)) = self.boxes.as_ref().and_then(|(arrows, _, w, s)| arrows.iter().find(|(st, _)| *st == step).map(|(_, r)| (*r, *w, *s))) else {
+            warn!("{POINTER_AID}: the {name} arrow is not drawn: dropped");
+            return false;
+        };
+        let unit = f64::from(window.1 / 960.0 * scale);
+        let at = (((r.left + r.width / 2.0) * unit) as f32, ((r.top + r.height / 2.0) * unit) as f32);
+        info!("{POINTER_AID}: the pointer comes onto the {name} arrow at {:.0}, {:.0}{}", at.0, at.1, if click { " and clicks in the same frame" } else { "" });
+        self.aid_pointer = Some(at);
+        click
+    }
 }
 
 /// Read the switch once at start and tell it when it is off.
@@ -781,7 +853,15 @@ pub(crate) fn setup(app: &mut App) {
     if !on {
         info!("tiles: {VATS_MENU} not drawn from its file ({from}): the classic VATS screen is the engine's own");
     }
-    app.insert_resource(VatsTiles { on, ..Default::default() });
+    let aid_due = match std::env::var(POINTER_AID).ok().as_deref().map(pointer_aid) {
+        Some(Ok(due)) => due,
+        Some(Err(e)) => {
+            warn!("{POINTER_AID}: {e}");
+            Vec::new()
+        }
+        None => Vec::new(),
+    };
+    app.insert_resource(VatsTiles { on, aid_due, ..Default::default() });
 }
 
 /// Build, write or drop the screen for this frame (the module's notes): after the mode's
@@ -811,6 +891,7 @@ pub(crate) fn write_system(
             st.sizes.clear();
         }
         (st.hover, st.hover_moved, st.arrow, st.button, st.near, st.ray) = (None, false, None, None, None, None);
+        (st.boxes, st.aid_pointer) = (None, None);
         st.places.clear();
         st.buttons_told.clear();
         return;
@@ -861,11 +942,13 @@ pub(crate) fn write_system(
     // The pointer: the part and the arrow it is on, for the mode's keys next frame, and
     // what the file shows for it now.
     // (Dead Eye's screen has no pointer: the crosshair chooses. Nor has a controller's.)
-    let pointer = files.pointer().filter(|_| !shown.bare && !pad);
+    let pointer = st.aid_pointer.or_else(|| files.pointer()).filter(|_| !shown.bare && !pad);
     st.hover_moved = pointer.is_some() && pointer != st.pointer;
     st.pointer = pointer;
     let under = pointer.map(|p| to_units(p, window, scale));
     let boxes = hit_boxes(ui, menu);
+    // Kept for the click of the next frames (`VatsTiles::clicked`).
+    st.boxes = (!shown.bare && !pad).then(|| (boxes.arrows.clone(), boxes.buttons.clone(), window, scale));
     (st.hover, st.near) = under.map_or((None, None), |at| part_under(&shown, &boxes.parts, at));
     st.arrow = under.and_then(|at| boxes.arrows.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(step, _)| *step));
     st.button = under.and_then(|at| boxes.buttons.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(b, _)| *b));
@@ -1119,6 +1202,27 @@ mod tests {
         assert_eq!(click(None, Some(ScreenButton::Return), false), Click::Return);
         assert_eq!(click(None, Some(ScreenButton::Special), true), Click::Special);
         assert_eq!(click(None, Some(ScreenButton::Select), false), Click::Queue);
+        // A click goes by the pointer's place at the click against the boxes as last
+        // drawn, whatever the hover of the frame before says (#2657): here the hover has
+        // no arrow yet and the pointer is on the right one, in a window 1920 x 1440 at a
+        // UI scale of 1 (1.5 pixels a unit).
+        let mut st = VatsTiles { boxes: Some((hit.arrows.clone(), hit.buttons.clone(), (1920.0, 1440.0), 1.0)), ..Default::default() };
+        assert_eq!(st.arrow, None);
+        let px = ((middle.0 * 1.5) as f32, (middle.1 * 1.5) as f32);
+        assert_eq!(st.clicked(Some(px)).0, Some(1));
+        assert_eq!(st.clicked(Some((px.0, 1.0))), (None, None), "above the arrow: an attack");
+        assert_eq!(st.clicked(None), (None, None));
+        // The test aid puts the pointer there itself, and says whether it clicks.
+        assert_eq!(pointer_aid("13:right:click, 14:LEFT"), Ok(vec![(13.0, 1, true), (14.0, -1, false)]));
+        assert!(pointer_aid("13:up").is_err() && pointer_aid("13:left:press").is_err());
+        st.aid_due = pointer_aid("13:right:click,20:left").unwrap();
+        assert!(!st.aid_fire(12.0) && st.aid_pointer.is_none());
+        assert!(st.aid_fire(13.5));
+        assert_eq!(st.clicked(st.aid_pointer).0, Some(1));
+        assert_eq!(st.aid_due, [(20.0, -1, false)]);
+        // With no boxes (Dead Eye's screen, a controller's) nothing is under a click.
+        st.boxes = None;
+        assert_eq!(st.clicked(Some(px)), (None, None));
         write_pointer(&mut ui, true, Some(1));
         let get = |path: &str, n: &str| ui.tile(ui.find_tile(path).unwrap()).get(n).cloned().unwrap();
         assert!(get(SELECT, "visible").truthy());

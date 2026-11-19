@@ -37,7 +37,8 @@
 //! - `NVF_PLAY_TEST_LOOK=<seconds>:<heading deg>:<pitch deg>[,...]` turns the view (the
 //!   compass heading, 0 north, 90 east; the pitch, negative looks down) at those times,
 //!   as if the mouse had moved there (ignored, as the mouse is, while an animation
-//!   drives the view, `player::ViewDriven`).
+//!   drives the view, `player::ViewDriven`; and while a zoomed conversation locks the view,
+//!   `dialogue_look::view_locked`).
 //! - `NVF_PLAY_TEST_GOTO=<seconds>:<x>:<y>:<z>[,...]` puts the player's feet on whatever
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
@@ -82,7 +83,8 @@
 //!   `delete`, `mouse-left` / `mouse-right` / `mouse-middle`, or a notch of the wheel
 //!   (`wheel-up`, `wheel-down`).
 //!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
-//!   controller's button through `pad::menu_keys`; select Controller in the settings.
+//!   controller's button through `pad::menu_keys`; automatic switching consumes its
+//!   first press when it changes Input Device [design, #2200; `pad::device`].
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!   The hold `tap` (`52:v:tap`) sends a key's or mouse button's press and let-go as the
 //!   device's own messages, both read by Bevy in one frame: a tap shorter than a frame,
@@ -119,7 +121,7 @@
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
 //! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
 //! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
-//! `NVF_PLAY_TEST_HITVOL_COMPARE`): with them alone the run is played by
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_MOD_LOG`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -141,6 +143,7 @@ use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
 
 pub mod melee_knockback;
+pub(crate) mod activation_sweep;
 
 /// How far in front of the reference `NVF_PLAY_TEST_FACE` puts the feet (game units;
 /// inside the activation reach).
@@ -385,7 +388,7 @@ fn real_taps(time: crate::pause::AidTime, mut taps: ResMut<RealTaps>, mut typed:
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>) {
+pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>, mut switching: Option<ResMut<crate::pad::SwitchingInput>>) {
     let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
     let mut pad = p.pad.and_then(|e| pads.get_mut(e).ok());
@@ -397,7 +400,12 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
             return true;
         }
         match input {
-            RealInput::Key(k) => keys.release(k),
+            RealInput::Key(k) => {
+                keys.release(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, false);
+                }
+            }
             RealInput::Mouse(m) => mouse.release(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
@@ -416,7 +424,12 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
     });
     for (input, hold) in take_due(&mut p.due, now) {
         match input {
-            RealInput::Key(k) => keys.press(k),
+            RealInput::Key(k) => {
+                keys.press(k);
+                if let Some(s) = switching.as_mut() {
+                    s.keyboard_input(k, true);
+                }
+            }
             RealInput::Mouse(m) => mouse.press(m),
             RealInput::Pad(b) => {
                 if let Some(g) = pad.as_mut() {
@@ -489,7 +502,7 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
 /// at the name alone, so any value counts, and a load's new run drops it like any driving
 /// aid (`profile-slow-frames`).
-pub const MEASURING_AIDS: [&str; 8] = [
+pub const MEASURING_AIDS: [&str; 9] = [
     "NVF_PLAY_TEST_SAMPLE",
     "NVF_PLAY_TEST_PROFILE",
     "NVF_PLAY_TEST_PROFILE_COUNTS",
@@ -498,6 +511,8 @@ pub const MEASURING_AIDS: [&str; 8] = [
     "NVF_PLAY_TEST_TILE_COUNTS",
     "NVF_PLAY_TEST_HITVOL_SCAN",
     "NVF_PLAY_TEST_HITVOL_COMPARE",
+    // The mod log is for a mod list played by hand (`crate::mod_log`).
+    crate::mod_log::ENV,
 ];
 
 /// Whether this environment variable is a test aid that drives the run (any
@@ -558,6 +573,7 @@ impl Aids {
 
 pub(crate) fn setup(app: &mut App) {
     app.insert_resource(Unattended::from_env());
+    activation_sweep::setup(app);
     // The test aid and the debug switch of the same name do the same; only the test aid
     // makes the run unattended.
     for (name, what) in [("NVF_PLAY_TEST_GIVE", "test aid"), ("NVF_PLAY_DEBUG_GIVE", "debug switch")] {
@@ -607,7 +623,7 @@ pub(crate) fn setup(app: &mut App) {
                 }
                 let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_) | RealInput::Stick(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
                 app.insert_resource(RealPresses { due, down: Vec::new(), pad })
-                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::device::automatic).before(crate::pad::menu_keys).before(crate::pad::update_stick_buttons).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
@@ -906,6 +922,7 @@ fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn goto_and_look(
     time: crate::pause::AidTime,
     mut aids: ResMut<Aids>,
@@ -914,6 +931,7 @@ fn goto_and_look(
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
     (driven, kill_cam): (Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
+    (state, zoom): (Res<State<crate::PlayState>>, Option<Res<crate::dialogue_zoom::DialogueZoom>>),
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -942,6 +960,12 @@ fn goto_and_look(
     // aids' clock, as the faces do.
     let Some(now) = time.world_secs() else { return };
     for (h, p) in take_due(&mut aids.looks, now) {
+        // The aid stands in for the mouse, which a zoomed conversation's lock holds
+        // (`player::mouse_look`; owner decision 2026-11-13, #2254).
+        if *state.get() == crate::PlayState::Dialogue && zoom.as_deref().is_some_and(crate::dialogue_look::view_locked) {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: dialogue view locked", h.to_degrees(), p.to_degrees());
+            continue;
+        }
         // The aid stands in for the mouse, which a script's lock holds (control.rs).
         if locks.looking {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: a script has disabled looking", h.to_degrees(), p.to_degrees());
@@ -1026,6 +1050,38 @@ mod tests {
     }
 
     #[test]
+    fn scripted_keyboard_switching_press_is_consumed_and_works_after_release() {
+        #[derive(Resource, Default)]
+        struct Seen([bool; 3]);
+        fn read(keys: crate::pad::ActionButtons<KeyCode>, mut seen: ResMut<Seen>) {
+            seen.0 = [keys.pressed(KeyCode::Enter), keys.just_pressed(KeyCode::Enter), keys.just_released(KeyCode::Enter)];
+        }
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(250)));
+        app.init_resource::<crate::pause::PlayClock>().init_resource::<crate::pad::SwitchingInput>();
+        let mut bindings = crate::bindings::Bindings::default();
+        bindings.device = crate::bindings::InputDevice::Controller;
+        app.insert_resource(bindings);
+        app.insert_resource(RealPresses {
+            due: vec![(0.0, (RealInput::Key(KeyCode::Enter), 0.5)), (1.0, (RealInput::Key(KeyCode::Enter), 0.5))],
+            down: Vec::new(), pad: None,
+        });
+        app.init_resource::<Seen>().add_systems(Update, read);
+        app.add_systems(PreUpdate, (crate::pad::device::read_keyboard, real_presses, crate::pad::device::automatic).chain().after(bevy::input::InputSystems));
+        app.update();
+        assert_eq!(app.world().resource::<crate::bindings::Bindings>().device, crate::bindings::InputDevice::KeyboardMouse);
+        assert_eq!(app.world().resource::<Seen>().0, [false; 3]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [true, false, false]);
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, [false, false, true]);
+        app.update();
+        app.update();
+        assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Enter));
+    }
+
+    #[test]
     fn scripted_pad_presses_hold_release_and_press_again() {
         use bevy::ecs::system::RunSystemOnce;
         let mut world = World::new();
@@ -1082,6 +1138,9 @@ mod tests {
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_SPANS"));
         assert!(!drives_run("NVF_PLAY_TEST_TILE_COUNTS"));
+        // The mod log's run is the owner's, by hand: with the aid driving it the cursor
+        // was not grabbed and the mouse did not turn the view (the first run of 2026-11-12).
+        assert!(!drives_run(crate::mod_log::ENV));
         assert!(drives_run("NVF_PLAY_TEST_UNATTENDED"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");

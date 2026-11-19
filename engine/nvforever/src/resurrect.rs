@@ -121,7 +121,7 @@ fn show_resurrections(
         let (pos, rot) = state.unwrap_or_default();
         let at = format!("({:.0}, {:.0}, {:.0})", pos[0], pos[1], pos[2]);
         if residents.as_deref_mut().is_some_and(|r| r.redraw(&mut commands, id)) {
-            info!("resurrect: {} ({name}) alive again (animate {flag}): its {was} taken away, standing at {at}, rolls {}; its packages take it up", res.actor, res.rolls);
+            info!("resurrect: {} ({name}) alive again (animate {flag}): its {was} taken away, standing at {at}, rolls {}, {} of its own items made up again; its packages take it up", res.actor, res.rolls, res.restocked);
             waiting.push((id, time.elapsed_secs()));
             continue;
         }
@@ -129,7 +129,7 @@ fn show_resurrections(
         let hidden = !rt.game.present(res.actor);
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let Some(drawn) = respawn(&mut commands, e, parent.parent(), id, (pos, rot), hidden, &aw, sim.as_deref().map(|s| &s.world), &world, &mut ctx, &transforms, &mut spawn_stats) else { continue };
-        info!("resurrect: {} ({name}) alive again (animate {flag}): its {was} taken away, {} at {at}, rolls {}", res.actor, if drawn { "spawned standing" } else { "could not be drawn" }, res.rolls);
+        info!("resurrect: {} ({name}) alive again (animate {flag}): its {was} taken away, {} at {at}, rolls {}, {} of its own items made up again", res.actor, if drawn { "spawned standing" } else { "could not be drawn" }, res.rolls, res.restocked);
         if drawn {
             waiting.push((id, time.elapsed_secs()));
         }

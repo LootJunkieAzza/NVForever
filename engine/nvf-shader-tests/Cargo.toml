@@ -1,0 +1,22 @@
+[package]
+name = "nvf-shader-tests"
+description = "CPU compiler checks of NVForever's production shader sources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Direct compiler/asset APIs keep focused shader tests independent of Bevy's
+# graphics/runtime umbrella. All versions already occur in engine/Cargo.lock.
+[dev-dependencies]
+bevy_asset = { version = "=0.20.1", default-features = false }
+bevy_shader = { version = "=0.20.1", default-features = false }
+naga = { version = "=30.0.1", features = ["wgsl-in", "spv-out"] }
+
+[[test]]
+name = "depth_invariance"
+path = "tests/depth_invariance.rs"
+
+[[test]]
+name = "ambient_occlusion_lighting"
+path = "tests/ambient_occlusion_lighting.rs"

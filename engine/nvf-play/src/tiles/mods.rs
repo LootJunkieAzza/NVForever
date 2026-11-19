@@ -32,9 +32,18 @@
 //!   and makes one code row (the one MCM reads) when it opens. `_enabled` is MCM's after
 //!   that (it turns the column off while its window is open).
 //! - **MCM opens with the page** ([`tick`]): a click on MCM's trigger (its `_clicked`, one
-//!   frame) once the trigger has been placed, as the player's click on the original's
-//!   "Mod Configuration" row; MCM's window closing itself (its Back, its trigger: `_Menu`
-//!   back to 0) closes the page ([`ModsPage::closed`]) [design].
+//!   frame) once the trigger has been placed and a mod has registered with MCM, as the
+//!   player's click on the original's "Mod Configuration" row; MCM's window closing itself
+//!   (its Back, its trigger: `_Menu` back to 0) closes the page ([`ModsPage::closed`])
+//!   [design].
+//! - **The click waits for MCM's list** (issue #2944): an MCM mod adds itself to MCM's list
+//!   (`MCMMods`) from its own `MenuMode 1013` block, Just Assorted Mods after half a second
+//!   of `GetSecondsPassed` and then `ListAddForm` [observed: its script source]. The start
+//!   menu's frames before the game normally do it (`crate::script`, before a save is read),
+//!   but a mod that registers only under the page would meet a click on its 3rd frame with
+//!   an empty list, and MCM stops at its "No MCM Mods" check [observed: MCM's script source].
+//!   The click waits for the list to have members, at most [`WAIT_FOR`] frames (a list no
+//!   mod fills still gets its click) [design].
 use bevy::prelude::info;
 use fnv_game::game::menus;
 use fnv_ui::Ui;
@@ -106,6 +115,12 @@ const MCM_WINDOW_LIFT: f64 = 20.0;
 const CLICK_AT: u64 = 3;
 /// The most frames the click is held for [design].
 const CLICK_FOR: u64 = 60;
+/// The most frames past [`CLICK_AT`] the click waits for a mod in MCM's list (`MCMMods`):
+/// Just Assorted Mods registers after half a second of the start menu's frames; three
+/// seconds at 60 frames a second leave room for slower mods [design].
+pub const WAIT_FOR: u64 = 180;
+/// MCM's list of the mods registered with it [observed: The Mod Configuration Menu.esp].
+pub const MCM_MODS: &str = "MCMMods";
 
 /// The Mods page's state over its frames (`crate::script` keeps it; `crate::pause` reads
 /// [`ModsPage::closed`]).
@@ -121,10 +136,19 @@ pub struct ModsPage {
     pub clicking: bool,
     /// MCM's slider window and row dimming as last told (`tick`'s log line).
     pub dim_told: String,
+    /// The page's frame the trigger was clicked on (one click a page).
+    pub clicked_at: Option<u64>,
 }
 
-/// The original's column as MCM reads it, written into `StartMenu` when it was (re)built:
-/// `childcount` 8, `_alpha` 255 and `_enabled` 1 on [`COLUMN`], and one code row of the
+/// Whether the page clicks MCM's trigger on this frame: its first frames done, MCM's
+/// trigger placed, its window shut, no click yet on this page, and a mod in MCM's list
+/// (`listed`) or the wait over ([`WAIT_FOR`]) [design: issue #2944].
+pub fn click_now(page: &ModsPage, trigger: bool, open: bool, listed: usize) -> bool {
+    page.frames >= CLICK_AT && trigger && !open && page.clicked_at.is_none() && (listed > 0 || page.frames >= CLICK_AT + WAIT_FOR)
+}
+
+/// The original's column as MCM reads it, written into `StartMenu` when it was (re)built
+/// (with the menu's `alpha` 255, its fade-in done): `childcount` 8, `_alpha` 255 and `_enabled` 1 on [`COLUMN`], and one code row of the
 /// file's `lb_item_template` (`lb_item_hotrect`, `target` 1) under it [observed: menu-xml.md
 /// §10.1, the pause menu's column; design: one row stands for the six, MCM reads only the
 /// first's `target`]. Whether it wrote anything (a fresh tree).
@@ -133,6 +157,11 @@ pub fn prepare_column(ui: &mut Ui, files: Option<&dyn fnv_ui::Source>) -> bool {
     let Some(column) = ui.find_tile(COLUMN) else { return false };
     if ui.tile(column).get("childcount").is_some() {
         return false;
+    }
+    // The menu faded in, as the code does for a menu it shows (its file starts it at 0;
+    // `super::vats_menu::write` likewise) [design].
+    if let Some(menu) = ui.menu(START_MENU) {
+        ui.set_trait(menu, "alpha", Value::Num(255.0));
     }
     ui.set_trait(column, "childcount", Value::Num(8.0));
     ui.set_trait(column, "_alpha", Value::Num(255.0));
@@ -196,6 +225,11 @@ pub fn fill_mcm_boxes(ui: &mut Ui) -> usize {
 pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     if page.frames == 0 {
         *page = ModsPage::default();
+        // JIP's menu-open handlers for the start menu, as the original's pause menu opens
+        // (`Game::page_menu_event`); MCM Extender adds its menus to MCM's list there.
+        let ran = game.page_menu_event(menus::START, true);
+        let listed = game.data.by_edid(MCM_MODS).map(|l| fnv_game::functions::list_members(game, l).len());
+        info!("tiles: the start menu's opening sent to {ran} JIP handlers; MCM's list of mods (MCMMods) holds {listed:?}");
     }
     let files = game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
     if prepare_column(&mut game.ui_tree, files) {
@@ -203,6 +237,7 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     }
     column(&mut game.ui_tree);
     fill_mcm_boxes(&mut game.ui_tree);
+    let listed = game.data.by_edid(MCM_MODS).map_or(0, |l| fnv_game::functions::list_members(game, l).len());
     let ui = &mut game.ui_tree;
     let open = |ui: &Ui| ui.get_float(&format!("{MCM}/_Menu")) == Some(1.0);
     // The click is held until MCM's window is open, at most [`CLICK_FOR`] frames: MCM skips
@@ -219,11 +254,16 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
             ui.set_trait(t, fnv_ui::input::CLICKED, fnv_ui::Value::Num(v));
         }
     };
-    if page.frames == CLICK_AT && ui.find_tile(MCM_TRIGGER).is_some() && !open(ui) {
+    if click_now(page, ui.find_tile(MCM_TRIGGER).is_some(), open(ui), listed) {
         press(ui, 1.0);
         page.clicking = true;
-        info!("tiles: MCM's trigger clicked: its window opens with the Mods page");
-    } else if page.clicking && (open(ui) || page.frames >= CLICK_AT + CLICK_FOR) {
+        page.clicked_at = Some(page.frames);
+        if listed > 0 {
+            info!("tiles: MCM's trigger clicked: its window opens with the Mods page ({listed} mods in MCM's list, page frame {})", page.frames);
+        } else {
+            info!("tiles: MCM's trigger clicked with no mod in MCM's list after {WAIT_FOR} frames: its window opens with the Mods page");
+        }
+    } else if page.clicking && (open(ui) || page.clicked_at.is_some_and(|at| page.frames >= at + CLICK_FOR)) {
         if !open(ui) {
             let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| v.to_string());
             bevy::prelude::warn!(
@@ -298,44 +338,6 @@ pub fn tick(game: &mut fnv_game::Game<'_>, page: &mut ModsPage) {
     page.frames += 1;
 }
 
-/// The frames of the main menu before a game is played, as the start menu's MenuMode
-/// blocks see them: [`MAIN_MENU_FRAMES`] frames of [`MAIN_MENU_FRAME_SECONDS`].
-pub const MAIN_MENU_FRAMES: u32 = 60;
-pub const MAIN_MENU_FRAME_SECONDS: f64 = 1.0 / 60.0;
-
-/// The original's main menu is the start menu too, and its `MenuMode 1013` blocks run
-/// there before a save is loaded; a mod that joins MCM's list there (JAM adds itself to
-/// MCM's `MCMMods` half a second into its block, with ListAddForm, whose changes last the
-/// session, not the save) is on it by the first pause, when MCM's script checks the list
-/// once [hypothesis: from MCMMainScript's install check, JDCMCMScript's timer and the
-/// ListAddForm page's session-only changes; NVForever starts in the played game, with no
-/// main menu of its own scripts]. A second of those frames, run once a new runtime is
-/// made, before its first GameMode frame; with `[UI] TileMenus=StartMenu` on only, so a
-/// game without it is unchanged [design]. A run that starts in a save has them before the
-/// save is restored, on the plugins' state as the original's main menu has it, and the
-/// list edits they make outlast the restore (`crate::script::run_scripts`) [observed: the
-/// owner's runs of 2026-11-11; run after the restore, JAM's saved `fTimerStart` skipped
-/// joining MCM's list, MCM's check after GetGameLoaded found no mods, and its tile stayed
-/// hidden].
-///
-/// The start menu's tiles are built first, as the original's main menu has them: MCM's
-/// install check reads its own tiles there (`GetMCMFloat 0 0 "_MCM"`), and a save made
-/// with the check still to run runs it in these frames; with no tiles it reads 0 and
-/// shows "cannot access its menu files" [observed: the owner's run of 2026-11-05 loading
-/// an autosave]. The next tile sync drops the menu again while the game is not paused.
-pub fn main_menu_frames(game: &mut fnv_game::Game<'_>) {
-    let report = fnv_game::ui_loading::sync(game, false, true);
-    for change in &report.changes {
-        bevy::log::info!("ui: {change} (main-menu frames)");
-    }
-    let keep = game.cfg.frame_seconds;
-    game.cfg.frame_seconds = MAIN_MENU_FRAME_SECONDS;
-    for _ in 0..MAIN_MENU_FRAMES {
-        game.main_menu_tick(menus::START);
-    }
-    game.cfg.frame_seconds = keep;
-}
-
 /// The start menu's main column, `StartMenu/NOGLOW_BRANCH/main_container`.
 pub const COLUMN: &str = "StartMenu/NOGLOW_BRANCH/main_container";
 
@@ -381,6 +383,20 @@ pub fn column(ui: &mut Ui) {
 mod tests {
     use super::*;
     use fnv_ui::MemSource;
+
+    #[test]
+    fn the_click_waits_for_a_mod_in_mcms_list() {
+        let at = |frames| ModsPage { frames, ..Default::default() };
+        assert!(!click_now(&at(CLICK_AT - 1), true, false, 1), "before the first frames are done");
+        assert!(click_now(&at(CLICK_AT), true, false, 1), "a mod registered: clicked at once");
+        assert!(!click_now(&at(CLICK_AT + 30), true, false, 0), "an empty list (after a load): waits");
+        assert!(click_now(&at(CLICK_AT + 31), true, false, 1), "clicked once the mod registers");
+        assert!(click_now(&at(CLICK_AT + WAIT_FOR), true, false, 0), "a list no mod fills: clicked after the wait");
+        assert!(!click_now(&at(CLICK_AT), false, false, 1), "no trigger");
+        assert!(!click_now(&at(CLICK_AT), true, true, 1), "the window already open");
+        let clicked = ModsPage { frames: CLICK_AT + 5, clicked_at: Some(CLICK_AT), ..Default::default() };
+        assert!(!click_now(&clicked, true, false, 1), "one click a page");
+    }
 
     #[test]
     fn the_entry_needs_the_switch_and_a_mods_tiles() {

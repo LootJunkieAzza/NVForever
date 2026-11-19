@@ -214,6 +214,16 @@ pub fn build(ui: &mut Ui) {
             string(ui, tile, text);
         }
     }
+    if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
+        // [design] Materialize the local alpha already used by the renderer when this
+        // engine-created ammo copy omits it. Hover UI consumers read this trait before
+        // forwarding it to their own text; an absent trait otherwise reads -999.
+        // A template's explicit alpha, including an expression or zero, wins. Later
+        // script writes remain untouched because this runs only when copies are built.
+        if ui.tile(tile).trait_index("alpha").is_none() {
+            num(ui, tile, "alpha", 255.0);
+        }
+    }
     if let Some(tile) = find(ui, "HitPoints/justify_left_text") {
         // The left-text template starts hidden [documented: hudtemplates.xml];
         // showing this label through alpha/visible is a hypothesis [hypothesis: hud.md §14.6].
@@ -281,16 +291,10 @@ pub(super) fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
         string(ui, tile, &input.ammo);
     }
-    // The AP corner's texts carry an alpha: 255 while the corner shows, 0 when not
-    // [hypothesis: JAM's loot menu copies `ActionPoints\justify_right_text:1\alpha` into
-    // its own fade every frame (JLMMainLoopEventHandler), so the original's code writes
-    // one; its fading in and out with the HUD is not captured].
-    let corner = if shown.root && shown.corners { 255.0 } else { 0.0 };
-    for k in 0..3 {
-        if let Some(tile) = find(ui, &format!("ActionPoints/justify_right_text:{k}")) {
-            num(ui, tile, "alpha", corner);
-        }
-    }
+    // The AP corner's alpha is set once when the copy is built (`build`, a template's
+    // own wins); its showing follows the parent's visibility and opacity, which a later
+    // script hide or JAM's loot fade then sees (merge of v0.8.0: upstream's rule replaced
+    // ours, which wrote 255/0 here every frame over the template's and scripts' values).
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
         // An alpha, 255 while the crosshair shows and 0 when not [hypothesis: JAM's
         // crosshair copies `ReticleCenter\reticle_center\alpha` into its own every frame
@@ -383,7 +387,9 @@ fn write_prompt(ui: &mut Ui, shown: Shown, input: &Frame) {
 
 fn write_enemy(ui: &mut Ui, shown: Shown, input: &Frame) {
     let enemy = input.enemy.as_ref();
-    let visible = shown.enemy && enemy.is_some_and(|e| share(e.health) < 1.0);
+    // [design, #2659] Shown owns visibility: classic VATS also shows full-health targets
+    // (engine/nvf-play/src/tiles/mod.rs::HudTiles::shown).
+    let visible = shown.enemy && enemy.is_some();
     if let Some(enemy) = enemy {
         if let Some(tile) = ui.find_tile("HUDMainMenu/EnemyHealth") {
             num(ui, tile, "systemcolor", if enemy.hostile { 2.0 } else { 1.0 });

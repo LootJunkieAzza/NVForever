@@ -4,7 +4,7 @@
 //! of the original's keeps its own line only. A synthetic plugin built in memory with the
 //! master's form IDs of those records; no game data.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

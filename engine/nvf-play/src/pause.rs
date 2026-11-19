@@ -33,19 +33,21 @@
 //! <path>`, `pause menu: delete cancelled`.
 //!
 //! **The settings page** (#1953; docs/design/settings-page.md) lists the rows of
-//! [`crate::settings`] and the controls of `crate::bindings` in seven tabs, the original's
-//! four categories first: Gameplay, Display, Audio, Controls, then Graphics, Tweaks and
-//! Debug (`crate::settings_layout` says each row's tab and heading; a row it does not name
-//! stays under the group it registered with) [design: #1953]. Left of the column, from the
-//! rows' top, the rail lists Search, Changed and the tabs; the chosen tab's rows are in
-//! the middle over the darkened band (from near the view's top, as far left as keeps the
-//! band clear of the rail:
-//! `options_left`, #1210), under dim headings in the page's font (Gameplay: Game, Saving,
-//! Dialogue, Camera; Display: Screen, Interface, Performance; Graphics: Picture,
-//! Distance, World), which take a line of the window and the scroll bar but are never
-//! chosen; each row with its value as the game is using it now, the chosen row's note
-//! under them (cut to the lines that fit), Defaults and Back at the bottom right, the
-//! version at the bottom left. The view model is `crate::settings_view`.
+//! [`crate::settings`] and the controls of `crate::bindings` in eight tabs, the original's
+//! four categories first: Gameplay, Display, Audio, Controls, then Graphics, NVF Features,
+//! Tweaks and Debug (`crate::settings_layout` says each row's tab and category; a row it does
+//! not name stays under the group it registered with) [design: #1953, the menu overhaul].
+//! Left of the column, from the rows' top, the rail lists Search, Changed and the tabs; the
+//! chosen tab's rows are in the middle over the darkened band (from near the view's top, as
+//! wide as the room left of the rail allows up to 1300 units and centred in it, the band
+//! clear of the rail: [`ListBox::of`], #1210, #2377), under bright category headings in the
+//! titles' face that the keys and the pointer choose and that open and close
+//! (`crate::settings_view::Folding`; the Tweaks tab shows one group at a time, picked by
+//! its Category row's list); each row with its value as the game is using it now, the
+//! chosen line's note under them (three lines at most), Previous and Next Category under
+//! the note, Defaults and Back at the bottom right, "Report a Bug" and the version under
+//! the column [design: the menu overhaul, owner 2026-11-15]. The view model is
+//! `crate::settings_view`.
 //!
 //! **Where it opens** [design: #1953, the fork owner's request 2026-11-09]: Settings opens
 //! the page where it was left this run, its tab (or the Changed list), chosen row and first
@@ -58,10 +60,11 @@
 //! highlight box's line round it, unfilled, and the focus sound plays once as the pointer
 //! comes onto it (`pause menu: hover <line>`); the keys' line keeps its filled box.
 //!
-//! The keys [design: #1953]: Up/Down (or W/S) choose a row of the tab, round its ends,
-//! passing the headings; Page Up/Page Down the first row under the heading before or after
-//! (a controller's LB/RB; "Previous heading" and "Next heading" over the rows take a click
-//! too); Tab the next tab, Shift+Tab or F1 the one before (a controller's RT and LT); F6
+//! The keys [design: #1953, the menu overhaul]: Up/Down (or W/S) choose a row or heading of
+//! the tab, round its ends, passing the empty lines (Enter or a click on a heading opens or
+//! closes it, Left closes, Right opens); Page Up/Page Down the category before or after, its
+//! first row while open, else its heading (a controller's LB/RB; "Previous Category" and
+//! "Next Category" under the note take a click too); Tab the next tab, Shift+Tab or F1 the one before (a controller's RT and LT); F6
 //! (Y) puts the keys on the rail, where Up/Down choose among Search, Changed, the tabs,
 //! Defaults and Back, Enter (A) takes one and F6 gives the keys back to the rows; a click
 //! on a tab shows it. Enter, Space, Left or Right flip a switch, as does a click on it; a
@@ -90,7 +93,8 @@
 //! tab whose label or note (in the language shown or in English) or INI key holds each
 //! word typed, any case (`crate::settings_view::search`), the Controls tab's own rows too
 //! by their label, note and INI name; an empty text lists every row. The results are in
-//! the page's order, under dim headings saying where each lives ("Gameplay > Dialogue");
+//! the page's order, under crumbs saying where each lives ("Gameplay > Dialogue"), which
+//! open and close as headings do, for the run only;
 //! a hidden row is listed as the row that stands for it (a colour's channel as its colour;
 //! a controller's row, a binding or sensitivity of the device not in use, as Input Device,
 //! so it is never edited through the device in use), its note naming what it stands for.
@@ -122,6 +126,14 @@
 //! resolution?" with the seconds left and Keep / Revert (Left/Right/Up/Down choose, Enter
 //! or Space take, Esc reverts, a click takes); unanswered it goes back by itself
 //! (`crate::settings::KEEP_SECS`).
+//! A list may show its choices by other words than their names and hold some out of reach
+//! (`crate::settings::set_choice_labels`, `set_choice_unavailable`) [design:
+//! docs/design/dlss-upscaling.md]: the box and the open list show the words; a choice out
+//! of reach is drawn dim, the keys and the pointer still come onto it and the note under
+//! the rows then gives its reason, but Enter, Space, A or a click leave the list open and
+//! take nothing (`settings: <key> <name> not taken: <reason>`), and Left/Right on the row
+//! pass over it. The test aids still name a choice by its name; one out of reach is
+//! refused the same way.
 //!
 //! **The Controls tab** [design; owner 2026-10-16: keys can be mapped from the settings]
 //! lists every control of `crate::bindings` with its key and mouse button. Up/Down (W/S)
@@ -139,7 +151,12 @@
 //! (`fMouseSensitivity`), Stick Sensitivity with a controller (the right stick's look
 //! speeds), each kept apart (Left/Right or the arrows a step of `crate::bindings::SENSITIVITY_STEPS`,
 //! about a tenth apart, a press or drag on the logarithmic meter the value under the
-//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%)
+//! pointer; `crate::bindings::SENSITIVITY_LEAST`..`SENSITIVITY_MOST`, 5%-300%), and under
+//! it Vertical Sensitivity, each device's own, sets the vertical look's speed as a
+//! percentage of the horizontal's on the same steps (100% as the game has it, #2201), and
+//! under that Aim Sensitivity, each device's own too, sets the look's speed while aiming
+//! down the sights or through a scope as a percentage of the unzoomed look's on the same
+//! steps (100% leaves it as unzoomed; owner 2026-11-15, `crate::player::aim_scale`)
 //! [design: owner 2026-11-03, #1451; #1632]; with a controller Rumble comes after, then
 //! the registered controller rows, Button style and the aim assist's (`crate::pad`,
 //! `crate::aim_assist`; shown with the controller only) [design: #1953].
@@ -183,13 +200,18 @@
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
 //! sets the controller's Rumble row, `invert:1` or `invert:0` the Invert Y row and
-//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use;
+//! `automatic-input:0|1` toggles automatic device selection [design, #2200];
+//! `sensitivity:<percent>` (`sensitivity:150`) the sensitivity slider of the device in use,
+//! `vertical:<percent>` (`vertical:80`) its Vertical Sensitivity,
+//! `aim-sensitivity:<percent>` (`aim-sensitivity:50`) its Aim Sensitivity;
 //! `tab:<name>` (`tab:Tweaks`, an empty tab too) shows a tab on its first row,
 //! `select:<key>` chooses a row without changing it (a hidden one: the row that stands for
 //! it), `layout` logs the tabs and each row's place (`settings layout: menu-pause ->
 //! Gameplay > Dialogue`), `search:<text>` opens the search on that text with the keys on
 //! its results (`pause menu: search "<text>": <n> result(s); keys …`) and `changed` the
-//! Changed list [design: #1953].
+//! Changed list [design: #1953]. An older list's key (`crate::settings::set_list_alias`:
+//! nvforever's `fsr-upscaling=<choice>`) shows the row that took over and takes the older
+//! row's choice there.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
 //! quit question, a settings row or its open dropdown, where `down` and `up` move too),
@@ -213,10 +235,11 @@
 //! `heading-up`, `heading-down`, `tab:<name>`, `row:<key>`, `choice:<n>`), `press` and
 //! `release` (the left mouse button) [design: #1953].
 
-use crate::interface::{bc_supported, u, Face, Picture, Pictures};
-use crate::settings::{add_setting, Setting, Settings};
+use crate::interface::{bc_supported, u, Face};
+use crate::menu_shapes::{Dir, Kind};
+use crate::settings::{add_choice_list, add_setting, Setting, Settings};
 use crate::settings_layout::{ResolvedLayout, CONTROLS_TAB};
-use crate::settings_view::{ControlRow, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH, WINDOW_ROWS};
+use crate::settings_view::{ControlRow, Folding, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH};
 use fnv_util::words::{tr, tr_str};
 use crate::start_menu::{color, highlight_colors, text as sm_text, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
@@ -499,8 +522,40 @@ pub struct Paused(pub bool);
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormOver(pub bool);
 
-/// The "Report a bug" entry at the pause menu's bottom left, over the version (owner
-/// 2026-11-12): `shown` when nvforever's hand-report form is there to open
+/// Where a form over the pause menu stands among the interface's roots: above the pause
+/// menu (`PauseRoot`'s 110 and its boxes' 111-113) and the tile menus over it (Mods, 115),
+/// under the loading screen (200).
+pub const FORM_Z: i32 = 180;
+// Over the pause menu (110-113) and its Mods tiles (115), under the loading screen (200).
+const _: () = assert!(FORM_Z > 115 && FORM_Z < 200);
+
+/// How much of the light under a form its full-screen shade lets through, as the alpha of
+/// black. The interface blends in linear light, so an alpha keeps `1 - alpha` of the light and
+/// that reads far brighter than it sounds: 0.7 left the menu under it at 58 % of its
+/// brightness on screen [observed: #2250's pictures, the pause menu's amber (255, 182, 66)
+/// read (149, 105, 35) beside the dialog]. 0.93 leaves about 29 % on screen [design].
+pub const FORM_SHADE: f32 = 0.93;
+
+/// The full-screen shade under a form ([`FORM_SHADE`]).
+pub fn form_shade() -> BackgroundColor {
+    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, FORM_SHADE))
+}
+
+/// A form's panel: opaque, so no text of the menu under it shows through [design: an alpha of
+/// 0.95 still let it show at about 14 % of its brightness over the shade, #2250's pictures].
+pub fn form_panel() -> BackgroundColor {
+    BackgroundColor(Color::srgb(0.02, 0.02, 0.02))
+}
+
+/// What share of a colour's value on screen is left under black of `alpha`, blending in linear
+/// light (the sRGB encoding of `1 - alpha`).
+pub fn shown_under(alpha: f32) -> f32 {
+    let linear = (1.0 - alpha).clamp(0.0, 1.0);
+    if linear <= 0.003_130_8 { linear * 12.92 } else { 1.055 * linear.powf(1.0 / 2.4) - 0.055 }
+}
+
+/// The "Report a Bug" entry under the pause menu's column, over the version (owner
+/// 2026-11-12; under the column since the menu overhaul): `shown` when nvforever's hand-report form is there to open
 /// (`reports/form.rs` sets it); a click sets `asked`, which the form takes. Only over a
 /// game, never under the main menu.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,7 +565,7 @@ pub struct ReportEntry {
 }
 
 /// The report entry's words [design: NVForever's own].
-const REPORT_LABEL: &str = "Report a bug";
+const REPORT_LABEL: &str = "Report a Bug";
 
 fn no_form(form: Option<Res<FormOver>>) -> bool {
     !form.is_some_and(|f| f.0)
@@ -584,6 +639,8 @@ pub fn mods_open(paused: &Paused, page: &Page) -> bool {
 
 /// The Mods entry's label [design: NVForever's word].
 const MODS_LABEL: &str = "Mods";
+/// The Console entry's word [design: our own].
+const CONSOLE_LABEL: &str = "Console";
 
 /// The saves the load page lists, newest first, and the chosen one's thumbnail.
 #[derive(Resource, Default)]
@@ -744,7 +801,7 @@ enum PauseButton {
     Delete,
     /// An answer of the delete question: yes or no.
     DeleteAnswer(bool),
-    /// "Report a bug" at the bottom left ([`ReportEntry`]).
+    /// "Report a Bug" under the column ([`ReportEntry`]).
     Report,
 }
 
@@ -774,14 +831,21 @@ enum Entry {
     /// [design, owner request 2026-11-09].
     Photo,
     Settings,
+    /// Where the original has Help, under the player's Replace Help With Console tweak: the
+    /// game goes on and the console opens [design: docs/design/tweaks.md].
+    Console,
     /// Only with [`ModsEntry`], before Quit [design].
     Mods,
     Quit,
 }
 
-/// The column's entries, with the Mods entry when `mods` ([`ModsEntry`]).
-fn entries(mods: bool) -> Vec<Entry> {
+/// The column's entries, with the Console entry when `console` (the tweak) and the Mods
+/// entry when `mods` ([`ModsEntry`]).
+fn entries(mods: bool, console: bool) -> Vec<Entry> {
     let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Photo, Entry::Settings];
+    if console {
+        v.push(Entry::Console);
+    }
     if mods {
         v.push(Entry::Mods);
     }
@@ -798,6 +862,7 @@ impl Entry {
             Entry::Lobby => "Lobby",
             Entry::Photo => "Photo Mode",
             Entry::Settings => "Settings",
+            Entry::Console => CONSOLE_LABEL,
             Entry::Mods => MODS_LABEL,
             Entry::Quit => "Quit",
         }
@@ -806,18 +871,13 @@ impl Entry {
 
 /// The quit question and its choices [observed: the owner's screenshot of the original's
 /// quit question].
-const WARNING: &str = "WARNING:  Any unsaved progress will be lost.";
+const WARNING_TITLE: &str = "Warning";
+const WARNING: &str = "Any unsaved progress will be lost.";
 const QUESTION: &str = "Are you sure you want to quit?";
 const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
 /// The keep question's answers [design].
 const KEEP_ANSWERS: [&str; 2] = ["Keep", "Revert"];
 
-/// The settings page's rows: this many shown at once [documented: `options_container`
-/// `_number_of_visible_items` 9], each this high [observed: 39 of 720 pixels], the list
-/// this wide and its left edge this far left of the view's middle, the switch's state
-/// centred this far into a row [design: the original's list is 520 wide and centred, its
-/// values at 360; NVForever's labels are longer].
-const OPTION_ROWS: usize = WINDOW_ROWS;
 /// What an empty tab shows, a search that finds nothing and an empty Changed list
 /// [design: #1953].
 const NO_ROWS: &str = "No settings here.";
@@ -828,21 +888,103 @@ const NO_CHANGED: &str = "No changed settings.";
 const KEYBOARD_SEARCH: &str = "Keyboard search";
 /// The mark after the search's text while it has the keys [design].
 const CARET: &str = "_";
-/// The links over the rows to the heading before and after [design: #1953].
-const HEADING_LINKS: [&str; 2] = ["Previous heading", "Next heading"];
+/// The links under the note to the category before and after [design: #1953; the menu
+/// overhaul].
+const HEADING_LINKS: [&str; 2] = ["Previous Category", "Next Category"];
+/// The short words Title Case leaves in lower case inside a label (articles, the short
+/// conjunctions and prepositions) [design: owner 2026-11-15: "words like and, of, at etc
+/// should stay lowercase"].
+const MINOR_WORDS: [&str; 20] = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of", "off", "on", "per", "to", "via"];
+
+/// `en` (a label, a heading or a list's words, as registered in English) as the page shows
+/// it: its translation as the chosen language writes it, else in English and in Title Case
+/// ([`title_case`]) [design: owner 2026-11-15, the menu overhaul: "the original uses
+/// Capitalized Case for the menus"]. A word with no line in the chosen language's file is
+/// still in Title Case (owner 2026-11-16: "Latency reduction" read so in Russian). The rows
+/// keep their words as registered (the INI, the log, the search and the translations go by
+/// them); only the page shows them so, so a new row is in Title Case without anyone writing
+/// it so.
+pub(crate) fn on_page(en: &str) -> String {
+    let t = tr_str(en);
+    if std::ptr::eq(t, en) {
+        title_case(en)
+    } else {
+        t.to_string()
+    }
+}
+
+/// English `text` in Title Case: each word capitalised but the short words of
+/// [`MINOR_WORDS`] inside it; each part of a hyphenated word; a word with a capital already,
+/// as "HUD", "Pip-Boy", "V.A.T.S.", and a word that starts with a figure, as "16x", left as
+/// they are.
+fn title_case(text: &str) -> String {
+    let words: Vec<&str> = text.split(' ').collect();
+    let last = words.len().saturating_sub(1);
+    let mut after_colon = false;
+    let mut out = Vec::with_capacity(words.len());
+    for (k, w) in words.iter().enumerate() {
+        let letters: String = w.chars().filter(|c| c.is_alphabetic()).collect();
+        let bare = letters.to_lowercase();
+        let keep = letters.is_empty() || letters.chars().any(char::is_uppercase) || w.chars().next().is_some_and(|c| c.is_ascii_digit());
+        let minor = k > 0 && k < last && !after_colon && MINOR_WORDS.contains(&bare.as_str());
+        out.push(if keep || minor { (*w).to_string() } else { w.split('-').map(capitalise).collect::<Vec<_>>().join("-") });
+        after_colon = w.ends_with(':');
+    }
+    out.join(" ")
+}
+
+/// `part` with its first letter a capital (a leading bracket or quote kept before it).
+fn capitalise(part: &str) -> String {
+    let mut out = String::with_capacity(part.len());
+    let mut done = false;
+    for c in part.chars() {
+        if !done && c.is_alphabetic() {
+            out.extend(c.to_uppercase());
+            done = true;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A switch's states, in the lists' casing [design: the menu overhaul, one casing].
+const ON: &str = "On";
+const OFF: &str = "Off";
+/// A category heading's note and the Tweaks tab's Category row's [design: the menu
+/// overhaul; NVForever's own words].
+const HEADING_NOTE: &str = "Enter or a click opens or closes this category; Left closes it, Right opens it.";
+const GROUP_NOTE: &str = "Which group of tweaks the list shows: Enter or a click opens the groups, Left and Right step. The search finds every tweak.";
+/// The Tweaks tab's Category row's label [design: owner 2026-11-15].
+const GROUP_ROW: &str = "Category";
 /// A control's value while it waits for its new key.
 const WAITING: &str = "Press a key...";
 /// The same with a controller.
 const WAITING_PAD: &str = "Press a button...";
 /// The Controls tab's first row.
 const DEVICE_ROW: &str = "Input Device";
+// [design, #2200] NVForever's own label and help, translated by `tr`.
+const AUTOMATIC_INPUT_ROW: &str = "Automatic Input Switching";
+const AUTOMATIC_INPUT_NOTE: &str = "On: a controller button, stick or trigger selects Controller; a key or mouse click selects Keyboard and Mouse (mouse motion does not). Off: choose Input Device yourself.";
 /// The Controls tab's last row with a controller chosen (`crate::rumble`).
 const RUMBLE_ROW: &str = "Rumble";
 /// The Controls tab's row after the controls (`bInvertYValues`).
 const INVERT_ROW: &str = "Invert Y";
 /// The Controls tab's slider after Invert Y, with keyboard and mouse and with a controller.
 const SENSITIVITY_ROWS: [&str; 2] = ["Mouse Sensitivity", "Stick Sensitivity"];
+/// The Controls tab's slider under the sensitivity, each device's own (#2201).
+const VERTICAL_ROW: &str = "Vertical Sensitivity";
+/// The Controls tab's slider under the vertical sensitivity, each device's own: the look
+/// while aiming down the sights or through a scope [design: owner 2026-11-15].
+const AIM_ROW: &str = "Aim Sensitivity";
 
+/// The settings page's rows: each this high [observed: 39 of 720 pixels], the list this
+/// wide and its left edge this far left of the view's middle, the switch's state centred
+/// this far into a row [design: the original's list is 520 wide and centred, its values at
+/// 360; NVForever's labels are longer]. How many lines show at once is the layout's
+/// ([`window_lines`]): the original shows nine [documented: `options_container`
+/// `_number_of_visible_items` 9], NVForever's page as many as fit over the note [design:
+/// #2377].
 const OPTION_ROW: f32 = 52.0;
 /// The scroll bar right of the settings page's rows when not all of them fit, 32 wide
 /// with 16-high arrows at its ends, its marker 6 wide, 12 in [design: as the barter
@@ -851,48 +993,122 @@ const BAR_W: f32 = 32.0;
 const BAR_ARROW: f32 = 16.0;
 const BAR_GAP: f32 = 4.0;
 const BAR_MARKER_MIN: f32 = 32.0;
-const BAR_PICTURES: [&str; 3] = ["interface\\shared\\scrollbar\\arrow_up.dds", "interface\\shared\\scrollbar\\arrow_down.dds", "interface\\shared\\scrollbar\\vert_marker.dds"];
 /// Mouse wheel movement counted in pixels (a touchpad): this many make a notch.
 const WHEEL_PIXELS: f32 = 20.0;
-const OPTIONS_WIDTH: f32 = 820.0;
-const OPTIONS_LEFT: f32 = -470.0;
+/// The settings list's band starts this far from the view's left edge where the list is as
+/// wide as the room allows, and the list is never wider than [`OPTIONS_MAX`] (a wide view
+/// centres it in the room) [design: #2377].
+const LEFT_MARGIN: f32 = 60.0;
+const OPTIONS_MAX: f32 = 1300.0;
+/// The row the in-row places below were laid out in: the list's width before #2377. Each
+/// place is kept as its distance from the row's right end ([`RowX`]), so a row of this width
+/// is drawn as before and a wider row gives its extra room to the label [design: #2377].
+const ROW_BASE: f32 = 820.0;
+/// The least room between a row's label and its value; a label keeps at least
+/// [`LABEL_MIN`] where a value is wide (a long reason or binding), and text that still does
+/// not fit is cut with [`CUT_MARK`] at its measured width instead of running into its
+/// neighbour [design: #2377].
+const LABEL_GAP: f32 = 16.0;
+const LABEL_MIN: f32 = 160.0;
+const CUT_MARK: &str = "...";
+/// A value's text keeps this far from the row's right end, and a slider's words this far
+/// from its right arrow [design: #2377].
+const VALUE_PAD: f32 = 6.0;
+/// A slider's meter gives room to wide value words down to this width [design: #2377].
+const METER_MIN: f32 = 100.0;
 /// The settings page's rows' top: higher than the column's (360 with the pause menu's
 /// five entries), where nine rows and the note under them ran off the bottom [design:
-/// #1210]. The rail starts there too: Search, Changed and seven tabs are nine lines
-/// [design: #1953].
+/// #1210]. The rail starts there too: Search, Changed and eight tabs are ten lines
+/// [design: #1953, the menu overhaul].
 const OPTIONS_TOP: f32 = 120.0;
-/// The heading links' line over the rows [design: #1953].
-const LINKS_TOP: f32 = OPTIONS_TOP - ITEM - 8.0;
-/// The note under the rows: its lines this far apart, the last one above the version's
-/// line [design].
+/// The search's line over the rows [design: #1953; the heading links were there before the
+/// menu overhaul moved them under the note].
+const SEARCH_TOP: f32 = OPTIONS_TOP - ITEM - 8.0;
+/// The note under the rows: its lines this far apart, the last one above the view's bottom
+/// margin [design; "Report a Bug" and the version moved under the column, the menu
+/// overhaul].
 const NOTE_STEP: f32 = 26.0;
-const NOTE_BOTTOM: f32 = 900.0;
+const NOTE_BOTTOM_MARGIN: f32 = 20.0;
+
+/// The page's height in interface units: the original's 960, more where a smaller menu
+/// scale leaves room (`crate::interface::menu_room`) [design: the menu overhaul].
+fn page_h() -> f32 {
+    960.0 * crate::interface::menu_room()
+}
+
+/// The note's last line ends above this ([`NOTE_BOTTOM_MARGIN`] over the page's foot).
+fn note_bottom() -> f32 {
+    page_h() - NOTE_BOTTOM_MARGIN
+}
+/// The note's room under the window, in lines: two for a row's note and one for what it
+/// stands for or a choice's reason (#2377) [design]; never more are drawn.
+const NOTE_LINES: usize = 3;
+/// A row's own note keeps to this many of the note's lines, the last of [`NOTE_LINES`] left
+/// for what it stands for or a choice's reason [design: #2377].
+const NOTE_ROW_LINES: usize = 2;
+/// The rows a stand-in's note names before "and N more" ([`note_of`]) [design: #2377].
+const STAND_IN_NAMES: usize = 3;
+/// The room between the window's last line and the note: the note stands apart from the rows
+/// by an empty line more than the 32 it had [design: the menu overhaul, owner 2026-11-15;
+/// second test: "remove the small line between menu options and description and move the
+/// description one empty space down"].
+const NOTE_GAP: f32 = 32.0 + OPTION_ROW;
+/// The empty line between the note's room and the heading links under it (a line of the
+/// note) [design: owner 2026-11-15, the fifth build].
+const LINKS_GAP: f32 = NOTE_STEP;
 /// The room between the band's right edge and the categories [design: #1210, the scroll
 /// bar and band ran under them at 16:9].
 const TABS_GAP: f32 = 20.0;
 /// The view's width in interface units when no window says (16:9).
 const VIEW_W: f32 = 960.0 * 16.0 / 9.0;
-const VALUE_AT: f32 = 700.0;
-/// A slider's meter in its row: its left edge, width and height, the arrows' left edges
-/// and the value's centre [design: the "How many?" meter's height and arrows
-/// (`crate::menu::look`), fitted into the row's right part].
-const METER_LEFT: f32 = 445.0;
-const METER_WIDTH: f32 = 240.0;
-const METER_HEIGHT: f32 = 24.0;
-const METER_ARROWS: [f32; 2] = [420.0, 692.0];
+/// **The value cell** [design: the menu overhaul, owner 2026-11-15: "all text should be
+/// aligned the same"]: every row's value is drawn in one cell, the list's box (its left edge
+/// and width, [`LIST_LEFT`], [`LIST_WIDTH`]), and nothing outside it. A list's words, a
+/// switch's state, a binding and a greyed row's value are centred on one point, the list's
+/// words' centre left of its arrow ([`VALUE_AT`]); a slider's meter lies between its two
+/// arrows from the cell's left edge, its number right-aligned after the right arrow at the
+/// cell's right end, so numbers line up down the page [design: owner 2026-11-15, third test:
+/// "the sliders should have the arrows on each side and the % values should be behind them
+/// aligned to the right side"]. The places are in a [`ROW_BASE`] row; [`RowX`] keeps them at
+/// their distance from the row's right end.
+const LIST_LEFT: f32 = 372.0;
+const LIST_WIDTH: f32 = 434.0;
+/// The strip at a list box's right end that holds its arrow.
+const LIST_ARROW_STRIP: f32 = 30.0;
+/// A list box's top and bottom from its row's [design: owner 2026-11-15, second test: "the
+/// font does not fit into the dropdown boxes"].
+const LIST_BOX_INSET: f32 = 5.0;
+const VALUE_AT: f32 = LIST_LEFT + (LIST_WIDTH - LIST_ARROW_STRIP) / 2.0;
+/// A slider's arrows (their size and left edges) and meter (its left edge, width and
+/// height) [design: the "How many?" meter's height and arrows (`crate::menu::look`), fitted
+/// into the value cell].
 const METER_ARROW: Vec2 = Vec2::new(17.5, 35.0);
-const PERCENT_AT: f32 = 765.0;
-/// A list's box in its row (its left edge and width, from the slider's left arrow to the
-/// row's end), the open list's rows shown at once and their height [design].
-const LIST_LEFT: f32 = 420.0;
-const LIST_WIDTH: f32 = 386.0;
+/// The room between an arrow and the meter.
+const METER_GAP: f32 = 7.5;
+const METER_LEFT: f32 = LIST_LEFT + METER_ARROW.x + METER_GAP;
+const METER_WIDTH: f32 = 264.0;
+const METER_ARROWS: [f32; 2] = [LIST_LEFT, METER_LEFT + METER_WIDTH + METER_GAP];
+/// A slider's number lane after its right arrow, to the cell's right end less [`VALUE_PAD`]
+/// (wider words take room from the meter, the right arrow moving with it), and the room
+/// between the arrow and the lane.
+const READOUT_GAP: f32 = 14.0;
+const READOUT_W: f32 = LIST_LEFT + LIST_WIDTH - VALUE_PAD - (METER_ARROWS[1] + METER_ARROW.x + READOUT_GAP);
+/// The drawn arrows: a slider's (each side of its meter), a list's (down, in its strip), a
+/// category's (right while closed, down while open), the scroll bar's (`crate::menu_shapes`).
+const SLIDER_ARROW: Vec2 = Vec2::new(10.0, 16.0);
+const LIST_ARROW: Vec2 = Vec2::new(14.0, 8.0);
+const HEADING_ARROW: Vec2 = Vec2::new(13.0, 8.0);
+const BAR_CHEVRON: Vec2 = Vec2::new(22.0, 12.0);
+/// The scroll bar's marker and track widths.
+const BAR_MARKER_W: f32 = 6.0;
+const BAR_TRACK_W: f32 = 2.0;
+const METER_HEIGHT: f32 = 24.0;
 const DROP_ROWS: usize = 8;
 const DROP_ITEM: f32 = 44.0;
 /// A tick of the meter: 8 apart, the picture's top 8 × 20 texels stretched to the meter's
 /// height (as the "How many?" meter's [observed]).
 const METER_TICK: f32 = 8.0;
 const TICK_TEXTURE: &str = "textures\\interface\\hud\\hud_tick_mark.dds";
-const ARROW_TEXTURES: [&str; 2] = ["textures\\interface\\main\\main_arrow_left.dds", "textures\\interface\\main\\main_arrow_right.dds"];
 /// The darkened band behind a page's list [documented: `container_background`
 /// `fuzzy.dds` at alpha 160 the height of the screen, a little wider than the list].
 const BAND: &str = "textures\\interface\\shared\\background\\fuzzy.dds";
@@ -901,6 +1117,9 @@ const BAND_MARGIN: f32 = 30.0;
 /// The black under the band [design: the band alone left the main menu's logo and
 /// pictures showing through, observed 2026-10-16].
 const BAND_SHEET: f32 = 0.55;
+/// How far the sheet's sides fade out past the band, in interface units [design: the menu
+/// overhaul; by eye].
+const BAND_FEATHER: f32 = 90.0;
 /// The load page: rows shown at once, the panel's width, its rows' top, the thumbnail and
 /// the details' lines [documented: `saveload_container` width 650, y 521; the player's
 /// name, level and play time at y 347, 388, 429; the thumbnail above the name; design:
@@ -915,7 +1134,10 @@ const DETAILS_STEP: f32 = 41.0;
 /// [design].
 const DELETE_WIDTH: f32 = LOAD_WIDTH - THUMB_DRAWN.x - 20.0;
 /// The page's Defaults and Back at the bottom right [observed: the owner's screenshots].
-const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
+/// Back's top at the bottom right (Defaults a line over it).
+fn back_top() -> f32 {
+    page_h() - 30.0 - ITEM
+}
 /// The pause screen behind the menu in the world: the original shows a model,
 /// `meshes\interface\pausescreen\pausescreen01.nif`, whose textures are these [observed:
 /// the file's texture names]; drawn here flat over the held picture, the half picture
@@ -943,11 +1165,10 @@ struct PauseLook {
     faces: Faces,
     band: Option<Handle<Image>>,
     screen: Option<Handle<Image>>,
-    /// The sliders' tick mark and arrows (left, right).
+    /// The sliders' tick mark.
     tick: Option<Handle<Image>>,
-    arrows: [Option<Handle<Image>>; 2],
-    /// The scroll bar's arrows (up, down) and marker.
-    bar: [Option<Picture>; 3],
+    /// The arrows and the scroll bar's pieces, drawn (`crate::menu_shapes`); none in the tests.
+    shapes: Option<crate::menu_shapes::Shapes>,
 }
 
 impl PauseLook {
@@ -961,11 +1182,7 @@ impl PauseLook {
                 band: pic(BAND, &mut images),
                 screen: pic(SCREEN, &mut images),
                 tick: pic(TICK_TEXTURE, &mut images),
-                arrows: ARROW_TEXTURES.map(|a| pic(a, &mut images)),
-                bar: {
-                    let mut pictures = Pictures::load(data);
-                    BAR_PICTURES.map(|b| pictures.picture(b, data, &mut images, bc))
-                },
+                shapes: Some(crate::menu_shapes::Shapes::make(&mut images)),
             };
             info!("pause menu: the original's look (band {}, pause screen {})", look.band.is_some(), look.screen.is_some());
             look
@@ -974,14 +1191,101 @@ impl PauseLook {
 
     #[cfg(test)]
     fn plain() -> PauseLook {
-        PauseLook { faces: Faces::plain(), band: None, screen: None, tick: None, arrows: [None, None], bar: [None, None, None] }
+        PauseLook { faces: Faces::plain(), band: None, screen: None, tick: None, shapes: None }
     }
+}
+
+/// The menus' letters: the game's own raster font (the default) or the vector font, sharp
+/// at any resolution [design: owner 2026-11-15, the menu overhaul: "current typeface is raster
+/// therefore it does look blurry"; Roboto Condensed, `crate::vector_font`; owner 2026-11-16:
+/// "the vanilla font is enabled by default"]. The INI's `menu-font`; a change draws the page
+/// again with it. The game's font has only its code page's letters, so where the chosen
+/// language's are not among them (Russian on an English install) the menus are drawn sharp
+/// whatever the row says ([`MenuFont::drawn_sharp`]; owner 2026-11-16: Russian read as `?`).
+#[derive(Resource, Clone, Debug, Default)]
+pub struct MenuFont {
+    /// The vector font; false (the default): the game's own.
+    pub sharp: bool,
+    /// The font asset, made once.
+    handle: Option<Handle<bevy::text::Font>>,
+}
+
+impl MenuFont {
+    /// Whether the menus are drawn in the vector font: the row says Sharp, or the game's
+    /// font cannot write the chosen language ([`language_fits_raster`]).
+    pub fn drawn_sharp(&self) -> bool {
+        self.sharp || !language_fits_raster()
+    }
+
+    /// The vector font's asset, made the first time.
+    pub fn handle(&mut self, fonts: &mut Assets<bevy::text::Font>) -> Handle<bevy::text::Font> {
+        self.handle.get_or_insert_with(|| fonts.add(bevy::text::Font::from_bytes(crate::vector_font::FONT_BYTES.to_vec()))).clone()
+    }
+
+    /// `faces` (the game's raster fonts) as the menus draw them: in the vector font where the
+    /// Menu Font row says Sharp and the font reads (`Faces::sharp`); else as they are.
+    pub fn faces(&mut self, faces: &Faces, fonts: Option<&mut Assets<bevy::text::Font>>) -> Faces {
+        match (self.drawn_sharp(), crate::vector_font::metrics(), fonts) {
+            (true, Some(m), Some(fonts)) => faces.sharp(m, self.handle(fonts)),
+            _ => faces.clone(),
+        }
+    }
+
+    /// The main menu's entries' face: font 7 `raster` as [`MenuFont::faces`] draws the titles.
+    pub fn title(&mut self, raster: &Face, fonts: Option<&mut Assets<bevy::text::Font>>) -> Face {
+        let faces = Faces { entry: raster.clone(), title: raster.clone(), small: raster.clone() };
+        self.faces(&faces, fonts).title
+    }
+}
+
+/// Whether the game's raster fonts can write the chosen language: its name, written in it,
+/// has a code in this run's code page (`Русский` has none in Windows-1252, the English,
+/// French, German, Italian and Spanish installs' page).
+pub fn language_fits_raster() -> bool {
+    let id = fnv_util::words::language();
+    fnv_util::words::languages().into_iter().find(|(i, _)| *i == id).is_none_or(|(_, name)| fnv_util::text::encodable(name))
+}
+
+/// The menus' letters may have changed (the Menu Font row, the language): the pause menu's
+/// look is made again and its page drawn again.
+pub fn letters_changed(w: &mut World) {
+    w.remove_resource::<PauseLook>();
+    if let Some(mut v) = w.get_resource_mut::<PauseView>() {
+        v.drawn = None;
+    }
+}
+
+/// The Menu Font row's choices, Original first (the default).
+const MENU_FONTS: [&str; 2] = ["Original", "Sharp"];
+
+fn menu_font_chosen(w: &World) -> String {
+    MENU_FONTS[usize::from(w.get_resource::<MenuFont>().is_some_and(|f| f.sharp))].to_string()
+}
+
+/// The Menu Font row's choice `text`: the page drawn again with its letters.
+fn take_menu_font(w: &mut World, text: &str) -> bool {
+    let Some(k) = MENU_FONTS.iter().position(|n| n.eq_ignore_ascii_case(text.trim())) else { return false };
+    w.get_resource_or_insert_with(MenuFont::default).sharp = k == 1;
+    letters_changed(w);
+    true
+}
+
+/// `faces` (the game's raster fonts) as the pause menu draws them ([`MenuFont::faces`]).
+fn menu_faces(world: &mut World, faces: Faces) -> Faces {
+    world.init_resource::<MenuFont>();
+    world.resource_scope(|world, mut menu_font: Mut<MenuFont>| {
+        let out = menu_font.faces(&faces, world.get_resource_mut::<Assets<bevy::text::Font>>().as_deref_mut());
+        if let (Some(e), Some(t), Some(s)) = (&out.entry.vector, &out.title.vector, &out.small.vector) {
+            info!("pause menu: letters Roboto Condensed at {:.1} (titles weight {}) and {:.1} units, glow (Menu Font Sharp)", e.em, t.weight, s.em);
+        }
+        out
+    })
 }
 
 /// What the keys have on the first page and in the quit question, and what Defaults goes
 /// back to (taken when the settings page is first shown).
 #[derive(Resource, Default)]
-struct PauseView {
+pub struct PauseView {
     main_selected: usize,
     confirm: Option<usize>,
     defaults: Option<Vec<f32>>,
@@ -991,6 +1295,9 @@ struct PauseView {
     /// The settings page's first line shown (headings count), counted from its tab's
     /// first; on the load page, the saves' first row shown.
     scroll: usize,
+    /// The settings page's window's lines ([`window_lines`]), set before the keys and the
+    /// pointer are read each frame; 0 until then (taken as [`window_lines`]).
+    lines: usize,
     /// What the settings page lists: a tab (or the search, the Changed list).
     scope: SettingsScope,
     /// Where the settings page's keys are: the rows or the rail.
@@ -1024,6 +1331,42 @@ struct PauseView {
     found: Found,
     /// The Changed list's rows when last logged (the log says when they change).
     changed_logged: Option<Vec<RowId>>,
+    /// The settings list's place when last logged ([`log_list_box`]).
+    list_logged: Option<ListBox>,
+    /// Which categories are open and the Tweaks tab's group (kept in `[UI]`,
+    /// [`SettingsTabStore`]).
+    folding: Folding,
+}
+
+impl PauseView {
+    /// [design, #2403] Read-only logical progress for the reports watchdog. Excludes
+    /// hover, dragging and render caches; the caller hashes this without sending text.
+    pub fn progress(&self) -> impl std::fmt::Debug + '_ {
+        (self.main_selected, self.confirm, self.scroll, self.scope, self.focus, self.keep_selected, self.delete_ask, self.dropdown, &self.search.query)
+    }
+
+    /// The settings page's window's lines: as set this frame ([`PauseView::set_lines`]), else
+    /// the layout's.
+    fn lines(&self) -> usize {
+        if self.lines == 0 {
+            window_lines()
+        } else {
+            self.lines
+        }
+    }
+
+    /// The window's lines from the layout, before the keys and the pointer are read; a new
+    /// count is logged, and the first line shown is brought into the new window by
+    /// `settings_now` (`settings_view::follow`) [design: #2377].
+    fn set_lines(&mut self) {
+        let lines = window_lines();
+        if lines != self.lines {
+            info!("pause menu: settings window of {lines} lines");
+            self.lines = lines;
+            // A drag of the scroll bar's marker was for the window before.
+            self.bar_dragging = false;
+        }
+    }
 }
 
 /// The settings page's search (module notes) [design: #1953].
@@ -1086,7 +1429,8 @@ enum PointAt {
     Choice(usize),
 }
 
-/// A list's open dropdown: its row, the choice the keys are on and the first shown.
+/// A list's open dropdown: its row (a list row's index, or [`GROUP_LIST`]: [`list_row_id`]),
+/// the choice the keys are on and the first shown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Dropdown {
     row: usize,
@@ -1113,27 +1457,46 @@ struct Drawn {
     states: Vec<f32>,
     /// Explanations replacing disabled rows' saved values.
     disabled: Vec<Option<&'static str>>,
+    /// The words a row's note gives now in place of its own (`crate::settings::set_note_now`).
+    notes: Vec<Option<String>>,
     status: String,
     /// The column's labels and whether each can be taken.
     column: Vec<(&'static str, bool)>,
     /// Under the main menu (its entries make the column; no pause screen).
     under_main: bool,
+    /// The Mods page shows a mod's own window with its own Back (MCM's): ours is not
+    /// drawn over it (`crate::tiles::mods::ModsPage::mcm_open`) [design].
+    mod_window: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
     /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
     controls: Vec<String>,
+    /// Why each control's row is greyed now, in `GAME_CONTROLS`' order
+    /// (`crate::stance::binding_greyed`: Sprint with its switch off).
+    controls_greyed: Vec<Option<&'static str>>,
     /// The device in use: its name, and whether it is a controller.
     device: (&'static str, bool),
+    automatic_input: bool,
     /// The controller rumbles.
     rumble: bool,
     /// The vertical look is inverted.
     invert_y: bool,
     /// The device in use's look sensitivity, a multiple of the game's.
     sensitivity: f32,
+    /// The device in use's Vertical Sensitivity, a multiple of its horizontal look.
+    vertical: f32,
+    /// The device in use's Aim Sensitivity, a multiple of its unzoomed look.
+    aim: f32,
     /// The settings page's (or the load page's) first row shown ([`PauseView::scroll`]).
     scroll: usize,
+    /// The settings page's window's lines ([`PauseView::lines`]).
+    lines: usize,
     /// The list rows: each one's row, choices and chosen one.
     lists: Vec<(usize, Vec<String>, String)>,
+    /// The list rows that show their choices by other words or hold some out of reach
+    /// (`crate::settings::ChoiceLooks`; the others have none here): each one's row and its
+    /// words and reasons.
+    looks: Vec<(usize, ListLooks)>,
     dropdown: Option<Dropdown>,
     /// The keep question: its row's label, the seconds left and the chosen answer.
     keep: Option<(&'static str, u32, usize)>,
@@ -1151,15 +1514,63 @@ struct Drawn {
     /// On the search and the Changed list: the rows listed as another row, by that row,
     /// their names as the page shows them (`crate::settings_view::stands_for`).
     stand_ins: Vec<(RowId, Vec<String>)>,
-    /// "Report a bug" at the bottom left ([`ReportEntry`]), and whether the pointer is on it.
+    /// "Report a Bug" under the column ([`ReportEntry`]), and whether the pointer is on it.
     report: Option<bool>,
+    /// Each category listed: how many rows it holds now and whether it is open.
+    headings: Vec<(crate::settings_layout::Placement, usize, bool)>,
+    /// The Tweaks tab's group shown (its Category row).
+    group: Option<&'static str>,
 }
 
 impl Drawn {
+    /// Why Controls row `c` is greyed (Sprint's binding with its switch off);
+    /// `None`: it is not.
+    fn control_greyed(&self, c: ControlRow) -> Option<&'static str> {
+        let ControlRow::Binding(k, _) = c else { return None };
+        let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k)?;
+        self.controls_greyed.get(at).copied().flatten()
+    }
+
+    /// Category `p`'s rows shown and whether it is open (unknown: none, open).
+    fn heading(&self, p: crate::settings_layout::Placement) -> (usize, bool) {
+        self.headings.iter().find(|h| h.0 == p).map_or((0, true), |h| (h.1, h.2))
+    }
+
     /// List row `i`'s choices and chosen one.
     fn list(&self, i: usize) -> Option<(&[String], &str)> {
         self.lists.iter().find(|l| l.0 == i).map(|l| (l.1.as_slice(), l.2.as_str()))
     }
+
+    fn looks(&self, i: usize) -> Option<&ListLooks> {
+        self.looks.iter().find(|l| l.0 == i).map(|l| &l.1)
+    }
+
+    /// The words shown for choice `k` (named `name`) of list row `i`.
+    fn choice_words<'a>(&'a self, i: usize, k: usize, name: &'a str) -> &'a str {
+        self.looks(i).and_then(|l| l.labels.get(k)).map_or(name, String::as_str)
+    }
+
+    /// Why choice `k` of list row `i` cannot be taken now; `None`: it can.
+    fn choice_reason(&self, i: usize, k: usize) -> Option<&str> {
+        self.looks(i)?.reasons.get(k)?.as_deref()
+    }
+
+    /// List row `i`'s chosen one as shown: its words (`chosen`, its name, without any) and
+    /// whether it is out of reach now (a stored request it cannot meet).
+    fn chosen_words<'a>(&'a self, i: usize, chosen: &'a str) -> (&'a str, bool) {
+        self.looks(i).map_or((chosen, false), |l| (l.chosen.0.as_str(), l.chosen.1.is_some()))
+    }
+}
+
+/// A list row's choices as the page shows them (`crate::settings::ChoiceLooks`), in the
+/// order of its names.
+#[derive(Clone, PartialEq, Debug, Default)]
+struct ListLooks {
+    labels: Vec<String>,
+    /// Why each cannot be taken now; `None`: it can.
+    reasons: Vec<Option<String>>,
+    /// The chosen one's words and reason (it may be out of reach: loaded from the INI).
+    chosen: (String, Option<String>),
 }
 
 impl Drawn {
@@ -1183,8 +1594,20 @@ struct Window {
     row: f32,
 }
 
-/// The settings page's (and the Controls tab's) window of rows.
-const SETTINGS_WINDOW: Window = Window { shown: OPTION_ROWS, row: OPTION_ROW };
+/// How many lines the settings page's window shows at once (headings count): as many as fit
+/// between the rows' top and a note of [`NOTE_LINES`] lines over [`note_bottom`], at least
+/// one; 13 with today's layout [design: #2377, the menu overhaul]. Worked out here only and carried as a value
+/// ([`PauseView::lines`], [`Drawn::lines`]) to everything that draws, scrolls or points at
+/// the window, so a later layout can make it depend on the view.
+fn window_lines() -> usize {
+    let room = note_bottom() - OPTIONS_TOP - NOTE_GAP - NOTE_LINES as f32 * NOTE_STEP - LINKS_GAP - ITEM;
+    ((room / OPTION_ROW).floor().max(1.0)) as usize
+}
+
+/// The settings page's (and the Controls tab's) window of `lines` rows.
+fn settings_window(lines: usize) -> Window {
+    Window { shown: lines.max(1), row: OPTION_ROW }
+}
 /// The load page's window of saves.
 const LOAD_WINDOW: Window = Window { shown: LOAD_ROWS, row: ITEM };
 
@@ -1195,22 +1618,26 @@ impl Window {
     }
 
     /// The scroll bar's marker for a list of `rows` from `first`: its top in the track
-    /// and its height, or `None` when all the rows fit.
+    /// and its height, or `None` when all the rows fit. A track shorter than the marker's
+    /// least height (a window of a line or two) is filled by the marker, which then stays
+    /// at the top.
     fn marker(self, rows: usize, first: usize) -> Option<(f32, f32)> {
         let last = rows.checked_sub(self.shown).filter(|l| *l > 0)?;
-        let track = self.track();
-        let h = (track * self.shown as f32 / rows as f32).clamp(BAR_MARKER_MIN, track);
-        Some((first.min(last) as f32 / last as f32 * (track - h), h))
+        let track = self.track().max(0.0);
+        let h = (track * self.shown as f32 / rows as f32).max(BAR_MARKER_MIN.min(track)).min(track);
+        let travel = track - h;
+        Some((if travel > 0.0 { first.min(last) as f32 / last as f32 * travel } else { 0.0 }, h))
     }
 
     /// The first row shown with the marker's middle at `y` down the track (0 its top, 1
-    /// its bottom).
+    /// its bottom); with no room for the marker to move, `y` as a part of the list.
     fn first_at(self, rows: usize, y: f32) -> usize {
         let Some((_, h)) = self.marker(rows, 0) else { return 0 };
         let last = rows - self.shown;
-        let track = self.track();
-        let at = ((y * track - h / 2.0) / (track - h)).clamp(0.0, 1.0);
-        ((at * last as f32).round() as usize).min(last)
+        let track = self.track().max(0.0);
+        let travel = track - h;
+        let at = if travel > 0.0 { (y * track - h / 2.0) / travel } else { y };
+        ((at.clamp(0.0, 1.0) * last as f32).round() as usize).min(last)
     }
 
     /// Row `i` of a list shown from `first` is in the window (a row the pointer can take).
@@ -1242,6 +1669,25 @@ impl Plugin for PausePlugin {
                 Err(e) => warn!("NVF_PLAY_TEST_PAUSE_MENU: {e}"),
             }
         }
+        add_choice_list(
+            app,
+            Setting {
+                key: "menu-font",
+                group: "Interface",
+                label: "Menu font",
+                note: "The menus' letters. Original: the game's own font (Sharp for a language it has no letters for). Sharp: Roboto Condensed, sharp at any resolution, titles bold.",
+                switches: "",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList { names: |_| MENU_FONTS.iter().map(|n| (*n).to_string()).collect(), chosen: menu_font_chosen, pick: take_menu_font, save: menu_font_chosen, load: take_menu_font, ask_keep: false },
+        );
+        app.init_resource::<MenuFont>();
+        // The vector letters' glow, set from their laid-out size (`crate::interface::GLOW_RINGS`);
+        // the highlight boxes drawn under what they box.
+        app.add_systems(PostUpdate, crate::interface::glow_offsets.after(bevy::ui::UiSystems::Layout));
+        app.add_observer(draw_boxed);
         app.init_resource::<Paused>()
             .init_resource::<PageRequest>()
             .init_resource::<Page>()
@@ -1252,6 +1698,7 @@ impl Plugin for PausePlugin {
             .init_resource::<SettingsLayout>()
             .init_resource::<SearchKeys>()
             .init_resource::<SettingsTabStore>()
+            .init_resource::<crate::settings_view::HiddenRows>()
             .add_systems(Startup, read_settings_tab)
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
@@ -1279,7 +1726,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose.run_if(no_form), finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (crate::settings_view::update_hidden_rows, choose.run_if(no_form), finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -1290,7 +1737,8 @@ impl Plugin for PausePlugin {
                 key: "menu-pause",
                 group: GROUP_MENUS,
                 label: "Freeze the picture in dialogue and menus",
-                note: "On: while a conversation, the inventory, a container or a message box is open, animations, wind, water and sky stand still, as in the original. Off: only game logic waits and the world lives on. This menu always holds everything. (--menu-pause original|living)",
+                note: "On: animations, wind, water and sky stand still in conversations, the inventory and other menus, as in the original. Off: only game logic waits.",
+                switches: "--menu-pause",
                 get: |w| *w.resource::<MenuPause>() == MenuPause::Original,
                 set: |w, on| *w.resource_mut::<MenuPause>() = if on { MenuPause::Original } else { MenuPause::Living },
                 slider: None,
@@ -1323,9 +1771,13 @@ fn back_label() -> String {
     back_label_as(crate::pad::labels())
 }
 
-/// [`back_label`] with the labels `l`.
+/// [`back_label`] with the labels `l`: with the keyboard "Back" alone [design: owner
+/// 2026-11-15, third test: "Remove the Esc, leave only Back"].
 fn back_label_as(l: crate::pad::Labels) -> String {
-    format!("{}  {}", tr("Back"), crate::pad::hint_as(&[KeyCode::Escape], crate::pad::PAUSE_AT, l))
+    match l {
+        crate::pad::Labels::Keys => tr("Back").to_string(),
+        _ => format!("{}  {}", tr("Back"), crate::pad::hint_as(&[KeyCode::Escape], crate::pad::PAUSE_AT, l)),
+    }
 }
 
 /// A right-aligned list entry: the whole row takes the pointer, the box round it when
@@ -1350,27 +1802,86 @@ enum BoxLook {
 #[allow(clippy::too_many_arguments)]
 fn right_entry_look(p: &mut ChildSpawnerCommands, face: &Face, label: &str, node: Node, width: f32, shade: Shade, look: BoxLook, b: PauseButton, glyphs: &crate::pad::PadGlyphs) {
     let w = crate::pad::hint_width(face, label, glyphs);
-    let (node, line, fill) = boxed(node, look != BoxLook::None);
-    let fill = if look == BoxLook::Outline { BackgroundColor(Color::NONE) } else { fill };
-    p.spawn((Button, b, node, line, fill)).with_children(|t| {
-        crate::pad::set_hint(t, face, label, width - w - 10.0, BASE, color(shade), glyphs);
+    // The box hugs the words with the same room each side, right-aligned as the words are
+    // [design: owner 2026-11-15, "the selection/hover box alignment does not look correct"],
+    // and only the box takes the pointer, not the rest of the line [design: owner 2026-11-16,
+    // "make the activation boxes the same size as the menu hover boxes"].
+    let pad = ENTRY_BOX_PAD;
+    let bw = (w + 2.0 * pad).min(width);
+    p.spawn((node, Pickable::IGNORE)).with_children(|t| {
+        t.spawn((Button, b, at(width - bw, 0.0, bw, ITEM))).with_children(|bt| {
+            if look != BoxLook::None {
+                let (line, fill) = highlight_colors();
+                let fill = if look == BoxLook::Outline { Color::NONE } else { fill };
+                bt.spawn((crate::menu_shapes::filling(), Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line, fill, LINE));
+            }
+            crate::pad::set_hint(bt, face, label, bw - w - pad, crate::start_menu::entry_base(face), color(shade), glyphs);
+        });
     });
 }
 
-/// A node with the highlight box round it when `on`.
-fn boxed(node: Node, on: bool) -> (Node, BorderColor, BackgroundColor) {
-    let (line, fill) = highlight_colors();
-    if on {
-        (Node { border: UiRect::all(u(LINE)), ..node }, BorderColor::all(line), BackgroundColor(fill))
-    } else {
-        (node, BorderColor::all(Color::NONE), BackgroundColor(Color::NONE))
+/// The room each side of an entry's words inside its box.
+const ENTRY_BOX_PAD: f32 = 12.0;
+
+/// A node with the highlight box round it when `on` ([`Boxed`], [`draw_boxed`]): the box and
+/// its glow are drawn under the node's children and take no room, so the children stay where
+/// they are either way [design: owner 2026-11-15, third test: a chosen row's border moved
+/// its list box and words 2 units, "the dropdown menu is not really well aligned"].
+fn boxed(node: Node, on: bool) -> (Node, Boxed) {
+    (node, Boxed(on))
+}
+
+/// Whether a node has the highlight box ([`boxed`]).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+struct Boxed(bool);
+
+/// The highlight box (with its glow, `crate::menu_shapes::framed`) of a [`Boxed`] node that
+/// has it, put under its children the moment the node is made (an observer: drawn with the
+/// page, so a page drawn again never shows a frame without it) [design: owner 2026-11-15, the
+/// fourth build: "the menu selection box flickers"].
+fn draw_boxed(add: On<Add<Boxed>>, boxed: Query<&Boxed>, mut commands: Commands) {
+    if !boxed.get(add.entity).is_ok_and(|b| b.0) {
+        return;
     }
+    let (line, fill) = highlight_colors();
+    let frame = commands.spawn((crate::menu_shapes::filling(), Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line, fill, LINE)).id();
+    commands.entity(add.entity).insert_children(0, &[frame]);
 }
 
 /// The darkened band behind a page's list.
 fn band(root: &mut ChildSpawnerCommands, look: &PauseLook, node: Node) {
-    // Under it a sheet of black, so the list reads over a bright main menu screen too.
-    root.spawn((node.clone(), BackgroundColor(Color::BLACK.with_alpha(BAND_SHEET))));
+    // Under it a sheet of black, so the list reads over a bright main menu screen too; its
+    // sides fade out over [`BAND_FEATHER`] instead of ending in a hard edge [design: owner
+    // 2026-11-15, the menu overhaul: "the black overlay behind the menu has hard edges"].
+    let mut sheet = node.clone();
+    // Placed from the view's middle (the settings page) or from its right (the load page):
+    // each widened by the fade both ways [design: owner 2026-11-15, the fifth build: the load
+    // page's band had hard sides].
+    let widened = match (sheet.width, sheet.margin.left, sheet.right, u(BAND_FEATHER)) {
+        (Val::Vh(w), Val::Vh(m), _, Val::Vh(f)) => {
+            sheet.margin.left = Val::Vh(m - f);
+            Some((w, f))
+        }
+        (Val::Vh(w), _, Val::Vh(r), Val::Vh(f)) => {
+            sheet.right = Val::Vh(r - f);
+            Some((w, f))
+        }
+        _ => None,
+    };
+    if let Some((w, f)) = widened {
+        sheet.width = Val::Vh(w + 2.0 * f);
+        let edge = 100.0 * f / (w + 2.0 * f);
+        let black = Color::BLACK.with_alpha(BAND_SHEET);
+        let stops = vec![
+            bevy::ui::ColorStop::percent(Color::BLACK.with_alpha(0.0), 0.0),
+            bevy::ui::ColorStop::percent(black, edge),
+            bevy::ui::ColorStop::percent(black, 100.0 - edge),
+            bevy::ui::ColorStop::percent(Color::BLACK.with_alpha(0.0), 100.0),
+        ];
+        root.spawn((sheet, bevy::ui::BackgroundGradient(vec![bevy::ui::LinearGradient::to_right(stops).into()])));
+    } else {
+        root.spawn((sheet, BackgroundColor(Color::BLACK.with_alpha(BAND_SHEET))));
+    }
     match &look.band {
         Some(b) => {
             root.spawn((node, ImageNode { color: Color::WHITE.with_alpha(BAND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(b.clone()) }));
@@ -1387,8 +1898,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         return;
     }
     let f = &look.faces;
-    // The settings rows' left edge, clear of the categories.
-    let left = options_left(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
+    // The settings list's place, clear of the categories.
+    let lb = ListBox::of(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
         // The pause screen over the held world.
         if !d.under_main {
@@ -1414,66 +1925,86 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         }
         // The page at the UI scale, in the middle of the view (`crate::interface::menu_frame`,
         // #1631); the sheet and the screen above keep to the view.
-        crate::interface::in_menu_frame(root, crate::interface::MIDDLE, |root| {
+        crate::interface::in_spread_frame(root, crate::interface::MIDDLE, |root| {
             // The band behind a page's list, from the view's top to its bottom.
-            let tall = |n: Node| crate::interface::over_view(n, crate::interface::MIDDLE, false);
+            let tall = |n: Node| crate::interface::over_spread_view(n, crate::interface::MIDDLE, false);
             match d.page {
                 Page::Settings { .. } => {
-                    band(root, look, tall(Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(left - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W, 0.0) }))
+                    let (band_left, band_w) = lb.band();
+                    band(root, look, tall(Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(band_left, 0.0, band_w, 0.0) }));
+                    // The dark column over the whole band, as on the load page, so the two
+                    // pages' backgrounds match [design: owner 2026-11-15, the fifth build].
+                    soft_column(root, tall(Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(band_left, 0.0, band_w, 0.0) }), LIST_SHADE);
                 }
-                Page::Load { .. } => band(root, look, tall(Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) })),
+                // The band as far past the list's right side as past its left, the soft column
+                // over it as on the settings page [design: owner 2026-11-15, the fourth build].
+                Page::Load { .. } => {
+                    let node = || tall(Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN - BAND_MARGIN, 0.0, LOAD_WIDTH + 2.0 * BAND_MARGIN, 0.0) });
+                    band(root, look, node());
+                    soft_column(root, node(), LIST_SHADE);
+                }
                 // The mod's page is drawn from its tiles over this one (`crate::tiles::draw`).
                 Page::Main | Page::Mods => {}
             }
             // The column: the keys' list on the first page, else half bright but for the page's entry.
-            let top = (960.0 - d.column.len() as f32 * ITEM) / 2.0;
+            let top = (page_h() - d.column.len() as f32 * ITEM) / 2.0;
             let on_column = d.page == Page::Main && d.confirm.is_none();
             let lit = d.page_entry();
             for (i, (label, ok)) in d.column.iter().enumerate() {
                 let shade = if (on_column && *ok) || (!on_column && i == lit) { Shade::Bright } else { Shade::Dim };
-                right_entry(root, &f.entry, tr_str(label), from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
+                right_entry(root, &f.title, tr_str(label), from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
             }
             match d.page {
                 Page::Main => {
                     if let Some(sel) = d.confirm {
-                        // The question: its lines end left of the choices [observed: the owner's screenshot].
-                        let (warning, question) = (tr(WARNING), tr(QUESTION));
-                        let qw = f.entry.font.width(question);
-                        let at = 280.0;
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, warning, 0.0, BASE, color(Shade::Bright)));
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, question, 0.0, BASE, color(Shade::Bright)));
-                        let width = CONFIRM.iter().map(|c| f.entry.font.width(tr(c))).fold(0.0, f32::max) + 30.0;
+                        // The question in two columns of three lines [design: owner 2026-11-15,
+                        // third test]: at the left "Warning" (bold), what is lost and the
+                        // question, ending left of the answers; at the right the answers, bold,
+                        // each on the line of its left line; all at the titles' size.
+                        let lines = [(&f.title, tr(WARNING_TITLE)), (&f.entry, tr(WARNING)), (&f.entry, tr(QUESTION))];
+                        let lw = lines.iter().map(|(face, t)| face.font.width(t)).fold(0.0, f32::max);
+                        let width = CONFIRM.iter().map(|c| f.title.font.width(tr(c))).fold(0.0, f32::max) + 2.0 * ENTRY_BOX_PAD;
+                        // The two columns centred in the view [design: owner 2026-11-15, the
+                        // fourth build: "center the quit menu also"].
+                        let at = (lw + 30.0 - width) / 2.0;
+                        let top = page_h() / 2.0 - 1.5 * ITEM;
+                        for (i, (face, t)) in lines.into_iter().enumerate() {
+                            root.spawn(from_middle(at - 30.0 - lw, top + i as f32 * ITEM, lw, ITEM)).with_children(|r| sm_text(r, face, t, 0.0, crate::start_menu::entry_base(face), color(Shade::Bright)));
+                        }
                         for (i, c) in CONFIRM.iter().enumerate() {
-                            root.spawn((Button, PauseButton::Confirm(i), boxed(from_middle(at, 480.0 + i as f32 * ITEM, width, ITEM), i == sel)))
-                            .with_children(|t| sm_text(t, &f.entry, tr(c), 10.0, BASE, color(Shade::Bright)));
+                            root.spawn((Button, PauseButton::Confirm(i), boxed(from_middle(at, top + i as f32 * ITEM, width, ITEM), i == sel)))
+                            .with_children(|t| sm_text(t, &f.title, tr(c), ENTRY_BOX_PAD, crate::start_menu::entry_base(&f.title), color(Shade::Bright)));
                         }
                     } else if !d.status.is_empty() {
-                        root.spawn((PauseStatusText, from_right(RIGHT, top + d.column.len() as f32 * ITEM + 10.0, 700.0, ITEM))).with_children(|t| {
+                        root.spawn((PauseStatusText, from_right(RIGHT, top + (d.column.len() + 3) as f32 * ITEM + 10.0, 700.0, ITEM))).with_children(|t| {
                             let w = f.small.font.width(&d.status);
                             sm_text(t, &f.small, &d.status, 700.0 - w - 10.0, 30.0, color(Shade::Bright));
                         });
                     }
                 }
-                Page::Settings { selected } => settings_page(root, d, look, settings, selected, left, glyphs),
+                Page::Settings { selected } => settings_page(root, d, look, settings, selected, lb, glyphs),
                 Page::Load { selected } => load_page(root, d, look, list, selected, glyphs),
                 Page::Mods => {}
             }
             // Back (and Defaults) at the bottom right; not over a mod page with its own Back
             // ([`ModsOwnBack`]).
-            if d.page != Page::Main && !(d.page == Page::Mods && d.mod_back) {
+            if d.page != Page::Main && !d.mod_window && !(d.page == Page::Mods && d.mod_back) {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
-                right_entry(root, &f.entry, &back_label(), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
+                right_entry(root, &f.title, &back_label(), from_right(RIGHT, back_top(), 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
-                    right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
+                    right_entry(root, &f.title, tr("Defaults"), from_right(RIGHT, back_top() - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
                 }
             }
-            // "Report a bug" over the version at the bottom left; the first page shows the
-            // version too (the settings page draws its own).
-            if let Some(hovered) = d.report {
-                report_entry(root, f, hovered, glyphs);
-                if d.page == Page::Main {
-                    version(root, f);
+            // Under the column's last entry, after an empty line: "Report a Bug" (over a
+            // game) and the version under it, right-aligned with the entries [design: owner
+            // 2026-11-15, the menu overhaul; before it the bottom left]. A mod's own page
+            // keeps the view to itself.
+            if d.page != Page::Mods {
+                let below = top + (d.column.len() + 1) as f32 * ITEM;
+                if let Some(hovered) = d.report {
+                    report_entry(root, f, hovered, glyphs, below);
                 }
+                version(root, f, below + if d.report.is_some() { ITEM } else { 0.0 });
             }
             if let Some((label, left, sel)) = d.keep {
                 keep_question(root, f, label, left, sel);
@@ -1486,7 +2017,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
 /// seconds left, Keep and Revert.
 fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: u32, sel: usize) {
     // A sheet over the page that takes the pointer, so only the answers can be clicked.
-    root.spawn((crate::interface::over_view(full(), crate::interface::MIDDLE, true), BackgroundColor(Color::BLACK.with_alpha(0.6)), Button, GlobalZIndex(112)));
+    root.spawn((crate::interface::over_spread_view(full(), crate::interface::MIDDLE, true), BackgroundColor(Color::BLACK.with_alpha(0.6)), Button, GlobalZIndex(112)));
     let (w, h) = (640.0, 4.0 * ITEM + 40.0);
     let (line, _) = highlight_colors();
     // The row's name as the language writes it; English's in lower case ("Keep this resolution?").
@@ -1495,7 +2026,7 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
     let question = fnv_util::words::trf("Keep this {row}?", &[("row", &row)]);
     let count = fnv_util::words::trf("Going back in {left} s.", &[("left", &left)]);
     root.spawn((KeepLine, Text::new(format!("{question} {count}")), Node { display: Display::None, ..default() }));
-    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(-w / 2.0, 480.0 - h / 2.0, w, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(113))).with_children(|b| {
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(-w / 2.0, page_h() / 2.0 - h / 2.0, w, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(113))).with_children(|b| {
         for (k, t) in [&question, &count].into_iter().enumerate() {
             let tw = f.entry.font.width(t);
             b.spawn(at(0.0, 20.0 + k as f32 * ITEM, w, ITEM)).with_children(|r| sm_text(r, &f.entry, t, (w - tw) / 2.0, BASE, color(Shade::Bright)));
@@ -1514,63 +2045,141 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
 #[derive(Component)]
 struct KeepLine;
 
-/// The settings page (module notes): the rail left of the column, the heading links over
-/// the rows, the listed lines (headings and rows) in a window of [`OPTION_ROWS`] round the
-/// chosen row, the chosen row's note under them, the version at the bottom left.
-fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: Option<RowId>, left: f32, glyphs: &crate::pad::PadGlyphs) {
+/// The settings page (module notes): the rail left of the column, the search's line over the
+/// rows while it is open, the listed lines (headings, crumbs and rows) in a window of
+/// [`Drawn::lines`] round the chosen line, the chosen line's note under them and the heading
+/// links under the note.
+fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: Option<RowId>, lb: ListBox, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
     rail_column(root, f, d, glyphs);
     let top = OPTIONS_TOP;
+    let left = lb.left;
     let entries = &d.entries;
     if entries.is_empty() {
-        root.spawn(from_middle(left, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, tr(empty_words(d.scope)), 10.0, BASE, color(Shade::Dim)));
+        root.spawn(from_middle(left, top, lb.width, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, tr(empty_words(d.scope)), 10.0, BASE, color(Shade::Dim)));
     }
-    // On the search its line takes the links' place, the rows' whole width; Page Up/Down
-    // (LB/RB) still go from heading to heading there [design: #1953].
-    let links = if d.search.is_none() && entries.iter().any(|e| matches!(e, ViewEntry::Heading(_))) { heading_links(root, f, left, glyphs) } else { left + OPTIONS_WIDTH };
+    // The search's line over the rows, their whole width [design: #1953].
     if let Some((query, typing)) = &d.search {
-        search_line(root, f, query, *typing, left, links - 10.0 - left);
+        search_line(root, f, query, *typing, left, lb.width - 10.0);
     }
-    let crumbs = !matches!(d.scope, SettingsScope::Tab(_));
-    let first = d.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    let drawn = crate::settings_view::drawn_slots(entries, first);
-    scroll_bar(root, look, entries.len(), first, top, left);
+    let lines = d.lines.max(1);
+    let first = d.scroll.min(entries.len().saturating_sub(lines));
+    let drawn = crate::settings_view::drawn_slots(entries, first, lines);
+    scroll_bar(root, look, entries.len(), first, top, lb, lines);
     for (n, k) in drawn.clone().enumerate() {
         let y = top + n as f32 * OPTION_ROW;
         match entries[k] {
-            ViewEntry::Heading(p) => heading_line(root, f, &heading_words(p, crumbs), left, y),
-            ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), left, y, glyphs),
+            ViewEntry::Heading(p) => heading_line(root, look, d, p, selected == Some(RowId::Heading(p)), lb, y, false),
+            ViewEntry::Crumb(p) => heading_line(root, look, d, p, selected == Some(RowId::Heading(p)), lb, y, true),
+            ViewEntry::Row(id) => row_line(root, d, look, list, id, selected == Some(id), lb, y, glyphs),
+            ViewEntry::Gap => {}
         }
     }
-    // The chosen row's note under the rows.
-    let note = selected.map_or_else(String::new, |id| note_of(list, id, d));
+    // The chosen row's note under the rows; with its list open on a choice out of reach,
+    // that choice's reason.
+    let reason = d.dropdown.filter(|o| selected == Some(list_row_id(o.row))).and_then(|o| d.choice_reason(o.row, o.at));
+    let note = match reason {
+        Some(r) => tr_str(r).to_string(),
+        None => selected.map_or_else(String::new, |id| note_of(list, id, d)),
+    };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
-    let shown = (entries.len() - first.min(entries.len())).min(OPTION_ROWS) as f32;
-    note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
-    version(root, f);
+    let shown = (entries.len() - first.min(entries.len())).min(lines) as f32;
+    let note_top = top + shown * OPTION_ROW + NOTE_GAP;
+    note_lines(root, f, &note, lb, note_top);
+    // Previous and Next Category under the note's room, after an empty line [design: owner
+    // 2026-11-15, the fifth build]; PgUp and PgDn (LB and RB) go from title to title on the
+    // search too.
+    if entries.iter().any(|e| e.titles()) {
+        heading_links(root, f, lb, glyphs, note_top + NOTE_LINES as f32 * NOTE_STEP + LINKS_GAP);
+    }
     // The open dropdown over the rows under its own (over those above near the bottom).
     let Some((o, names)) = d.dropdown.and_then(|o| Some((o, d.list(o.row)?.0))) else { return };
-    let Some(n) = drawn.clone().position(|k| entries[k] == ViewEntry::Row(RowId::Setting(o.row))) else { return };
+    let Some(n) = drawn.clone().position(|k| entries[k] == ViewEntry::Row(list_row_id(o.row))) else { return };
     let shown = names.len().min(DROP_ROWS);
     let h = shown as f32 * DROP_ITEM + 2.0 * LINE;
     let row_top = top + n as f32 * OPTION_ROW;
     let y = if row_top + OPTION_ROW + h > 950.0 { row_top - h } else { row_top + OPTION_ROW };
     let (line, _) = highlight_colors();
-    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + lb.row().list_left(), y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
-            let name = tr_str(name);
+            let name = fit_text(|t| f.entry.font.width(t), &on_page(d.choice_words(o.row, k, name)), LIST_WIDTH - 2.0 * LINE - 2.0 * VALUE_PAD);
+            let name = name.as_str();
+            let shade = if d.choice_reason(o.row, k).is_some() { Shade::Dim } else { Shade::Bright };
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
-            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(Shade::Bright)));
+            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, crate::start_menu::base_in(&f.entry, DROP_ITEM), color(shade)));
         }
     });
 }
 
-/// A heading's line: its words dim in the page's font, nothing to choose [design: #1953].
-fn heading_line(root: &mut ChildSpawnerCommands, f: &Faces, words: &str, left: f32, y: f32) {
-    root.spawn((HeadingLine, Text::new(words), Node { display: Display::None, ..default() }));
-    root.spawn(from_middle(left, y, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, words, 10.0, BASE + 2.0, color(Shade::Dim)));
+
+/// A category's heading or, on the search and the Changed list, a crumb (module notes): the
+/// arrow (right while closed, down while open), its words bright, how many rows it holds
+/// while chosen; a click opens or closes it [design: the menu overhaul, owner 2026-11-15].
+/// Bright, so a heading is never taken for a greyed row.
+#[allow(clippy::too_many_arguments)]
+fn heading_line(root: &mut ChildSpawnerCommands, look: &PauseLook, d: &Drawn, p: crate::settings_layout::Placement, on: bool, lb: ListBox, y: f32, crumb: bool) {
+    let (count, open) = d.heading(p);
+    let name = if crumb { [Some(p.tab), p.subgroup, p.heading].into_iter().flatten().map(on_page).collect::<Vec<_>>().join(" > ") } else { on_page(p.heading.unwrap_or(p.tab)) };
+    title_line(root, look, &name, count, open, Some((PauseButton::Row(RowId::Heading(p)), on)), lb, y);
 }
+
+/// A category's or a crumb's line (module notes of [`heading_line`]): the arrow (right while
+/// closed, down while open), the words bright in the titles' face, the count at the right
+/// while chosen; with `button` the line takes the keys and the pointer, never boxed [design:
+/// owner 2026-11-15, the menu overhaul: no rule under the words; the fifth build: "no hover or
+/// selection box" on the category titles].
+#[allow(clippy::too_many_arguments)]
+fn title_line(root: &mut ChildSpawnerCommands, look: &PauseLook, words: &str, count: usize, open: bool, button: Option<(PauseButton, bool)>, lb: ListBox, y: f32) {
+    let f = &look.faces;
+    // The aids read a closed category as "Screen (3)".
+    let read = if open { words.to_string() } else { format!("{words} ({count})") };
+    root.spawn((HeadingLine, Text::new(read), Node { display: Display::None, ..default() }));
+    let bright = color(Shade::Bright);
+    let node = from_middle(lb.left, y, lb.width, OPTION_ROW);
+    let content = |r: &mut ChildSpawnerCommands| {
+        let (dir, size) = if open { (Dir::Down, HEADING_ARROW) } else { (Dir::Right, Vec2::new(HEADING_ARROW.y, HEADING_ARROW.x)) };
+        crate::menu_shapes::shape(r, look.shapes.as_ref(), Kind::Triangle, dir, Vec2::new(12.0 + HEADING_ARROW.x / 2.0, OPTION_ROW / 2.0), size, bright);
+        let x = 12.0 + HEADING_ARROW.x + 12.0;
+        // The count of its rows, no brackets, only while the line is chosen (the pointer on
+        // it, or the keys), inside the highlight box round it [design: owner 2026-11-15, the
+        // fifth build; 2026-11-16: the hover box back], its right edge where the heading
+        // links' words end (right-aligned in the list, `ENTRY_BOX_PAD` in) [design: owner
+        // 2026-11-16, "aligned with the hints"].
+        let row = lb.row();
+        let words = fit_text(|t| f.title.font.width(t), words, row.value_left() - LABEL_GAP - x);
+        sm_text(r, &f.title, &words, x, BASE + 2.0, bright);
+        if button.is_some_and(|(_, on)| on) {
+            let n = count.to_string();
+            sm_text(r, &f.title, &n, lb.width - ENTRY_BOX_PAD - f.title.font.width(&n), BASE + 2.0, bright);
+        }
+    };
+    match button {
+        Some((b, on)) => root.spawn((Button, b, boxed(node, on))).with_children(content),
+        None => root.spawn(node).with_children(content),
+    };
+}
+
+/// How dark the soft column behind the list is at its middle [design: owner 2026-11-15, third
+/// test: the boxes behind the titles and the note made one, "the whole menu section from
+/// bottom to the top of the screen and decrease its opacity by 15%": 0.38 × 0.85].
+const LIST_SHADE: f32 = 0.32;
+/// How far a soft box's sides fade, in interface units, and in how many steps.
+const SOFT_EDGE: f32 = 16.0;
+const SOFT_STEPS: usize = 6;
+
+/// A dark column in `node` (from the view's top to its bottom), `alpha` dark at its middle,
+/// its sides fading over [`SOFT_EDGE`] (boxes inset by a step each, each a little dark).
+fn soft_column(root: &mut ChildSpawnerCommands, node: Node, alpha: f32) {
+    let each = 1.0 - (1.0 - alpha).powf(1.0 / SOFT_STEPS as f32);
+    root.spawn((node, Pickable::IGNORE)).with_children(|c| {
+        for k in 0..SOFT_STEPS {
+            let inset = SOFT_EDGE * k as f32 / SOFT_STEPS as f32;
+            c.spawn((Node { position_type: PositionType::Absolute, left: u(inset), right: u(inset), top: u(0.0), bottom: u(0.0), ..default() }, BackgroundColor(Color::BLACK.with_alpha(each)), Pickable::IGNORE));
+        }
+    });
+}
+
 
 /// A heading's words, translated: on a tab its heading's (`Saving`); on the search and the
 /// Changed list, which list rows of every tab, where its rows live (`Gameplay > Saving`,
@@ -1604,83 +2213,141 @@ fn search_line(root: &mut ChildSpawnerCommands, f: &Faces, query: &str, typing: 
     }
     let words = line(&shown);
     root.spawn((SearchText, Text::new(words.clone()), Node { display: Display::None, ..default() }));
-    root.spawn((Button, PauseButton::SearchField, boxed(from_middle(left, LINKS_TOP, width, ITEM), typing))).with_children(|t| sm_text(t, &f.entry, &words, 10.0, BASE, color(Shade::Bright)));
+    root.spawn((Button, PauseButton::SearchField, boxed(from_middle(left, SEARCH_TOP, width, ITEM), typing))).with_children(|t| sm_text(t, &f.entry, &words, 10.0, BASE, color(Shade::Bright)));
 }
 
 /// The search's line, kept as text too (tests read it).
 #[derive(Component)]
 struct SearchText;
 
-/// "Previous heading" and "Next heading" over the rows' right end, each with its key; the
-/// left edge they leave.
-fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, left: f32, glyphs: &crate::pad::PadGlyphs) -> f32 {
-    let mut right = left + OPTIONS_WIDTH;
-    for (k, key) in [(1, KeyCode::PageDown), (0, KeyCode::PageUp)] {
-        let label = format!("{}  {}", tr(HEADING_LINKS[k]), crate::pad::hint(&[key], crate::pad::PAUSE_AT));
+/// "Previous Category" and "Next Category" at the rows' right end from `top`, each with its
+/// key.
+fn heading_links(root: &mut ChildSpawnerCommands, f: &Faces, lb: ListBox, glyphs: &crate::pad::PadGlyphs, top: f32) {
+    // From the left, their words where the note's start [design: owner 2026-11-16, "category
+    // controls aligned to the left side"]: an entry's words stand `ENTRY_BOX_PAD` in from its
+    // box, the box 20 wider than the words.
+    let mut left = lb.left + 10.0 - (20.0 - ENTRY_BOX_PAD);
+    for (k, key) in [(0, KeyCode::PageUp), (1, KeyCode::PageDown)] {
+        // The keyboard's keys by their short names ("PgUp)"): the original's "R)" shape
+        // reads broken after two words [design: the menu overhaul].
+        let hint = match crate::pad::labels() {
+            crate::pad::Labels::Keys => format!("{})", if key == KeyCode::PageUp { "PgUp" } else { "PgDn" }),
+            _ => crate::pad::hint(&[key], crate::pad::PAUSE_AT),
+        };
+        let label = format!("{}  {hint}", tr(HEADING_LINKS[k]));
         let w = crate::pad::hint_width(&f.small, &label, glyphs) + 20.0;
-        right -= w;
-        right_entry(root, &f.small, &label, from_middle(right, LINKS_TOP, w, ITEM), w, Shade::Bright, false, PauseButton::HeadingStep(if k == 0 { -1 } else { 1 }), glyphs);
-        right -= 10.0;
+        right_entry(root, &f.small, &label, from_middle(left, top, w, ITEM), w, Shade::Bright, false, PauseButton::HeadingStep(if k == 0 { -1 } else { 1 }), glyphs);
+        left += w + 10.0;
     }
-    right
 }
 
 /// A row's line: its label, its value (ON or OFF, a meter, a list's box, a key), the box
 /// round it when chosen. The one drawing of a row wherever it is listed.
 #[allow(clippy::too_many_arguments)]
-fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], id: RowId, on: bool, left: f32, y: f32, glyphs: &crate::pad::PadGlyphs) {
+fn row_line(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], id: RowId, on: bool, lb: ListBox, y: f32, glyphs: &crate::pad::PadGlyphs) {
     let f = &look.faces;
-    let node = boxed(from_middle(left, y, OPTIONS_WIDTH, OPTION_ROW), on);
+    let x = lb.row();
+    let width = |t: &str| f.entry.font.width(t);
+    let node = boxed(from_middle(lb.left, y, lb.width, OPTION_ROW), on);
     match id {
         RowId::Setting(i) => {
             let Some(s) = list.get(i) else { return };
             let v = d.states.get(i).copied().unwrap_or(0.0);
             let disabled = d.disabled.get(i).copied().flatten();
+            let label = on_page(s.label);
+            let label = label.as_str();
+            let label_shade = color(if disabled.is_some() { Shade::Dim } else { Shade::Bright });
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
-                sm_text(r, &f.entry, tr(s.label), 10.0, BASE + 2.0, color(if disabled.is_some() { Shade::Dim } else { Shade::Bright }));
+                // A greyed row (it cannot apply now) shows its value dim; why is the note's
+                // [design: the menu overhaul]. The aids read the reason as its state.
+                let value_shade = if disabled.is_some() { Shade::Dim } else { Shade::Bright };
                 if let Some(reason) = disabled {
-                    let reason = tr(reason);
-                    r.spawn((SwitchState(id), Text::new(reason), Node { display: Display::None, ..default() }));
-                    let vw = f.entry.font.width(reason);
-                    sm_text(r, &f.entry, reason, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Dim));
-                    return;
+                    r.spawn((SwitchState(id), Text::new(tr(reason)), Node { display: Display::None, ..default() }));
                 }
                 if let Some(slider) = &s.slider {
-                    slider_row(r, look, id, v, &slider.text(v));
+                    let value = slider.text(v);
+                    let parts = row_parts(x, ValueKind::Slider(width(tr_str(&value))));
+                    sm_text(r, &f.entry, &fit_text(width, label, parts.label_room()), parts.label.0, BASE + 2.0, label_shade);
+                    slider_row(r, look, &parts, id, v, &value, value_shade, disabled.is_none());
                     return;
                 }
                 if let Some((_, chosen)) = d.list(i) {
-                    list_row(r, look, id, chosen, d.dropdown.is_some_and(|o| o.row == i));
+                    let shown = d.chosen_words(i, chosen);
+                    let parts = row_parts(x, ValueKind::List(width(tr_str(shown.0))));
+                    sm_text(r, &f.entry, &fit_text(width, label, parts.label_room()), parts.label.0, BASE + 2.0, label_shade);
+                    list_row(r, look, &parts, id, chosen, (shown.0, shown.1 || disabled.is_some()), d.dropdown.is_some_and(|o| o.row == i), disabled.is_none());
                     return;
                 }
-                let value = tr(if v > 0.5 { "ON" } else { "OFF" });
-                let vw = f.entry.font.width(value);
-                r.spawn((SwitchState(id), Text::new(value), Node { display: Display::None, ..default() }));
-                sm_text(r, &f.entry, value, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Bright));
+                let value = tr(if v > 0.5 { ON } else { OFF });
+                if disabled.is_none() {
+                    r.spawn((SwitchState(id), Text::new(value), Node { display: Display::None, ..default() }));
+                }
+                let parts = row_parts(x, ValueKind::Centred(width(value)));
+                let (label, value) = fit_row(width, &parts, label, value);
+                sm_text(r, &f.entry, &label, parts.label.0, BASE + 2.0, label_shade);
+                sm_text(r, &f.entry, &value, parts.text_x(width(&value)), BASE + 2.0, color(value_shade));
             });
         }
         RowId::Control(c) => {
             let (name, value) = control_line(d, c);
+            let name = on_page(name);
+            let name = name.as_str();
             root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
-                sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
-                if matches!(c, ControlRow::Sensitivity(_)) {
-                    slider_row(r, look, id, crate::bindings::sensitivity_part(d.sensitivity), &value);
+                if let ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) = c {
+                    let m = match c {
+                        ControlRow::Vertical(_) => d.vertical,
+                        ControlRow::AimSensitivity(_) => d.aim,
+                        _ => d.sensitivity,
+                    };
+                    let parts = row_parts(x, ValueKind::Slider(width(tr_str(&value))));
+                    sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
+                    slider_row(r, look, &parts, id, crate::bindings::sensitivity_part(m), &value, Shade::Bright, true);
                     return;
                 }
                 let vw = crate::pad::button_width(&f.entry, &value, glyphs);
-                r.spawn((SwitchState(id), Text::new(value.clone()), Node { display: Display::None, ..default() }));
-                crate::pad::set_button(r, &f.entry, &value, (VALUE_AT - vw / 2.0).min(OPTIONS_WIDTH - vw - 14.0), BASE + 2.0, color(Shade::Bright), glyphs);
+                let parts = row_parts(x, ValueKind::Binding(vw));
+                // A greyed binding (Sprint with its switch off, `crate::stance`) is
+                // drawn dim like a greyed setting, its reason the state the aids read; why is
+                // the note's.
+                let greyed = d.control_greyed(c);
+                let shade = color(if greyed.is_some() { Shade::Dim } else { Shade::Bright });
+                sm_text(r, &f.entry, &fit_text(width, name, parts.label_room()), parts.label.0, BASE + 2.0, shade);
+                // The full words stay in the state the aids read; what is drawn is cut to the
+                // row (a button's picture is narrow and always fits).
+                let state = greyed.map_or_else(|| value.clone(), |why| tr(why).to_string());
+                r.spawn((SwitchState(id), Text::new(state), Node { display: Display::None, ..default() }));
+                let (shown, sw) = if vw > parts.text_room() + 0.01 {
+                    let cut = fit_text(width, &value, parts.text_room());
+                    let w = width(&cut);
+                    (cut, w)
+                } else {
+                    (value.clone(), vw)
+                };
+                crate::pad::set_button(r, &f.entry, &shown, parts.text_x(sw), BASE + 2.0, shade, glyphs);
             });
         }
+        // The Tweaks tab's Category row: the group shown, in a list's box; Enter, Left and
+        // Right step to the next or the one before [design: owner 2026-11-15].
+        RowId::Group => {
+            let group = d.group.unwrap_or("");
+            root.spawn((Button, PauseButton::Row(id), node)).with_children(|r| {
+                let parts = row_parts(x, ValueKind::List(width(tr(group))));
+                sm_text(r, &f.entry, &fit_text(width, &on_page(GROUP_ROW), parts.label_room()), parts.label.0, BASE + 2.0, color(Shade::Bright));
+                list_row(r, look, &parts, id, group, (group, false), d.dropdown.is_some_and(|o| o.row == GROUP_LIST), true);
+            });
+        }
+        // Drawn by `heading_line`.
+        RowId::Heading(_) => {}
     }
 }
 
 /// A Controls row's label and value, on the device in use.
 fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
     let (device, controller) = d.device;
-    let on_off = |on: bool| tr(if on { "ON" } else { "OFF" }).to_string();
+    let on_off = |on: bool| tr(if on { ON } else { OFF }).to_string();
     match c {
         ControlRow::Device => (DEVICE_ROW, device.to_string()),
+        ControlRow::AutomaticInput => (AUTOMATIC_INPUT_ROW, on_off(d.automatic_input)),
         ControlRow::Binding(k, _) if d.listening == Some(k) => (crate::bindings::label(k), (if controller { WAITING_PAD } else { WAITING }).to_string()),
         ControlRow::Binding(k, _) => {
             let at = crate::bindings::GAME_CONTROLS.iter().position(|(x, _, _)| *x == k);
@@ -1688,69 +2355,94 @@ fn control_line(d: &Drawn, c: ControlRow) -> (&'static str, String) {
         }
         ControlRow::Invert => (INVERT_ROW, on_off(d.invert_y)),
         ControlRow::Sensitivity(_) => (SENSITIVITY_ROWS[usize::from(controller)], crate::bindings::sensitivity_text(d.sensitivity)),
+        ControlRow::Vertical(_) => (VERTICAL_ROW, crate::bindings::sensitivity_text(d.vertical)),
+        ControlRow::AimSensitivity(_) => (AIM_ROW, crate::bindings::sensitivity_text(d.aim)),
         ControlRow::Rumble => (RUMBLE_ROW, on_off(d.rumble)),
     }
 }
 
 /// The note under the rows for row `id`.
 fn row_note(list: &[Setting], id: RowId, d: &Drawn) -> String {
-    use crate::bindings::{label, Bindings};
+    use crate::bindings::label;
     let controller = d.device.1;
     let c = match id {
-        RowId::Setting(i) => return list.get(i).map_or_else(String::new, |s| tr(s.note).to_string()),
+        RowId::Setting(i) => {
+            // Other words for a while (`crate::settings::set_note_now`), else the row's own.
+            return match d.notes.get(i).cloned().flatten() {
+                Some(now) => now,
+                None => list.get(i).map_or_else(String::new, |s| tr(s.note).to_string()),
+            };
+        }
         RowId::Control(c) => c,
+        RowId::Heading(_) => return tr(HEADING_NOTE).to_string(),
+        RowId::Group => return tr(GROUP_NOTE).to_string(),
     };
     match c {
-        ControlRow::Invert => format!("Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls] of NVForever.ini."),
+        ControlRow::AutomaticInput => tr(AUTOMATIC_INPUT_NOTE).to_string(),
+        ControlRow::Invert => format!("Enter or a click: look up and down the other way round (the mouse and the right stick). Kept as \"{INVERT_ROW}\" in [Controls]."),
         ControlRow::Sensitivity(_) if controller => format!(
-            "Left/Right or a click on the meter: how fast the right stick turns the view, a step of about a tenth ({} to {} of the game's). Kept as \"Stick Sensitivity\" in [Controller] of NVForever.ini.",
+            "Left/Right or a click on the meter: how fast the right stick turns the view, {} to {} of the game's. Kept as \"Stick Sensitivity\" in [Controller].",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
         ControlRow::Sensitivity(_) => format!(
-            "Left/Right or a click on the meter: how far the view turns as the mouse moves, a step of about a tenth ({} to {} of the game's). Kept as \"Mouse Sensitivity\" (radians a mouse count) in [Controls] of NVForever.ini.",
+            "Left/Right or a click on the meter: how far the view turns as the mouse moves, {} to {} of the game's. Kept as \"Mouse Sensitivity\" in [Controls].",
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
             crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
-        ControlRow::Rumble => format!(
-            "A or a click: the controller shakes when you fire (harder for a heavier weapon), take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller] of NVForever.ini."
+        ControlRow::Vertical(_) if controller => format!(
+            "Left/Right or a click on the meter: how fast the right stick turns the view up and down, as a part of left and right ({} to {}).",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
-        ControlRow::Device => format!(
-            "Enter or a click: work the controls with the keyboard and mouse or with a controller. With a controller the left stick moves, the right stick looks, Start opens this menu, and in menus the D-pad, A and B are the arrow keys, Enter and Esc. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."
+        ControlRow::Vertical(_) => format!(
+            "Left/Right or a click on the meter: how far the view turns up and down as the mouse moves, as a part of left and right ({} to {}).",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
         ),
+        ControlRow::AimSensitivity(_) if controller => format!(
+            "Left/Right or a click on the meter: how fast the right stick turns the view while you aim down the sights or through a scope ({} to {}). 100%: as without aiming.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        ControlRow::AimSensitivity(_) => format!(
+            "Left/Right or a click on the meter: how far the view turns as the mouse moves while you aim down the sights or through a scope ({} to {}). 100%: as without aiming.",
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_LEAST),
+            crate::bindings::sensitivity_text(crate::bindings::SENSITIVITY_MOST)
+        ),
+        ControlRow::Rumble => format!("A or a click: the controller shakes when you fire, take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller]."),
+        ControlRow::Device => format!("Enter or a click: work the controls with the keyboard and mouse or with a controller. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."),
         ControlRow::Binding(c, _) if d.listening == Some(c) && controller => format!("Press the new controller button for {}. Start cancels.", label(c)),
         ControlRow::Binding(c, _) if d.listening == Some(c) => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
-        ControlRow::Binding(c, _) if controller => format!(
-            "A or a click: bind a new controller button to {} (a control that had it gets the old one). X or Delete clears it. Kept as \"{}\" in [Controller] of NVForever.ini.",
-            label(c),
-            Bindings::name(c)
-        ),
-        ControlRow::Binding(c, _) => format!(
-            "Enter or a click: bind a new key or mouse button to {} (a key replaces its key, a button its button; a control that had it gets the old one). Delete clears its key. Kept as \"{}\" in [Controls] of NVForever.ini.",
-            label(c),
-            Bindings::name(c)
-        ),
+        ControlRow::Binding(c, _) if controller => format!("A or a click: bind a new controller button to {} (a control that had it gets the old one). X or Delete clears it.", label(c)),
+        ControlRow::Binding(c, _) => format!("Enter or a click: bind a new key or mouse button to {} (a control that had it gets the old one). Delete clears its key.", label(c)),
     }
 }
 
-/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open).
-fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &str, open: bool) {
-    let bright = color(Shade::Bright);
+/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open),
+/// shown by its words (`shown`, cut to the box where they do not fit), dim when out of reach
+/// now; the whole box dim while the row is greyed (`live` false).
+#[allow(clippy::too_many_arguments)]
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i: RowId, chosen: &str, shown: (&str, bool), open: bool, live: bool) {
+    let bright = color(if live { Shade::Bright } else { Shade::Dim });
     let (line, fill) = highlight_colors();
-    r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
+    let list_left = parts.value.0;
+    let line = line.with_alpha(if open { 1.0 } else if live { 0.6 } else { 0.25 });
+    r.spawn((at(list_left, LIST_BOX_INSET, LIST_WIDTH, OPTION_ROW - 2.0 * LIST_BOX_INSET), Pickable::IGNORE)).with_children(|c| crate::menu_shapes::framed(c, line, if open { fill } else { Color::NONE }, LINE));
     // The state kept as text stays the English name (tests and aids read it); the page
     // shows it in the language chosen.
-    r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
-    let chosen = tr_str(chosen);
-    let vw = look.faces.entry.font.width(chosen);
-    sm_text(r, &look.faces.entry, chosen, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, bright);
-    // The right arrow turned to point down.
-    let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
-    let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
-    match &look.arrows[1] {
-        Some(image) => r.spawn((node, turned, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
-        None => r.spawn((node, turned, BackgroundColor(bright.with_alpha(0.5)))),
-    };
+    if live {
+        r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
+    }
+    let (words, out_of_reach) = shown;
+    let font = &look.faces.entry.font;
+    let words = fit_text(|t| font.width(t), &on_page(words), parts.text_room());
+    sm_text(r, &look.faces.entry, &words, parts.text_x(font.width(&words)), BASE + 2.0, if out_of_reach { color(Shade::Dim) } else { bright });
+    // The arrow pointing down, in the middle of its strip (inside the box's line) and of the
+    // row [design: owner 2026-11-15, third test: "the arrow down symbol is not aligned"].
+    let strip = LIST_ARROW_STRIP - LINE;
+    let centre = Vec2::new(list_left + LIST_WIDTH - LINE - strip / 2.0, OPTION_ROW / 2.0);
+    crate::menu_shapes::shape(r, look.shapes.as_ref(), Kind::Triangle, Dir::Down, centre, LIST_ARROW, bright);
 }
 
 /// The rail left of the column, from the rows' top: Search, Changed and the tabs, what the
@@ -1760,7 +2452,7 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
     let lines = d.rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back));
     for (i, item) in lines.enumerate() {
         let name = rail_label(*item, d.device.1);
-        let w = SUB_WIDTH.max(f.entry.font.width(name) + 20.0);
+        let w = SUB_WIDTH.max(f.title.font.width(name) + 20.0);
         // The line shown and the line under the pointer bright; the keys' line boxed
         // filled, the pointer's boxed unfilled [design: #1953].
         let hovered = d.rail_hover == Some(*item);
@@ -1772,15 +2464,15 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
         } else {
             BoxLook::None
         };
-        right_entry_look(root, &f.entry, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
+        right_entry_look(root, &f.title, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
     }
 }
 
 /// The note under the settings page's rows from `top`, wrapped to the rows' width and cut
-/// to the lines that fit above [`NOTE_BOTTOM`].
-fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32, top: f32) {
-    let width = OPTIONS_WIDTH - 20.0;
-    let lines = f.small.font.lines(note, Some(width));
+/// to the lines that are drawn ([`note_fit`]).
+fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, lb: ListBox, top: f32) {
+    let (left, width) = (lb.left, note_width(lb));
+    let lines = note_wrapped(&f.small.font, note, width);
     let fit = note_fit(lines.len(), top);
     let bright = color(Shade::Bright);
     root.spawn(from_middle(left + 10.0, top, width, fit as f32 * NOTE_STEP)).with_children(|t| {
@@ -1790,14 +2482,36 @@ fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32,
     });
 }
 
-/// How many of a note's `lines` fit from `top` above [`NOTE_BOTTOM`].
+/// A note wrapped at `width` in `font`: a line still wider (a word longer than the line,
+/// which wrapping leaves whole) cut with [`CUT_MARK`] to the width, so it never runs past
+/// the list [design: #2377]. The full note stays in the hidden text the aids read.
+fn note_wrapped(font: &fnv_font::Font, note: &str, width: f32) -> Vec<fnv_font::Line> {
+    font.lines(note, Some(width))
+        .into_iter()
+        .map(|line| {
+            if line.width <= width {
+                return line;
+            }
+            let cut = fit_text(|t| font.width(t), &line.text(), width);
+            font.lines(&cut, None).into_iter().next().unwrap_or_default()
+        })
+        .collect()
+}
+
+/// The note's width in a list `lb`: the rows' less 10 at each side.
+fn note_width(lb: ListBox) -> f32 {
+    lb.width - 20.0
+}
+
+/// How many of a note's `lines` are drawn from `top`: at most [`NOTE_LINES`], and only those
+/// above [`note_bottom`].
 fn note_fit(lines: usize, top: f32) -> usize {
-    lines.min(((NOTE_BOTTOM - top) / NOTE_STEP).max(0.0) as usize)
+    lines.min(NOTE_LINES).min(((note_bottom() - top) / NOTE_STEP).max(0.0) as usize)
 }
 
 /// The rail's width: its widest line's, translated ([`rail_column`]).
 fn rail_width(f: &Faces, rail: &[RailItem], controller: bool) -> f32 {
-    rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back)).map(|r| SUB_WIDTH.max(f.entry.font.width(rail_label(*r, controller)) + 20.0)).fold(SUB_WIDTH, f32::max)
+    rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back)).map(|r| SUB_WIDTH.max(f.title.font.width(rail_label(*r, controller)) + 20.0)).fold(SUB_WIDTH, f32::max)
 }
 
 /// A rail line's words, translated: Search says "Keyboard search" while a controller works
@@ -1809,20 +2523,195 @@ fn rail_label(item: RailItem, controller: bool) -> &'static str {
     }
 }
 
-/// The settings rows' left edge from the view's middle in a view `view_w` units wide
-/// whose rail is `tabs_w` wide: [`OPTIONS_LEFT`] where that keeps the band
-/// [`TABS_GAP`] clear of the rail, else as far left as does, but never so far that
-/// the band leaves the view (a view narrower than about 16:10 cannot hold both).
-fn options_left(view_w: f32, tabs_w: f32) -> f32 {
-    let half = view_w / 2.0;
-    let clear = half - (SUB_RIGHT + tabs_w + TABS_GAP) - (OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN);
-    OPTIONS_LEFT.min(clear).max(BAND_MARGIN - half)
+/// The settings list's place in the view: its left edge from the view's middle and its
+/// width (the rows', the headings', the note's; the scroll bar is right of it, the band
+/// round both) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ListBox {
+    left: f32,
+    width: f32,
 }
 
-/// The settings page's scroll bar, right of its rows.
-fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, left: f32) {
-    let bar = from_middle(left + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, SETTINGS_WINDOW.shown as f32 * SETTINGS_WINDOW.row);
-    window_bar(root, look, rows, first, SETTINGS_WINDOW, bar);
+impl ListBox {
+    /// The list in a view `view_w` units wide whose rail is `tabs_w` wide: as wide as the room
+    /// left of the rail allows (the band [`LEFT_MARGIN`] from the view's left edge and
+    /// [`TABS_GAP`] clear of the rail), at most [`OPTIONS_MAX`], then centred in that room.
+    /// A narrow view gets a narrow list rather than one that runs under the rail (#1210).
+    fn of(view_w: f32, tabs_w: f32) -> ListBox {
+        let room = (view_w - (SUB_RIGHT + tabs_w + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN).max(0.0);
+        let width = room.min(OPTIONS_MAX);
+        ListBox { left: -view_w / 2.0 + LEFT_MARGIN + BAND_MARGIN + (room - width) / 2.0, width }
+    }
+
+    /// The places in its rows.
+    fn row(self) -> RowX {
+        RowX(self.width)
+    }
+
+    /// The band behind the list and its scroll bar: its left edge from the view's middle and
+    /// its width.
+    fn band(self) -> (f32, f32) {
+        (self.left - BAND_MARGIN, self.width + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W)
+    }
+}
+
+/// The places in a settings row `.0` units wide, from its left edge: each as far from the
+/// row's right end as in a [`ROW_BASE`] row (module notes of the constants) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowX(f32);
+
+impl RowX {
+    fn kept_from_right(self, at: f32) -> f32 {
+        self.0 - (ROW_BASE - at)
+    }
+
+    /// A switch's state's and a reason's centre.
+    fn value_at(self) -> f32 {
+        self.kept_from_right(VALUE_AT)
+    }
+
+    /// The left edge of the row's value part: a slider's left arrow, a list's box.
+    fn value_left(self) -> f32 {
+        self.kept_from_right(LIST_LEFT)
+    }
+
+    fn meter_left(self) -> f32 {
+        self.kept_from_right(METER_LEFT)
+    }
+
+    fn arrows(self) -> [f32; 2] {
+        METER_ARROWS.map(|a| self.kept_from_right(a))
+    }
+
+    fn list_left(self) -> f32 {
+        self.kept_from_right(LIST_LEFT)
+    }
+}
+
+/// `text` as it fits in `room` units measured by `width_of` (a face's font): itself, or cut
+/// at the end with [`CUT_MARK`]; only the mark, or nothing, where even that does not fit.
+/// What is cut is only what is drawn: the search, the log and the hidden texts the aids read
+/// keep the full words [design: #2377].
+pub(crate) fn fit_text(width_of: impl Fn(&str) -> f32, text: &str, room: f32) -> String {
+    let room = room + 0.01;
+    if width_of(text) <= room {
+        return text.to_string();
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    while chars.pop().is_some() {
+        let cut = format!("{}{CUT_MARK}", chars.iter().collect::<String>().trim_end());
+        if !chars.is_empty() && width_of(&cut) <= room {
+            return cut;
+        }
+    }
+    if width_of(CUT_MARK) <= room {
+        CUT_MARK.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// A row's value, for its layout ([`row_parts`]): what it is and its words' measured width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ValueKind {
+    /// A switch's state or a reason, centred at [`RowX::value_at`].
+    Centred(f32),
+    /// A slider's meter and arrows, its value's words right of them.
+    Slider(f32),
+    /// A list's box, the chosen one's words in it.
+    List(f32),
+    /// A Controls binding: its keys' words (cut like other words where they do not fit) or a
+    /// button's picture.
+    Binding(f32),
+}
+
+/// Where a row's label and value are drawn, from the row's left edge: the one place that
+/// lays a row out, for the drawing and the checks ([`check_page_text`]) [design: #2377].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowParts {
+    /// The label's room: from its left edge to where it must end, [`LABEL_GAP`] before the
+    /// value.
+    label: (f32, f32),
+    /// The value's part of the row.
+    value: (f32, f32),
+    /// The room of the value's words and the point they are centred on (kept inside the
+    /// room); words wider than the room are cut.
+    text: (f32, f32),
+    centre: f32,
+    /// A slider's meter (its left edge and width) and its right arrow's left edge (the
+    /// meter gives room to wide words).
+    meter: (f32, f32),
+    right_arrow: f32,
+}
+
+impl RowParts {
+    /// Where words `w` wide (cut to the room first) start.
+    fn text_x(&self, w: f32) -> f32 {
+        (self.centre - w / 2.0).clamp(self.text.0, (self.text.1 - w).max(self.text.0))
+    }
+
+    fn text_room(&self) -> f32 {
+        (self.text.1 - self.text.0).max(0.0)
+    }
+
+    fn label_room(&self) -> f32 {
+        (self.label.1 - self.label.0).max(0.0)
+    }
+}
+
+/// The parts of a row laid out at `x` for a value of `kind` ([`RowParts`]): the value's
+/// place as before #2377 where its words fit, a wide reason or binding taking room from the
+/// label down to [`LABEL_MIN`], wide slider words from the meter down to [`METER_MIN`].
+fn row_parts(x: RowX, kind: ValueKind) -> RowParts {
+    let w = x.0;
+    let label_left = 10.0;
+    let fixed = x.value_left();
+    // A wide value never starts left of this (unless the row is too narrow for its usual
+    // value part already).
+    let floor = (label_left + LABEL_MIN + LABEL_GAP).min(fixed);
+    let right = w - VALUE_PAD;
+    let [left_arrow, right_arrow] = x.arrows();
+    let (value, text, centre, meter_w, right_arrow) = match kind {
+        ValueKind::Centred(vw) => {
+            let left = fixed.min(right - vw).max(floor);
+            ((left, right), (left, right), x.value_at(), METER_WIDTH, right_arrow)
+        }
+        ValueKind::Slider(vw) => {
+            // The meter between its arrows, the number right-aligned after them at the cell's
+            // right end; wide words take room from the meter, down to its least, the right
+            // arrow moving left with its end.
+            let text_right = x.list_left() + LIST_WIDTH - VALUE_PAD;
+            let extra = (vw - READOUT_W).clamp(0.0, METER_WIDTH - METER_MIN);
+            let right_arrow = right_arrow - extra;
+            let text = (right_arrow + METER_ARROW.x + READOUT_GAP, text_right);
+            ((left_arrow, text_right + VALUE_PAD), text, text_right - vw / 2.0, METER_WIDTH - extra, right_arrow)
+        }
+        ValueKind::List(_) => {
+            let left = x.list_left();
+            let text = (left + VALUE_PAD, left + LIST_WIDTH - LIST_ARROW_STRIP - VALUE_PAD);
+            ((left, left + LIST_WIDTH), text, x.value_at(), METER_WIDTH, right_arrow)
+        }
+        ValueKind::Binding(vw) => {
+            // Within the row: words wider than from `floor` to its right end are cut.
+            let left = (x.value_at() - vw / 2.0).min(w - vw - 14.0).max(floor);
+            let text = (left, (left + vw).min(right));
+            ((left.min(fixed), right), text, (text.0 + text.1) / 2.0, METER_WIDTH, right_arrow)
+        }
+    };
+    RowParts { label: (label_left, (value.0 - LABEL_GAP).max(label_left)), value, text, centre, meter: (x.meter_left(), meter_w), right_arrow }
+}
+
+/// A row's label and value words as drawn in `parts`, each cut to its room where it does
+/// not fit.
+fn fit_row(width_of: impl Fn(&str) -> f32 + Copy, parts: &RowParts, label: &str, value: &str) -> (String, String) {
+    (fit_text(width_of, label, parts.label_room()), fit_text(width_of, value, parts.text_room()))
+}
+
+/// The settings page's scroll bar, right of its window of `lines` rows.
+fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, lb: ListBox, lines: usize) {
+    let w = settings_window(lines);
+    let bar = from_middle(lb.left + lb.width + BAR_GAP, top, BAR_W, w.shown as f32 * w.row);
+    window_bar(root, look, rows, first, w, bar);
 }
 
 /// A list's scroll bar in `bar` when not all `rows` fit in `w`, from `first`: its arrows
@@ -1831,37 +2720,42 @@ fn window_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, fi
     let Some((y, h)) = w.marker(rows, first) else { return };
     let bright = color(Shade::Bright);
     let track = w.track();
-    let piece = |p: &mut ChildSpawnerCommands, k: usize, node: Node, b: Option<PauseButton>| {
-        let mut e = match &look.bar[k] {
-            Some((image, rect)) => p.spawn((node, ImageNode { rect: *rect, color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })),
-            None => p.spawn((node, BackgroundColor(bright.with_alpha(if k == 2 { 1.0 } else { 0.5 })))),
-        };
-        if let Some(b) = b {
-            e.insert((Button, b));
-        }
-    };
+    // Drawn, as sharp as the letters, with their glow [design: owner 2026-11-15, third test:
+    // "the scrollbar is now the only element that is not vectorized"]: a faint track between
+    // two chevrons, the marker on it.
     root.spawn(bar).with_children(|p| {
-        piece(p, 0, at(0.0, 0.0, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(-1)));
-        p.spawn((Button, PauseButton::ScrollTrack, RelativeCursorPosition::default(), at(0.0, BAR_ARROW, BAR_W, track))).with_children(|t| piece(t, 2, at(12.0, y, 6.0, h), None));
-        piece(p, 1, at(0.0, BAR_ARROW + track, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(1)));
+        use crate::menu_shapes::{bar_glow, shape};
+        bar_glow(p, (BAR_W - BAR_TRACK_W) / 2.0, BAR_ARROW, BAR_TRACK_W, track, 0.6);
+        p.spawn((at((BAR_W - BAR_TRACK_W) / 2.0, BAR_ARROW, BAR_TRACK_W, track), BackgroundColor(bright.with_alpha(0.25)), Pickable::IGNORE));
+        for (step, dir, top) in [(-1, Dir::Up, 0.0), (1, Dir::Down, BAR_ARROW + track)] {
+            shape(p, look.shapes.as_ref(), Kind::Chevron, dir, Vec2::new(BAR_W / 2.0, top + BAR_ARROW / 2.0), BAR_CHEVRON, bright);
+            p.spawn((Button, PauseButton::ScrollStep(step), at(0.0, top, BAR_W, BAR_ARROW)));
+        }
+        p.spawn((Button, PauseButton::ScrollTrack, RelativeCursorPosition::default(), at(0.0, BAR_ARROW, BAR_W, track))).with_children(|t| {
+            bar_glow(t, (BAR_W - BAR_MARKER_W) / 2.0, y, BAR_MARKER_W, h, 1.0);
+            t.spawn((at((BAR_W - BAR_MARKER_W) / 2.0, y, BAR_MARKER_W, h), BackgroundColor(bright), Pickable::IGNORE));
+        });
     });
 }
 
-/// The version at the bottom left [observed: the original shows its own there].
-fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
-    root.spawn(Node { position_type: PositionType::Absolute, left: u(30.0), top: u(960.0 - 60.0), width: u(400.0), height: u(40.0), ..default() }).with_children(|t| {
-        sm_text(t, &f.small, concat!("NVForever ", env!("CARGO_PKG_VERSION")), 0.0, 26.0, color(Shade::Bright));
+/// The version under the column (and "Report a Bug"), from `top`, right-aligned with the
+/// column's entries in the small face [design: owner 2026-11-15; the original shows its own
+/// at the bottom left, observed].
+fn version(root: &mut ChildSpawnerCommands, f: &Faces, top: f32) {
+    let words = concat!("NVForever ", env!("CARGO_PKG_VERSION"));
+    let w = COLUMN - 5.0;
+    root.spawn(from_right(RIGHT, top, w, ITEM)).with_children(|t| {
+        sm_text(t, &f.small, words, w - f.small.font.width(words) - 10.0, 30.0, color(Shade::Bright));
     });
 }
 
-/// "Report a bug" just over [`version`]'s line, left-aligned with it; boxed unfilled while
-/// the pointer is on it, as the rail's lines.
-fn report_entry(root: &mut ChildSpawnerCommands, f: &Faces, hovered: bool, glyphs: &crate::pad::PadGlyphs) {
+/// "Report a Bug" under the column from `top`, right-aligned as its entries are; dim, boxed
+/// unfilled and bright while the pointer is on it, as the rail's lines.
+fn report_entry(root: &mut ChildSpawnerCommands, f: &Faces, hovered: bool, glyphs: &crate::pad::PadGlyphs, top: f32) {
     let label = tr(REPORT_LABEL);
-    let w = crate::pad::hint_width(&f.entry, label, glyphs) + 20.0;
-    let node = Node { position_type: PositionType::Absolute, left: u(20.0), top: u(960.0 - 60.0 - ITEM), width: u(w), height: u(ITEM), ..default() };
+    let w = COLUMN - 5.0;
     let look = if hovered { BoxLook::Outline } else { BoxLook::None };
-    right_entry_look(root, &f.entry, label, node, w, if hovered { Shade::Bright } else { Shade::Dim }, look, PauseButton::Report, glyphs);
+    right_entry_look(root, &f.small, label, from_right(RIGHT, top, w, ITEM), w, if hovered { Shade::Bright } else { Shade::Dim }, look, PauseButton::Report, glyphs);
 }
 
 /// A node at `x`, `y` in its parent, `w` × `h`.
@@ -1869,40 +2763,50 @@ fn at(x: f32, y: f32, w: f32, h: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(x), top: u(y), width: u(w), height: u(h), ..default() }
 }
 
-/// How many ticks of a slider's meter show for value `v` (a tick partly in shows, cut).
-fn meter_ticks(v: f32) -> usize {
-    (METER_WIDTH * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
+/// How many ticks of a slider's meter `meter_w` wide show for value `v` (a tick partly in
+/// shows, cut).
+fn meter_ticks(v: f32, meter_w: f32) -> usize {
+    (meter_w * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
 }
 
 /// A slider's meter, arrows and value (`value`: `v` as shown, e.g. a percentage) in its
-/// row `i`.
-fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, v: f32, value: &str) {
-    let bright = color(Shade::Bright);
+/// row `i`, laid out by `parts` (wide words take room from the meter, then are cut).
+#[allow(clippy::too_many_arguments)]
+fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, parts: &RowParts, i: RowId, v: f32, value: &str, shade: Shade, live: bool) {
+    let bright = color(shade);
     let my = (OPTION_ROW - METER_HEIGHT) / 2.0;
+    let (meter_left, meter_w) = parts.meter;
     // The ground, then the ticks as far as the value.
-    r.spawn((at(METER_LEFT, my, METER_WIDTH, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
-    for t in 0..meter_ticks(v) {
-        let x = METER_LEFT + t as f32 * METER_TICK;
-        let w = METER_TICK.min(METER_LEFT + METER_WIDTH - x);
+    crate::menu_shapes::bar_glow(r, meter_left, my, meter_w, METER_HEIGHT, bright.alpha());
+    r.spawn((at(meter_left, my, meter_w, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
+    for t in 0..meter_ticks(v, meter_w) {
+        let x = meter_left + t as f32 * METER_TICK;
+        let w = METER_TICK.min(meter_left + meter_w - x);
         match &look.tick {
             Some(image) => r.spawn((at(x, my, w, METER_HEIGHT), ImageNode { rect: Some(Rect::new(0.0, 0.0, w, 20.0)), color: bright, ..ImageNode::new(image.clone()) })),
             None => r.spawn((at(x, my, (w - 3.0).max(1.0), METER_HEIGHT), BackgroundColor(bright))),
         };
     }
-    // Over them what takes the pointer, a little taller than the meter.
-    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(METER_LEFT, my - 6.0, METER_WIDTH, METER_HEIGHT + 12.0)));
-    for (k, (x, step)) in [(METER_ARROWS[0], -1), (METER_ARROWS[1], 1)].into_iter().enumerate() {
-        let node = at(x, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
-        match &look.arrows[k] {
-            Some(image) => r.spawn((Button, PauseButton::SliderStep(i, step), node, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
-            None => r.spawn((Button, PauseButton::SliderStep(i, step), node, BackgroundColor(bright.with_alpha(0.5)))),
-        };
+    // Over them what takes the pointer, a little taller than the meter; a greyed slider has
+    // nothing to click.
+    if live {
+        r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(meter_left, my - 6.0, meter_w, METER_HEIGHT + 12.0)));
     }
-    r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+    for (x, step, dir) in [(parts.value.0, -1, Dir::Left), (parts.right_arrow, 1, Dir::Right)] {
+        // The arrow level with the meter's middle; its old box takes the pointer.
+        crate::menu_shapes::shape(r, look.shapes.as_ref(), Kind::Triangle, dir, Vec2::new(x + METER_ARROW.x / 2.0, OPTION_ROW / 2.0), SLIDER_ARROW, bright);
+        if live {
+            r.spawn((Button, PauseButton::SliderStep(i, step), at(x, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y)));
+        }
+    }
+    // A greyed slider's state as the aids read it is its reason (`row_line`).
+    if live {
+        r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+    }
     // A value with words ("Off" on the frame rate limit) in the language shown.
-    let value = tr_str(value);
-    let vw = look.faces.entry.font.width(value);
-    sm_text(r, &look.faces.entry, value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
+    let font = &look.faces.entry.font;
+    let value = fit_text(|t| font.width(t), &on_page(value), parts.text_room());
+    sm_text(r, &look.faces.entry, &value, parts.text_x(font.width(&value)), BASE + 2.0, bright);
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
@@ -1966,10 +2870,10 @@ fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list:
     for (row, (i, (path, h))) in list.saves.iter().enumerate().skip(first).take(LOAD_ROWS).enumerate() {
         let node = from_right(RIGHT + COLUMN + LOAD_WIDTH - width, LOAD_TOP + row as f32 * ITEM, width, ITEM);
         root.spawn((Button, PauseButton::LoadRow(i), boxed(node, i == selected))).with_children(|r| {
-            sm_text(r, &f.entry, &stem(path), 10.0, BASE, color(Shade::Bright));
+            sm_text(r, &f.entry, &stem(path), 10.0, crate::start_menu::entry_base(&f.entry), color(Shade::Bright));
             let date = format!("{}  {}", kind_name(h.kind), crate::save::game_date(h));
             let w = f.small.font.width(&date);
-            sm_text(r, &f.small, &date, width - w - 14.0, BASE, color(Shade::Dim));
+            sm_text(r, &f.small, &date, width - w - 14.0, crate::start_menu::entry_base(&f.small), color(Shade::Dim));
         });
     }
 }
@@ -1981,7 +2885,7 @@ struct DetailLine;
 
 #[allow(clippy::too_many_arguments)]
 fn open(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<PauseAid>,
     mut paused: ResMut<Paused>,
@@ -1994,6 +2898,7 @@ fn open(
     (script, mut seen, mut request): (Option<Res<crate::script::ScriptState>>, Local<u64>, ResMut<PageRequest>),
     photo: Option<Res<crate::photo_mode::PhotoMode>>,
 ) {
+    let keys = keys.snapshot();
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     // ShowOff's ShowPauseMenu: each new ask opens the menu, on the page its mode names
     // (1 load, 3 settings; the others the main page) (`fnv_game::nvse_showoff5`).
@@ -2100,15 +3005,22 @@ struct RowEffects {
     steps: Vec<(usize, i32)>,
     sets: Vec<(usize, f32)>,
     picks: Vec<(usize, String)>,
+    /// The Tweaks tab's Category row stepped: to the group after (1) or before (-1).
+    group_step: Option<i32>,
+    /// The Category row's list is to open.
+    group_open: bool,
 }
 
 /// The controls' state a Controls row's action needs.
 #[derive(Clone, Copy, Debug)]
 struct ControlState {
     device: crate::bindings::InputDevice,
+    automatic_input: bool,
     rumble: bool,
     invert: bool,
     sensitivity: f32,
+    vertical: f32,
+    aim: f32,
 }
 
 /// Whether row `id` takes A and D as Left and Right (a slider, a list; a switch takes the
@@ -2116,7 +3028,9 @@ struct ControlState {
 fn takes_letters(settings: &Settings, id: RowId) -> bool {
     match id {
         RowId::Setting(i) => settings.choices(i).is_some() || settings.list().get(i).is_some_and(|s| s.slider.is_some()),
-        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_)),
+        RowId::Control(c) => matches!(c, ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_)),
+        RowId::Group => true,
+        RowId::Heading(_) => false,
     }
 }
 
@@ -2150,11 +3064,19 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
             }
         }
         RowId::Control(c) => match (c, action) {
+            (ControlRow::AutomaticInput, Activate | Step(_)) => {
+                let on = !controls.automatic_input;
+                commands.queue(move |world: &mut World| crate::bindings::set_automatic_input_switching(world, on));
+                sounds.write(flipped);
+            }
             (ControlRow::Device, Activate | Step(_)) => {
                 let d = controls.device.other();
                 commands.queue(move |world: &mut World| crate::bindings::set_device(world, d));
                 sounds.write(flipped);
             }
+            // A greyed binding (Sprint with its switch off) cannot be rebound or
+            // cleared; why is in its note.
+            (ControlRow::Binding(..), Activate | Clear) if view.drawn.as_ref().and_then(|d| d.control_greyed(c)).is_some() => {}
             (ControlRow::Binding(k, _), Activate) => {
                 listening.0 = Some((k, controls.device));
                 let what = if controls.device == crate::bindings::InputDevice::Controller { "controller button" } else { "key" };
@@ -2179,7 +3101,45 @@ fn act_on_row(id: RowId, action: RowAction, settings: &Settings, view: &mut Paus
                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
                 sounds.write(flipped);
             }
+            (ControlRow::Vertical(_), Step(s)) => {
+                let m = crate::bindings::step_sensitivity(controls.vertical, s);
+                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                sounds.write(flipped);
+            }
+            (ControlRow::AimSensitivity(_), Step(s)) => {
+                let m = crate::bindings::step_sensitivity(controls.aim, s);
+                commands.queue(move |world: &mut World| crate::bindings::set_aim_sensitivity(world, m));
+                sounds.write(flipped);
+            }
             _ => {}
+        },
+        // A category: Enter and a click open or close it, Left closes, Right opens [design:
+        // the menu overhaul, owner 2026-11-15].
+        RowId::Heading(p) => {
+            // On the search and the Changed list a place, for this run only.
+            let crumb = !matches!(view.scope, SettingsScope::Tab(_));
+            let now = if crumb { view.folding.crumb_open(&p) } else { view.folding.is_open(&p) };
+            let open = match action {
+                Activate => !now,
+                Step(s) => s > 0,
+                Clear => return,
+            };
+            let changed = if crumb { view.folding.put_crumb(&p, open) } else { view.folding.put(&p, open) };
+            if changed {
+                info!("pause menu: category {} {}", p.path(), if open { "opened" } else { "closed" });
+                sounds.write(flipped);
+            }
+        }
+        // The Tweaks tab's Category row: Enter or a click opens the list of its groups,
+        // Left and Right step [design: owner 2026-11-15, the fifth build: "it switches to the
+        // next category but does not open"].
+        RowId::Group => match action {
+            Activate => {
+                fx.group_open = true;
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+            }
+            Step(s) => fx.group_step = Some(s),
+            Clear => {}
         },
     }
 }
@@ -2229,9 +3189,13 @@ fn defaults(view: &PauseView, layout: &ResolvedLayout, list: &[Setting], command
         sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
     } else if let Some(d) = view.defaults.clone() {
         info!("pause menu: settings back to their defaults");
+        // Twice over, so a row its parent held greyed (`settings_layout::NEEDS`) goes back
+        // once the parent has.
         commands.queue(move |world: &mut World| {
-            for (i, v) in d.into_iter().enumerate() {
-                crate::settings::restore(world, i, v);
+            for _ in 0..2 {
+                for (i, v) in d.iter().enumerate() {
+                    crate::settings::restore(world, i, *v);
+                }
             }
         });
         sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
@@ -2252,14 +3216,14 @@ fn changed_defaults(view: &PauseView, list: &[Setting], commands: &mut Commands)
         .iter()
         .filter_map(|id| match id {
             RowId::Setting(i) => Some(*i),
-            RowId::Control(_) => None,
+            RowId::Control(_) | RowId::Heading(_) | RowId::Group => None,
         })
         .collect();
     let controls: Vec<ControlRow> = ids
         .iter()
         .filter_map(|id| match id {
             RowId::Control(c) => Some(*c),
-            RowId::Setting(_) => None,
+            RowId::Setting(_) | RowId::Heading(_) | RowId::Group => None,
         })
         .collect();
     commands.queue(move |world: &mut World| {
@@ -2314,6 +3278,11 @@ fn remember(view: &mut PauseView, selected: Option<RowId>) {
 /// switches (`[UI] TileMenus`, `crate::tiles::vanilla`) [design: #1953].
 pub const TAB_SECTION: &str = crate::tiles::vanilla::SECTION;
 pub const TAB_KEY: &str = "SettingsTab";
+/// The categories opened or closed against their default ([`Folding::to_ini`]) and the
+/// Tweaks tab's group shown, beside the tab [design: the menu overhaul, owner 2026-11-15:
+/// "collapsing stays however the user left it"].
+pub const FOLDING_KEY: &str = "SettingsCategories";
+pub const GROUP_KEY: &str = "SettingsTweaksCategory";
 
 /// The settings page's tab kept across runs (Continue and a save's load start NVForever
 /// again): read once at start from `[UI] SettingsTab=` of the INI the settings page uses
@@ -2324,6 +3293,9 @@ pub const TAB_KEY: &str = "SettingsTab";
 pub struct SettingsTabStore {
     pub path: Option<PathBuf>,
     pub tab: Option<String>,
+    /// The categories' state and the Tweaks group as last kept or read ([`FOLDING_KEY`],
+    /// [`GROUP_KEY`]).
+    pub folding: Option<(String, String)>,
 }
 
 impl SettingsTabStore {
@@ -2334,15 +3306,31 @@ impl SettingsTabStore {
         }
         self.tab = Some(t.to_string());
         let Some(path) = self.path.clone() else { return };
-        match write_tab(&path, t) {
+        match write_ui(&path, TAB_KEY, t) {
             Ok(()) => info!("settings page: [{TAB_SECTION}] {TAB_KEY}={t} kept in {}", path.display()),
             Err(e) => warn!("settings page: [{TAB_SECTION}] {TAB_KEY} not kept: {e}"),
         }
     }
+
+    /// The categories' state `f` now: kept in the INI when it is not what is kept already.
+    fn keep_folding(&mut self, f: &Folding) {
+        let now = (f.to_ini(), f.group.clone().unwrap_or_default());
+        if self.folding.as_ref() == Some(&now) || (self.folding.is_none() && now == (String::new(), String::new())) {
+            return;
+        }
+        self.folding = Some(now.clone());
+        let Some(path) = self.path.clone() else { return };
+        for (key, value) in [(FOLDING_KEY, &now.0), (GROUP_KEY, &now.1)] {
+            match write_ui(&path, key, value) {
+                Ok(()) => info!("settings page: [{TAB_SECTION}] {key}={value} kept in {}", path.display()),
+                Err(e) => warn!("settings page: [{TAB_SECTION}] {key} not kept: {e}"),
+            }
+        }
+    }
 }
 
-/// `[UI] SettingsTab=<tab>` written into the INI at `path`, its other lines kept.
-fn write_tab(path: &Path, tab: &str) -> Result<(), String> {
+/// `[UI] <key>=<value>` written into the INI at `path`, its other lines kept.
+fn write_ui(path: &Path, key: &str, value: &str) -> Result<(), String> {
     fnv_install::guard_write(path, None).map_err(|e| e.to_string())?;
     let old = match std::fs::read_to_string(path) {
         Ok(t) => t,
@@ -2352,17 +3340,27 @@ fn write_tab(path: &Path, tab: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, fnv_install::ini_set(&old, TAB_SECTION, TAB_KEY, tab)).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::write(path, fnv_install::ini_set(&old, TAB_SECTION, key, value)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Read the kept tab at start (module notes).
-fn read_settings_tab(file: Option<Res<crate::settings::SettingsFile>>, mut store: ResMut<SettingsTabStore>) {
+/// Read the kept tab, the categories' state and the Tweaks group at start (module notes).
+fn read_settings_tab(file: Option<Res<crate::settings::SettingsFile>>, mut store: ResMut<SettingsTabStore>, view: Option<ResMut<PauseView>>) {
     let Some(path) = file.and_then(|f| f.0.clone()) else { return };
-    let tab = std::fs::read_to_string(&path).ok().and_then(|t| fnv_install::ini_get(&t, TAB_SECTION, TAB_KEY)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let text = std::fs::read_to_string(&path).ok();
+    let get = |key: &str| text.as_deref().and_then(|t| fnv_install::ini_get(t, TAB_SECTION, key)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let tab = get(TAB_KEY);
     if let Some(t) = &tab {
         info!("settings page: [{TAB_SECTION}] {TAB_KEY}={t} read from {}", path.display());
     }
-    *store = SettingsTabStore { path: Some(path), tab };
+    let (fold, group) = (get(FOLDING_KEY).unwrap_or_default(), get(GROUP_KEY).unwrap_or_default());
+    if !fold.is_empty() || !group.is_empty() {
+        info!("settings page: [{TAB_SECTION}] {FOLDING_KEY}={fold}, {GROUP_KEY}={group} read from {}", path.display());
+    }
+    if let Some(mut view) = view {
+        view.folding = Folding { set: Folding::from_ini(&fold), group: (!group.is_empty()).then_some(group.clone()), crumbs: std::mem::take(&mut view.folding.crumbs) };
+    }
+    let folding = (!fold.is_empty() || !group.is_empty()).then_some((fold, group));
+    *store = SettingsTabStore { path: Some(path), tab, folding };
 }
 
 /// Esc, Back or the rail's Back on the search: the search closed and what was listed when
@@ -2403,12 +3401,12 @@ fn refresh_search(view: &mut PauseView, layout: &ResolvedLayout, list: &[Setting
 /// rows are not registered settings, so this stands in for their label and note].
 fn control_words(c: ControlRow) -> String {
     use crate::bindings::InputDevice;
-    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+    let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble);
     let d = Drawn { device: ("", controller), ..default() };
     let (label, _) = control_line(&d, c);
     let key = match c {
         ControlRow::Binding(k, _) => crate::bindings::Bindings::name(k),
-        ControlRow::Device | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Rumble => label,
+        ControlRow::Device | ControlRow::AutomaticInput | ControlRow::Invert | ControlRow::Sensitivity(_) | ControlRow::Vertical(_) | ControlRow::AimSensitivity(_) | ControlRow::Rumble => label,
     };
     let note = row_note(&[], RowId::Control(c), &d);
     crate::settings_view::haystack(&[label, note.as_str(), key])
@@ -2438,8 +3436,8 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 /// [design: #1953].
 #[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
-    mut typed: MessageReader<KeyboardInput>,
-    keys: Res<ButtonInput<KeyCode>>,
+    (mut typed, switching): (MessageReader<KeyboardInput>, Option<Res<crate::pad::SwitchingInput>>),
+    keys: crate::pad::ActionButtons<KeyCode>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
     view: Option<Res<PauseView>>,
@@ -2447,7 +3445,8 @@ fn collect_search_keys(
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
-    let events: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let keys = keys.snapshot();
+    let events: Vec<KeyboardInput> = typed.read().filter(|e| switching.as_ref().is_none_or(|s| s.allows(e))).cloned().collect();
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     out.0 = if open { search_keys(&events, modifiers) } else { Vec::new() };
@@ -2580,8 +3579,9 @@ fn log_layout(list: &[Setting], layout: &ResolvedLayout) {
 
 /// `inspect`: what the settings page lists and shows (module notes).
 fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entries: &[ViewEntry], rail: &[RailItem], controller: bool) {
-    let first = view.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    let drawn = crate::settings_view::drawn_slots(entries, first);
+    let lines = view.lines();
+    let first = view.scroll.min(entries.len().saturating_sub(lines));
+    let drawn = crate::settings_view::drawn_slots(entries, first, lines);
     let focus = match view.focus {
         SettingsFocus::Rows => "rows".to_string(),
         SettingsFocus::Rail(r) => format!("rail ({})", r.name()),
@@ -2589,9 +3589,11 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     };
     let chosen = selected.map_or_else(|| "none".to_string(), |id| id.name(list));
     info!("pause menu: inspect: {}, keys on the {focus}, selected {chosen}, lines {}-{} of {}", view.scope.name(), drawn.start + usize::from(!drawn.is_empty()), drawn.end, entries.len());
+    info!("pause menu: inspect: window {lines} lines, {} drawn", drawn.len());
     let line = |e: &ViewEntry| match e {
-        ViewEntry::Heading(p) => format!("[{}]", p.path()),
+        ViewEntry::Heading(p) | ViewEntry::Crumb(p) => format!("[{}]", p.path()),
         ViewEntry::Row(id) => id.name(list),
+        ViewEntry::Gap => String::new(),
     };
     info!("pause menu: inspect: shown {}", entries[drawn].iter().map(line).collect::<Vec<_>>().join(", "));
     let rows: Vec<String> = entries.iter().filter(|e| matches!(e, ViewEntry::Row(_))).map(line).collect();
@@ -2604,8 +3606,8 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     }
     let crumbs = !matches!(view.scope, SettingsScope::Tab(_));
     words.extend(entries.iter().filter_map(|e| match e {
-        ViewEntry::Heading(p) => Some(heading_words(*p, crumbs)),
-        ViewEntry::Row(_) => None,
+        ViewEntry::Heading(p) | ViewEntry::Crumb(p) => Some(heading_words(*p, crumbs)),
+        ViewEntry::Row(_) | ViewEntry::Gap => None,
     }));
     if entries.is_empty() {
         words.push(tr(empty_words(view.scope)).to_string());
@@ -2617,7 +3619,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn choose(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     time: AidTime,
     mut aid: ResMut<PauseAid>,
     paused: Res<Paused>,
@@ -2635,14 +3637,14 @@ fn choose(
         Option<Res<crate::main_menu::MainMenu>>,
         Option<Res<crate::intro::Intro>>,
         MessageWriter<MainMenuRequest>,
-        Res<ButtonInput<MouseButton>>,
+        crate::pad::ActionButtons<MouseButton>,
         Option<Res<SearchKeys>>,
         Option<ResMut<PauseInputAid>>,
         Option<ResMut<crate::tiles::mods::ModsPage>>,
     ),
-    (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours, mut lobby): (
+    (bindings, pads, sticks, pending, mods, mut listening, mut layout, colours, mut lobby, hidden): (
         Option<Res<crate::bindings::Bindings>>,
-        Query<&Gamepad>,
+        crate::pad::ActionPads,
         Option<Res<crate::pad::StickButtons>>,
         Option<Res<crate::settings::PendingKeep>>,
         Option<Res<ModsEntry>>,
@@ -2650,16 +3652,23 @@ fn choose(
         ResMut<SettingsLayout>,
         Option<Res<crate::ui_colour::CustomColours>>,
         Option<ResMut<crate::lobby::LobbyScreen>>,
+        Option<Res<crate::settings_view::HiddenRows>>,
     ),
-    (meters, pointed, mut tab_store, mut report, mut photo_ask): (
+    (meters, pointed, mut tab_store, tweaks, mut report, mut photo_ask): (
         Query<(&PauseButton, &RelativeCursorPosition)>,
         Query<(&PointerState, &PauseButton)>,
         Option<ResMut<SettingsTabStore>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
         Option<ResMut<ReportEntry>>,
         Option<ResMut<crate::photo_mode::PhotoRequest>>,
     ),
 ) {
+    let keys = keys.snapshot();
     use crate::bindings::{Bindings, Input, InputDevice};
+    let console_entry = tweaks.as_ref().is_some_and(|t| t.help_is_console);
+    // The player's tweak: Tab goes back where it steps no tabs (the main page's question
+    // and the load list) [design: docs/design/tweaks.md].
+    let tab_back = tweaks.is_some_and(|t| t.tab_back_in_pause) && keys.just_pressed(KeyCode::Tab);
     use crate::pad::PadInput;
     use crate::settings_view as sv;
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -2667,6 +3676,8 @@ fn choose(
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
         return;
     }
+    view.set_lines();
+    let lines = view.lines();
     // The lobby screen over it takes the keys (`crate::lobby`).
     if lobby.as_ref().is_some_and(|l| l.holds_input()) {
         return;
@@ -2675,7 +3686,7 @@ fn choose(
     // pages come from here, and going back shows it again.
     let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     let mods = mods.is_some_and(|m| m.0);
-    let entries = entries(mods);
+    let entries = entries(mods, console_entry);
     // The Mods page goes when its entry does (the mod's tiles were unloaded).
     if *page == Page::Mods && !mods {
         info!("pause menu: no mod page any more, back to the column");
@@ -2719,7 +3730,7 @@ fn choose(
     let list = settings.list();
     let layout = layout.refresh(list);
     let device = bindings.as_ref().map_or(InputDevice::KeyboardMouse, |b| b.device);
-    let vis = Visibility::of(device, colours.as_deref());
+    let vis = Visibility::of(device, colours.as_deref()).with_hidden(hidden.as_deref());
     let mut fx = RowEffects::default();
     let is_slider = |i: usize| list.get(i).is_some_and(|s| s.slider.is_some());
     let is_list = |i: usize| settings.choices(i).is_some();
@@ -2780,6 +3791,17 @@ fn choose(
             }
             continue;
         }
+        if let Some(v) = item.strip_prefix("automatic-input:") {
+            match v {
+                "0" | "1" => {
+                    let on = v == "1";
+                    show_row(&mut page, &mut view, layout, control(ControlRow::AutomaticInput));
+                    commands.queue(move |world: &mut World| crate::bindings::set_automatic_input_switching(world, on));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected automatic-input:0 or 1"),
+            }
+            continue;
+        }
         if let Some(v) = item.strip_prefix("sensitivity:") {
             // `sensitivity:<percent>`: the device in use's sensitivity slider set to it (onto its
             // steps).
@@ -2790,6 +3812,32 @@ fn choose(
                     commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
                 }
                 _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected sensitivity:<percent>"),
+            }
+            continue;
+        }
+        if let Some(v) = item.strip_prefix("vertical:") {
+            // `vertical:<percent>`: the device in use's Vertical Sensitivity set to it (onto
+            // the sliders' steps).
+            match v.trim_end_matches('%').parse::<f32>() {
+                Ok(p) if p.is_finite() => {
+                    let m = crate::bindings::step_sensitivity(p / 100.0, 0);
+                    show_row(&mut page, &mut view, layout, control(ControlRow::Vertical(device)));
+                    commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected vertical:<percent>"),
+            }
+            continue;
+        }
+        if let Some(v) = item.strip_prefix("aim-sensitivity:") {
+            // `aim-sensitivity:<percent>`: the device in use's Aim Sensitivity set to it (onto
+            // the sliders' steps).
+            match v.trim_end_matches('%').parse::<f32>() {
+                Ok(p) if p.is_finite() => {
+                    let m = crate::bindings::step_sensitivity(p / 100.0, 0);
+                    show_row(&mut page, &mut view, layout, control(ControlRow::AimSensitivity(device)));
+                    commands.queue(move |world: &mut World| crate::bindings::set_aim_sensitivity(world, m));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected aim-sensitivity:<percent>"),
             }
             continue;
         }
@@ -2859,6 +3907,18 @@ fn choose(
             (Some(i), _) if is_list(i) => {
                 show_row(&mut page, &mut view, layout, RowId::Setting(i));
                 match item.split_once('=') {
+                    // A number: as the INI takes it (a row that was a slider, the overhaul).
+                    Some((_, v)) if value.is_some() => {
+                        let text = v.trim().to_string();
+                        commands.queue(move |world: &mut World| {
+                            let named = world.get_resource::<Settings>().and_then(|s| s.choices(i)).is_some_and(|c| (c.names)(world).contains(&text));
+                            if named {
+                                crate::settings::pick(world, i, &text);
+                            } else {
+                                crate::settings::load_text(world, i, &text);
+                            }
+                        });
+                    }
                     Some((_, v)) => fx.picks.push((i, v.trim().to_string())),
                     None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
                 }
@@ -2873,6 +3933,22 @@ fn choose(
             (Some(i), _) => {
                 show_row(&mut page, &mut view, layout, RowId::Setting(i));
                 fx.flips.push(i);
+            }
+            (None, _) if settings.alias(&key).is_some() => {
+                // An older list's key (settings::set_list_alias): its row shown, its choice taken
+                // by the older row's name.
+                if let Some(i) = settings.alias(&key).and_then(|(_, a)| a.rows.first()).and_then(|row| settings.index(row)) {
+                    show_row(&mut page, &mut view, layout, RowId::Setting(i));
+                }
+                match item.split_once('=') {
+                    Some((_, v)) => {
+                        let (key, name) = (key.clone(), v.trim().to_string());
+                        commands.queue(move |world: &mut World| {
+                            crate::settings::pick_alias(world, &key, &name);
+                        });
+                    }
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
+                }
             }
             (None, "page") => show_scope(&mut page, &mut view, SettingsScope::default()),
             (None, "controls") => show_row(&mut page, &mut view, layout, RowId::Control(ControlRow::Device)),
@@ -2998,9 +4074,12 @@ fn choose(
     }
     let controls = ControlState {
         device,
+        automatic_input: bindings.as_ref().is_some_and(|b| b.automatic_input_switching),
         rumble: bindings.as_ref().is_some_and(|b| b.rumble),
         invert: bindings.as_ref().is_some_and(|b| b.invert_y),
         sensitivity: bindings.as_ref().map_or(1.0, |b| b.sensitivity()),
+        vertical: bindings.as_ref().map_or(1.0, |b| b.vertical_sensitivity()),
+        aim: bindings.as_ref().map_or(1.0, |b| b.aim_sensitivity()),
     };
     // The settings page made whole for what the aids chose ([`sv::normalize`]).
     let mut rows: Vec<ViewEntry> = Vec::new();
@@ -3008,7 +4087,7 @@ fn choose(
         if view.scope == SettingsScope::Search {
             refresh_search(&mut view, layout, list);
         }
-        let (scope, sel, e) = sv::normalize(layout, list, view.scope, selected, vis, &view.found);
+        let (scope, sel, e) = sv::normalize(layout, list, view.scope, selected, &vis, &view.found, &view.folding);
         view.scope = scope;
         page.set_if_neq(Page::Settings { selected: sel });
         rows = e;
@@ -3025,7 +4104,7 @@ fn choose(
     // left over from the window before (or one drawn past it) never moves the window or
     // takes a press.
     let load_first = view.scroll.min(menu.list.saves.len().saturating_sub(LOAD_WINDOW.shown));
-    let drawn = sv::drawn_slots(&rows, view.scroll.min(rows.len().saturating_sub(OPTION_ROWS)));
+    let drawn = sv::drawn_slots(&rows, view.scroll.min(rows.len().saturating_sub(lines)), lines);
     let on_settings = matches!(*page, Page::Settings { .. });
     let on_load = matches!(*page, Page::Load { .. });
     let in_window = |b: &PauseButton| match b {
@@ -3148,7 +4227,19 @@ fn choose(
             o.first = o.first.max((o.at + 1).saturating_sub(DROP_ROWS)).min(o.at).min(last);
             sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
         }
-        if let Some(name) = take.and_then(|k| names.get(k)) {
+        let out_of_reach = take.is_some_and(|k| view.drawn.as_ref().is_some_and(|d| d.choice_reason(o.row, k).is_some()));
+        if let Some((k, name)) = take.and_then(|k| Some((k, names.get(k)?))).filter(|_| out_of_reach) {
+            // Out of reach: the list stays open on it, its reason under the rows.
+            refuse_choice(&mut commands, o.row, name.clone());
+            o.at = k;
+        } else if let Some(name) = take.and_then(|k| names.get(k)).filter(|_| o.row == GROUP_LIST) {
+            // The Tweaks tab's group.
+            info!("pause menu: tweaks category {name}");
+            view.folding.group = Some(name.clone());
+            view.scroll = 0;
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            shut = true;
+        } else if let Some(name) = take.and_then(|k| names.get(k)) {
             pick_choice(&mut commands, &mut sounds, o.row, name.clone());
             shut = true;
         } else if shut {
@@ -3238,7 +4329,7 @@ fn choose(
         Page::Main if view.confirm.is_some() => {
             let sel = view.confirm.unwrap_or(2);
             let mut take = None;
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || act("back") {
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || act("back") {
                 take = Some(2);
             } else if let Some(PauseButton::Confirm(i)) = clicked {
                 take = Some(i);
@@ -3354,6 +4445,17 @@ fn choose(
                     Some(l) => l.open(crate::lobby::Mode::Host),
                     None => warn!("pause menu: co-op is not in this build"),
                 },
+                Some(Entry::Console) => {
+                    info!("pause menu: console (tweak)");
+                    commands.queue(|w: &mut World| {
+                        if let Some(mut c) = w.get_resource_mut::<crate::console::Console>() {
+                            c.open_asked = true;
+                        }
+                    });
+                    if !resume.pending() {
+                        commands.queue(request_resume);
+                    }
+                }
                 Some(Entry::Continue) if !resume.pending() => {
                     commands.queue(request_resume);
                 }
@@ -3581,7 +4683,7 @@ fn choose(
                     }
                     view.scope = scope;
                     sel = None;
-                    rows = sv::project(layout, list, scope, vis, &view.found);
+                    rows = sv::project(layout, list, scope, &vis, &view.found, &view.folding);
                     // On the rail the keys stay there, on the tab's line; a tab taken with
                     // rows to choose gives them to the rows (a click, Enter on the rail).
                     view.focus = if on_rail && (rail_take.is_none() || rows.is_empty()) { SettingsFocus::Rail(RailItem::of(scope)) } else { SettingsFocus::Rows };
@@ -3622,6 +4724,18 @@ fn choose(
                             let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
                             if (m - controls.sensitivity).abs() > 1e-4 {
                                 commands.queue(move |world: &mut World| crate::bindings::set_sensitivity(world, m));
+                            }
+                        }
+                        (RowId::Control(ControlRow::Vertical(_)), Some(p)) => {
+                            let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
+                            if (m - controls.vertical).abs() > 1e-4 {
+                                commands.queue(move |world: &mut World| crate::bindings::set_vertical(world, m));
+                            }
+                        }
+                        (RowId::Control(ControlRow::AimSensitivity(_)), Some(p)) => {
+                            let m = crate::bindings::sensitivity_at_part(p.x + 0.5);
+                            if (m - controls.aim).abs() > 1e-4 {
+                                commands.queue(move |world: &mut World| crate::bindings::set_aim_sensitivity(world, m));
                             }
                         }
                         _ => {}
@@ -3666,7 +4780,7 @@ fn choose(
             if (keys.just_pressed(KeyCode::Delete) || clicked == Some(PauseButton::Delete) || act("delete")) && *selected < rows {
                 view.delete_ask = Some(*selected);
                 info!("pause menu: delete {}?", menu.list.saves.get(*selected).map(|(p, _)| stem(p)).unwrap_or_default());
-            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
@@ -3690,7 +4804,7 @@ fn choose(
         if view.scope == SettingsScope::Search {
             refresh_search(&mut view, layout, list);
         }
-        let (scope, sel, e) = sv::normalize(layout, list, view.scope, selected, vis, &view.found);
+        let (scope, sel, e) = sv::normalize(layout, list, view.scope, selected, &vis, &view.found, &view.folding);
         view.scope = scope;
         page.set_if_neq(Page::Settings { selected: sel });
         rows = e;
@@ -3700,7 +4814,7 @@ fn choose(
     // window; else the window follows the choice (the keys'; the pointer takes only rows in
     // the window, so it never moves it).
     let window = match *page {
-        Page::Settings { .. } => Some((rows.len(), SETTINGS_WINDOW)),
+        Page::Settings { .. } => Some((rows.len(), settings_window(lines))),
         Page::Load { .. } if view.delete_ask.is_none() => Some((menu.list.saves.len(), LOAD_WINDOW)),
         Page::Load { selected } => {
             view.scroll = crate::menu::model::keep_in_view(view.scroll, selected, menu.list.saves.len(), LOAD_ROWS);
@@ -3739,11 +4853,12 @@ fn choose(
         }
         match &mut *page {
             Page::Settings { selected } if scrolled => {
-                *selected = sv::clamp_into_window(&rows, first, *selected);
+                first = sv::land(&rows, first, by, w.shown);
+                *selected = sv::clamp_into_window(&rows, first, *selected, w.shown);
                 view.followed = *selected;
             }
             Page::Settings { selected } => {
-                first = sv::window_first(&rows, first, *selected, view.followed);
+                first = sv::window_first(&rows, first, *selected, view.followed, w.shown);
                 view.followed = *selected;
             }
             Page::Load { selected } if scrolled => *selected = (*selected).clamp(first, (first + w.shown).min(n) - 1),
@@ -3764,6 +4879,9 @@ fn choose(
         if let (Some(t), Some(store)) = (tab, tab_store.as_mut()) {
             store.keep(t);
         }
+        if let Some(store) = tab_store.as_mut() {
+            store.keep_folding(&view.folding);
+        }
         if log_open {
             info!("pause menu: settings open on {}; selected {}", view.scope.name(), selected.map_or_else(|| "none".to_string(), |id| id.name(list)));
         }
@@ -3782,7 +4900,7 @@ fn choose(
                     .iter()
                     .filter_map(|e| match e {
                         ViewEntry::Row(id) => Some(id.name(list)),
-                        ViewEntry::Heading(_) => None,
+                        ViewEntry::Heading(_) | ViewEntry::Crumb(_) | ViewEntry::Gap => None,
                     })
                     .collect();
                 info!("pause menu: search \"{q}\": {} result(s); keys {}", keys.len(), keys.join(","));
@@ -3800,6 +4918,21 @@ fn choose(
     // The pointer or the keys moved the first page's choice or the question's: its sound.
     if view.main_selected != main_before && *page == Page::Main || (view.confirm.is_some() && confirm_before.is_some() && view.confirm != confirm_before) {
         sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Focus });
+    }
+    // The Tweaks tab's Category row: the group after or before, the list from its top.
+    if fx.group_open {
+        open_dropdown(&mut view, GROUP_LIST);
+    }
+    if let (Some(step), SettingsScope::Tab(t)) = (fx.group_step, view.scope) {
+        let groups = layout.tab(t).map(|t| t.subgroups()).unwrap_or_default();
+        if !groups.is_empty() {
+            let at = view.folding.group_of(&groups).and_then(|g| groups.iter().position(|x| *x == g)).unwrap_or(0);
+            let to = groups[(at as i32 + step).rem_euclid(groups.len() as i32) as usize];
+            view.folding.group = Some(to.to_string());
+            view.scroll = 0;
+            info!("pause menu: tweaks category {to}");
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+        }
     }
     for i in fx.flips {
         if view_disabled(&view, i) { continue; }
@@ -3823,8 +4956,26 @@ fn choose(
     }
     for (i, name) in fx.picks {
         if view_disabled(&view, i) { continue; }
+        if view_out_of_reach(&view, i, &name) {
+            refuse_choice(&mut commands, i, name);
+            continue;
+        }
         pick_choice(&mut commands, &mut sounds, i, name);
     }
+}
+
+/// A choice out of reach asked for: nothing taken, `crate::settings::pick` logs why.
+fn refuse_choice(commands: &mut Commands, i: usize, name: String) {
+    commands.queue(move |world: &mut World| {
+        crate::settings::pick(world, i, &name);
+    });
+}
+
+/// Whether choice `name` of list row `i` was out of reach when the page was last drawn.
+fn view_out_of_reach(view: &PauseView, i: usize, name: &str) -> bool {
+    let Some(d) = view.drawn.as_ref() else { return false };
+    let Some((names, _)) = d.list(i) else { return false };
+    names.iter().position(|n| n == name).is_some_and(|k| d.choice_reason(i, k).is_some())
 }
 
 /// Take choice `name` of list row `i` (`crate::settings::pick`).
@@ -3834,6 +4985,20 @@ fn pick_choice(commands: &mut Commands, sounds: &mut MessageWriter<crate::ui_sou
     commands.queue(move |world: &mut World| {
         crate::settings::pick(world, i, &name);
     });
+}
+
+/// The Tweaks tab's Category row's list, in place of a list row's index ([`Dropdown::row`],
+/// [`Drawn::lists`]).
+const GROUP_LIST: usize = usize::MAX;
+
+/// The row whose list is `i` ([`Dropdown::row`]): list row `i`, or the Category row for
+/// [`GROUP_LIST`].
+fn list_row_id(i: usize) -> RowId {
+    if i == GROUP_LIST {
+        RowId::Group
+    } else {
+        RowId::Setting(i)
+    }
 }
 
 /// Open list row `i`'s dropdown on its chosen one.
@@ -3846,12 +5011,21 @@ fn open_dropdown(view: &mut PauseView, i: usize) {
     view.dropdown = Some(Dropdown { row: i, at, first });
 }
 
-/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends.
+/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends, passing
+/// over those out of reach.
 fn neighbour(view: &PauseView, i: usize, step: i32) -> Option<String> {
     if view_disabled(view, i) { return None; }
-    let (names, chosen) = view.drawn.as_ref()?.list(i)?;
-    let at = names.iter().position(|n| n == chosen)? as i32 + step;
-    names.get(usize::try_from(at).ok()?).cloned()
+    let d = view.drawn.as_ref()?;
+    let (names, chosen) = d.list(i)?;
+    let mut at = names.iter().position(|n| n == chosen)? as i32;
+    loop {
+        at += step;
+        let k = usize::try_from(at).ok()?;
+        let name = names.get(k)?;
+        if d.choice_reason(i, k).is_none() {
+            return Some(name.clone());
+        }
+    }
 }
 
 /// Whether row `i` was disabled when the page was last drawn.
@@ -3893,7 +5067,7 @@ fn settings_now(world: &mut World, list: &[Setting], selected: Option<RowId>) ->
         if view.scope == SettingsScope::Search {
             refresh_search(&mut view, l, list);
         }
-        let (scope, sel, entries) = sv::normalize(l, list, view.scope, selected, vis, &view.found);
+        let (scope, sel, entries) = sv::normalize(l, list, view.scope, selected, &vis, &view.found, &view.folding);
         // A Changed row put back leaves the list: the choice goes to the row after it.
         let before = view.drawn.as_ref().filter(|d| d.scope == SettingsScope::Changed && scope == SettingsScope::Changed).map(|d| d.entries.clone()).unwrap_or_default();
         let sel = sv::reselect(&before, &entries, selected).filter(|id| sv::slot_of(&entries, *id).is_some()).or(sel);
@@ -3911,10 +5085,12 @@ fn settings_now(world: &mut World, list: &[Setting], selected: Option<RowId>) ->
     } else {
         view.changed_logged = None;
     }
+    view.set_lines();
+    let lines = view.lines();
     let at = sel.and_then(|id| sv::slot_of(&entries, id));
-    let first = view.scroll.min(entries.len().saturating_sub(OPTION_ROWS));
-    view.scroll = if at.is_some_and(|k| !sv::drawn_slots(&entries, first).contains(&k)) { sv::follow(&entries, first, at) } else { first };
-    if view.dropdown.is_some_and(|o| sv::slot_of(&entries, RowId::Setting(o.row)).is_none()) {
+    let first = view.scroll.min(entries.len().saturating_sub(lines));
+    view.scroll = if at.is_some_and(|k| !sv::drawn_slots(&entries, first, lines).contains(&k)) { sv::follow(&entries, first, at, lines) } else { first };
+    if view.dropdown.is_some_and(|o| sv::slot_of(&entries, list_row_id(o.row)).is_none()) {
         view.dropdown = None;
     }
     if view.dragging.is_some_and(|id| sv::slot_of(&entries, id).is_none()) {
@@ -3934,7 +5110,9 @@ fn settings_now(world: &mut World, list: &[Setting], selected: Option<RowId>) ->
 
 /// What the page shows now.
 fn drawn_now(world: &mut World) -> Drawn {
-    let view_w = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()).round() as u32;
+    let view_w = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()) * crate::interface::menu_room();
+    // In the page's units: wider where a smaller menu scale leaves room (`page_h`).
+    let view_w = view_w.round() as u32;
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<f32> = world.resource::<Settings>().values(world);
     if matches!(*world.resource::<Page>(), Page::Settings { .. }) {
@@ -3958,9 +5136,57 @@ fn drawn_now(world: &mut World) -> Drawn {
         page => (page, Vec::new(), Vec::new()),
     };
     let disabled: Vec<_> = (0..list.len()).map(|i| world.resource::<Settings>().disabled_status(world, i)).collect();
-    let lists: Vec<(usize, Vec<String>, String)> = {
+    // Each category listed: its rows shown now and whether it is open; the Tweaks tab's group.
+    let (headings, group) = {
+        let vis = Visibility::of_world(world);
+        let none = crate::settings_layout::ResolvedLayout::default();
+        let layout = world.get_resource::<SettingsLayout>().map_or(&none, |l| &l.layout);
+        let view = world.resource::<PauseView>();
+        let ids = match view.scope {
+            SettingsScope::Search => &view.found.search[..],
+            SettingsScope::Changed => &view.found.changed[..],
+            SettingsScope::Tab(_) => &[][..],
+        };
+        let places = if ids.is_empty() { Vec::new() } else { crate::settings_view::place_counts(layout, &list, ids, &vis) };
+        let headings = lines
+            .iter()
+            .filter_map(|e| match e {
+                ViewEntry::Heading(p) => Some((*p, crate::settings_view::category_count(layout, &list, p, &vis), view.folding.is_open(p))),
+                ViewEntry::Crumb(p) => Some((*p, places.iter().find(|(q, _)| q == p).map_or(0, |(_, n)| *n), view.folding.crumb_open(p))),
+                _ => None,
+            })
+            .collect();
+        let group = match view.scope {
+            SettingsScope::Tab(t) => view.folding.group_of(&layout.tab(t).map(|t| t.subgroups()).unwrap_or_default()),
+            _ => None,
+        };
+        (headings, group)
+    };
+    let notes: Vec<_> = (0..list.len()).map(|i| world.resource::<Settings>().note_now(world, i)).collect();
+    let mut lists: Vec<(usize, Vec<String>, String)> = {
         let settings = world.resource::<Settings>();
         (0..list.len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.names)(world), (c.chosen)(world)))).collect()
+    };
+    // The Tweaks tab's groups, for its Category row's list ([`GROUP_LIST`]).
+    if let (Some(g), SettingsScope::Tab(t)) = (group, world.resource::<PauseView>().scope) {
+        let groups = world.get_resource::<SettingsLayout>().and_then(|l| l.layout.tab(t)).map(|t| t.subgroups()).unwrap_or_default();
+        lists.push((GROUP_LIST, groups.iter().map(|s| s.to_string()).collect(), g.to_string()));
+    }
+    let looks: Vec<(usize, ListLooks)> = {
+        let settings = world.resource::<Settings>();
+        lists
+            .iter()
+            .filter(|(i, _, _)| settings.choice_looks(*i).is_some())
+            .map(|(i, names, chosen)| {
+                let i = *i;
+                let looks = ListLooks {
+                    labels: names.iter().map(|n| settings.choice_label(world, i, n)).collect(),
+                    reasons: names.iter().map(|n| settings.choice_unavailable(world, i, n)).collect(),
+                    chosen: (settings.choice_label(world, i, chosen), settings.choice_unavailable(world, i, chosen)),
+                };
+                (i, looks)
+            })
+            .collect()
     };
     let keep = world.get_resource::<crate::settings::PendingKeep>().map(|p| {
         let now = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
@@ -3975,10 +5201,10 @@ fn drawn_now(world: &mut World) -> Drawn {
             SettingsScope::Tab(_) => &[],
         };
         let vis = Visibility::of_world(world);
-        crate::settings_view::stands_for(&list, ids, vis).into_iter().map(|(by, rows)| (by, rows.into_iter().map(|r| stand_in_name(&list, r)).collect())).collect()
+        crate::settings_view::stands_for(&list, ids, &vis).into_iter().map(|(by, rows)| (by, rows.into_iter().map(|r| stand_in_name(&list, r)).collect())).collect()
     };
-    // Over a game only, on the first page and the settings page (the load page's rows
-    // and a mod's page have the bottom left).
+    // Over a game only, on the first page and the settings page (not over the load page's
+    // rows or a mod's page).
     let report_shown = main.is_none() && matches!(page, Page::Main | Page::Settings { .. }) && world.get_resource::<ReportEntry>().is_some_and(|r| r.shown);
     let view = world.resource::<PauseView>();
     let thumb = world.resource::<LoadList>().thumb.as_ref().map(|(i, h)| (*i, h.is_some()));
@@ -3994,17 +5220,25 @@ fn drawn_now(world: &mut World) -> Drawn {
         confirm: view.confirm,
         states,
         disabled,
+        notes,
         status: world.resource::<PauseStatus>().line.clone(),
         under_main: main.is_some(),
-        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0)).iter().map(|e| (e.label(), true)).collect()),
+        mod_window: page == Page::Mods && world.get_resource::<crate::tiles::mods::ModsPage>().is_some_and(|m| m.mcm_open),
+        column: main.unwrap_or_else(|| entries(world.get_resource::<ModsEntry>().is_some_and(|m| m.0), world.get_resource::<crate::tweaks::TweakSettings>().is_some_and(|t| t.help_is_console)).iter().map(|e| (e.label(), true)).collect()),
         thumb,
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
+        controls_greyed: crate::bindings::GAME_CONTROLS.iter().map(|(c, _, _)| crate::stance::binding_greyed(world, *c)).collect(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
+        automatic_input: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.automatic_input_switching),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
         invert_y: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.invert_y),
         sensitivity: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.sensitivity()),
+        vertical: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.vertical_sensitivity()),
+        aim: world.get_resource::<crate::bindings::Bindings>().map_or(1.0, |b| b.aim_sensitivity()),
         scroll: view.scroll,
+        lines: view.lines(),
         lists,
+        looks,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
@@ -4014,6 +5248,8 @@ fn drawn_now(world: &mut World) -> Drawn {
         search: (matches!(page, Page::Settings { .. }) && view.scope == SettingsScope::Search).then(|| (view.search.query.clone(), view.focus == SettingsFocus::SearchText)),
         stand_ins,
         report: report_shown.then_some(view.report_hover),
+        headings,
+        group,
     }
 }
 
@@ -4024,25 +5260,44 @@ fn stand_in_name(list: &[Setting], id: RowId) -> String {
     match id {
         RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
         RowId::Control(c) => {
-            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Vertical(InputDevice::Controller) | ControlRow::AimSensitivity(InputDevice::Controller) | ControlRow::Rumble);
             let d = Drawn { device: ("", controller), ..default() };
             let (label, _) = control_line(&d, c);
             match c {
-                ControlRow::Binding(_, dev) => format!("{label} ({})", tr(dev.name())),
+                ControlRow::Binding(_, dev) | ControlRow::Vertical(dev) | ControlRow::AimSensitivity(dev) => format!("{label} ({})", tr(dev.name())),
                 _ => label.to_string(),
             }
         }
+        RowId::Heading(p) => tr(p.heading.unwrap_or(p.tab)).to_string(),
+        RowId::Group => tr(GROUP_ROW).to_string(),
     }
 }
 
 /// Row `id`'s note, after the names of the rows it stands for on the search or the Changed
 /// list ("Stands for: Jump (Controller)."), so a choice there is plain [design: #1953].
 fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
-    let note = row_note(list, id, d);
+    let mut note = row_note(list, id, d);
+    // A greyed row: why, after its own note [design: the menu overhaul]; a greyed binding
+    // the same way (`crate::stance::binding_greyed`).
+    let greyed = match id {
+        RowId::Setting(i) => d.disabled.get(i).copied().flatten(),
+        RowId::Control(c) => d.control_greyed(c),
+        _ => None,
+    };
+    if let Some(why) = greyed {
+        let why = fnv_util::words::trf("Greyed out: {why}", &[("why", &tr(why))]);
+        note = if note.is_empty() { why } else { format!("{note} {why}") };
+    }
     match d.stand_ins.iter().find(|(by, _)| *by == id) {
         Some((_, names)) => {
-            let names = names.join(", ");
-            let head = fnv_util::words::trf("Stands for: {rows}.", &[("rows", &names)]);
+            // Three names at most, so the head and the note keep to the note's lines (#2377);
+            // the page's state keeps them all.
+            let head = if names.len() > STAND_IN_NAMES {
+                let more = names.len() - STAND_IN_NAMES;
+                fnv_util::words::trf("Stands for: {rows} and {n} more.", &[("rows", &names[..STAND_IN_NAMES].join(", ")), ("n", &more)])
+            } else {
+                fnv_util::words::trf("Stands for: {rows}.", &[("rows", &names.join(", "))])
+            };
             if note.is_empty() { head } else { format!("{head} {note}") }
         }
         None => note,
@@ -4063,6 +5318,104 @@ fn changed_now(world: &mut World, list: &[Setting]) {
     world.resource_mut::<PauseView>().found.changed = changed;
 }
 
+/// The values a registered row can show, as the page draws them (translated): a switch's ON
+/// and OFF, a slider's value at each of its steps, a list's choices by their words, and the
+/// reason it is dimmed now, each with its kind for [`row_parts`] (`width_of`: the entries'
+/// font).
+fn row_values(world: &World, settings: &Settings, i: usize, width_of: impl Fn(&str) -> f32) -> Vec<(ValueKind, String)> {
+    let s = settings.list()[i];
+    let mut out = Vec::new();
+    if let Some(reason) = settings.disabled_status(world, i) {
+        let reason = tr(reason).to_string();
+        out.push((ValueKind::Centred(width_of(&reason)), reason));
+    }
+    if let Some(sl) = s.slider {
+        let steps = (((1.0 - sl.min) / sl.step.max(1e-3)).round() as usize).min(1000);
+        for k in 0..=steps {
+            let words = tr_str(&sl.text(sl.fit(sl.min + k as f32 * sl.step))).to_string();
+            out.push((ValueKind::Slider(width_of(&words)), words));
+        }
+    } else if let Some(c) = settings.choices(i) {
+        for name in (c.names)(world) {
+            let words = tr_str(&settings.choice_label(world, i, &name)).to_string();
+            out.push((ValueKind::List(width_of(&words)), words));
+        }
+    } else {
+        for v in ["ON", "OFF"] {
+            out.push((ValueKind::Centred(width_of(tr(v))), tr(v).to_string()));
+        }
+    }
+    out.dedup_by(|a, b| a.1 == b.1);
+    out
+}
+
+/// The settings page's words checked with its faces `f`, once they are loaded (the first time
+/// the pause menu draws) [design: #2377]: every registered row laid out at the page's width
+/// in a 16:9 view, the rail as wide as its words; a row whose label or one of its values has
+/// to be cut to fit logs `settings: text of `<key>` cut to fit: …`, then `settings: <n> rows
+/// laid out, <cut> cut to fit`. Cutting is how the page keeps text from running into its
+/// neighbour; the log says where a label or a value's words are too long for the page.
+fn check_page_text(world: &mut World, f: &Faces) {
+    let Some(list) = world.get_resource::<Settings>().map(|s| s.list().to_vec()) else { return };
+    if !world.contains_resource::<SettingsLayout>() {
+        world.init_resource::<SettingsLayout>();
+    }
+    let rail = world.resource_scope(|_, mut layout: Mut<SettingsLayout>| crate::settings_view::rail(layout.refresh(&list)));
+    let lb = ListBox::of(VIEW_W, rail_width(f, &rail, false));
+    let x = lb.row();
+    let width = |t: &str| f.entry.font.width(t);
+    let settings = world.resource::<Settings>();
+    let mut cut = 0;
+    for (i, s) in list.iter().enumerate() {
+        let label = tr(s.label);
+        let mut what = Vec::new();
+        for (kind, value) in row_values(world, settings, i, width) {
+            let parts = row_parts(x, kind);
+            let (l, v) = fit_row(width, &parts, label, &value);
+            if l != label && !what.iter().any(|w: &String| w.starts_with("label")) {
+                what.push(format!("label \"{label}\" ({:.0} of {:.0} units)", width(label), parts.label_room()));
+            }
+            if v != value {
+                what.push(format!("value \"{value}\" ({:.0} of {:.0} units)", width(&value), parts.text_room()));
+            }
+        }
+        if !what.is_empty() {
+            cut += 1;
+            warn!("settings: text of `{}` cut to fit: {}", s.key, what.join(", "));
+        }
+    }
+    info!("settings: {} rows laid out, {cut} cut to fit (a list {:.0} units wide in a 16:9 view)", list.len(), lb.width);
+    // The notes: within the budget and two lines at the page's width in the small face
+    // (`crate::settings::note_over_budget` checks the characters at the start too).
+    let mut bad = 0;
+    for s in &list {
+        let note = tr(s.note);
+        let lines = f.small.font.lines(note, Some(note_width(lb)));
+        let widest = lines.iter().map(|l| l.width).fold(0.0, f32::max);
+        let reason = crate::settings::note_over_budget(note)
+            .or_else(|| (lines.len() > NOTE_ROW_LINES).then(|| format!("{} lines at the page's width", lines.len())))
+            .or_else(|| (widest > note_width(lb)).then(|| format!("a word {widest:.0} units wide, wider than the page's {:.0}", note_width(lb))));
+        if let Some(reason) = reason {
+            bad += 1;
+            warn!("settings: note of `{}` over the budget: {reason}", s.key);
+        }
+    }
+    info!("settings: {} notes checked, {bad} over the budget ({} characters, two lines)", list.len(), crate::settings::NOTE_BUDGET);
+}
+
+/// The settings list's place, logged when it changes (a new window size, a translated rail):
+/// `pause menu: settings list <width> wide from <left> in a view <w> wide, band <l>-<r>`, in
+/// interface units from the view's left edge [design: #2377].
+fn log_list_box(view: &mut PauseView, lb: ListBox, view_w: u32) {
+    if view.list_logged == Some(lb) {
+        return;
+    }
+    let half = view_w as f32 / 2.0;
+    let (band_left, band_w) = lb.band();
+    info!("pause menu: settings list {:.0} wide from {:.0} in a view {view_w} wide, band {:.0}-{:.0}", lb.width, half + lb.left, half + band_left, half + band_left + band_w);
+    view.list_logged = Some(lb);
+}
+
 /// Draw the page again when what it shows changed.
 fn draw(world: &mut World) {
     // A film holds the game as the pause menu does (`crate::intro`) but shows no page.
@@ -4074,8 +5427,11 @@ fn draw(world: &mut World) {
         return;
     }
     if !world.contains_resource::<PauseLook>() {
-        let look = PauseLook::load(world);
+        let mut look = PauseLook::load(world);
+        look.faces = menu_faces(world, look.faces);
         world.insert_resource(look);
+        // The page's words checked once with the faces they are drawn in (#2377).
+        world.resource_scope(|world, look: Mut<PauseLook>| check_page_text(world, &look.faces));
     }
     let roots: Vec<Entity> = world.query_filtered::<Entity, With<PauseRoot>>().iter(world).collect();
     for e in roots {
@@ -4083,6 +5439,10 @@ fn draw(world: &mut World) {
     }
     let settings = world.resource::<Settings>().list().to_vec();
     let glyphs = world.resource::<crate::pad::PadGlyphs>().clone();
+    if matches!(now.page, Page::Settings { .. }) {
+        let lb = ListBox::of(now.view_w as f32, rail_width(&world.resource::<PauseLook>().faces, &now.rail, now.device.1));
+        log_list_box(&mut world.resource_mut::<PauseView>(), lb, now.view_w);
+    }
     world.resource_scope(|world, look: Mut<PauseLook>| {
         world.resource_scope(|world, list: Mut<LoadList>| {
             let mut commands = world.commands();
@@ -4172,13 +5532,43 @@ fn finish_resume(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn report_progress_tracks_selection_and_confirmation_without_hover() {
+        let mut view = super::PauseView::default();
+        let first = format!("{:?}", view.progress());
+        view.report_hover = true;
+        assert_eq!(first, format!("{:?}", view.progress()));
+        view.main_selected = 1;
+        let selected = format!("{:?}", view.progress());
+        assert_ne!(first, selected);
+        view.confirm = Some(0);
+        assert_ne!(selected, format!("{:?}", view.progress()));
+    }
+
+    #[test]
+    fn the_console_entry_stands_where_help_was() {
+        let labels: Vec<&str> = super::entries(true, true).iter().map(|e| e.label()).collect();
+        assert_eq!(labels, ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", CONSOLE_LABEL, MODS_LABEL, "Quit"]);
+        assert!(!super::entries(false, false).contains(&Entry::Console));
+    }
+
+    #[test]
+    fn a_form_shades_the_menu_under_it_and_its_panel_hides_it() {
+        use super::{form_panel, form_shade, shown_under, FORM_SHADE};
+        // The pictures' numbers: 0.7 showed the menu's amber at 149 of 255, 0.95 at 14 % more.
+        assert!((shown_under(0.7) * 255.0 - 149.0).abs() < 1.0, "{}", shown_under(0.7) * 255.0);
+        assert!(shown_under(FORM_SHADE) <= 0.35, "the menu under a form reads at a third at most");
+        assert_eq!(form_shade().0.alpha(), FORM_SHADE);
+        assert_eq!(form_panel().0.alpha(), 1.0, "nothing shows through the panel");
+    }
+
     use super::*;
 
     /// Issue #1893: Back carries its hint, the keyboard's Esc or the controller's B.
     #[test]
     fn back_names_its_key_and_button() {
         use crate::pad::Labels;
-        assert_eq!(back_label_as(Labels::Keys), format!("{}  Esc)", tr("Back")));
+        assert_eq!(back_label_as(Labels::Keys), tr("Back"), "the keyboard's Back alone (owner, third test)");
         assert_eq!(back_label_as(Labels::Xbox), format!("{}  B)", tr("Back")));
         assert_eq!(back_label_as(Labels::PlayStation), format!("{}  Circle)", tr("Back")));
     }
@@ -4365,25 +5755,58 @@ mod tests {
         assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)));
     }
 
+    /// The views the settings page is laid out for in the tests: 16:9 (1280x720 and 1920x1080
+    /// are both 1707 units wide), 16:10, 4:3 and 3440x1440 (21:9, 2293 units).
+    const VIEW_WIDTHS: [f32; 4] = [VIEW_W, 1536.0, 1280.0, 2293.0];
+
     #[test]
     fn the_settings_page_fits_the_view() {
-        // 16:9 (1280x720, 1920x1080, 2560x1440 are all 1707 units wide), 16:10, 21:9.
-        for (view_w, tabs_w) in [(VIEW_W, SUB_WIDTH), (VIEW_W, 220.0), (1536.0, 220.0), (2240.0, 220.0)] {
-            let left = options_left(view_w, tabs_w);
-            let band_right = view_w / 2.0 + left + OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN;
-            let tabs_left = view_w - SUB_RIGHT - tabs_w;
-            assert!(band_right + TABS_GAP <= tabs_left + 0.01, "{view_w}: the band ends at {band_right}, the categories start at {tabs_left}");
-            assert!(view_w / 2.0 + left - BAND_MARGIN >= 0.0, "{view_w}: the band leaves the view");
-            assert!(left <= OPTIONS_LEFT);
+        for view_w in VIEW_WIDTHS {
+            for tabs_w in [SUB_WIDTH, 220.0] {
+                let lb = ListBox::of(view_w, tabs_w);
+                let (band_left, band_w) = lb.band();
+                let band_left = view_w / 2.0 + band_left;
+                let band_right = band_left + band_w;
+                let tabs_left = view_w - SUB_RIGHT - tabs_w;
+                assert!(band_right + TABS_GAP <= tabs_left + 0.01, "{view_w}/{tabs_w}: the band ends at {band_right}, the categories start at {tabs_left}");
+                assert!(band_left >= LEFT_MARGIN - 0.01, "{view_w}/{tabs_w}: the band starts at {band_left}");
+                assert!(lb.width <= OPTIONS_MAX, "{view_w}/{tabs_w}: {}", lb.width);
+                // Room for a label left of the value part; the list's box (and its dropdown,
+                // as wide) inside the row.
+                let x = lb.row();
+                assert!(x.value_left() - 10.0 >= 150.0, "{view_w}/{tabs_w}: a label's room {}", x.value_left() - 10.0);
+                assert!(x.list_left() >= 0.0 && x.list_left() + LIST_WIDTH <= lb.width && x.meter_left() > x.arrows()[0] && x.arrows()[1] + METER_ARROW.x <= lb.width);
+            }
         }
-        // Wide views keep the old place; a 4:3 view keeps the band on it.
-        assert_eq!(options_left(2240.0, 220.0), OPTIONS_LEFT);
-        assert_eq!(options_left(1280.0, 220.0), BAND_MARGIN - 640.0);
-        // Nine rows and a note of up to eleven lines fit above the version's line.
-        let note_top = OPTIONS_TOP + OPTION_ROWS as f32 * OPTION_ROW + 20.0;
-        assert_eq!(note_fit(4, note_top), 4);
-        assert_eq!(note_fit(30, note_top), 11);
-        assert!(note_top + 11.0 * NOTE_STEP <= NOTE_BOTTOM && NOTE_BOTTOM < 960.0);
+        // 16:9 with a 220-unit rail: the list is about 1036 units wide (820 before #2377),
+        // its band from LEFT_MARGIN.
+        let lb = ListBox::of(VIEW_W, 220.0);
+        assert!((lb.width - 1035.7).abs() < 0.5, "{}", lb.width);
+        assert!((VIEW_W / 2.0 + lb.band().0 - LEFT_MARGIN).abs() < 0.01);
+        // 3440x1440: capped at OPTIONS_MAX and centred in the room left of the rail.
+        let lb = ListBox::of(2293.0, 220.0);
+        assert_eq!(lb.width, OPTIONS_MAX);
+        let room = 2293.0 - (SUB_RIGHT + 220.0 + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN;
+        assert!((2293.0 / 2.0 + lb.band().0 - (LEFT_MARGIN + (room - OPTIONS_MAX) / 2.0)).abs() < 0.01);
+        // A row of the width before #2377 has every place where it was; a wider one keeps
+        // each as far from its right end.
+        let x = RowX(ROW_BASE);
+        assert_eq!((x.value_at(), x.value_left(), x.meter_left(), x.arrows(), x.list_left()), (VALUE_AT, LIST_LEFT, METER_LEFT, METER_ARROWS, LIST_LEFT));
+        let x = RowX(1036.0);
+        assert_eq!((x.0 - x.value_at(), x.0 - x.list_left(), x.0 - x.arrows()[1]), (ROW_BASE - VALUE_AT, ROW_BASE - LIST_LEFT, ROW_BASE - METER_ARROWS[1]));
+        // The window's lines (11 today: the note's empty line above it took one, the owner's
+        // second test; the heading links under the note another, the fifth build) and a note
+        // of three lines and the links fit above the view's bottom margin, and one more line
+        // would not (#2377, the menu overhaul).
+        let lines = window_lines();
+        assert_eq!(lines, 11);
+        let note_top = OPTIONS_TOP + lines as f32 * OPTION_ROW + NOTE_GAP;
+        let below = NOTE_LINES as f32 * NOTE_STEP + LINKS_GAP + ITEM;
+        assert_eq!(note_fit(2, note_top), 2);
+        assert_eq!(note_fit(30, note_top), NOTE_LINES);
+        assert_eq!(note_fit(30, OPTIONS_TOP + NOTE_GAP), NOTE_LINES, "a short list's note is no longer either");
+        assert!(note_top + below <= note_bottom() && note_bottom() < 960.0);
+        assert!(note_top + OPTION_ROW + below > note_bottom(), "a 12th line would leave no room for the note and the links");
     }
 
     /// The systems that read or write the world aids' clock (directly or through
@@ -4484,7 +5907,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(page);
         for (key, group) in rows {
-            add_setting(&mut app, Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+            add_setting(&mut app, Setting { key, group, label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         }
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
@@ -4492,8 +5915,34 @@ mod tests {
         app
     }
 
+    /// The menu overhaul: the page shows English labels in Title Case, the short words inside
+    /// in lower case, and leaves words with a capital or a figure as they are.
     #[test]
-    fn a_tab_shows_dim_headings_that_take_a_line_and_are_never_chosen() {
+    fn labels_are_shown_in_title_case() {
+        for (registered, shown) in [
+            ("Freeze the picture in dialogue and menus", "Freeze the Picture in Dialogue and Menus"),
+            ("Light and noise gauges while sneaking", "Light and Noise Gauges While Sneaking"),
+            ("Detached third-person camera", "Detached Third-Person Camera"),
+            ("Counter: frame rate", "Counter: Frame Rate"),
+            ("Anisotropic filtering 16x", "Anisotropic Filtering 16x"),
+            ("HUD colour", "HUD Colour"),
+            ("Light glow (HDR)", "Light Glow (HDR)"),
+            ("V.A.T.S. time slowdown", "V.A.T.S. Time Slowdown"),
+            ("Use Pip-Boy", "Use Pip-Boy"),
+            ("Close In on the Speaker", "Close In on the Speaker"),
+            ("Sky follows the game clock", "Sky Follows the Game Clock"),
+            ("Aim lock-on", "Aim Lock-On"),
+            ("38% slower", "38% Slower"),
+            ("Last enemy", "Last Enemy"),
+            ("a", "A"),
+            ("", ""),
+        ] {
+            assert_eq!(title_case(registered), shown);
+        }
+    }
+
+    #[test]
+    fn a_tab_shows_bright_category_headings_the_keys_can_choose() {
         let rows = [("difficulty", "Gameplay"), ("hardcore", "Gameplay"), ("autosave-travel", "Saving"), ("god-mode", "Debug")];
         let mut app = settings_app(&rows, Page::Settings { selected: None });
         app.update();
@@ -4504,18 +5953,19 @@ mod tests {
         headings.sort();
         assert_eq!(headings, ["Game", "Saving"]);
         let texts: Vec<(String, Color)> = world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect();
-        assert!(texts.contains(&("Game".to_string(), color(Shade::Dim))), "a heading is dim: {texts:?}");
-        // Rows take the pointer, headings do not; Debug's row is on its own tab.
+        assert!(texts.contains(&("Game".to_string(), color(Shade::Bright))), "a heading is bright, never taken for a greyed row: {texts:?}");
+        // Rows and headings take the pointer; Debug's row is on its own tab.
         let buttons: Vec<PauseButton> = world.query::<&PauseButton>().iter(world).copied().collect();
         let rows_drawn: Vec<RowId> = buttons.iter().filter_map(|b| if let PauseButton::Row(r) = b { Some(*r) } else { None }).collect();
-        assert_eq!(rows_drawn.len(), 3, "{rows_drawn:?}");
+        assert_eq!(rows_drawn.len(), 5, "{rows_drawn:?}");
+        assert_eq!(rows_drawn.iter().filter(|r| matches!(r, RowId::Heading(_))).count(), 2);
         assert!(!rows_drawn.contains(&RowId::Setting(3)));
-        // The rail: Search, Changed, the seven tabs; the heading links.
+        // The rail: Search, Changed, the eight tabs; the heading links.
         let rail: Vec<RailItem> = buttons.iter().filter_map(|b| if let PauseButton::Rail(r) = b { Some(*r) } else { None }).collect();
         assert_eq!(rail.len(), 2 + crate::settings_layout::TAB_ORDER.len());
         assert!(buttons.contains(&PauseButton::HeadingStep(-1)) && buttons.contains(&PauseButton::HeadingStep(1)));
-        // Three rows and two headings: five lines, the window's count.
-        assert_eq!(world.resource::<PauseView>().drawn.as_ref().unwrap().entries.len(), 5);
+        // Three rows, two headings and the empty line after the open Game: six lines.
+        assert_eq!(world.resource::<PauseView>().drawn.as_ref().unwrap().entries.len(), 6);
     }
 
     #[test]
@@ -4527,9 +5977,9 @@ mod tests {
             let version = world.query::<&Text>().iter(world).any(|t| t.0.starts_with("NVForever"));
             (reports, version)
         };
-        // Without the form (a viewer or menu-only run): no entry, and no version on the first page.
+        // Without the form (a viewer or menu-only run): no entry; the version under the column.
         let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Main);
-        assert_eq!(drawn(&mut app), (vec![], false));
+        assert_eq!(drawn(&mut app), (vec![], true));
         // With it: once on the first page, over the version; the settings page has it too.
         for page in [Page::Main, Page::Settings { selected: None }] {
             let mut app = settings_app(&[("difficulty", "Gameplay")], page);
@@ -4538,7 +5988,7 @@ mod tests {
             assert_eq!(reports.len(), 1, "{page:?}");
             assert!(version, "{page:?}: the version under it");
         }
-        // Not on the load page, whose rows reach the bottom.
+        // Not on the load page.
         let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Load { selected: 0 });
         app.insert_resource(ReportEntry { shown: true, asked: false });
         assert!(drawn(&mut app).0.is_empty());
@@ -4558,8 +6008,8 @@ mod tests {
         assert_eq!(*world.resource::<Page>(), Page::Settings { selected: None });
         assert_eq!(world.resource::<PauseView>().scope, SettingsScope::Tab("Tweaks"));
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        // The stand-in font sets no spaces.
-        assert!(texts.iter().any(|t| t == "Nosettingshere."), "{texts:?}");
+        // The stand-in font keeps the spaces between words (#2298).
+        assert!(texts.iter().any(|t| t == "No settings here."), "{texts:?}");
         assert!(!world.query::<&PauseButton>().iter(world).any(|b| matches!(b, PauseButton::Row(_))));
         assert_eq!(Page::Settings { selected: None }.settings_row(), Some(NO_ROW_SOUND));
     }
@@ -4640,7 +6090,7 @@ mod tests {
         assert_eq!(parse_point("choice:2"), Some(PointAt::Choice(2)));
         assert_eq!(parse_point("choice:x"), None);
         assert_eq!(parse_point("nowhere"), None);
-        let list = [Setting { key: "lamp", group: "Test", label: "Lamp", note: "", get: |_| false, set: |_, _| {}, slider: None }];
+        let list = [Setting { key: "lamp", group: "Test", label: "Lamp", note: "", switches: "", get: |_| false, set: |_, _| {}, slider: None }];
         assert!(points_at(&PointAt::Tab("debug".into()), PauseButton::Rail(RailItem::Tab("Debug")), &list));
         assert!(points_at(&PointAt::Row("lamp".into()), PauseButton::Row(RowId::Setting(0)), &list));
         let jump = RowId::Control(ControlRow::Binding(crate::bindings::Control::Jump, crate::bindings::InputDevice::KeyboardMouse));
@@ -4656,6 +6106,10 @@ mod tests {
         let pad = control_words(ControlRow::Binding(Control::Jump, InputDevice::Controller));
         assert!(pad.contains("controller button"), "{pad}");
         assert!(control_words(ControlRow::Sensitivity(InputDevice::Controller)).contains("stick sensitivity"));
+        for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+            let aim = control_words(ControlRow::AimSensitivity(device));
+            assert!(aim.contains("aim sensitivity") && aim.contains("scope") && aim.contains("sights"), "{aim}");
+        }
         assert!(control_words(ControlRow::Invert).contains("invert y"));
     }
 
@@ -4673,9 +6127,10 @@ mod tests {
         let world = app.world_mut();
         let d = world.resource::<PauseView>().drawn.clone().unwrap();
         let line = |e: &ViewEntry| match e {
-            ViewEntry::Heading(p) => format!("[{}]", p.path()),
+            ViewEntry::Heading(p) | ViewEntry::Crumb(p) => format!("[{}]", p.path()),
             ViewEntry::Row(RowId::Setting(i)) => rows[*i].0.to_string(),
             ViewEntry::Row(r) => format!("{r:?}"),
+            ViewEntry::Gap => String::new(),
         };
         // Under the heading of where it lives, its tab too.
         let names: Vec<String> = d.entries.iter().map(line).collect();
@@ -4698,7 +6153,7 @@ mod tests {
         let world = app.world_mut();
         assert_eq!(*world.resource::<Page>(), Page::Settings { selected: None });
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        assert!(texts.iter().any(|t| t == "Noresults."), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "No results."), "{texts:?}");
     }
 
     #[test]
@@ -4711,14 +6166,14 @@ mod tests {
         // Defaults' states are those the page was first shown with: nothing changed.
         assert!(world.resource::<PauseView>().found.changed.is_empty());
         let texts: Vec<String> = world.query::<&Text>().iter(world).map(|t| t.0.clone()).collect();
-        assert!(texts.iter().any(|t| t == "Nochangedsettings."), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "No changed settings."), "{texts:?}");
         // Both rows share one switch here (Lamp): both are listed, each under its place.
         crate::settings::flip(world, 0);
         app.update();
         let world = app.world_mut();
         let view = world.resource::<PauseView>();
         assert_eq!(view.found.changed, [RowId::Setting(0), RowId::Setting(1)]);
-        assert_eq!(view.drawn.as_ref().unwrap().entries.len(), 4);
+        assert_eq!(view.drawn.as_ref().unwrap().entries.len(), 5, "two places, a row each, an empty line between");
         assert_eq!(view.changed_logged.as_deref(), Some(&[RowId::Setting(0), RowId::Setting(1)][..]));
         assert_eq!(*world.resource::<Page>(), Page::Settings { selected: Some(RowId::Setting(0)) });
         crate::settings::flip(world, 0);
@@ -4739,8 +6194,8 @@ mod tests {
         // Listed before the row that disables it (the anti-aliasing under FSR).
         let slider = crate::settings::Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05, shown: None };
         add_setting(&mut app, Setting::slider("aa", "Test", "AA", "", slider));
-        add_setting(&mut app, Setting { key: "fsr", group: "Test", label: "FSR", note: "", get: |w| w.resource::<Fsr>().0, set: |w, on| w.resource_mut::<Fsr>().0 = on, slider: None });
-        add_setting(&mut app, Setting { key: "torch", group: "Test", label: "Torch", note: "", get: |w| w.resource::<Torch>().0, set: |w, on| w.resource_mut::<Torch>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "fsr", group: "Test", label: "FSR", note: "", switches: "", get: |w| w.resource::<Fsr>().0, set: |w, on| w.resource_mut::<Fsr>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "torch", group: "Test", label: "Torch", note: "", switches: "", get: |w| w.resource::<Torch>().0, set: |w, on| w.resource_mut::<Torch>().0 = on, slider: None });
         crate::settings::set_disabled_status(&mut app, "aa", |w| w.resource::<Fsr>().0.then_some("Off (FSR active)"));
         app.init_resource::<PauseView>();
         {
@@ -4772,7 +6227,7 @@ mod tests {
         app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>().init_resource::<SearchKeys>();
         app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
         for (key, group) in rows {
-            add_setting(&mut app, Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+            add_setting(&mut app, Setting { key, group, label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         }
         app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: None });
         let god = RowId::Setting(rows.iter().position(|r| r.0 == "god-mode").unwrap());
@@ -4863,7 +6318,7 @@ mod tests {
         let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
         app.world_mut().resource_mut::<SearchKeys>().0 = vec![SearchKey::Text("n".into())];
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyN);
-        let settings = entries(false).iter().position(|e| *e == Entry::Settings).unwrap();
+        let settings = entries(false, false).iter().position(|e| *e == Entry::Settings).unwrap();
         app.world_mut().spawn((Button, PauseButton::Column(settings), PointerState::Pressed));
         app.update();
         assert_eq!(*app.world().resource::<Page>(), Page::Main);
@@ -4948,7 +6403,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&path, "[Settings]\ngrass=0\n").unwrap();
-        let mut store = SettingsTabStore { path: Some(path.clone()), tab: None };
+        let mut store = SettingsTabStore { path: Some(path.clone()), tab: None, folding: None };
         store.keep("Graphics");
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("grass=0") && text.contains("[UI]") && text.contains("SettingsTab=Graphics"), "{text}");
@@ -4967,7 +6422,7 @@ mod tests {
         for (kept, shown) in [("Graphics", "Graphics"), ("Nope", "Gameplay")] {
             let mut app = search_app(&rows, "", SettingsFocus::Rows);
             *app.world_mut().resource_mut::<Page>() = Page::Main;
-            app.insert_resource(PauseView::default()).insert_resource(SettingsTabStore { path: None, tab: Some(kept.into()) });
+            app.insert_resource(PauseView::default()).insert_resource(SettingsTabStore { path: None, tab: Some(kept.into()), folding: None });
             app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "settings".into())];
             app.update();
             assert_eq!(app.world().resource::<PauseView>().scope, SettingsScope::Tab(shown), "{kept}");
@@ -4980,10 +6435,16 @@ mod tests {
         app.world_mut().resource_mut::<PauseView>().rail_hover = Some(RailItem::Tab("Debug"));
         app.update();
         let world = app.world_mut();
-        let looks: Vec<(PauseButton, Color, Color)> = world.query::<(&PauseButton, &BorderColor, &BackgroundColor)>().iter(world).map(|(b, l, f)| (*b, l.top, f.0)).collect();
-        let look = |item| looks.iter().find(|(b, ..)| *b == PauseButton::Rail(item)).map(|(_, l, f)| (*l != Color::NONE, *f != Color::NONE)).unwrap();
-        assert_eq!(look(RailItem::Tab("Debug")), (true, false), "the line, not filled");
-        assert_eq!(look(RailItem::Tab("Audio")), (false, false), "another tab: no box");
+        // The box is the line's child, hugging its words (the menu overhaul).
+        let look = |world: &mut World, item| {
+            let kids: Vec<Entity> = world.query::<(&PauseButton, &Children)>().iter(world).find(|(b, _)| **b == PauseButton::Rail(item)).map(|(_, c)| c.to_vec()).unwrap();
+            // Its line (`crate::menu_shapes::LineBox`) in a frame with its glow.
+            let below: Vec<Entity> = kids.iter().flat_map(|k| std::iter::once(*k).chain(world.get::<Children>(*k).map(|c| c.to_vec()).unwrap_or_default())).collect();
+            let mut boxes = world.query_filtered::<(&BorderColor, &BackgroundColor), With<crate::menu_shapes::LineBox>>();
+            below.iter().find_map(|e| boxes.get(world, *e).ok().map(|(l, f)| (l.top != Color::NONE, f.0 != Color::NONE))).unwrap_or((false, false))
+        };
+        assert_eq!(look(world, RailItem::Tab("Debug")), (true, false), "the line, not filled");
+        assert_eq!(look(world, RailItem::Tab("Audio")), (false, false), "another tab: no box");
         let texts: Vec<(String, Color)> = world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect();
         assert!(texts.contains(&("Debug".to_string(), color(Shade::Bright))), "{texts:?}");
         assert!(texts.contains(&("Audio".to_string(), color(Shade::Dim))));
@@ -4991,8 +6452,7 @@ mod tests {
         world.resource_mut::<PauseView>().focus = SettingsFocus::Rail(RailItem::Tab("Debug"));
         app.update();
         let world = app.world_mut();
-        let debug = world.query::<(&PauseButton, &BorderColor, &BackgroundColor)>().iter(world).find(|(b, ..)| **b == PauseButton::Rail(RailItem::Tab("Debug"))).map(|(_, l, f)| (l.top != Color::NONE, f.0 != Color::NONE)).unwrap();
-        assert_eq!(debug, (true, true));
+        assert_eq!(look(world, RailItem::Tab("Debug")), (true, true));
     }
 
     #[test]
@@ -5019,7 +6479,7 @@ mod tests {
 
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
-        let labels = |mods| entries(mods).iter().map(|e| e.label()).collect::<Vec<_>>();
+        let labels = |mods| entries(mods, false).iter().map(|e| e.label()).collect::<Vec<_>>();
         assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Quit"]);
         assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Photo Mode", "Settings", "Mods", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
@@ -5050,36 +6510,187 @@ mod tests {
         assert_eq!(step_row(0, 1, 0), 0);
     }
 
+    /// #2377: the Controls tab's own notes, on either device and while a control waits for its
+    /// key, are within the notes' budget (`crate::settings::note_over_budget`), and a row
+    /// standing for many names three of them.
+    #[test]
+    fn the_controls_notes_are_within_the_budget() {
+        use crate::bindings::{InputDevice, GAME_CONTROLS};
+        assert_eq!(crate::settings::note_over_budget(AUTOMATIC_INPUT_NOTE), None);
+        for controller in [false, true] {
+            for device in [InputDevice::KeyboardMouse, InputDevice::Controller] {
+                let mut rows = vec![ControlRow::Device, ControlRow::AutomaticInput, ControlRow::Invert, ControlRow::Sensitivity(device), ControlRow::Vertical(device), ControlRow::AimSensitivity(device), ControlRow::Rumble];
+                rows.extend(GAME_CONTROLS.iter().map(|(c, _, _)| ControlRow::Binding(*c, device)));
+                for listening in [None, Some(GAME_CONTROLS[0].0)] {
+                    let d = Drawn { device: ("", controller), listening, ..default() };
+                    for c in &rows {
+                        let note = row_note(&[], RowId::Control(*c), &d);
+                        assert!(!note.is_empty(), "{c:?}");
+                        assert_eq!(crate::settings::note_over_budget(&note), None, "{c:?} ({controller}): {note}");
+                    }
+                }
+            }
+        }
+        let id = RowId::Control(ControlRow::Rumble);
+        let names: Vec<String> = ["A", "B", "C", "D", "E"].map(String::from).to_vec();
+        let d = Drawn { stand_ins: vec![(id, names)], ..default() };
+        assert!(note_of(&[], id, &d).starts_with("Stands for: A, B, C and 2 more. "), "{}", note_of(&[], id, &d));
+    }
+
+    /// #2731: a row's note gives other words while its `set_note_now` function says something.
+    #[test]
+    fn a_note_now_stands_in_for_the_rows_own() {
+        let row = Setting { key: "frames", group: "Graphics", label: "Frames", note: "The row's own note.", switches: "", get: |_| false, set: |_, _| {}, slider: None };
+        let d = Drawn::default();
+        assert_eq!(row_note(&[row], RowId::Setting(0), &d), "The row's own note.");
+        let d = Drawn { notes: vec![Some("Words for now.".to_string())], ..default() };
+        assert_eq!(row_note(&[row], RowId::Setting(0), &d), "Words for now.");
+        let d = Drawn { notes: vec![None], ..default() };
+        assert_eq!(row_note(&[row], RowId::Setting(0), &d), "The row's own note.");
+        // Through the registry.
+        let mut app = App::new();
+        crate::settings::add_setting(&mut app, row);
+        crate::settings::set_note_now(&mut app, "frames", |_| Some("Words for now.".to_string()));
+        let settings = app.world().resource::<Settings>();
+        assert_eq!(settings.note_now(app.world(), 0).as_deref(), Some("Words for now."));
+        assert_eq!(settings.note_now(app.world(), 1), None, "no such row");
+    }
+
+    /// #2377: a note line wider than the page (a word longer than the line, which wrapping
+    /// leaves whole) is cut to the page's width with the mark.
+    #[test]
+    fn a_note_wider_than_the_page_is_cut() {
+        let font = Faces::plain().small.font;
+        let width = 300.0;
+        let note = format!("Short words then {} and more words after it.", "x".repeat(80));
+        let lines = note_wrapped(&font, &note, width);
+        assert!(lines.len() >= 2 && lines.iter().all(|l| l.width <= width), "{:?}", lines.iter().map(|l| l.width).collect::<Vec<_>>());
+        assert!(lines.iter().any(|l| l.text().ends_with(CUT_MARK)));
+        assert_eq!(note_wrapped(&font, "Two short words.", width).len(), 1);
+    }
+
+    /// #2377: text cut to fit is cut at its measured width, with the mark, never into
+    /// nothing while the mark fits; text that fits is left whole.
+    #[test]
+    fn text_that_does_not_fit_is_cut_with_a_mark() {
+        let chars = |t: &str| t.chars().count() as f32;
+        assert_eq!(fit_text(chars, "Bloom", 5.0), "Bloom");
+        assert_eq!(fit_text(chars, "Anisotropic", 6.0), "Ani...");
+        assert_eq!(fit_text(chars, "ab cdef", 5.0), "ab...", "no space before the mark");
+        assert_eq!(fit_text(chars, "Größenänderung", 7.0), "Größ...", "by characters, not bytes");
+        assert_eq!(fit_text(chars, "Anisotropic", 3.0), "...");
+        assert_eq!(fit_text(chars, "Anisotropic", 2.0), "");
+        assert_eq!(fit_text(chars, "", 0.0), "");
+        let wide = |t: &str| t.chars().map(|c| if c == 'W' { 3.0 } else { 1.0 }).sum::<f32>();
+        assert_eq!(fit_text(wide, "WWWW", 7.0), "W...", "measured, not counted");
+    }
+
+    /// #2377: no text runs into its neighbour: at every view width and rail, for every kind
+    /// of value and long words, the label ends LABEL_GAP before the value, the value stays in
+    /// its row, words drawn stay in their room, a slider's meter and arrows keep their order;
+    /// a row of the width before #2377 draws a usual value where it did.
+    #[test]
+    fn a_rows_label_and_value_never_overlap() {
+        let font = Faces::plain().entry.font;
+        let width = |t: &str| font.width(t);
+        let long = "An extremely long translated label that cannot fit in any settings row at all";
+        let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%", "Right Bracket, Middle Mouse", "Left Shift, Right Bracket, Middle Mouse, Mouse Wheel Down"];
+        for view_w in VIEW_WIDTHS {
+            for tabs_w in [SUB_WIDTH, 220.0] {
+                let lb = ListBox::of(view_w, tabs_w);
+                let x = lb.row();
+                for value in values {
+                    let vw = width(value);
+                    for kind in [ValueKind::Centred(vw), ValueKind::Slider(vw), ValueKind::List(vw), ValueKind::Binding(vw)] {
+                        let p = row_parts(x, kind);
+                        let at = format!("{view_w}/{tabs_w} {kind:?} {value:?}");
+                        assert!(p.label_room() >= LABEL_MIN.min(x.value_left() - 10.0 - LABEL_GAP) - 0.01, "{at}: label room {}", p.label_room());
+                        assert!(p.label.1 + LABEL_GAP <= p.value.0 + 0.01, "{at}: label to {}, value from {}", p.label.1, p.value.0);
+                        assert!(p.value.1 <= lb.width + 0.01 && p.text.0 >= p.value.0 - 0.01 && p.text.1 <= p.value.1 + 0.01, "{at}: {p:?}");
+                        let (l, v) = fit_row(width, &p, long, value);
+                        assert!(width(&l) <= p.label_room() + 0.01 && p.label.0 + width(&l) + LABEL_GAP <= p.value.0 + 0.01, "{at}: label {l:?}");
+                        let tx = p.text_x(width(&v));
+                        assert!(width(&v) <= p.text_room() + 0.01 && tx >= p.text.0 - 0.01 && tx + width(&v) <= p.text.1 + 0.01 && tx + width(&v) <= lb.width, "{at}: value {v:?} at {tx}");
+                        if let ValueKind::Slider(_) = kind {
+                            let (ml, mw) = p.meter;
+                            // ◀ meter ▶, then the number (the owner's third test).
+                            assert!(p.value.0 + METER_ARROW.x <= ml && ml + mw <= p.right_arrow && p.right_arrow + METER_ARROW.x <= p.text.0 && p.text.1 <= p.value.1 && mw >= METER_MIN, "{at}: {p:?}");
+                        }
+                    }
+                }
+            }
+        }
+        // A row 820 wide, as before #2377: usual values where they were.
+        let x = RowX(ROW_BASE);
+        assert_eq!(row_parts(x, ValueKind::Centred(34.0)).text_x(34.0), VALUE_AT - 17.0);
+        let p = row_parts(x, ValueKind::Slider(51.0));
+        assert_eq!((p.text_x(51.0), p.right_arrow, p.meter), (LIST_LEFT + LIST_WIDTH - VALUE_PAD - 51.0, METER_ARROWS[1], (METER_LEFT, METER_WIDTH)), "the number right-aligned at the cell's end, after the right arrow");
+        assert_eq!(METER_ARROWS[1], METER_LEFT + METER_WIDTH + METER_GAP, "the right arrow just after the meter");
+        assert!(p.text.0 >= METER_ARROWS[1] + METER_ARROW.x + READOUT_GAP - 0.01 && READOUT_W >= 96.0);
+        // The value cell: a list's words, a switch's state and a binding share one centre;
+        // a slider's number ends where the list's words may.
+        assert_eq!(row_parts(x, ValueKind::List(100.0)).centre, row_parts(x, ValueKind::Centred(100.0)).centre);
+        assert_eq!(p.text.1, LIST_LEFT + LIST_WIDTH - VALUE_PAD);
+        assert_eq!(row_parts(x, ValueKind::List(100.0)).text_x(100.0), LIST_LEFT + (LIST_WIDTH - 30.0 - 100.0) / 2.0);
+        assert_eq!(row_parts(x, ValueKind::Binding(60.0)).text.0, VALUE_AT - 30.0);
+        assert_eq!(row_parts(x, ValueKind::Centred(34.0)).label, (10.0, LIST_LEFT - LABEL_GAP));
+        // Wide words: a slider's meter gives room ("Performance" at 17 units a letter), a
+        // reason takes room from the label, both within their row.
+        let p = row_parts(x, ValueKind::Slider(187.0));
+        assert!(p.meter.1 < METER_WIDTH && p.text_room() >= 187.0, "{p:?}");
+        let p = row_parts(x, ValueKind::Centred(500.0));
+        assert!(p.value.0 < LIST_LEFT && p.label_room() >= LABEL_MIN && p.text_room() >= 500.0, "{p:?}");
+    }
+
     #[test]
     fn the_window_moves_only_as_far_as_keeps_the_choice_in_view() {
         // A list of rows without headings (the Controls tab's): as before #1953.
         let e: Vec<ViewEntry> = (0..20).map(|i| ViewEntry::Row(RowId::Setting(i))).collect();
-        let follow = |first, sel| crate::settings_view::follow(&e, first, Some(sel));
-        // Down past the window's foot: it moves one row; back up inside it: it stays.
-        assert_eq!(follow(0, 8), 0);
-        assert_eq!(follow(0, 9), 1);
-        assert_eq!(follow(1, 5), 1);
-        assert_eq!(follow(5, 2), 2);
-        // Never past the last full window, nor anywhere when all rows fit.
-        assert_eq!(follow(15, 19), 11);
-        assert_eq!(crate::settings_view::follow(&e[..6], 3, Some(2)), 0);
+        for lines in [9, window_lines()] {
+            let follow = |first, sel| crate::settings_view::follow(&e, first, Some(sel), lines);
+            // Down past the window's foot: it moves one row; back up inside it: it stays.
+            assert_eq!(follow(0, lines - 1), 0);
+            assert_eq!(follow(0, lines), 1);
+            assert_eq!(follow(1, 5), 1);
+            assert_eq!(follow(5, 2), 2);
+            // Never past the last full window, nor anywhere when all rows fit.
+            assert_eq!(follow(15, 19), 20 - lines);
+            assert_eq!(crate::settings_view::follow(&e[..6], 3, Some(2), lines), 0);
+        }
     }
 
     #[test]
     fn the_scroll_bar_shows_only_when_rows_are_hidden_and_its_marker_follows_the_list() {
-        let w = SETTINGS_WINDOW;
-        assert_eq!(w.marker(9, 0), None);
-        assert_eq!(w.marker(4, 0), None);
-        let (top, h) = w.marker(30, 0).unwrap();
-        assert_eq!(top, 0.0);
-        assert!((h - w.track() * 9.0 / 30.0).abs() < 1e-3);
-        let (end, _) = w.marker(30, 21).unwrap();
-        assert!((end + h - w.track()).abs() < 1e-3);
-        // A press at the track's ends scrolls to the list's ends, its middle halfway.
-        assert_eq!(w.first_at(30, 0.0), 0);
-        assert_eq!(w.first_at(30, 1.0), 21);
-        assert_eq!(w.first_at(30, 0.5), 11);
-        assert_eq!(w.first_at(5, 0.7), 0);
+        for lines in [9, window_lines()] {
+            let w = settings_window(lines);
+            assert_eq!(w.marker(lines, 0), None);
+            assert_eq!(w.marker(4, 0), None);
+            let (top, h) = w.marker(30, 0).unwrap();
+            assert_eq!(top, 0.0);
+            assert!((h - w.track() * lines as f32 / 30.0).abs() < 1e-3);
+            let last = 30 - lines;
+            let (end, _) = w.marker(30, last).unwrap();
+            assert!((end + h - w.track()).abs() < 1e-3);
+            // A press at the track's ends scrolls to the list's ends, its middle halfway.
+            assert_eq!(w.first_at(30, 0.0), 0);
+            assert_eq!(w.first_at(30, 1.0), last);
+            assert_eq!(w.first_at(30, 0.5), (last as f32 / 2.0).round() as usize);
+            assert_eq!(w.first_at(5, 0.7), 0);
+        }
+        // A window of a line or two: the track is shorter than the marker's least height
+        // (or none); the marker fills it and a press still picks a place in the list.
+        for lines in [1, 2] {
+            let w = settings_window(lines);
+            let (top, h) = w.marker(30, 10).unwrap();
+            assert!(h > 0.0 && top >= 0.0 && top + h <= w.track() + 1e-3, "{lines}: {top} {h} in {}", w.track());
+            if lines == 1 {
+                assert!(top == 0.0 && (h - w.track()).abs() < 1e-3, "one line: a 20-unit track, the marker fills it");
+            }
+            assert_eq!(w.first_at(30, 0.0), 0);
+            assert_eq!(w.first_at(30, 1.0), 30 - lines);
+            assert!(w.first_at(30, 0.5) <= 30 - lines);
+        }
+        assert_eq!(settings_window(0).shown, 1, "never a window of no lines");
         // The load page's bar shows past eight saves and reaches the last eight.
         assert_eq!(LOAD_WINDOW.marker(8, 0), None);
         assert!(LOAD_WINDOW.marker(21, 0).is_some());
@@ -5091,7 +6702,8 @@ mod tests {
         // Rows 5-12 shown: a row drawn before the window moved (4 or 13) is not taken.
         assert!(LOAD_WINDOW.holds(5, 5) && LOAD_WINDOW.holds(5, 12));
         assert!(!LOAD_WINDOW.holds(5, 4) && !LOAD_WINDOW.holds(5, 13));
-        assert!(SETTINGS_WINDOW.holds(0, 8) && !SETTINGS_WINDOW.holds(0, 9));
+        let w = settings_window(window_lines());
+        assert!(w.holds(0, w.shown - 1) && !w.holds(0, w.shown));
     }
 
     #[test]
@@ -5123,11 +6735,11 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false).iter().map(|e| (e.label(), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, column: entries(false, false).iter().map(|e| (e.label(), true)).collect(), device: ("Keyboard and Mouse", false), rumble: true, sensitivity: 1.0, view_w: VIEW_W as u32, ..default() };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>, glyphs: Res<crate::pad::PadGlyphs>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list, &glyphs), drawn).unwrap();
         let world = app.world_mut();
-        let mut rows = world.query::<(&PauseButton, &BorderColor)>();
-        let rows: Vec<(PauseButton, bool)> = rows.iter(world).filter(|(b, _)| matches!(b, PauseButton::LoadRow(_))).map(|(b, c)| (*b, c.top != Color::NONE)).collect();
+        let mut rows = world.query::<(&PauseButton, &Boxed)>();
+        let rows: Vec<(PauseButton, bool)> = rows.iter(world).filter(|(b, _)| matches!(b, PauseButton::LoadRow(_))).map(|(b, c)| (*b, c.0)).collect();
         assert_eq!(rows.len(), 2);
         // The chosen row has the box round it, and only it.
         assert!(rows.contains(&(PauseButton::LoadRow(1), true)) && rows.contains(&(PauseButton::LoadRow(0), false)));
@@ -5138,8 +6750,8 @@ mod tests {
         let mut details = world.query_filtered::<&Text, With<DetailLine>>();
         let details: Vec<String> = details.iter(world).map(|t| t.0.clone()).collect();
         assert!(details.iter().any(|t| t == "Courier, level 1"), "{details:?}");
-        // The stand-in font sets no spaces.
-        assert!(all.iter().any(|t| t.0 == "Nopicture"), "{all:?}");
+        // The stand-in font keeps the spaces between words (#2298).
+        assert!(all.iter().any(|t| t.0 == "No picture"), "{all:?}");
     }
 
     #[derive(Resource, Default)]
@@ -5149,7 +6761,7 @@ mod tests {
     fn the_settings_page_shows_each_switch_as_the_game_has_it() {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(Page::Settings { selected: Some(RowId::Setting(0)) });
-        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
         app.add_systems(Update, draw);
@@ -5159,9 +6771,9 @@ mod tests {
             let mut q = world.query::<(&SwitchState, &Text)>();
             q.single(world).unwrap().1 .0.clone()
         };
-        assert_eq!(state(&mut app), "OFF");
+        assert_eq!(state(&mut app), "Off");
         crate::settings::flip(app.world_mut(), 0);
-        assert_eq!(state(&mut app), "ON");
+        assert_eq!(state(&mut app), "On");
         // Defaults go back to the state the page was first shown with.
         assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![0.0]));
         let world = app.world_mut();
@@ -5224,9 +6836,58 @@ mod tests {
         crate::settings::step_slider(app.world_mut(), 0, -2);
         assert_eq!(shown(&mut app), "40%");
         assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![0.5]));
-        assert_eq!(meter_ticks(1.0), 30);
-        assert_eq!(meter_ticks(0.5), 15);
-        assert_eq!(meter_ticks(0.0), 0);
+        assert_eq!(meter_ticks(1.0, METER_WIDTH), 33);
+        assert_eq!(meter_ticks(0.5, METER_WIDTH), 17);
+        assert_eq!(meter_ticks(0.0, METER_WIDTH), 0);
+    }
+
+    /// The owner's third test (2026-11-15): a chosen row's border moved its children 2 units.
+    /// The highlight box is drawn under the children of a node that is on, taking no room;
+    /// a node that is off gets nothing.
+    #[test]
+    fn the_highlight_box_goes_under_the_children_and_moves_nothing() {
+        let mut app = App::new();
+        app.add_observer(draw_boxed);
+        let world = app.world_mut();
+        let on = world.spawn(boxed(at(0.0, 0.0, 100.0, 52.0), true)).with_children(|c| {
+            c.spawn(at(10.0, 0.0, 50.0, 52.0));
+        }).id();
+        let off = world.spawn(boxed(at(0.0, 60.0, 100.0, 52.0), false)).with_children(|c| {
+            c.spawn(at(10.0, 0.0, 50.0, 52.0));
+        }).id();
+        app.update();
+        let world = app.world();
+        let kids = world.get::<Children>(on).unwrap().to_vec();
+        assert_eq!(kids.len(), 2, "the frame and the row's own child");
+        let frame = world.get::<Children>(kids[0]).unwrap();
+        assert!(frame.iter().any(|e| world.get::<crate::menu_shapes::LineBox>(e).is_some()), "the box first, under the child");
+        assert!(frame.iter().filter(|e| world.get::<crate::menu_shapes::GlowRing>(*e).is_some()).count() >= 2, "with its glow");
+        assert_eq!(world.get::<Node>(on).unwrap().border, UiRect::default(), "no border: the children keep their places");
+        assert_eq!(world.get::<Children>(off).unwrap().len(), 1);
+    }
+
+    /// The owner's second test (2026-11-15): "100%" was cut to "10..." in the sharp letters.
+    /// In them a slider's number fits its lane with room to spare, a list's longest usual
+    /// words their box, and the cut never takes words exactly as wide as their room.
+    #[test]
+    fn the_sharp_letters_fit_the_value_cell() {
+        let m = crate::vector_font::metrics().expect("the menus' font reads");
+        let faces = Faces::plain().sharp(m, Handle::default());
+        let width = |t: &str| faces.entry.font.width(t);
+        for words in ["100%", "200%", "1000%", "Unlimited"] {
+            assert!(width(words) <= READOUT_W * 0.9 || words == "Unlimited", "{words}: {}", width(words));
+            let p = row_parts(RowX(ROW_BASE), ValueKind::Slider(width(words)));
+            assert_eq!(fit_text(width, words, p.text_room()), words);
+        }
+        for words in ["Performance", "Ultra Performance", "Very High", "Borderless"] {
+            let p = row_parts(RowX(ROW_BASE), ValueKind::List(width(words)));
+            assert_eq!(fit_text(width, words, p.text_room()), words, "{words}");
+        }
+        assert_eq!(fit_text(|_| 80.0, "exact", 80.0 - 1e-4), "exact");
+        // The titles bold, the rows regular, the small print smaller.
+        let (e, t, s) = (faces.entry.vector.unwrap(), faces.title.vector.unwrap(), faces.small.vector.unwrap());
+        assert_eq!((e.weight, t.weight, s.weight), (crate::vector_font::REGULAR, crate::vector_font::BOLD, crate::vector_font::REGULAR));
+        assert!(s.em < e.em && e.em == t.em);
     }
 
     #[test]
@@ -5261,14 +6922,18 @@ mod tests {
         assert_eq!(value_of(&mut app, is_jump).as_deref(), Some("Y"));
         assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(control(ControlRow::Binding(Control::Jump, InputDevice::Controller))) });
         let choose_row = |app: &mut App, c: ControlRow| *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: Some(RowId::Control(c)) };
+        choose_row(&mut app, ControlRow::AutomaticInput);
+        assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::AutomaticInput)).as_deref(), Some("On"));
+        crate::bindings::set_automatic_input_switching(app.world_mut(), false);
+        assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::AutomaticInput)).as_deref(), Some("Off"));
         choose_row(&mut app, ControlRow::Device);
         assert_eq!(value_of(&mut app, |r| *r == RowId::Control(ControlRow::Device)).as_deref(), Some("Controller"));
         // With a controller Rumble comes after the sensitivity, on by default.
         let is_rumble = |r: &RowId| *r == RowId::Control(ControlRow::Rumble);
         choose_row(&mut app, ControlRow::Rumble);
-        assert_eq!(value_of(&mut app, is_rumble).as_deref(), Some("ON"));
+        assert_eq!(value_of(&mut app, is_rumble).as_deref(), Some("On"));
         crate::bindings::set_rumble(app.world_mut(), false);
-        assert_eq!(value_of(&mut app, is_rumble).as_deref(), Some("OFF"));
+        assert_eq!(value_of(&mut app, is_rumble).as_deref(), Some("Off"));
         crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
         assert_eq!(value_of(&mut app, is_rumble), None, "no Rumble row with keyboard and mouse");
         assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(control(ControlRow::Device)) }, "its choice goes to the Input Device row");
@@ -5287,10 +6952,198 @@ mod tests {
         let mouse = control(ControlRow::Sensitivity(InputDevice::KeyboardMouse));
         let buttons: Vec<PauseButton> = app.world_mut().query::<&PauseButton>().iter(app.world()).copied().collect();
         assert!(buttons.contains(&PauseButton::Meter(mouse)) && buttons.contains(&PauseButton::SliderStep(mouse, 1)), "a meter with arrows: {buttons:?}");
+        // Aim Sensitivity, the unzoomed look's at first, a meter too, each device's own.
+        let is_aim = |r: &RowId| matches!(r, RowId::Control(ControlRow::AimSensitivity(_)));
+        choose_row(&mut app, ControlRow::AimSensitivity(InputDevice::KeyboardMouse));
+        assert_eq!(value_of(&mut app, is_aim).as_deref(), Some("100%"));
+        crate::bindings::set_aim_sensitivity(app.world_mut(), 0.5);
+        assert_eq!(value_of(&mut app, is_aim).as_deref(), Some("50%"));
+        let aim = control(ControlRow::AimSensitivity(InputDevice::KeyboardMouse));
+        let buttons: Vec<PauseButton> = app.world_mut().query::<&PauseButton>().iter(app.world()).copied().collect();
+        assert!(buttons.contains(&PauseButton::Meter(aim)) && buttons.contains(&PauseButton::SliderStep(aim, -1)), "a meter with arrows: {buttons:?}");
+        crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+        assert_eq!(value_of(&mut app, is_aim).as_deref(), Some("100%"), "the stick's own");
+        crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+        assert_eq!(value_of(&mut app, is_aim).as_deref(), Some("50%"), "the mouse's kept");
         let is_invert = |r: &RowId| *r == RowId::Control(ControlRow::Invert);
         choose_row(&mut app, ControlRow::Invert);
-        assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("OFF"));
+        assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("Off"));
         crate::bindings::set_invert_y(app.world_mut(), true);
-        assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("ON"));
+        assert_eq!(value_of(&mut app, is_invert).as_deref(), Some("On"));
+    }
+
+    #[derive(Resource)]
+    struct ListSize(String);
+
+    /// 1920x1080 out of reach while this is false.
+    #[derive(Resource)]
+    struct ListBig(bool);
+
+    /// A settings page with one list row, its choices shown by words, 1920x1080 out of
+    /// reach; the page's input and its drawing both run.
+    fn reach_app() -> App {
+        const NAMES: [&str; 3] = ["800x600", "1280x800", "1920x1080"];
+        let mut app = App::new();
+        app.insert_resource(ListSize("1280x800".into())).insert_resource(ListBig(false));
+        app.init_resource::<Time>().init_resource::<PlayClock>().init_resource::<PauseAid>();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        app.insert_resource(NextState::<PlayState>::default()).init_resource::<PageRequest>().init_resource::<Listening>().init_resource::<SettingsLayout>().init_resource::<crate::graphics_resume::GraphicsResume>();
+        app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>();
+        app.init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
+        app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
+        let row = Setting { key: "size", group: "Test", label: "Size", note: "How big.", switches: "", get: |_| false, set: |_, _| {}, slider: None };
+        let list = crate::settings::ChoiceList {
+            names: |_| NAMES.map(String::from).to_vec(),
+            chosen: |w| w.resource::<ListSize>().0.clone(),
+            pick: |w, n| {
+                let ok = NAMES.contains(&n);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = n.to_string();
+                }
+                ok
+            },
+            save: |w| w.resource::<ListSize>().0.clone(),
+            load: |w, t| {
+                let ok = NAMES.contains(&t);
+                if ok {
+                    w.resource_mut::<ListSize>().0 = t.to_string();
+                }
+                ok
+            },
+            ask_keep: false,
+        };
+        crate::settings::add_choice_list(&mut app, row, list);
+        crate::settings::set_choice_labels(&mut app, "size", |_, n| ["Small", "Medium", "Large"][NAMES.iter().position(|x| *x == n).unwrap_or(0)].to_string());
+        crate::settings::set_choice_unavailable(&mut app, "size", |w, n| (n == "1920x1080" && !w.resource::<ListBig>().0).then(|| "Needs a bigger monitor".to_string()));
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: Some(RowId::Setting(0)) }).init_resource::<PauseView>();
+        app.add_systems(Update, (choose, draw).chain());
+        app
+    }
+
+    /// The owner's fifth build: Enter on the Tweaks tab's Category row opens the list of its
+    /// groups, which stays open over the page drawn (the Category row's list is no list row:
+    /// [`GROUP_LIST`]), and a choice there shows that group.
+    #[test]
+    fn the_category_rows_list_opens_stays_open_and_takes_a_group() {
+        let mut app = App::new();
+        app.init_resource::<Lamp>().init_resource::<Time>().init_resource::<PlayClock>().init_resource::<PauseAid>();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        app.insert_resource(NextState::<PlayState>::default()).init_resource::<PageRequest>().init_resource::<Listening>().init_resource::<SettingsLayout>().init_resource::<crate::graphics_resume::GraphicsResume>();
+        app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>();
+        app.init_resource::<crate::pad::PadGlyphs>().insert_resource(PauseLook::plain());
+        app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
+        // A tweak of the Gameplay group and one of Combat (`settings_layout::SECTIONS`).
+        for key in ["tweak-free-wild-wasteland", "tweak-no-combat-music"] {
+            add_setting(&mut app, Setting { key, group: "Tweaks", label: key, note: "", switches: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+        }
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: Some(RowId::Group) });
+        app.insert_resource(PauseView { scope: SettingsScope::Tab("Tweaks"), ..default() });
+        app.add_systems(Update, (choose, draw).chain());
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().drawn.as_ref().and_then(|d| d.group), Some("Gameplay"));
+        // Enter: the list open on the group shown, and still open once the page is drawn.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        let open = app.world().resource::<PauseView>().dropdown;
+        assert_eq!(open.map(|o| (o.row, o.at)), Some((GROUP_LIST, 0)));
+        assert_eq!(app.world().resource::<PauseView>().drawn.as_ref().and_then(|d| d.dropdown), open, "drawn open");
+        let choices = |app: &mut App| app.world_mut().query::<&PauseButton>().iter(app.world()).filter(|b| matches!(b, PauseButton::Choice(GROUP_LIST, _))).count();
+        assert_eq!(choices(&mut app), 2, "both groups listed");
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.update();
+        assert!(app.world().resource::<PauseView>().dropdown.is_some(), "still open a frame later");
+        // Down and Enter: Combat shown, the list closed, the Category row still chosen.
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.folding.group.as_deref(), view.dropdown), (Some("Combat"), None));
+        assert_eq!(view.drawn.as_ref().and_then(|d| d.group), Some("Combat"));
+        assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(RowId::Group) });
+    }
+
+    fn texts(app: &mut App) -> Vec<(String, Color)> {
+        let world = app.world_mut();
+        world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect()
+    }
+
+    fn note(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query_filtered::<&Text, With<SwitchNote>>().single(world).unwrap().0.clone()
+    }
+
+    fn row_state(app: &mut App) -> String {
+        let world = app.world_mut();
+        world.query::<(&SwitchState, &Text)>().single(world).unwrap().1.0.clone()
+    }
+
+    #[test]
+    fn a_choice_out_of_reach_is_drawn_dim_gives_its_reason_and_is_not_taken_by_any_input() {
+        let mut app = reach_app();
+        app.update();
+        // The box shows the chosen one's words; the state kept as text stays its name.
+        assert_eq!(row_state(&mut app), "1280x800");
+        assert!(texts(&mut app).contains(&("Medium".to_string(), color(Shade::Bright))), "{:?}", texts(&mut app));
+        assert_eq!(note(&mut app), "How big.");
+        // Enter opens the list on the chosen one; Down comes onto the one out of reach:
+        // drawn dim, its reason under the rows.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(1));
+        press_only(&mut app, KeyCode::ArrowDown);
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2));
+        let all = texts(&mut app);
+        assert!(all.contains(&("Large".to_string(), color(Shade::Dim))) && all.contains(&("Small".to_string(), color(Shade::Bright))), "{all:?}");
+        assert_eq!(note(&mut app), "Needs a bigger monitor");
+        // Enter on it: nothing taken, the list stays open on it.
+        press_only(&mut app, KeyCode::Enter);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert_eq!(app.world().resource::<PauseView>().dropdown.map(|o| o.at), Some(2), "still open");
+        // A click on it: the same.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().spawn((Button, PauseButton::Choice(0, 2), PointerState::Pressed));
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        assert!(app.world().resource::<PauseView>().dropdown.is_some(), "still open");
+        // Esc closes it; Right on the row passes over the one out of reach (nothing after
+        // it), Left takes the one before.
+        press_only(&mut app, KeyCode::Escape);
+        app.update();
+        assert!(app.world().resource::<PauseView>().dropdown.is_none());
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowLeft);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "800x600");
+        // Right from there passes over nothing: 1280x800; again: still not 1920x1080.
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        press_only(&mut app, KeyCode::ArrowRight);
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // The settings aid asks for it by name: refused the same way.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1280x800");
+        // In reach again: drawn bright and taken as any other.
+        app.world_mut().resource_mut::<ListBig>().0 = true;
+        app.update();
+        app.world_mut().resource_mut::<PauseAid>().switches = vec![(0.0, "size=1920x1080".into())];
+        app.update();
+        assert_eq!(app.world().resource::<ListSize>().0, "1920x1080");
+        app.update();
+        assert_eq!(row_state(&mut app), "1920x1080");
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Bright))));
+        // Out of reach once chosen (a stored request): the box shows it dim.
+        app.world_mut().resource_mut::<ListBig>().0 = false;
+        app.update();
+        assert!(texts(&mut app).contains(&("Large".to_string(), color(Shade::Dim))));
+        assert_eq!(row_state(&mut app), "1920x1080");
     }
 }

@@ -390,6 +390,8 @@ impl ListMenu {
                 let t = now.traits.get(self.selected).copied();
                 let p = t.and_then(|t| g.data.perks.get(&t));
                 let info = match (t, p) {
+                    // The player's tweak leaves the Ranks line out [design: docs/design/tweaks.md].
+                    (Some(t), Some(p)) if g.tweaks.hide_trait_ranks => trait_info(&chargen::requirement_line(g, t), p.ranks, &p.description).replace(&format!("\nRanks: {}", p.ranks), ""),
                     (Some(t), Some(p)) => trait_info(&chargen::requirement_line(g, t), p.ranks, &p.description),
                     _ => String::new(),
                 };
@@ -645,7 +647,7 @@ mod tests {
 
     fn traits(n: usize) -> ListMenu {
         let list: Vec<FormId> = (1..=n as u32).map(FormId).collect();
-        let sheet = TraitSheet { traits: list, chosen: BTreeSet::new(), max: 2 };
+        let sheet = TraitSheet { traits: list, chosen: BTreeSet::new(), max: 2, free: None };
         ListMenu { code: menus::TRAITS, sheet: Sheet::Traits { now: sheet.clone(), start: sheet, allowed: vec![true; n] }, selected: 0, scroll: 0, hover: None }
     }
 

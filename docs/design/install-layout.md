@@ -16,6 +16,10 @@ The home is beside the original game's own `My Games\FalloutNV` (owner request
 2026-10-16), never inside it. The cache stays in Local AppData [our choice]: it can grow to
 gigabytes and Documents is often synced (OneDrive).
 
+The program folder is written by NVForever only on the player's Download DLSS... in the
+settings: the DLSS folder `<program>\dlss\` (or `NVF_DLSS_DIR`), through a staging folder
+beside it ([dlss-upscaling.md](dlss-upscaling.md), "Download"), never the game's folder.
+
 Never touched at all: the original game's user folder
 `%USERPROFILE%\Documents\My Games\FalloutNV` (its `Fallout.ini`, `FalloutPrefs.ini`,
 `FalloutCustom.ini` and saves) and its plugin list `%LOCALAPPDATA%\FalloutNV\plugins.txt`
@@ -79,7 +83,19 @@ page's Controls tab rebinds a control and writes the section again.
 meter with steps about a tenth apart (`bindings::SENSITIVITY_STEPS`) [design: #1451,
 floor lowered from 25% for 1600 dpi mice in #1632]. A hand-edited value under 5% (or a
 `[Controller]` `Stick Sensitivity` under 0.05) is raised to it when read, not refused;
-values above 300% are kept.
+values above 300% are kept. `Mouse Vertical Sensitivity` (`[Controls]`) and `Stick Vertical
+Sensitivity` (`[Controller]`) are each device's vertical look as a multiple of its
+horizontal, two decimals, 1.00 as the game has it, on the same steps and floor [design:
+#2201]; an INI without them reads 1.00 and gets the lines written. `Mouse Aim Sensitivity` in
+`[Controls]` and `Stick Aim Sensitivity` in `[Controller]` is each device's look while
+aiming down the sights or through a scope as a multiple of its unzoomed look, kept and read
+the same way (1.00 leaves the look as unzoomed) [design: owner 2026-11-15].
+
+[design, #2200; `nvf_play::bindings`] `[Controls]` also keeps `Input Device` as
+`Keyboard and Mouse` or `Controller` and `Automatic Input Switching` as `1` (default)
+or `0`. The Controls tab puts the switch beside Input Device. With it on, fresh use of
+the other device changes and saves Input Device (controller.md ?1); an existing INI
+without the switch keeps its device value and gains `Automatic Input Switching=1`.
 
 What a new game starts with is kept under `[General]`, by the original's own key names so
 a mod's INI lines can be copied in (`nvf_play::game_start`): `sCharGenQuest` is the quest
@@ -93,7 +109,8 @@ SCharGenQuest=001FFFF8
 SIntroMovie=
 ```
 
-Both are read once at start and never written; unattended runs read them only under their
+The launcher's Mods page writes these two lines for the player with one box (launcher.md,
+Mods). Both are read once at start and never written by the game; unattended runs read them only under their
 own `NVFOREVER_HOME`.
 
 These lines go in NVForever's own `NVForever.ini`, not the original's

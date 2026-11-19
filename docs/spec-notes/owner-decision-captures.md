@@ -495,6 +495,20 @@ a picture is [observed].
     procedure 21 (GET_UP) one loop later and then TRAVEL. He got up and chose again.
   - **(b) ResetAI mid-package.** The script package was gone one loop later (his list
     package back). That confirms the wiki's ResetAI note.
+  - **AddScriptPackage and ResetAI in one script run** (2026-11-17, #2865; base game, save
+    `nvftest`, GSVictorRef 0x001073E8 in Goodsprings, VES01aVictorNovacGoHomePackage
+    0x001673D1, whose goal is about 100,000 units off) [observed: `GetCurrentPackage`
+    sampled every 120 loops]. `AddScriptPackage` alone: the script package is his current
+    one in all three samples (GetCurrentAIPackage 14). After `RemoveScriptPackage`: his own
+    package again. `AddScriptPackage` then `ResetAI` in the same script run, as the Novac
+    quest script (SCPT 0x00163C17) has them: his own package in all five samples, from
+    two loops after the call. The pair undoes itself: ResetAI takes the script package
+    off again before the AI has taken it up, as the runtime's `reset_ai` does. At Novac
+    itself (the same save, VCG00 at stage 100 and not running) the script moves him to
+    VES05VictorInNovacMarkerRef and he then holds no package, 4 to 6 units from it, for
+    ten samples over a minute; that fits either reading, the package's goal being where
+    he stands. Not tested: a game with VCG00 still running (`StartQuest VCG00` from the
+    console left it not running).
   - **(c) Asleep.** After 23:00 his package was 0010ABA8 with GetCurrentAIPackage 4
     (SLEEP), so "code 4" is SLEEP. His procedure stayed WANDER (7) and GetSleeping 0 for
     12 samples and the 1,800-loop wait: he never lay down in the gas station. ResetAI

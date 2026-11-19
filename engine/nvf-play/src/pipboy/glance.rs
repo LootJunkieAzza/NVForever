@@ -315,6 +315,7 @@ pub(super) fn setup(app: &mut App) {
             group: crate::pause::GROUP_MENUS,
             label: "Pip-Boy glance",
             note: "On: Pip-Boy Glance (G) raises the arm while you keep moving: a live map and a wrist inventory, no menu, no pause. Left/Right tabs, Up/Down rows, Enter uses, Backspace drops (D-pad, X, Y on a controller).",
+            switches: "",
             get: |w| w.resource::<Glance>().on,
             set: |w, on| w.resource_mut::<Glance>().on = on,
             slider: None,

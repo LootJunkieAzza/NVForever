@@ -2,7 +2,7 @@
 //! order, GetVATSValue answering about the landed shot, the VATS area functions and the
 //! fallbacks. docs/design/vats-mode.md §19, `fnv_game::camera_paths`.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

@@ -21,6 +21,17 @@
 //! whose heights meet the bounds from 64 units under the base to [`TOP_CLEAR`] under the
 //! top [engine choice: a triangle near the top is on the object, not under it]
 //! (docs/spec-notes/navmesh.md §7).
+//!
+//! An obstacle whose placed bounds are wider than an exterior cell ([`MAX_SIDE`]) cuts
+//! nothing [engine choice; observed 2026-11-17: of the 197 come-and-go obstacles of
+//! FalloutNV.esm and its add-ons and the 393 of Tale of Two Wastelands' load order only
+//! the two landing vertibirds of Fallout 3's MQ05, MQ05VertibirdLandREF and
+//! Mq05VertibirdLandREF02 (base MQ05VertibirdLandACT, OBND 12,146 by 12,885), are wider,
+//! the next 4,633 by 2,444 and placed enabled]. Such bounds hold an animated activator's
+//! whole flight, not where it comes to stand: cut, the vertibirds took the Jefferson
+//! Memorial's ground from the Enclave troops they bring and from the player at the
+//! intake pipe (issue #2846) [hypothesis: in the original the troops leave the vertibirds
+//! and fight around the memorial].
 
 use crate::doors::{box_overlaps, Bounds, InPlaceDoor};
 use crate::graph::{NavGraph, Space};
@@ -33,6 +44,10 @@ pub const OBSTACLE_FLAG: &str = "Obstacle";
 
 /// A triangle this near the bounds' top or above is not cut [engine choice].
 pub const TOP_CLEAR: f32 = 32.0;
+
+/// Placed bounds wider than this along x or y (an exterior cell's side, game units) cut
+/// nothing (module notes) [engine choice].
+pub const MAX_SIDE: f32 = 4096.0;
 
 /// How far under the bounds' base a triangle is still cut [engine choice, as a door's
 /// triangles, `crate::doors`].
@@ -59,8 +74,18 @@ impl Obstacle {
         InPlaceDoor { door: self.reference, space: self.space, position: self.position, rotation: self.rotation, scale: self.scale, bounds: self.bounds }
     }
 
-    /// Whether the obstacle cuts triangle `t` (corners).
+    /// Whether its placed bounds are wider than [`MAX_SIDE`] along x or y (the model's
+    /// own axes, scaled): such an obstacle cuts nothing (module notes).
+    pub fn too_wide(&self) -> bool {
+        let (lo, hi) = self.bounds;
+        (0..2).any(|k| (hi[k] - lo[k]) * self.scale > MAX_SIDE)
+    }
+
+    /// Whether the obstacle cuts triangle `t` (corners): never when [`Obstacle::too_wide`].
     pub fn cuts(&self, t: [[f32; 3]; 3]) -> bool {
+        if self.too_wide() {
+            return false;
+        }
         let s = self.shape();
         box_overlaps(s.footprint(), s.z_range(), t, BELOW, TOP_CLEAR)
     }

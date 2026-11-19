@@ -42,6 +42,10 @@ pub enum Format {
     Dxt1,
     Dxt3,
     Dxt5,
+    /// Legacy ATI2: two independent unsigned normalized channels.
+    Bc5U,
+    /// Legacy BC5S: two independent signed normalized channels.
+    Bc5S,
     A8R8G8B8,
     /// 32 bits with red in the low byte (masks 000000ff / 0000ff00 / 00ff0000 / ff000000),
     /// as some mod tools write [observed: the Notice Board mod's noticeboard.dds].
@@ -68,6 +72,8 @@ impl Format {
             Format::Dxt1 => "DXT1",
             Format::Dxt3 => "DXT3",
             Format::Dxt5 => "DXT5",
+            Format::Bc5U => "BC5_UNORM",
+            Format::Bc5S => "BC5_SNORM",
             Format::A8R8G8B8 => "A8R8G8B8",
             Format::A8B8G8R8 => "A8B8G8R8",
             Format::R8G8B8 => "R8G8B8",
@@ -87,7 +93,7 @@ impl Format {
     pub fn block_bytes(self) -> Option<usize> {
         match self {
             Format::Dxt1 => Some(8),
-            Format::Dxt3 | Format::Dxt5 | Format::Bc7 => Some(16),
+            Format::Dxt3 | Format::Dxt5 | Format::Bc7 | Format::Bc5U | Format::Bc5S => Some(16),
             _ => None,
         }
     }
@@ -131,6 +137,8 @@ impl PixelFormat {
                 b"DXT1" => Ok(Format::Dxt1),
                 b"DXT3" => Ok(Format::Dxt3),
                 b"DXT5" => Ok(Format::Dxt5),
+                b"ATI2" => Ok(Format::Bc5U),
+                b"BC5S" => Ok(Format::Bc5S),
                 _ => Err(self.describe()),
             };
         }
@@ -455,6 +463,62 @@ fn alpha_block5(b: &[u8]) -> [u8; 16] {
     std::array::from_fn(|i| pal[((bits >> (3 * i)) & 7) as usize])
 }
 
+/// The normalized values of one BC4 channel (dds-bc5.md). Unlike DXT5 alpha,
+/// interpolate floating-point endpoints rather than rounding the palette to bytes.
+fn bc5_channel(block: &[u8], signed: bool) -> [f32; 16] {
+    let (a, b, six) = if signed {
+        let (a, b) = (block[0] as i8, block[1] as i8);
+        ((f32::from(a) / 127.0).max(-1.0), (f32::from(b) / 127.0).max(-1.0), a > b)
+    } else {
+        (f32::from(block[0]) / 255.0, f32::from(block[1]) / 255.0, block[0] > block[1])
+    };
+    let mut palette = [0.0; 8];
+    palette[0] = a;
+    palette[1] = b;
+    let denominator = if six { 7 } else { 5 };
+    for k in 1..denominator {
+        palette[k + 1] = (a * (denominator - k) as f32 + b * k as f32) / denominator as f32;
+    }
+    if !six {
+        palette[6] = if signed { -1.0 } else { 0.0 };
+        palette[7] = 1.0;
+    }
+    let bits = block[2..8].iter().enumerate().fold(0u64, |bits, (i, &byte)| bits | (u64::from(byte) << (i * 8)));
+    std::array::from_fn(|i| palette[((bits >> (i * 3)) & 7) as usize])
+}
+
+/// Decode one legacy BC5 level to row-major normalized red/green values.
+/// Signed BC5S stays in [-1, 1], unsigned BC5U in [0, 1]. This is data, not a
+/// normal-map conversion: no bias, Z reconstruction, green flip, or color space.
+/// Refuses other formats, invalid dimensions and truncated blocks before allocation.
+pub fn decode_bc5(format: Format, w: u32, h: u32, src: &[u8]) -> Option<Vec<[f32; 2]>> {
+    if !matches!(format, Format::Bc5U | Format::Bc5S)
+        || !(1..=MAX_SIDE).contains(&w) || !(1..=MAX_SIDE).contains(&h)
+        || src.len() < format.level_size(w, h)
+    {
+        return None;
+    }
+    let (w, h) = (w as usize, h as usize);
+    let across = w.div_ceil(4);
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(w.checked_mul(h)?).ok()?;
+    pixels.resize(w * h, [0.0; 2]);
+    for by in 0..h.div_ceil(4) {
+        for bx in 0..across {
+            let block = &src[(by * across + bx) * 16..][..16];
+            let red = bc5_channel(&block[..8], format == Format::Bc5S);
+            let green = bc5_channel(&block[8..], format == Format::Bc5S);
+            for i in 0..16 {
+                let (x, y) = (bx * 4 + i % 4, by * 4 + i / 4);
+                if x < w && y < h {
+                    pixels[y * w + x] = [red[i], green[i]];
+                }
+            }
+        }
+    }
+    Some(pixels)
+}
+
 /// Decode one level of DXT1/3/5 data of `w`×`h` texels to RGBA8 (row-major); `None` for
 /// other formats or data too short.
 pub fn decode_blocks(format: Format, w: u32, h: u32, src: &[u8]) -> Option<Vec<u8>> {
@@ -699,5 +763,93 @@ mod tests {
             let d = build(w, h, mips, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 64);
             let _ = Dds::parse(&d);
         }
+    }
+}
+
+#[cfg(test)]
+mod bc5_tests {
+    use super::*;
+
+    fn dds(fourcc: &[u8; 4], w: u32, h: u32, mips: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; HEADER_LEN];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (offset, value) in [(4, 124), (8, 0x21007), (12, h), (16, w), (28, mips), (76, 32), (80, 4)] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[84..88].copy_from_slice(fourcc);
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    fn close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() <= 2.0e-7, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn legacy_bc5_headers_size_mips_and_dx10_boundary() {
+        for (tag, format) in [(b"BC5S", Format::Bc5S), (b"ATI2", Format::Bc5U)] {
+            let data = dds(tag, 5, 3, 2, &[0; 48]);
+            let parsed = Dds::parse(&data).unwrap();
+            assert_eq!(parsed.format, format);
+            assert_eq!(parsed.levels[0].iter().map(|p| p.len()).collect::<Vec<_>>(), [32, 16]);
+            assert_eq!(parsed.header.level_dims(1), (2, 1));
+            let mut trailing = data.clone(); trailing.extend_from_slice(&[99; 7]);
+            assert_eq!(Dds::parse(&trailing).unwrap().levels, parsed.levels);
+            assert_eq!(Dds::parse(&data[..data.len() - 1]).unwrap_err(), DdsError::SizeMismatch { expected: 48, actual: 47 });
+        }
+        assert!(matches!(Dds::parse(&dds(b"BC5U", 4, 4, 1, &[0; 16])), Err(DdsError::Unsupported(_))));
+        let mut dx10 = dds(b"DX10", 4, 4, 1, &[0; 36]);
+        dx10[128..132].copy_from_slice(&84u32.to_le_bytes());
+        assert!(matches!(Dds::parse(&dx10), Err(DdsError::Unsupported(_))));
+    }
+
+    #[test]
+    fn signed_palettes_are_independent_and_preserve_fractional_values() {
+        // Literal packed indices 0,1,2,3,4,5,6,7 twice, in each channel.
+        let block = [127, 129, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa,
+                     129, 127, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa];
+        let pixels = decode_bc5(Format::Bc5S, 4, 4, &block).unwrap();
+        let red = [1.0, -1.0, 5.0/7.0, 3.0/7.0, 1.0/7.0, -1.0/7.0, -3.0/7.0, -5.0/7.0];
+        let green = [-1.0, 1.0, -0.6, -0.2, 0.2, 0.6, -1.0, 1.0];
+        for i in 0..16 { close(pixels[i][0], red[i % 8]); close(pixels[i][1], green[i % 8]); }
+        assert!(to_rgba8(Format::Bc5S, &block).is_none());
+        assert!(decode_blocks(Format::Bc5S, 4, 4, &block).is_none());
+    }
+
+    #[test]
+    fn signed_minimum_alias_is_clamped_but_comparison_stays_signed() {
+        // -127 > -128 uses six interpolated values, all -1; index7 must not become +1.
+        let block = [129, 128, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     128, 127, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa];
+        let pixels = decode_bc5(Format::Bc5S, 4, 4, &block).unwrap();
+        let green = [-1.0, 1.0, -0.6, -0.2, 0.2, 0.6, -1.0, 1.0];
+        for i in 0..16 { assert_eq!(pixels[i][0], -1.0); close(pixels[i][1], green[i % 8]); }
+        let zero = decode_bc5(Format::Bc5S, 4, 4, &[0; 16]).unwrap();
+        assert!(zero.iter().all(|p| *p == [0.0, 0.0]));
+    }
+
+    #[test]
+    fn unsigned_neighbor_does_not_reinterpret_endpoint_signs() {
+        let block = [255, 0, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa,
+                     0, 255, 0x88, 0xc6, 0xfa, 0x88, 0xc6, 0xfa];
+        let pixels = decode_bc5(Format::Bc5U, 4, 4, &block).unwrap();
+        let red = [1.0, 0.0, 6.0/7.0, 5.0/7.0, 4.0/7.0, 3.0/7.0, 2.0/7.0, 1.0/7.0];
+        let green = [0.0, 1.0, 0.2, 0.4, 0.6, 0.8, 0.0, 1.0];
+        for i in 0..16 { close(pixels[i][0], red[i % 8]); close(pixels[i][1], green[i % 8]); }
+        close(decode_bc5(Format::Bc5S, 4, 4, &block).unwrap()[0][0], -1.0/127.0);
+    }
+
+    #[test]
+    fn partial_edge_blocks_are_cropped_and_bad_sizes_refused() {
+        let mut blocks = [0; 32]; blocks[0] = 129; blocks[8] = 127; blocks[16] = 127;
+        let pixels = decode_bc5(Format::Bc5S, 3, 5, &blocks).unwrap();
+        assert_eq!(pixels.len(), 15);
+        assert!(pixels[..12].iter().all(|p| *p == [-1.0, 1.0]));
+        assert_eq!(&pixels[12..], &[[1.0, 0.0]; 3]);
+        assert!(decode_bc5(Format::Bc5S, 3, 5, &blocks[..31]).is_none());
+        for (w, h) in [(0, 4), (4, 0), (MAX_SIDE + 1, 4), (4, u32::MAX)] {
+            assert!(decode_bc5(Format::Bc5S, w, h, &blocks).is_none());
+        }
+        assert!(decode_bc5(Format::Dxt5, 4, 4, &blocks).is_none());
     }
 }

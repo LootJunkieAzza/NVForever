@@ -22,6 +22,7 @@ impl Plugin for LanguagePlugin {
                 group: "Interface",
                 label: "Language",
                 note: "The language of NVForever's own words (menus, messages). The game's own text is the install's.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,
@@ -40,11 +41,13 @@ fn chosen(_: &World) -> String {
     words::languages().into_iter().find(|(i, _)| *i == id).map_or_else(|| id.to_string(), |(_, name)| name.to_string())
 }
 
-/// By listed name (from the page) or by id (from the INI).
-fn pick(_: &mut World, name: &str) -> bool {
+/// By listed name (from the page) or by id (from the INI). The menus' letters follow
+/// (`crate::pause::MenuFont::drawn_sharp`: the game's font may have none for it).
+fn pick(w: &mut World, name: &str) -> bool {
     let ok = words::set_language(name);
     if ok {
-        info!("language: {}", words::language());
+        info!("language: {}{}", words::language(), if crate::pause::language_fits_raster() { "" } else { " (the game's font has no letters for it: the menus are drawn sharp)" });
+        crate::pause::letters_changed(w);
     }
     ok
 }

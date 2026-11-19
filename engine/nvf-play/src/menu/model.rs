@@ -66,6 +66,9 @@ use fnv_sim::world::{Encumbrance, SimError};
 use fnv_sim::{FormId, Pick, RefTable, World};
 use std::collections::BTreeMap;
 
+mod search;
+pub use search::{SearchError, MAX_SEARCH_CHARS};
+
 /// Rows the inventory (the Pip-Boy's ITEMS list) shows at once; the list scrolls to keep
 /// the selection visible. Its list is 468 high and a row 51 (`pipboy::items`).
 pub const VISIBLE_ROWS: usize = 9;
@@ -114,6 +117,9 @@ pub struct Row {
     pub price: Option<f32>,
     /// Barter: units the other side puts up, listed here until the trade is accepted.
     pub bartered: bool,
+    /// The ammo the player's weapon loads: marked as equipped is (it is not equipped in
+    /// the inventory's sense).
+    pub loaded: bool,
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
@@ -195,7 +201,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, loaded: false, mods: 0, mods_value: 0, folder: Some(f), reference: None, live: false }
     }
 }
 
@@ -289,6 +295,55 @@ fn units_pick(&(_, at, mods): &Units) -> Pick {
     Pick::row(at.map(f32::from_bits), mods)
 }
 
+/// The most of `count` units weighing `weight` each that fit in `room` (at least one, so
+/// the quantity menu still offers a unit).
+pub fn carry_cap(count: i32, weight: f32, room: f32) -> i32 {
+    if weight <= 0.0 {
+        return count;
+    }
+    ((room / weight).floor().max(1.0) as i32).min(count)
+}
+
+/// The order of the player's inventory list under the Pip-Boy's Clicking the Tab Sorts
+/// tweak: by name (as always), by value or by weight, the most first [design:
+/// docs/design/tweaks.md; the readme names no orders].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortBy {
+    #[default]
+    Name,
+    Value,
+    Weight,
+}
+
+impl SortBy {
+    /// The next order a click on the open tab gives.
+    pub fn next(self) -> SortBy {
+        match self {
+            SortBy::Name => SortBy::Value,
+            SortBy::Value => SortBy::Weight,
+            SortBy::Weight => SortBy::Name,
+        }
+    }
+
+    /// The corner line that says the order [design: our own words].
+    pub fn line(self) -> &'static str {
+        match self {
+            SortBy::Name => "Sorted by name",
+            SortBy::Value => "Sorted by value",
+            SortBy::Weight => "Sorted by weight",
+        }
+    }
+
+    /// Sort rows already in name order: stable, so equals keep it.
+    pub fn apply(self, rows: &mut [Row]) {
+        match self {
+            SortBy::Name => {}
+            SortBy::Value => rows.sort_by_key(|r| std::cmp::Reverse(r.value.unwrap_or(0))),
+            SortBy::Weight => rows.sort_by(|a, b| b.weight.unwrap_or(0.0).total_cmp(&a.weight.unwrap_or(0.0))),
+        }
+    }
+}
+
 /// The order rows are listed in: put-up rows first, then by name in byte order, then the
 /// best condition first.
 fn sort_rows(rows: &mut [Row]) {
@@ -339,7 +394,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: extra.mods,
             mods_value: forms.mods_value(item, extra.mods),
             folder: None,
@@ -383,7 +438,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             condition: at,
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
-            bartered: false,
+            bartered: false, loaded: false,
             mods: s.extra.mods,
             mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
@@ -548,6 +603,8 @@ pub enum Command {
     Category(Side, i32),
     /// Show this category in a column (the Pip-Boy's ITEMS tabs).
     SetCategory(Side, Category),
+    /// The order of the player's inventory list (the Clicking the Tab Sorts tweak).
+    SetSort(SortBy),
     /// Container menu: move one unit of the selected stack to the other column (take
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
@@ -556,6 +613,9 @@ pub enum Command {
     Stack,
     /// Container menu: take everything from the container.
     TakeAll,
+    /// Container menu: put everything listed on the player's side in the container, but
+    /// what is worn or a quest's (the Store All tweak [design: docs/design/tweaks.md]).
+    StoreAll,
     /// Barter: make the trade.
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
@@ -725,6 +785,7 @@ impl Trade {
 #[derive(Debug, Clone)]
 pub struct MenuModel {
     pub mode: Mode,
+    search: search::Search,
     /// The column that has the keyboard (always `Player` in the inventory menu).
     pub focus: Side,
     /// Selected row per column, indexed by `Side as usize`.
@@ -744,6 +805,67 @@ pub struct MenuModel {
     pub lists: [Listing; 2],
     /// The category each column shows.
     pub category: [Category; 2],
+    /// The two columns change category together (the Matching Categories tweak, set
+    /// by `crate::tweaks`).
+    pub sync_categories: bool,
+    /// The player cannot offer items in a barter (the No Selling tweak, set by
+    /// `crate::tweaks`).
+    pub no_selling: bool,
+    /// The merchant's buy and sell list holds the player's side too (the Vendors Keep to
+    /// Their Lists tweak, set by `crate::tweaks`).
+    pub vendor_lists_both: bool,
+    /// The Pip-Boy's Misc list leaves quest items out (the tweak, set by `crate::tweaks`).
+    pub hide_misc_quest: bool,
+    /// The order of the player's inventory list ([`SortBy`]; the Pip-Boy's Clicking the
+    /// Tab Sorts tweak).
+    pub sort: SortBy,
+    /// The container is a companion whose carry weight this is (the player's Quantity Menu
+    /// Respects Companion Carry Cap tweak, set by `crate::menu` before a store): the
+    /// quantity asked stops at what it can still carry.
+    pub companion_carry: Option<f32>,
+    /// The player's menu tweaks, set by `crate::tweaks`: Take All leaves the menu open;
+    /// equipped items are left out of the player's side in barter and containers;
+    /// category titles in title case.
+    pub take_all_stays: bool,
+    /// The player's Take All Confirmation tweak: Take All of at least this many units asks
+    /// to be pressed again (`None`: off), and whether it is asking now [design:
+    /// docs/design/tweaks.md].
+    pub take_all_confirm: Option<i32>,
+    confirming_take_all: bool,
+    /// The player's Store All tweak: Shift with Take All stores instead.
+    pub store_all: bool,
+    /// The player's tweak: the barter figure shows the whole total, past what the
+    /// merchant can pay [design: docs/design/tweaks.md].
+    pub full_barter_total: bool,
+    /// The player's tweak: each side's caps after the trade beside its caps now.
+    pub barter_caps_change: bool,
+    pub hide_equipped_barter: bool,
+    pub hide_equipped_containers: bool,
+    /// The player's tweaks: items on a hotkey kept off the player's side of a container
+    /// and of a barter [design: docs/design/tweaks.md].
+    pub hide_hotkeyed_containers: bool,
+    pub hide_hotkeyed_barter: bool,
+    /// And out of the Pip-Boy's repair parts (`crate::pipboy::repair::current`).
+    pub hide_hotkeyed_repair: bool,
+    /// The items on the hotkeys (base forms), for those tweaks.
+    pub hotkeyed: Vec<FormId>,
+    /// The ammo the player's carried weapons can fire, listed first in the inventory
+    /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
+    pub usable_ammo: Vec<FormId>,
+    /// The ammo the player's weapon loads now (`crate::combat::Combat::player_ammo`, set by
+    /// `crate::tweaks` each frame): its row in the player's inventory carries the
+    /// equipped mark; in a container's player column too under the player's Containers
+    /// Show Equipped Ammo tweak (`ammo_mark_in_containers`).
+    pub current_ammo: Option<FormId>,
+    pub ammo_mark_in_containers: bool,
+    pub title_case_categories: bool,
+    /// The price of things worth nothing in a barter (the tweak; 0: as they are).
+    pub free_item_price: f32,
+    /// The player's Barter Prices by Kind tweak (`None`: off), set by `crate::tweaks`.
+    pub barter_kind_mults: Option<BarterKindMults>,
+    /// The player's weight in red when taking the selected row would put them over (the
+    /// tweak, set by `crate::tweaks`).
+    pub warn_encumbrance: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -833,24 +955,63 @@ pub struct Steal {
     /// Equipped items are listed too (ShowOff's SetPlayerCanPickpocketEquippedItems,
     /// `fnv_game::Game::pickpocket_worn`).
     pub worn: bool,
+    /// The Pickpocket Overhaul tweak's figures (`fnv_game::Game::pickpocket_overhaul`).
+    pub overhaul: Option<fnv_game::pickpocket::Overhaul>,
     rng: fnv_combat::rng::SplitMix,
 }
 
 impl Steal {
     pub fn new(victim: FormId, rules: fnv_game::pickpocket::Rules, thief: f64, target: f64, seed: u64) -> Steal {
-        Steal { victim, rules, thief, target, worn: false, rng: fnv_combat::rng::SplitMix(seed) }
+        Steal { victim, rules, thief, target, worn: false, overhaul: None, rng: fnv_combat::rng::SplitMix(seed) }
     }
 
     /// The chance, percent, of moving `count` units of `row` either way.
     pub fn chance(&self, row: &Row, count: i32) -> i32 {
         let value = f64::from(row.value.unwrap_or(0).max(0)) * f64::from(count.max(1));
-        self.rules.chance(self.thief, self.target, value)
+        match &self.overhaul {
+            Some(o) => o.chance(&self.rules, value, f64::from(row.weight.unwrap_or(0.0).max(0.0)) * f64::from(count.max(1)), row.equipped),
+            None => self.rules.chance(self.thief, self.target, value),
+        }
     }
 
     /// Roll against `chance`: whether the move goes unnoticed.
     fn unnoticed(&mut self, chance: i32) -> bool {
         (self.rng.next_f32() * 100.0) < chance as f32
     }
+}
+
+/// The seed of one opening of `victim`'s pocket: `aid`, the test aid's number, gives the
+/// same rolls at every opening of that victim (smoke scenarios that need a take to go
+/// one way); else `clock` (the wall clock, nanoseconds) and `opening` (how many pockets
+/// this session has opened) make every opening roll afresh, so a caught take can go
+/// otherwise after a reload. Seeded by the victim alone, a victim whose first roll was
+/// over fPickPocketMaxChance (85) could never be robbed at the first try: the Legion
+/// assassin at Kimball's speech rolled 90.79 every time (#2751) [design: that the
+/// original rolls afresh each time is taken from its being a chance at all, GECK wiki
+/// Pickpocket; not captured].
+pub fn steal_seed(victim: FormId, aid: Option<u64>, clock: u64, opening: u64) -> u64 {
+    match aid {
+        Some(a) => u64::from(victim.0) ^ a,
+        None => clock ^ (u64::from(victim.0) << 24) ^ opening.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    }
+}
+
+/// [`steal_seed`] for a pocket opened now. The test aid `NVF_PLAY_TEST_PICKPOCKET_SEED`
+/// (a number, decimal or `0x` hexadecimal) fixes the rolls per victim.
+pub fn steal_seed_now(victim: FormId) -> u64 {
+    static OPENINGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let aid = std::env::var("NVF_PLAY_TEST_PICKPOCKET_SEED").ok().and_then(|v| {
+        let v = v.trim();
+        match v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+            Some(h) => u64::from_str_radix(h, 16).ok(),
+            None => v.parse().ok(),
+        }
+    });
+    if let Some(a) = aid {
+        bevy::log::info!("pickpocket: test aid NVF_PLAY_TEST_PICKPOCKET_SEED: the rolls on {victim} are seeded with {a:#X}, the same at every opening");
+    }
+    let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    steal_seed(victim, aid, clock, OPENINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -920,6 +1081,7 @@ impl MenuModel {
     pub(crate) fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
+            search: Default::default(),
             focus: Side::Player,
             selected: [0; 2],
             scroll: [0; 2],
@@ -928,6 +1090,31 @@ impl MenuModel {
             filtered: [0; 2],
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
+            sync_categories: false,
+            no_selling: false,
+            vendor_lists_both: false,
+            hide_misc_quest: false,
+            sort: SortBy::Name,
+            companion_carry: None,
+            take_all_stays: false,
+            take_all_confirm: None,
+            confirming_take_all: false,
+            store_all: false,
+            full_barter_total: false,
+            barter_caps_change: false,
+            hide_equipped_barter: false,
+            hide_equipped_containers: false,
+            hide_hotkeyed_containers: false,
+            hide_hotkeyed_barter: false,
+            hide_hotkeyed_repair: false,
+            hotkeyed: Vec::new(),
+            usable_ammo: Vec::new(),
+            current_ammo: None,
+            ammo_mark_in_containers: false,
+            title_case_categories: false,
+            free_item_price: 0.0,
+            barter_kind_mults: None,
+            warn_encumbrance: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -978,6 +1165,7 @@ impl MenuModel {
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
         let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder, r.live)));
+        let search_keep = [Side::Container, Side::Player].map(|s| self.search.capture(self, s));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -1004,16 +1192,52 @@ impl MenuModel {
                         bevy::log::info!("menu: {} quest item row(s) left out: the host's quests' (co-op guest)", before - l.rows.len());
                     }
                 }
+                // The player's tweak keeps worn things out of a container's exchange [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !r.equipped);
+                }
+                // And things on a hotkey [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_hotkeyed_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !self.hotkeyed.contains(&r.item));
+                }
+                // The player's tweak: ammo a carried weapon fires first, in name order
+                // within each part [design: docs/design/tweaks.md].
+                if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
+                    l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
+                }
+                // The ammo loaded now carries the equipped mark [hypothesis: as the original's
+                // Pip-Boy shows it; observer check 193], in a container's player column under
+                // the player's tweak [design: docs/design/tweaks.md].
+                let mark_ammo = side == Side::Player && (self.mode == Mode::Inventory || (matches!(self.mode, Mode::Container(_)) && self.ammo_mark_in_containers));
+                if let (true, Some(a)) = (mark_ammo, self.current_ammo) {
+                    for r in l.rows.iter_mut().filter(|r| r.item == a) {
+                        r.loaded = true;
+                    }
+                }
+                // The player's tweak: the list by value or weight, the most first, name
+                // order kept between equals [design: docs/design/tweaks.md].
+                if self.mode == Mode::Inventory {
+                    self.sort.apply(&mut l.rows);
+                }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
+                    // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
+                    if self.hide_misc_quest {
+                        l.rows.retain(|r| !r.quest);
+                    }
                     self.fold(&mut l, forms);
                 }
                 self.lists[side as usize] = l;
             }
         }
-        for &side in self.columns() {
+        let columns = self.columns();
+        self.search.filter(&mut self.lists, columns);
+        for &side in columns {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k));
+            let at = match search_keep[i] {
+                Some(key) => key.find(rows),
+                None => keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder, r.live) == k)),
+            };
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }
@@ -1024,6 +1248,11 @@ impl MenuModel {
     /// The barter lists: each side's own rows less what it put up, and what the other
     /// side put up; prices; the caps on each side and the trade's balance.
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
+        let both_sides = self.vendor_lists_both;
+        let hide_equipped = self.hide_equipped_barter;
+        let hotkeyed: Vec<FormId> = if self.hide_hotkeyed_barter { self.hotkeyed.clone() } else { Vec::new() };
+        let free_price = self.free_item_price;
+        let kind_mults = self.barter_kind_mults;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -1039,16 +1268,24 @@ impl MenuModel {
                 .rows
                 .into_iter()
                 // A live explosive (`Row::live`) is not for trade (#1640).
-                .filter(|r| r.item != t.caps && !r.quest && !r.live)
+                .filter(|r| r.item != t.caps && !r.quest && !r.live && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
                 .filter(|r| {
-                    let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
+                    // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
+                    let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
                     if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
                         withheld.push((r.item, w));
                     }
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.worth(&prices).map(|v| v * mult);
+                    // The player's Barter Prices by Kind tweak: the merchant's things are
+                    // bought, the player's sold [design: docs/design/tweaks.md].
+                    let kind = kind_mults.map_or(1.0, |k| {
+                        let water = world.forms.get(r.item).and_then(|f| f.edid.as_deref()).is_some_and(|e| e.eq_ignore_ascii_case(PURIFIED_WATER));
+                        k.of(side == Side::Container, r.kind, water)
+                    });
+                    // The player's tweak puts a price on things that are worth nothing [design: docs/design/tweaks.md].
+                    r.price = r.worth(&prices).map(|v| v * kind * mult).map(|p| if p <= 0.0 && free_price > 0.0 { free_price } else { p });
                     r
                 })
                 .collect();
@@ -1124,7 +1361,7 @@ impl MenuModel {
                                 condition: None,
                                 icon: forms.item(card).and_then(|i| i.icon.clone()),
                                 price: None,
-                                bartered: false,
+                                bartered: false, loaded: false,
                                 mods: 0,
                                 mods_value: 0,
                                 folder: None,
@@ -1244,6 +1481,23 @@ impl MenuModel {
                 self.folder = None;
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
+                if self.sync_categories {
+                    let o = 1 - i;
+                    self.category[o] = cat;
+                    self.selected[o] = 0;
+                    self.scroll[o] = 0;
+                }
+                if let Err(e) = self.refresh(world) {
+                    self.status = Some(format!("Cannot list the inventories: {e}"));
+                }
+            }
+            Command::SetSort(sort) => {
+                if self.sort == sort {
+                    return out;
+                }
+                self.sort = sort;
+                self.selected[Side::Player as usize] = 0;
+                self.scroll[Side::Player as usize] = 0;
                 if let Err(e) = self.refresh(world) {
                     self.status = Some(format!("Cannot list the inventories: {e}"));
                 }
@@ -1256,6 +1510,13 @@ impl MenuModel {
                 self.category[i] = self.category[i].step(by);
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
+                // The player's tweak keeps the other side on the same category [design: docs/design/tweaks.md].
+                if self.sync_categories {
+                    let o = 1 - i;
+                    self.category[o] = self.category[i];
+                    self.selected[o] = 0;
+                    self.scroll[o] = 0;
+                }
                 if let Err(e) = self.refresh(world) {
                     self.status = Some(format!("Cannot list the inventories: {e}"));
                 }
@@ -1270,6 +1531,14 @@ impl MenuModel {
             }
             Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
+                // The player's Take All Confirmation tweak: the first Take All asks, the next
+                // does it; anything else takes the question back [design: docs/design/tweaks.md].
+                let confirmed = std::mem::take(&mut self.confirming_take_all);
+                if let (Command::TakeAll, false, Some(n)) = (cmd, confirmed, self.take_all_asks()) {
+                    self.confirming_take_all = true;
+                    self.status = Some(format!("Take all {n} items? Take All again to confirm"));
+                    return out;
+                }
                 if let Some(q) = self.asks_quantity(cmd) {
                     self.quantity = Some(q);
                     self.status = None;
@@ -1299,16 +1568,35 @@ impl MenuModel {
             && (!g.selected || (self.focus == g.side && self.selected[g.side as usize] == g.index))
     }
 
+    /// Whether Take All asks first (the player's tweak): in a container, not stealing, with at
+    /// least its count of units listed; the count.
+    fn take_all_asks(&self) -> Option<i32> {
+        let min = self.take_all_confirm?;
+        let n: i32 = self.lists[Side::Container as usize].rows.iter().map(|r| r.count).sum();
+        (matches!(self.mode, Mode::Container(_)) && self.steal.is_none() && n > 0 && n >= min).then_some(n)
+    }
+
+    /// Whether Take All is asking to be pressed again (the player's Take All Confirmation tweak).
+    pub fn confirming_take_all(&self) -> bool {
+        self.confirming_take_all
+    }
+
     /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
+        // The player's tweak: storing with a companion, no more than it can carry (at
+        // least one) [design: docs/design/tweaks.md].
+        let max = match (self.mode, self.focus, self.companion_carry) {
+            (Mode::Container(_), Side::Player, Some(cap)) => carry_cap(r.count, r.weight.unwrap_or(0.0), cap - self.lists[Side::Container as usize].weight as f32),
+            _ => r.count,
+        };
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && !r.live && r.kind != Some(ItemKind::CaravanCard)).then_some(Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
-            max: r.count,
-            amount: r.count,
+            max,
+            amount: max,
             label: None,
         })
     }
@@ -1360,11 +1648,22 @@ impl MenuModel {
                     }
                 }
                 out.changed = !moved.is_empty();
-                // Taking everything closes the menu (owner, list 5 item 60).
-                out.close = out.changed;
+                // Taking everything closes the menu (owner, list 5 item 60), unless the
+                // player's tweak keeps it open [design: docs/design/tweaks.md].
+                out.close = out.changed && !self.take_all_stays;
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
                 out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })
+            }
+            (Mode::Container(_), Command::StoreAll) if self.steal.is_some() => Ok("Give items one at a time".into()),
+            (Mode::Container(c), Command::StoreAll) => {
+                let rows: Vec<Row> = self.lists[Side::Player as usize].rows.iter().filter(|r| r.folder.is_none() && !r.equipped && !r.quest).cloned().collect();
+                let mut n: i64 = 0;
+                for r in &rows {
+                    n += world.transfer_at(PLAYER, c, r.item, r.count, r.pick())? as i64;
+                }
+                out.changed = n > 0;
+                Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
             }
             (Mode::Container(c), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
@@ -1432,6 +1731,10 @@ impl MenuModel {
                         t.offered[from].remove(&r.units());
                     }
                     return Ok(format!("Took back {} x{want}", name(&r)));
+                }
+                // The player's tweak: nothing of the player's is sold [design: docs/design/tweaks.md].
+                if self.focus == Side::Player && self.no_selling {
+                    return Ok("You cannot sell here.".into());
                 }
                 *t.offered[self.focus as usize].entry(r.units()).or_insert(0) += want;
                 let verb = if self.focus == Side::Player { "Selling" } else { "Buying" };
@@ -1507,7 +1810,7 @@ impl MenuModel {
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
             (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll) => Ok("No container open".into()),
+            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }
@@ -1609,5 +1912,123 @@ pub fn enter_acts(world: &World<'_>, r: &Row) -> bool {
     }
 }
 
+
+/// Purified water's Editor ID [observed: FalloutNV.esm ALCH `WaterPurified`], kept at its
+/// own price under the Barter Prices by Kind tweak's Purified Water Unscaled.
+const PURIFIED_WATER: &str = "WaterPurified";
+
+/// The player's Barter Prices by Kind tweak: a price multiplier for each kind of item,
+/// one set when the player sells and one when buying, before the barter skill's; Armor,
+/// Weapon, Aid, Ammo, Misc (every other kind) and Weapon Mod [design: docs/design/tweaks.md].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BarterKindMults {
+    pub sell: [f32; 6],
+    pub buy: [f32; 6],
+    /// Purified water keeps its price (multiplier 1).
+    pub water_unscaled: bool,
+}
+
+impl BarterKindMults {
+    /// The multiplier of an item of `kind` the player is `buying` (else selling).
+    pub fn of(&self, buying: bool, kind: Option<ItemKind>, water: bool) -> f32 {
+        if water && self.water_unscaled {
+            return 1.0;
+        }
+        let at = match kind {
+            Some(ItemKind::Armor) => 0,
+            Some(ItemKind::Weapon) => 1,
+            Some(ItemKind::Aid) => 2,
+            Some(ItemKind::Ammo) => 3,
+            Some(ItemKind::ItemMod) => 5,
+            _ => 4,
+        };
+        if buying { self.buy[at] } else { self.sell[at] }
+    }
+}
+
 #[cfg(test)]
 mod tests;
+/// [design, #2403] Synthetic list/quantity/confirmation states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(mode: Mode, step: usize) -> MenuModel {
+    let mut m = MenuModel::empty(mode, "Synthetic menu".into());
+    let rows: Vec<_> = (0..20)
+        .map(|i| Row {
+            item: FormId(100 + i),
+            at: None,
+            name: format!("Synthetic item {i}"),
+            count: 10,
+            weight: Some(1.0),
+            value: Some(1),
+            kind: Some(ItemKind::Weapon),
+            equipped: false,
+            quest: false,
+            condition: Some(1.0),
+            icon: None,
+            price: None,
+            bartered: false,
+            loaded: false,
+            mods: 0,
+            mods_value: 0,
+            folder: None,
+            reference: None,
+            live: false,
+        })
+        .collect();
+    m.lists = [Listing { rows: rows.clone(), ..Default::default() }, Listing { rows, ..Default::default() }];
+    if step >= 1 {
+        m.selected[0] = 1;
+    }
+    if step >= 2 {
+        m.scroll[0] = 1;
+    }
+    if step >= 3 {
+        m.category[0] = Category::Weapons;
+    }
+    if step >= 4 {
+        m.quantity = Some(Quantity { cmd: Command::One, side: Side::Player, row: 0, max: 3, amount: 1, label: None });
+    }
+    if step >= 5 {
+        m.quantity.as_mut().unwrap().amount = 2;
+    }
+    if step >= 6 {
+        m.lists[0].value = 42;
+    }
+    if step >= 7 {
+        m.confirming_take_all = true;
+    }
+    if step >= 8 {
+        m.status = Some("Synthetic result".into());
+    }
+    m.navigated = step as u32;
+    m.pointer_pick = step >= 9;
+    m
+}
+
+/// [design, #2403] A zero-balance barter still changes when another item is offered.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_trade_progress_fixture(step: usize) -> MenuModel {
+    let mut m = report_progress_fixture(Mode::Barter(FormId(42)), 0);
+    let mut t = Trade {
+        merchant: FormId(42),
+        stock: FormId(43),
+        caps: FormId(44),
+        discount: 0,
+        skill: 50.0,
+        prices: Prices::from_settings(&FormStore::default()),
+        offered: Default::default(),
+        purse: [100; 2],
+        balance: 0,
+        sells: None,
+        withheld: vec![],
+        mult_set: [None; 2],
+    };
+    if step >= 1 {
+        t.offered[0].insert((FormId(100), None, 0), 1);
+    }
+    m.trade = Some(t);
+    m.navigated = step as u32;
+    m
+}

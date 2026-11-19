@@ -48,7 +48,8 @@ pub struct AlertPlugin;
 
 impl Plugin for AlertPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, show.after(nvf_play::PlaySet::Scripts));
+        // [design, #2512] Flush package hiding before weapon-part visibility is composed.
+        app.add_systems(Update, show.after(nvf_play::PlaySet::Scripts).before(crate::weapons::reparent));
     }
 }
 
@@ -56,9 +57,9 @@ impl Plugin for AlertPlugin {
 #[derive(Component)]
 struct AlertLook(LookAt);
 
-/// On an actor's root while its package hides its weapon (Weapons Unequipped).
+/// [design: show] On an actor's root while its package hides its weapon (Weapons Unequipped).
 #[derive(Component)]
-struct WeaponHidden;
+pub(crate) struct WeaponHidden;
 
 /// The chest, as a fraction of the eye height (as `detection.rs` measures).
 const CHEST: f32 = 0.75;
@@ -98,8 +99,9 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             // part of its body (its `Weapon` node carries body parts).
             let hide = unequipped && !hold.body && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
             if hide != hidden {
-                // The parts on the back (the flamer's tank) go with it.
-                for &part in rig.nodes.get(hold.stance.weapon_node).into_iter().chain(&hold.back) {
+                // [design, #2512] reparent combines this marker with clip visibility
+                // for model shapes, including parts mounted on separate back bones.
+                if let Some(&part) = rig.nodes.get(hold.stance.weapon_node) {
                     commands.entity(part).try_insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
                 }
                 if hide {

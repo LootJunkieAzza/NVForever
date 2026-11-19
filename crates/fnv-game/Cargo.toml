@@ -4,6 +4,8 @@ description = "Layer 5 game rules: script instances, quests, conditions, event d
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# The integration tests: one binary, tests/main.rs, plus the files that need a process of their own.
+autotests = false
 
 [dependencies]
 fnv-esm = { path = "../fnv-esm" }
@@ -23,7 +25,9 @@ rand_core = "0.9"
 rand_chacha = "0.9"
 rayon = "1"
 tracing = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Local time for xNVSE GetUserTime, GetFileTime and GetTimeStamp (chrono was dropped: it is
+# unmaintained, RUSTSEC-2026-0543).
+jiff = "1"
 # SUP's screenshots and QR codes (image_files.rs): PNG, the version the engine already
 # builds; QR codes for TextToQRCode (docs/design/dependencies.md).
 png = "0.18"
@@ -33,3 +37,102 @@ fnv-save = { path = "../fnv-save" }
 
 [dev-dependencies]
 tracing-subscriber = "0.3"
+
+[[test]]
+name = "integration"
+path = "tests/main.rs"
+
+# Change process-wide state (mod_files' roots, nvse_jg7's combat-music flag,
+# source_compile's mode).
+[[test]]
+name = "anim_folders"
+path = "tests/anim_folders.rs"
+
+[[test]]
+name = "build_shortcuts"
+path = "tests/build_shortcuts.rs"
+
+[[test]]
+name = "jg7"
+path = "tests/jg7.rs"
+
+[[test]]
+name = "jg9"
+path = "tests/jg9.rs"
+
+[[test]]
+name = "nvse_itr1"
+path = "tests/nvse_itr1.rs"
+
+[[test]]
+name = "array_file"
+path = "tests/array_file.rs"
+
+[[test]]
+name = "script_runner"
+path = "tests/script_runner.rs"
+
+[[test]]
+name = "small_libs"
+path = "tests/small_libs.rs"
+
+[[test]]
+name = "sup3"
+path = "tests/sup3.rs"
+
+[[test]]
+name = "sup5"
+path = "tests/sup5.rs"
+
+[[test]]
+name = "synthetic"
+path = "tests/synthetic.rs"
+
+# CompileScript path fixtures replace the process-wide file reader.
+[[test]]
+name = "compile_script_paths"
+path = "tests/compile_script_paths.rs"
+
+[[test]]
+name = "runtime_origin"
+path = "tests/runtime_origin.rs"
+
+[[test]]
+name = "jip_cloned_list_wildcard"
+path = "tests/jip_cloned_list_wildcard.rs"
+
+[[test]]
+name = "jip_required_animation_codes"
+path = "tests/jip_required_animation_codes.rs"
+
+[[test]]
+name = "jip_handler_context"
+path = "tests/jip_handler_context.rs"
+
+[[test]]
+name = "jip_registration_provenance"
+path = "tests/jip_registration_provenance.rs"
+
+# File enumeration controls own and restore the process-wide Data read roots.
+[[test]]
+name = "get_files_data_roots"
+path = "tests/get_files_data_roots.rs"
+
+# CompileScript fixture owns the process-wide Data reader.
+[[test]]
+name = "crosshair_water"
+path = "tests/crosshair_water.rs"
+
+# CompileScript fixture owns the process-wide Data reader.
+[[test]]
+name = "crosshair_prompt_events"
+path = "tests/crosshair_prompt_events.rs"
+
+# Set the process-wide mod_files roots.
+[[test]]
+name = "main_menu_block"
+path = "tests/main_menu_block.rs"
+
+[[test]]
+name = "mod_list_startup"
+path = "tests/mod_list_startup.rs"

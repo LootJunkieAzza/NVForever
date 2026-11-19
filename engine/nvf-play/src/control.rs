@@ -19,6 +19,9 @@
 //! - Always Run (Caps Lock) toggles running as the default (on by default:
 //!   `bAlwaysRunByDefault=1`); Run (Left Shift) held does the other; Auto Move (Q) walks
 //!   forward until Forward or Back is pressed (player.rs).
+//! - Sprint (no key until the player binds one; Run keeps Left Shift), NVForever's own, only with its NVF Features switch
+//!   on: read here into [`PlayerControl::sprint_held`] for the feature (`crate::stance`, the
+//!   contract).
 //! - Toggle POV (F, middle mouse): a tap switches first and third person; held while the
 //!   mouse moves, it circles the camera around the player without turning them
 //!   ([`Orbit`]; from first person the view goes to third person meanwhile), and when it
@@ -148,6 +151,9 @@ pub struct PlayerControl {
     pub orbit: Orbit,
     /// How long Ready Item has been held with the weapon out (a hold holsters).
     pub ready_held: Option<f32>,
+    /// A Ready Item tap waiting [`DOUBLE_TAP`] for a second one (the player's Double-Tap
+    /// Reload Changes Ammo tweak): seconds since it.
+    pub reload_wait: Option<f32>,
     /// Use held with the weapon out (the trigger; `crate::combat` reads it).
     pub trigger: bool,
     /// A reload was asked for (Ready Item tapped with the weapon out); `crate::combat`
@@ -161,6 +167,9 @@ pub struct PlayerControl {
     pub ammo_swap: bool,
     /// The weapon wheel has the mouse and the attack keys (`crate::weapon_wheel`).
     pub wheel: bool,
+    /// The Sprint control is held with Sprint on (`crate::stance`; the Sprint feature reads
+    /// it). Struck by the movement lock.
+    pub sprint_held: bool,
     /// The third-person camera's line through the crosshair, set by [`place_camera`]
     /// each frame; `None` in first person and while the camera circles. Activation and
     /// the player's shots aim along it ([`Crosshair::ray`]).
@@ -197,11 +206,13 @@ impl Default for PlayerControl {
             distance: DEFAULT_DISTANCE,
             orbit: Orbit::default(),
             ready_held: None,
+            reload_wait: None,
             trigger: false,
             reload: false,
             lowered: false,
             ammo_swap: false,
             wheel: false,
+            sprint_held: false,
             crosshair: None,
             portrait: None,
             cinematic: false,
@@ -213,6 +224,17 @@ impl Default for PlayerControl {
 }
 
 impl PlayerControl {
+    /// Cancel holds owned by the previous input device without performing their tap
+    /// actions. Keep intentional toggles and the camera's angles [design, #2200].
+    pub(crate) fn cancel_input_holds(&mut self) {
+        self.orbit.held = false;
+        self.orbit.moved = false;
+        self.ready_held = None;
+        self.aiming = false;
+        self.trigger = false;
+        self.sprint_held = false;
+    }
+
     /// Whether the player's own view is from outside (third person, or circling), whatever a
     /// conversation's close-up does with the camera.
     pub fn own_third_person(&self) -> bool {
@@ -383,6 +405,7 @@ impl ControlLocks {
             let before = (*intent, *control);
             (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
             control.auto_move = false;
+            control.sprint_held = false;
             struck[group::MOVEMENT] = (*intent, *control) != before;
         }
         if self.fighting {
@@ -511,6 +534,9 @@ pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, 
 /// the eye the view counts as first person, so the body goes while the camera is still
 /// behind the head, not through it [design].
 pub const TALK_CAMERA_CLOSE: f32 = 0.85;
+/// Under the player's Double-Tap Reload Changes Ammo tweak, a second Ready Item tap within
+/// this many seconds swaps the ammo instead of reloading, seconds [design].
+pub const DOUBLE_TAP: f32 = 0.3;
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
 pub const HOLSTER_HOLD: f32 = 0.5;
 /// The circling camera swings back behind the player with this time constant, seconds
@@ -579,11 +605,21 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 /// The controls that are bound but not built yet.
 const NOT_BUILT: [Control; 0] = [];
 
+/// The real clock and the tweaks, for the holster hold (`crate::tweaks`).
+type HoldClock<'w> = (Option<Res<'w, Time<Real>>>, Option<Res<'w, crate::tweaks::TweakSettings>>);
+
+/// Sprint's input (`crate::stance`, the contract): [`PlayerControl::sprint_held`] while the
+/// Sprint control is held with Sprint on (on the key the player bound it to: none by default).
+fn read_stance(input: &ControlInput, stance: Option<&crate::inertia::MovementInertia>, c: &mut PlayerControl) {
+    c.sprint_held = stance.is_some_and(crate::inertia::MovementInertia::sprint_on) && input.pressed(Control::Sprint);
+}
+
 /// Toggles, holds, the third-person zoom; see the module notes.
 #[allow(clippy::too_many_arguments)]
 pub fn read_controls(
     input: ControlInput,
     time: Res<Time>,
+    (real, tweaks): HoldClock,
     scroll: Res<AccumulatedMouseScroll>,
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
@@ -591,17 +627,28 @@ pub fn read_controls(
     campfire: Option<Res<crate::campfire::SecondAction>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
     rt: Option<Res<crate::rt_vats::RtVats>>,
+    stance: Option<Res<crate::inertia::MovementInertia>>,
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
         control.trigger = false;
         control.ready_held = None;
         control.orbit.held = false;
+        control.sprint_held = false;
         return;
     }
+    read_stance(&input, stance.as_deref(), &mut control);
     let mut message: Option<String> = None;
     let c = &mut *control;
-    if input.just_pressed(Control::CrouchSneak) {
+    let was_out = c.weapon_out;
+    // The player's tweak: sneak while the key is held, not by toggling [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.hold_to_sneak) {
+        let held = input.pressed(Control::CrouchSneak);
+        if held != c.sneak && (input.just_pressed(Control::CrouchSneak) || input.just_released(Control::CrouchSneak)) {
+            c.sneak = held;
+            info!("Crouch/Sneak held: sneaking {} asked", if c.sneak { "on" } else { "off" });
+        }
+    } else if input.just_pressed(Control::CrouchSneak) {
         c.sneak = !c.sneak;
         info!("Crouch/Sneak pressed: sneaking {} asked", if c.sneak { "on" } else { "off" });
     }
@@ -612,26 +659,58 @@ pub fn read_controls(
         c.auto_move = !c.auto_move;
     }
     // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster. Not
-    // a press that lit a campfire (`crate::campfire`).
-    if input.just_pressed(Control::ReadyItem) && !campfire.is_some_and(|c| c.took) {
+    // a press that lit a campfire (`crate::campfire`); nor while Quick Loot has the key
+    // (its full menu, `crate::quick_loot`).
+    if input.just_pressed(Control::ReadyItem) && !campfire.is_some_and(|c| c.took) && !crate::quick_loot::holds_input() {
         if c.weapon_out {
             c.ready_held = Some(0.0);
+        } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
+            // The player's tweak: Ready Item does not draw [design: docs/design/tweaks.md].
+            info!("Ready Item pressed: not drawn (tweak)");
         } else {
             c.weapon_out = true;
             info!("Ready Item pressed: the weapon drawn");
         }
     }
     if let Some(t) = c.ready_held.as_mut() {
-        *t += time.delta_secs();
+        // The player's tweak times the hold on the real clock, not the slowed one [design: docs/design/tweaks.md].
+        *t += match real.as_ref().filter(|_| tweaks.as_ref().is_some_and(|t| t.holster_real_time)) {
+            Some(r) => r.delta_secs(),
+            None => time.delta_secs(),
+        };
         if *t >= HOLSTER_HOLD {
             c.weapon_out = false;
             c.ready_held = None;
             info!("Ready Item held: the weapon holstered");
         } else if input.just_released(Control::ReadyItem) || !input.pressed(Control::ReadyItem) {
             c.ready_held = None;
-            c.reload = true;
             c.lowered = false;
+            // The player's tweak: a second tap within [`DOUBLE_TAP`] swaps the ammo, so a
+            // tap waits for it before reloading [design: docs/design/tweaks.md].
+            if tweaks.as_ref().is_some_and(|t| t.double_tap_ammo) {
+                if c.reload_wait.take().is_some() {
+                    c.ammo_swap = true;
+                    info!("Ready Item tapped twice: ammo swap (tweak)");
+                } else {
+                    c.reload_wait = Some(0.0);
+                }
+            } else {
+                c.reload = true;
+            }
         }
+    }
+    if let Some(t) = c.reload_wait.as_mut() {
+        *t += time.delta_secs();
+        if *t >= DOUBLE_TAP && c.ready_held.is_none() {
+            c.reload_wait = None;
+            c.reload = true;
+        }
+    }
+    // The Tweaks tab's Holster Weapon key [design: docs/design/tweaks.md].
+    if input.just_pressed(Control::HolsterWeapon) && c.weapon_out {
+        c.weapon_out = false;
+        c.ready_held = None;
+        info!("Holster Weapon pressed: the weapon holstered");
     }
     if input.just_pressed(Control::LowerWeapon) && c.weapon_out {
         c.lowered = !c.lowered;
@@ -654,6 +733,11 @@ pub fn read_controls(
     }
     // (While real-time VATS holds a lock, Aim moves it to the next target, `crate::rt_vats`.)
     c.aiming = input.pressed(Control::Block) && !c.wheel && !rt.as_deref().is_some_and(|r| r.locked().is_some());
+    // The player's tweak: aiming draws the weapon [design: docs/design/tweaks.md].
+    if c.aiming && !c.weapon_out && tweaks.as_ref().is_some_and(|t| t.aiming_draws_weapon) {
+        c.weapon_out = true;
+        info!("Block/aim held: the weapon drawn (tweak)");
+    }
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }
@@ -672,14 +756,22 @@ pub fn read_controls(
             };
         } else {
             c.orbit = c.orbit.released();
-            c.pov = Pov::Third;
+            // The player's tweak puts a first-person view back [design: docs/design/tweaks.md].
+            c.pov = crate::vanity::end_view(c.pov == Pov::First, tweaks.as_ref().is_some_and(|t| t.vanity_returns_first));
         }
     }
     // Not while a script turned the vanity wheel off (ToggleVanityWheel,
     // `crate::script_switches`; JAM's through `fnv_game::nvse_jam`).
     let wheel = switches.is_none_or(|s| s.vanity_wheel) && !input.blocked.as_ref().is_some_and(|b| b.wheel);
-    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
+    // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
+    let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
+    if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() && !crate::quick_loot::holds_input() {
         c.distance = zoom(c.distance, scroll.delta.y);
+    }
+    // The player's tweak: drawing goes to first person, holstering to third [design: docs/design/tweaks.md].
+    if c.weapon_out != was_out && tweaks.as_ref().is_some_and(|t| t.pov_follows_weapon) {
+        c.pov = if c.weapon_out { Pov::First } else { Pov::Third };
+        info!("view: {:?} with the weapon {} (tweak)", c.pov, if c.weapon_out { "drawn" } else { "holstered" });
     }
     if let Some(m) = message {
         info!("{m}");
@@ -1124,6 +1216,57 @@ mod tests {
         // Toggle POV tapped without moving the mouse switches the view.
         tap(&mut app, KeyCode::KeyF);
         assert_eq!(control(&app).pov, Pov::Third);
+    }
+
+    /// Sprint's input (`crate::stance`): no key by default, so Shift (Run's) holds none; a key
+    /// the player binds holds it while Sprint is on, nothing with it off; the movement lock
+    /// strikes it.
+    #[test]
+    fn sprint_input_follows_its_switch_and_key() {
+        let mut app = app();
+        app.init_resource::<crate::inertia::MovementInertia>();
+        let step = |app: &mut App, secs: f32| {
+            app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(secs));
+            app.update();
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        };
+        fn keys(app: &mut App) -> Mut<'_, ButtonInput<KeyCode>> {
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>()
+        }
+        // Unbound by default (#3000): Shift, Run's key, holds no sprint, on or off.
+        keys(&mut app).press(KeyCode::ShiftLeft);
+        for _ in 0..4 {
+            step(&mut app, 0.4);
+        }
+        assert!(!control(&app).sprint_held, "off and unbound: nothing");
+        app.world_mut().resource_mut::<crate::inertia::MovementInertia>().sprint = true;
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held, "on but unbound: Shift is Run's, no sprint");
+        keys(&mut app).release_all();
+        step(&mut app, 0.1);
+        // A key the player binds holds it while Sprint is on, and Run keeps Shift.
+        app.world_mut().resource_mut::<Bindings>().rebind(Control::Sprint, crate::bindings::Input::Key(KeyCode::KeyG));
+        assert_eq!(app.world().resource::<Bindings>().get(Control::Run).key, Some(KeyCode::ShiftLeft));
+        keys(&mut app).press(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(control(&app).sprint_held, "the bound key sprints");
+        keys(&mut app).release(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held);
+        // Off again: the bound key holds nothing.
+        app.world_mut().resource_mut::<crate::inertia::MovementInertia>().sprint = false;
+        keys(&mut app).press(KeyCode::KeyG);
+        step(&mut app, 0.1);
+        assert!(!control(&app).sprint_held, "off: nothing");
+        keys(&mut app).release_all();
+        step(&mut app, 0.1);
+        // The sneaking lock leaves it; the movement lock strikes it.
+        let mut i = MoveIntent::default();
+        let mut c = PlayerControl { sprint_held: true, ..control(&app) };
+        ControlLocks { sneaking: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert!(c.sprint_held);
+        ControlLocks { movement: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert!(!c.sprint_held);
     }
 
     #[test]

@@ -8,7 +8,11 @@
 //! A scripted reference whose *model* holds trigger volumes counts too: phantoms
 //! (`bhkSimpleShapePhantom`) on the Trigger layer (12), as in the bear trap, the
 //! tripwire and the pressure plate (`meshes\traps\beartrap01.nif` node "Trigger": a
-//! box 32 × 32 × 8 units half extents) [observed: `fnvtool nif decode`]. Each phantom
+//! box 32 × 32 × 8 units half extents) [observed: `fnvtool nif decode`], and phantoms on
+//! the Gas Trap layer (24), the gas clouds (`meshes\traps\trapgasfire01.nif`: one
+//! sphere, nothing solid [observed]; their scripts set them off when an actor walks in
+//! with a flamer, an incinerator or a Shishkebab drawn, or burning; shots and blasts:
+//! `crate::gas_traps`, #2687). Each phantom
 //! is the box of its shape's bounds in the model, scaled, turned and moved by the
 //! reference [hypothesis: the box shapes under a transform shape are what Havok tests;
 //! docs/spec-notes/traps.md §1]. The model is the one the physics cell loader read
@@ -38,9 +42,15 @@
 //!   per-frame run for GetSecondsPassed, `Game::trigger_frame`), **the entering frame included, after
 //!   OnTriggerEnter** [documented: OnTrigger every frame inside, T3; hypothesis: the order
 //!   on the entering frame, open in game, level-design.md §13 question 2]; OnTriggerLeave
-//!   once on the first frame it no longer does. A trigger that is disabled, or whose cell
-//!   unloads, is left without a Leave; an actor that is disabled, dies or leaves the
-//!   loaded cells leaves its triggers with one [hypothesis].
+//!   once on the first frame it no longer does. A trigger that is disabled is left
+//!   without a Leave; an actor that is disabled, dies or leaves the loaded cells leaves
+//!   its triggers with one [hypothesis]. A trigger whose cell unloads is left without a
+//!   Leave by the actors still in it (they stay inside, the cell only went out of reach),
+//!   but **the player** leaves it with one: the cell unloads because the player went
+//!   away (fast travel, a door, a script's MoveTo) [design, #2449: the Boomers'
+//!   NellisArtilleryScript counts the actors in its field in and out, and a player who
+//!   fast-travelled out of the field stayed counted, so the barrage never stopped after
+//!   the Boomers took the player in; [`leave_reported`]].
 
 use crate::script::Runtime;
 use crate::script_events::{trigger_changes, Capsule, TriggerKind, TriggerShape};
@@ -61,12 +71,19 @@ pub struct Triggers {
     shapes: HashMap<FormId, (Pose, Vec<TriggerShape>)>,
     /// Candidates whose model had not been read yet.
     waiting: HashMap<FormId, Lookup>,
+    /// When each candidate first waited for its model (game time): its script's
+    /// GameMode waits too, for at most [`HOLD_SECS`] (`Game::scripts_held`).
+    waiting_since: HashMap<FormId, f64>,
     /// Scripts with a trigger block, by SCPT.
     has_blocks: HashMap<FormId, bool>,
     /// Actor references (ACHR, ACRE) placed in each cell, once listed.
     actors_by_cell: HashMap<FormId, Vec<FormId>>,
     /// (trigger, actor) pairs touching after the last frame.
     pub inside: BTreeSet<(FormId, FormId)>,
+    /// Of the candidates' volumes, those from Gas Trap-layer phantoms: the gas clouds
+    /// shots, blasts and guns fired inside set off (`crate::gas_traps`, #2687). Built
+    /// and dropped with [`Triggers::shapes`].
+    gas: HashMap<FormId, Vec<TriggerShape>>,
     /// A co-op guest's game: its story triggers are held ([`Triggers::held_for_guest`]).
     guest: bool,
     /// This game has been a co-op guest's (`Game::coop_guest` set) since it joined.
@@ -114,6 +131,25 @@ impl Triggers {
         guest
     }
 }
+
+impl Triggers {
+    /// Every trigger volume built so far, at the pose it was built at (the collision
+    /// view draws them, `crate::collision_view`).
+    pub fn volumes(&self) -> impl Iterator<Item = &TriggerShape> {
+        self.shapes.values().flat_map(|(_, v)| v.iter())
+    }
+
+    /// The gas clouds' volumes built so far, by reference (`crate::gas_traps`); a
+    /// reference disabled since is still listed: the caller asks whether it is present.
+    pub fn gas_volumes(&self) -> impl Iterator<Item = (FormId, &TriggerShape)> {
+        self.gas.iter().flat_map(|(r, v)| v.iter().map(move |s| (*r, s)))
+    }
+}
+
+/// How long a trigger's script waits for its model's volumes before its GameMode runs
+/// without them (a model the cell loader never reads would otherwise hold it for good)
+/// [engineering choice; the loader reads a cell's models within a few frames].
+const HOLD_SECS: f64 = 2.0;
 
 const TRIGGER_BLOCKS: [u16; 3] = [event::ON_TRIGGER_ENTER, event::ON_TRIGGER, event::ON_TRIGGER_LEAVE];
 
@@ -167,8 +203,9 @@ fn lookup(play: &PlayWorld, rt: &Runtime, r: FormId, pose: Pose) -> Lookup {
     }
 }
 
-/// Each trigger object of a model as a box at the reference's pose: the bounds of its
-/// shape in the model, centred where they are, turned and scaled with the reference.
+/// Each trigger object of a model at the reference's pose: the bounds of its shape in
+/// the model, centred where they are, turned and scaled with the reference; a box, or a
+/// sphere for a sphere shape (the gas clouds', #2687).
 pub fn model_shapes(objects: &[fnv_collide::CollisionObject], pos: [f32; 3], rot: [f32; 9], scale: f32) -> Vec<TriggerShape> {
     objects
         .iter()
@@ -180,7 +217,11 @@ pub fn model_shapes(objects: &[fnv_collide::CollisionObject], pos: [f32; 3], rot
             let c = b.center().map(|v| v * scale);
             let rc = [rot[0] * c[0] + rot[1] * c[1] + rot[2] * c[2], rot[3] * c[0] + rot[4] * c[1] + rot[5] * c[2], rot[6] * c[0] + rot[7] * c[1] + rot[8] * c[2]];
             let half = b.extent().map(|v| v / 2.0);
-            Some(TriggerShape { pos: [pos[0] + rc[0], pos[1] + rc[1], pos[2] + rc[2]], rot, scale, kind: TriggerKind::Box { half_extents: half } })
+            let kind = match *o.shape {
+                fnv_collide::Shape::Sphere { .. } => TriggerKind::Sphere { radius: half[0].min(half[1]).min(half[2]) },
+                _ => TriggerKind::Box { half_extents: half },
+            };
+            Some(TriggerShape { pos: [pos[0] + rc[0], pos[1] + rc[1], pos[2] + rc[2]], rot, scale, kind })
         })
         .collect()
 }
@@ -222,10 +263,10 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
 }
 
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
-/// is the player's capsule; `None` when the player has no position yet.
+/// is the player's capsule; `None` when the player has no position yet: the volumes are
+/// looked up (and their scripts held while they wait) but nobody enters or leaves.
 pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>, joining: bool) {
     let guest = rt.triggers.held_for_guest(rt.game.coop_guest, joining);
-    let Some(player) = player else { return };
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
     for c in &rt.game.loaded_cells {
@@ -246,6 +287,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
         // Moved, turned or rescaled since its volumes were built: build them again.
         if rt.triggers.shapes.get(&r).is_some_and(|(at, _)| *at != pose) {
             rt.triggers.shapes.remove(&r);
+            rt.triggers.gas.remove(&r);
             bevy::log::info!("script: trigger {} moved: its volumes follow", rt.game.data.name(r));
         }
         if rt.triggers.waiting.get(&r).is_some_and(|l| matches!(l, Lookup::Model(.., at) if *at != pose)) {
@@ -274,18 +316,36 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
                             bevy::log::info!("script: trigger {} has {} trigger volume(s) in its model", rt.game.data.name(r), s.len());
                         }
                         rt.triggers.from_model.insert(r);
+                        let gas: Vec<_> = objects.iter().filter(|o| o.layer == fnv_phys::layers::GAS_TRAP).cloned().collect();
+                        let gas = model_shapes(&gas, pos, rot, scale);
+                        if !gas.is_empty() {
+                            bevy::log::info!("script: {} has {} gas volume(s) in its model", rt.game.data.name(r), gas.len());
+                            rt.triggers.gas.insert(r, gas);
+                        }
                         rt.triggers.shapes.insert(r, (at, s));
                     }
                     // The model is not read yet: ask again on the next frame.
                     None => {
                         rt.triggers.waiting.insert(r, Lookup::Model(path, pos, rot, scale, at));
+                        let now = rt.game.time;
+                        rt.triggers.waiting_since.entry(r).or_insert_with(|| {
+                            bevy::log::info!("script: trigger {} waits for its model: its script waits too", rt.game.data.name(r));
+                            now
+                        });
                         continue;
                     }
                 },
             }
+            rt.triggers.waiting_since.remove(&r);
         }
         shapes.extend(rt.triggers.shapes[&r].1.iter().map(|s| (r, *s)));
     }
+    // The triggers still waiting for their volumes hold their scripts' GameMode, so an
+    // actor standing in one at the start enters it first (`Game::scripts_held`, #2571).
+    let time = rt.game.time;
+    rt.triggers.waiting_since.retain(|r, _| rt.triggers.waiting.contains_key(r));
+    rt.game.scripts_held = held(&rt.triggers.waiting_since, time);
+    let Some(player) = player else { return };
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
         let who = if guest { vec![(FormId::PLAYER_REF, player)] } else { actors(rt, phys, player) };
@@ -330,18 +390,36 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     for &t in &running {
         g.trigger_frame(t);
     }
+    // The runs for the second and later actors inside one trigger come 0 s after its
+    // first (`Game::trigger_again`, issue #2455).
+    let mut ran = BTreeSet::new();
     for &(t, a) in &ch.inside {
+        if !ran.insert(t) {
+            g.trigger_again(t);
+        }
         g.ref_event(t, event::ON_TRIGGER, Some(Value::Ref(a.0)), Some(a));
     }
     for &(t, a) in &ch.left {
-        // Only if the trigger is still there: one whose cell unloaded or that was
-        // disabled does not report the leave.
-        if g.present(t) && g.cell_of(t).is_some_and(|c| g.loaded_cells.contains(&c)) {
+        let loaded = g.cell_of(t).is_some_and(|c| g.loaded_cells.contains(&c));
+        if leave_reported(a, g.present(t), loaded) {
             bevy::log::info!("script: {} left trigger {}", who(g, a), g.data.name(t));
             g.ref_event(t, event::ON_TRIGGER_LEAVE, Some(Value::Ref(a.0)), Some(a));
         }
     }
     rt.triggers.inside = now;
+}
+
+/// The triggers whose scripts wait for their volumes at game time `now`: those that
+/// began waiting less than [`HOLD_SECS`] ago.
+fn held(since: &HashMap<FormId, f64>, now: f64) -> BTreeSet<FormId> {
+    since.iter().filter(|(_, &t)| now - t < HOLD_SECS).map(|(r, _)| *r).collect()
+}
+
+/// Whether `actor` leaving trigger `t` runs its OnTriggerLeave (module notes): not when
+/// the trigger was disabled or deleted (`present` false); when the trigger's cell is no
+/// longer loaded, only for the player, who is the one that went away (#2449).
+fn leave_reported(actor: FormId, present: bool, loaded: bool) -> bool {
+    present && (loaded || actor == FormId::PLAYER_REF)
 }
 
 #[cfg(test)]
@@ -364,5 +442,31 @@ mod tests {
         // Left the host's world: the welcome stays, the flag goes, triggers run again.
         assert!(!t.held_for_guest(false, true));
         assert!(t.inside.is_empty(), "entered afresh after");
+    }
+
+    /// #2449: the player fast-travelling out of the Boomers' artillery field (its cell
+    /// unloads) leaves the trigger with an OnTriggerLeave, so the script counts the
+    /// player out; an NPC left behind in an unloaded cell is still inside; a disabled
+    /// trigger reports no leave.
+    /// #2571: a trigger whose model is not read holds its script's GameMode, for at
+    /// most HOLD_SECS of game time.
+    #[test]
+    fn a_trigger_waiting_for_its_model_holds_its_script_for_a_while() {
+        let (a, b) = (FormId(0x000B_AF39), FormId(0x0010_0000));
+        let since = HashMap::from([(a, 10.0), (b, 11.5)]);
+        assert_eq!(held(&since, 10.0), BTreeSet::from([a, b]));
+        assert_eq!(held(&since, 12.5), BTreeSet::from([b]), "a waited 2.5 s: its script runs");
+        assert!(held(&since, 14.0).is_empty());
+    }
+
+    #[test]
+    fn the_player_leaves_a_trigger_whose_cell_unloads() {
+        let npc = FormId(0x0010_0000);
+        assert!(leave_reported(FormId::PLAYER_REF, true, true));
+        assert!(leave_reported(npc, true, true));
+        assert!(leave_reported(FormId::PLAYER_REF, true, false), "the player went away: the leave runs");
+        assert!(!leave_reported(npc, true, false), "an NPC in an unloaded cell stays inside");
+        assert!(!leave_reported(FormId::PLAYER_REF, false, true), "a disabled trigger reports none");
+        assert!(!leave_reported(FormId::PLAYER_REF, false, false));
     }
 }

@@ -2,7 +2,7 @@
 //! function or lambda draws on its caller's count, and the next outermost run starts
 //! from 0 again. On a synthetic plugin with two globals.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

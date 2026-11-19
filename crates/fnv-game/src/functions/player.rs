@@ -431,9 +431,10 @@ pub fn get_in_chargen(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 
 /// The player's winnings level (0–4) at a casino (CSNO) [documented: catalogue
 /// summaries of GetCasinoWinningsLevel and GetCasinoWinningStage]: set by the casino
-/// games (Layer 6) or a runner input; 0 until then.
+/// games (Layer 6) or a runner input; 0 until then. The shared No Casino Bans read
+/// view preserves the saved standing (blackjack.md §4).
 pub fn get_casino_winnings_level(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    Ok(Value::Num(g.player.casino_levels.get(&a.form(0)?).copied().unwrap_or(0) as f64))
+    Ok(Value::Num(f64::from(crate::casino::script_winnings_level(g, a.form(0)?))))
 }
 
 /// `SetPCCanUsePowerArmor flag`: whether the player may wear power armour (ARMO BMDT
@@ -445,7 +446,7 @@ pub fn get_casino_winnings_level(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<V
 /// [`refuse_power_armor`]'s box.
 pub fn set_pc_can_use_power_armor(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.player.power_armor = a.num(0)? != 0.0;
-    g.world.set_power_armor_training(g.player.power_armor);
+    g.world.set_power_armor_training(g.player.power_armor || g.tweaks.power_armor_needs_no_training);
     none()
 }
 

@@ -41,6 +41,7 @@ fn sim_with_radaway(count: i32) -> crate::sim::SimState {
 fn input_app(status: usize, tab: usize) -> App {
     let mut app = App::new();
     app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<super::super::KeysTaken>()
         .init_resource::<crate::menu::PromptKeys>()
         .init_resource::<crate::menu::ActiveMenu>()
         .insert_resource(Time::<()>::default())
@@ -108,6 +109,7 @@ fn a_tutorial_over_rad_holds_a_through_the_frame_it_closes_in() {
     state.rt.as_mut().unwrap().game.menu = Some(fnv_game::game::menus::TUTORIAL);
     let mut app = App::new();
     app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<super::super::KeysTaken>()
         .init_resource::<crate::menu::PromptKeys>()
         .init_resource::<crate::menu::ActiveMenu>()
         .insert_resource(Time::<()>::default())

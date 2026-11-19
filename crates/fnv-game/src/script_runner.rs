@@ -194,7 +194,12 @@ impl<'a> Game<'a> {
             // UTF-8 when it is, else 8-bit text in this run's code page, as CompileScript's.
             Some(bytes) => {
                 let src = std::str::from_utf8(&bytes).map_or_else(|_| fnv_util::text::decode(&bytes), str::to_owned);
-                self.compile_statements(&src, &format!("ScriptRunner\\{path}"), "SR").map(|(u, _)| u)
+                self.compile_statements(&src, &format!("ScriptRunner\\{path}"), "SR").map(|(unit, warnings)| {
+                    for warning in warnings {
+                        tracing::warn!(script = path, %warning, "script runner: compilation warning");
+                    }
+                    unit
+                })
             }
             None => Err("the file could not be read".into()),
         };

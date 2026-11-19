@@ -87,7 +87,7 @@ is within it. The engine's appearance resolve (`fnv_actor::resolve`) and the gam
 list with 0 draws nothing for it, so its picks are unchanged. Every list in FalloutNV.esm
 has 0, so nothing changes in vanilla.
 
-## 7. Classes (CLAS): nothing to build
+## 7. Classes (CLAS) and SetClass admission
 
 Auto-calc NPCs (2,283 in the master) carry the attributes and skills the editor
 calculated in their own DNAM and ACBS. The wiki gives no formula ("The level and class of
@@ -95,6 +95,48 @@ the NPC is used to determine the final values" [documented: Stats Tab - NPC]), s
 stored values stand. The class's services already serve Autocalc Service (vendor-services).
 The Guard flag has no documented effect besides the NVSE GetClassFlag. Tag skills,
 attributes and the Guard flag are not decoded.
+
+`actor.SetClass class` changes the actor's class; the page also requires recalculation
+for actors with Auto-calc stats [documented:
+[SetClass](https://geckwiki.com/index.php?title=SetClass), catalogue entry]. Recalculation
+remains open: class/level-dependent attributes and skills must be measured before a
+numeric policy can be implemented. `DuplicateNPCStats` likewise requires class, level,
+and recalculated stats, with Auto-calc stats on the documentation's "target actor"
+[documented:
+[DuplicateNPCStats](https://geckwiki.com/index.php?title=DuplicateNPCStats), catalogue entry].
+It has no implementation; the target's identity and recalculation inputs need a probe.
+Copying a class alone would not satisfy that contract.
+
+NVForever's existing SetClass policy is retained: the calling reference's base receives
+the class override, ahead of its Traits template; references sharing that base see the
+override, and the override is saved [hypothesis: this sharing and lifetime have not been
+captured in the original]. Its real service-category consumer is `Game::services` for
+Autocalc Service actors (vendor-services.md). Auto-calc stats and Autocalc Service are
+separate flags; exercising the latter does not demonstrate stat recalculation.
+
+An omitted source-call receiver still selects the calling reference. An explicit empty
+or non-form receiver is already refused by `fnv-script::vm::host_function` before the
+host bridge runs: the query reports `setclass called on no reference`. Preserve that
+error and the existing class state; there is no established source-call fallback to
+implicit self at this boundary [documented: NVForever's existing VM admission; native
+refusal behavior remains unobserved].
+
+A nonzero unknown FormID or a nonactor form reaches the host. SetClass gives 0, changes
+no class override, and the next statement runs [hypothesis: NVForever admission policy;
+native invalid-actor behavior is unprobed]. Actor admission resolves a placed LVLN/LVLC
+using its seed and encounter level without following any template field, then retains
+SetClass's existing base override key and Traits precedence. This avoids rejecting
+valid leveled actors or attaching classes to nonactors. The source VM refusal controls
+and independently reachable nonactor controls are separate, so an earlier empty-ref
+error cannot prevent the nonactor boundary from being exercised. Actual service
+selection, placed NPC/creature, template and JSON restore controls remain in
+`tests/common/set_class_receivers.rs`; these are authored controls, not original-game
+observations. Large numeric source controls use decimal-point literals with source-local
+value readback because integer-only tokens saturate before receiver admission.
+
+`tools/capture/actor_state_observers.py` generates read-only snapshots for controlled
+original-game comparisons. The capture protocol is in its help text; no results have
+been collected for the new comparisons.
 
 ## 8. Special Combat (FACT flag bit 2)
 
@@ -120,8 +162,39 @@ conditions [hypothesis, fit to ED-E: its one greeting, 001579D7 of vDialogueEDE,
 conditions of its own, the quest's are GetIsID on the three ED-E bases, and the voice
 RobotEDE lacks the bit; the greeting's begin script gives the controls back after the
 repair, overnight queue item 52]. A line whose INFO names its speaker (ANAM) is
+those six functions among its conditions, or its quest has one among the quest's
+conditions (which gate every line of the quest and have to pass too) [observed: ED-E's
+greetings 0x001579D7 and 0x001579D8 have no conditions of their own, their quest
+vDialogueEDE has GetIsID on the three ED-Es, and the voice type RobotEDE lacks the bit;
+hypothesis: the original counts the quest's conditions, since its ED-E says these lines.
+Without it the first greeting, whose result script gives the controls back after the
+repair in Primm, was never said: #2378; checks: unit test `voice_gate`, smoke
+`ede-repair-greeting` and `mq-companion-ede`; what the original does for the Generic
+quest's voice-type list is observer check 127]. A line whose INFO names its speaker (ANAM) is
 allowed too, since it is said by that actor only [hypothesis]. A VTYP without DNAM
 (9 records) is not restricted [hypothesis]. The player's own lines are not gated.
+
+## 11. Fixtures that never fight (Immobile, Unaggressive, Helps Nobody, unarmed)
+
+`Game::is_fixture` (fnv-game awareness.rs; issue #2431): a creature flagged Immobile
+whose AI data is Aggression Unaggressive and Assistance Helps Nobody, carrying no
+weapon (its inventory, or before it is loaded its base's CNTO, a leveled item list
+counting as a weapon). Such an actor is never hostile: the hostility rule answers no
+before StartCombat, grudges, the player's crimes and faction relations; StartCombat
+does nothing on it; each settle of the awareness drops whatever alarms, targets or
+calls for help it was given; and the engine fixes its heading as for a Turning Speed
+of 0. [documented: GECK wiki Stats Tab for Creatures and AI Data; observed: in the
+masters the placed fixtures are MrHouse and MrHouseOFFLINE (Mr. House's screens),
+NVCRMrHouse (his life-support chamber, Turning Speed 30) and NVCRFestus; the turrets,
+also Immobile and Unaggressive, carry their guns (tests/fixtures_data.rs);
+hypothesis: the original lets such an actor take no part in a fight; owner ruling
+2026-11-13 for the screens and the chamber.] Taking damage is left to the records
+and scripts: the screens are Invulnerable, the chamber a ghost until its terminal
+unseals it (NVCRMrHouseSCRIPT's SetGhost 1, the terminal items' SetGhost 0), after
+which House's body can be killed as the owner ruled. Before, a screen became hostile
+after House's death: the murder made it a crime enemy (`Game::crime_enemy` comes
+before Aggression) or a script's StartCombat or a hit did [hypothesis: which one the
+owner's game took is not in the report]. Observer check 181.
 
 ## 10. Checks
 

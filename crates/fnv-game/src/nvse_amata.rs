@@ -141,9 +141,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: GetCurrentAmmo] the ammo the actor's weapon holds.
         "getcurrentammo" => XVal::Ref(subject.and_then(|a| g.ammo_in_use(a)).map_or(0, |a| a.0)),
         // [documented: ToggleTeammateKillable; SetWheelDisabled; ToggleNoHealthReset]
-        // flags kept for the session [hypothesis: the systems they change, a teammate's
-        // protection from death, the companion wheel and JIP's health reset, do not read
-        // them yet].
+        // flags kept for the session. A killable teammate dies outside Hardcore
+        // (`functions::actor::essential`) [hypothesis: the companion wheel and JIP's
+        // health reset do not read their flags yet].
         // Gives the state before [observed: jip-fifth, 1 then 0 on Doc give 0 then 1].
         "toggleteammatekillable" => {
             let a = subject.unwrap_or(FormId(0));

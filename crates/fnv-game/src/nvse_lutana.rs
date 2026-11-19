@@ -609,6 +609,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let (broken, again) = if is_terminal(g, r) {
                 (g.terminals.access.get(&r) == Some(&crate::terminal::Access::LockedOut), g.terminals.retried.contains(&r))
             } else {
+                let r = g.world.lock_source(r);
                 (g.locks.broken.contains(&r), g.locks.retried.contains(&r))
             };
             let door = g.data.sig(base(g, r)) == Some(*b"DOOR");
@@ -646,6 +647,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     }
                 }
             } else {
+                let r = g.world.lock_source(r);
                 let l = &mut g.locks;
                 if state == 0 {
                     l.broken.remove(&r);
@@ -673,9 +675,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 }
                 note
             } else {
-                let own = g.world.get(r).ok().and_then(|s| s.lock).and_then(|l| l.key);
-                let door = g.world.placed.get(r).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
-                own.or_else(|| door.and_then(|d| g.world.get(d).ok()).and_then(|s| s.lock).and_then(|l| l.key))
+                g.world.lock_of(r).and_then(|l| l.key)
             };
             yes(key.is_some_and(|k| g.world.item_count(FormId::PLAYER_REF, k).is_ok_and(|n| n > 0)))
         }
@@ -772,7 +772,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // The computer's local time as "HH-mm-SS" [documented: GetTimeStamp].
-        "gettimestamp" => XVal::Str(chrono::Local::now().format("%H-%M-%S").to_string()),
+        "gettimestamp" => XVal::Str(jiff::Timestamp::now().to_zoned_datetime(crate::local_time::system_zone()).strftime("%H-%M-%S").to_string()),
         // `list`: 1 when the reference under the crosshair is in the list, 2 when its base
         // is, else 0 [documented: CrosshairRefInList].
         "crosshairrefinlist" => {

@@ -506,7 +506,7 @@ fn close_container(g: &mut Game) {
 
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
-    let snap = g.snapshot();
+    let snap = g.checked_snapshot()?;
     let body = serde_json::to_vec(&snap).map_err(|e| e.to_string())?;
     let bytes = fnv_save::encode(&fnv_save::SaveHeader::new(fnv_save::SaveKind::Quick), &[], &body);
     let file = fnv_save::decode(std::path::Path::new("runner save"), &bytes, true).map_err(|e| e.to_string())?;
@@ -851,6 +851,21 @@ fn form_arg(f: FormId) -> ArgValue {
 }
 fn num_arg(x: f64) -> ArgValue {
     ArgValue::Value(Value::Num(x))
+}
+
+/// Apply `given` entries (the runner input's JSON, as `ext_save::save_given` writes them) to
+/// a game already running, in order; an entry that cannot be read or applied is returned
+/// with its index and the reason, and the rest still go in. The engine's query job uses it
+/// to give a run the original's save (#1024), as `fnvtool ext queries --save` does.
+pub fn apply_given_entries(g: &mut Game, given: &[Json]) -> Vec<Json> {
+    let mut errors = Vec::new();
+    for (i, v) in given.iter().enumerate() {
+        let r = serde_json::from_value::<Given>(v.clone()).map_err(|e| e.to_string()).and_then(|gv| apply_given(g, &gv));
+        if let Err(e) = r {
+            errors.push(json!({"given": i, "error": e}));
+        }
+    }
+    errors
 }
 
 fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
@@ -1317,18 +1332,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             lab = l.clone();
         }
         Action::Query { script, label: l, text } => {
-            use fnv_script::vm::XVal;
-            // A runtime-compiled query runs on no reference [observed: GetSelfAlt gives none
-            // in the original's capture queries].
-            let ctx = crate::game::RunCtx::default();
-            match g.run_query(script, ctx) {
-                Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
-                Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),
-                Ok(v) if *text => obs.insert("value".into(), json!(query_text(&v))),
-                Ok(XVal::Num(n)) => obs.insert("value".into(), json!(n)),
-                Ok(v) => obs.insert("value".into(), json!(query_text(&v))),
-                Err(e) => obs.insert("error".into(), json!(e)),
-            };
+            let step = crate::ext_probes::QueryStep { script: script.clone(), label: l.clone(), text: *text };
+            obs.extend(crate::ext_probes::run_step(g, &step));
             lab = Some(l.clone());
         }
         Action::CallUntil { line, max_frames, label: l } => {
@@ -2525,13 +2530,37 @@ fn action_label(a: &Action) -> Option<String> {
     }
 }
 
-/// A query's value as text (`text: true`): numbers as the extender prints them.
-fn query_text(v: &fnv_script::vm::XVal) -> String {
+#[cfg(test)]
+mod combat_style_save_tests {
+    use super::save_and_load;
+    use crate::combat_style_session_tests::{fixture, game};
     use fnv_script::vm::XVal;
-    match v {
-        XVal::Num(n) => fnv_script::vm::number_text(*n),
-        XVal::Str(s) => s.clone(),
-        XVal::Ref(r) => FormId(*r).to_string(),
-        XVal::Array(id) => format!("array #{id}"),
+    use fnv_sim::FormId;
+
+    #[test]
+    fn headless_save_load_allows_a_temporary_style_and_resets_its_session_copy() {
+        let f = fixture(); let mut g = game(&f);
+        let value = g.run_query("Begin Function { }\nSetFunctionValue (TempCloneForm OwnedStyle 0)\nEnd\n", Default::default()).unwrap();
+        let XVal::Ref(alias) = value else { panic!("the source must create a real alias") };
+        g.extra.entry(FormId::PLAYER_REF).or_default().combat_style = Some(FormId(alias));
+        assert!(g.combat_style_form(FormId(alias)).is_some());
+        assert!(save_and_load(&mut g).unwrap() > 0);
+        assert_eq!(g.extra[&FormId::PLAYER_REF].combat_style, Some(FormId(alias)), "the serialized carrier is preserved");
+        assert!(g.combat_style_form(FormId(alias)).is_none());
+        assert_eq!(g.combat_style_id(FormId::PLAYER_REF), None);
+        assert_eq!(*g.combat_style(FormId::PLAYER_REF).unwrap(), f.data.combat_styles[&FormId(0x3D)], "the old authored default remains the fallback");
+    }
+
+    #[test]
+    fn headless_plain_authored_edits_roundtrip_with_the_existing_session_reset() {
+        let f = fixture(); let mut g = game(&f);
+        let reference = g.world.place(FormId(0xD10), None, [0.0; 3], [0.0; 3], 1).unwrap();
+        g.run_query("Begin Function { }\nSetCombatStyleTraitNumeric OwnedStyle 42 7\nEnd\n", Default::default()).unwrap();
+        assert_eq!(g.combat_style_form(FormId(0xA10)).unwrap().rushing_attack_distance_mult, 7.0);
+        assert!(save_and_load(&mut g).unwrap() > 0);
+        assert_eq!(g.world.peek(reference).unwrap().base, FormId(0xD10));
+        assert_eq!(g.combat_style_form(FormId(0xA10)).unwrap().rushing_attack_distance_mult, 0.0);
+        assert_eq!(g.run_query("Begin Function { }\nSetFunctionValue (GetCombatStyleTraitNumeric OwnedStyle 42)\nEnd\n", Default::default()).unwrap(), XVal::Num(0.0));
     }
 }
+

@@ -462,7 +462,17 @@ A speaker **can say** a line when:
   unless the line has its own GetIsID condition on the speaker, which then decides
   [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
   speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
-  observer check 29];
+  observer check 29]. A condition on the speaker naming a group (GetInFaction,
+  GetIsClass, GetIsRace, GetIsVoiceType, IsInList) decides as well [hypothesis, #2548,
+  observer check 162]: Cottonwood Cove's "Halt!" greeting 0x0013AC97 names the AAM
+  explorer and tests VCaesarsLegionCCoveExplorerFaction, which all four explorers are
+  in, and the other three have GREETING force-greet packages of their own
+  (0x001789B6-B8) that would end on the generic "Move along." otherwise. 19 lines of
+  FalloutNV.esm have a fixed speaker and such a condition without GetIsID [observed]:
+  the Cottonwood Cove explorer lines (7), the Tops' random bartender (3) and the
+  Strip's Securitron messenger (9 with VVictorFaction, said by the messenger itself).
+  Such a line said by another actor plays the fixed speaker's voice file when the
+  actor's own voice has none (voice.rs, as for a GetIsID line);
   - **a script's Say or SayTo** whose topic has no line passing this check, judged from
     the data alone (every line names another fixed speaker and has no own-ID condition;
     a line the speaker passes the check for but cannot say now, because it was said
@@ -563,6 +573,12 @@ All of it is in `GameSnapshot`.
   within 300 units of the player, never from afar; out of the loaded area (the low
   process) the walk-up waits. Without the AI (headless runners) the
   conversation opens at once, as before [design: the distances and the run].
+  [design, #2724] Any successful opening of a player conversation consumes that
+  speaker's pending walk-up, before the first line's result scripts run
+  (`Game::open_dialogue`). A repeated StartConversation that opens within 300 units,
+  another force greet, or the player's own opener therefore cannot leave an old
+  walk-up to greet again after the conversation. Refused opens and greetings that
+  do not open a conversation leave it pending; other speakers' walks are unchanged.
   [observed 2026-11-05] The Legion explorers about Nelson (nvNelsonExplorerBarkSCRIPT
   calls StartConversation Player once its GameMode runs) greeted from 10,099 units off.
   Now explorer 01 runs over and greets from 147 units (smoke
@@ -768,8 +784,18 @@ Joe Cobb and Trudy (below).
   Stations]. Tests: `dialogue.rs`
   `a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats`,
   `a_follow_up_between_actors_keeps_the_topics_of_the_conversation`.
+- **A talking activator** can take part (issue #2451): it says its talking actor's
+  lines, chosen with that actor as the speaker and IsActorTalkingThroughActivator 1
+  (`Game::talker`), and the line is said by that actor through it (`Speech::through`),
+  so the other side's next line is said to the activator. Veronica's package at Hidden
+  Valley talks to HVIntercomREF, which speaks for Ramos.
 - **The next line** (`Game::next_conversation_line`), when a line has ended and its end
-  result has run: a Goodbye line ends the conversation [documented]; so does either
+  result has run: a Goodbye line ends the conversation [documented] unless it links on
+  (Link To or follow-ups), when it goes on [hypothesis from the data: 19 Conversation
+  lines of FalloutNV.esm are Goodbye with links; Jason Bright's speech is started at its
+  first part only (SCPT 0008D41A) and its Goodbye part 4 links to parts 5-9; Veronica's
+  exchange with Ramos (HVVeronicaEnter, four Goodbye lines) opens the bunker only at its
+  third line; observer check 139]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
   Target is the other actor, Self the same one, Either the other and else the same one
   [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the
@@ -831,6 +857,18 @@ three references enabled, the trigger entered) the runtime plays this through: J
 Cobb's line (8.80 s, its voice file's length), Trudy's answer (3.85 s), bArgumentOver 1,
 package 0010663E chosen, the conversation ended `no_links` after 2 lines. Before this
 section StartConversation with an actor was a stub, so the argument was never heard.
+
+**A Dialogue package's Say To line to another actor leads on** (issue #2229,
+`Game::say_package_line`): when the line is a Conversation line, once it ends and its
+SayToDone blocks ran the two go on as above (`Game::next_conversation_line`: its next
+speaker, follow-ups, Link To and choice topics, until a Goodbye line or none). A
+scripted SayTo stays one line: scripts chain those themselves through SayToDone
+[hypothesis, from the data: TTW's CG04MaryHoldenTalkToTom (Say To, topic
+CG04AtriumConv1) says "We should just go back to our quarters" to Tom (INFO 0A0574FC:
+Conversation, next speaker Target, its choice CG04AtriumConv1, begin script atrium
+stage +1), and only Tom's answer from that topic (INFO 0A0574FE, Goodbye, at atrium
+stage 1) sets the stage 3 his CG04TomHoldenDeathRun needs; before, Tom never answered
+and never ran].
 
 ### 5.2 Actors who talk on their own (`fnv_ai::social`)
 

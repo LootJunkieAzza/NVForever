@@ -2,7 +2,7 @@
 //! Caravan or exchange a casino's chips, the lines leading to them, and Goodbye. A
 //! synthetic plugin built in memory; no game data.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

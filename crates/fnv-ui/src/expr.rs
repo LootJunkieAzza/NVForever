@@ -38,13 +38,6 @@ impl Src {
     pub fn parse(s: &str) -> Src {
         let t = s.trim();
         let Some(open) = t.find('(') else {
-            // `me` without brackets is the tile itself [hypothesis: MCM 1.5's options.xml
-            // writes `<copy src="me" trait="x"/>` for its option column's `_x1` and `_x2`,
-            // and its options draw inside the panel in the original; read as a tile named
-            // "me", they stood at the menu's left edge (observed in NVForever, 2026-11-05)].
-            if t.eq_ignore_ascii_case("me") {
-                return Src::Me;
-            }
             return Src::Named(t.to_string());
         };
         let head = t[..open].trim().to_ascii_lowercase();
@@ -96,6 +89,19 @@ pub enum OpKind {
     Round,
     Trunc,
     Abs,
+    /// UIO argument negation: replace the accumulator with `-argument`.
+    Neg,
+    /// UIO extra argument operators (uio-four-operators.md).
+    Sin,
+    Cos,
+    Log,
+    Pow,
+    /// UIO accumulated bit test (ui-bit-test-operator.md).
+    BitTest,
+    /// Bounded exact-integer operations (mcm-rgb-integer-consumers.md).
+    BitAnd,
+    ShiftLeft,
+    ShiftRight,
     Rand,
     Eq,
     Neq,
@@ -130,6 +136,15 @@ impl OpKind {
             "round" => OpKind::Round,
             "trunc" => OpKind::Trunc,
             "abs" => OpKind::Abs,
+            "neg" => OpKind::Neg,
+            "sin" => OpKind::Sin,
+            "cos" => OpKind::Cos,
+            "log" => OpKind::Log,
+            "pow" => OpKind::Pow,
+            "bt" => OpKind::BitTest,
+            "land" => OpKind::BitAnd,
+            "shl" => OpKind::ShiftLeft,
+            "shr" => OpKind::ShiftRight,
             "rand" => OpKind::Rand,
             "eq" => OpKind::Eq,
             "neq" => OpKind::Neq,
@@ -257,7 +272,9 @@ mod tests {
         assert_eq!(Src::parse("parent(CWM_MainRect)"), Src::Ancestor("CWM_MainRect".into()));
         assert_eq!(Src::parse("gloabls()"), Src::Globals);
         assert_eq!(Src::parse("StatsMenu"), Src::Named("StatsMenu".into()));
-        assert_eq!(Src::parse("me"), Src::Me);
+        // `me` without brackets is a name here; the tree reads it as the tile itself when
+        // no tile bears it (`Ui`'s `Src::Named` lookup, MCM 1.5's Options.xml).
+        assert_eq!(Src::parse("me"), Src::Named("me".into()));
     }
 
     #[test]

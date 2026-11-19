@@ -1,7 +1,7 @@
 //! Just Assorted Mods' extender functions and events (fnv_game::nvse_jam), on an empty
 //! plugin (no game data).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

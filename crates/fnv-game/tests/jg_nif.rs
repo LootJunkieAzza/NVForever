@@ -3,7 +3,7 @@
 //! the engine's part played by the test: the scene mirror's tree with what the engine
 //! tells of each node, the camera's place, the hit point.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -195,4 +195,21 @@ fn the_camera() {
     assert_eq!(g.ui.camera.rotate_override, [None, None, Some(90.0)]);
     q(&mut g, "SetCameraTranslate 0 0 0 0\nSetCameraRotate 0 3 0");
     assert_eq!((g.ui.camera.translate_override, g.ui.camera.rotate_override), (None, [None; 3]));
+}
+
+#[test]
+fn nif_translation_world_flag_composes_reference_and_parent_instead_of_returning_local() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g,"PlayerREF.SetPos X 100\nPlayerREF.SetPos Y -200\nPlayerREF.SetPos Z 300\nPlayerREF.SetAngle Z 90");
+    let mut root = node("OwnedRoot",None,[10.0,20.0,30.0],NodeInfo::default());
+    root.scale=2.0;
+    g.scene.set_tree(P,vec![root,node("OwnedHand",Some(0),[1.0,2.0,3.0],NodeInfo::default())]);
+    let sum = |world|format!("let aR := PlayerREF.GetNifBlockTranslation \"OwnedHand\" {world}\nSetFunctionValue aR[0] * 10000 + aR[1] * 100 + aR[2]");
+    assert_eq!(n(&mut g,&sum(0)),10203.0);
+    assert!((n(&mut g,&sum(1))-(76.0*10000.0-188.0*100.0+336.0)).abs()<0.5,"getWorld1 must compose the owning reference and parent scale");
+    assert_eq!(n(&mut g,"let aR := PlayerREF.GetNifBlockTranslation \"OwnedHand\"\nSetFunctionValue aR[0]*10000+aR[1]*100+aR[2]"),10203.0);
+    assert_eq!(n(&mut g,"ar_Size (PlayerREF.GetNifBlockTranslation \"MissingOwnedNode\" 1)"),-1.0);
+    let axis=fnv_game::nvse::call(&mut g,&Default::default(),"getnifblocktranslation",Some(P),&[XVal::Str("OwnedHand".into()),XVal::Str("Z".into()),XVal::Num(1.0)]).unwrap().unwrap();
+    assert_eq!(axis,XVal::Num(336.0));
 }

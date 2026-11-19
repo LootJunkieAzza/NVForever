@@ -169,7 +169,12 @@ each the identity by default. Reading PERK records is a later step.
     | varmint rifle | `2hrattack8.kf` | 1.267 | 1.333 | 1.4 × 1.1 | 1.216 (1.54 ÷ 1.267) |
 
     Timing shots by the clip's end made them 5–20 % slower than the original (owner
-    playtest 2026-10-19). NPCs use 1 ÷ Attack Shots/Sec, already the same rate.
+    playtest 2026-10-19). NPCs (and creatures' body guns) take the same rule from the
+    standing attack clip in their own rig once it is known, 1 ÷ Attack Shots/Sec until
+    then (`attack::npc_clip_timing`, §4.1, #2739). Where the clip has an `a:` key this
+    gives the record's rate, as in the observed table above; a clip without one gives
+    the slower rate of its end, and a creature's own clip can differ from the record
+    (the sentry bot's launcher).
 - **When the shot leaves.** At the attack clip's `Hit` key [documented:
   NiTextKeyExtraData]. Automatic weapons fire at once, except those that spin up.
 - **Spin-up** [owner decision 2026-10-10]. An automatic weapon whose attack clip has
@@ -259,6 +264,82 @@ each the identity by default. Reading PERK records is a later step.
 - **Regenerating weapons** gain a round every `regen_rate` seconds and cannot be
   reloaded by hand [documented].
 - **No-ammo weapons.** Melee and unarmed weapons cycle without ammo.
+
+### 4.1 NPCs' shot timing and body guns' magazines (#2739)
+
+The owner saw sentry bots fire missiles back to back in NVForever and with a pause
+between them in the original [observed: owner playtest, #2739].
+
+- **The records** [documented: fnvtool esm decode, FalloutNV.esm]:
+  `SentryBotMissileLauncher2HL` (WEAP 0x00057E8F) is an Embedded Weapon, not automatic,
+  Clip Size 1, ammo AmmoMissile, Attack Shots/Sec 1.5789, Fire Rate 1.0, attack and
+  animation multipliers 1.0, Animation Type Launcher (2 Hand), Attack Animation
+  AttackLeft, Reload Animation ReloadB, Semi-Automatic Fire Delay 0.1-0.5 s, Min/Max Range
+  500/2000, Reload Time 2.3333. Its creatures (`CrSentryBotGLHard` 0x000E585D with the
+  laser gatling, `CrSentryBotMGArmy` 0x000A5C6F with the minigun) fight with combat style
+  `CSSentrybot` (Take Cover Chance 0, Wait-to-Fire Timer 10/10, Fire Timer 2/2,
+  Semi-Auto Firing Delay Mult 1/1).
+- **The clips** [documented: fnvtool bsa list / nif decode, Fallout - Meshes.bsa, main
+  session 2026-11-16]: `meshes\creatures\sentrybot\` has 60 `.kf` files, among them
+  `2hlattackleft.kf` (sequence AttackLeft, 0 to 2.0 s, clamped; keys `BlendIn:1` 0.033,
+  `Hit` 0.067, `a:R` 0.967, end 2.0), its up and down forms, `2hlaim`, `2hlequip`,
+  `2hlunequip`, `2hlholster` and `2hljamb.kf`, but **no reload clip**. Of all creature
+  folders only `nvsecuritron`, `protectron` and `smspinebreaker` have a reload `.kf`.
+- **What NVForever did** [design: `engine/nvforever/src/npc_combat.rs` on be6db0948]:
+  an NPC's semi-automatic gun fired every 1 ÷ Attack Shots/Sec, its clip never asked
+  (the launcher: 0.63 s, shorter than both its clip's `a:R` and its end); a creature's
+  embedded gun had no magazine, so it never reloaded. The other pauses in the data were
+  applied, or do not apply:
+  - the weapon's Semi-Automatic Fire Delay (times the style's multipliers) follows every
+    NPC shot, embedded guns included; the launcher's 0.1-0.5 s is shorter than its
+    interval, so it adds nothing;
+  - the style's Wait / Wait-to-Fire / Fire timers are cover timers ("how long to stand out
+    of cover looking for targets to appear", "how long to stay out of cover firing at
+    targets once they are seen" [documented: GECK wiki Combat Style]); NVForever applies
+    them while a fighter holds cover, and CSSentrybot's Take Cover Chance 0 never takes
+    cover;
+  - the weapon choice (`fnv_combat::body_weapon`, combat-ai.md §19) switches by distance
+    and crippled limbs, at most every 1.5 s, never on a timer: with the launcher the only
+    gun that suits (the target past the other gun's reach and beyond the 1000-unit blast,
+    or the other gun's limb crippled), it fires nothing else;
+  - the WEAP's Reload Time is "Unused" [documented: GECK wiki Weapons]; it is no source.
+- **Shot timing** (`fnv_combat::attack::npc_clip_timing`) [design, #2739]: an NPC's or a
+  creature's semi-automatic gun is timed by the standing attack clip of its WEAP Attack
+  Animation in its own rig (`attack_anims`, with the reload clips; one handoff,
+  `AttackTimes::gun_timing`, for a fight's gunmen and for Use Weapon shooters, whose
+  volley pauses come on top), by §4's rule for the player: the `a:` key's time (the clip's length without one) ÷ (attack multiplier ×
+  animation multiplier). Until the clip is known, and without one, 1 ÷ Attack Shots/Sec as
+  before. Automatic weapons keep their Fire Rate. The `Hit` key gives no wind-up: the
+  NPC's clip starts with its shot. Sources: "Attack Shots/sec ... is calculated on the Art
+  and Sound tab" of the weapon form [documented: GECK wiki FWeaponConditionRateOfFireXX],
+  i.e. from an attack animation; the `a:` key "determines when the animation can be
+  interrupted to play the next animation" [documented: GECK wiki NiTextKeyExtraData];
+  "Attack Multiplier ... will also increase or decrease the projectile ejection rate"
+  [documented: GECK wiki Weapons].
+  - The sentry bot's launcher now fires every 0.967 s (its `a:R`), not 0.63 s. That is
+    still no barrage-length pause: by the player's rule the clip's end (2.0 s) is not
+    waited for. Whether the original waits for the end, switches to its gun between
+    missiles, or has another pause is observer check 221 [hypothesis].
+  - The wiki also says Semi-Automatic Fire Delay Max "determines semi-auto weapon's fire
+    rate when used by actors" [documented: GECK wiki Weapons]; NVForever waits that delay
+    after each shot besides the cycle's interval (npc_combat module notes).
+- **Magazine** (`fnv_combat::body_weapon::has_magazine`) [design, #2739]: an embedded gun
+  has a magazine and reloads by the people's rule (as soon as it is empty, for as long as
+  its reload clip runs) once its creature's rig is known to have the weapon's reload clip
+  (`<stance prefix>reload<x>.kf` of its Reload Animation in the creature's folder or its
+  `specialanims`). A creature without that clip fires on without a magazine as before:
+  the 2.0 s fallback stands in for clips not yet known. This changes only the creatures
+  whose folders have such a clip (Securitrons, protectrons, the spinebreaker skeleton's
+  super mutants and nightkin, where the names match); the sentry bot has none, so its
+  launcher keeps firing without reloads. Whether the original pauses a creature that has
+  no reload animation is observer check 221 [hypothesis].
+- **Ammunition**: rounds still come from nowhere [design: owner 2026-10-17, "they dont
+  use ammo"]. The WEAP flag NPCs Use Ammo ("Actors will use up the associated ammo in
+  their inventory like the player does. (This setting is disabled by default.)"
+  [documented: GECK wiki Weapons]) is not read; the launcher's flags as decoded for #2739
+  are Embedded Weapon, Can't Drop and Non-Playable [documented: fnvtool esm decode,
+  FalloutNV.esm], so the original's sentry bot is taken not to spend its AmmoMissile
+  either [hypothesis].
 
 ## 5. Projectiles, swings, blasts (`projectile.rs`, `shot.rs`)
 
@@ -493,6 +574,34 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - actor hit volumes (§7) report the actor;
   - small-transparent colliders are the layers TRANSPARENT_SMALL and
     TRANSPARENT_SMALL_ANIM.
+  - **The plain Transparent layer (3) lets every shot through** (issue #2340): the
+    original's Transparent is a layer where "nothing can pass through except
+    projectiles", and Transparent Small is the same except that only projectiles with
+    the Pass Through Small Transparent flag pass it [documented: GECK wiki "Collision
+    layer", TRANSPARENT and TRANSPARENT SMALL]. So `layers::shot_ignores` holds
+    TRANSPARENT (characters still stop on it), and the small-transparent layers stay
+    under the projectile flag above. The same filter serves the aim ray, VATS mode's line
+    of fire and aim assist, so those pass layer 3 too. A melee swing's rays do not: the
+    exception is for projectiles, so the player's blows (the fan, the reach across the
+    ground, VATS mode's straight blow and the look ahead for an impact) take
+    `layers::melee_ignores`, the character's layers and invisible walls as before, and
+    stop on layer 3 (`PhysView::for_melee`). NPC blows land by reach and facing, with no
+    ray through the world, so they are unchanged. Blast cover lines already passed layer 3,
+    and so does sight (`detection.rs` `see_through`; the same wiki line: actors see
+    through it). Whether the original lets a 9mm through a layer-3 chain link is observer
+    check 130 [hypothesis until then: the wiki holds for mesh bodies].
+  - **Reach of the change** [documented: `fnvtool collide objects` over the eleven mesh
+    archives of the base game and its add-ons, `fnvtool world refs` over every worldspace
+    and the interior cells of FalloutNV.esm with its nine add-on masters, 2026-11-14]:
+    600 collision bodies in 579 meshes are on layer 3, all static. 6,570 placed references
+    (6,531 statics, 22 doors, 17 static collections) of 271 of those models carry one,
+    5,739 of them in interiors. The commonest are utility-room walls, corners and halls
+    whose layer-3 body is a flat ceiling grate at 183 units, catwalk rails (`Rails01`),
+    `trusswork01.nif` (all of it on layer 3), the lower gap of
+    `bathroomstalldivider01.nif`, the Divide's wall lights and `bedframe01static.nif`.
+    The road gate `clfencegateroad01.nif` (door `CLFenceGateRoad01`, 21 placed) has its
+    chain link `CLFenceGateRoad01Link` on layer 3; its add-on copy
+    `dlcanchclfencegateroad01.nif` has it on Transparent Small (26).
 - **Hits.** Hits and blasts are logged with the damage the rules give (target DT 0, no
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
@@ -881,6 +990,14 @@ module notes).
   - damages actors in its radius, with line of sight, armour and the cause's and target's
     damage and DT perks (perk-entry-points.md §2, "Blasts"; with no cause, the target's
     with no condition on the attacker or the weapon [hypothesis: as the original]);
+  - reaches corpses too: one whose ragdoll took over from its hit volume is caught by its
+    ragdoll, its centre the trunk's, its reach the bounds of its bodies, its bodies' centres
+    seen and measured to as a living actor's part capsules are; once per actor, a volume not
+    yet dropped standing for it; placed objects' ragdolls (traps) and gore pieces are not
+    caught (#2346) [design: `CombatWorld::blast_targets_near`,
+    `PhysWorld::ragdoll_bounds`]. Only blasts: proximity fuses and swings still go by the
+    living actors' volumes. A corpse takes no damage (it is dead) but may lose the part facing
+    the blast (dismemberment.md §4.2);
   - uses the impact point for effects, radius, damage falloff and push. For actor line
     of sight only, an impact with a finite, nonzero surface normal starts 0.5 units
     outward along its normalized normal, then derives the existing 16-unit raised
@@ -1839,3 +1956,67 @@ npc-behaviour-compare.md §9.
   trooper is about 22 in both. Checking it needs the capture's hits split by attacker
   (`tools/capture/fight_stats.py` gives each actor's hits made and damage taken, not who
   hit whom).
+
+
+## 19. Source queries for associated dropped weapons
+
+[documented] [GetDroppedRefs](https://geckwiki.com/index.php?title=GetDroppedRefs)
+returns world weapon references associated with a calling actor's death or targeted
+weapon drop. These differ from inventory references and ordinary carried items.
+
+[design] The named zero-argument query reads the existing `World::dropped_beside`
+association, filters to weapon bases and returns those actual world references.
+It does not create a drop, change inventory or infer association from proximity.
+Actor qualification uses the current level-aware selected NPC/creature, so placed
+LVLN/LVLC carriers qualify without being mistaken for ordinary actor base records.
+A valid base-form or nonactor receiver yields the existing null/zero result.
+An omitted receiver uses the calling actor. An explicitly supplied null/invalid
+source receiver is refused by the existing VM before host dispatch, stops the script
+and makes no getter mutation. The getter does not introduce a silent-zero continuation
+or a special receiver adapter. Generic VM/host receiver policy is unchanged; no native
+opcode adapter is added.
+
+[design] Associated disabled/deleted world references remain excluded by the existing
+world helper. Its deterministic FormID order is an engine mapping, not native order
+parity. No associations yields the existing null/zero convention. Queries store no
+new lifetime state: ordinary World/Game snapshot and restore retain association,
+while a fresh world inherits none.
+
+[hypothesis] Native ordering, exact empty-array/null representation and unusual
+unloaded/disabled-owner timing remain probe questions. The getter relies on existing
+producer association; death/VATS production and the full installed hover mod are not
+qualified by getter tests or a manually seeded association.
+
+[design] Four authored controls in the shared `fnv-game` integration binary use
+compiled source, actual World placements and explicitly seeded existing associations.
+They cover a hover list merging carried inventory references with dropped world
+weapons and publishing its text, ordinary and leveled NPC/creature receivers,
+disabled/deleted filtering, checked serialized restore and invalid-vs-omitted source
+receivers. Array inspection stays inside the live compiled source and returns an
+owned scalar representation; Rust does not inspect an expired returned array ID.
+The original hover query's function-name collision is retained as a compiler
+rejection control, with only that local renamed in its corrected consumer.
+
+[validation: PR #2879, original `2c9574ec` composite `f2009ad5`]
+All four original cases failed: a hover query did not compile, two helpers inspected
+arrays after the query lifetime ended, and the explicit-invalid case received the
+existing VM refusal rather than its incorrectly expected zero. Their downstream
+world/UI/restore assertions were not reached and are not credited as passes. The
+append-only corrected fixtures preserve those behavior oracles, assert the actual
+error/no-continuation/no-world-mutation boundary, and are unexecuted at correction
+authoring. Original and corrected baseline refs remain separate; predicted baseline
+failures are not observations. These fixture corrections do not change compiler,
+array lifetime, drop-producer or generic receiver policy.
+
+
+[validation: PR #2879, `5a61bc59` composite `ddac1b90`]
+The ordinary/leveled actor, filtering/serialized-restore and receiver cases passed
+once. The original Label diagnostic control also passed, but the renamed hover
+query still failed compilation before its count/UI/world assertions. Its quoted
+semicolon is a source comment delimiter under the existing compiler contract
+([extender bytecode §7](ext-bytecode.md#7-what-the-geck-refused-compile-messages)). The next fixture retains
+that refused source as a `mismatched_quotes` control and generates the same delimiter
+with `AsciiToChar 59`; exact title text, counts and references remain unchanged.
+The production getter and compiler/array/receiver policies are unchanged. These
+further corrected fixtures are unexecuted at correction authoring. The historical
+three passes are scoped to `5a61bc59`, not transferred to its successor or baseline.

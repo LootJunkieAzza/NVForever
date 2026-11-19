@@ -353,7 +353,7 @@ fn open(mut starts: MessageReader<DrinkStart>, mut screen: ResMut<DrinkScreen>, 
 fn steer(
     input: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     real: Res<Time<Real>>,
     windows: Query<&Window>,
     state: Res<State<PlayState>>,

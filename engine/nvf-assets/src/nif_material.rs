@@ -132,6 +132,15 @@
 //! alpha-tested shapes in every shadow cascade above all. The shaders reach the values,
 //! the holes and the FaceGen offset through `nif_surface`, `holes_alpha` and
 //! `facegen_texel` (nif_material.wesl, nif_prepass.wesl), which read either binding.
+//!
+//! Landscape anti-tiling (nvforever `terrain.rs` "Anti-tiling", [design, #2551]): the
+//! landscape's own NIF materials (a quadrant's base where its layers are not folded in, and
+//! the layers drawn blended over it) carry their texture repeat
+//! ([`NifSurface::terrain_repeat`]) and the switch ([`NifSurface::anti_tiling`]). With both,
+//! the main pass gets `TERRAIN_ANTI_TILING` and `TERRAIN_SEPARATE`
+//! (`terrain_sampling::anti_tiling_defs`), and nif_material.wesl sets the surface up with
+//! terrain_pbr.wesl's anti-tiled reads instead of Bevy's `pbr_input_from_standard_material`.
+//! Every other shape (repeat 0) keeps the call there always was.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -148,6 +157,9 @@ const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29
 
 /// nif_surface_bindings.wesl (imported by the two above).
 const NIF_SURFACE_BINDINGS_SHADER: Handle<Shader> = uuid_handle!("3c8e1f60-9a4d-4b27-b5e2-7d0f6a91c348");
+
+/// coverage.wesl (imported by the two prepass shaders).
+const COVERAGE_SHADER: Handle<Shader> = uuid_handle!("5a1f8e3c-0d72-4b96-8c4e-e17a2b6d9f05");
 
 /// first_person_depth.wesl.
 const FIRST_PERSON_DEPTH_SHADER: Handle<Shader> = uuid_handle!("9e4a7c12-58d3-4f6b-a0e1-2c7b5d8f3a64");
@@ -233,18 +245,40 @@ pub fn first_person_squeeze(z: f32) -> f32 {
     1.0 - FIRST_PERSON_DEPTH_SHARE * (1.0 - z)
 }
 
-/// Anti-alias the cut-out edges of an alpha-tested material in the main pass of a
-/// multisampled view: the fragment shader gets `SOFT_EDGES` and must write, as its alpha,
-/// the share of the pixel's samples it covers (alpha to coverage). Call from
-/// `MaterialExtension::specialize`; pipelines of other materials and passes, and views
-/// without multisampling, are left alone (the alpha is tested per pixel there).
+/// Anti-alias the cut-out edges of an alpha-tested material in a multisampled view: where
+/// the alpha falls below the cutoff the shape covers a share of the pixel's samples, 1 at
+/// and above the cutoff and falling to 0 within one pixel outside it,
+/// `(alpha - cutoff) / fwidth(alpha) + 1`. Call from `MaterialExtension::specialize` of a
+/// material whose alpha is StandardMaterial's (base colour x texture); pipelines of other
+/// materials, and views without multisampling, are left alone (the alpha is tested per
+/// pixel there).
 ///
-/// The share the shaders write is 1 at and above the material's cutoff and falls to 0
-/// within one pixel outside it: `(alpha - cutoff) / fwidth(alpha) + 1`. The depth prepass
-/// tests at the cutoff, so every pixel it has written depth for is fully covered and
-/// nothing behind the shape is wrongly hidden [chosen: Bevy's own alpha-to-coverage mode
-/// centres the edge on the cutoff and drops the prepass's alpha test].
+/// Two ways, by the view ("Prepass coverage", below):
+/// - a view with a depth-only prepass: the prepass writes the edge, and the main pass
+///   only tests depth for equality ([`prepass_coverage`]);
+/// - any other multisampled view: the main pass's fragment shader gets `SOFT_EDGES` and
+///   writes the share as its alpha (alpha to coverage), in front of what the prepass, which
+///   tests at the cutoff, wrote [chosen: Bevy's own alpha-to-coverage mode centres the edge
+///   on the cutoff and drops the prepass's alpha test].
 pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !prepass_coverage(descriptor, mesh_key, FADE_PREPASS_SHADER, None) {
+        alpha_to_coverage_edges(descriptor, mesh_key);
+        // Without multisampling both passes test the alpha at the cutoff, so the main
+        // pass can still test depth for equality (not with alpha to coverage: its edge
+        // lies outside what the prepass wrote, and `depth_equal` leaves it alone).
+        depth_equal(descriptor, mesh_key);
+    }
+}
+
+/// [`soft_edges`] for grass (nvforever grass.rs), whose share is `alpha / cutoff`
+/// (`GRASS_SHARE`, fade_prepass.wesl) in a view where the prepass writes it. False where
+/// it does not: the caller then keeps its own main pass.
+pub fn grass_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) -> bool {
+    prepass_coverage(descriptor, mesh_key, FADE_PREPASS_SHADER, Some("GRASS_SHARE"))
+}
+
+/// The alpha-to-coverage way of [`soft_edges`]: main pass only.
+fn alpha_to_coverage_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
     if !mesh_key.contains(MeshPipelineKey::MAY_DISCARD) || descriptor.multisample.count <= 1 {
         return;
     }
@@ -254,6 +288,140 @@ pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipel
     if let Some(fragment) = descriptor.fragment.as_mut() {
         fragment.shader_defs.push("SOFT_EDGES".into());
         descriptor.multisample.alpha_to_coverage_enabled = true;
+    }
+}
+
+/// Whether [`prepass_coverage`] holds for a pipeline with this key and sample count: the
+/// same answer for a view's prepass pipeline and its main-pass pipeline, which must agree.
+/// The prepass must be depth-only: with normals or motion vectors Bevy's own prepass
+/// fragment runs (TAA and FSR, which turn multisampling off anyway). A shadow pass has no
+/// multisampling.
+fn prepass_coverage_applies(mesh_key: MeshPipelineKey, samples: u32) -> bool {
+    mesh_key.contains(MeshPipelineKey::MAY_DISCARD | MeshPipelineKey::DEPTH_PREPASS)
+        && matches!(samples, 2 | 4 | 8)
+        && !mesh_key.intersects(MeshPipelineKey::NORMAL_PREPASS | MeshPipelineKey::MOTION_VECTOR_PREPASS | MeshPipelineKey::DEFERRED_PREPASS)
+}
+
+/// Prepass coverage: the soft edge of an alpha-tested shape, written by the depth prepass.
+///
+/// In a multisampled view with a depth-only prepass, the prepass fragment (`shader`:
+/// fade_prepass.wesl or nif_prepass.wesl, with `COVERAGE_MASK`, the sample count as
+/// `COVERAGE_SAMPLES_<n>`, and `extra`) returns the share of the pixel the shape covers as
+/// a sample mask (coverage.wesl), instead of testing the alpha at the cutoff. The depth
+/// buffer then holds the shape on exactly the samples it covers, so the main pass
+/// (`PREPASS_COVERAGE`) neither tests the alpha nor uses alpha to coverage: it tests depth
+/// for equality and writes none ([`depth_equal`]). Returns whether it applies; a pipeline
+/// it does not apply to is left as it was.
+///
+/// Why: with alpha to coverage in the main pass, the shader had to run for every layer of
+/// overlapping cut-outs nearer than the depth the prepass wrote (the transparent texels
+/// of each leaf card and grass blade in front of the visible one, and their soft edges),
+/// and depth was written a second time. Now only the visible fragment of each sample is
+/// lit [observed 2026-11-10: docs/design/frame-rate-audit.md section 9].
+///
+/// What changes in the picture: which of a pixel's samples a partly covering edge takes
+/// is this module's order (coverage.wesl) instead of the GPU's alpha-to-coverage pattern,
+/// and the depth prepass, which ambient occlusion and soft intersections read, now holds
+/// the soft edge on the samples it covers.
+fn prepass_coverage(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey, shader: Handle<Shader>, extra: Option<&'static str>) -> bool {
+    let samples = descriptor.multisample.count;
+    if !prepass_coverage_applies(mesh_key, samples) {
+        return false;
+    }
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        depth_prepass_fragment(descriptor, shader);
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("COVERAGE_MASK".into());
+            fragment.shader_defs.push(match samples {
+                2 => "COVERAGE_SAMPLES_2",
+                4 => "COVERAGE_SAMPLES_4",
+                _ => "COVERAGE_SAMPLES_8",
+            }.into());
+            if let Some(extra) = extra {
+                fragment.shader_defs.push(extra.into());
+            }
+        }
+    } else {
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("PREPASS_COVERAGE".into());
+        }
+        depth_equal(descriptor, mesh_key);
+    }
+    true
+}
+
+/// Shade only what the depth prepass left visible: in the main pass of a view with a
+/// depth prepass, an opaque shape, or an alpha-tested one without [`soft_edges`], tests
+/// its depth for equality with the prepass's and writes none. Call from
+/// `MaterialExtension::specialize` after [`soft_edges`]; the shape must be drawn in the
+/// view's prepass with the same vertex stage and the same alpha test, so every fragment
+/// the prepass kept has the very depth the main pass computes for it.
+///
+/// Upstream's main pass tests "nearer or equal" and writes depth again. The picture is
+/// the same either way: the prepass has already settled which fragment is in front. But
+/// with "equal" and no write nothing behind the front fragment can pass, and the test
+/// can always run before the fragment shader, so no hidden fragment is lit; and a
+/// multisampled depth buffer is not written a second time [observed 2026-11-10,
+/// Goodsprings 12:00 at 2560x1440 with 4x multisampling, RTX 3070: the frame
+/// 9.32 -> 9.03 ms; docs/design/frame-rate-audit.md section 9, change 1].
+///
+/// Left alone: prepass and shadow pipelines, blended pipelines, pipelines with alpha to
+/// coverage (their soft edge lies outside what the prepass wrote), and views without a
+/// depth prepass.
+pub fn depth_equal(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS) || descriptor.multisample.alpha_to_coverage_enabled {
+        return;
+    }
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    let Some(fragment) = descriptor.fragment.as_ref() else { return };
+    if fragment.targets.iter().flatten().any(|t| t.blend.is_some()) {
+        return;
+    }
+    if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
+        if depth_stencil.depth_write_enabled == Some(true) && depth_stencil.depth_compare == Some(CompareFunction::GreaterEqual) {
+            depth_stencil.depth_write_enabled = Some(false);
+            depth_stencil.depth_compare = Some(CompareFunction::Equal);
+        }
+    }
+}
+
+/// The shader def under which the lighting takes the ambient occlusion on the ambient light
+/// (nvforever ssao_lighting.rs; bevy_pbr pushes it, for pipelines that write depth, on the
+/// views that have the occlusion's bindings: engine/vendor/README.md).
+pub const AMBIENT_OCCLUSION_DEF: &str = "NVF_AMBIENT_OCCLUSION";
+
+/// A pipeline that must not take the ambient occlusion although bevy_pbr's rule gives it the
+/// def: its surface is not the one the depth prepass holds (water, a refracting shape), so
+/// the texels under it are another surface's (the bed's, the wall's behind), or a material
+/// that chose not to (nvforever grass.rs, tree.rs constants). The view's layout keeps the
+/// bindings; the shader just does not read them.
+pub fn ambient_occlusion_opt_out(descriptor: &mut RenderPipelineDescriptor) {
+    let def = ShaderDefVal::from(AMBIENT_OCCLUSION_DEF);
+    descriptor.vertex.shader_defs.retain(|d| *d != def);
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.retain(|d| *d != def);
+    }
+}
+
+/// A main-pass pipeline that takes the ambient occlusion although bevy_pbr's rule (depth
+/// written) leaves it out: a blended surface drawn on the surface the depth prepass holds
+/// (the landscape's blended texture layers), whose crease would otherwise show the base's
+/// occlusion through unoccluded patches. Only on a view that has the bindings (the key's
+/// bit), never in a prepass.
+pub fn ambient_occlusion_opt_in(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !mesh_key.contains(MeshPipelineKey::NVF_AMBIENT_OCCLUSION) || descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    let def = ShaderDefVal::from(AMBIENT_OCCLUSION_DEF);
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        if !fragment.shader_defs.contains(&def) {
+            fragment.shader_defs.push(def.clone());
+        }
+    }
+    if !descriptor.vertex.shader_defs.contains(&def) {
+        descriptor.vertex.shader_defs.push(def);
     }
 }
 
@@ -297,9 +465,11 @@ pub struct NifSurface {
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
     pub fire_period: f32,
     /// Unlit emissive rules: x 1 skips the image-space scale; y holds each light channel
-    /// to that value on the soft path (0: no hold); z 1: a lit shape's glow map alone
-    /// gives its light (nif_spawn.rs `glow_emits_alone`); w unused. Zero keeps the default
-    /// [hypothesis, nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
+    /// to that value on the soft path (0: no hold); z 1: the vertex colours are display
+    /// values, made linear per fragment (`nif_spawn::unlit_vertex_colors`); w 1: a lit
+    /// shape's glow map alone gives its light (nif_spawn.rs `glow_emits_alone`).
+    /// Zero keeps the default [hypothesis, nif.md §6 "Unlit shapes that are pictures, and
+    /// cut-out signs"].
     pub emissive_rule: Vec4,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
@@ -375,6 +545,11 @@ pub struct NifSurface {
     /// ground under grass that burnt is drawn scorched. `None` everywhere else.
     #[texture(54)]
     pub scorch_map: Option<Handle<Image>>,
+    /// World units per texture repeat of a landscape material (module notes, "Landscape
+    /// anti-tiling"; set by nvforever `terrain.rs` only); 0 on every other shape.
+    pub terrain_repeat: f32,
+    /// Landscape anti-tiling on (a landscape material only, with a repeat above 0).
+    pub anti_tiling: bool,
 }
 
 /// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
@@ -394,6 +569,9 @@ pub struct NifSurfaceUniform {
     /// [`NifSurface::pipboy_a`], [`NifSurface::pipboy_b`].
     pub pipboy_a: Vec4,
     pub pipboy_b: Vec4,
+    /// x [`NifSurface::terrain_repeat`] (0 when it cannot place anti-tiled reads); y, z, w
+    /// unused.
+    pub terrain: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -405,7 +583,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b, terrain: Vec4::new(if crate::terrain_sampling::repeat_valid(s.terrain_repeat) { s.terrain_repeat } else { 0.0 }, 0.0, 0.0, 0.0) }
     }
 }
 
@@ -475,6 +653,8 @@ impl Default for NifSurface {
             holes_texture: None,
             facegen_offset: None,
             scorch_map: None,
+            terrain_repeat: 0.0,
+            anti_tiling: false,
         }
     }
 }
@@ -492,6 +672,12 @@ pub struct NifSurfaceKey {
     pub first_person: bool,
     pub add_linear: bool,
     pub pipboy_screen: bool,
+    /// A landscape material with anti-tiling on and a repeat to place it with.
+    pub anti_tiling: bool,
+    /// A landscape material (a repeat to place it with): its blended texture layers lie on
+    /// the surface the depth prepass holds and take the ambient occlusion
+    /// ([`ambient_occlusion_opt_in`]).
+    pub terrain_layer: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -506,6 +692,8 @@ impl From<&NifSurface> for NifSurfaceKey {
             first_person: surface.first_person,
             add_linear: surface.add_linear,
             pipboy_screen: surface.pipboy_screen,
+            anti_tiling: surface.anti_tiling && crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
+            terrain_layer: crate::terrain_sampling::repeat_valid(surface.terrain_repeat),
         }
     }
 }
@@ -530,7 +718,11 @@ impl MaterialExtension for NifSurface {
             first_person_depth(descriptor, key.mesh_key);
         }
         if !key.bind_group_data.hard_edges {
-            soft_edges(descriptor, key.mesh_key);
+            // A first-person shape writes its own depth in both passes (below), a
+            // refracting one is in no prepass: the edge stays the main pass's.
+            if key.bind_group_data.first_person || key.bind_group_data.refract || !prepass_coverage(descriptor, key.mesh_key, NIF_PREPASS_SHADER, None) {
+                alpha_to_coverage_edges(descriptor, key.mesh_key);
+            }
         }
         if key.bind_group_data.shade_light && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
@@ -552,12 +744,27 @@ impl MaterialExtension for NifSurface {
                 fragment.shader_defs.push("PIPBOY_SCREEN".into());
             }
         }
+        if key.bind_group_data.anti_tiling {
+            crate::terrain_sampling::anti_tiling_defs(descriptor, true);
+        }
+        // The ambient occlusion in the lighting (module notes of nvforever ssao_lighting.rs):
+        // a refracting shape is in no prepass, so the texels under it are the surface behind;
+        // the landscape's blended layers lie on the prepass's surface.
+        if key.bind_group_data.refract {
+            ambient_occlusion_opt_out(descriptor);
+        } else if key.bind_group_data.terrain_layer {
+            ambient_occlusion_opt_in(descriptor, key.mesh_key);
+        }
         if key.bind_group_data.refract {
             refraction_pipeline(descriptor);
         } else if key.bind_group_data.depth_write && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
                 depth_stencil.depth_write_enabled = Some(true);
             }
+        }
+        // A first-person shape writes its own depth, a refracting one is in no prepass.
+        if !key.bind_group_data.first_person && !key.bind_group_data.refract {
+            depth_equal(descriptor, key.mesh_key);
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
@@ -642,6 +849,21 @@ pub fn decal_bias(bias: DepthBiasState) -> DepthBiasState {
 }
 
 pub type NifMaterial = ExtendedMaterial<StandardMaterial, NifSurface>;
+
+/// [design, #2557] A mesh's temporary drawing override and its underlying material.
+/// All material consumers resolve the plain source before reading, cloning or saving
+/// a restoration handle; only the owner derives and disposes of the cloak copy.
+#[derive(Component)]
+pub struct MaterialOverride {
+    pub source: Handle<NifMaterial>,
+    pub copy: Handle<NifMaterial>,
+}
+
+/// [design, #2557] Resolve the underlying plain material only while the override is
+/// worn. A replacement handle already belongs to the next plain material owner.
+pub fn plain_material<'a>(current: &'a Handle<NifMaterial>, drawing: Option<&'a MaterialOverride>) -> &'a Handle<NifMaterial> {
+    drawing.filter(|d| d.copy == *current).map_or(current, |d| &d.source)
+}
 
 /// A NIF material from its StandardMaterial part.
 pub fn nif_material(base: StandardMaterial) -> NifMaterial {
@@ -798,6 +1020,22 @@ pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
     (sum.powf(MULTIPLY_GAMMA) - behind).max(Vec3::ZERO)
 }
 
+/// The light an additive shape adds once fogged, from its colour through the view's fog
+/// (`fogged`) and black through the same fog (`fogged_black`): their difference, never
+/// below 0 (CPU mirror of nif_material.wesl).
+///
+/// Bevy's fogs are colour × k + a fog term that does not depend on the colour, so the
+/// difference is colour × k: fog dims the added light and adds no fog colour of its own,
+/// which the frame behind the shape already holds [hypothesis, docs/spec-notes/nif.md §6
+/// "Fog on added light"]. Fogged as a surface, a texel of black (which adds nothing)
+/// still added the fog colour: the Gomorrah Suites' wall sconces
+/// (`clutter\neoclassical\neoclassicalsconce.nif`, `NeoclassicalSconce:9`, ONE / ONE,
+/// no texture, vertex colour 0.34 at the bowl to black at the rim) were flat boards of
+/// fog colour with hard edges on the wall (#2435).
+pub fn fogged_addition(fogged: Vec3, fogged_black: Vec3) -> Vec3 {
+    (fogged - fogged_black).max(Vec3::ZERO)
+}
+
 /// Power on the alpha in the colour term of unlit alpha-blended shapes
 /// ([`blend_colour_scale`]; nif_material.wesl has the same number) [hypothesis, fitted:
 /// docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"].
@@ -827,7 +1065,12 @@ impl Plugin for NifMaterialPlugin {
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/fade_prepass.wesl"));
         load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_surface_bindings.wesl"));
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/nif_prepass.wesl"));
+        load_internal_asset!(app, COVERAGE_SHADER, "coverage.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/coverage.wesl"));
         load_internal_asset!(app, FIRST_PERSON_DEPTH_SHADER, "first_person_depth.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/first_person_depth.wesl"));
+        // Landscape anti-tiling (terrain_sampling.rs), imported by nvforever's terrain.wesl
+        // and by this crate's nif_material.wesl only with TERRAIN_ANTI_TILING.
+        load_internal_asset!(app, crate::terrain_sampling::SAMPLING_SHADER, "terrain_sampling.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/terrain_sampling.wesl"));
+        load_internal_asset!(app, crate::terrain_sampling::PBR_SHADER, "terrain_pbr.wesl", |s, _| Shader::from_wesl(s, "embedded://nvf_assets/terrain_pbr.wesl"));
         // Every 3D camera gets the view transmission texture, as each one had before Bevy
         // 0.20 made `ScreenSpaceTransmission` opt-in: the refraction here and the water
         // (nvforever water.rs) read it, and their shaders bind it unconditionally.
@@ -835,8 +1078,30 @@ impl Plugin for NifMaterialPlugin {
         app.add_plugins(MaterialPlugin::<NifMaterial>::default())
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
-            .add_systems(PostUpdate, (apply_blended_cutouts, see_through_casts_no_shadow));
+            .add_systems(PostUpdate, (apply_blended_cutouts.in_set(BlendedCutoutSystems), see_through_casts_no_shadow.in_set(SeeThroughShadowSystems)));
+        crate::bc5_field::install(app);
     }
+}
+
+/// The blended cut-outs' alpha-mode edits ([`BlendedCutouts`]), which change materials in
+/// place under the same handle: systems that copy a material's state run after it
+/// (nvforever mesh_terrain_blend.rs, aid only).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BlendedCutoutSystems;
+
+/// The shadow bookkeeping of see-through shapes ([`SeeThroughNoShadow`]): systems that
+/// replace a mesh's [`NifMaterial`] component run after it, so it has seen the material.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SeeThroughShadowSystems;
+
+/// [`apply_blended_cutouts`] in its set, for tests of other crates' material consumers.
+pub fn blended_cutout_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    apply_blended_cutouts.in_set(BlendedCutoutSystems)
+}
+
+/// [`see_through_casts_no_shadow`] in its set, for tests of other crates' material producers.
+pub fn see_through_shadow_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    see_through_casts_no_shadow.in_set(SeeThroughShadowSystems)
 }
 
 /// Keeps Bevy's copy of the opaque frame (the view transmission texture) in every 3D
@@ -1024,6 +1289,184 @@ mod tests {
         assert!(shadow.fragment.is_none());
     }
 
+    /// [design] The ordinary interface as on main (with #2551's `terrain` row): 50..54,
+    /// table 100, data 101, and nine 16-byte rows (144 bytes). No enabled-only resource may
+    /// enter this type.
+    #[test]
+    fn ordinary_surface_gpu_interface_matches_main() {
+        use bevy::render::render_resource::BindlessResourceType as R;
+        assert_eq!(NifSurfaceUniform::min_size().get(), 144);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).size().get(), 144);
+        let descriptor = NifSurface::bindless_descriptor().unwrap();
+        assert_eq!(descriptor.index_tables.len(), 1);
+        let table = &descriptor.index_tables[0];
+        assert_eq!((table.indices.start.0, table.indices.end.0, table.binding_number.0), (50, 55, 100));
+        assert_eq!(&descriptor.resources[50..], &[R::DataBuffer, R::Texture2d, R::SamplerFiltering, R::Texture2d, R::Texture2d]);
+        assert_eq!(descriptor.buffers.len(), 1);
+        assert_eq!((descriptor.buffers[0].binding_number.0, descriptor.buffers[0].bindless_index.0, descriptor.buffers[0].size), (101, 50, Some(144)));
+        // Non-bindless declarations are from this exact derived production type.
+        let source = include_str!("nif_material.rs");
+        let extension = source.split("pub struct NifSurface {").nth(1).unwrap().split("\n}").next().unwrap();
+        // 54: the grass fires' burn map (`scorch_map`), the landscape's only.
+        assert!(extension.contains("#[texture(51)]") && extension.contains("#[sampler(52)]") && extension.contains("#[texture(53)]") && extension.contains("#[texture(54)]"));
+        assert!(!extension.contains("mesh_terrain"));
+    }
+
+    /// A main-pass pipeline as Bevy hands it to `specialize`: one colour target, depth
+    /// written and tested "nearer or equal", `samples` samples.
+    fn main_pipeline(samples: u32, blend: Option<bevy::render::render_resource::BlendState>) -> RenderPipelineDescriptor {
+        use bevy::render::render_resource::{ColorTargetState, ColorWrites, DepthStencilState, MultisampleState, TextureFormat};
+        RenderPipelineDescriptor {
+            fragment: Some(FragmentState {
+                targets: vec![Some(ColorTargetState { format: TextureFormat::Rgba16Float, blend, write_mask: ColorWrites::ALL })],
+                ..default()
+            }),
+            depth_stencil: Some(DepthStencilState {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::GreaterEqual),
+                stencil: default(),
+                bias: default(),
+            }),
+            multisample: MultisampleState { count: samples, ..default() },
+            ..default()
+        }
+    }
+
+    /// A depth-only prepass pipeline of a view with `samples` samples (1: a shadow pass).
+    fn prepass_pipeline(samples: u32) -> RenderPipelineDescriptor {
+        let mut d = main_pipeline(samples, None);
+        d.fragment = None;
+        d.vertex.shader_defs = vec!["PREPASS_PIPELINE".into(), "MAY_DISCARD".into()];
+        d
+    }
+
+    fn depth_state(d: &RenderPipelineDescriptor) -> (Option<bool>, Option<CompareFunction>) {
+        let s = d.depth_stencil.as_ref().unwrap();
+        (s.depth_write_enabled, s.depth_compare)
+    }
+
+    const UPSTREAM_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(true), Some(CompareFunction::GreaterEqual));
+    const EQUAL_DEPTH: (Option<bool>, Option<CompareFunction>) = (Some(false), Some(CompareFunction::Equal));
+
+    #[test]
+    fn depth_equal_only_in_the_main_pass_of_a_view_with_a_prepass() {
+        // An opaque shape in a view with a depth prepass.
+        let mut d = main_pipeline(4, None);
+        depth_equal(&mut d, MeshPipelineKey::DEPTH_PREPASS);
+        assert_eq!(depth_state(&d), EQUAL_DEPTH);
+        // No prepass in the view: nothing wrote the depth to be equal to.
+        let mut d = main_pipeline(4, None);
+        depth_equal(&mut d, MeshPipelineKey::NONE);
+        assert_eq!(depth_state(&d), UPSTREAM_DEPTH);
+        // A blended pipeline, an alpha-to-coverage one, and a prepass or shadow pipeline.
+        let mut d = main_pipeline(4, Some(bevy::render::render_resource::BlendState::ALPHA_BLENDING));
+        depth_equal(&mut d, MeshPipelineKey::DEPTH_PREPASS);
+        assert_eq!(depth_state(&d), UPSTREAM_DEPTH);
+        let mut d = main_pipeline(4, None);
+        d.multisample.alpha_to_coverage_enabled = true;
+        depth_equal(&mut d, MeshPipelineKey::DEPTH_PREPASS);
+        assert_eq!(depth_state(&d), UPSTREAM_DEPTH);
+        let mut d = prepass_pipeline(4);
+        depth_equal(&mut d, MeshPipelineKey::DEPTH_PREPASS);
+        assert_eq!(depth_state(&d), UPSTREAM_DEPTH);
+        // A pipeline that already writes no depth keeps its test.
+        let mut d = main_pipeline(4, None);
+        d.depth_stencil.as_mut().unwrap().depth_write_enabled = Some(false);
+        depth_equal(&mut d, MeshPipelineKey::DEPTH_PREPASS);
+        assert_eq!(depth_state(&d), (Some(false), Some(CompareFunction::GreaterEqual)));
+    }
+
+    #[test]
+    fn soft_edges_are_written_by_the_prepass_in_a_multisampled_view_with_a_depth_only_prepass() {
+        let key = MeshPipelineKey::MAY_DISCARD | MeshPipelineKey::DEPTH_PREPASS;
+        let has = |d: &RenderPipelineDescriptor, def: &'static str| d.fragment.as_ref().is_some_and(|f| f.shader_defs.contains(&def.into()));
+        // The two pipelines of one view agree: the prepass writes the edge as a sample
+        // mask, the main pass tests depth for equality and has no alpha to coverage.
+        let mut prepass = prepass_pipeline(4);
+        soft_edges(&mut prepass, key);
+        assert_eq!(prepass.fragment.as_ref().unwrap().shader, FADE_PREPASS_SHADER);
+        assert!(has(&prepass, "COVERAGE_MASK") && has(&prepass, "COVERAGE_SAMPLES_4") && !has(&prepass, "GRASS_SHARE"));
+        assert_eq!(depth_state(&prepass), UPSTREAM_DEPTH);
+        let mut main = main_pipeline(4, None);
+        soft_edges(&mut main, key);
+        assert!(has(&main, "PREPASS_COVERAGE") && !has(&main, "SOFT_EDGES"));
+        assert!(!main.multisample.alpha_to_coverage_enabled);
+        assert_eq!(depth_state(&main), EQUAL_DEPTH);
+        // Grass: the same, with its own share.
+        let mut prepass = prepass_pipeline(8);
+        assert!(grass_edges(&mut prepass, key));
+        assert!(has(&prepass, "COVERAGE_SAMPLES_8") && has(&prepass, "GRASS_SHARE"));
+        // A shadow pass (no multisampling) keeps the alpha test at the cutoff.
+        let mut shadow = prepass_pipeline(1);
+        soft_edges(&mut shadow, key);
+        assert!(shadow.fragment.is_none());
+        assert!(!grass_edges(&mut prepass_pipeline(1), key));
+        // A view whose prepass also writes motion vectors or normals (TAA, FSR), and a view
+        // without a prepass: the main pass draws the edge with alpha to coverage, as before.
+        for key in [key | MeshPipelineKey::MOTION_VECTOR_PREPASS, key | MeshPipelineKey::NORMAL_PREPASS, MeshPipelineKey::MAY_DISCARD] {
+            let mut prepass = prepass_pipeline(4);
+            soft_edges(&mut prepass, key);
+            assert!(prepass.fragment.is_none(), "{key:?}");
+            let mut main = main_pipeline(4, None);
+            soft_edges(&mut main, key);
+            assert!(has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"), "{key:?}");
+            assert!(main.multisample.alpha_to_coverage_enabled, "{key:?}");
+            assert_eq!(depth_state(&main), UPSTREAM_DEPTH, "{key:?}");
+        }
+        // Without multisampling and without a prepass nothing here changes the pipeline.
+        let mut main = main_pipeline(1, None);
+        soft_edges(&mut main, MeshPipelineKey::MAY_DISCARD);
+        assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"));
+        assert_eq!(depth_state(&main), UPSTREAM_DEPTH);
+        // An opaque shape has no edge.
+        let mut main = main_pipeline(4, None);
+        soft_edges(&mut main, MeshPipelineKey::DEPTH_PREPASS);
+        assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"));
+        // Without multisampling but with a prepass, both passes test at the cutoff and the
+        // main pass tests depth for equality (FXAA, SMAA, TAA, no anti-aliasing).
+        for key in [key, key | MeshPipelineKey::MOTION_VECTOR_PREPASS] {
+            let mut main = main_pipeline(1, None);
+            soft_edges(&mut main, key);
+            assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"), "{key:?}");
+            assert_eq!(depth_state(&main), EQUAL_DEPTH, "{key:?}");
+        }
+    }
+
+    /// coverage.wesl `sample_mask`, in Rust.
+    fn sample_mask(share: f32, frag: (u32, u32), count: u32) -> u32 {
+        let order: u32 = match count {
+            2 => 0x10,
+            4 => 0x2130,
+            _ => 0x5261_4370,
+        };
+        let n = (share * count as f32 + 0.5).clamp(0.0, count as f32) as u32;
+        let start = (frag.0 + 2 * frag.1) % count;
+        (0..n).fold(0, |mask, i| mask | 1 << ((order >> (4 * ((start + i) % count))) & 15))
+    }
+
+    #[test]
+    fn sample_masks_cover_the_share_and_grow_with_it() {
+        for count in [2u32, 4, 8] {
+            for frag in [(0, 0), (1, 0), (0, 1), (5, 3), (1919, 1079)] {
+                assert_eq!(sample_mask(0.0, frag, count), 0);
+                assert_eq!(sample_mask(1.0, frag, count), (1 << count) - 1, "full cover is every sample");
+                let mut before = 0;
+                for step in 0..=count * 4 {
+                    let share = step as f32 / (count * 4) as f32;
+                    let mask = sample_mask(share, frag, count);
+                    assert_eq!(mask.count_ones(), (share * count as f32 + 0.5) as u32, "{count} samples, share {share}");
+                    assert_eq!(mask & before, before, "a larger share keeps the samples of a smaller one");
+                    assert!(mask < 1 << count);
+                    before = mask;
+                }
+            }
+        }
+        // Neighbouring pixels at the same share start at different samples.
+        assert_ne!(sample_mask(0.25, (0, 0), 4), sample_mask(0.25, (1, 0), 4));
+        assert_ne!(sample_mask(0.25, (0, 0), 4), sample_mask(0.25, (0, 1), 4));
+    }
+
     #[test]
     fn see_through_shapes_are_the_blended_ones_without_a_cut() {
         let with = |alpha_mode: AlphaMode, cut: f32| {
@@ -1134,7 +1577,7 @@ mod tests {
         // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         assert_eq!(surface.alpha_cut, 0.0);
         assert_eq!(surface.emissive_rule, Vec4::ZERO);
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
@@ -1144,19 +1587,19 @@ mod tests {
         assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false, anti_tiling: false, terrain_layer: false });
     }
 
     /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
@@ -1178,6 +1621,20 @@ mod tests {
         assert!(!NifSurfaceKey::from(&NifSurface::default()).add_linear);
         assert!(include_str!("nif_material.wesl").contains("@if(ADD_LINEAR)"));
         assert!(NifSurfaceKey::from(&NifSurface { pipboy_screen: true, ..default() }).pipboy_screen);
+        // Landscape anti-tiling (#2551): only a landscape material (a repeat above 0) with the
+        // switch on; the repeat reaches the shader, 0 for every other shape.
+        assert!(!NifSurfaceKey::from(&NifSurface::default()).anti_tiling);
+        assert!(!NifSurfaceKey::from(&NifSurface { anti_tiling: true, ..default() }).anti_tiling, "not a landscape material");
+        assert!(!NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, ..default() }).anti_tiling, "switch off");
+        assert!(NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, anti_tiling: true, ..default() }).anti_tiling);
+        // A landscape material is a terrain layer (its blended layers take the ambient
+        // occlusion), with anti-tiling or without; a repeat it cannot place with is not.
+        assert!(NifSurfaceKey::from(&NifSurface { terrain_repeat: 256.0, ..default() }).terrain_layer);
+        assert!(!NifSurfaceKey::from(&NifSurface::default()).terrain_layer);
+        assert!(!NifSurfaceKey::from(&NifSurface { terrain_repeat: -1.0, ..default() }).terrain_layer);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: 300.0, ..default() }).terrain, Vec4::new(300.0, 0.0, 0.0, 0.0));
+        assert_eq!(NifSurfaceUniform::from(&NifSurface::default()).terrain, Vec4::ZERO);
+        assert_eq!(NifSurfaceUniform::from(&NifSurface { terrain_repeat: -1.0, anti_tiling: true, ..default() }).terrain, Vec4::ZERO);
         assert!(!NifSurfaceKey::from(&NifSurface::default()).pipboy_screen);
         assert!(include_str!("nif_material.wesl").contains("@if(PIPBOY_SCREEN)"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
@@ -1339,6 +1796,31 @@ mod tests {
         let shown = drawn.min(Vec3::ONE);
         assert_eq!(shown.x, 1.0);
         assert!(shown.y < 0.5 && shown.z < 0.5, "{shown}");
+    }
+
+    #[test]
+    fn fog_dims_added_light_and_adds_no_fog_colour() {
+        // Bevy's linear fog: mix(colour, fog colour, k) (bevy_pbr render/fog.wesl).
+        let fog = Vec3::new(0.30, 0.18, 0.05);
+        let fogged = |c: Vec3, k: f32| c.lerp(fog, k);
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-6;
+        // The Gomorrah sconce's glow card (neoclassicalsconce.nif, NeoclassicalSconce:9):
+        // ONE / ONE, no texture, unlit vertex colour 0.34 (display) at the bowl, black at
+        // the rim. Its black rim adds nothing at any fog; fogged as a surface it added the
+        // fog colour (#2435).
+        for k in [0.0, 0.3, 1.0] {
+            assert!(close(fogged_addition(fogged(Vec3::ZERO, k), fogged(Vec3::ZERO, k)), Vec3::ZERO));
+        }
+        assert!(fogged(Vec3::ZERO, 0.3).max_element() > 0.05);
+        // The bowl's edge: the colour dimmed by the fog, without its colour.
+        let bowl = Vec3::new(0.34, 0.32, 0.27).powf(MULTIPLY_GAMMA);
+        assert!(close(fogged_addition(fogged(bowl, 0.3), fogged(Vec3::ZERO, 0.3)), bowl * 0.7));
+        // No fog: the colour whole. Thick fog: nothing.
+        assert!(close(fogged_addition(fogged(bowl, 0.0), fogged(Vec3::ZERO, 0.0)), bowl));
+        assert!(close(fogged_addition(fogged(bowl, 1.0), fogged(Vec3::ZERO, 1.0)), Vec3::ZERO));
+        // Bevy's atmospheric fog (colour × (1 − e) + fog × i) as well.
+        let atmospheric = |c: Vec3| c * 0.6 + fog * 0.5;
+        assert!(close(fogged_addition(atmospheric(bowl), atmospheric(Vec3::ZERO)), bowl * 0.6));
     }
 
     #[test]

@@ -36,7 +36,7 @@ pub struct EmittancePlugin;
 impl Plugin for EmittancePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EmittanceState>()
-            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky)).chain())
+            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky).after(crate::lights::sync_script_lights)).chain())
             .add_systems(Last, release_copies);
     }
 }
@@ -63,6 +63,8 @@ pub struct EmittanceState {
     shown: Option<(u32, Option<u32>, f32)>,
     /// The whole hour whose source colours were last logged.
     logged_hour: Option<i32>,
+    /// Canonical light record revision used by cached light-backed sources.
+    light_revision: Option<u64>,
 }
 
 enum Source {
@@ -88,6 +90,7 @@ impl EmittanceState {
     }
 
     fn source(&mut self, world: &WorldData, xemi: u32) -> bool {
+        if !self.sources.contains_key(&xemi) { self.light_revision = None; }
         self.sources
             .entry(xemi)
             .or_insert_with(|| {
@@ -100,6 +103,24 @@ impl EmittanceState {
                 s
             })
             .is_some()
+    }
+
+    pub(crate) fn refresh_session_lights(&mut self, world: &WorldData, game: &fnv_game::Game<'_>) {
+        let revision = game.gaps.jip4.light_revision;
+        if self.light_revision == Some(revision) { return; }
+        self.light_revision = Some(revision);
+        for (&form, source) in &mut self.sources {
+            if !matches!(source, Some(Source::Color(_, _))) { continue; }
+            let Some(original) = fnv_world::lighting::light_data(world.lo, world.schema, form) else { continue };
+            let light = game.session_light_data(fnv_sim::FormId(form), original);
+            let fade = light.fade.max(0.0);
+            let shown = light.color.map(|b| b as f32 / 255.0 * fade);
+            *source = Some(Source::Color(
+                LinearRgba::rgb(srgb_to_linear(light.color[0]) * fade, srgb_to_linear(light.color[1]) * fade, srgb_to_linear(light.color[2]) * fade),
+                LinearRgba::rgb(shown[0], shown[1], shown[2]),
+            ));
+        }
+        self.hour = None;
     }
 
     /// The material for a shape with external emittance on a reference naming `xemi`:
@@ -230,17 +251,22 @@ fn scale(a: LinearRgba, b: LinearRgba) -> LinearRgba {
     LinearRgba::new(a.red * b.red, a.green * b.green, a.blue * b.blue, a.alpha)
 }
 
-fn update_emittance(
+pub(crate) fn update_emittance(
     sky: Res<SkyState>,
+    world: Option<Res<WorldData>>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
     mut state: ResMut<EmittanceState>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut lights: Query<(&LightEmittance, Option<&mut PointLight>, Option<&mut SpotLight>)>,
-    added: Query<(), Added<LightEmittance>>,
+    changed: Query<(), Changed<LightEmittance>>,
 ) {
+    if let (Some(world), Some(game)) = (world, script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game)) {
+        state.refresh_session_lights(&world, game);
+    }
     let moved = state.hour.is_none_or(|h| (h - sky.hour).abs() > 1.0 / 60.0);
     let shown = (sky.weather.form_id, sky.prev.as_ref().map(|p| p.form_id), if sky.prev.is_some() { sky.fade } else { 1.0 });
     let weather_moved = state.shown.is_none_or(|(w, p, f)| w != shown.0 || p != shown.1 || (f - shown.2).abs() > 0.01);
-    if !moved && !weather_moved && added.is_empty() {
+    if !moved && !weather_moved && changed.is_empty() {
         return;
     }
     state.hour = Some(sky.hour);

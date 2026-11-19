@@ -220,6 +220,16 @@ pub struct RefState {
     /// it (nvforever `coop/replication.rs`, queue item 135). Saved with the reference.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub player_drop: bool,
+    /// A reference created at run time ([`World::place`]): the cell and position it was
+    /// created at, its editor location for packages and `GetStartingPos`-like questions
+    /// that a placed reference answers from the plugins (#2278) [hypothesis].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub made_at: Option<(Option<FormId>, [f32; 3])>,
+    /// A shot's temporary reference for scripts (`fnv_game::nvse_proj`): the engine draws
+    /// the shot's flying model along its flight, so this reference is neither drawn nor
+    /// given collision as a dropped item (#2186).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub shot: bool,
 }
 
 impl RefState {
@@ -254,6 +264,8 @@ pub enum SimError {
     UnknownRef(FormId),
     #[error("unknown base form {0}")]
     UnknownForm(FormId),
+    #[error("{0} is not a supported temporary scene base")]
+    UnsupportedTemporaryBase(FormId),
     #[error("{0} has no inventory")]
     NoInventory(FormId),
     #[error("{0} is not an inventory item")]
@@ -484,6 +496,14 @@ struct TimeGlobalIds {
     days_passed: Option<FormId>,
 }
 
+/// Session-only descriptor for a directly cloned non-actor scene base. It is not
+/// serialized; the Game layer refuses unsupported snapshots containing its refs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemporarySceneBase {
+    pub original: FormId,
+    pub model_override: Option<String>,
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -492,6 +512,7 @@ pub struct World<'a> {
     /// [`SimConfig::player_level`]. Not saved: the game sets it on a load and on each tick.
     roll_level: Option<u16>,
     refs: BTreeMap<FormId, RefState>,
+    temporary_scene_bases: BTreeMap<FormId, TemporarySceneBase>,
     /// Globals set at run time (scripts, the clock); others keep their authored value.
     globals: BTreeMap<FormId, f32>,
     /// The digits of the time globals their f32 cannot hold.
@@ -524,6 +545,9 @@ pub struct World<'a> {
     /// The inventory sources of references created at run time ([`World::give_items_of`]);
     /// saved.
     created_inventory_sources: BTreeMap<FormId, FormId>,
+    /// Items made at run time (TempCloneForm of an item), each with the item it copies:
+    /// a container takes them by their own ID ([`World::add_clone_item`]). Not saved.
+    clone_items: BTreeMap<FormId, FormId>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     /// Kept for the session, not saved ([`WorldSession`]).
@@ -531,6 +555,13 @@ pub struct World<'a> {
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
     power_armor_training: bool,
+    /// The player may equip a broken weapon (the player's Equip Broken Items tweak, set by
+    /// the game layer, [`World::set_player_equips_broken`]) [design: docs/design/tweaks.md].
+    player_equips_broken: bool,
+    /// The player's key is not used on a lock: the engine sets it while the player's
+    /// Pick Locks Even With Key tweak and Shift are on (NVForever's tweaks,
+    /// docs/design/tweaks.md); not saved.
+    player_ignores_keys: bool,
     /// Encounter zones entered and their levels (`crate::zones`).
     pub(crate) zone_levels: BTreeMap<FormId, u16>,
     /// SetZoneRespawns: zone → whether it respawns, over its "Never Resets" flag.
@@ -584,6 +615,7 @@ impl<'a> World<'a> {
             cfg,
             roll_level: None,
             refs: BTreeMap::new(),
+            temporary_scene_bases: BTreeMap::new(),
             globals: BTreeMap::new(),
             fine_clock: clock::FineClock::default(),
             time_global_ids: TimeGlobalIds { hour: forms.by_edid(clock::GAME_HOUR), days_passed: forms.by_edid(clock::GAME_DAYS_PASSED) },
@@ -596,8 +628,11 @@ impl<'a> World<'a> {
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             created_inventory_sources: BTreeMap::new(),
+            clone_items: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
+            player_equips_broken: false,
+            player_ignores_keys: false,
             zone_levels: BTreeMap::new(),
             zone_respawns: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
@@ -709,6 +744,16 @@ impl<'a> World<'a> {
         self.power_armor_training = on;
     }
 
+    /// Whether the player may equip a broken weapon (else [`SimError::Broken`]).
+    pub fn set_player_equips_broken(&mut self, on: bool) {
+        self.player_equips_broken = on;
+    }
+
+    /// Whether the player's carried key is left unused on a lock ([`World::activate`]).
+    pub fn set_player_ignores_keys(&mut self, on: bool) {
+        self.player_ignores_keys = on;
+    }
+
     pub fn power_armor_training(&self) -> bool {
         self.power_armor_training
     }
@@ -723,10 +768,30 @@ impl<'a> World<'a> {
         self.refs.iter().map(|(&k, v)| (k, v))
     }
 
-    /// The lock `id` has: its state's once it has one, else the lock it would start with
-    /// (its placed XLOC, a leveled lock at the level `initial` sets it from,
-    /// [`World::lock_read_level`]).
+    /// [design, #2538] The applicable lock (`World::lock_source`), from runtime state
+    /// or its placed XLOC at `World::lock_read_level`, without materialising it.
     pub fn lock_of(&self, id: FormId) -> Option<LockState> {
+        self.own_lock_of(self.lock_source(id))
+    }
+
+    /// The reference holding the applicable lock. A load door without its own lock
+    /// reads its XTEL partner's [observed: capture run15b_a, 2026-11-15; #2538,
+    /// docs/spec-notes/cells-refs.md section 6]. Own locks win; only one link is followed
+    /// [hypothesis: independent locks and malformed links were not captured].
+    /// [design] No state is materialised or duplicated (`own_lock_of`).
+    pub fn lock_source(&self, id: FormId) -> FormId {
+        if self.own_lock_of(id).is_some() {
+            return id;
+        }
+        let placed = self.placed.get(id);
+        let base = self.peek(id).map(|s| s.base).or_else(|| placed.map(|p| p.base));
+        if base.and_then(|b| self.forms.sig(b)).as_ref() != Some(b"DOOR") {
+            return id;
+        }
+        placed.and_then(|p| p.teleport).map(|t| t.door).filter(|&d| self.own_lock_of(d).is_some()).unwrap_or(id)
+    }
+
+    fn own_lock_of(&self, id: FormId) -> Option<LockState> {
         match self.peek(id) {
             Some(s) => s.lock,
             None => self.placed.get(id).and_then(|p| p.lock).map(|l| LockState { level: l.level_at(self.lock_read_level(id)), key: l.key, locked: true }),
@@ -827,6 +892,8 @@ impl<'a> World<'a> {
             equip_locks: BTreeMap::new(),
             dropped_by: None,
             player_drop: false,
+            made_at: None,
+            shot: false,
             outfitted: false,
         })
     }
@@ -840,13 +907,21 @@ impl<'a> World<'a> {
         self.inventory_sources = sources;
     }
 
-    /// The base whose carried items placed `id` starts with, in place of its own base's
-    /// (`None`: its own base's), after its leveled choices were rolled again. Not saved:
-    /// the game layer works it out again on a load.
+    /// The base whose carried items `id` starts with, in place of its own base's
+    /// (`None`: its own base's), after its leveled choices were rolled again. Created
+    /// references save their source; placed references reconstruct it on a load.
     pub fn set_inventory_source(&mut self, id: FormId, source: Option<FormId>) {
+        let sources = if id.is_dynamic() {
+            // A created reference's saved source takes precedence in inventory_base.
+            // Retire an earlier reconstructed entry too, including when clearing it.
+            self.inventory_sources.remove(&id);
+            &mut self.created_inventory_sources
+        } else {
+            &mut self.inventory_sources
+        };
         match source {
-            Some(s) => self.inventory_sources.insert(id, s),
-            None => self.inventory_sources.remove(&id),
+            Some(s) => sources.insert(id, s),
+            None => sources.remove(&id),
         };
     }
 
@@ -1087,7 +1162,23 @@ impl<'a> World<'a> {
         s.inventory.as_mut().ok_or(SimError::NoInventory(id))
     }
 
+    /// `clone`, made at run time from `item`, is an item a container takes by its own ID
+    /// [documented: TempCloneForm; observed: MCM marks the mods it listed by adding them
+    /// to a container, MCM Extender's menus by temporary clones of Caps001, MCM's script
+    /// source and MCM Extender's OnPauseMenuOpen.gek]. False when `item` is no item.
+    pub fn add_clone_item(&mut self, clone: FormId, item: FormId) -> bool {
+        let item = self.clone_items.get(&item).copied().unwrap_or(item);
+        let ok = self.forms.item(item).is_some();
+        if ok {
+            self.clone_items.insert(clone, item);
+        }
+        ok
+    }
+
     fn check_item(&self, item: FormId) -> Result<(), SimError> {
+        if self.clone_items.contains_key(&item) {
+            return Ok(());
+        }
         match self.forms.item(item) {
             Some(_) => Ok(()),
             None if self.forms.sig(item).is_some() => Err(SimError::NotAnItem(item)),
@@ -1426,6 +1517,8 @@ impl<'a> World<'a> {
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
                     player_drop: from == FormId::PLAYER_REF,
+                    made_at: None,
+                    shot: false,
                 },
             );
             out.push(id);
@@ -1534,7 +1627,7 @@ impl<'a> World<'a> {
         if inv.free_count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
         }
-        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
+        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) && !(actor == FormId::PLAYER_REF && self.player_equips_broken) {
             return Err(SimError::Broken(item));
         }
         if it.power_armor && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {
@@ -2006,6 +2099,9 @@ impl<'a> World<'a> {
     }
 
     pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
+        // Unlocking through either side changes the one source lock [hypothesis,
+        // #2538: capture run15b_a checked refusal and reads, not unlocking].
+        let id = self.lock_source(id);
         if let Some(l) = &mut self.get(id)?.lock {
             l.locked = false;
             self.lock_serial += 1;
@@ -2013,7 +2109,19 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// Goes up with every lock change ([`World::lock`], [`World::unlock`]): a reader that
+    /// [hypothesis, #2538] Change the applicable source lock's key without changing
+    /// its level or access state, as `unlock` shares the source. A reference with no
+    /// applicable lock gets an open level-zero lock [hypothesis: existing fallback].
+    pub fn set_open_key(&mut self, id: FormId, key: FormId) -> Result<(), SimError> {
+        let id = self.lock_source(id);
+        let s = self.get(id)?;
+        s.lock.get_or_insert(LockState { level: 0, key: None, locked: false }).key = Some(key);
+        self.lock_serial += 1;
+        Ok(())
+    }
+
+    /// [design] Goes up with every lock change ([`World::lock`], [`World::unlock`],
+    /// [`World::set_open_key`]): a reader that
     /// saw the same number has nothing new to learn about locks.
     pub fn lock_serial(&self) -> u64 {
         self.lock_serial
@@ -2116,9 +2224,36 @@ impl<'a> World<'a> {
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
                 player_drop: false,
+                made_at: Some((cell, pos)),
+                shot: false,
             },
         );
         Ok(id)
+    }
+
+    /// Admit a known original's direct temporary alias without losing its identity.
+    /// Inventory/actor/clone chains and changed descriptors are outside this preview.
+    pub fn place_temporary_scene_base(&mut self, alias: FormId, descriptor: TemporarySceneBase, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], count: i32) -> Result<FormId, SimError> {
+        // Inert model admission only. Doors, furniture, activators and actors need
+        // additional interaction/script contracts beyond a selected model path.
+        let supported = self.forms.sig(descriptor.original).is_some_and(|sig| matches!(&sig, b"STAT" | b"MSTT" | b"PROJ"));
+        if !supported || self.forms.sig(alias).is_some() || self.temporary_scene_bases.get(&alias).is_some_and(|old| old != &descriptor) {
+            return Err(SimError::UnsupportedTemporaryBase(alias));
+        }
+        let reference = self.place(descriptor.original, cell, pos, rot, count)?;
+        self.refs.get_mut(&reference).expect("place inserted this reference").base = alias;
+        self.temporary_scene_bases.insert(alias, descriptor);
+        Ok(reference)
+    }
+
+    pub fn temporary_scene_base(&self, base: FormId) -> Option<&TemporarySceneBase> {
+        self.temporary_scene_bases.get(&base)
+    }
+
+    /// The preview freezes both a placed alias and the original it inherits from.
+    /// Descriptors remain for the session, including deleted-reference tombstones.
+    pub fn has_placed_temporary_base(&self, form: FormId) -> bool {
+        self.temporary_scene_bases.contains_key(&form) || self.temporary_scene_bases.values().any(|d| d.original == form)
     }
 
     /// The inventory of a reference, for callers that change extra data in place
@@ -2145,11 +2280,7 @@ impl<'a> World<'a> {
     /// LvlNCRTrooper fought with their fists).
     pub fn give_items_of(&mut self, id: FormId, source: FormId) -> Result<(), SimError> {
         self.get(id)?;
-        if id.is_dynamic() {
-            self.created_inventory_sources.insert(id, source);
-        } else {
-            self.set_inventory_source(id, Some(source));
-        }
+        self.set_inventory_source(id, Some(source));
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
@@ -2177,6 +2308,49 @@ impl<'a> World<'a> {
             s.inventory = with_live(s.inventory.as_ref(), inv);
         }
         Ok(had)
+    }
+
+    /// The carried items of `id`'s own item list made up again: the list is rolled anew
+    /// (its leveled lists with it) and of each item the roll gives, as many are added as
+    /// the reference carries fewer. What it carries otherwise stays: items given to it,
+    /// and items of its list it still has are not doubled. An outfitted actor puts on
+    /// what was added where nothing it wears is in the way (a weapon when it holds none,
+    /// armour on free body slots). The items added, with their counts.
+    ///
+    /// A resurrected actor that keeps its inventory (`fnv_game`'s resurrect, issue
+    /// #2683): its weapon lay beside the body and its pack was looted, and the squads
+    /// the shipped scripts resurrect for each new visit would come back with nothing.
+    pub fn restock_inventory(&mut self, id: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        let base = self.get(id)?.base;
+        let source = self.inventory_base(id, base);
+        let Some(rolled) = self.roll_inventory(source, self.item_level(id))? else { return Ok(Vec::new()) };
+        let outfitted = self.get(id)?.outfitted;
+        let mut inv = self.get(id)?.inventory.clone().unwrap_or_default();
+        let mut added: Vec<(FormId, i32)> = Vec::new();
+        for (item, extra, n) in rolled.groups() {
+            let short = (rolled.count(item) - inv.count(item)).min(n);
+            if short > 0 {
+                inv.add_extra(item, short, extra);
+                match added.iter_mut().find(|(i, _)| *i == item) {
+                    Some(a) => a.1 += short,
+                    None => added.push((item, short)),
+                }
+            }
+        }
+        if added.is_empty() {
+            return Ok(added);
+        }
+        if outfitted {
+            for chosen in self.default_choice(source, &inv).unwrap_or_default() {
+                let Some(it) = self.forms.item(chosen) else { continue };
+                let free = !inv.is_equipped(chosen) && !inv.equipped().into_iter().any(|other| equip_clashes(self.forms, it, other));
+                if free && added.iter().any(|(i, _)| *i == chosen) {
+                    inv.set_equipped(chosen);
+                }
+            }
+        }
+        self.get(id)?.inventory = Some(inv);
+        Ok(added)
     }
 
     /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
@@ -2286,8 +2460,9 @@ impl<'a> World<'a> {
         // lockpicking is Layer 6]
         let mut unlocked_with = None;
         if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
-            if let Some(l) = t.lock.filter(|l| l.locked) {
-                match l.key.filter(|&k| self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
+            if let Some(l) = self.lock_of(target).filter(|l| l.locked) {
+                let skip_key = actor == FormId::PLAYER_REF && self.player_ignores_keys;
+                match l.key.filter(|&k| !skip_key && self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
                     Some(k) => {
                         self.unlock(target)?;
                         unlocked_with = Some(k);

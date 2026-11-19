@@ -20,6 +20,16 @@
 //!   **crime enemy** of the player (GetActorCrimePlayerEnemy): it attacks the player
 //!   whatever its aggression ([`Game::crime_enemy`], read by `Game::would_attack`)
 //!   [design, as an assaulted actor's grudge].
+//! - **Crimes expire** (§3.7): a crime enemy lasts `iCoolDownTimerSetting` (3) game days
+//!   from the last crime that made it [documented: GECK wiki Category:Crime; the default,
+//!   Complete List of GameSettings]. The player's enemy flag with a faction that a crime
+//!   set lasts [`FACTION_FLAG_DAYS`] (0.18 game hours) from the last crime that set it
+//!   [observed: observer check 203, a seen murder's flags on VCaesarsLegionFaction and
+//!   ArmorVCaesarsLegionFaction; that every crime's flag lasts as long: hypothesis;
+//!   owner's ruling on #2498, owner-review item 65]. A flag a script set (SetPCEnemyOfFaction)
+//!   stays until a script clears it [design]. [`Game::expire_crimes`] ends them, read
+//!   against GameDaysPassed whenever hostility is asked afresh, so time passing by any
+//!   route (play, waiting, sleeping, travel, a script setting the clock) counts (#2467).
 //! - **Karma for crimes and kills** (§4): stealing, and opening an owned lock, cost
 //!   `fKarmaModStealing` (−5) unless the owner is Evil (an Evil faction, or an owning
 //!   actor of Evil alignment) or a faction that does not track crime [documented: GECK
@@ -254,6 +264,11 @@ pub enum Note {
     Warned { actor: FormId, level: u32 },
     /// The player is now an enemy of this crime-tracking faction.
     FactionEnemy { faction: FormId },
+    /// The crimes that made the player an enemy of `faction` expired: the last is `days`
+    /// game days old (`Game::expire_crimes`).
+    FactionEnemyEnded { faction: FormId, days: f64 },
+    /// The crimes that made `actor` a crime enemy expired: the last is `days` game days old.
+    CrimeEnemyEnded { actor: FormId, days: f64 },
     /// The player started or stopped trespassing in `cell` (owned by `owner`).
     Trespassing { cell: FormId, owner: FormId, now: bool },
     /// The player came through `door`, flagged No Alarm, into `cell`: no trespass alarm
@@ -274,11 +289,16 @@ pub struct Settings {
     pub warning_timer: f64,
     /// KarmaVeryEvil, KarmaEvil, KarmaGood, KarmaVeryGood.
     pub bounds: [f64; 4],
+    /// iCoolDownTimerSetting: game days a crime enemy (an actor) keeps the crime
+    /// [documented: GECK wiki Category:Crime,
+    /// 3 by default; Complete List of GameSettings, 3; FalloutNV.esm does not set it,
+    /// observed].
+    pub cool_down_days: f64,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { stealing: -5.0, killing_evil: 100.0, guard_warnings: 2.0, warning_timer: 5.0, bounds: [-750.0, -250.0, 250.0, 750.0] }
+        Settings { stealing: -5.0, killing_evil: 100.0, guard_warnings: 2.0, warning_timer: 5.0, bounds: [-750.0, -250.0, 250.0, 750.0], cool_down_days: 3.0 }
     }
 }
 
@@ -292,6 +312,7 @@ impl Settings {
             killing_evil: s("fKarmaModKillingEvilActor", d.killing_evil),
             guard_warnings: s("iGuardWarnings", d.guard_warnings),
             warning_timer: s("fAITrespassWarningTimer", d.warning_timer),
+            cool_down_days: s("iCoolDownTimerSetting", d.cool_down_days),
             bounds: [
                 global("KarmaVeryEvil", d.bounds[0]),
                 global("KarmaEvil", d.bounds[1]),
@@ -301,6 +322,20 @@ impl Settings {
         }
     }
 }
+
+/// Game days the player's enemy flag with a faction lasts after the last crime that set
+/// it: 0.18 game hours. In the original a seen murder at Cottonwood Cove flagged both
+/// VCaesarsLegionFaction and ArmorVCaesarsLegionFaction, and both read 0 again about
+/// 0.18 game hours (11 minutes) later, with no cell change and no script clearing them,
+/// while the witness kept fighting the player [observed: docs/handoff/observer-checks.md
+/// check 203, capture `karl_murder2`, 2026-11-15]. That the same span holds for every
+/// crime-set flag (a theft's, the Evil faction's area alert) is a [hypothesis]: only a
+/// murder's was timed. Owner's ruling on #2498 (owner-review item 65): "Short-lived flag".
+pub const FACTION_FLAG_DAYS: f64 = 0.18 / 24.0;
+
+/// The slack of [`Game::expire_crimes`]: GameDaysPassed is an f32, a few seconds' worth
+/// of a day at a few hundred days [design].
+const EXPIRY_SLACK_DAYS: f64 = 1e-4;
 
 /// Murdering a Neutral NPC costs this share of `fKarmaModKillingEvilActor` [design].
 pub const NEUTRAL_MURDER_SHARE: f64 = 0.25;
@@ -384,7 +419,7 @@ impl Game<'_> {
     /// gave no karma, a Fiend and a Powder Ganger holding −500 themselves gave +100,
     /// crime-karma.md §4.1]. [`Game::alignment`] when `r` has no actor base.
     pub fn kill_alignment(&mut self, r: FormId) -> Alignment {
-        let own = base_of(self, r).filter(|_| r != FormId::PLAYER_REF).and_then(|b| self.data.template_source_at(b, self.pick_seed(r), self.leveled_at(r), |_| false)).map(|(_, d)| d.karma);
+        let own = base_of(self, r).filter(|_| r != FormId::PLAYER_REF).and_then(|b| self.template_source(b, r, |_| false)).map(|(_, d)| d.karma);
         match own {
             Some(karma) => Alignment::of(karma, self.crime_settings().bounds),
             None => self.alignment(r),
@@ -497,7 +532,7 @@ impl Game<'_> {
                 continue;
             }
             self.count_crime(w, Kind::Trespass);
-            if self.player.crime_enemies.insert(w) {
+            if self.mark_crime_enemy(w) {
                 turned += 1;
                 self.crimes.notes.push(Note::Crime { kind: Kind::Trespass, victim: Some(o.owner), seen_by: vec![w], hostile: vec![w] });
             }
@@ -573,7 +608,9 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.ignore_crime) {
             return false;
         }
-        self.player.crime_enemies.contains(&actor) || (!self.player.enemy_of.is_empty() && factions_of(self, actor).iter().any(|f| self.player.enemy_of.contains(f)))
+        // A faction's flag yields to a faction disguise (`player_enemy_of_factions`).
+        self.player.crime_enemies.contains(&actor)
+            || (!self.player.enemy_of.is_empty() && crate::functions::actor::player_enemy_of_factions(self, &factions_of(self, actor), &factions_of(self, FormId::PLAYER_REF)))
     }
 
     fn count_crime(&mut self, victim: FormId, kind: Kind) {
@@ -585,7 +622,7 @@ impl Game<'_> {
     /// `actor` turns on the player for a crime: it becomes a crime enemy and says the
     /// crime's line.
     fn turn_on_player(&mut self, actor: FormId, kind: Kind) -> bool {
-        if !self.player.crime_enemies.insert(actor) {
+        if !self.mark_crime_enemy(actor) {
             return false;
         }
         if let Some(topic) = kind.topic() {
@@ -607,7 +644,10 @@ impl Game<'_> {
             let name = self.data.name(item);
             self.change_karma(s.stealing, format!("stealing {name} x{count}"));
         }
-        self.witnessed(Kind::Theft, &o);
+        // The player's tweak: theft raises no alarm [design: docs/design/tweaks.md].
+        if !self.tweaks.stealing_no_alarm {
+            self.witnessed(Kind::Theft, &o);
+        }
         true
     }
 
@@ -669,6 +709,10 @@ impl Game<'_> {
         if victim == FormId::PLAYER_REF || self.is_dead(victim) {
             return;
         }
+        // Its Evil faction's members in the area turn on the player (`crate::provocation`).
+        if !self.provocations.holds(victim, FormId::PLAYER_REF) && !self.would_attack(victim, FormId::PLAYER_REF) {
+            self.evil_area_alert(victim);
+        }
         let s = self.crime_settings();
         let alignment = self.alignment(victim);
         let npc = base_of(self, victim).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_");
@@ -705,24 +749,136 @@ impl Game<'_> {
             }
         }
         let mut hostile = Vec::new();
+        // A witness who cares, turned now or a crime enemy already.
+        let mut cared = false;
         for &w in &seen_by {
-            if matches!(self.reaction_to(w, victim), ALLY | FRIEND) && self.turn_on_player(w, Kind::Murder) {
-                hostile.push(w);
+            if matches!(self.reaction_to(w, victim), ALLY | FRIEND) {
+                cared = true;
+                if self.turn_on_player(w, Kind::Murder) {
+                    hostile.push(w);
+                }
             }
         }
         // A major crime against a crime-tracking faction makes the player its enemy
         // [documented: GECK wiki SetPCEnemyOfFaction; hypothesis: when a witness who
-        // cares saw it].
-        if !hostile.is_empty() {
+        // cares saw it]. Seen by witnesses already hostile, it is still a crime: the flag's
+        // count restarts (§3.7, #2467).
+        if cared {
             for f in factions_of(self, victim) {
                 let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
-                if tracks && self.player.enemy_of.insert(f) {
-                    self.crimes.notes.push(Note::FactionEnemy { faction: f });
-                    crate::functions::actor::forget_relations(self);
+                if tracks {
+                    self.make_player_enemy_of(f);
                 }
             }
         }
         self.crimes.notes.push(Note::Crime { kind: Kind::Murder, victim: Some(victim), seen_by, hostile });
+    }
+
+    /// The player is an enemy of `faction` from now on (a crime against it it tracks,
+    /// `crate::provocation`'s Evil faction area); noted the first time. The flag lasts
+    /// [`FACTION_FLAG_DAYS`] from this crime, a later one restarting the count
+    /// ([`Game::expire_crimes`]).
+    pub(crate) fn make_player_enemy_of(&mut self, faction: FormId) {
+        let day = self.crime_day();
+        self.player.enemy_of_crimes.insert(faction, day);
+        if self.player.enemy_of.insert(faction) {
+            self.crimes.notes.push(Note::FactionEnemy { faction });
+            crate::functions::actor::forget_relations(self);
+        }
+    }
+
+    /// `actor` is a crime enemy from now on, dated by this crime: a later crime restarts
+    /// its count. Whether it was not one before.
+    fn mark_crime_enemy(&mut self, actor: FormId) -> bool {
+        let day = self.crime_day();
+        self.player.crime_enemy_since.insert(actor, day);
+        self.player.crime_enemies.insert(actor)
+    }
+
+    /// GameDaysPassed now; `None` without the time globals (synthetic data).
+    pub fn game_days(&self) -> Option<f64> {
+        let (id, _) = self.world.forms.global_by_edid(fnv_sim::clock::GAME_DAYS_PASSED)?;
+        self.world.global(id).ok().map(f64::from)
+    }
+
+    /// The day a crime is dated by: GameDaysPassed, 0 without the clock (nothing then
+    /// expires, there being no clock to read).
+    fn crime_day(&self) -> f64 {
+        self.game_days().unwrap_or(0.0)
+    }
+
+    /// SetPCEnemyOfFaction: `on` makes the player an enemy of `faction` until a script
+    /// clears it [design: scripts use it for lasting hostility]; off
+    /// clears the flag, whoever set it.
+    pub(crate) fn script_enemy_of(&mut self, faction: FormId, on: bool) {
+        if on {
+            self.player.enemy_of_script.insert(faction);
+            self.player.enemy_of.insert(faction);
+        } else {
+            self.clear_enemy_of(faction);
+        }
+        crate::functions::actor::forget_relations(self);
+    }
+
+    /// The player is no longer an enemy of `faction`, set by a crime or a script
+    /// (ClearFactionPlayerEnemyFlag and the like). The caller forgets the kept relations.
+    pub(crate) fn clear_enemy_of(&mut self, faction: FormId) {
+        self.player.enemy_of.remove(&faction);
+        self.player.enemy_of_crimes.remove(&faction);
+        self.player.enemy_of_script.remove(&faction);
+    }
+
+    /// Crimes end (module notes, §3.7): each crime enemy whose last crime is
+    /// iCoolDownTimerSetting game days old forgives the player [documented: GECK wiki
+    /// Category:Crime], and each faction flag a crime set whose last crime is
+    /// [`FACTION_FLAG_DAYS`] old is cleared [observed: observer check 203], unless a script
+    /// set it too [design: a script's flag stays]. Read
+    /// against GameDaysPassed now, so it holds however the clock moved. Called where
+    /// hostility is asked afresh: a detection round's and a combat AI frame's start, the
+    /// crime tick, the Wait menu's check and the script functions that read the flags.
+    /// Returns whether anything ended.
+    pub fn expire_crimes(&mut self) -> bool {
+        if self.player.enemy_of_crimes.is_empty() && self.player.crime_enemy_since.is_empty() {
+            return false;
+        }
+        let Some(now) = self.game_days() else { return false };
+        let limit = self.crime_settings().cool_down_days;
+        let old = |since: f64, limit: f64| now - since + EXPIRY_SLACK_DAYS >= limit;
+        let factions: Vec<(FormId, f64)> = self.player.enemy_of_crimes.iter().filter(|(_, &d)| old(d, FACTION_FLAG_DAYS)).map(|(&f, &d)| (f, now - d)).collect();
+        let actors: Vec<(FormId, f64)> = self.player.crime_enemy_since.iter().filter(|(_, &d)| old(d, limit)).map(|(&a, &d)| (a, now - d)).collect();
+        for &(faction, days) in &factions {
+            self.player.enemy_of_crimes.remove(&faction);
+            if !self.player.enemy_of_script.contains(&faction) && self.player.enemy_of.remove(&faction) {
+                self.crimes.notes.push(Note::FactionEnemyEnded { faction, days });
+            }
+        }
+        for &(actor, days) in &actors {
+            self.player.crime_enemy_since.remove(&actor);
+            if self.player.crime_enemies.remove(&actor) {
+                self.crimes.warnings.remove(&actor);
+                self.crimes.notes.push(Note::CrimeEnemyEnded { actor, days });
+            }
+        }
+        let any = !factions.is_empty() || !actors.is_empty();
+        if any {
+            crate::functions::actor::forget_relations(self);
+        }
+        any
+    }
+
+    /// After a load: a save from before #2467 holds its crime enmities undated. Its crime
+    /// enemies (actors) are dated now, so they end iCoolDownTimerSetting game days after
+    /// the load. Its faction flags are all kept as a script's, never ending by the
+    /// cooldown: such a save does not say whether a crime or a quest's SetPCEnemyOfFaction
+    /// set one, and a quest's hostility must not end [design].
+    pub(crate) fn date_crimes(&mut self) {
+        let now = self.crime_day();
+        let undated: Vec<FormId> = self.player.crime_enemies.iter().copied().filter(|a| !self.player.crime_enemy_since.contains_key(a)).collect();
+        for a in undated {
+            self.player.crime_enemy_since.insert(a, now);
+        }
+        let undated: Vec<FormId> = self.player.enemy_of.iter().copied().filter(|f| !self.player.enemy_of_crimes.contains_key(f) && !self.player.enemy_of_script.contains(f)).collect();
+        self.player.enemy_of_script.extend(undated);
     }
 
     /// The player assaulted `victim` (provocation turned it on the player): a major crime
@@ -776,6 +932,7 @@ impl Game<'_> {
     /// After a round of detection measurements: trespass warnings and attacks (module
     /// notes). Returns how many actors turned on the player.
     pub fn crime_tick(&mut self) -> usize {
+        self.expire_crimes();
         let s = self.crime_settings();
         let now = self.time;
         // The No Alarm door's excuse ends once the player is out of its cell.
@@ -822,7 +979,7 @@ impl Game<'_> {
                 self.crimes.notes.push(Note::Warned { actor: w, level: level + 1 });
             } else {
                 self.count_crime(w, Kind::Trespass);
-                if self.player.crime_enemies.insert(w) {
+                if self.mark_crime_enemy(w) {
                     turned += 1;
                     self.crimes.notes.push(Note::Crime { kind: Kind::Trespass, victim: Some(o.owner), seen_by: vec![w], hostile: vec![w] });
                 }
@@ -835,6 +992,7 @@ impl Game<'_> {
     /// [design: as a grudge ends].
     pub fn forgive_crimes(&mut self, actor: FormId) {
         self.player.crime_enemies.remove(&actor);
+        self.player.crime_enemy_since.remove(&actor);
         self.crimes.warnings.remove(&actor);
     }
 }
@@ -876,6 +1034,7 @@ pub fn get_major_crime_count(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 /// actor].
 pub fn get_actor_crime_player_enemy(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.expire_crimes();
     yes(g.player.crime_enemies.contains(&r))
 }
 
@@ -883,6 +1042,7 @@ pub fn get_actor_crime_player_enemy(g: &mut Game, ctx: &Ctx, _a: &Args) -> Resul
 /// wiki says only "alarmed"].
 pub fn get_alarmed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.expire_crimes();
     yes(g.crime_enemy(r))
 }
 
@@ -950,23 +1110,85 @@ pub fn send_trespass_alarm(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 
 /// `[criminal.]SendAssaultAlarm [victim] [faction]`: the victim reacts as to an assault;
 /// with the player (or none) as the victim, a present member of the faction does
-/// [documented: GECK wiki SendAssaultAlarm]. It says Assault "even if … already in
-/// combat" [documented: notes].
+/// [documented: GECK wiki SendAssaultAlarm, "it will pick an NPC in the BigTown faction
+/// to use instead"]. It says Assault "even if … already in combat" [documented: notes].
+///
+/// With a faction given and no member present and alive, nobody is the victim and
+/// nothing happens: the caller is no member, so it is never picked [documented: the
+/// wiki's "an NPC in the … faction"; hypothesis: the original does nothing then,
+/// observer check 241] (#2926: a freed Techatticup hostage's alarm on the Legion turned
+/// the hostage). Only the form without a faction falls back to the calling actor
+/// [design, #2926].
 pub fn send_assault_alarm(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let named = a.opt_form(0).filter(|&f| f != FormId::PLAYER_REF);
     let caller = ctx.on.or(ctx.self_ref).filter(|&f| f != FormId::PLAYER_REF);
-    let victim = named.or_else(|| {
-        let f = a.opt_form(1)?;
-        let mut members: Vec<FormId> = g.world.placed.refs.iter().filter(|(_, p)| matches!(&p.sig, b"ACHR" | b"ACRE")).map(|(r, _)| *r).filter(|&r| g.present(r) && !g.is_dead(r) && faction_rank(g, r, f) >= 0).collect();
-        members.sort();
-        members.into_iter().next()
-    });
-    let victim = victim.or(caller).ok_or("no victim")?;
+    let victim = match named {
+        Some(v) => Some(v),
+        // A faction parameter is given (it may read as no form: an empty reference).
+        None if a.len() > 1 => {
+            let picked = a.opt_form(1).map(|f| faction_member_victim(g, f));
+            match picked {
+                Some(p) => tracing::info!(
+                    "assault alarm: faction {} from {}: victim {}; {} member(s) present and alive, {} not present, {} dead",
+                    p.faction,
+                    caller.map_or_else(|| "no caller".to_string(), |c| c.to_string()),
+                    p.victim.map_or_else(|| "none".to_string(), |v| v.to_string()),
+                    p.alive,
+                    p.absent,
+                    p.dead
+                ),
+                None => tracing::info!("assault alarm: faction parameter is no form; no victim"),
+            }
+            let (victim, alive, absent, dead) = picked.map_or((None, 0, 0, 0), |p| (p.victim, p.alive, p.absent, p.dead));
+            g.emit(crate::trace::EventKind::AssaultAlarm { caller, faction: picked.map(|p| p.faction), victim, alive, absent, dead });
+            victim
+        }
+        None => Some(caller.ok_or("no victim")?),
+    };
+    let Some(victim) = victim else {
+        return none();
+    };
     g.count_crime(victim, Kind::Assault);
-    g.player.crime_enemies.insert(victim);
+    g.mark_crime_enemy(victim);
     g.detection_bark(victim, Some(FormId::PLAYER_REF), "Assault");
     g.crimes.notes.push(Note::Crime { kind: Kind::Assault, victim: Some(victim), seen_by: Vec::new(), hostile: vec![victim] });
     none()
+}
+
+/// The member of a faction SendAssaultAlarm picks, and why the others were not.
+#[derive(Debug, Clone, Copy)]
+struct FactionPick {
+    faction: FormId,
+    /// The first placed actor (FormID order) in the faction, present and alive.
+    victim: Option<FormId>,
+    /// Members present and alive.
+    alive: usize,
+    /// Members disabled or deleted.
+    absent: usize,
+    /// Members present but dead.
+    dead: usize,
+}
+
+/// The victim of `SendAssaultAlarm Player <faction>`: the first placed actor in the faction
+/// (rank 0 or more, `faction_rank`) that is present and alive, in FormID order [design:
+/// the order the pick had before #2926].
+fn faction_member_victim(g: &Game, faction: FormId) -> FactionPick {
+    let mut pick = FactionPick { faction, victim: None, alive: 0, absent: 0, dead: 0 };
+    // `refs` is a BTreeMap: FormID order.
+    for (&r, p) in &g.world.placed.refs {
+        if !matches!(&p.sig, b"ACHR" | b"ACRE") || faction_rank(g, r, faction) < 0 {
+            continue;
+        }
+        if !g.present(r) {
+            pick.absent += 1;
+        } else if g.is_dead(r) {
+            pick.dead += 1;
+        } else {
+            pick.alive += 1;
+            pick.victim.get_or_insert(r);
+        }
+    }
+    pick
 }
 
 #[cfg(test)]

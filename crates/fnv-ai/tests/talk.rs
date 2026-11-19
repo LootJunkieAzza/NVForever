@@ -4,6 +4,7 @@
 //! (Dialogue Package, "Behavior"). The greeting opens a conversation, also with the
 //! Goodbye flag (`fixture_with`): the package's force greet holds the player.
 
+use fnv_ai::errand::Act;
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Talking};
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -60,13 +61,22 @@ fn triple(t: Triple) -> Vec<u8> {
 /// target with the activate distance, the topic and whether it is a Say To.
 #[allow(clippy::too_many_arguments)]
 fn talk_pack(id: u32, edid: &str, general: u32, wait: Option<Triple>, trigger: Option<Triple>, target: Triple, topic: u32, say_to: bool) -> Vec<u8> {
+    talk_pack_flags(id, edid, general, wait, trigger, target, topic, say_to, 0)
+}
+
+/// PKDD flag "Don't Control Target Movement" (schemas/fnv/ai.json).
+const DONT_CONTROL_TARGET: u32 = 0x100;
+
+/// As [`talk_pack`], with the PKDD flags.
+#[allow(clippy::too_many_arguments)]
+fn talk_pack_flags(id: u32, edid: &str, general: u32, wait: Option<Triple>, trigger: Option<Triple>, target: Triple, topic: u32, say_to: bool, pkdd: u32) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), sub(b"PKDT", [&general.to_le_bytes()[..], &[15, 0, 0, 0], &[0; 4]].concat())];
     subs.extend(wait.map(|l| sub(b"PLDT", triple(l))));
     subs.extend(trigger.map(|l| sub(b"PLD2", triple(l))));
     subs.push(sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()));
     subs.push(sub(b"PTDT", triple(target)));
     // FOV, topic, flags, unused, dialogue type, unknown.
-    subs.push(sub(b"PKDD", [75f32.to_le_bytes(), topic.to_le_bytes(), [0; 4], [0; 4], (say_to as u32).to_le_bytes(), [0; 4]].concat()));
+    subs.push(sub(b"PKDD", [75f32.to_le_bytes(), topic.to_le_bytes(), pkdd.to_le_bytes(), [0; 4], (say_to as u32).to_le_bytes(), [0; 4]].concat()));
     record(b"PACK", id, &subs)
 }
 
@@ -98,6 +108,11 @@ fn no_script() -> Subrecord {
 
 /// A topic with one line of one response (or none), said by anyone.
 fn topic(id: u32, edid: &str, line: Option<(u32, u16, &str)>) -> Vec<u8> {
+    topic_of_type(id, edid, line, 0)
+}
+
+/// As [`topic`], its line of INFO type `kind` (0 Topic, 1 Conversation).
+fn topic_of_type(id: u32, edid: &str, line: Option<(u32, u16, &str)>, kind: u8) -> Vec<u8> {
     let dial = record(b"DIAL", id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]);
     let lines = line.map_or(Vec::new(), |(info, info_flags, text)| {
         let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
@@ -105,7 +120,7 @@ fn topic(id: u32, edid: &str, line: Option<(u32, u16, &str)>) -> Vec<u8> {
             b"INFO",
             info,
             &[
-                sub(b"DATA", vec![0, 0, info_flags as u8, (info_flags >> 8) as u8]),
+                sub(b"DATA", vec![kind, 0, info_flags as u8, (info_flags >> 8) as u8]),
                 sub(b"QSTI", u32b(QUEST)),
                 sub(b"TRDT", trdt),
                 sub(b"NAM1", z(text)),
@@ -131,6 +146,8 @@ const T_CHATTER: u32 = 0x814;
 const I_CHATTER: u32 = 0x81A;
 const T_HELLO: u32 = 0x815;
 const I_HI: u32 = 0x81B;
+const T_TALK: u32 = 0x816;
+const I_TALK: u32 = 0x81C;
 const STAT: u32 = 0x820;
 const ACTI: u32 = 0x821;
 const STOOL: u32 = 0x822;
@@ -144,6 +161,8 @@ const P_MUTE: u32 = 0x835;
 const P_WANDER: u32 = 0x836;
 const P_SEATED: u32 = 0x837;
 const P_STAND: u32 = 0x838;
+const P_FIND_PLAYER: u32 = 0x839;
+const P_HOLD: u32 = 0x83A;
 // Bases.
 const N_GREET: u32 = 0x840;
 const N_COME: u32 = 0x841;
@@ -154,6 +173,8 @@ const N_MUTE: u32 = 0x845;
 const N_IDLE: u32 = 0x846;
 const N_SEATED: u32 = 0x847;
 const N_STAND: u32 = 0x848;
+const N_FINDER: u32 = 0x849;
+const N_HOLD: u32 = 0x84A;
 // The cell and its references.
 const CELL: u32 = 0x860;
 const TRIGGER: u32 = 0x870;
@@ -169,6 +190,8 @@ const R_MUTE: u32 = 0x885;
 const R_IDLE: u32 = 0x886;
 const R_SEATED: u32 = 0x887;
 const R_STAND: u32 = 0x888;
+const R_FINDER: u32 = 0x889;
+const R_HOLD: u32 = 0x88A;
 
 const PLAYER: u32 = 0x14;
 const GOODBYE: u16 = 0x0001;
@@ -193,14 +216,18 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
     let player = (0, PLAYER, 0);
     let packs = [
         // Sunny Smiles's shape: wait at the editor location (radius 0), a trigger box,
-        // the player within 256.
-        talk_pack(P_GREET, "GreetInBox", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false),
+        // the player within 256; here with Do Not Control Target Movement, so the
+        // trigger location does not hold the greeting back (case 2 as documented).
+        talk_pack_flags(P_GREET, "GreetInBox", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false, DONT_CONTROL_TARGET),
+        // The same without that flag, as Sunny's and Paladin Ramos's packages are
+        // (HVRamosEntryDialogPackage, issue #2453): the player is to be in the box.
+        talk_pack(P_HOLD, "GreetInBoxHeld", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false),
         // No locations and no distance: go to the player at once, running.
         talk_pack(P_COME, "ComeAndTalk", flags::ALWAYS_RUN, None, None, player, 0, false),
         // A wait location with a radius and a trigger location with one.
         talk_pack(P_WAIT, "WaitThenTalk", 0, Some((0, MARK_WAIT, 100)), Some((0, MARK_TRIGGER, 200)), (0, PLAYER, 200), 0, false),
         talk_pack(P_SAY, "SayALine", 0, None, None, (0, PLAYER, 200), T_SAY, true),
-        talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), 0, false),
+        talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), T_TALK, false),
         talk_pack(P_MUTE, "NothingToSay", flags::MUST_COMPLETE, None, None, (0, PLAYER, 200), T_EMPTY, false),
         // Benny's shape in the Tops' suite: wait at a stool (radius 128), no trigger
         // location, the player within 256.
@@ -208,6 +235,9 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         // A Wander package about its editor location, no Fallout behaviour flags set (so all
         // of them allowed).
         record(b"PACK", P_WANDER, &[sub(b"EDID", z("WanderHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[5, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
+        // A Find for the player near its editor location, radius 0: Cachino's
+        // vGomorrahCachinoDialoguePackage (issue #2473, packages.md section 10).
+        record(b"PACK", P_FIND_PLAYER, &[sub(b"EDID", z("FindThePlayer")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[0, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()), sub(b"PTDT", triple(player))]),
         // A Travel package to its editor location: the actor stands where it was placed.
         record(b"PACK", P_STAND, &[sub(b"EDID", z("StandHere")), sub(b"PKDT", [&0u32.to_le_bytes()[..], &[6, 0, 0, 0], &[0; 4]].concat()), sub(b"PLDT", triple((3, 0, 0))), sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat())]),
     ]
@@ -223,10 +253,12 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         npc(N_IDLE, "Idler", &[P_WANDER]),
         npc(N_SEATED, "Sitter", &[P_SEATED]),
         npc(N_STAND, "Stander", &[P_STAND]),
+        npc(N_FINDER, "Finder", &[P_FIND_PLAYER]),
+        npc(N_HOLD, "Holder", &[P_HOLD]),
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
-    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today.")))].concat();
+    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None), topic(T_CHATTER, "IdleChatter", Some((I_CHATTER, 0, "Hot one today."))), topic_of_type(T_TALK, "TalkToYou", Some((I_TALK, 0, "Got a minute?")), 1)].concat();
     let dial = if hello { [dial, topic(T_HELLO, "HELLO", Some((I_HI, 0, "Morning.")))].concat() } else { dial };
     let bases = [
         record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]),
@@ -248,6 +280,8 @@ fn plugin_bytes(greeting: u16, hello: bool) -> Vec<u8> {
         placed(b"REFR", R_STOOL, "StoolRef", STOOL, STOOL_AT, None),
         placed(b"ACHR", R_SEATED, "SitterRef", N_SEATED, CORNER, None),
         placed(b"ACHR", R_STAND, "StanderRef", N_STAND, CORNER, None),
+        placed(b"ACHR", R_FINDER, "FinderRef", N_FINDER, CORNER, None),
+        placed(b"ACHR", R_HOLD, "HolderRef", N_HOLD, GREETER, None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Room"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -446,6 +480,71 @@ fn an_actor_walks_up_to_a_player_who_enters_its_trigger_box_and_greets() {
     assert_eq!(s.events().len(), 4, "{:?}", s.events());
 }
 
+/// A pistol (WEAP animation type 3, Pistol - Ballistic [documented: xEdit
+/// wbWeaponAnimTypeEnum]) for the drawn walk (#2124, `fnv_ai::carry::drawn_walk_share`).
+const PISTOL: u32 = 0xA00;
+
+fn with_pistol(mut f: Fixture) -> Fixture {
+    use fnv_sim::forms::{ArmorClass, BaseData, BaseForm, Item, ItemKind};
+    let it = Item {
+        kind: ItemKind::Weapon,
+        value: Some(1),
+        money: None,
+        weight: Some(1.0),
+        slots: None,
+        projectile: None,
+        health: Some(100),
+        non_playable: false,
+        cant_drop: false,
+        armor_class: ArmorClass::Light,
+        power_armor: false,
+        armor_dr: None,
+        armor_dt: None,
+        weapon_damage: Some(10.0),
+        weight_mods: [0.0; 3],
+        drawable: true,
+        not_for_npcs: false,
+        thrown: false,
+        quest_item: false,
+        icon: None,
+        placed_count: None,
+        teaches: None,
+        cant_be_taken: false,
+        modulates_voice: false,
+        weapon_traits: None,
+    };
+    let id = FormId(PISTOL);
+    f.forms.sigs.insert(id, *b"WEAP");
+    f.forms.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
+    f.data.weapon_anim_types.insert(id, 3);
+    f
+}
+
+/// A Dialogue package's walk to the player takes the drawn walk while the actor's pistol
+/// is out and gives it back when it is put away, the player standing (no new way).
+#[test]
+fn a_dialogue_approach_follows_the_pistol_drawn_and_put_away() {
+    let f = with_pistol(fixture());
+    let mut s = sim(&f, R_GREET, [600.0, 300.0, 0.0]);
+    let me = FormId(R_GREET);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.game.hud.forced_out.insert(me);
+    s.run(0.25);
+    assert!(matches!(s.events()[1], AiEvent::Approach { running: false, .. }), "{:?}", s.events());
+    let speed = |s: &Sim| s.agent(R_GREET).walker.speed;
+    assert!((speed(&s) - 100.0 / 1.1).abs() < 1e-3, "{}", speed(&s));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.25);
+    assert_eq!(s.agent(R_GREET).activity, Activity::Travelling);
+    assert!((speed(&s) - 100.0).abs() < 1e-3, "{}", speed(&s));
+    s.game.hud.forced_out.insert(me);
+    s.run(0.25);
+    assert!((speed(&s) - 100.0 / 1.1).abs() < 1e-3, "{}", speed(&s));
+    assert_eq!(s.events().iter().filter(|e| matches!(e, AiEvent::Approach { .. })).count(), 1, "one way, not planned again");
+}
+
 /// ResetAI on an actor whose Dialogue package has talked and is chosen again (#2119):
 /// the package starts over, so it greets once more and is then done again; ResetAI does
 /// not make it greet over and over by itself [design: ResetAI takes the package up
@@ -493,6 +592,56 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     let heading = s.agent(R_GREET).walker.heading;
     assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+}
+
+/// Case 2 with "Do Not Control Target Movement" off: the player is walked into the
+/// trigger location (`Game::player_lead`, which the engine carries out) and the
+/// conversation opens there. Paladin Ramos's "Follow me" leaves the escort to the
+/// trigger box's OnTrigger block, which runs only with the player inside it (#2453).
+#[test]
+fn a_controlled_target_is_walked_into_the_trigger_location_and_greeted_there() {
+    let f = fixture();
+    // Within the activate distance (212 units) but outside the box (it ends at y 950).
+    let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
+    // (Within LEAD_STUCK_SECONDS: this test walks the player only once.)
+    s.run(1.0);
+    assert_eq!(s.talks(), 0, "{:?}", s.events());
+    assert!(s.game.dialogue.is_none());
+    assert_eq!(s.agent(R_HOLD).talk, Some(Talking::Waiting));
+    // The lead: 48 units inside the box's north side, the player's x and height kept.
+    let lead = s.game.player_lead.expect("the player is led");
+    assert_eq!(lead.by, FormId(R_HOLD));
+    assert!((lead.to[0] - 750.0).abs() < 0.01 && (lead.to[1] - 902.0).abs() < 0.01 && lead.to[2] == 0.0, "{:?}", lead.to);
+    assert_eq!(s.events().iter().filter(|e| matches!(e, AiEvent::LeadsPlayer { .. })).count(), 1, "logged once: {:?}", s.events());
+    // There (the engine's walk): the greeting comes and the lead is over.
+    s.player_to(lead.to);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
+    assert!(s.game.player_lead.is_none());
+}
+
+/// The walk into the trigger location gets no nearer (something solid in the way, here a
+/// player the engine never moves): after `LEAD_STUCK_SECONDS` the lead ends and the
+/// actor greets where the player stands, so the keys are not set aside for good (review
+/// of #2465). A walk that does get nearer keeps the lead.
+#[test]
+fn a_lead_that_gets_no_nearer_ends_and_the_actor_greets_where_the_player_stands() {
+    let f = fixture();
+    let mut s = sim(&f, R_HOLD, [750.0, 1050.0, 0.0]);
+    // Getting nearer, 15 units every half second: still led after 2.5 s.
+    for i in 1..=5 {
+        s.run(0.5);
+        s.player_to([750.0, 1050.0 - 15.0 * i as f32, 0.0]);
+    }
+    assert!(s.game.player_lead.is_some_and(|l| l.by == FormId(R_HOLD)), "{:?}", s.events());
+    assert_eq!(s.talks(), 0, "{:?}", s.events());
+    // Stuck at y 975, 73 units short of the point (y 902).
+    s.run(fnv_ai::carry::LEAD_STUCK_SECONDS + 1.0);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::LeadStuck { left, .. } if (left - 73.0).abs() < 0.5)), "{:?}", s.events());
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_HOLD)));
+    assert!(s.game.player_lead.is_none());
 }
 
 /// A wall or a closed door between the actor and the player holds the force greet back
@@ -660,14 +809,19 @@ fn a_say_to_line_to_the_player_waits_for_a_clear_line() {
     assert!(s.game.is_talking(FormId(R_SAY)));
 }
 
+/// A conversation with another actor is carried out: the actor goes up to it and the
+/// two talk in the world (`Game::start_actor_conversation`; Veronica's package at
+/// Hidden Valley's intercom, issue #2451). No dialogue menu opens for the player.
 #[test]
-fn a_conversation_between_two_actors_is_not_carried_out() {
+fn a_conversation_between_two_actors_is_carried_out() {
     let f = fixture();
     let mut s = sim(&f, R_TO_NPC, [300.0, 100.0, 0.0]);
-    s.run(2.0);
-    assert!(matches!(s.events()[1], AiEvent::NotCarriedOut { .. }), "{:?}", s.events());
-    assert_eq!(s.agent(R_TO_NPC).activity, Activity::Staying);
-    assert_eq!(s.agent(R_TO_NPC).walker.feet, CORNER);
+    s.run(20.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::Approach { target, .. } if target.0 == R_GREET), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Talk { target, line, say_to: false, .. } if target.0 == R_GREET && line.0 == I_TALK)), "{ev:?}");
+    assert!(flat(s.agent(R_TO_NPC).walker.feet, GREETER) <= 200.0 + 1.0);
+    assert!(s.game.dialogue.is_none());
 }
 
 /// An actor with no line to say does not try for ever: its package is done.
@@ -958,6 +1112,65 @@ fn start_conversation_from_afar_walks_up_to_the_player_first() {
     assert!(matches!(walked, Some((away, true, Some(_))) if away <= 150.0), "{:?}", s.events());
     // Its greeting (the fixture's has no choices, so the conversation closes after it).
     assert!(s.game.walk_up_greets.is_empty());
+    s.run(15.0);
+    assert_eq!(s.game.events.iter().filter(|e| matches!(e.kind, fnv_game::trace::EventKind::DialogueStarted { .. })).count(), 1);
+}
+
+/// [design, #2724] Repeating StartConversation while walking must consume the pending
+/// greeting when the nearer call opens it (`Game::open_dialogue`), before AI resumes.
+#[test]
+fn start_conversation_repeated_during_a_walk_up_opens_exactly_once() {
+    use fnv_game::functions::Ctx;
+    use fnv_game::trace::EventKind;
+    use fnv_script::vm::{ArgValue, Value};
+
+    let f = fixture();
+    let player = [1100.0, 1100.0, 0.0];
+    let actor = FormId(R_IDLE);
+    let mut s = sim(&f, R_IDLE, player);
+    let opcode = s.game.data.table.by_name("StartConversation").unwrap();
+    let ctx = Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let args = [ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0))];
+    assert!(s.game.walk_up_far(actor));
+    let mut pending = false;
+    for _ in 0..80 {
+        s.game.call_function(&ctx, &args);
+        if s.game.dialogue.is_some() {
+            let away = flat(s.agent(R_IDLE).walker.feet, player);
+            assert!(pending, "a previous frame recorded the walk-up");
+            assert!(away > fnv_ai::goal::STANDARD_TALK_DISTANCE && away <= fnv_game::dialogue::WALK_UP_REACH, "opened at {away}");
+            assert!(s.game.walk_up_greets.is_empty(), "the opener consumes the walk-up");
+            break;
+        }
+        pending |= s.game.walk_up_pending(actor).is_some();
+        s.run(0.25);
+    }
+    assert_eq!(s.game.dialogue_actor(), Some(actor), "repeated calls opened the talk");
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::WalkUp { .. })));
+    s.run(30.0);
+    assert!(s.game.dialogue.is_none(), "the fixture's greeting ends");
+    assert!(s.game.walk_up_greets.is_empty());
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::WalkedUp { .. })), "no stale arrival after dialogue ends");
+    assert_eq!(s.game.events.iter().filter(|e| matches!(e.kind, EventKind::DialogueStarted { .. })).count(), 1);
+}
+
+/// [design, #2724] Both public openers consume only their actor's walk after success;
+/// a topic with no line leaves it pending (`Game::open_dialogue`).
+#[test]
+fn any_successful_player_conversation_opener_consumes_its_walk_up() {
+    let f = fixture();
+    for forced in [false, true] {
+        let mut s = sim(&f, R_IDLE, [1100.0, 1100.0, 0.0]);
+        let actor = FormId(R_IDLE);
+        assert!(s.game.walk_up_greet(actor, None));
+        assert!(s.game.walk_up_greet(FormId(R_WAIT), None));
+        let open = |g: &mut Game, topic| if forced { g.force_greet(actor, topic) } else { g.start_dialogue(actor, topic) };
+        assert!(open(&mut s.game, Some(FormId(0))).is_err());
+        assert_eq!(s.game.walk_up_pending(actor), Some(None));
+        open(&mut s.game, None).unwrap();
+        assert_eq!(s.game.walk_up_pending(actor), None);
+        assert_eq!(s.game.walk_up_pending(FormId(R_WAIT)), Some(None), "another actor's walk remains");
+    }
 }
 
 /// A StartConversation speaker the AI does not walk (not handed to it: its cell has not
@@ -1244,4 +1457,60 @@ fn an_actor_waiting_on_furniture_greets_from_its_seat() {
     assert_eq!(a.using, Some(FormId(R_STOOL)));
     assert_eq!(a.walker.feet, feet);
     assert_eq!(a.walker.heading, heading);
+}
+
+/// A restrained actor (SetRestrained 1) given a Dialogue package does not move but still
+/// talks [documented: GECK wiki SetRestrained, restrained actors "will not move from
+/// their current position, or enter combat, but will continue to \"think\" ... and go
+/// into dialogue"]: it waits where it stands, greets the player once within the activate
+/// distance, and released during that conversation (the line that frees it, as Hardin's
+/// power armor training does) it does not greet again (#2309). The player is restrained
+/// too, as in that scene.
+#[test]
+fn a_restrained_actor_with_a_dialogue_package_talks_without_moving() {
+    let f = fixture();
+    let mut s = sim(&f, R_COME, [1000.0, 1000.0, 0.0]);
+    s.game.extra.entry(FormId(R_COME)).or_default().restrained = true;
+    s.game.extra.entry(FormId(PLAYER)).or_default().restrained = true;
+    // The player out of reach: it does not go up to the player (case 3 would).
+    s.run(5.0);
+    assert_eq!(s.agent(R_COME).walker.feet, CORNER);
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Waiting), "{:?}", s.events());
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::Approach { .. } | AiEvent::Trip { .. })), "{:?}", s.events());
+    assert_eq!(s.talks(), 0);
+    // Put beside it (the training's MoveTo): the force greet, from where it stands.
+    s.player_to([200.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_COME)));
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Speaking));
+    assert_eq!(s.agent(R_COME).walker.feet, CORNER);
+    // The line releases both; the conversation ends.
+    s.game.extra.get_mut(&FormId(R_COME)).unwrap().restrained = false;
+    s.game.extra.get_mut(&FormId(PLAYER)).unwrap().restrained = false;
+    assert!(s.game.end_dialogue());
+    s.run(10.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.agent(R_COME).talk, Some(Talking::Done));
+}
+
+/// Cachino's case (issue #2473): a Find package for the player near the editor location
+/// with radius 0 goes after the player well beyond the 512 of a radius 0 search area, and
+/// on reaching them starts a conversation (a force greet, packages.md section 10). Before,
+/// the player 1,400 units off was not in the area: "finds nothing more", and it stood.
+#[test]
+fn a_find_package_for_the_player_goes_to_them_anywhere_and_greets() {
+    let f = fixture();
+    let far = [1100.0, 1100.0, 0.0];
+    let mut s = sim(&f, R_FINDER, far);
+    s.run(30.0);
+    let ev = s.events();
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::NothingFound { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::FindGoes { object, .. } if *object == FormId::PLAYER_REF)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Found { object, act: Act::Greets, .. } if *object == FormId::PLAYER_REF)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Talk { target, say_to: false, .. } if *target == FormId::PLAYER_REF)), "{ev:?}");
+    // The conversation opened (its one line is over by now): GetTalkedToPC reads 1,
+    // which ends Cachino's package.
+    assert!(s.game.extra.get(&FormId(R_FINDER)).is_some_and(|e| e.talked_to_pc), "it talked to the player");
+    assert!(flat(s.agent(R_FINDER).walker.feet, far) < 120.0, "it went up to the player");
 }

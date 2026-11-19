@@ -771,7 +771,7 @@ fn due(aid: &mut PhotoAid, now: f32) -> Vec<String> {
 /// Open and close photo mode.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn toggle(
-    (keys, mouse, pads, sticks): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>),
+    (keys, mouse, pads, sticks): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>, crate::pad::ActionPads, Option<Res<crate::pad::StickButtons>>),
     bindings: Res<Bindings>,
     time: crate::pause::AidTime,
     mut aid: ResMut<PhotoAid>,
@@ -892,7 +892,7 @@ fn hold_world(photo: Res<PhotoMode>, console: Res<crate::console::Console>, paus
 }
 
 /// The left and right triggers' pull, 0 to 1.
-fn trigger(pads: &Query<&Gamepad>, b: GamepadButton) -> f32 {
+fn trigger(pads: &crate::pad::ActionPads, b: GamepadButton) -> f32 {
     pads.iter().filter_map(|g| g.get(b)).fold(0.0, f32::max)
 }
 
@@ -902,7 +902,7 @@ fn place(
     real: Res<Time<Real>>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     player: Option<Res<Player>>,
     body: Res<BodyView>,
     mut phys: ResMut<PhysState>,

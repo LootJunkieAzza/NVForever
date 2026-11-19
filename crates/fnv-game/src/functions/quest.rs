@@ -158,7 +158,8 @@ pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
     let q = quest(g, a, 0)?;
     let ids: Vec<i32> = g.data.quests[&q].objectives.keys().copied().collect();
     for i in ids {
-        g.set_objective(q, i, None, Some(true));
+        // Also on a completed or failed quest (`Game::set_objective_whatever`).
+        g.set_objective_whatever(q, i, None, Some(true));
     }
     none()
 }

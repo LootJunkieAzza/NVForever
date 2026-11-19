@@ -663,7 +663,8 @@ fn open(
 }
 
 /// The keys [documented: the menu file's `_PCButton_*`].
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<BlackjackScreen>, time: AidTime, mut out: MessageWriter<BlackjackInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<BlackjackScreen>, time: AidTime, mut out: MessageWriter<BlackjackInput>) {
+    let keys = keys.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
         return;
@@ -1416,6 +1417,48 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<BlackjackStats>) {
         "blackjack summary: {} asked, {} opened ({} refused); {} rounds: {} won, {} lost, {} pushed, {} naturals; net {}; {} bans",
         s.asked, s.opened, s.refused, s.rounds, s.won, s.lost, s.pushed, s.naturals, s.net, s.banned
     );
+}
+
+/// [design, #2403] Synthetic logical/ineffective states for detector regressions.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> BlackjackScreen {
+    let mut table = Table::new(Rules { min_bet: 1, max_bet: 100, payout: 1.5, stay_soft17: true }, 1, 0.5, ChaCha8Rng::seed_from_u64(42));
+    if step >= 2 {
+        table.rounds = 1;
+    }
+    BlackjackScreen(Some(Session {
+        casino: FormId(42),
+        def: CasinoDef::default(),
+        chip: FormId(43),
+        chip_name: String::new(),
+        table,
+        bet: if step >= 1 { 2 } else { 1 },
+        chips: 100,
+        earnings: 0,
+        max_winnings: 1000,
+        status: (step >= 3).then(|| "Synthetic result".into()),
+        help: None,
+        opened: step as f32,
+        shown: vec![],
+        reveal: None,
+        discard: None,
+        busy_until: step as f32,
+        pending: None,
+        sounds: vec![],
+        banned_at: None,
+        leaving: None,
+        auto: false,
+        leave_after: false,
+        wait_line: None,
+        collect_at: None,
+        wins: vec![],
+        losses: vec![],
+        shared: None,
+        others: vec![],
+        paid: None,
+        table_ref: None,
+    }))
 }
 
 #[cfg(test)]

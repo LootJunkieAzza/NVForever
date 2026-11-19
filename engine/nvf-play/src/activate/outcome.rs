@@ -26,6 +26,9 @@ pub enum Action {
     Unlock,
     /// Locked, no key.
     Locked { level: u8 },
+    /// A locked terminal the player's password note opens (the Show Use Password tweak,
+    /// docs/design/tweaks.md).
+    UsePassword,
     Talk,
     /// A living actor the sneaking player may pickpocket (`crate::pickpocket`).
     Steal,
@@ -40,9 +43,12 @@ pub enum Action {
     Drink,
     /// A placed explosive (PGRE).
     Disarm,
-    /// An actor the player cannot talk to: a hostile one, or a creature with nothing to
-    /// say. The prompt shows only its name and E does nothing (`crate::activate`).
+    /// A creature with nothing to say, not hostile to the player. The prompt shows only
+    /// its name and E does nothing (`crate::activate`).
     Name,
+    /// A living actor hostile to the player: no prompt is drawn, the crosshair stays the
+    /// plain one and E does nothing (issue #2536; `Targeted::prompted`).
+    Hostile,
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
@@ -57,6 +63,9 @@ pub enum Action {
     /// A co-op guest at an NPC the host's active quest is on: the host leads it, so E only
     /// says to wait for them (`host`: the host's name; owner, item 130 Q1).
     HostOnly { host: String },
+    /// A knocked-out companion a Stimpak gets up (the player's Revive Unconscious
+    /// Companions tweak, docs/design/tweaks.md).
+    ReviveCompanion,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -96,6 +105,8 @@ impl Action {
             Action::Travel { to: None } => "Open".into(),
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
+            // Our words for the tweak's prompt.
+            Action::UsePassword => "Locked (Use Password)".into(),
             Action::Talk => "Talk".into(),
             // Picking a pocket reads "Pickpocket", as the data spells its topic (FalloutNV.esm
             // DIAL `Pickpocket`, FULL "Pickpocket"); an owned item's "Steal" is
@@ -109,7 +120,7 @@ impl Action {
             // [hypothesis: the original's word; activators.md §9]
             Action::Drink => "Drink".into(),
             Action::Disarm => "Disarm".into(),
-            Action::Name => String::new(),
+            Action::Name | Action::Hostile => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
             // [design: the owner's "an interact prompt (like Talk on NPCs)", 2026-11-04]
@@ -118,6 +129,8 @@ impl Action {
             Action::Revive { .. } => "Revive".into(),
             // [design: owner, item 130: "Wait for <host name>"]
             Action::HostOnly { host } => format!("Wait for {host}"),
+            // Our word for the tweak's prompt.
+            Action::ReviveCompanion => "Revive".into(),
         }
     }
 }

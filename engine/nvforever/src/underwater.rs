@@ -1,16 +1,17 @@
 //! Under-water fog: while the camera is below the water surface of its cell, the
 //! camera's distance fog becomes the water type's under-water fog (WATR DNAM under fog
-//! near / far [documented: xEdit names]) in its deep colour, lit by the current sun and
-//! ambient light like the water body [hypothesis; the light level is tuned to match the
-//! water surface's own shading]. Leaving the water hands the fog back to the weather.
+//! near / far [documented: xEdit names]). Its colour goes from the water type's shallow
+//! colour at the surface to its deep colour [`DEEP_AT`] units down, and is not lit: the
+//! picture's grade (the image space by time of day) does the rest ([`fog_bytes`];
+//! world.md §6 "Under-water colour", #2916) [observed in the original, hypothesis for the rule]. Leaving the
+//! water hands the fog back to the weather.
 
-use crate::sky::{SkyState, Sun};
+use crate::sky::SkyState;
 use crate::water::DistantWater;
 use crate::world::{bevy_to_game, Streamer, WorldData};
 use nvf_play::phys::PhysState;
 use nvf_play::sim::SimState;
 use fnv_sim::FormId;
-use bevy::camera::Exposure;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use fnv_world::cell_of;
@@ -20,11 +21,6 @@ use std::collections::HashMap;
 /// Water types read so far, by FormID.
 #[derive(Default)]
 pub struct WaterTypes(HashMap<u32, Option<Water>>);
-
-fn linear(c: Color) -> Vec3 {
-    let l = c.to_linear();
-    Vec3::new(l.red, l.green, l.blue)
-}
 
 /// The water surface the camera is under, with its type: outdoors the camera cell's
 /// water when the camera is below it; indoors the physics' water the camera is in (placed
@@ -80,22 +76,37 @@ fn fog_water_type(placed: Option<u32>, cell: Option<u32>, worldspace: Option<u32
     placed.or(cell).or(worldspace)
 }
 
+/// How far below the surface the camera sees the water's deep colour alone
+/// [hypothesis, fitted: under Lake Mead the original's picture darkens evenly with the
+/// player's depth and stops about 1,100 units down, the camera some 120 above the feet;
+/// both waters measured store under fog near −1,000, which may be where it comes from].
+pub const DEEP_AT: f32 = 1000.0;
+
+/// The under-water colour as display bytes with the camera `depth` units below the
+/// surface: the shallow colour at the surface, the deep colour from [`DEEP_AT`] down, in
+/// proportion between [observed, base game and Tale of Two Wastelands, 2026-11-18,
+/// world.md §6 "Under-water colour": Lake Mead at noon, feet 150 to 1,250 units down, (72, 81, 38) to
+/// (36, 42, 15), the same whichever way the camera looks; the Pitt's river 180 down,
+/// (46, 53, 33) for shallow (56, 60, 34)].
+pub fn fog_bytes(shallow: [u8; 3], deep: [u8; 3], depth: f32) -> [u8; 3] {
+    let t = if depth.is_finite() { (depth / DEEP_AT).clamp(0.0, 1.0) } else { 0.0 };
+    std::array::from_fn(|i| (shallow[i] as f32 + (deep[i] as f32 - shallow[i] as f32) * t).round() as u8)
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn underwater_fog(
     world: Res<WorldData>,
     streamer: Res<Streamer>,
     mut dw: ResMut<DistantWater>,
     mut sky: ResMut<SkyState>,
-    ambient: Res<GlobalAmbientLight>,
-    sun: Query<&DirectionalLight, With<Sun>>,
-    mut cam: Query<(&GlobalTransform, &mut DistanceFog, Option<&Exposure>), crate::fly::WorldCamera>,
+    mut cam: Query<(&GlobalTransform, &mut DistanceFog), crate::fly::WorldCamera>,
     phys: Option<Res<PhysState>>,
     sim: Option<Res<SimState>>,
     mut types: Local<WaterTypes>,
     mut placed_types: Local<HashMap<u32, Option<u32>>>,
     mut was_under: Local<bool>,
 ) {
-    let Ok((gt, mut fog, exposure)) = cam.single_mut() else { return };
+    let Ok((gt, mut fog)) = cam.single_mut() else { return };
     let under = water_above(&world, &streamer, &mut dw, phys.as_deref(), sim.as_deref(), &mut placed_types, bevy_to_game(gt.translation()));
     let water = under.and_then(|(_, wid)| {
         types.0.entry(wid).or_insert_with(|| fnv_world::sky::water(world.lo, world.schema, wid)).clone()
@@ -108,28 +119,42 @@ pub fn underwater_fog(
         }
         return;
     };
+    let depth = under.map_or(0.0, |(h, _)| h - bevy_to_game(gt.translation()).z);
+    let colour = fog_bytes(w.shallow, w.deep, depth);
     if !std::mem::replace(&mut *was_under, true) {
         let h = under.map_or(0.0, |(h, _)| h);
-        info!("underwater: the camera is under water (surface {h:.1}), the water's under-water fog");
+        info!(
+            "underwater: the camera is under water (surface {h:.1}), the water's under-water fog: colour ({}, {}, {}) {depth:.0} units down, between shallow ({}, {}, {}) and deep ({}, {}, {})",
+            colour[0], colour[1], colour[2], w.shallow[0], w.shallow[1], w.shallow[2], w.deep[0], w.deep[1], w.deep[2]
+        );
     }
-    // The light a diffuse surface facing the sun receives: the display-value sum of the
-    // sun and the ambient light (lights.rs `DISPLAY_HELPERS`; light × exposure, Lambert's
-    // 1/π for the sun), raised to the display gamma.
-    let exposure = exposure.copied().unwrap_or_default().exposure();
-    let light = sun
-        .single()
-        .map(|s| linear(s.color) * s.illuminance / std::f32::consts::PI)
-        .unwrap_or(Vec3::ZERO)
-        + linear(ambient.color) * ambient.brightness;
-    let deep = Vec3::from_array(w.deep.map(srgb_to_linear)) * (light * exposure).max(Vec3::ZERO).powf(2.2);
+    // Not lit: by day the original's colour is the same from 09:00 to 18:00, and its night
+    // colour is the day's after the night's grade (world.md §6 "Under-water colour").
+    let [r, g, b] = colour.map(srgb_to_linear);
     let [near, far, _amount] = w.under_fog;
-    fog.color = Color::LinearRgba(LinearRgba::rgb(deep.x, deep.y, deep.z));
+    fog.color = Color::LinearRgba(LinearRgba::rgb(r, g, b));
     fog.falloff = FogFalloff::Linear { start: near, end: far.max(near + 1.0) };
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fog_water_type;
+    use super::{fog_bytes, fog_water_type, DEEP_AT};
+
+    /// #2916: the colour goes from shallow at the surface to deep at `DEEP_AT`, and stays.
+    #[test]
+    fn the_colour_goes_from_shallow_to_deep_with_depth() {
+        // Potomac, the Mojave's water [observed: FalloutNV.esm WATR 0x00030009].
+        let (shallow, deep) = ([52, 75, 52], [27, 39, 24]);
+        assert_eq!(fog_bytes(shallow, deep, 0.0), shallow);
+        assert_eq!(fog_bytes(shallow, deep, -50.0), shallow);
+        assert_eq!(fog_bytes(shallow, deep, DEEP_AT), deep);
+        assert_eq!(fog_bytes(shallow, deep, 5000.0), deep);
+        assert_eq!(fog_bytes(shallow, deep, DEEP_AT / 2.0), [40, 57, 38]);
+        // Evenly: equal steps down darken by equal amounts.
+        let g = |d: f32| fog_bytes(shallow, deep, d)[1] as i32;
+        assert_eq!(g(250.0) - g(500.0), g(500.0) - g(750.0));
+        assert_eq!(fog_bytes(shallow, deep, f32::NAN), shallow);
+    }
 
     #[test]
     fn placed_water_fogs_in_its_own_type() {

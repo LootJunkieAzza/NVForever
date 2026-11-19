@@ -74,8 +74,11 @@ pub struct GapsState {
     /// ToggleFirstPerson's and TogglePlayerSneaking's asks, for the engine to take.
     pub view_request: Option<bool>,
     pub sneak_request: Option<bool>,
-    /// JohnnyGuitar's actor value change handlers: (the function, the code it waits for).
-    pub av_handlers: Vec<(XVal, Option<u16>)>,
+    /// JohnnyGuitar's actor value change handlers: (the function, the code it waits for,
+    /// whether it takes the values as they are rather than rounded: flag bit 0).
+    pub av_handlers: Vec<(XVal, Option<u16>, bool)>,
+    /// An actor value change handler runs: the changes it makes are not told again.
+    pub av_telling: bool,
     /// SetMapMarkerName's names, by marker reference.
     pub marker_names: HashMap<FormId, String>,
     /// JohnnyGuitar's quest handlers: (on start, the function, the quest it waits for).
@@ -158,21 +161,26 @@ impl Game<'_> {
         for f in hs {
             let args = if gained { vec![XVal::Ref(perk.0), XVal::Num(f64::from(before)), XVal::Num(f64::from(after))] } else { vec![XVal::Ref(perk.0)] };
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar perk handler".into(), error });
+                self.handler_failed("JohnnyGuitar perk handler".into(), error);
             }
         }
     }
 
-    /// JohnnyGuitar's actor value change handlers on a change of one of the actor's
-    /// values: (code, old value, new value) (`functions::actor` tells them).
+    /// JohnnyGuitar's actor value change handlers on a change of one of the player's
+    /// values: (code, old value, new value), rounded to whole numbers unless the handler
+    /// was set with flag bit 0 [documented: SetOnActorValueChangeEventHandler]
+    /// (`functions::actor` tells them).
     pub(crate) fn av_event(&mut self, _actor: FormId, code: u16, old: f64, new: f64) {
-        let hs: Vec<XVal> = self.gaps.av_handlers.iter().filter(|(_, c)| c.is_none_or(|c| c == code)).map(|(f, _)| f.clone()).collect();
-        for f in hs {
-            let args = vec![XVal::Num(f64::from(code)), XVal::Num(old), XVal::Num(new)];
+        let hs: Vec<(XVal, bool)> = self.gaps.av_handlers.iter().filter(|(_, c, _)| c.is_none_or(|c| c == code)).map(|(f, _, exact)| (f.clone(), *exact)).collect();
+        let was = std::mem::replace(&mut self.gaps.av_telling, true);
+        for (f, exact) in hs {
+            let v = |x: f64| XVal::Num(if exact { x } else { x.round() });
+            let args = vec![XVal::Num(f64::from(code)), v(old), v(new)];
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar actor value handler".into(), error });
+                self.handler_failed("JohnnyGuitar actor value handler".into(), error);
             }
         }
+        self.gaps.av_telling = was;
     }
 
     /// JohnnyGuitar's quest handlers on a quest starting or stopping: (quest)
@@ -181,7 +189,7 @@ impl Game<'_> {
         let hs: Vec<XVal> = self.gaps.quest_handlers.iter().filter(|(s, _, q)| *s == started && q.is_none_or(|q| q == quest)).map(|(_, f, _)| f.clone()).collect();
         for f in hs {
             if let Err(error) = self.run_function(&f, None, vec![XVal::Ref(quest.0)], None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar quest handler".into(), error });
+                self.handler_failed("JohnnyGuitar quest handler".into(), error);
             }
         }
     }
@@ -293,6 +301,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     let base = |g: &Game, f: FormId| crate::functions::base_of(g, f).unwrap_or(f);
     let zero = XVal::Num(0.0);
     let v = match name {
+        // Ordinary source calls use the current physical caster, never a stale
+        // CPTH room (vats-script-clearance.md). Generic receiver policy is unchanged.
+        name if crate::vats::handles_area_query(name) =>
+            XVal::Num(crate::vats::script_area(g, subject, name == "getvatsleftareafree")),
         // ---- magic items and effects ----
         // The item's effects in record order [observed: gaps2, the stimpak 4, the first
         // RestoreHealth, past the end 0].
@@ -819,7 +831,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             p.sort();
             if p.is_empty() { zero } else { let p = p.into_iter().map(|f| XVal::Ref(f.0)).collect(); list(g, p) }
         }
-        "getfollowers" | "getdroppedrefs" | "getdetectingactors" => zero,
+        // [documented: GetDroppedRefs] Associated world weapons, not carried inventory
+        // handles. Keep the ordinary world's enabled/deleted filtering and ordering.
+        "getdroppedrefs" => {
+            let holder = subject.filter(|&r| crate::functions::base_of(g, r).is_some_and(|b| g.template_source(b, r, |_| false).is_some()));
+            let refs = holder.map(|holder| {
+                g.world.dropped_beside(holder).into_iter().filter(|&r| {
+                    g.world.peek(r).is_some_and(|s| g.data.sig(g.unclone(s.base)) == Some(*b"WEAP"))
+                }).map(|r| XVal::Ref(r.0)).collect::<Vec<_>>()
+            }).unwrap_or_default();
+            if refs.is_empty() { zero } else { list(g, refs) }
+        }
+        "getfollowers" | "getdetectingactors" => zero,
         // The first member of the list the actor carries [observed: gaps7, the player
         // with the 10mm ammo list gives Ammo10mm, with a list it has none of 0].
         "pickfromlist" => {
@@ -1409,12 +1432,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `GetIsLAA == 0` showed "4GB patch missing" (TTW4GBMissingMessage)].
         "getislaa" => XVal::Num(1.0),
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
-        "getactivemenumode" => XVal::Num(g.menu.or(g.live_menu).map_or(0.0, f64::from)),
+        "getactivemenumode" => XVal::Num(g.menu.or(g.live_menu).or_else(|| g.menu_open(crate::game::menus::START).then_some(crate::game::menus::START)).map_or(0.0, f64::from)),
         // [observed: gaps3, 1]
         "getglobaltimemultiplier" => XVal::Num(g.ui.time_multiplier.unwrap_or(1.0)),
-        // No water under the crosshair here [observed: gaps2, 0; hypothesis: the engine
-        // tells no crosshair water].
-        "getcrosshairwater" => XVal::Ref(0),
+        // Activation-range object water, through the same effective ACTI/WNAM
+        // accessor as GetActivatorWaterType. This does not detect open surfaces.
+        "getcrosshairwater" => {
+            let base = g.senses.crosshair_ref
+                .and_then(|r| crate::functions::base_of(g, r))
+                .filter(|&b| g.data.sig(b) == Some(*b"ACTI"));
+            match base.and_then(|b| crate::nvse::record_value(g, b, "WNAM", "")) {
+                Some(XVal::Ref(water)) => XVal::Ref(water),
+                _ => XVal::Ref(0),
+            }
+        }
         // Return 0 [observed: gaps4].
         "setsoundflag" | "stopsoundalt" => zero,
         // An unknown patch [observed: gaps2 and gaps4, 0 for both].

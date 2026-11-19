@@ -51,7 +51,9 @@ multi_threaded = [
     "bevy_tasks/multi_threaded",
     "bevy_transform/multi_threaded",
 ]
-raw_vulkan_init = ["wgpu/vulkan"]
+# NVForever (2026-11-12, DLSS spike #2198): `ash` for `RawVulkanInitSettings::vulkan_library`
+# (src/renderer/raw_vulkan_init.rs); the version wgpu-hal 30 already uses.
+raw_vulkan_init = ["wgpu/vulkan", "dep:ash"]
 reflect_auto_register = ["bevy_app/reflect_auto_register"]
 reflect_functions = ["bevy_app/reflect_functions"]
 serialize = ["bevy_mesh/serialize"]
@@ -68,6 +70,12 @@ webgpu = ["wgpu/webgpu"]
 [lib]
 name = "bevy_render"
 path = "src/lib.rs"
+
+[dependencies.ash]
+version = "0.38"
+features = ["loaded"]
+optional = true
+default-features = false
 
 [dependencies.async-channel]
 version = "2.3.0"

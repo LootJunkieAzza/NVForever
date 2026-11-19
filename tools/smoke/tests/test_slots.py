@@ -410,6 +410,57 @@ class ParallelRunTests(unittest.TestCase):
         self.assertEqual(peak[0], 3)
         self.assertLess(order.index("save-write"), order.index("save-load"))
 
+    def test_the_longest_groups_start_first(self):
+        ls = [launch("a"), launch("save-write", "h"), launch("b"), launch("save-load", "h")]
+        ls[2].run_seconds = 5.0
+        self.assertEqual(cli.longest_first(ls, cli.chains(ls)), [[2], [1, 3], [0]])
+
+    def test_fail_fast_starts_nothing_after_a_fail(self):
+        ls = [launch("a"), launch("b"), launch("c")]
+        started = []
+
+        def fake_run(x, env, locks):
+            started.append(x.name)
+            return 0, "", 0.0
+
+        def fake_judge(x, env, code, err, secs, a, say, out):
+            out.append(Verdict(x.name, "FAIL" if x.name == "a" else "PASS"))
+
+        real_run, real_judge = cli.run_launch, cli.judge_launch
+        cli.run_launch, cli.judge_launch = fake_run, fake_judge
+        try:
+            vs = cli.run_launches(ls, SimpleNamespace(out=Path(".")), None, 1, SimpleNamespace(fail_fast=True), quiet)
+        finally:
+            cli.run_launch, cli.judge_launch = real_run, real_judge
+        self.assertEqual(started, ["a"])
+        self.assertEqual([v.status for v in vs], ["FAIL", "SKIP", "SKIP"])
+
+    def test_a_home_reader_brings_the_scenarios_that_write_it(self):
+        def s(name, home=None):
+            return Scenario(name, env={"NVFOREVER_HOME": home} if home else {})
+        scen = [s("write", "h"), s("read", "h"), s("menus", "h"), s("other"), s("later", "h"),
+                s("fix-a", "{repo}/f"), s("fix-b", "{repo}/f")]
+        said = []
+        chosen = cli.with_home_writers([scen[2], scen[3]], scen, said.append)
+        self.assertEqual([x.name for x in chosen], ["write", "read", "menus", "other"])
+        self.assertTrue(any("write, read" in x for x in said))
+        # The first of a home, a fixture home and no home: nothing added.
+        for one in (scen[0], scen[6], scen[3]):
+            self.assertEqual(cli.with_home_writers([one], scen, quiet), [one])
+
+    def test_failed_selects_the_last_runs_fails(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "summary.json").write_text(json.dumps(
+                [{"scenario": "a", "status": "FAIL"}, {"scenario": "b", "status": "PASS"},
+                 {"scenario": "gone", "status": "FAIL"}]))
+            a = cli.parser().parse_args(["plan", "--repo", d, "--out", d, "--failed"])
+            said = []
+            chosen = cli.last_failed([Scenario("a"), Scenario("b")], Path(d) / "summary.json", said.append)
+            self.assertEqual([s.name for s in chosen], ["a"])
+            self.assertTrue(a.failed)
+            self.assertTrue(any("gone" in s for s in said))
+
 
 if __name__ == "__main__":
     unittest.main()

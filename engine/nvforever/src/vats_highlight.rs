@@ -26,8 +26,10 @@
 //! - **How much of a vertex is the part's**: a body part is a chain of the skeleton's
 //!   bones (`crate::limbs::LimbRig::chains`); a bone in no chain goes with the nearest
 //!   chain above it (a hand with its arm, the fingers with the hand). A skinned vertex is
-//!   the part's by the share of its weights on the part's bones, and the part ends where
-//!   that share is a half; a shape hung from one bone (a hat, a horn) is the part's whole
+//!   assigned by its weights on the part's bones. [design, #2659] A triangle belongs to
+//!   the part when its mean share reaches [`PART_TRIANGLE_SHARE`], and has full mask
+//!   alpha, so mixed-mesh legs fill as strongly as whole-mesh heads. A shape hung from
+//!   one bone (a hat, a horn) is the part's whole
 //!   when that bone is. The bones are the ones the hit volumes use, so what is lit is what
 //!   a shot at the part can hit [design: the original's rule is not known]. A target
 //!   without parts is lit whole.
@@ -251,9 +253,12 @@ pub fn vertex_share(joints: &[u16; 4], weights: &[f32; 4], lit: &[bool]) -> f32 
     (on / all).clamp(0.0, 1.0)
 }
 
-/// The triangles of `indices` (three each) with any corner that has some of the part.
+/// [design, #2659] Majority ownership sets the triangle boundary, never fill opacity.
+const PART_TRIANGLE_SHARE: f32 = 0.5;
+
+/// [design, #2659] The triangles whose mean bone-weight share belongs to the part.
 pub fn touched_triangles(indices: &[u32], share: &[f32]) -> Vec<u32> {
-    indices.as_chunks::<3>().0.iter().filter(|t| t.iter().any(|&v| share.get(v as usize).copied().unwrap_or(0.0) > 0.02)).flatten().copied().collect()
+    indices.as_chunks::<3>().0.iter().filter(|t| t.iter().map(|&v| share.get(v as usize).copied().unwrap_or(0.0)).sum::<f32>() / 3.0 >= PART_TRIANGLE_SHARE).flatten().copied().collect()
 }
 
 fn mesh_indices(m: &Mesh) -> Vec<u32> {
@@ -293,8 +298,8 @@ fn cover_of(m: &NifMaterial) -> Cover {
 }
 
 /// The black a shape hides with and the white the part is drawn in, for a shape drawn
-/// whole or through `texture`. The white is blended, after the black and at its depth, so
-/// the part always lies over its own shape's black; its alpha carries the vertices' share.
+/// whole or through `texture`. [design, #2659] The white is blended after the black at
+/// its depth with full vertex alpha; only the texture can cut out its silhouette.
 fn coats(materials: &mut Assets<StandardMaterial>, texture: Option<(Handle<Image>, f32)>) -> [Handle<StandardMaterial>; 2] {
     let (image, mode) = match texture {
         Some((t, cut)) => (Some(t), AlphaMode::Mask(cut)),
@@ -422,8 +427,9 @@ fn glow(
         covered += 1;
         let mut mesh = base;
         mesh.insert_indices(Indices::U32(kept));
-        // The share as the vertex colour's alpha: the white is blended by it.
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, share.iter().map(|&s| [1.0, 1.0, 1.0, s]).collect::<Vec<[f32; 4]>>());
+        // [design, #2659] Ownership selects geometry above; it must not attenuate mask
+        // opacity on mixed meshes. Whole-part meshes already use full alpha.
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0_f32; 4]; vertices]);
         let x = put(&mut commands, meshes.add(mesh), white);
         st.overlays.push(x);
     }
@@ -671,11 +677,13 @@ mod tests {
     }
 
     #[test]
-    fn a_triangle_is_drawn_when_any_corner_has_some_of_the_part() {
+    fn a_triangle_is_drawn_when_its_mean_weight_belongs_to_the_part() {
         let indices = [0, 1, 2, 2, 3, 4, 4, 5, 6];
         let share = [1.0, 1.0, 0.3, 0.0, 0.01, 0.0, 0.0];
-        assert_eq!(touched_triangles(&indices, &share), [0, 1, 2, 2, 3, 4], "the third has too little");
+        assert_eq!(touched_triangles(&indices, &share), [0, 1, 2], "a faint contribution does not select a whole triangle");
         assert!(touched_triangles(&indices, &[0.0; 7]).is_empty());
+        assert_eq!(touched_triangles(&[0, 1, 2], &[0.5; 3]), [0, 1, 2]);
+        assert!(touched_triangles(&[0, 1, 2], &[0.49; 3]).is_empty());
     }
 
     #[test]

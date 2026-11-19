@@ -70,6 +70,12 @@ replaced by a fixed `IM_AmmoSwap` image (`interface\icons\typeicons\hot_keys_ico
   rose and line, moved right to clear the list; `pipboy/hotkey_panel.rs`), and a left
   click on a row (or Enter on the selected one) puts that item in the held slot; the same
   item in another slot moves [hypothesis: the move rule]. Smoke `pipboy-hotkey-assign`.
+  [design, #2312; `pipboy/hotkey_panel.rs`] With Controller chosen, RB opens the same
+  panel for the selected row; D-pad right/down advances and left/up goes back through
+  eight slots with wrapping, A assigns (closing on success), B cancels without change.
+  Ammo Swap still refuses assignment. The selection method is provisional [hypothesis;
+  observer check 211]. Both ITEMS renderers share this modal; smokes
+  `pipboy-hotkey-assign-pad` and `tiles-items-hotkey-pad`.
 - **Empty slot**: a tap says nothing happens [design: the HUD message "Hotkey N is empty"
   replaces today's "not available yet"]; on the wheel the slice reads EMPTY.
 - **Item gone** (sold, dropped, used up): the slot keeps the item and shows it at half

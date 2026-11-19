@@ -6,13 +6,16 @@
 //!   (with joint attributes for skinned shapes), materials, inverse bind poses, the
 //!   attachment bone, and a CPU copy of each mesh (for per-actor variants such as
 //!   FaceGen morphs).
-//! - A rigid part on the head (`Bip01 Head`) has its vertices in the skeleton's axes with
+//! - Most rigid parts on the head (`Bip01 Head`) have vertices in the skeleton's axes with
 //!   the origin at the bone [observed, actors.md §1.2]: a part whose root node stores the
 //!   inverse of the bone's bind rotation (eyes, mouth, teeth) is an ordinary child of the
 //!   bone; any other head part (hair, beards, hats, whose node rotations are the identity
 //!   or cancel) gets that inverse rotation from the attachment. A rigid part on any other
 //!   bone (the Pip-Boy models on `Bip01 L ForeTwist`) is in the bone's own axes: an
-//!   ordinary child. Node transforms are kept in every case.
+//!   ordinary child. Node transforms are kept in every case. Bone-local head meshes
+//!   keep the full bone frame instead ([hypothesis: actors.md §1.2, #2529];
+//!   [design: `rigid_part_frame`] distinguishes the two layouts using combined rigid
+//!   geometry so material submeshes share a frame).
 //! - Dismemberment caps are hidden: `BSDismemberSkinInstance` partitions that clear part
 //!   flag bit 0 [documented: nif.xml BSPartFlag bit 0 "PF_EDITOR_VISIBLE"; observed: the
 //!   cap shapes of `upperbody.nif` (`bodycaps`, `limbcaps`, `meatneck01`, `meathead01`)
@@ -33,7 +36,7 @@ use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shaded_model, shape_material, shape_material_reusing_tangents, shape_props, shape_skin, to_bevy, Props};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
@@ -49,6 +52,10 @@ use std::sync::Arc;
 
 /// The bone a rigid part without `Prn` hangs from [hypothesis, actors.md §1.2].
 pub const DEFAULT_RIGID_BONE: &str = "Bip01 Head";
+
+/// Minimum alignment of a rigid part's bounds centre with bone-local up before
+/// choosing that frame [design, #2529; docs/spec-notes/actors.md §1.2].
+pub const BONE_LOCAL_HEAD_ALIGNMENT: f32 = 0.9;
 
 /// A skeleton's node hierarchy; node 0 is the root, whose own transform the actor's
 /// placement replaces (so it is the identity here).
@@ -228,6 +235,11 @@ pub struct PreparedPart {
     /// The archive path it was read from (normalized), for rules that pick parts by file
     /// (the SMP generator's, `smp_physics.rs`).
     pub path: String,
+    /// No shape is skinned and the file has controllers of its own (not driven by a
+    /// sequence) that move a node, drive a material or show and hide a node: a creature
+    /// draws such a part as a model playing them on its bone, not as still shapes
+    /// (nvforever `actors::spawn_creature`).
+    pub plays_itself: bool,
 }
 
 /// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
@@ -304,9 +316,12 @@ pub struct ActorParts {
     pub failures: Vec<String>,
 }
 
+/// Why a NIF or KF file was not read when no archive or loose file has it ([`decode`]).
+const ABSENT: &str = "not in any archive";
+
 /// The first controller sequence of the KF file at `path`.
 /// A panic while reading it, or a clip whose keys could not be played, is this clip's
-/// failure (guard.rs).
+/// failure (guard.rs); a file the game does not have is [`ABSENT`].
 fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
     let (file, _, dec) = decode(data, path)?;
     crate::guard::guarded(|| {
@@ -490,7 +505,7 @@ pub struct PartUse {
 /// Read and parse a NIF or KF; a panic while parsing is this file's failure (guard.rs).
 fn decode(data: &GameData, path: &str) -> Result<(NifFile, Vec<u8>, Decoded), String> {
     crate::guard::guarded(|| {
-        let bytes = data.read(path).ok_or("not in any archive")?;
+        let bytes = data.read(path).ok_or(ABSENT)?;
         let schema = data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
         let dec = Decoded::new(&file, &bytes, &schema);
@@ -823,10 +838,18 @@ impl ActorCtx<'_, '_> {
         false
     }
 
-    /// Keep a clip read (or its failure) under `key`.
+    /// Keep a clip read (or its failure) under `key`. A KF file the game does not have is
+    /// no failure: callers ask for clips an actor may or may not have (a creature folder's
+    /// `talking.kf`, its unarmed stance, a weapon's sneak clips), and the base archives
+    /// lack most of them too, so it is logged at debug only, not reported as a missing
+    /// file (#2277).
     fn take_clip(&mut self, key: String, read: Result<Clip, String>) -> Option<Arc<Clip>> {
         let c = match read {
             Ok(c) => Some(Arc::new(c)),
+            Err(e) if e == ABSENT => {
+                debug!("{key}: no such clip");
+                None
+            }
             Err(e) => {
                 crate::guard::failed(&mut self.cache.failures, "actor file", format!("{key}: {e}"));
                 None
@@ -926,6 +949,7 @@ impl ActorCtx<'_, '_> {
         let (file, _bytes, dec) = ahead.unwrap_or_else(|| decode(&m.data, path))?;
         let objects = scene_objects(&file, &dec);
         let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+        let shaded = shaded_model(&file, &dec);
         let hidden_self = |b: usize| {
             dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
                 || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
@@ -990,7 +1014,7 @@ impl ActorCtx<'_, '_> {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
             let mut props = shape_props(&file, &dec, o, &by_block);
-            if props.is_helper() {
+            if props.is_helper(shaded) {
                 continue;
             }
             // The actor's clips may fade this shape's material alpha (Mr. House's screens).
@@ -1003,10 +1027,6 @@ impl ActorCtx<'_, '_> {
             if props.hair {
                 mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
             }
-            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
-            if let Some(t) = missing {
-                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
-            }
             let cap = is_cap(&dec, shape);
             let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
             // In a shape with drawn partitions, only a cap body part (section caps 1xx,
@@ -1017,6 +1037,18 @@ impl ActorCtx<'_, '_> {
             }
             let partitions = Arc::new(partitions);
             let caps = partitions.iter().filter(|p| p.cap).count();
+            // A cap's texture alpha cuts up to half of its tip away (`MeatCapGore01.dds`,
+            // DXT3, tested GREATER 127: dismemberment.md §2.5), and through the cuts the
+            // hollow limb and the cap's far side were not drawn: the corpse showed the ground
+            // through the stump (owner, 2026-11-15). Caps are drawn from both sides, so the
+            // cuts show the cap's inside [design: the caps carry no NiStencilProperty].
+            if caps > 0 {
+                props.double_sided = true;
+            }
+            let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+            if let Some(t) = missing {
+                self.cache.failures.push(format!("{path}: texture {t} not loaded"));
+            }
             if !cap && caps > 0 && first_mixed_report(path, o.block) {
                 info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
             }
@@ -1063,6 +1095,14 @@ impl ActorCtx<'_, '_> {
                 smp,
             });
         }
+        // Controllers that run by themselves, on a part with no skin: the part moves by
+        // itself (Mister Handy's jet, `fxmrhandyjetaddon.nif`: scrolling flames,
+        // refraction clouds, billboards; #2228), so a creature draws it as a playing model
+        // ([`PreparedPart::plays_itself`]).
+        out.plays_itself = out.shapes.iter().all(|s| s.skin.is_none())
+            && (!crate::model::free_material_tracks(&file, &dec).is_empty()
+                || !crate::model::free_transform_tracks(&file, &dec).is_empty()
+                || !crate::model::free_visibility_tracks(&file, &dec).is_empty());
         Ok(out)
     }
 }
@@ -1103,7 +1143,8 @@ fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
     Ok(s)
 }
 
-/// The local transform of a rigid part's shape under bone `b`, given the part's root
+/// [design: actors.md §1.2] The skeleton-axis fallback transform of a rigid shape under
+/// bone `b`, given the part's root
 /// transform and the shape's transform below it: root ∘ shape. On the head bone
 /// ([`DEFAULT_RIGID_BONE`]) that is preceded by the inverse of the bone's bind rotation
 /// and scale unless the root already is that inverse; on any other bone the part is an
@@ -1122,6 +1163,46 @@ pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &A
     } else {
         Affine3A::from_mat3(inv) * *root * *shape
     }
+}
+
+/// [design, #2529] Choose one frame for the part's combined unskinned, non-cap geometry
+/// after root and shape transforms. Include hidden shapes so visibility cannot change
+/// the frame. A head part centred along bone-local up and spanning skeleton Z=0 keeps
+/// its authored frame; otherwise retain `rigid_local`'s rule for the whole part.
+/// [hypothesis: actors.md §1.2] This distinguishes bone-local caps from skeleton-axis
+/// hats without model names; skinned shapes never enter this attachment path.
+fn rigid_part_frame(skel: &PreparedSkeleton, b: usize, part: &PreparedPart) -> Affine3A {
+    let fallback = || rigid_local(skel, b, &part.root, &Affine3A::IDENTITY);
+    if skel.names.get(b).and_then(|n| n.as_deref()) != Some(DEFAULT_RIGID_BONE) {
+        return fallback();
+    }
+    let Some(bind) = skel.bind_world.get(b).map(|w| Mat3::from(w.matrix3)).filter(|m| m.is_finite() && m.determinant().abs() > 1e-12) else {
+        return fallback();
+    };
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for shape in part.shapes.iter().filter(|s| s.skin.is_none() && !s.cap) {
+        let Some(VertexAttributeValues::Float32x3(vertices)) = shape.cpu.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            return fallback();
+        };
+        let authored = part.root * shape.transform;
+        for vertex in vertices {
+            let p = authored.transform_point3(Vec3::from_array(*vertex));
+            if !p.is_finite() {
+                return fallback();
+            }
+            min = min.min(p);
+            max = max.max(p);
+        }
+    }
+    let centre = (min + max) * 0.5;
+    let up = (bind.inverse() * Vec3::Z).normalize_or_zero();
+    if centre.is_finite() && min.z <= 0.0 && max.z >= 0.0
+        && centre.normalize_or_zero().dot(up) >= BONE_LOCAL_HEAD_ALIGNMENT
+    {
+        return part.root;
+    }
+    fallback()
 }
 
 /// Where an unskinned creature shape hangs (actors.md §10.2): the skeleton node of its
@@ -1143,6 +1224,63 @@ pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &P
         Some(&b) => (b, part.root * s.transform),
         None => (0, s.transform),
     }
+}
+
+/// [`creature_rigid_attach`] with the part's own named nodes kept as nodes: the bone,
+/// the nodes from it down to the shape (outermost first: name, local transform; `None`
+/// for the part's root, put in when the shape hangs from `Prn` below a named node, so
+/// those nodes keep the locals the part's clips key them by), and the shape's local
+/// transform under the last of them (under the bone when there are none). Unnamed nodes
+/// are folded into the node or shape below them. The product bone ∘ nodes ∘ shape is
+/// [`creature_rigid_attach`]'s placement. A clip names such a node to move it
+/// (`SpecialIdle_CutCake.kf` spins `Buzzsawblad`, a node of `gutsybuzzsaw.nif` that the
+/// Mister Handy skeleton lacks [observed: `fnvtool nif decode`, #2228]), so the actor
+/// needs an entity for it ([`SpawnedActor::part_nodes`]).
+pub fn creature_rigid_chain(skel: &PreparedSkeleton, part: &PreparedPart, s: &PartShape) -> (usize, Vec<(Option<String>, Affine3A)>, Affine3A) {
+    // Innermost first while walking up: each named node with the transform below it.
+    let mut named: Vec<(String, Affine3A)> = Vec::new();
+    let mut acc = s.own;
+    let mut shape_local = None;
+    let mut bone = None;
+    for (name, t) in &s.ancestors {
+        if let Some(&b) = name.as_ref().and_then(|n| skel.by_name.get(n)) {
+            bone = Some(b);
+            break;
+        }
+        match name.as_ref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                match named.last_mut() {
+                    Some(last) => last.1 = acc,
+                    None => shape_local = Some(acc),
+                }
+                named.push((n.clone(), Affine3A::IDENTITY));
+                acc = *t;
+            }
+            None => acc = *t * acc,
+        }
+    }
+    let mut root_node = None;
+    let bone = match bone {
+        Some(b) => b,
+        None => match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) if named.is_empty() => {
+                acc = part.root * acc;
+                b
+            }
+            Some(&b) => {
+                root_node = Some(part.root);
+                b
+            }
+            None => 0,
+        },
+    };
+    match named.last_mut() {
+        Some(last) => last.1 = acc,
+        None => shape_local = Some(acc),
+    }
+    let mut chain: Vec<(Option<String>, Affine3A)> = root_node.map(|r| (None, r)).into_iter().collect();
+    chain.extend(named.into_iter().rev().map(|(n, t)| (Some(n), t)));
+    (bone, chain, shape_local.unwrap_or(acc))
 }
 
 /// Make a skinned shape that is drawn rigidly (a weapon's or a held object's shape hung
@@ -1179,6 +1317,10 @@ pub struct SpawnedActor {
     pub shape_of: Vec<usize>,
     /// Skinned shapes whose bones the skeleton lacks: drawn rigidly at the root instead.
     pub unbound: usize,
+    /// The named nodes of creature parts that the skeleton lacks ([`creature_rigid_chain`]):
+    /// name, entity and local transform, for the actor's clips to drive
+    /// (`BlendPlayer::add_part_node`).
+    pub part_nodes: Vec<(String, Entity, Transform)>,
 }
 
 /// Spawn an actor under `parent`: the skeleton's nodes (root at `transform`), then every
@@ -1195,7 +1337,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
     spawn_parts(commands, skel, parts, &mut out);
     out
 }
@@ -1290,26 +1432,52 @@ pub fn skin_weights(m: &Mesh) -> Option<SkinWeights<'_>> {
 /// and k > 0 a severed piece, and `side[j]` is the side joint j lies on. Every triangle
 /// gets vertices of its own whose weights on joints of other sides are dropped and the
 /// rest scaled back up to 1; a vertex left with no weight on its side is carried whole by
-/// `fallback[k]`, or keeps its weights when there is none. So no triangle is stretched
-/// between a piece and the body.
-pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>]) -> Mesh {
+/// `fallback[k]`, or keeps its weights when there is none. For the body, a vertex carried
+/// only by pieces goes to `above[s]`, the body's joint above the cut of the piece `s`
+/// carrying most of it, else to `fallback[0]` (a torso cap weighted to the gone limb's
+/// own bones stays at the cut it covers). So no triangle is stretched between a piece and
+/// the body.
+///
+/// `anchors[j]`, for a joint j of a piece, is a joint slot past the shape's own (the
+/// caller adds it to the shape's skin) that holds j's place on the body: the bone above
+/// the piece's cut, carrying the vertex where j had it. A body vertex keeps its weights on
+/// such a joint, moved to its anchor, so the stump, its torso cap and any other body
+/// triangle reaching into the piece stay where they were, held by one bone in every shape
+/// (#2677: a cap whose shape lacked the stump's bone was carried elsewhere, or off with
+/// the piece, and the stump stood open). Joints without an anchor go the old way above.
+pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>], above: &[Option<u16>], anchors: &[Option<u16>]) -> Mesh {
     let mut m = cpu.clone();
     let corner_side: Vec<u8> = groups.iter().flat_map(|(k, t)| std::iter::repeat_n(*k, t.len())).collect();
     m.insert_indices(Indices::U32(groups.iter().flat_map(|(_, t)| t.iter().copied()).collect()));
     m.duplicate_vertices();
     let Some((joints, weights)) = skin_weights(&m) else { return m };
     let (mut joints, mut weights) = (joints.to_vec(), weights.to_vec());
+    // An anchor slot lies past the shape's joints, on the body.
+    let side_of = |x: u16| side.get(x as usize).copied().unwrap_or(0);
     for ((&k, j), w) in corner_side.iter().zip(&mut joints).zip(&mut weights) {
+        let orig = *j;
+        if k == 0 {
+            for c in 0..4 {
+                if w[c] > 0.0 && side_of(j[c]) != 0 {
+                    if let Some(a) = anchors.get(j[c] as usize).copied().flatten() {
+                        j[c] = a;
+                    }
+                }
+            }
+        }
         let mut kept = *w;
         for c in 0..4 {
-            if side.get(j[c] as usize) != Some(&k) {
+            if side_of(j[c]) != k {
                 kept[c] = 0.0;
             }
         }
         let sum: f32 = kept.iter().sum();
+        let carrier = |s: usize| (0..4).filter(|&c| side_of(orig[c]) as usize == s).map(|c| w[c]).sum::<f32>();
+        let body_above = || (1..above.len()).filter(|&s| carrier(s) > 0.0).max_by(|&a, &b| carrier(a).total_cmp(&carrier(b))).and_then(|s| above[s]);
+        let to = if k == 0 { body_above().or(fallback.first().copied().flatten()) } else { fallback.get(k as usize).copied().flatten() };
         if sum > 1e-4 {
             *w = kept.map(|x| x / sum);
-        } else if let Some(f) = fallback.get(k as usize).copied().flatten() {
+        } else if let Some(f) = to {
             *j = [f, 0, 0, 0];
             *w = [1.0, 0.0, 0.0, 0.0];
         }
@@ -1330,13 +1498,20 @@ pub struct LimbShape {
     pub cpu: Arc<Mesh>,
     /// The bones it is skinned to, or the one it hangs from.
     pub bones: Vec<String>,
+    /// Its own inverse bind poses (skinned shapes), one per bone: a cut shape is given
+    /// these and its anchored copies (`sever_mesh`'s `anchors`).
+    pub binds: Option<Handle<SkinnedMeshInverseBindposes>>,
 }
 
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
-    let nodes = &out.nodes;
+    let nodes = out.nodes.clone();
     let mut shared: Option<(Arc<PreparedSkeleton>, Arc<Vec<Entity>>)> = None;
+    // The part nodes spawned so far ([`creature_rigid_chain`]), by part and the way down
+    // to them, so that a part's shapes under one node share it.
+    let mut chains: HashMap<(usize, Vec<Option<String>>), Entity> = HashMap::new();
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
+        let rigid_frame = bone.filter(|_| !u.by_ancestor).map(|b| rigid_part_frame(skel, b, &u.part));
         let bone_axes = u.part.rigid_in_bone_axes();
         for (i, s) in u.part.shapes.iter().enumerate() {
             if s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
@@ -1359,7 +1534,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                 Some((_, names)) => names.clone(),
                 None => vec![u.part.attach_bone().to_string()],
             };
-            let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones };
+            let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones, binds: s.skin.as_ref().map(|(b, _)| b.clone()) };
             let (mesh, cpu) = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| (s.mesh.clone(), s.cpu.clone()));
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
             let joints: Option<Vec<Entity>> =
@@ -1395,12 +1570,25 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                     (None, _) => {
                         let (at, local) = match bone {
                             _ if u.by_ancestor => {
-                                let (b, local) = creature_rigid_attach(skel, &u.part, s);
-                                (nodes[b], local)
+                                let (b, chain, local) = creature_rigid_chain(skel, &u.part, s);
+                                let mut at = nodes[b];
+                                let mut path: Vec<Option<String>> = Vec::with_capacity(chain.len());
+                                for (name, t) in chain {
+                                    path.push(name.clone());
+                                    at = *chains.entry((pi, path.clone())).or_insert_with(|| {
+                                        let local = Transform::from_matrix(Mat4::from(t));
+                                        let e = commands.spawn((local, Visibility::Inherited, ChildOf(at))).id();
+                                        if let Some(n) = name {
+                                            out.part_nodes.push((n, e, local));
+                                        }
+                                        e
+                                    });
+                                }
+                                (at, local)
                             }
                             // Authored in the bone's own axes: an ordinary child.
                             Some(b) if bone_axes => (nodes[b], u.part.root * s.transform),
-                            Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
+                            Some(b) => (nodes[b], rigid_frame.unwrap() * s.transform),
                             None => (nodes[0], s.transform),
                         };
                         let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(local)))).id();
@@ -1408,8 +1596,10 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                         e
                     }
                 };
+                // The shape's name as its model spells it, too: JIP's NIF block functions list
+                // an actor's nodes by name (nvforever nif_mirror.rs, #2132).
                 if let Some(n) = &s.name {
-                    commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
+                    commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), Name::new(n.clone()), s.stored_look()));
                 }
                 if smp_candidate(&u.part, s) {
                     let (sk, ns) = shared.get_or_insert_with(|| (Arc::new(skel.clone()), Arc::new(nodes.clone()))).clone();
@@ -1450,7 +1640,12 @@ pub fn bind_clip(skel: &PreparedSkeleton, clip: Arc<Clip>) -> BoundClip {
 /// by node name, so skinned shapes and rigid parts under their bones follow
 /// (docs/spec-notes/actors.md §7 and §8).
 pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlayer {
-    BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()))
+    let mut player = BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()));
+    // A creature part's own named nodes, which its clips may name ([`creature_rigid_chain`]).
+    for (name, e, local) in &actor.part_nodes {
+        player.add_part_node(name, *e, *local);
+    }
+    player
 }
 
 /// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
@@ -1461,6 +1656,185 @@ pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // [design, #2529] Authored fixtures, with no game meshes or copied vertices.
+    fn head_shape(vertices: Vec<[f32; 3]>) -> PartShape {
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+        PartShape {
+            name: Some("fixture cap".into()), mesh: Handle::default(), material: Handle::default(),
+            props: Props::default(), cpu: Arc::new(mesh), skin: None,
+            transform: Affine3A::IDENTITY, cap: false, partitions: Arc::default(),
+            ancestors: Vec::new(), own: Affine3A::IDENTITY, geometry_index: 0, inverse_binds: None, smp: None,
+        }
+    }
+
+    fn rotated_head() -> PreparedSkeleton {
+        let head = Transform::from_translation(Vec3::new(0.0, 2.0, 100.0))
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
+        PreparedSkeleton {
+            names: vec![None, Some(DEFAULT_RIGID_BONE.into())],
+            parents: vec![None, Some(0)], locals: vec![Transform::IDENTITY, head],
+            bind_world: vec![Affine3A::IDENTITY, head.compute_affine()],
+            by_name: HashMap::from([(DEFAULT_RIGID_BONE.into(), 1)]),
+        }
+    }
+
+    #[test]
+    fn bone_local_rigid_headgear_follows_spawn_equip_and_head_turns() {
+        let skel = rotated_head();
+        let rigid = head_shape(vec![[10.0, -2.0, -3.0], [16.0, 2.0, 3.0], [13.0, 0.0, 0.0]]);
+        let mut skinned = rigid.clone();
+        skinned.skin = Some((Handle::default(), vec![DEFAULT_RIGID_BONE.into()]));
+        let part = PartUse {
+            part: Arc::new(PreparedPart { shapes: vec![rigid, skinned], ..Default::default() }),
+            materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: false,
+        };
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+        let placement = Transform::from_translation(Vec3::new(20.0, -30.0, 4.0))
+            .with_rotation(Quat::from_rotation_z(0.7)).with_scale(Vec3::splat(1.2));
+        let mut spawned = spawn_actor(&mut app.world_mut().commands(), parent, placement, &skel, std::slice::from_ref(&part));
+        app.world_mut().flush();
+        app.update();
+        let check = |world: &World, e: Entity| {
+            assert_eq!(world.get::<ChildOf>(e).unwrap().parent(), spawned.nodes[1]);
+            let mesh = world.get::<GlobalTransform>(e).unwrap().affine();
+            let head = world.get::<GlobalTransform>(spawned.nodes[1]).unwrap().affine();
+            for vertex in [[10.0, -2.0, -3.0], [16.0, 2.0, 3.0], [13.0, 0.0, 0.0]] {
+                let v = Vec3::from_array(vertex);
+                assert!(mesh.transform_point3(v).distance(head.transform_point3(v)) < 1e-4);
+            }
+        };
+        check(app.world(), spawned.drawn[0]);
+        let skin_entity = spawned.drawn[1];
+        assert_eq!(app.world().get::<ChildOf>(skin_entity).unwrap().parent(), spawned.root);
+        assert_eq!(app.world().get::<SkinnedMesh>(skin_entity).unwrap().joints, vec![spawned.nodes[1]]);
+        assert_eq!(*app.world().get::<Transform>(skin_entity).unwrap(), Transform::IDENTITY);
+        let initial = app.world().get::<GlobalTransform>(spawned.drawn[0]).unwrap().transform_point(Vec3::X * 13.0);
+        app.world_mut().get_mut::<Transform>(spawned.nodes[1]).unwrap().rotation *= Quat::from_rotation_z(0.6);
+        app.update();
+        check(app.world(), spawned.drawn[0]);
+        let turned = app.world().get::<GlobalTransform>(spawned.drawn[0]).unwrap().transform_point(Vec3::X * 13.0);
+        assert!(initial.distance(turned) > 1.0);
+        // [design] Equipment added after the head turns takes the same attachment path.
+        spawn_parts(&mut app.world_mut().commands(), &skel, &[part], &mut spawned);
+        app.world_mut().flush();
+        app.update();
+        let equipped = *spawned.drawn.iter().rev().nth(1).unwrap();
+        let mesh = app.world().get::<GlobalTransform>(equipped).unwrap().affine();
+        let head = app.world().get::<GlobalTransform>(spawned.nodes[1]).unwrap().affine();
+        assert!(mesh.transform_point3(Vec3::X * 13.0).distance(head.transform_point3(Vec3::X * 13.0)) < 1e-4);
+    }
+
+    #[test]
+    fn rigid_headgear_material_submeshes_share_the_part_frame() {
+        let skel = rotated_head();
+        let cap_vertices = vec![[10.0, -2.0, -3.0], [16.0, 2.0, 3.0], [13.0, 0.0, 0.0]];
+        let badge_vertices = vec![[10.0, 0.0, 2.0], [16.0, 0.0, 4.0], [13.0, 0.0, 3.0]];
+        let cap_transform = Affine3A::from_rotation_translation(Quat::from_rotation_x(0.3), Vec3::new(1.0, -0.5, 0.5));
+        let badge_transform = Affine3A::from_rotation_translation(Quat::from_rotation_y(-0.2), Vec3::new(2.0, 0.0, 1.0));
+        // [design, #2529] Identical authored geometry, split into transformed material
+        // submeshes or joined into one shape. The badge alone does not span Z=0.
+        let transformed_shape = |vertices: &[[f32; 3]], transform: Affine3A| {
+            let mut shape = head_shape(vertices.iter().map(|v| transform.inverse().transform_point3(Vec3::from_array(*v)).to_array()).collect());
+            shape.transform = transform;
+            shape
+        };
+        let cap = transformed_shape(&cap_vertices, cap_transform);
+        let badge = transformed_shape(&badge_vertices, badge_transform);
+        let joined = head_shape(cap_vertices.into_iter().chain(badge_vertices).collect());
+        for root in [Affine3A::IDENTITY, Affine3A::from_scale_rotation_translation(Vec3::splat(1.1), Quat::from_rotation_z(0.2), Vec3::X * 0.4)] {
+            let part_use = |shapes| PartUse {
+                part: Arc::new(PreparedPart { shapes, root, ..Default::default() }),
+                materials: Vec::new(), meshes: Vec::new(), layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: false,
+            };
+            let parts = [part_use(vec![cap.clone(), badge.clone()]), part_use(vec![joined.clone()])];
+            let mut app = App::new();
+            app.add_plugins(bevy::transform::TransformPlugin);
+            let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+            let placement = Transform::from_translation(Vec3::new(20.0, -30.0, 4.0))
+                .with_rotation(Quat::from_rotation_z(0.7)).with_scale(Vec3::splat(1.2));
+            let mut spawned = spawn_actor(&mut app.world_mut().commands(), parent, placement, &skel, &parts);
+            app.world_mut().flush();
+            app.update();
+            let check = |world: &World, spawned: &SpawnedActor, drawn: &[Entity]| {
+                let head = world.get::<GlobalTransform>(spawned.nodes[1]).unwrap().affine();
+                let combined = world.get::<GlobalTransform>(drawn[2]).unwrap().affine();
+                for (entity, shape) in drawn[..2].iter().zip([&cap, &badge]) {
+                    assert_eq!(world.get::<ChildOf>(*entity).unwrap().parent(), spawned.nodes[1]);
+                    let mesh = world.get::<GlobalTransform>(*entity).unwrap().affine();
+                    let VertexAttributeValues::Float32x3(vertices) = shape.cpu.attribute(Mesh::ATTRIBUTE_POSITION).unwrap() else { panic!() };
+                    for vertex in vertices {
+                        let v = Vec3::from_array(*vertex);
+                        let authored = shape.transform.transform_point3(v);
+                        let actual = mesh.transform_point3(v);
+                        assert!(actual.distance((head * root).transform_point3(authored)) < 1e-4);
+                        assert!(actual.distance(combined.transform_point3(authored)) < 1e-4);
+                    }
+                }
+            };
+            check(app.world(), &spawned, &spawned.drawn);
+            app.world_mut().get_mut::<Transform>(spawned.nodes[1]).unwrap().rotation *= Quat::from_rotation_z(0.6);
+            app.update();
+            check(app.world(), &spawned, &spawned.drawn);
+            spawn_parts(&mut app.world_mut().commands(), &skel, &parts, &mut spawned);
+            app.world_mut().flush();
+            app.update();
+            check(app.world(), &spawned, &spawned.drawn[3..]);
+        }
+    }
+
+    #[test]
+    fn rigid_head_frame_detection_keeps_existing_layouts_and_authored_nodes() {
+        let skel = rotated_head();
+        let z_hat = head_shape(vec![[-3.0, -2.0, 8.0], [3.0, 2.0, 16.0]]);
+        let x_cap = head_shape(vec![[10.0, -2.0, -3.0], [16.0, 2.0, 3.0]]);
+        let local = |skel: &PreparedSkeleton, b, root: &Affine3A, s: &PartShape| {
+            let part = PreparedPart { root: *root, shapes: vec![s.clone()], ..Default::default() };
+            rigid_part_frame(skel, b, &part) * s.transform
+        };
+        let old = |root: &Affine3A, s: &PartShape| rigid_local(&skel, 1, root, &s.transform);
+        assert_eq!(local(&skel, 1, &Affine3A::IDENTITY, &z_hat), old(&Affine3A::IDENTITY, &z_hat));
+        let inverse = Affine3A::from_mat3(Mat3::from(skel.bind_world[1].matrix3).inverse());
+        assert_eq!(local(&skel, 1, &inverse, &z_hat), inverse);
+        let root = Affine3A::from_rotation_z(0.4);
+        assert_eq!(local(&skel, 1, &root, &x_cap), root);
+        let mut cancelling = z_hat.clone();
+        cancelling.transform = root.inverse();
+        assert_eq!(local(&skel, 1, &root, &cancelling), old(&root, &cancelling));
+        let mut offset = x_cap.clone();
+        offset.transform = Affine3A::from_translation(Vec3::X);
+        assert_eq!(local(&skel, 1, &Affine3A::IDENTITY, &offset), offset.transform);
+        for vertices in [vec![], vec![[-1.0; 3], [1.0; 3]], vec![[f32::NAN, 0.0, 0.0]], vec![[10.0, 0.0, 2.0], [16.0, 0.0, 4.0]]] {
+            let s = head_shape(vertices);
+            assert_eq!(local(&skel, 1, &Affine3A::IDENTITY, &s), old(&Affine3A::IDENTITY, &s));
+        }
+        let mut off_head = skel.clone();
+        off_head.names[1] = Some("fixture forearm".into());
+        assert_eq!(local(&off_head, 1, &root, &x_cap), root);
+        let mut broken = skel.clone();
+        broken.bind_world[1] = Affine3A::from_mat3(Mat3::ZERO);
+        assert_eq!(local(&broken, 1, &root, &x_cap), root);
+    }
+
+    #[test]
+    fn rigid_part_frame_ignores_skinned_and_cap_geometry_but_rejects_malformed_siblings() {
+        let skel = rotated_head();
+        let cap = head_shape(vec![[10.0, -2.0, -3.0], [16.0, 2.0, 3.0]]);
+        let mut skinned = head_shape(vec![[0.0, 0.0, -1000.0]]);
+        skinned.skin = Some((Handle::default(), vec![DEFAULT_RIGID_BONE.into()]));
+        let mut dismemberment_cap = head_shape(vec![[0.0, 0.0, 1000.0]]);
+        dismemberment_cap.cap = true;
+        let mut part = PreparedPart { shapes: vec![cap, skinned, dismemberment_cap], ..Default::default() };
+        assert_eq!(rigid_part_frame(&skel, 1, &part), Affine3A::IDENTITY);
+        part.shapes.push(head_shape(vec![[f32::NAN, 0.0, 0.0]]));
+        let fallback = rigid_local(&skel, 1, &part.root, &Affine3A::IDENTITY);
+        assert_eq!(rigid_part_frame(&skel, 1, &part), fallback);
+        Arc::make_mut(&mut part.shapes[3].cpu).remove_attribute(Mesh::ATTRIBUTE_POSITION);
+        assert_eq!(rigid_part_frame(&skel, 1, &part), fallback);
+    }
 
     #[test]
     fn smp_bones_lists_join_in_order_and_name_the_xml() {
@@ -1514,7 +1888,7 @@ mod tests {
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 4]);
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0]]));
         m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
-        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)]);
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)], &[], &[]);
         let (j, w) = skin_weights(&out).unwrap();
         assert_eq!(out.count_vertices(), 6);
         // The body's copies: all on joint 0.
@@ -1522,6 +1896,52 @@ mod tests {
         // The piece's copies of 1 and 2: all on joint 1; vertex 3 had nothing there, so
         // the fallback carries it.
         assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
+        assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn a_torso_cap_carried_by_the_gone_limb_stays_on_the_body_bone_above_its_cut() {
+        // Joints: 0 the pelvis, 1 the neck (body); 2 the right thigh (piece 1), 3 the head
+        // (piece 2). Like `republican_02.nif`'s torso cap 210, weighted ~92 % to the right
+        // thigh: vertex 0 all on the thigh, 1 mostly on it, 2 all on the head.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[2, 0, 0, 0], [2, 3, 0, 0], [3, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.7, 0.3, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let side = [0, 0, 1, 2];
+        // The body's triangle: the thigh's vertices go to the pelvis (above piece 1's
+        // cut), the head's to the neck (above piece 2's), not all to one bone.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![]), (2, vec![])], &side, &[Some(1), Some(2), Some(3)], &[None, Some(0), Some(1)], &[]);
+        let (j, w) = skin_weights(&out).unwrap();
+        assert_eq!((j[0], w[0]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[1], w[1]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        assert_eq!((j[2], w[2]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        // Without a bone above a piece's cut, the body's fallback carries the vertex.
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2])], &side, &[Some(1)], &[None, None, None], &[]);
+        let (j, _) = skin_weights(&out).unwrap();
+        assert!(j.iter().all(|j| j[0] == 1));
+    }
+
+    #[test]
+    fn a_body_vertex_on_a_gone_joint_keeps_its_weights_on_that_joints_anchor() {
+        // Joints: 0 the pelvis (body), 1 the thigh and 2 the calf (piece 1); anchors 3 and
+        // 4 hold the thigh's and the calf's places on the body. Vertex 0 half on the pelvis
+        // and half on the thigh, 1 on the thigh and the calf, 2 on the pelvis.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 1, 0, 0], [1, 2, 0, 0], [0, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[0.5f32, 0.5, 0.0, 0.0], [0.6, 0.4, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let side = [0, 1, 1];
+        let anchors = [None, Some(3), Some(4)];
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![0, 1, 2])], &side, &[Some(0), Some(1)], &[None, Some(0)], &anchors);
+        let (j, w) = skin_weights(&out).unwrap();
+        // The body's copies keep their weights, the piece's joints moved to their anchors.
+        assert_eq!((j[0], w[0]), ([0, 3, 0, 0], [0.5, 0.5, 0.0, 0.0]));
+        assert_eq!((j[1], w[1]), ([3, 4, 0, 0], [0.6, 0.4, 0.0, 0.0]));
+        assert_eq!((j[2], w[2]), ([0, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+        // The piece's copies are untouched by the anchors: only its own joints carry them.
+        assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
+        assert_eq!((j[4], w[4]), ([1, 2, 0, 0], [0.6, 0.4, 0.0, 0.0]));
         assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
     }
 
@@ -1617,6 +2037,65 @@ mod tests {
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 3);
         assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 7.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn creature_part_nodes_are_kept_and_place_shapes_as_before() {
+        let skel = PreparedSkeleton {
+            by_name: HashMap::from([("Bip01 R Foot 01".to_string(), 2), ("Bip01 Head".to_string(), 3)]),
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            ..Default::default()
+        };
+        let blade = Affine3A::from_rotation_translation(Quat::from_rotation_x(1.0), Vec3::new(15.9, -0.7, 0.1));
+        let spacer = Affine3A::from_translation(Vec3::new(0.0, 2.0, 0.0));
+        let own = Affine3A::from_translation(Vec3::new(21.8, 10.8, -3.6));
+        let shape = |ancestors: Vec<(Option<String>, Affine3A)>| PartShape {
+            name: None,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
+            skin: None,
+            transform: ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, a| acc * a.1) * own,
+            cap: false,
+            partitions: Arc::default(),
+            ancestors,
+            own,
+            geometry_index: 0,
+            inverse_binds: None,
+            smp: None,
+        };
+        let product = |b: usize, chain: &[(Option<String>, Affine3A)], local: Affine3A| (b, chain.iter().fold(Affine3A::IDENTITY, |acc, (_, t)| acc * *t) * local);
+        let close = |a: Affine3A, b: Affine3A| Mat4::from(a).abs_diff_eq(Mat4::from(b), 1e-4);
+        // `gutsybuzzsaw.nif`: the blade's shape under `Buzzsawblad` under the root, `Prn`
+        // the foot. A root of its own when it is not the identity, then the blade node with
+        // its own transform (what the clip's keys replace), then the shape.
+        let mut part = PreparedPart { prn: Some("Bip01 R Foot 01".into()), root: Affine3A::from_translation(Vec3::new(0.0, 0.0, 3.0)), ..Default::default() };
+        let s = shape(vec![(None, spacer), (Some("Buzzsawblad".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 2);
+        assert_eq!(chain.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(), vec![None, Some("Buzzsawblad".to_string())]);
+        assert!(close(chain[1].1, blade));
+        assert!(close(local, spacer * own));
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
+        // With nothing named below the root: no nodes, the old placement.
+        part.root = Affine3A::IDENTITY;
+        let s = shape(vec![(None, spacer)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert!(chain.is_empty());
+        assert_eq!((b, local), creature_rigid_attach(&skel, &part, &s));
+        // A named node below an ancestor the skeleton has: kept, under that bone.
+        let s = shape(vec![(Some("Screen01".into()), spacer), (Some("Bip01 Head".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 3);
+        assert_eq!(chain.len(), 1);
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
     }
 
     #[test]

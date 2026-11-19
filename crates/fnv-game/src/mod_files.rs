@@ -91,6 +91,26 @@ pub fn data_files(folder: &str) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// CompileScript paths are UDF-relative; normalize only this API lexically within Data.
+/// Physical symlink/junction containment remains the existing reader policy
+/// (compilescript-relative-paths.md).
+pub(crate) fn udf_data_path(path: &str) -> Option<String> {
+    if path.is_empty() || path.contains([':', '\0']) || path.starts_with(['/', '\\']) {
+        return None;
+    }
+    let mut parts = vec!["nvse", "user_defined_functions"];
+    for part in path.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\\").to_ascii_lowercase())
+}
+
 /// A Data file's bytes: the first read root's loose copy (NVForever's layer before the
 /// game's Data), else through the host (archives included).
 pub fn read_data_file(path: &str) -> Option<Vec<u8>> {
@@ -220,6 +240,24 @@ fn find_dir(base: &Path, rel: &str) -> Option<PathBuf> {
 /// regard to case. kNVSE's AnimGroupOverride folders (`crate::nvse_anim_folders`).
 pub fn files_under(rel: &str) -> Vec<String> {
     list_files(rel, true)
+}
+
+/// The files and folders directly in a Data folder, through every read root (an earlier
+/// root hides the same name, compared without regard to case); kNVSE's GetDirectoryFiles
+/// (`crate::nvse_unlisted2`).
+pub fn entries_in(rel: &str) -> Vec<String> {
+    let (mut seen, mut out) = (std::collections::HashSet::new(), Vec::new());
+    for root in roots().read {
+        let Some(dir) = find_dir(&root, rel) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if seen.insert(name.to_ascii_lowercase()) {
+                out.push(name);
+            }
+        }
+    }
+    out
 }
 
 /// The loose files directly in a Data folder (no subfolders), as [`files_under`].
@@ -454,6 +492,32 @@ impl ModFiles {
     }
 }
 
+/// Normalize only Config-relative INI names, bounded lexically by Data.
+/// Ordinary file APIs keep their strict plain-name policy (local-ini-sibling-paths.md).
+fn ini_data_path(file: &str) -> Option<String> {
+    if file.is_empty() || file.starts_with(['\\', '/']) || file.contains([':', '\0']) {
+        return None;
+    }
+    let mut parts = vec!["Config"];
+    for part in file.split(['\\', '/']).filter(|p| !p.is_empty()) {
+        match part {
+            "." => {}
+            ".." => { parts.pop()?; }
+            _ => parts.push(part),
+        }
+    }
+    if parts.is_empty() { return None; }
+    let path = parts.join("\\");
+    on_disk(Path::new(""), &path)?;
+    Some(path)
+}
+
+// Keep a parent marker for invalid input so the existing disk reader and writer
+// reject it. Prepending Config to a rooted name would hide the leading root.
+fn ini_access_path(file: &str) -> String {
+    ini_data_path(file).unwrap_or_else(|| format!("..\\{file}"))
+}
+
 /// The INI file a function names, under `Data\Config`, ".ini" added when it has no
 /// extension [observed: "NVFExtProbe\probe" and "…\probe.ini" both read]; none given:
 /// the calling mod's own, `<plugin name>.ini` [documented: GetINISection, "the name of
@@ -467,26 +531,7 @@ fn ini_path(g: &Game, file: Option<&str>) -> String {
         }
     };
     let f = if f.to_ascii_lowercase().ends_with(".ini") { f } else { format!("{f}.ini") };
-    data_relative(&format!("Config\\{f}"))
-}
-
-/// A Data-relative path with its `..` parts taken out (`Config\..\NVSE\Plugins\x.ini` is
-/// `NVSE\Plugins\x.ini`): mods name INIs outside Config this way, as Titans of the New
-/// West does JIP's (`..\nvse\plugins\JIP_NVSE.ini`) [documented: GetINIFloat, the path is
-/// relative to Data\Config]. One that would leave Data keeps its `..`, which every reader
-/// refuses ([`on_disk`]).
-fn data_relative(path: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for p in path.split(['\\', '/']).filter(|p| !p.is_empty() && *p != ".") {
-        if p == ".." {
-            if parts.pop().is_none() {
-                return path.to_string();
-            }
-        } else {
-            parts.push(p);
-        }
-    }
-    parts.join("\\")
+    ini_access_path(&f)
 }
 
 /// `Section:Key` with ":", "/" or "\" between [observed: all three work], lower case.
@@ -529,6 +574,11 @@ fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// A cached file value loses one surrounding quote pair [observed: cached-ini-quotes.md].
+fn cached_ini_value(value: String) -> String {
+    value.strip_prefix('"').and_then(|s| s.strip_suffix('"')).map(str::to_owned).unwrap_or(value)
 }
 
 fn ini_sections(text: &str) -> Vec<String> {
@@ -657,7 +707,7 @@ fn cache_ini(g: &mut Game, path: &str, reload: bool) -> String {
         for sec in ini_sections(&text) {
             let ls = sec.to_ascii_lowercase();
             for (kk, vv) in ini_section(&text, &ls) {
-                m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), vv);
+                m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
             }
         }
         g.mod_files.cache.insert(key.clone(), m);
@@ -875,11 +925,35 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let path = text(args, 0).unwrap_or_default();
             let transpose = num(args, 1, 0.0) != 0.0;
             let Some(t) = g.mod_files.read_root(&path) else { return Some(Ok(zero)) };
-            let parse = |c: &str| match c.trim().parse::<f64>() {
-                Ok(x) => XVal::Num(x),
-                Err(_) => XVal::Str(c.to_string()),
+            // One or more tabs between values; `$text` a string, `@File.esm:XXXXXX` a form
+            // of that file, else a number [documented: ReadArrayFromFile]. Anything else
+            // is no value, a `;` ends the line (a comment, or a row commented out), and a
+            // line without values is no row [hypothesis: Food Scraps' config files comment
+            // their columns and rows so].
+            let order: Vec<String> = g.data.load_order.iter().map(|p| p.to_ascii_lowercase()).collect();
+            let parse = |c: &str| -> Option<XVal> {
+                let c = c.trim_matches(|ch: char| ch == '\r' || ch == ' ');
+                if let Some(s) = c.strip_prefix('$') {
+                    return Some(XVal::Str(s.to_string()));
+                }
+                // A form of a file not loaded is the empty form, in its column [hypothesis:
+                // Food Scraps lists other mods' forms and skips a row whose form is not
+                // valid (`if IsFormValid rRef == 0`)].
+                if let Some(f) = c.strip_prefix('@') {
+                    let form = f.rsplit_once(':').and_then(|(file, hex)| {
+                        let i = order.iter().position(|p| *p == file.trim().to_ascii_lowercase())?;
+                        let id = u32::from_str_radix(hex.trim(), 16).ok()?;
+                        Some(((i as u32) << 24) | (id & 0x00FF_FFFF))
+                    });
+                    return Some(XVal::Ref(form.unwrap_or(0)));
+                }
+                c.parse::<f64>().ok().map(XVal::Num)
             };
-            let rows: Vec<Vec<XVal>> = t.lines().filter(|l| !l.trim().is_empty()).map(|l| l.split('\t').map(parse).collect()).collect();
+            let rows: Vec<Vec<XVal>> = t
+                .lines()
+                .map(|l| l.split('\t').filter(|c| !c.trim().is_empty()).take_while(|c| !c.trim_start().starts_with(';')).filter_map(parse).collect::<Vec<_>>())
+                .filter(|r| !r.is_empty())
+                .collect();
             let list = |g: &mut Game, items: Vec<XVal>| {
                 let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
                 XVal::Array(g.ext.new_array(ArrayKind::List, entries))
@@ -1043,7 +1117,7 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 for sec in ini_sections(&text) {
                     let ls = sec.to_ascii_lowercase();
                     for (kk, vv) in ini_section(&text, &ls) {
-                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), vv);
+                        m.insert(format!("{ls}:{}", kk.to_ascii_lowercase()), cached_ini_value(vv));
                     }
                 }
                 g.mod_files.cache.insert(key.clone(), m);
@@ -1250,27 +1324,21 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
                 zero
             }
         }
-        // `folder [filter]`: the file names (no path) of a folder under the game's
-        // folder and NVForever's layer [observed: "NVSE\Plugins" "*.dll" gives bare
-        // names]; a missing folder gives an empty array [observed: plugin-odds files.none,
-        // ar_Size 0, where an unset array reads -1].
-        // GetFoldersInFolder the same for folders [observed: gaps3, "NVSE" gives
-        // "Plugins"; a missing folder an empty array].
+        // [documented: file-enumeration-data-roots.md] Both APIs use Data-relative
+        // directories and optional name filters; read roots include the mods layer.
         "getfilesinfolder" | "getfoldersinfolder" => {
             let folders = name == "getfoldersinfolder";
             let p = text(args, 0).unwrap_or_default().replace('/', "\\");
             let filter = text(args, 1).unwrap_or_else(|| "*".into()).to_ascii_lowercase();
             let mut names: Vec<String> = Vec::new();
             for root in roots().read {
-                // A path under the game folder (NVSE\Plugins) or under Data.
-                for base in [root.parent().map(|x| x.to_path_buf()), Some(root.clone())].into_iter().flatten() {
-                    if let Ok(rd) = std::fs::read_dir(base.join(&p)) {
-                        for e in rd.flatten() {
-                            if e.path().is_dir() == folders {
-                                let n = e.file_name().to_string_lossy().to_string();
-                                if glob(&filter, &n.to_ascii_lowercase()) && !names.iter().any(|x| x.eq_ignore_ascii_case(&n)) {
-                                    names.push(n);
-                                }
+                let Some(dir) = find_dir(&root, &p) else { continue };
+                if let Ok(rd) = std::fs::read_dir(dir) {
+                    for e in rd.flatten() {
+                        if e.path().is_dir() == folders {
+                            let n = e.file_name().to_string_lossy().to_string();
+                            if glob(&filter, &n.to_ascii_lowercase()) && !names.iter().any(|x| x.eq_ignore_ascii_case(&n)) {
+                                names.push(n);
                             }
                         }
                     }
@@ -1301,7 +1369,7 @@ fn glob(pat: &str, s: &str) -> bool {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{data_relative, on_disk, on_disk_any_case};
+    use super::{on_disk, on_disk_any_case};
     use std::path::Path;
 
     #[test]
@@ -1317,12 +1385,25 @@ mod path_tests {
     }
 
     #[test]
-    fn an_ini_named_from_config_with_dot_dot_is_read_where_it_is() {
-        assert_eq!(data_relative("Config\\..\\nvse\\plugins\\JIP_NVSE.ini"), "nvse\\plugins\\JIP_NVSE.ini");
-        assert_eq!(data_relative("Config\\../nvse/plugins/tweaks/inis/zzzzKeybinder.ini"), "nvse\\plugins\\tweaks\\inis\\zzzzKeybinder.ini");
-        assert_eq!(data_relative("Config\\keybinder/Keybinder.ini"), "Config\\keybinder\\Keybinder.ini");
-        // Out of Data: kept as it is, for on_disk to refuse.
-        assert_eq!(on_disk(Path::new("layer"), &data_relative("Config\\..\\..\\x.ini")), None);
+    fn ini_relative_paths_are_bounded_by_data() {
+        use super::ini_data_path;
+        assert_eq!(ini_data_path("../NVSE/Plugins/Owned.ini").as_deref(), Some("NVSE\\Plugins\\Owned.ini"));
+        assert_eq!(ini_data_path("Group/../Owned.ini").as_deref(), Some("Config\\Owned.ini"));
+        assert_eq!(ini_data_path("./Owned.ini"), ini_data_path("Owned.ini"));
+        for bad in ["../../escape.ini", "../", "C:/x.ini", "C:x.ini", "/x.ini", "\\x.ini", "\\\\server\\x.ini", "x:stream", "x\0.ini", ""] {
+            assert_eq!(ini_data_path(bad), None, "{bad:?}");
+        }
+        assert!(on_disk(Path::new("layer"), "Config\\..\\NVSE\\Plugins\\Owned.ini").is_none(), "ordinary file APIs remain strict");
+    }
+
+    #[test]
+    fn invalid_ini_names_are_rejected_by_disk_access_after_resolution() {
+        use super::ini_access_path;
+        let base = Path::new("owned-layer");
+        assert_eq!(on_disk(base, &ini_access_path("Group/../Owned.ini")), Some(base.join("Config").join("Owned.ini")));
+        for bad in ["/Owned.ini", "\\Owned.ini", "\\\\server\\Owned.ini", "C:/Owned.ini", "Owned.ini:stream", "../../Owned.ini", "Owned\0.ini"] {
+            assert_eq!(on_disk(base, &ini_access_path(bad)), None, "{bad:?}");
+        }
     }
 
     #[test]

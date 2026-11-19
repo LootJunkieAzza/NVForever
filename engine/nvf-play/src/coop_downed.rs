@@ -102,12 +102,7 @@ struct Kit {
 }
 
 fn scaled(face: &Face, k: f32) -> Face {
-    let mut font = face.font.clone();
-    font.size *= k;
-    for g in &mut font.glyphs {
-        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
-    }
-    Face { font, image: face.image.clone() }
+    crate::interface::scaled_face(face, k)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -43,13 +43,18 @@ pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
 pub mod runtime_images;
+pub mod modern_minimap;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
+mod global_image_metrics;
 pub mod input;
 pub mod inventory_menu;
 pub mod item_card;
+pub mod item_mod_menu;
 pub mod layout;
+#[cfg(test)]
+mod quick_loot_hud_alpha_tests;
 pub mod list;
 pub mod map_menu;
 pub mod menus;
@@ -79,6 +84,26 @@ pub(crate) struct MenuFiles<'w, 's> {
     paused: Option<Res<'w, crate::pause::Paused>>,
     main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
     menus: Option<Res<'w, vanilla::TileMenus>>,
+    page: Option<Res<'w, crate::pause::Page>>,
+    pads: Query<'w, 's, (), With<Gamepad>>,
+}
+
+/// `globals()`'s `_Has360Controller`, a trait the code keeps up to date: 1 while a
+/// controller is connected, 0 otherwise, written only where a file gives `globals()` the
+/// trait [observed: Vanilla UI Plus's globals.xml sets it to 1 with the note that unlike
+/// `&xbox;` it "gets updated in-game", and reads it to support a controller plugged in or
+/// out; hypothesis: connected, not last used]. Left at the file's 1, MCM (through MCM
+/// Extender's `_AltInput`) took every pointer for a controller and ignored its clicks
+/// (issue #2298, docs/spec-notes/mcm.md §3).
+pub const HAS_CONTROLLER: &str = "_Has360Controller";
+
+/// Writes [`HAS_CONTROLLER`] on `globals()` when the trait is there.
+pub fn write_has_controller(ui: &mut fnv_ui::Ui, connected: bool) {
+    let globals = ui.globals();
+    let v = f64::from(u8::from(connected));
+    if ui.tile(globals).get(HAS_CONTROLLER).is_some_and(|now| now.num() != v) {
+        ui.set_existing(globals, HAS_CONTROLLER, Value::Num(v));
+    }
 }
 
 impl MenuFiles<'_, '_> {
@@ -131,7 +156,10 @@ impl MenuFiles<'_, '_> {
             // T15a: interface units only while a T15 menu is drawn from its file.
             // Also while the classic VATS screen is the game's file (`vats_menu`), which
             // places its pieces by `screen()` as those menus do.
-            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats;
+            // And while the start menu's Mods page is up (`mods`): MCM's window centres
+            // itself by `screen()` [observed: menu-xml.md §10.1].
+            let mods_page = self.menus.as_ref().is_some_and(|m| m.start) && self.paused.as_deref().zip(self.page.as_deref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg));
+            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats || mods_page;
             if game.ui_vats {
                 write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
             } else {
@@ -139,6 +167,7 @@ impl MenuFiles<'_, '_> {
             }
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
+        write_has_controller(&mut game.ui_tree, !self.pads.is_empty());
         for line in report.changes {
             info!("ui: {line}");
         }
@@ -149,21 +178,22 @@ impl MenuFiles<'_, '_> {
 }
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
-/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) or the start menu's Mods page
-/// (T11, `mods`) is switched on, whose files centre their boxes by `screen()` (MCM's `x`
-/// and `y`, menu-xml.md §10), or `StatsMenu`, whose lines take their thickness from the
+/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) is switched on,
+/// whose files centre their boxes by `screen()`, or `StatsMenu`, whose lines take their thickness from the
 /// converter and whose hotrects' `alpha` 0 this same gate lets pass (pipboy.md §5.1.1). The
 /// default game and the tile HUD alone keep the window's pixels [design]. The gate is one for
 /// the whole tree, not a menu's own: `StatsMenu` beside the tile HUD changes the shared screen
 /// traits and the HUD's hotrect-alpha handling, as any of these does, and beside another of
 /// them changes nothing more. The Pip-Boy's canvas is never written here. The original reports
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
-/// unconditionally is a follow-up.
+/// unconditionally is a follow-up. The start menu's switch is not one of them: it is on by
+/// default, and its Mods page asks for interface units only while it is up
+/// ([`MenuFiles::write`]).
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    if menus.repair_services || menus.repair_menu {
+    if menus.repair_services || menus.repair_menu || menus.item_mod {
         return true;
     }
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory || menus.map
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.stats || menus.dialog || menus.inventory || menus.map
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -245,7 +275,9 @@ struct HudTiles<'w> {
     target: Option<Res<'w, crate::activate::Target>>,
     bindings: Option<Res<'w, crate::bindings::Bindings>>,
     enemy: Option<Res<'w, crate::hud_target::HudTarget>>,
+    vats: Option<Res<'w, crate::vats_mode::VatsMode>>,
     aim_hostile: Option<Res<'w, crate::hud_target::AimHostile>>,
+    tweaks: Option<Res<'w, crate::tweaks::TweakSettings>>,
     limbs: Option<Res<'w, crate::hud_limbs::Indicator>>,
     player_limbs: Option<Res<'w, crate::combat::PlayerLimbs>>,
     breath: Option<Res<'w, crate::drowning::PlayerBreath>>,
@@ -281,7 +313,9 @@ impl HudTiles<'_> {
         // held camera and weapon wheel hide the corner HUD and its meters [design].
         let corners = playing && !locks.movement && !self.control.as_ref().is_some_and(|c| c.portrait.is_some()) && !driven && !wheel;
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
-        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).filter(|e| e.health < 1.0);
+        // [design, #2659] Classic targets show even at full health, through playback.
+        let classic = self.vats.as_ref().is_some_and(|v| v.style() == crate::vats_classic::VatsStyle::Classic && v.active());
+        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).filter(|e| classic || e.health < 1.0);
         // reticle::draw: the prompt also goes under true sights/the scope, and when
         // the enemy bar names this target; only the crosshair obeys movement [design].
         let reticle = playing && !creating && !driven && !wheel && !self.sights.as_ref().is_some_and(|s| s.0) && !self.scope.as_ref().is_some_and(|s| s.on);
@@ -290,7 +324,7 @@ impl HudTiles<'_> {
         // 2026-11-04].
         let pip_up = crate::reticle::pipboy_hides_crosshair(self.pipboy.as_deref(), self.glance.as_deref());
         let menu_up = self.pipboy.as_ref().is_some_and(|p| p.shown());
-        let info = reticle && !locks.rollover && !menu_up && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
+        let info = reticle && !locks.rollover && !menu_up && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| t.prompted() && !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
         // corner_messages::draw and quest_messages::draw [design].
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
         let quest = self.quests.as_ref().and_then(|q| q.showing());
@@ -314,9 +348,9 @@ impl HudTiles<'_> {
             root,
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
-            sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak),
-            reticle: reticle && !locks.movement && !pip_up,
-            enemy: corners && enemy.is_some(),
+            sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak) && !self.tweaks.as_ref().is_some_and(|t| t.no_sneak_label),
+            reticle: reticle && !locks.movement && !pip_up && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
+            enemy: (corners || (classic && self.bars.as_ref().is_some_and(|b| b.enemy_shown))) && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),
             subtitles: {
@@ -400,7 +434,7 @@ impl HudTiles<'_> {
         // ui-tile-tree.md §4.1]; the strings' file tiles [observed: hud.md §14.2].
         let prompt = {
             let _span = info_span!("tiles::write::prompt").entered();
-            self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()))
+            self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info && !crate::quick_loot::holds_input()).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()))
         };
         // Reuse the latest drawing snapshot before scripts [design: ui-tile-tree.md §4.1].
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
@@ -421,7 +455,7 @@ impl HudTiles<'_> {
             health: self.bars.as_ref().map_or(1.0, |v| f64::from(v.health)),
             action_points: self.bars.as_ref().map_or(1.0, |v| f64::from(v.action_points)),
             condition: weapon.condition.map(f64::from),
-            ammo: crate::hud::ammo_text(weapon.ammo),
+            ammo: crate::hud::ammo_text(self.vats.as_ref().map_or(weapon.ammo, |v| v.displayed_ammo(weapon.ammo))),
             radiation: fnv_game::functions::actor_value(game, fnv_sim::FormId::PLAYER_REF, fnv_game::aid::RAD_LEVEL).unwrap_or(0.0),
             prompt: prompt.as_ref().map(|p| fnv_game::ui_hud::Prompt {
                 name: p.name.clone(),
@@ -432,6 +466,7 @@ impl HudTiles<'_> {
                 lock_text: self.target.as_ref().and_then(|t| t.0.as_ref()).map_or_else(|| "Locked".into(), |t| {
                     match t.action {
                         crate::activate::outcome::Action::Locked { level } => format!("[Locked - {}]", crate::activate::outcome::lock_text(level)),
+                        crate::activate::outcome::Action::UsePassword => "[Locked - Use Password]".into(),
                         _ => "Locked".into(),
                     }
                 }),
@@ -439,7 +474,7 @@ impl HudTiles<'_> {
                     .target
                     .as_ref()
                     .and_then(|t| t.0.as_ref())
-                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. })),
+                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. } | crate::activate::outcome::Action::UsePassword)),
                 // Only the two captured heights; further lines/wrapping await text
                 // layout [hypothesis: hud.md §14.3; design: widths deferred].
                 height: if p.name.lines().count() > 1 { 80.0 } else { 42.0 },
@@ -447,16 +482,21 @@ impl HudTiles<'_> {
             marks: self.compass.as_ref().map_or_else(Vec::new, |view| {
                 view.0
                     .iter()
+                    // The tile HUD has no door icon: the Show Doors on Compass tweak's marks
+                    // are the hand-built HUD's.
+                    .filter(|(kind, _)| *kind != crate::compass::Mark::Door)
                     .map(|(kind, offset)| {
                         use crate::compass::Mark;
                         use fnv_game::ui_hud::MarkKind;
                         fnv_game::ui_hud::CompassMark {
                             kind: match kind {
-                                Mark::Actor => MarkKind::Actor,
+                                Mark::Actor | Mark::Companion => MarkKind::Actor,
                                 Mark::Hostile => MarkKind::Hostile,
                                 Mark::Place => MarkKind::Place,
                                 Mark::Found => MarkKind::Found,
                                 Mark::Quest => MarkKind::Quest,
+                                Mark::Player => MarkKind::Player,
+                                Mark::Door => MarkKind::Place,
                             },
                             heading: 139.0 + f64::from(*offset), // [observed: hud.md §14.5].
                             distance: 1.0,                       // [hypothesis: hud.md §14.6; drawing stores no distances].
@@ -488,8 +528,9 @@ struct MenusWritten {
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// T15b: the Wait / Sleep menu.
     sleep_wait: Option<wait_menu::Shown>,
-    /// The text sizes written, the message box's, the prompt's and the Wait menu's.
-    sizes: [menus::SizesWritten; 3],
+    /// The text sizes written, the message box's, the prompt's, the Wait menu's and the
+    /// start menu's.
+    sizes: [menus::SizesWritten; 4],
     /// [design] Each fallback reason is warned once per session, including after reopen.
     fallbacks: std::collections::HashSet<String>,
 }
@@ -529,8 +570,21 @@ impl MenuTiles<'_, '_> {
     /// (each measured again only when its string changed), before scripts [design:
     /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
     fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit, calendar: Option<fnv_sim::clock::Calendar>) {
-        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory) || game.ui_files.is_none() {
+        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory || switch.start) || game.ui_files.is_none() {
             return;
+        }
+        // T11: the start menu's text sizes while a mod's tiles are in it, as the code
+        // measures them: MCM's mod-list rows take their height from a measured text
+        // (`MCM_ModList_Size`, ModListRect.xml) and GetMCMListWidth reads the rows' text
+        // widths [observed: menu-xml.md §10.2]. The start menu is built only while the
+        // pause menu is open.
+        if switch.start {
+            if let Some(menu) = game.ui_tree.menu(mods::START_MENU).filter(|&m| game.ui_tree.has_mod_added_tiles(m)) {
+                let ui = &mut game.ui_tree;
+                let texts = menus::texts(ui, menu);
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut self.written.sizes[3], &size);
+            }
         }
         self.write_wait(game, switch, fonts, calendar);
         // [design] Reconsider an overflowing box when its view changes: using the final
@@ -1058,6 +1112,7 @@ impl Plugin for TilesPlugin {
             .init_resource::<recipe_menu::RecipeTiles>()
             .init_resource::<repair_services_menu::RepairServicesTiles>()
             .init_resource::<repair_menu::RepairTiles>()
+            .init_resource::<item_mod_menu::ItemModTiles>()
             .add_message::<crate::repair::RepairServicesInput>()
             .init_resource::<container_menu::TileWheelTitle>()
             .init_resource::<tag_menu::TagTiles>()
@@ -1080,6 +1135,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, selection_menu::write_system::<{ fnv_game::game::menus::TAG_SKILLS }>.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
+            .add_systems(Update, global_image_metrics::update_globals.after(PlaySet::Scripts).before(update))
             .add_systems(Update, update.after(PlaySet::Scripts).after(crate::safe_zone::clear_jvo).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's STATS page: written after the tile input and before the scripts;
@@ -1104,6 +1160,11 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, repair_menu::write_system.after(repair_menu::feed).before(PlaySet::Activation))
             .add_systems(Update, repair_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's weapon mod menu, in the same three steps; its model's keys have run
+            // by `prepare`, in the Pip-Boy's chain.
+            .add_systems(Update, item_mod_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::write_system.after(item_mod_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, item_mod_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
             // The dialogue menu (`dialog_menu`): what the model says, at each of the runtime's
             // transitions and before the frame's scripts; then what they left measured and
             // placed, worked out by `update`, and what can be hit as it is then drawn.
@@ -1245,7 +1306,8 @@ mod tests {
         // On: interface units, 960 high, and the converter.
         assert!(interface_screen(vanilla::TileMenus { message: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { quantity: true, ..Default::default() }));
-        assert!(interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
+        // The start menu's switch alone does not (on by default; its Mods page asks while up).
+        assert!(!interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { sleep_wait: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
@@ -1253,6 +1315,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_menu: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { item_mod: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));

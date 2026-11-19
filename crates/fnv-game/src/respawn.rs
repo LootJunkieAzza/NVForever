@@ -64,6 +64,22 @@ impl Game<'_> {
         base_of(self, r).and_then(|b| self.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
     }
 
+    /// Whether `cell` will reset at its next load: `None` while the player is in it or
+    /// before the loaded area has ever held it; else whether ResetInterior marked it or
+    /// it has been left for `iHoursToRespawnCell` game hours outside a zone that never
+    /// resets (module notes). IsCellExpired and the local map's tweak read it.
+    pub fn cell_expired(&self, cell: FormId) -> Option<bool> {
+        if self.cell_of(FormId::PLAYER_REF) == Some(cell) || !self.forms.visited_cells.contains(&cell) {
+            return None;
+        }
+        if self.forms.expired_cells.contains(&cell) {
+            return Some(true);
+        }
+        let now = self.world.calendar().ok().map(|k| k.days_passed);
+        let away = now.zip(self.world.detached_since(cell)).map(|(n, s)| (f64::from(n) - f64::from(s)) * 24.0);
+        Some(away.is_some_and(|h| h + 1e-3 >= f64::from(self.world.respawn_hours())) && !self.world.cell_never_resets(cell))
+    }
+
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
     pub(crate) fn cells_left(&mut self, left: &[FormId]) {
         // TogglePurgeOnUnload's references in them go (`crate::nvse_jip12`).

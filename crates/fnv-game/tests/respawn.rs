@@ -2,7 +2,7 @@
 //! base (or template, with "Base Data") has Respawn come back alive when their cell is
 //! loaded again after iHoursToRespawnCell (72 h without a setting); on a synthetic plugin.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -375,7 +375,7 @@ words, with where ours stands:
   here) and `BSPriority#50#` in its `UPB`.
 - **In the engine** (`engine/nvforever/src/anim_objects.rs`) [design, from the above]:
   while an actor's idle slot plays an IDLE that has animated objects (until it has faded
-  out), each object's model is drawn rigid under its `Prn` bone; when another idle starts
+  out), each object's complete model hierarchy is drawn under its `Prn` bone (root fallback); when another idle starts
   or the idle is over, the objects are taken away. Log: `anim object: <actor> holds
   <model> on <bone> (<ANIO>, idle <IDLE>)`, and `anim objects summary: … objects drawn
   for … idles played, … could not be drawn` at the end.
@@ -403,6 +403,53 @@ words, with where ours stands:
   model to `LooseVCG01PlayerTakeReflectron`, which no script or dialogue line of
   FalloutNV.esm names [observed]), the objects' own controllers, and checking against
   the game how long an object stays (the whole idle, as here, or only between keys).
+
+### 10.1 Chamber effects and external KF controllers (#2685)
+
+- [observed: data, main session 2026-11-15, issue #2685, FalloutNV.esm script/record
+  and Fallout - Meshes.bsa NIF/KF decode, upstream 1790ab94a] ANIO `hChamberFXAmin`
+  (0x0016125F) names `animobjects\hchamberFX.NIF` and DATA IDLE `MrHouseOpen`
+  (0x0013A23A); `hChamberFXAmin02` (0x001618FB) names
+  `animobjects\hchamberFXLSO.NIF` and DATA `MrHouseOverloadLifeSupport` (0x0013A818).
+  These two links support the reading DATA = idle.
+  [documented: offline GECK wiki 2026-10-28 snapshot, search.py --title "Animated Object" --read]
+  The requested wiki title was tried and is absent.
+- [observed: data, same main-session decode, #2685] `WakeUp.kf` has one CLAMP sequence,
+  `SpecialIdle_Wakeup`, 0..19.4 seconds. Its SELF_ILLUM tracks target the creature's
+  NIFZ parts (heart, helmet lights, back light, shell buttons and bed console).
+  Its smoke shapes and five particle systems instead belong to the ANIO model,
+  whose root `Effects` has `Prn` = `Bip01`. Alpha/UV, emitter birth/on-off, modifier
+  on-off and particle emittance tracks belong to the same KF.
+- [design, #2685; engine/nvforever/src/anim_objects.rs, nvf-assets/src/model.rs]
+  Prepare the ANIO against the external KF, so its target shapes get the material
+  features and hierarchy they require. Play transforms and material tracks with the
+  ordinary placed-model players, synchronized to the actor idle's clock. Preserve the
+  model's authored root transform below Prn; fall back to the skeleton root when Prn
+  is absent or unavailable. Replacement/stop removes the complete attachment tree
+  after the existing cross-fade. An object's independent controllers remain outside
+  this external-KF playback rule.
+- [design, #2685; idles.rs::HOLD_CLAMP_EFFECT_IDLES, fnv-actor/src/idle_play.rs]
+  A CLAMP idle carrying material/emitter tracks plays once and keeps its exact final
+  sample at full weight until replaced or stopped. Ordinary finite idles still fade
+  away. This keeps glow tracks and attached effects alive; keyed emitter-off values
+  suppress new births. This provisional generalization is listed in owner-review.
+- [hypothesis, #2685] The visible steam/glow envelope and lingering haze follow these
+  authored tracks, with no invented fog density or emitter rates. Original-game
+  timing, final appearance and reload behavior still need observer check **212**.
+- [design: crates/fnv-game/src/game.rs::object_groups, engine/nvforever/src/object_anims.rs]
+  Enabled ground fog (REFR 0x001629DD, model `effects\NV\hChamberGroundFog.NIF`,
+  `Forward` CLAMP 0..52.33 s [observed: data, main session #2685]) already draws through
+  `script_draw`, plays its sequence on `PlayGroup Forward 1`, and restores the saved
+  group at its end. [design, #2685; nvf-assets/src/morph.rs::play_sequence_morphs]
+  Its manager morph now binds `Forward` by shape/frame name and follows the same
+  `Playing::sequence_time` as UV/alpha, including the held or restored endpoint.
+  Each rig receives a private morph mesh; other copies keep their own pose.
+- [design: engine/nvforever/src/idles.rs::ActorIdle; crates/fnv-game/src/game.rs saved
+  state] Actor idle slots and their playback times are not serialized. Consequently
+  this change retains glow/ANIO state during the live session, but cannot restore a
+  held actor idle after load or actor respawn. Implementing that requires a separate
+  idle snapshot/reconstruction path; no new save fields are introduced here. Fog's
+  existing saved group state continues to work independently.
 
 ## 11. Drawn-weapon fidgets from the IDLE tree
 
@@ -971,3 +1018,73 @@ A conversation that does not move holds the actor anyway, and its dialogue idles
 <name> (<ref>) stands while its idle shows`, `idle hold: <name> (<ref>) breaks out of its
 idle to walk` (or `for combat`) and `idle hold: <name> (<ref>) may walk again: its idle
 has gone`. Smoke `idle-hold-oliver`.
+
+## 16. Activating: the drinking idles (issue #2349, 2026-11-14)
+
+A player noted that drinking from a sink, toilet, pump or fountain plays no animation;
+the original plays one. The tree holds it under a root of its own that nothing asked.
+
+### 16.1 What the data holds [documented: `fnvtool esm decode`, `fnvtool actor anims`, FalloutNV.esm]
+
+- `ActivateIdles` 0x00003BDC: a people's root (folder `Characters\_Male\IdleAnims`;
+  chain order §12.1), with one condition, GetUsedItemActivate (index 259) == 1. Its
+  children in chain order:
+  - `ActStimpakSource` 0x00023035 (GetIsUsedItem Stimpak == 1): the NPCs' stimpak idles
+    (`fnv_game::npc_stimpaks`, which asks its children directly).
+  - **`ActWaterSource`** 0x000221B4 (IsWaterObject (304) == 1), no file. Below it:
+    `1stPersonActWater` 0x00026EB4 (GetIsID 7 == 1 and IsPC1stPerson == 1;
+    `1stPMT_ActWaterSource.kf`, one sequence of 2.37 s, 14 tracks, `Camera1st` among them,
+    so it plays on the first-person rig, §4) then `3rdPersonActWater` 0x00026EB5 (no
+    conditions; `ActWaterSource.kf`, 2.70 s, 50 tracks). Both play once (loop 0-0),
+    Special Idle section, no replay delay.
+  - `NPCPickUpItem` 0x00069B6E (GetIsID 7 != 1 and GetIsUsedItemType 27 == 0): the
+    pick-up leaves, never the player's.
+- Two more nodes name GetUsedItemActivate: `SitActivateIdles` (under the seated NPCs'
+  chair branch: `Chair_UseComputer.kf` for a terminal) and the spinebreakers'
+  `SBGatherAnims` root (`Creatures\SMSpineBreaker\IdleAnims`).
+- "Returns 1 if the object currently being activated is Placeable Water. Used in vanilla
+  game for drinking animation" [documented: GECK wiki IsWaterObject]. GetUsedItemActivate
+  "is only used in the default game as a conditional for Idle Animations, to check
+  whether an actor is activating something" [documented: GECK wiki GetUsedItemActivate,
+  Notes; the page is marked incomplete].
+- `Camera1st` hangs under `Bip01 Looking` in `meshes\characters\_1stperson\skeleton.nif`
+  [documented: `fnvtool nif decode`], so the rig's pitch turn (§4, `player_body.rs`)
+  applies on top of what the clip does with the camera node.
+
+### 16.2 Rules as built (`Game::activate_idle`, `engine/nvforever/src/idles.rs`)
+
+- **GetUsedItemActivate** answers 1 while the actor uses something (furniture, a
+  package's item), as before. Only inside the walk for the player's activation idle
+  (`Game::activate_idle`, which sets `Game::activate_walk`) does it also answer 1 while
+  that actor activates something: the reference it activated within
+  `ACTIVATING_SECONDS` (2 s), the window IsWaterObject reads [documented: the wiki note
+  above; design, #2349: the window, and the scope]. Everywhere else (scripts, quests,
+  dialogue, packages, the NPCs' fidget and `PickIdle` walks) its answer is what it was:
+  an NPC that has just activated something answers 0 and picks as before (test
+  `activating_placeable_water_picks_the_drinking_idle`).
+- **Who asks** [design, #2349]: the player's activation that reaches its default action
+  (`Game::run_default_activation`: by hand, or a script's `Activate` with the player as
+  the action reference) queues the player in `Game::activate_idles`. The animating
+  layer, which knows the player's folder, walks the tree (`Game::activate_idle`): the
+  roots of that folder whose conditions name GetUsedItemActivate == 1, in chain order,
+  gone into as for `PickIdle` (the first leaf with a file whose way down passes)
+  [hypothesis: the original's idle manager asks this root when the player activates].
+  The tree's own conditions choose; no other activation idle is built.
+- **Playing**: asked as `IdleSource::Activate` and played like any idle asked for:
+  `1stPersonActWater` in first person on the first-person rig, `3rdPersonActWater` in
+  third person on the body.
+- **Nothing held** [design, #2349; observer check 131]: unlike a scripted idle that
+  drives the camera node (§4), an activation's idle does not hold the player
+  (`PlayerIdles::held` stays empty): mouse look, movement and the HUD stay; the camera
+  node moves the view from where the player looks.
+- **The effect** [design, #2349; observer check 131]: the water's actor effect still
+  applies at the activation (activators.md §9), not at the idle's start or end.
+- **Log**: `activate idle: the player activating 0x…: 1stPersonActWater by
+  ActivateIdles > ActWaterSource > 1stPersonActWater`, then `idle: the player plays
+  1stPersonActWater (…) on the first-person rig (Activate)`. Smoke `water-drink-idle`.
+
+### 16.3 Open
+
+- Observer check 131: the idle's length in the original, whether movement and looking
+  are held while it plays, and when the healing and the rads apply.
+- NPCs drinking (no package makes them drink from placeable water here).

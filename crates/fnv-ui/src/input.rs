@@ -246,7 +246,8 @@ struct Place {
 /// children ([`places_children`]),
 /// `width`/`height` its size, a text tile measured when it has none and moved by its
 /// `justify`, `depth` added down the tree, `clips` cropping the children [design: the same
-/// rules, so the pointer finds what is drawn].
+/// rules, so the pointer finds what is drawn; `locus` is read only where the layout reads
+/// it, [`hit_candidates_by_locus`]].
 fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
     let tile = ui.tile(t);
     let mut area = Area {
@@ -312,7 +313,7 @@ fn draggable_under(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<
     let mut found = None;
     for &menu in menus {
         let mut bare = Vec::new();
-        walk(ui, menu, measure, &mut Vec::new(), &mut bare);
+        walk(ui, menu, measure, false, &mut Vec::new(), &mut bare);
         let top = bare
             .into_iter()
             .filter(|c| c.under_point(at) && ui.tile(c.under).get(DRAGGABLE).is_some_and(Value::truthy))
@@ -361,14 +362,28 @@ pub fn top_hit(ui: &Ui, candidates: &[HitCandidate], at: (f64, f64)) -> Option<H
 /// Taken as a menu is drawn, and given to [`Pointer::step`] by [`Input::resolved`], a later
 /// frame's click lands on what was on screen, whatever the tree has become meanwhile.
 pub fn hit_candidates(ui: &Ui, menu: TileId, measure: &Measure<'_>) -> Vec<HitCandidate> {
+    hit_candidates_in(ui, menu, measure, false)
+}
+
+/// [`hit_candidates`] by the `locus` rule, for a menu the layout draws by it (nvf-play
+/// `tiles::layout::layout_by_locus`, the start menu's Mods page): a tile's `x` and `y`
+/// count from the nearest tile above it whose `locus` is on. Without it the pointer was
+/// matched against other places than the drawn ones: MCM's `MCM` rect has no `locus` and
+/// an `x` of its own, so every row under it was looked for that much to the right
+/// [observed: the owner's run of 2026-11-12, MCM's rows highlighting beside the pointer].
+pub fn hit_candidates_by_locus(ui: &Ui, menu: TileId, measure: &Measure<'_>) -> Vec<HitCandidate> {
+    hit_candidates_in(ui, menu, measure, true)
+}
+
+fn hit_candidates_in(ui: &Ui, menu: TileId, measure: &Measure<'_>, by_locus: bool) -> Vec<HitCandidate> {
     let mut out = Vec::new();
-    walk(ui, menu, measure, &mut out, &mut Vec::new());
+    walk(ui, menu, measure, by_locus, &mut out, &mut Vec::new());
     out
 }
 
 /// [`hit_candidates`] into `out`, and the [`bare_hotrect`]s not below a target hotrect into
 /// `bare` (their `event` none).
-fn walk(ui: &Ui, menu: TileId, measure: &Measure<'_>, out: &mut Vec<HitCandidate>, bare: &mut Vec<HitCandidate>) {
+fn walk(ui: &Ui, menu: TileId, measure: &Measure<'_>, by_locus: bool, out: &mut Vec<HitCandidate>, bare: &mut Vec<HitCandidate>) {
     if !ui.is_live(menu) || !shown(ui, menu) {
         return;
     }
@@ -396,9 +411,9 @@ fn walk(ui: &Ui, menu: TileId, measure: &Measure<'_>, out: &mut Vec<HitCandidate
         if clips_children(tile) {
             below.clip = Some(below.clip.map_or(here.area, |c| c.intersect(here.area)));
         }
-        if flag(ui, id, NO_ORIGIN) {
-            // Its children stand from where its parent places its own ([`place`] reads
-            // `origin`).
+        // Children stand from where this tile's parent places its own ([`place`] reads
+        // `origin`, the fork's [`LOCUS_ON`] rule and upstream's two rules alike).
+        if flag(ui, id, NO_ORIGIN) || (by_locus && !flag(ui, id, "locus")) {
             below.origin = parent.origin;
         }
         let mut children = tile.children.clone();
@@ -435,7 +450,7 @@ pub fn hit(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<'_>) -> 
 pub fn bare_hotrects(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<'_>) -> Vec<TileId> {
     let mut bare = Vec::new();
     for &menu in menus {
-        walk(ui, menu, measure, &mut Vec::new(), &mut bare);
+        walk(ui, menu, measure, false, &mut Vec::new(), &mut bare);
     }
     bare.into_iter().filter(|c| c.under_point(at)).map(|c| c.under).collect()
 }
@@ -541,10 +556,19 @@ pub struct Pointer {
     /// A key moved the highlight (`<ref … trait="mouseover"/>`): it holds until the
     /// pointer moves [hypothesis], or its tile is hidden or stops being a target [design].
     keyed: bool,
-    /// Tiles whose `clicked` (and `shiftclicked`) go back to 0 at the next step.
-    pulsed: Vec<TileId>,
-    /// Pulses in a [`CLICK_TWO_FRAMES`] menu kept over one step already.
-    kept: Vec<TileId>,
+    /// Tiles whose `clicked` (and `shiftclicked`) go back to 0, with the steps each still
+    /// holds: 0 ends at the next step.
+    pulsed: Vec<(TileId, u8)>,
+    /// How many steps a pointer's click holds `clicked` at 1; 0 is 1, the default
+    /// ([`ClickedRule::OneFrame`]). The engine sets 2 under the pause menu's Mods page:
+    /// MCM's scripts read a click in two frames running. They see the list's `_index`,
+    /// leave the frame ("Skip frame to let UI set variables"), and read the clicked row's
+    /// `_modID` in the next; then they mask the click for one frame (`_UnClick`), so a
+    /// third frame would be a second click [observed: MCM 1.5's script source and menu
+    /// files; hypothesis: the original's `clicked` reads 1 in exactly two MenuMode
+    /// frames; with one, a click on MCM's rows did nothing, the owner's run of
+    /// 2026-11-12]. A script's click stays one step.
+    pub click_steps: u8,
     /// The scripts' clicks since the last step.
     queued: Vec<Click>,
     /// The [`bare_hotrect`]s whose `mouseover` is 1.
@@ -682,21 +706,21 @@ impl Pointer {
         if shift {
             ui.set_trait(t, SHIFTCLICKED, Value::Num(1.0));
         }
-        if !self.pulsed.contains(&t) {
-            self.pulsed.push(t);
+        let more = if by == By::Pointer { self.click_steps.saturating_sub(1) } else { 0 };
+        match self.pulsed.iter_mut().find(|p| p.0 == t) {
+            Some(p) => p.1 = more,
+            None => self.pulsed.push((t, more)),
         }
         Click { tile: t, id: ui.tile(t).get("id").map(Value::num), by, stamp: self.stamp }
     }
 
     fn end_pulses(&mut self, ui: &mut Ui) {
-        let kept = std::mem::take(&mut self.kept);
-        for t in std::mem::take(&mut self.pulsed) {
+        for (t, more) in std::mem::take(&mut self.pulsed) {
             if !ui.is_live(t) {
                 continue;
             }
-            if !kept.contains(&t) && ui.tile(ui.root_of(t)).get(CLICK_TWO_FRAMES).is_some_and(Value::truthy) {
-                self.pulsed.push(t);
-                self.kept.push(t);
+            if more > 0 {
+                self.pulsed.push((t, more - 1));
                 continue;
             }
             if CLICKED_RULE == ClickedRule::OneFrame && ui.tile(t).get(CLICKED).is_some() {
@@ -1085,6 +1109,58 @@ mod tests {
         // No tile under the pointer: a press clicks nothing.
         let r = p.step(&mut ui, &[menu], &Input { press: true, ..at(10.0, 10.0) }, &no_measure);
         assert!(r.clicks.is_empty());
+    }
+
+    /// By the `locus` rule a tile without `locus` moves nothing below it: MCM's window
+    /// rect has an `x` and no `locus`, its list has `locus` and the same `x`, and the rows
+    /// stand at the list's place, not at twice the window's.
+    #[test]
+    fn the_locus_rule_places_the_pointers_tiles_as_the_layout_does() {
+        let src = MemSource::default().with(
+            "menus\\l.xml",
+            r#"<menu name="L"> <rect name="Window"> <x> 300 </x> <y> 100 </y>
+                 <rect name="List"> <locus> &true; </locus> <x> <copy src="parent()" trait="x"/> </x> <y> <copy src="parent()" trait="y"/> </y>
+                   <hotrect name="Row"> <target> &true; </target> <x> 10 </x> <y> 20 </y> <width> 100 </width> <height> 30 </height> </hotrect>
+                 </rect> </rect> </menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "menus\\l.xml").unwrap();
+        ui.update();
+        let row = id(&ui, "L/Window/List/Row");
+        let by_locus = hit_candidates_by_locus(&ui, menu, &no_measure);
+        assert_eq!(by_locus.iter().find(|c| c.under == row).map(|c| (c.area.left, c.area.top)), Some((310.0, 120.0)));
+        // Every parent's place added up, the rule elsewhere: twice the window's.
+        let summed = hit_candidates(&ui, menu, &no_measure);
+        assert_eq!(summed.iter().find(|c| c.under == row).map(|c| (c.area.left, c.area.top)), Some((610.0, 220.0)));
+        // The pointer follows the candidates it is given.
+        let mut p = Pointer::default();
+        let r = p.step(&mut ui, &[menu], &Input { at: Some((320.0, 130.0)), resolved: Some(by_locus), ..Input::default() }, &no_measure);
+        assert_eq!(r.over, Some((None, Some(row))));
+    }
+    /// Under MCM's page the engine asks for two steps (`Pointer::click_steps`): the click
+    /// is reported once, `clicked` reads 1 in the step of the press and the next, and 0
+    /// after; a script's click stays one step.
+    #[test]
+    fn a_pointers_click_can_hold_two_steps() {
+        let (mut ui, menu) = tree();
+        let ok = id(&ui, "TestMenu/Main/OkButton");
+        let clicked = |ui: &Ui| ui.get_float("TestMenu/Main/OkButton/clicked");
+        let mut p = Pointer { click_steps: 2, ..Pointer::default() };
+        p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
+        let r = p.step(&mut ui, &[menu], &Input { press: true, ..at(120.0, 115.0) }, &no_measure);
+        assert_eq!(r.clicks.len(), 1);
+        assert_eq!(clicked(&ui), Some(1.0));
+        let r = p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
+        assert!(r.clicks.is_empty(), "held, not clicked again");
+        assert_eq!(clicked(&ui), Some(1.0));
+        assert!(p.pending());
+        p.step(&mut ui, &[menu], &at(120.0, 115.0), &no_measure);
+        assert_eq!(clicked(&ui), Some(0.0));
+        assert!(!p.pending());
+        p.script_click(&mut ui, ok);
+        assert_eq!(clicked(&ui), Some(1.0));
+        p.step(&mut ui, &[menu], &at(10.0, 10.0), &no_measure);
+        assert_eq!(clicked(&ui), Some(0.0), "a script's click is one step");
     }
 
     #[test]

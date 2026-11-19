@@ -8,9 +8,10 @@ decompile` and `fnvtool dialogue lines`; nothing quoted beyond names, short labe
 FormIDs). Radios as stations: [radio.md](radio.md).
 
 Code: `fnv_game::talking_activators` (who speaks, IsActorTalkingThroughActivator),
-`fnv_game::dialogue` (`Conversation::through`), `fnv_sim::World::activate` (a TACT's
+`fnv_game::dialogue` (`Conversation::through`), `Game::say` (`Speech::through`), `fnv_sim::World::activate` (a TACT's
 default action is Talk); the engine's `dialogue_look.rs` (the view turns to the
-activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke:
+activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs` (Say and SayTo through one:
+`a_talking_activator_says_its_talking_actors_lines_by_script`). Smoke:
 `talking-activator-intercom`. Capture job: `tools/capture/probes/actor_changes.toml` ac6
 (run 2026-10-18 on nvftest: every answer the same as ours).
 
@@ -54,11 +55,30 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   counts as none — the scripts test GetDead before setting it]. Its lines are chosen with
   the actor as the speaker and said in its voice; the activator must be there, the actor
   need not be (Ramos is in the bunker, Benny in his suite).
-- **IsActorTalkingThroughActivator** is 1 on that actor while its lines are chosen and
-  while that conversation runs, else 0 [documented: "returns true if the actor is
-  speaking via an activator; the actor must first be registered through the
-  talking-activator setter"]. Outside a conversation it is 0 even with the actor set
-  [observed: capture ac6, 2026-10-18]. The catalogue's note "false if the talking actor
+- **No talking actor set yet**: a talking activator no SetTalkingActivatorActor has
+  reached speaks for the one actor the load order's scripts give it, when they name
+  exactly one: the calls in its base's own script (on itself) and the calls of any
+  script on that reference by name; several actors named, or none: itself
+  (`Game::scripted_talking_actor`) [hypothesis, issue #2454; observer check 185]. The
+  Hidden Valley intercom (HVIntercomREF) needs it: after McNamara sends the player out
+  for the equipment (INFO 0016329B, controls off) the inner door's script (SCPT
+  000E3665) has the intercom start a conversation, and only Ramos's line 000E3664
+  gives the controls back. Its OnActivate (SCPT 000A418A) and Veronica's trigger (SCPT
+  0015B6D5) are the only calls that set Ramos, so a player who came in without using
+  the intercom (sneaking in) met an intercom with no line and kept the controls off
+  [observed: `fnvtool script run`, smoke `hv-intercom-push`].
+- **IsActorTalkingThroughActivator** is 1 on that actor while its lines are chosen,
+  while that conversation runs, and while it says a line through the activator outside
+  one (Say or SayTo on the activator, a conversation between actors through it), the
+  line's begin and end result scripts included; else 0 [documented: "returns true if the
+  actor is speaking via an activator; the actor must first be registered through the
+  talking-activator setter"; GECK wiki IsActorTalkingThroughActivator: it tests whether
+  the actor "is currently talking through an Activator" and "only returns true when the
+  actor is actually in dialogue through the activator"; hypothesis for the line outside a
+  conversation, #2768]. The wiki's further note that it "will return false if the talking
+  activator actor was set via script" is not followed: the masters' intercom lines test
+  it == 1 for actors only scripts set (§1). Outside a conversation and a line it is 0
+  even with the actor set [observed: capture ac6, 2026-10-18]. The catalogue's note "false if the talking actor
   was assigned by script" does not hold: IsTalkingActivatorActor read 0 before, 1 after
   SetTalkingActivatorActor by script and 0 again once the actor was cleared [observed:
   ac6, the same as NVForever's]. That IsActorTalkingThroughActivator is 1 during a
@@ -80,9 +100,33 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   hearing; the player tried again, got "Stop messing around with the intercom", and that
   conversation cut the silent line before its end script ran (owner playtest 2026-10-22;
   smoke `intercom-goodbye-line`).
-- Not built: other lines of a talking activator outside a conversation (Say, SayTo from
-  an intercom are said by the activator as by any speaker); distance attenuation is not
-  an issue in a conversation (heard whole).
+- **Say and SayTo on a talking activator** with a talking actor (the one set by
+  SetTalkingActivatorActor, else the one its scripts name, as above) say that actor's
+  lines: the line is chosen with the actor as the speaker (GetIsID, faction, voice type
+  and every other condition on the speaker, the fixed-speaker check, Say Once), with
+  IsActorTalkingThroughActivator 1 on it while choosing, and said by the actor through
+  the activator, in the actor's voice, as a conversation through one is [hypothesis,
+  issue #2768; observer check 219; documented: SetTalkingActivatorActor "makes a talking
+  activator use the dialogue of a given actor"]. Tale of Two Wastelands needs it:
+  Vault 101's intercom is given Jonas and says CG02IntercomConv, whose lines test GetIsID
+  Jonas; the Pitt's Ashur intercom (DLC01AshurIntercomREF) says DLC01AshurCalledOutside1
+  and the square's loudspeaker Ashur's speech [observed headless by the maintainer, TTW
+  3.4: "no line" before]. When the actor has no line of the topic the activator's own
+  lines are tried, as before [design, #2768]; without a talking actor nothing changes.
+  While the line is said the activator stands for the actor in the world, as for a
+  conversation's line through it (#2451; `Speech::through`): the line goes on while the
+  activator is there (the actor's death cuts it), the activator reads IsTalking 1, a
+  repeated Say of the topic on it finds the line playing, its own line and a line through
+  it cut each other (whichever starts second wins) [design, #2768], the listener looks at
+  the activator (the engine turns heads to the point where it is placed) and the far
+  actor does not turn, the line is heard from the activator (the engine's voice and
+  subtitles) panned to its side but with no distance attenuation [documented: GECK wiki
+  SetTalkingActivatorActor, Notes: "Talking Activators set via script will have no
+  distance attenuation in the New Vegas engine"; hypothesis: one in another cell is
+  still not heard], and its SayToDone blocks run on the activator
+  [hypothesis: the script that said it waits there]. The line's result scripts run on the
+  actor, as in a conversation through the activator [hypothesis].
+- Distance attenuation is not an issue in a conversation (heard whole).
 
 ## 3. The bunker intercom in the original (2026-10-19) [observed]
 

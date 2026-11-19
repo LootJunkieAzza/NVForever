@@ -3,7 +3,7 @@
 //! from their REFR data, hotkeys, the INI writers, ingestible flags, form counts by type
 //! and the plugins that hold a form.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

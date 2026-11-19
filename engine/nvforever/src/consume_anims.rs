@@ -261,6 +261,7 @@ fn register_settings(app: &mut App) {
             group: nvf_play::pause::GROUP_MENUS,
             label: "Item animations",
             note: "On: eating, drinking, chems, stimpaks and smoking play the B42 Inject animations installed, and B42 Interact's skinning, weapon and crafting ones; other co-op players see them. Off: items are used at once, as in the original.",
+            switches: "",
             get: |w| w.resource::<ConsumeOptions>().0.on,
             set: |w, on| w.resource_mut::<ConsumeOptions>().0.on = on,
             slider: None,
@@ -273,6 +274,7 @@ fn register_settings(app: &mut App) {
             group: nvf_play::pause::GROUP_MENUS,
             label: "Item animations: Hardcore",
             note: "On: an aid item cannot be used while you reload, attack, lie ragdolled or already use one, and an animation cannot be cut short. (B42Inject.ini Hardcore)",
+            switches: "",
             get: |w| w.resource::<ConsumeOptions>().0.hardcore,
             set: |w, on| w.resource_mut::<ConsumeOptions>().0.hardcore = on,
             slider: None,
@@ -285,6 +287,7 @@ fn register_settings(app: &mut App) {
             group: nvf_play::pause::GROUP_MENUS,
             label: "Item animations in power armour",
             note: "On: the animations play in power armour too. (B42Inject.ini InjectInPA)",
+            switches: "",
             get: |w| w.resource::<ConsumeOptions>().0.in_power_armor,
             set: |w, on| w.resource_mut::<ConsumeOptions>().0.in_power_armor = on,
             slider: None,
@@ -1291,7 +1294,7 @@ mod tests {
     use fnv_world::placed::BaseObject;
 
     fn base(sig: &[u8; 4], model: Option<&str>, world_model: Option<&str>) -> BaseObject {
-        BaseObject { form_id: 0x0012_0855, sig: *sig, edid: None, model: model.map(Into::into), world_model: world_model.map(Into::into), world_alt_textures: Vec::new() }
+        BaseObject { form_id: 0x0012_0855, sig: *sig, edid: None, model: model.map(Into::into), world_model: world_model.map(Into::into), world_alt_textures: Vec::new(), worn_only: false }
     }
 
     #[test]

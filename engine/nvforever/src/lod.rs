@@ -174,7 +174,8 @@ fn align(c: i32, o: i32, l: i32) -> i32 {
 /// (bytes 12–15, two i16 [observed: WastelandNV -64, -64; FreesideWorld -10, -8;
 /// FreesideNorthWorld -9, -7; world.md §7]); (0, 0) without the file.
 pub fn grid_origin(game: &nvf_assets::GameData, world: &WorldData) -> Grid {
-    let name = world.index.worldspaces.get(&world.world).and_then(|w| w.edid.clone()).unwrap_or_default().to_ascii_lowercase();
+    // A child with Use LOD Data shows its parent's files (`WorldIndex::lod_world`, #2345).
+    let name = world.index.worldspaces.get(&world.index.lod_world(world.world)).and_then(|w| w.edid.clone()).unwrap_or_default().to_ascii_lowercase();
     game.read(&format!("lodsettings\\{name}.dlodsettings")).as_deref().and_then(settings_origin).unwrap_or((0, 0))
 }
 
@@ -383,7 +384,8 @@ struct GenChunk {
 
 impl LodState {
     pub fn new(world: &WorldData, settings: LodSettings, enabled: bool, gen: Option<GenState>) -> LodState {
-        let name = world.index.worldspaces[&world.world].edid.clone().unwrap_or_default().to_ascii_lowercase();
+        // A child with Use LOD Data shows its parent's files (`WorldIndex::lod_world`, #2345).
+        let name = world.index.worldspaces[&world.index.lod_world(world.world)].edid.clone().unwrap_or_default().to_ascii_lowercase();
         LodState {
             settings,
             radius: (settings.far / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32,

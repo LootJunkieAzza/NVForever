@@ -27,6 +27,27 @@ fn text(args: &[XVal], k: usize) -> String {
     }
 }
 
+// Transition helpers predate the explicit renderer requests. Keep their immediate
+// readbacks and the rendered request on the same state, rather than writing only
+// the legacy map now hidden by ScriptSequence's targeted clock and weight.
+fn transition_weight(g: &mut Game, actor: FormId, path: &str, weight: f64) {
+    g.knvse.weights.insert((actor, key(path)), weight);
+    let first = actor == FormId::PLAYER_REF && g.senses.first_person;
+    if let Some(sequence) = g.anim_paths.sequences.get_mut(&(actor, first, key(path))) {
+        sequence.weight = weight.clamp(0.0, 1.0) as f32;
+    }
+}
+
+fn transition_offset(g: &mut Game, actor: FormId, path: &str, time: f64) {
+    let now = g.anim_clock(actor, false);
+    g.knvse.offsets.insert((actor, key(path)), time - now);
+    let first = actor == FormId::PLAYER_REF && g.senses.first_person;
+    let clock = g.script_sequence_clock(actor, first);
+    if let Some(sequence) = g.anim_paths.sequences.get_mut(&(actor, first, key(path))) {
+        sequence.clock_offset = time - clock;
+    }
+}
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,
@@ -63,7 +84,10 @@ pub struct SequenceInfo {
 pub struct KnvseState {
     /// When the game first knew each actor's animations (game seconds).
     pub clock_start: HashMap<FormId, f64>,
-    /// SetGlobalAnimTime: (actor, first person) -> (the value, the game time it was set).
+    /// Menu seconds owned by the player's first-person device animations (pipboy.md §2).
+    pub(crate) first_person_menu_seconds: f64,
+    pub(crate) first_person_menu_start: Option<f64>,
+    /// SetGlobalAnimTime: (actor, first person) -> (the value, that view's clock at the set).
     pub global: HashMap<(FormId, bool), (f64, f64)>,
     /// SetAnimCurrentTime's offsets and SetAnimWeight's weights, by (actor, path).
     pub offsets: HashMap<(FormId, String), f64>,
@@ -79,9 +103,29 @@ pub struct KnvseState {
     pub allow_attack: Vec<FormId>,
     /// SetAnimCurrentTime calls waiting for the next frame: (actor, path, time).
     pub pending_times: Vec<(FormId, String, f64)>,
+    pub pending_sequence_times: Vec<(FormId, bool, String, f64)>,
 }
 
 impl Game<'_> {
+    /// The device animates while its menu holds the world. Other actors/views keep
+    /// game time; neither loading nor unrelated menus adds time here (pipboy.md §2).
+    pub(crate) fn advance_first_person_menu_clock(&mut self) {
+        let dt = self.cfg.frame_seconds;
+        if !self.loading && self.in_menu() && self.menu_open(crate::game::menus::PIPBOY) && dt.is_finite() && dt > 0.0 {
+            self.knvse.first_person_menu_seconds += dt;
+        }
+    }
+
+    pub(crate) fn script_sequence_now(&self, actor: FormId, first: bool) -> f64 {
+        self.time + if actor == FormId::PLAYER_REF && first { self.knvse.first_person_menu_seconds } else { 0.0 }
+    }
+
+    /// Menu time actually admitted by game ticks, for the renderer's first-person
+    /// pose clock. Retained frame configuration is not a new animation frame.
+    pub fn first_person_menu_animation_time(&self) -> f64 {
+        self.knvse.first_person_menu_seconds
+    }
+
     /// The engine tells what a sequence file's controller sequence holds (its name,
     /// accumulation root, frequency, key times, cycle and text keys), for
     /// GetAnimationAttributes.
@@ -109,6 +153,14 @@ impl Game<'_> {
             let now = self.anim_clock(a, false);
             self.knvse.offsets.insert((a, k), t - now);
         }
+        for (actor, first, path, time) in std::mem::take(&mut self.knvse.pending_sequence_times) {
+            let offset = time - self.script_sequence_clock(actor,first);
+            if let Some(sequence) = self.anim_paths.sequences.get_mut(&(actor,first,path.clone())) {
+                sequence.clock_offset = offset;
+            }
+            if let Some(paused) = self.anim_paths.sequence_resume.get_mut(&(actor,first,path)) { paused.0 = time; }
+        }
+        self.script_sequences_tick();
     }
 
     /// GetGlobalAnimTime: what SetGlobalAnimTime gave plus the game seconds since, else
@@ -116,12 +168,18 @@ impl Game<'_> {
     /// frame counted [hypothesis: the clock starts with the actor's 3D; observed:
     /// knvse-anim, Ceil of it reads 1 a few frames after placing an actor].
     fn anim_clock(&mut self, a: FormId, first: bool) -> f64 {
+        let now = self.script_sequence_now(a, first);
+        // Admit the default origins even when this view has an explicit value:
+        // starting the other view must not require a prior getter (ext-knvse.md §2).
+        let start = *self.knvse.clock_start.entry(a).or_insert(self.time);
+        let menu = if a == FormId::PLAYER_REF {
+            let began = *self.knvse.first_person_menu_start.get_or_insert(self.knvse.first_person_menu_seconds);
+            if first { self.knvse.first_person_menu_seconds - began } else { 0.0 }
+        } else { 0.0 };
         if let Some(&(v, at)) = self.knvse.global.get(&(a, first)) {
-            return v + (self.time - at);
+            return v + (now - at);
         }
-        let now = self.time;
-        let start = *self.knvse.clock_start.entry(a).or_insert(now);
-        now - start + self.cfg.frame_seconds
+        self.time - start + menu + self.cfg.frame_seconds
     }
 
     /// The text keys of a sequence: the actor's own, else every actor's, else the
@@ -173,7 +231,11 @@ fn attributes(g: &mut Game, a: Option<FormId>, path: &str) -> XVal {
     });
     let group = a.and_then(|a| g.senses.anim.get(&a)).filter(|s| s.clip.as_deref().is_some_and(|c| same(c, path))).and_then(|s| s.group).unwrap_or("");
     let keys = g.text_keys_of(a, path);
-    let weight = a.and_then(|a| g.knvse.weights.get(&(a, k.clone())).copied()).unwrap_or(1.0);
+    let weight = a.and_then(|a| {
+        let first = a == FormId::PLAYER_REF && g.senses.first_person;
+        g.anim_paths.sequences.get(&(a,first,k.clone())).map(|s|f64::from(s.weight))
+            .or_else(||g.knvse.weights.get(&(a,k.clone())).copied())
+    }).unwrap_or(1.0);
     let times = keys.iter().enumerate().map(|(i, (t, _))| (XKey::Num(i as f64), XVal::Num(*t))).collect();
     let values = keys.iter().enumerate().map(|(i, (_, v))| (XKey::Num(i as f64), XVal::Str(v.clone()))).collect();
     let times = XVal::Array(g.ext.new_array(ArrayKind::List, times));
@@ -196,9 +258,14 @@ fn attributes(g: &mut Game, a: Option<FormId>, path: &str) -> XVal {
         ("textKeyValues", values),
     ];
     if let Some(a) = a.filter(|&a| g.plays(a, path)) {
-        let global = g.anim_clock(a, false);
-        let offset = g.knvse.offsets.get(&(a, k.clone())).copied().unwrap_or(0.0);
-        let now = offset + global;
+        let first = a == FormId::PLAYER_REF && g.senses.first_person;
+        let (offset, now) = if let Some(sequence) = g.anim_paths.sequences.get(&(a,first,k.clone())) {
+            (sequence.clock_offset, g.script_sequence_time(a,path))
+        } else {
+            let global = g.anim_clock(a,false);
+            let offset = g.knvse.offsets.get(&(a,k.clone())).copied().unwrap_or(0.0);
+            (offset,global+offset)
+        };
         m.extend([
             ("lastTime", XVal::Num(now)),
             ("weightedLastTime", XVal::Num(now)),
@@ -225,7 +292,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `time [firstPerson]` [documented: SetGlobalAnimTime].
         "setglobalanimtime" => {
             let first = num(args, 1, 0.0) != 0.0;
-            g.knvse.global.insert((a, first), (num(args, 0, 0.0), g.time));
+            let now = g.script_sequence_now(a, first);
+            g.knvse.global.insert((a, first), (num(args, 0, 0.0), now));
             zero
         }
         // The sequence's offset plus the actor's clock [documented: GetAnimCurrentTime,
@@ -233,19 +301,28 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // [hypothesis].
         "getanimcurrenttime" => {
             let path = text(args, 0);
-            let off = g.knvse.offsets.get(&(a, key(&path))).copied().unwrap_or(0.0);
-            XVal::Num(off + g.anim_clock(a, false))
+            if !g.knvse.clock_start.contains_key(&a) { g.anim_clock(a,false); }
+            XVal::Num(g.script_sequence_time(a,&path))
         }
         // `path time`: from the next frame, the offset that makes the current time `time`
         // [documented; observed: knvse2, the same frame reads the time from before].
         "setanimcurrenttime" => {
             let (path, t) = (text(args, 0), num(args, 1, 0.0));
             g.knvse.pending_times.push((a, key(&path), t));
+            g.knvse.pending_sequence_times.push((a, a == FormId::PLAYER_REF && g.senses.first_person, key(&path), t));
             zero
         }
         // `path weight` [documented: SetAnimWeight]; read back as seqWeight.
         "setanimweight" => {
-            g.knvse.weights.insert((a, key(&text(args, 0))), num(args, 1, 1.0));
+            let path = key(&text(args,0));
+            let weight = num(args,1,1.0);
+            if !weight.is_finite() { return Some(Ok(zero)); }
+            let first = a == FormId::PLAYER_REF && g.senses.first_person;
+            let key = (a,first,path.clone());
+            let weight = weight.clamp(0.0,1.0) as f32;
+            g.anim_paths.sequence_resume.entry(key.clone()).or_insert((0.0,1.0)).1 = weight;
+            if let Some(sequence) = g.anim_paths.sequences.get_mut(&key) { sequence.weight = weight; }
+            g.knvse.weights.insert((a,path),f64::from(weight));
             zero
         }
         // `path [firstPerson] [refPose] [refTime]`: 1 when it can be applied [documented:
@@ -307,6 +384,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "copyanimationstoform" => {
             let (Some(from), Some(to)) = (form(args, 0), form(args, 1)) else { return Some(Ok(zero)) };
             g.copy_folder_entries(from, to);
+            // A copied path keeps its condition (SetActorAnimationPath's).
+            let conds: Vec<_> = g.anim_paths.conditions.iter().filter(|((a, _, _), _)| *a == from).map(|((_, first, p), c)| ((to, *first, p.clone()), c.clone())).collect();
+            g.anim_paths.conditions.extend(conds);
             for map in [&mut g.anim_paths.actor, &mut g.anim_paths.weapon] {
                 for first in [false, true] {
                     let Some(src) = map.get(&(from, first)).cloned() else { continue };
@@ -331,7 +411,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             crate::nvse_anim::call(g, "deactivateanim", Some(a), &[XVal::Str(src)]);
             crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(dst.clone())]);
-            g.knvse.weights.insert((a, key(&dst)), num(args, 6, 1.0));
+            transition_weight(g, a, &dst, num(args, 6, 1.0));
             XVal::Num(1.0)
         }
         // `source dest [first] [duration] [destFrame] [sourceWeight] [destWeight] …`: the
@@ -346,16 +426,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 return Some(Ok(zero));
             }
             crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(dst.clone())]);
-            g.knvse.weights.insert((a, key(&dst)), num(args, 6, 1.0));
+            transition_weight(g, a, &dst, num(args, 6, 1.0));
             let sw = num(args, 5, 0.0);
             if sw <= 0.0 {
                 crate::nvse_anim::call(g, "deactivateanim", Some(a), &[XVal::Str(src)]);
             } else {
-                g.knvse.weights.insert((a, key(&src)), sw);
+                transition_weight(g, a, &src, sw);
             }
             if let Some(XVal::Num(f)) = args.get(4) {
-                let now = g.anim_clock(a, false);
-                g.knvse.offsets.insert((a, key(&dst)), f - now);
+                transition_offset(g, a, &dst, *f);
             }
             XVal::Num(1.0)
         }
@@ -368,8 +447,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             crate::nvse_anim::call(g, "activateanim", Some(a), &[XVal::Str(path.clone())]);
             if let Some(XVal::Num(f)) = args.get(3) {
-                let now = g.anim_clock(a, false);
-                g.knvse.offsets.insert((a, key(&path)), f - now);
+                transition_offset(g, a, &path, *f);
             }
             XVal::Num(1.0)
         }

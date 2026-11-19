@@ -426,10 +426,17 @@ impl Game<'_> {
             self.count_kill(r);
             self.challenge_kill(r);
         }
+        // A body already lying knocked out is a ragdoll already [hypothesis].
+        let lying = self.knockout(r).is_some_and(|k| k.lying());
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;
         e.killing_hit = fatal;
+        // JIP's ragdoll handlers: any actor ragdolled on death [documented:
+        // SetOnRagdollEventHandler].
+        if !lying {
+            self.jip_event("ragdoll", Some(r), Vec::new());
+        }
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
@@ -522,8 +529,14 @@ impl Game<'_> {
     /// 2026-10-27: "companion kills should net you experience if they are hired"]. Their
     /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
     /// [design].
-    pub fn kill_earns_xp(&self, killer: FormId) -> bool {
-        killer == FormId::PLAYER_REF || self.is_teammate(killer)
+    pub fn kill_earns_xp(&mut self, killer: FormId) -> bool {
+        // The player's tweak: a teammate's kill is not the player's [design: docs/design/tweaks.md].
+        if killer == FormId::PLAYER_REF || (!self.tweaks.no_companion_kill_xp && self.is_teammate(killer)) {
+            return true;
+        }
+        // The player's tweak: a frenzied actor's kill is the player's; Aggression 3 is
+        // Frenzied [documented: GECK wiki Aggression; design: docs/design/tweaks.md].
+        self.tweaks.frenzy_kill_xp && actor::actor_value(self, killer, crate::actor_values::AGGRESSION).is_ok_and(|v| v >= 3.0)
     }
 
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an
@@ -695,6 +708,10 @@ impl Game<'_> {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }
+                // The player's tweak: a kill gives Action Points back [design: docs/design/tweaks.md].
+                if out.died && info.attacker == Some(FormId::PLAYER_REF) && self.tweaks.kill_reward_ap > 0.0 {
+                    crate::functions::restore_actor_value_damage(self, FormId::PLAYER_REF, crate::actor_values::ACTION_POINTS, self.tweaks.kill_reward_ap);
+                }
             }
         }
         // The player's palm strike in VATS may paralyse (`crate::magic_archetypes`); its
@@ -743,6 +760,19 @@ impl Game<'_> {
         ran
     }
 
+    /// A hit that deals no damage: a Use Weapon package's or UseWeapon's Do No Damage
+    /// ("prevent all damage", "for scripted protracted fake combat" [documented: GECK
+    /// wiki UseWeapon, docs/spec-notes/use-weapon.md §1]). The target's OnHit and
+    /// OnHitWith blocks run with the attacker and the weapon, as for any hit; nothing else
+    /// changes: no Health, limb or fatigue damage, no hit lines, no last hit, no JIP hit
+    /// event. Returns whether a block ran. [observed: G.I. Blues' thugs fall only in their
+    /// OnHit block for Orris (SCPT 0x00118A77), whose Use Weapon packages are Always Hit and
+    /// Do No Damage, so the scene goes on only if such a hit runs it (#2433); hypothesis:
+    /// that is what the original does, observer check 134.]
+    pub fn harmless_hit(&mut self, target: FormId, info: HitInfo) -> bool {
+        self.hit_object(target, info)
+    }
+
     /// Tell the rules which weapon the animating side draws for `actor`
     /// (`RefExtra::held_weapon`).
     pub fn set_held_weapon(&mut self, actor: FormId, weapon: Option<FormId>) {
@@ -759,6 +789,18 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
             self.extra.entry(actor).or_default().weapon_out = out;
         }
+    }
+
+    /// Whether a living actor has its weapon out now, as IsWeaponOut reads it
+    /// (`functions::actor::is_weapon_out`): what the animating side told in the last second
+    /// ([`Game::set_weapon_out`]; the player's always), else the rule
+    /// ([`Game::wants_weapon_out`]).
+    pub fn weapon_is_out(&self, actor: FormId) -> bool {
+        let told = self.senses.weapon_told.get(&actor).is_some_and(|&t| (self.time - t).abs() < 1.0);
+        if actor == FormId::PLAYER_REF || told {
+            return self.extra.get(&actor).is_some_and(|e| e.weapon_out);
+        }
+        self.wants_weapon_out(actor)
     }
 
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
@@ -785,13 +827,18 @@ impl Game<'_> {
         // alert.rs `put_away`), so IsWeaponOut reads 0 for a seated actor the engine does
         // not draw too [documented: IsWeaponOut follows the weapon on the weapon node].
         let seated = !fighting && self.furniture_use(actor).is_some();
-        !unequipped && !fleeing && !seated && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
+        // A child fighting or alerted keeps its weapon away: it never fights (#2438).
+        let child = self.never_fights(actor) && (fighting || self.draws_weapon(actor));
+        !unequipped && !fleeing && !child && !seated && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
     }
 
     /// A hit's limb damage on one limb ([`Game::damage_limb`]) with what crippling it
     /// tells: the hit record's crippled flag, JIP's crippled-limb handlers and the
     /// player's Limbs Crippled statistic.
     fn hit_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        // The player's tweak scales limb damage in power armour [design: docs/design/tweaks.md].
+        let scale = self.tweaks.power_armor_limb_damage;
+        let l = if scale != 1.0 && self.wears_power_armor(target) { LimbHit { damage: l.damage * scale, ..l } } else { l };
         let (condition, crippled) = self.damage_limb(target, l, max_health);
         if crippled {
             if let Some(h) = self.jip.hits.get_mut(&target) {
@@ -891,7 +938,10 @@ impl Game<'_> {
     /// equipment change, which the owner ruled a bug (actors.md §8.10, The player).
     pub fn move_speed_mult(&mut self, r: FormId) -> f64 {
         let mult = actor::actor_value(self, r, crate::actor_values::SPEED_MULTIPLIER).unwrap_or(100.0);
-        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r)
+        // The player's tweak: Agility above or below 5 speeds or slows everyone [design: docs/design/tweaks.md].
+        let per = self.tweaks.agility_speed_per_point;
+        let agility = if per != 0.0 { (1.0 + per * (actor::actor_value(self, r, crate::actor_values::AGILITY).unwrap_or(5.0) - 5.0)).max(0.1) } else { 1.0 };
+        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r) * agility
     }
 
     /// An actor's limb conditions, codes 25–31 in order.
@@ -1052,6 +1102,23 @@ impl Game<'_> {
         Some(out)
     }
 
+    /// The destructible references burning down toward a stage that explodes (a car on
+    /// fire), each with that stage's explosion: the nearest later stage with one. The
+    /// player's Exploding Destructible Indicator tweak shows them on the grenade
+    /// indicator [design: docs/design/tweaks.md].
+    pub fn burning_explosives(&self) -> Vec<(FormId, FormId)> {
+        let mut out = Vec::new();
+        for (r, _) in self.extra.iter().filter(|(_, e)| e.burning.is_some()) {
+            let Some(def) = base_of(self, *r).and_then(|b| self.destruction(b)) else { continue };
+            let stage = crate::functions::objects_destruction_stage(self, *r);
+            let next = def.stages.iter().filter(|s| i32::from(s.index) > stage).filter_map(|s| s.explosion.map(|x| (s.index, x))).min_by_key(|(i, _)| *i);
+            if let Some((_, x)) = next {
+                out.push((*r, x));
+            }
+        }
+        out
+    }
+
     /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
     /// changes that reached new stages, with their references.
     pub fn destruction_tick(&mut self, dt: f64) -> Vec<(FormId, DestructionChange)> {
@@ -1100,6 +1167,12 @@ impl Game<'_> {
         let class = classes.iter().find(|(c, lvl, _)| level <= setting(self, &format!("iXPLevelKill{who}{c}"), *lvl)).unwrap_or(&classes[4]);
         // × the difficulty's `fDiffMultXP<level>` (1 at every level in FalloutNV.esm;
         // `crate::difficulty`).
-        setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult()
+        let xp = setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult();
+        // The player's tweak weighs the levels between them [design: docs/design/tweaks.md].
+        let per = self.tweaks.kill_xp_per_level;
+        if per == 0.0 {
+            return xp;
+        }
+        xp * (1.0 + per * (level - self.player_level())).max(0.0)
     }
 }

@@ -766,7 +766,7 @@ Columns: opcode (`obs` = observed in shipped bytecode, `xe` = xEdit condition in
 | [GetReputationPct](https://geckwiki.com/index.php?title=GetReputationPct) | 0x123E xe |  | 2 | FactionID:string, Fame/Infamy:int | void | Returns the player's fame or infamy with a reputation as a 0 to 1 fraction of that reputation's maximum; second argument 0 is infamy, 1 fame. |
 | [GetReputationThreshold](https://geckwiki.com/index.php?title=GetReputationThreshold) | 0x123F obs | 143 / 47 | 1643 | ReputationID:string, Mixed/Good/Bad:int | void | Returns the player's reputation tier (0 to 6) with a reputation, given an axis argument: 0 mixed, 1 good, 2 bad. |
 | [RemoveReputation](https://geckwiki.com/index.php?title=RemoveReputation) | 0x123A obs | 11 / 6 |  | FactionID:string, Fame/Infamy:int, Amount:int | void | Removes preset-sized reputation, fame or infamy, from a faction; despite the page summary saying adds, it subtracts. |
-| [RemoveReputationExact](https://geckwiki.com/index.php?title=RemoveReputationExact) |  |  |  | FactionID:string, Fame/Infamy:int, Amount:float | void | Removes an exact, possibly fractional, amount of fame or infamy from a faction's reputation. |
+| [RemoveReputationExact](https://geckwiki.com/index.php?title=RemoveReputationExact) |  |  |  | FactionID:form, Fame/Infamy:int, Amount:float | void | Removes an exact, possibly fractional, amount of fame or infamy from a faction's reputation. |
 | [SetReputation](https://geckwiki.com/index.php?title=SetReputation) | 0x1238 obs | 255 / 95 |  | Reputation:form, Fame/Infamy:int, Amount:float | void | Sets the player's fame or infamy with a reputation form to an exact amount, replacing the previous value. |
 
 ## Scale Functions

@@ -144,6 +144,9 @@ pub enum VmError {
     /// errors the extender reports [documented: NVSE Error].
     #[error("{0}")]
     Type(String),
+    /// An absent array element, separately inspectable by TypeOf (typeof-missing-key.md).
+    #[error("no element at key {0}")]
+    MissingElement(String),
     /// An extender function called on no reference: it stops the script, as no other
     /// extender error does [observed: nvse-inv foreach.read.after, "script call failed"].
     #[error("{0} called on no reference")]
@@ -171,6 +174,14 @@ pub trait Host {
     fn key_name(&mut self, _code: i64) -> Option<String> {
         None
     }
+    /// Diagnostic-only notification before a fatal no-reference call is returned.
+    /// `on` is already evaluated; implementations must not evaluate the call again.
+    /// Other hosts keep the default no-op and the original error contract.
+    fn no_reference_call(&mut self, _name: &str, _on: Option<Value>, _call: &XCall) {}
+
+    /// The statement whose run caused the skips reported since the last call: the
+    /// innermost that holds them (for the mod log, which names the line).
+    fn skipped_in(&mut self, _stmt: &Stmt) {}
     /// Whether the last call ended the run the way `Return` does (a function such as
     /// `RemoveMe`, which "acts like a return" [documented: catalogue notes]). The VM
     /// asks after every statement; answering true also clears the request.
@@ -198,6 +209,10 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
+    /// GetModIndex, by the function's lower-case name) and read `answer`: for a host
+    /// that keeps what the load order's scripts look for.
+    fn plugin_asked(&mut self, _function: &str, _name: &str, _answer: f64) {}
     /// A script error worth the console's attention: a call that crashes the original
     /// game answers its default value here and says so [decision: the owner, 2026-10-26,
     /// "scripts should never crash the game; log it on the console as a script error"].
@@ -392,11 +407,19 @@ pub struct Vm<'t, 'h> {
     /// Inside a loop or a chain of stray markers, where a place cannot be kept: a
     /// ScriptWait there does not wait [decision: JIP's pages say nothing of loops].
     no_wait: u32,
+    /// Skips so far, and how many of them a statement was told for ([`Host::skipped_in`]).
+    skips: u64,
+    skips_told: u64,
 }
 
 impl<'t, 'h> Vm<'t, 'h> {
     pub fn new(table: &'t FunctionTable, host: &'h mut dyn Host, opts: RunOpts) -> Self {
-        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0 }
+        Vm { table, host, opts, steps: 0, wait: None, no_wait: 0, skips: 0, skips_told: 0 }
+    }
+
+    fn skip(&mut self, e: &VmError) {
+        self.skips += 1;
+        self.host.skipped(e);
     }
 
     /// After a run that ended [`Exit::Waiting`]: the cycles to wait and the place to
@@ -475,8 +498,8 @@ impl<'t, 'h> Vm<'t, 'h> {
                 // stop the original's script]; strict runs stop.
                 Token::X { e } => match self.xeval(e).and_then(|v| v.value()) {
                     Ok(v) => v,
-                    Err(err @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                        self.host.skipped(&err);
+                    Err(err @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                        self.skip(&err);
                         Value::ZERO
                     }
                     Err(err) => return Err(err),
@@ -497,7 +520,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     // The rest of the expression is unknown: the value is 0.
                     return Ok(Value::ZERO);
                 }
@@ -556,6 +579,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         let mut i = start;
         while i < stmts.len() {
             self.step()?;
+            let mark = self.skips;
             match &stmts[i] {
                 Stmt::Set { target, expr } => {
                     let v = self.eval(expr)?;
@@ -609,8 +633,8 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::Let { expr } | Stmt::Eval { expr } => {
                     match self.xeval(expr) {
                         Ok(_) => {}
-                        Err(e @ (VmError::Type(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
-                            self.host.skipped(&e)
+                        Err(e @ (VmError::Type(_) | VmError::MissingElement(_) | VmError::NotBuilt(_) | VmError::Expression(_) | VmError::Host(_))) if !self.opts.strict => {
+                            self.skip(&e)
                         }
                         Err(e) => return Err(e),
                     }
@@ -688,7 +712,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                 }
             }
             if self.host.take_return() {
@@ -696,6 +720,10 @@ impl<'t, 'h> Vm<'t, 'h> {
             }
             if let Some(x) = self.host.ext() {
                 x.sweep();
+            }
+            if self.skips > mark && self.skips > self.skips_told {
+                self.skips_told = self.skips;
+                self.host.skipped_in(&stmts[i]);
             }
             if let Some(n) = self.host.take_wait() {
                 if self.no_wait == 0 {
@@ -756,7 +784,7 @@ impl<'t, 'h> Vm<'t, 'h> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(Value::ZERO);
         }
         let on = match c.on {
@@ -772,7 +800,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     if self.opts.strict {
                         return Err(e);
                     }
-                    self.host.skipped(&e);
+                    self.skip(&e);
                     return Ok(Value::ZERO);
                 }
             }
@@ -1654,6 +1682,25 @@ impl Vm<'_, '_> {
         })
     }
 
+    /// The string variable a function edits in place: the variable itself, or the one an
+    /// assignment in its place sets, after the assignment runs (`Sv_Replace "a|b" (sText =
+    /// $rForm)` [hypothesis: AguaFria.esm ships such lines with compiled bytes and edits
+    /// sText with the next line, #2275]).
+    fn string_var_arg(&mut self, e: Option<&XExpr>) -> Result<Option<crate::ir::VarRef>, VmError> {
+        Ok(match e {
+            Some(XExpr::Var { var, .. }) => Some(*var),
+            Some(a @ XExpr::Assign { target, .. }) => match &**target {
+                XExpr::Var { var, .. } => {
+                    let var = *var;
+                    self.xeval(a)?;
+                    Some(var)
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
     fn xcall(&mut self, c: &XCall) -> Result<XVal, VmError> {
         let opcode = match &c.func {
             FuncId::Opcode(o) => *o,
@@ -1665,7 +1712,7 @@ impl Vm<'_, '_> {
             if self.opts.strict {
                 return Err(e);
             }
-            self.host.skipped(&e);
+            self.skip(&e);
             return Ok(XVal::Num(0.0));
         }
         let on = match &c.on {
@@ -1677,9 +1724,22 @@ impl Vm<'_, '_> {
             args.push(match a {
                 XExpr::Enum { code } => ArgValue::Enum(*code),
                 XExpr::Axis { c } => ArgValue::Axis(*c),
-                other => match self.xeval(other)? {
-                    XVal::Str(s) if self.table.param_enc(opcode, k) == crate::table::ParamEnc::String => ArgValue::Str(s),
-                    v => ArgValue::Value(v.value()?),
+                other => match (self.xeval(other)?, self.table.param_enc(opcode, k)) {
+                    (XVal::Str(s), crate::table::ParamEnc::String) => ArgValue::Str(s),
+                    // A string in an enumeration's or an axis's place is the name, in any
+                    // case; an unknown name is an error, so a `let` leaves its variable
+                    // and the script goes on [observed: GetAV ("Strength"), GetAV (s),
+                    // GetAV ($s), SetAV ("Luck") 7 and GetPos ("Z") read and set as the
+                    // bare names; GetAV ("NoSuchAV") assigned nothing, #2276 job A].
+                    (XVal::Str(s), crate::table::ParamEnc::Enum(kind)) => {
+                        let code = self.table.enums.get(&kind).and_then(|m| m.iter().find(|(_, n)| n.eq_ignore_ascii_case(&s)).map(|(&c, _)| c));
+                        ArgValue::Enum(code.ok_or_else(|| VmError::Type(format!("no {kind} named {s:?}")))?)
+                    }
+                    (XVal::Str(s), crate::table::ParamEnc::Axis) => match s.to_ascii_uppercase().as_str() {
+                        a @ ("X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('X')),
+                        _ => return Err(VmError::Type(format!("no axis named {s:?}"))),
+                    },
+                    (v, _) => ArgValue::Value(v.value()?),
                 },
             });
         }
@@ -1705,7 +1765,7 @@ impl Vm<'_, '_> {
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
         let a = store.array(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
-        a.get(&key).cloned().ok_or_else(|| VmError::Type(format!("no element at key {}", key_text(&key))))
+        a.get(&key).cloned().ok_or_else(|| VmError::MissingElement(key_text(&key)))
     }
 
     /// `let a[k] := v`: replaces the element, or adds it to a map; a list takes a key up to
@@ -2229,7 +2289,11 @@ impl Vm<'_, '_> {
             }
             // [documented: TypeOf] "Number", "Form", "String", "Array", "Map", "StringMap".
             "typeof" => {
-                let v = val(self, 0)?;
+                let v = match val(self, 0) {
+                    Ok(value) => value,
+                    Err(VmError::MissingElement(_)) => return Ok(XVal::Str("NULL".into())),
+                    Err(error) => return Err(error),
+                };
                 let t = match &v {
                     XVal::Num(_) => "Number",
                     XVal::Ref(_) => "Form",
@@ -2421,10 +2485,10 @@ impl Vm<'_, '_> {
                     XVal::Str(s) => s,
                     other => self.text_of(&other)?,
                 },
-                'k' => {
-                    let code = next("key")?.num()? as i64;
-                    self.host.key_name(code).unwrap_or_else(|| code.to_string())
-                }
+                // The key's name, as GetKeyName gives it [documented: String Formatting,
+                // `%k`, a key's description; hypothesis: GetKeyName's text; observed: MCM's
+                // key options print their key with `%k`, #2299].
+                'k' => crate::keys::key_name(next("key")?.num()? as i64).to_string(),
                 'c' => {
                     next("form")?;
                     next("index")?;
@@ -2555,7 +2619,8 @@ impl Vm<'_, '_> {
             // case by default; the number replaced.
             "sv_replace" => {
                 let (pair, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Replace needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let start = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
@@ -2586,7 +2651,8 @@ impl Vm<'_, '_> {
             // end: at the end [hypothesis]).
             "sv_insert" => {
                 let (ins, k) = self.format_arg(c, 0)?;
-                let Some(XExpr::Var { var, .. }) = c.args.get(k) else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.get(k))? else { return Err(VmError::Type("Sv_Insert needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, k + 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let chars: Vec<char> = s.chars().collect();
@@ -2602,7 +2668,8 @@ impl Vm<'_, '_> {
             // [documented: Sv Erase] `count` characters from the position, to the end when
             // left out or past it.
             "sv_erase" => {
-                let Some(XExpr::Var { var, .. }) = c.args.first() else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let Some(var) = self.string_var_arg(c.args.first())? else { return Err(VmError::Type("Sv_Erase needs a string variable".into())) };
+                let var = &var;
                 let s = text(self.read_var(var)?).unwrap_or_default();
                 let at = opt(self, 1)?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
                 let n = opt(self, 2)?.map(|v| v.num()).transpose()?;
@@ -2843,7 +2910,9 @@ impl Vm<'_, '_> {
             // [documented: GetModIndex] 255 when the plugin is not loaded.
             "getmodindex" => {
                 let n = text(val(self, 0)?).unwrap_or_default();
-                XVal::Num(self.host.mod_index(&n).unwrap_or(255) as f64)
+                let index = self.host.mod_index(&n).unwrap_or(255) as f64;
+                self.host.plugin_asked("getmodindex", &n, index);
+                XVal::Num(index)
             }
             // [documented: GetSourceModIndex] the load-order index of the form's plugin: its
             // FormID's top byte here, where FormIDs are load-order FormIDs.
@@ -2928,11 +2997,13 @@ impl Vm<'_, '_> {
             "isplugininstalled" | "getpluginversion" => {
                 let p = text(val(self, 0)?).unwrap_or_default();
                 let found = jip::PLUGINS.iter().find(|(name, _)| name.eq_ignore_ascii_case(&p)).map(|(_, v)| *v);
-                XVal::Num(match (n, found) {
+                let answer = match (n, found) {
                     ("isplugininstalled", f) => f64::from(u8::from(f.is_some())),
                     (_, Some(v)) => v,
                     (_, None) => -1.0,
-                })
+                };
+                self.host.plugin_asked(n, &p, answer);
+                XVal::Num(answer)
             }
             _ => return Ok(None),
         }))
@@ -3002,7 +3073,11 @@ impl Vm<'_, '_> {
             for e in c.args.iter().take(at) {
                 first.push(self.xeval(e)?);
             }
-            let (t, _) = self.format_arg(c, at)?;
+            // Too few values for its specifiers: nothing happens (`formatted_host_call`).
+            let (t, _) = match self.format_arg(c, at) {
+                Err(VmError::Type(e)) if e.starts_with("the format string takes") => return Ok(XVal::Num(0.0)),
+                r => r?,
+            };
             first.push(XVal::Str(t));
             return match self.host.ext_call(&lname, None, &first) {
                 Some(r) => r.map_err(VmError::Host),
@@ -3041,6 +3116,12 @@ impl Vm<'_, '_> {
         if let Some(outs) = out_params(&lname) {
             return self.out_call(&lname, c, outs);
         }
+        // ShowOff's string maps live with JIP's stores (`vm::jip`).
+        if lname.starts_with("auxstringmaparray") {
+            if let Some(v) = self.strmap_function(&lname, c)? {
+                return Ok(v);
+            }
+        }
         if origin == "JIP" || origin == "LU" {
             return match self.jip_function(&lname, c)? {
                 Some(v) => Ok(v),
@@ -3054,6 +3135,12 @@ impl Vm<'_, '_> {
             }
         };
         match name.to_ascii_lowercase().as_str() {
+            // `(eval Expression)` inside an expression: the expression's value [documented:
+            // Eval, an NVSE-aware command taking an expression; observed: the owner's Blue
+            // Moon list's Script Runner files write `AuxVarSetFlt "*x" (eval
+            // GetINIFloat_Cached "s:k" "f.ini" 1) 5`, and their statements were skipped as
+            // not built, #2275].
+            "eval" => arg(self, 0),
             // [documented: ToString; ToNumber] (the hex and reportError arguments of
             // ToNumber: D1).
             "tostring" => {
@@ -3280,7 +3367,15 @@ impl Vm<'_, '_> {
         for e in c.args.iter().take(at) {
             args.push(self.xeval(e)?);
         }
-        let (t, k) = self.format_arg(c, at)?;
+        // A format string whose specifiers have fewer values after it than they take:
+        // the function does nothing and the script goes on [observed: #2430 probe
+        // 2026-11-14, SetFormDescription "test %.0f left" with no value left the text as
+        // it was, the script ran on; hypothesis: the same for the other functions that
+        // take a formatted string].
+        let (t, k) = match self.format_arg(c, at) {
+            Err(VmError::Type(e)) if e.starts_with("the format string takes") => return Ok(Some(XVal::Num(0.0))),
+            r => r?,
+        };
         args.push(XVal::Str(t));
         for e in c.args.iter().skip(k) {
             args.push(self.xeval(e)?);
@@ -3328,6 +3423,7 @@ impl Vm<'_, '_> {
         // Called on no reference, the function fails and stops the script [observed:
         // nvse-inv foreach.read.after, "script call failed"].
         if on.is_some_and(|v| v.as_form().is_none()) {
+            self.host.no_reference_call(lname, on, c);
             return Err(VmError::NoReference(lname.to_string()));
         }
         let mut args = Vec::with_capacity(c.args.len());
@@ -3341,7 +3437,10 @@ impl Vm<'_, '_> {
             // The host words a calling object that is no reference (a base form) as
             // NoReference does: that stops the script too [observed: jipppln clamp.base,
             // "script call failed"].
-            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => Err(VmError::NoReference(lname.to_string())),
+            Some(Err(e)) if e == VmError::NoReference(lname.to_string()).to_string() => {
+                self.host.no_reference_call(lname, on, c);
+                Err(VmError::NoReference(lname.to_string()))
+            },
             Some(r) => r.map(Some).map_err(VmError::Host),
             None => Ok(None),
         }

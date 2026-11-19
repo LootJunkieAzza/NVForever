@@ -3,7 +3,7 @@
 //! usage monitor, addiction and its cure, abilities in the permanent pool.
 //! docs/spec-notes/aid-items.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -48,6 +48,8 @@ const BLOOD: u32 = 0x86A;
 const STIM_GATED: u32 = 0x86B;
 const REDUCE_END: u32 = 0x859;
 const CHEM_HELD: u32 = 0x86C;
+const POISON_FX: u32 = 0x85A;
+const POISON: u32 = 0x86D;
 const WITHDRAWAL_HELD: u32 = 0x873;
 
 const P: FormId = FormId::PLAYER_REF;
@@ -165,6 +167,8 @@ fn plugin_bytes() -> Vec<u8> {
         mgef(PARTS, "RestoreHealthParts", 0, 34, 16),
         mgef(RESTORE_RADS, "RestoreRads", 0, 0, 54),
         mgef(REDUCE_STR, "ReduceStrength", 2 | 4, 0, 5),
+        // Hostile and Detrimental: a poison's effect [documented: GECK wiki Ingestible].
+        mgef(POISON_FX, "PoisonDamage", 1 | 4, 0, 16),
         mgef(CURE, "CureAddiction", 0, 31, -1),
         mgef(CHAMELEON_FX, "StealthField", 2, 12, 49),
         mgef(DAMAGE_RADS, "DamageRads", 4, 0, 54),
@@ -191,6 +195,7 @@ fn plugin_bytes() -> Vec<u8> {
         alch(STIM_GATED, "StimGated", 4, 0, 0.0, vec![effect_if(PARTS, 30, 0, 16, vec![is_hardcore(0.0)]), effect_if(RESTORE_HEALTH, 5, 6, 16, vec![is_hardcore(1.0)])]),
         alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
         alch(CHEM_HELD, "ChemHeld", 0, WITHDRAWAL_HELD, 0.0, vec![effect(MOD_STR, 2, 4, 5)]),
+        alch(POISON, "TestVenom", 0, 0, 0.0, vec![effect(POISON_FX, 5, 0, 16)]),
     ]
     .concat();
     let spels = [
@@ -660,6 +665,20 @@ fn a_sleep_outside_hardcore_restores_health() {
     assert_eq!(av(&mut g, HEALTH), 100.0);
 }
 
+/// Hardcore Tweaks: sleep heals as its option says, in Hardcore or out of it.
+#[test]
+fn the_hardcore_tweaks_set_sleep_healing_apart_from_the_mode() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tweaks.hardcore_tweaks = true;
+    g.tweaks.hardcore_sleep_heals = false;
+    add_actor_value_damage(&mut g, P, HEALTH, 70.0);
+    assert_eq!(g.pass_hours(1.0, true).health_restored, 0.0);
+    g.player.hardcore = Some(true);
+    g.tweaks.hardcore_sleep_heals = true;
+    assert_eq!(g.pass_hours(1.0, true).health_restored, 70.0);
+}
+
 /// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
 /// off marks the game as not always Hardcore.
 #[test]
@@ -783,6 +802,95 @@ fn god_mode_keeps_damaging_effects_off_the_player() {
     assert!(near(av(&mut g, RAD_LEVEL), 10.0));
 }
 
+/// In god mode a script does not hurt the player (#2792, the maintainer's request on
+/// #2743: "no trap may damage the player in god mode"): the bear trap's DamageActorValue
+/// on Health and a leg, and a ModActorValue or ForceActorValue that would lower Health
+/// or a limb, change nothing; restoring still heals what was taken before. Without god
+/// mode they all apply.
+#[test]
+fn god_mode_keeps_script_damage_off_the_players_health_and_limbs() {
+    const LEFT_MOBILITY_CONDITION: u16 = 29;
+    const DAMAGE: u16 = 0x1181;
+    const RESTORE: u16 = 0x1182;
+    const MOD: u16 = 0x1010;
+    const FORCE: u16 = 0x110E;
+    let arg = |code: u16, n: f64| [ArgValue::Enum(code), ArgValue::Value(Value::Num(n))];
+    let f = fixture();
+    let mut g = game(&f);
+    let health = av(&mut g, HEALTH);
+    let leg = av(&mut g, LEFT_MOBILITY_CONDITION);
+    let head = av(&mut g, PERCEPTION_CONDITION);
+    assert!(health > 50.0 && leg == 100.0 && head == 100.0);
+    // Something taken before god mode came on.
+    call(&mut g, DAMAGE, &arg(HEALTH, 10.0));
+    g.toggles.god_mode = true;
+    call(&mut g, DAMAGE, &arg(HEALTH, 45.0));
+    call(&mut g, DAMAGE, &arg(LEFT_MOBILITY_CONDITION, 50.0));
+    call(&mut g, MOD, &arg(HEALTH, -20.0));
+    call(&mut g, FORCE, &arg(PERCEPTION_CONDITION, 10.0));
+    assert!(near(av(&mut g, HEALTH), health - 10.0));
+    assert_eq!(av(&mut g, LEFT_MOBILITY_CONDITION), leg);
+    assert_eq!(av(&mut g, PERCEPTION_CONDITION), head);
+    // Healing and raising go on in god mode.
+    call(&mut g, RESTORE, &arg(HEALTH, 10.0));
+    assert!(near(av(&mut g, HEALTH), health));
+    call(&mut g, MOD, &arg(HEALTH, 5.0));
+    assert!(near(av(&mut g, HEALTH), health + 5.0));
+    call(&mut g, MOD, &arg(HEALTH, -5.0));
+    assert!(near(av(&mut g, HEALTH), health + 5.0));
+    g.toggles.god_mode = false;
+    call(&mut g, MOD, &arg(HEALTH, -5.0));
+    call(&mut g, DAMAGE, &arg(HEALTH, 45.0));
+    call(&mut g, DAMAGE, &arg(LEFT_MOBILITY_CONDITION, 50.0));
+    call(&mut g, MOD, &arg(HEALTH, -20.0));
+    call(&mut g, FORCE, &arg(PERCEPTION_CONDITION, 10.0));
+    assert!(near(av(&mut g, HEALTH), health - 65.0));
+    assert!(near(av(&mut g, LEFT_MOBILITY_CONDITION), leg - 50.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 10.0));
+}
+
+/// In god mode the player's Action Points are never spent, by the engine (a VATS attack,
+/// a tweak's cost: `add_actor_value_damage`) or by a script's DamageActorValue (owner
+/// decision 2026-11-15, #2743). Without it both take them.
+#[test]
+fn god_mode_keeps_the_players_action_points() {
+    const ACTION_POINTS: u16 = 12;
+    let f = fixture();
+    let mut g = game(&f);
+    let full = av(&mut g, ACTION_POINTS);
+    g.toggles.god_mode = true;
+    add_actor_value_damage(&mut g, P, ACTION_POINTS, 26.0);
+    call(&mut g, 0x1181, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(10.0))]);
+    assert_eq!(av(&mut g, ACTION_POINTS), full);
+    g.toggles.god_mode = false;
+    add_actor_value_damage(&mut g, P, ACTION_POINTS, 26.0);
+    call(&mut g, 0x1181, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(10.0))]);
+    assert!(near(av(&mut g, ACTION_POINTS), full - 36.0));
+    // What was spent before god mode came on can still come back in it.
+    g.toggles.god_mode = true;
+    call(&mut g, 0x1182, &[ArgValue::Enum(ACTION_POINTS), ArgValue::Value(Value::Num(36.0))]);
+    assert_eq!(av(&mut g, ACTION_POINTS), full);
+}
+
+/// In god mode the player's rads do not rise from a script's DamageActorValue or
+/// ModActorValue (#2743); they still fall. Without it both raise them.
+#[test]
+fn god_mode_keeps_rads_off_the_player() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_actor_value_current(&mut g, P, RAD_LEVEL, 100.0).unwrap();
+    g.toggles.god_mode = true;
+    call(&mut g, 0x1181, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    call(&mut g, 0x1010, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    assert_eq!(av(&mut g, RAD_LEVEL), 100.0);
+    call(&mut g, 0x1182, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(40.0))]);
+    assert!(near(av(&mut g, RAD_LEVEL), 60.0));
+    g.toggles.god_mode = false;
+    call(&mut g, 0x1181, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    call(&mut g, 0x1010, &[ArgValue::Enum(RAD_LEVEL), ArgValue::Value(Value::Num(50.0))]);
+    assert!(near(av(&mut g, RAD_LEVEL), 160.0));
+}
+
 /// Buffout's +2 Strength raises the carry capacity the menus show by 20 while it lasts
 /// (aid-items.md §12).
 #[test]
@@ -875,4 +983,17 @@ fn a_held_hardcore_heal_takes_hold_for_the_time_left() {
         let gain = av(&mut g, HEALTH) - at_use;
         assert!(gain >= low && gain <= high, "Hardcore on after {on_after} frames: gained {gain}");
     }
+}
+
+/// Weapon poisons: an ingestible whose effects are all Hostile and Detrimental is a poison;
+/// with no weapon in hand that takes one it is refused (the caller gives it back).
+#[test]
+fn a_poison_needs_a_weapon_that_takes_it() {
+    use fnv_game::weapon_poison::PoisonUse;
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.is_poison(FormId(POISON)));
+    assert!(!g.is_poison(FormId(STIM)) && !g.is_poison(FormId(BUFF)));
+    assert_eq!(g.use_poison(FormId(POISON)), PoisonUse::NoWeapon);
+    assert!(g.player.weapon_poisons.is_empty() && g.player.poison_asked.is_none());
 }

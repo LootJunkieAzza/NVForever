@@ -290,8 +290,13 @@ pub struct PipBoy {
     /// Hidden rendering interval; a real opening still reports its page [design: pipboy_arm.rs].
     pub warming: Option<Warming>,
     pub warmed: bool,
+    /// A page and tab to open on, asked by a Tweaks tab key before the inventory opens
+    /// (`crate::tweaks`) [design: docs/design/tweaks.md].
+    pub open_at: Option<(Page, usize)>,
     /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
     pub pose_hidden: bool,
+    /// The order of the item pages' list (the Clicking the Tab Sorts tweak).
+    pub item_sort: crate::menu::model::SortBy,
 }
 
 /// One hidden draw interval [design: nvforever/pipboy_arm.rs].
@@ -475,6 +480,20 @@ pub enum AidTarget {
     Canvas(Vec2),
 }
 
+/// The pointer on the Pip-Boy's screen moved this frame ([`drive_pointer`]). Only a pointer
+/// that moves takes a list's selection: a row redrawn or scrolled under a resting pointer
+/// leaves the choice the keys or the D-pad made alone [design, #2310: as the repair
+/// services menu, `crate::repair`, and the ITEMS page drawn from its file,
+/// `crate::tiles::container_menu::hover_selects`].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PointerMoved(pub bool);
+
+/// Whether a row the pointer comes onto (a `PointerOver`) takes the selection: the pointer
+/// moved this frame. Without the resource (tools, tests) it always does.
+pub fn hover_takes(moved: Option<&PointerMoved>) -> bool {
+    moved.is_none_or(|m| m.0)
+}
+
 /// The node a page fills, under the menus' root (canvas units from its top left).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageBody {
@@ -496,11 +515,32 @@ pub struct ScreenShade;
 
 pub struct PipBoyPlugin;
 
+/// [design, #2553] A repair/mod key stays consumed even if it closes its list before ITEMS.
+#[derive(Resource, Default)]
+pub struct KeysTaken(bool);
+
+impl KeysTaken {
+    pub fn take(&mut self) {
+        self.0 = true;
+    }
+
+    pub fn taken(&self) -> bool {
+        self.0
+    }
+}
+
+/// [design, #2553] First runs once per frame, before any Update key handler.
+fn clear_keys_taken(mut taken: ResMut<KeysTaken>) {
+    taken.0 = false;
+}
+
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PipBoy>()
+            .init_resource::<KeysTaken>()
             .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
+            .init_resource::<PointerMoved>()
             .init_resource::<frame::Kit>()
             .init_resource::<stats::Prepared>()
             .init_resource::<device_screen::ScreenFx>()
@@ -515,10 +555,15 @@ impl Plugin for PipBoyPlugin {
             .add_message::<stats::UseHint>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
+            .add_message::<data::SummonCompanions>()
+            .add_systems(Update, data::summon_companions.in_set(crate::PlaySet::Sync))
             .add_message::<data::travel::FastTravelGo>()
             .init_resource::<data::travel::Pending>()
+            .init_resource::<data::travel::WeatherHold>()
             .init_resource::<data::WaveScope>()
             .add_systems(Startup, setup_screen)
+            .add_systems(First, clear_keys_taken)
+            .add_systems(Update, hotkey_panel::controller.before(crate::tiles::inventory_menu::feed).before(PlaySet::Activation))
             .add_systems(
                 Update,
                 (
@@ -526,8 +571,8 @@ impl Plugin for PipBoyPlugin {
                     reset_manager,
                     close_keys.run_if(|pip: Res<PipBoy>| pip.opening()).run_if(takes_keys),
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
-                    repair::keys.run_if(takes_keys),
-                    item_mod::keys.run_if(takes_keys),
+                    repair::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
+                    item_mod::keys.run_if(takes_keys).run_if(|hold: Res<hotkey_panel::HotkeyHold>| hold.controller.is_none()),
                     hotkey_panel::track,
                     items::keys.run_if(takes_keys),
                     report_menu,
@@ -543,7 +588,7 @@ impl Plugin for PipBoyPlugin {
                     (hotkey_panel::draw_over_tiles, data::trace_over_tiles, data::popup_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
-                    (frame::hover_boxes, sounds::play, frame::marquees),
+                    (frame::hover_boxes, sounds::play),
                 )
                     .chain()
                     .in_set(PlaySet::Ui),
@@ -551,7 +596,7 @@ impl Plugin for PipBoyPlugin {
             .configure_sets(Update, WarmSet.after(follow_frame).before(reset_manager))
             .configure_sets(Update, PointerSet.after(crate::player::BodySet).before(PlaySet::Activation))
             .add_systems(Update, flat_pointer.in_set(PointerSet))
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input))
+            .add_systems(PreUpdate, drive_pointer.after(crate::pad::device::automatic).after(crate::pad::pointer::follow).before(PickingSystems::ProcessInput))
             // The glance (`glance`): it gives way before the full Pip-Boy follows the
             // menus; what it holds back is known before the frame's input is read.
             .add_systems(Update, glance::hold_controls.before(PlaySet::Input))
@@ -565,7 +610,8 @@ impl Plugin for PipBoyPlugin {
                 key: SETTING_KEY,
                 group: crate::pause::GROUP_MENUS,
                 label: "Use Pip-Boy",
-                note: "On: the Pip-Boy and its glove are worn and the menus come up on the arm. Off: both are taken off and the menus show full screen. Without a Pip-Boy worn the menus are always full screen.",
+                note: "On: the Pip-Boy is worn and the menus come up on the arm. Off: it is taken off and the menus show full screen, as always without a Pip-Boy.",
+                switches: "",
                 get: |w| w.resource::<UsePipBoy>().on,
                 set: |w, on| w.resource_mut::<UsePipBoy>().set(on),
                 slider: None,
@@ -584,12 +630,12 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// page drawn from its tiles not in the frame a menu over it closes either: that key was the
 /// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
 /// `crate::tiles::repair_menu::RepairTiles::modal`, `crate::tiles::inventory_menu::InventoryTiles::modal`,
-/// `crate::tiles::map_menu::MapTiles::modal`). A question box over the DATA page (fast travel's,
+/// `crate::tiles::map_menu::MapTiles::modal`, `crate::tiles::item_mod_menu::ItemModTiles::modal`). A question box over the DATA page (fast travel's,
 /// Place Marker's) holds none of them, whichever drawing shows it: Tab and Esc close the Pip-Boy
 /// and the box with it, as they always did; the box over the page drawn from its tiles holds only
 /// the tile input (`crate::tiles::map_menu::MapTiles::popup_owns`).
-fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>) -> bool {
-    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal)
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>, map: Option<Res<crate::tiles::map_menu::MapTiles>>, item_mod: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>) -> bool {
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal) && !inventory.is_some_and(|t| t.modal) && !map.is_some_and(|t| t.modal) && !item_mod.is_some_and(|t| t.modal)
 }
 
 /// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
@@ -680,10 +726,19 @@ fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// The Pip-Boy is up while the player's inventory is open, and in first person (on the
 /// arm; the screen menu leaves the view alone).
-fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
+fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if inventory && !matches!(pip.phase, Phase::Raising | Phase::Up) {
         if pip.phase == Phase::Down {
+            // The player's tweak always opens on the inventory [design: docs/design/tweaks.md].
+            if tweaks.is_some_and(|t| t.pipboy_opens_items) {
+                pip.page = Page::Items;
+            }
+            // A Tweaks tab key asked for a page and tab [design: docs/design/tweaks.md].
+            if let Some((page, tab)) = pip.open_at.take() {
+                pip.page = page;
+                pip.tabs[page.index()] = tab;
+            }
             pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
             info!("pipboy: frame {:?}", pip.frame);
             if pip.frame == Frame::Device {
@@ -857,16 +912,18 @@ fn camera_on(pip: Res<PipBoy>, glance: Res<glance::Glance>, screen: Option<Res<P
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].
 fn close_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
     modding: Res<item_mod::PipItemMod>,
+    taken: Res<KeysTaken>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // "How many?" has the keys (`crate::menu`).
-    if prompt.held(&active) {
+    if prompt.held(&active) || taken.taken() {
         return;
     }
     // Esc goes back from the repair list (`repair`) and the mod menu (`item_mod`), Tab
@@ -876,9 +933,10 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, taken: Res<KeysTaken>, mut out: MessageWriter<PipBoyInput>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
-    if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
+    if taken.taken() || prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
     }
     for (k, p) in [(F1, Page::Stats), (F2, Page::Items), (F3, Page::Data)] {
@@ -897,8 +955,18 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, a
     }
 }
 
-fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
+fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut hud: Option<ResMut<crate::activate::HudMessage>>) {
     for &i in input.read() {
+        // The player's tweak: a click on the ITEMS tab already open changes the list's
+        // order [design: docs/design/tweaks.md].
+        if i == PipBoyInput::Tab(pip.tab()) && pip.page == Page::Items && tweaks.as_ref().is_some_and(|t| t.tab_click_sorts) {
+            pip.item_sort = pip.item_sort.next();
+            info!("pipboy: items {} (tweak)", pip.item_sort.line().to_lowercase());
+            if let Some(h) = hud.as_mut() {
+                h.show(pip.item_sort.line().to_string());
+            }
+            continue;
+        }
         let before = (pip.page, pip.tab());
         pip.apply(i);
         if (pip.page, pip.tab()) != before {
@@ -991,12 +1059,13 @@ pub fn crop_point(cursor: Vec2, centre: Vec2, size: Vec2) -> Option<Vec2> {
     (p.x >= 0.0 && p.y >= 0.0 && p.x < SCREEN_CROP.x && p.y < SCREEN_CROP.y).then_some(p)
 }
 
-/// The pointer on the flat image: the test aid's point, else the window's cursor.
-fn flat_point(aid: &PipBoyAid, windows: &Query<&Window, With<PrimaryWindow>>, computed: &ComputedNode, at: &UiGlobalTransform) -> Option<Vec2> {
+/// The pointer on the flat image: the test aid's point, else the window's cursor unless it
+/// sleeps under the controller (`crate::pad::pointer`).
+fn flat_point(aid: &PipBoyAid, windows: &Query<&Window, With<PrimaryWindow>>, sleeping: bool, computed: &ComputedNode, at: &UiGlobalTransform) -> Option<Vec2> {
     if let Some(AidTarget::Canvas(p)) = aid.target {
         return Some(p);
     }
-    let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position())?;
+    let cursor = windows.single().ok().filter(|_| !sleeping).and_then(|w| w.physical_cursor_position())?;
     crop_point(cursor, at.translation, computed.size())
 }
 
@@ -1011,13 +1080,14 @@ pub fn flat_pointer(
     flat: Query<(&ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     aid: Res<PipBoyAid>,
+    pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
 ) {
     let Some(mut screen) = screen else { return };
     if pointer_source(pip.frame, screen.on_model) != PointerSource::Flat {
         return;
     }
     let Some((computed, at)) = flat.iter().next().filter(|_| pip.phase == Phase::Up) else { return };
-    let now = flat_point(&aid, &windows, computed, at);
+    let now = flat_point(&aid, &windows, crate::pad::pointer::asleep(pad_pointer.as_deref()), computed, at);
     if screen.pointer != now {
         screen.pointer = now;
     }
@@ -1032,10 +1102,12 @@ fn drive_pointer(
     screen: Option<Res<PipBoyScreen>>,
     mut last: Local<Option<Vec2>>,
     mut spawned: Local<bool>,
-    mut window_events: MessageReader<WindowEvent>,
+    (mut window_events, switching): (MessageReader<WindowEvent>, Option<Res<crate::pad::SwitchingInput>>),
     mut out: MessageWriter<PointerInput>,
     mut aid: ResMut<PipBoyAid>,
+    mut moved: ResMut<PointerMoved>,
 ) {
+    moved.set_if_neq(PointerMoved(false));
     let Some(screen) = screen else { return };
     if !*spawned {
         commands.spawn(PIPBOY_POINTER);
@@ -1047,12 +1119,16 @@ fn drive_pointer(
     // Off the screen the pointer goes to a corner no node is in.
     let position = at.unwrap_or(Vec2::new(TARGET.x as f32 - 1.0, TARGET.y as f32 - 1.0));
     if Some(position) != *last {
+        moved.set_if_neq(PointerMoved(true));
         let delta = last.map_or(Vec2::ZERO, |l| position - l);
         out.write(PointerInput::new(PIPBOY_POINTER, Location { target: target.clone(), position }, PointerAction::Move { delta }));
         *last = Some(position);
     }
     for e in window_events.read() {
         let WindowEvent::MouseButtonInput(input) = e else { continue };
+        if switching.as_ref().is_some_and(|s| !s.allows_mouse(input)) {
+            continue;
+        }
         if at.is_none() {
             continue;
         }
@@ -1142,6 +1218,7 @@ mod tests {
             app.init_resource::<ButtonInput<KeyCode>>()
                 .init_resource::<crate::menu::PromptKeys>()
                 .init_resource::<ActiveMenu>()
+                .init_resource::<KeysTaken>()
                 .init_resource::<repair::PipRepair>()
                 .init_resource::<item_mod::PipItemMod>()
                 .add_message::<crate::menu::MenuInput>()
@@ -1189,6 +1266,24 @@ mod tests {
         world.resource_mut::<PipBoy>().warming = None;
         world.run_system_once(camera_on).unwrap();
         assert!(!world.get::<Camera>(camera).unwrap().is_active);
+    }
+
+    /// #2310: the screen's pointer counts as moved on the frame its place changes only.
+    #[test]
+    fn the_pointer_moved_only_on_the_frame_its_place_changed() {
+        let mut app = App::new();
+        app.add_message::<PointerInput>().add_message::<WindowEvent>().init_resource::<bevy::picking::pointer::PointerMap>();
+        app.insert_resource(PipBoy::default()).init_resource::<PipBoyAid>().init_resource::<PointerMoved>();
+        let camera = app.world_mut().spawn_empty().id();
+        app.insert_resource(PipBoyScreen { image: Handle::default(), camera, on_model: false, pointer: None, scale: 1.0 });
+        app.add_systems(Update, drive_pointer);
+        app.update();
+        assert_eq!(*app.world().resource::<PointerMoved>(), PointerMoved(true), "the first place");
+        app.update();
+        assert_eq!(*app.world().resource::<PointerMoved>(), PointerMoved(false), "at rest");
+        assert!(!hover_takes(Some(&PointerMoved(false))));
+        assert!(hover_takes(Some(&PointerMoved(true))));
+        assert!(hover_takes(None), "tools without the resource keep the hover");
     }
 
     #[test]

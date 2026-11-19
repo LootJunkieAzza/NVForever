@@ -53,6 +53,43 @@ behind the screen).
    bevy_render 0.20.1 `pipeline_cache.rs`], and more threads did not shorten the wait
    [observed: 1 to 16 threads, about 3.7-4.1 s to clear in all but one batch]. Objects first seen after the screen is down are not covered.
 
+7. Where the time went (#2407): when the screen comes down, `loading screen phases: up
+   <s> s; <wait> <s> s, ...; longest frame <s> s of <n>; read <files> files, <MB> MB, <s> s
+   reading, <s> s queued for an archive` (`LoadPhases`). Each wait (step 5's, plus the
+   start's scripts and Pip-Boy warm-up, and the two frames before the travel goes out) is
+   given the time from the screen coming up to the last frame it was still missing, so
+   the one that ends last is what held the screen. The longest frame says whether the work
+   was on the main thread; the reads are the game files' (`fnv_vfs::read_stats`, every
+   archive and loose file read, from the screen's first counted frame): the time inside
+   the reads, summed over the threads, and the time spent waiting for another thread's
+   read of the same archive. A load over 20 s sends the same in its `slow_load` report
+   (`phases`: `until_ms`, `longest_frame_ms`, `frames`, `read_files`, `read_mb`,
+   `read_ms`, `queued_ms`) [design].
+
+   Measured 2026-11-15 [observed: release build, i9-14900K, RTX 4070, Data on a SATA SSD,
+   48 GB RAM, the game files in the OS cache; one run each]:
+
+   | load | screen up | held last by | longest frame | files read |
+   |---|---|---|---|---|
+   | start in Goodsprings | 3.54 s | pipelines 3.27 s | 1.06 s | 1,361 (165 MB, 0.07 s) |
+   | start in Doc Mitchell's house | 2.42 s | pipelines 2.13 s | 0.55 s | 1,132 (54 MB) |
+   | Doc Mitchell's door out to Goodsprings | 2.48 s | pipelines 2.20 s, actors 1.95 s | 0.84 s | 2,106 (248 MB, 0.10 s) |
+   | Goodsprings into the Prospector Saloon (first time) | 0.85 s | pipelines 0.57 s | 0.30 s | 755 (66 MB) |
+   | the saloon's back door out | 0.76 s | pipelines 0.49 s | 0.39 s | 382 (35 MB) |
+   | into the saloon again | 0.29 s | the travel's frames | 0.02 s | 0 |
+   | a save in the saloon loaded (the run's start) | 2.40 s | pipelines 2.12 s | 0.59 s | 1,081 (47 MB) |
+
+   With the driver's shader cache empty (`__GL_SHADER_DISK_CACHE_PATH` set to an empty
+   folder, NVIDIA's Vulkan driver honours it) the same loads took 5.03 s, 1.26 s and 1.04 s:
+   pipeline compiles add 0.3-1.5 s here, not the 20-37 s the reports saw (#2407: an Intel
+   Core 5 210H laptop with an RTX 5050, an i5-14400F with an RTX 5060, an i7-11700K with an
+   Arc B580). Nothing on this machine is 5-10 times slower; the reads took 0.1 s because
+   the files were cached. [hypothesis] A slow or cold disk is the likeliest difference:
+   the door out of Doc Mitchell's reads 2,106 files, one at a time per archive, so a hard
+   disk at 8-10 ms a seek would spend 17-21 s on them alone. The reports' `read_ms` and
+   `queued_ms` will say: seconds of reading for a few hundred MB is the disk; a long
+   `pipelines` wait with little reading is shader compiles.
+
 The player arrives standing: physics puts the character on the support the arrival rule
 found and counts it as on the ground until its first step, so the body does not play the
 jump loop behind the screen and a landing when it comes down (`PhysState::arrive_player`).

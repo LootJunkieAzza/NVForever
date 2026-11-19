@@ -33,6 +33,11 @@ and/or other countries. *Fallout: New Vegas* was developed by Obsidian Entertain
 Gamebryo, Havok, SpeedTree, FaceGen, Bink, Steam, Windows and all other product and
 company names mentioned in this repository are trademarks of their respective owners.
 
+NVForever's logo (the "NVF" gear and padlock: `engine/nvforever/assets/icon.png`,
+`nvforever.ico` and `crates/nvf-launcher/assets/`) is the project's own, made by the owner
+with Google Gemini (owner, 2026-11-18, #3006). It uses no Fallout or Bethesda mark, art or
+game asset.
+
 These names are used only to say what NVForever is compatible with and which file formats
 and behaviours it describes. Their use does not imply any affiliation or endorsement, and
 the project claims no rights in them. The name "NVForever" refers to this project only.
@@ -85,8 +90,14 @@ NVForever follows a clean-room process, in the spirit of OpenMW.
    documentation, the xEdit project's record definitions (Mozilla Public License 2.0) and
    the niftools `nif.xml` description of NIF blocks. xEdit's definitions and `nif.xml`
    are read as documentation and re-expressed in this project's own data format
-   (`schemas/`); no code from either is included and none is generated from them
-   ([schemas/README.md](schemas/README.md)).
+   (`schemas/`); no code from either is included and no code is generated from them
+   ([schemas/README.md](schemas/README.md)). One data file is extracted from xEdit's
+   definitions by script: `tools/capture/script_functions.py --xedit` reads the script
+   functions' condition indices and parameter types from `wbDefinitionsFNV.pas` into
+   `schemas/script/functions.json` (names, numbers and types only, cited as `xedit_index`
+   or `xedit_param_types`), which the compiler's parameter table reads. That is the
+   definitions used as documentation, in data, not their code (owner decision 2026-11-18,
+   #3006).
 2. *The data files of a lawfully purchased copy.* We read the game's own archives and
    plugins and record what is in them: counts, layouts that decode with nothing left
    over, files that can be rewritten byte for byte.
@@ -148,6 +159,21 @@ enforced by `cargo deny` ([deny.toml](deny.toml),
 [docs/design/dependencies.md](docs/design/dependencies.md)). Every release archive
 carries `THIRD-PARTY-LICENSES.txt`: each package the programs are built from, its
 licence and where its source is, and the licence texts the packages ship.
+
+The launcher (`nvforever-launcher`) carries egui's fallback fonts (`epaint_default_fonts`:
+Hack, Ubuntu-Light, Noto Emoji and two icon fonts), unmodified, under their own licences,
+among them the SIL Open Font Licence 1.1 and the Ubuntu Font Licence 1.0. They are font data shipped beside the program,
+not part of NVForever's code, and keep their own licences; the owner allowed them on
+2026-11-15 (the exception in [deny.toml](deny.toml)). Their texts are in
+`THIRD-PARTY-LICENSES.txt`.
+
+`crates/nvf-dlss-files/src/nvngx_dlss.license.txt` is NVIDIA's licence text for
+its DLSS files, copied unchanged from NVIDIA's Streamline 2.14.16 release archive. It is
+NVIDIA's text, not under NVForever's licence, and is included only so that a player can read
+and accept it in the game or the launcher before choosing to download NVIDIA's files from NVIDIA's own
+release (Download DLSS…, [docs/dlss.md](docs/dlss.md)). NVForever ships no NVIDIA binary:
+the files come from NVIDIA's release on the player's request, and nothing of them is hosted,
+mirrored or bundled by the project.
 
 The capture plugin `nvf_capture` is a separate program that runs inside the original
 game. It is under the same licence with an additional permission under GPLv3 section 7

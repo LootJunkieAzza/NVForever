@@ -236,12 +236,37 @@ impl Game<'_> {
     /// Every frame: the player, the actors in the loaded cells and those that still have
     /// abilities' or worn enchantments' effects (to end them when they leave).
     pub(crate) fn sync_loaded_actor_effects(&mut self) {
-        let mut actors = self.package_actors();
-        actors.insert(FormId::PLAYER_REF);
-        actors.extend(self.effects.iter().filter(|e| e.worn.is_some() || self.is_ability_effect(e)).map(|e| e.target));
-        for a in actors {
+        for a in self.effects_actors() {
             self.sync_actor_effects(a);
         }
+    }
+
+    /// The actors [`Game::sync_loaded_actor_effects`] keeps up to date: the player, the
+    /// loaded ones among those the packages cover, the targets of abilities' and worn
+    /// enchantments' effects, and those with an ability dispelled while loaded (whose
+    /// dispel ends when they are not, `sync_abilities`).
+    ///
+    /// Not every actor that ever chose a package (#1992): [`Game::package_actors`] keeps
+    /// those for the periodic choice, so a long playthrough synced thousands of actors
+    /// out of the loaded area every frame, each a no-op once its effects had ended.
+    pub(crate) fn effects_actors(&self) -> std::collections::BTreeSet<FormId> {
+        // The loaded part of `package_actors`, built without its every-package-actor set:
+        // the loaded cells' actors and those moved or created into them, and the package
+        // actors that walked into one.
+        let placed = self.world.placed;
+        let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+        let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
+        for c in &self.loaded_cells {
+            actors.extend(placed.by_cell.get(c).into_iter().flatten().filter(|r| is_actor(r)));
+        }
+        actors.extend(self.moved.iter().filter(|r| is_actor(r)));
+        actors.extend(self.created_actors());
+        actors.extend(self.extra.iter().filter(|(r, e)| e.current_package.is_some() && is_actor(r)).map(|(r, _)| *r).filter(|r| self.cell_of(*r).is_some_and(|c| self.loaded_cells.contains(&c))));
+        actors.retain(|r| self.effects_loaded(*r));
+        actors.insert(FormId::PLAYER_REF);
+        actors.extend(self.effects.iter().filter(|e| e.worn.is_some() || self.is_ability_effect(e)).map(|e| e.target));
+        actors.extend(self.extra.iter().filter(|(_, x)| !x.dispelled.is_empty()).map(|(r, _)| *r));
+        actors
     }
 
     /// An inactive effect whose conditions now pass takes hold (value change, archetype,
@@ -286,5 +311,84 @@ impl Game<'_> {
         if let Some(e) = self.effects.iter_mut().find(|e| e.id == id) {
             e.inactive = true;
         }
+    }
+}
+
+/// #1992: the frame's effects sync on a long playthrough's state, measured on the
+/// owner's FalloutNV.esm: every placed actor has chosen a package (as after many hours
+/// played) while one cell is loaded. Times one frame's sync over the actors it covered
+/// before (every package actor, the player, the effects' targets) and over
+/// [`Game::effects_actors`]. Needs `NVF_DATA` (the game's Data folder); run with
+/// `cargo test --release -p fnv-game effects_sync_cost -- --ignored --nocapture`.
+#[cfg(test)]
+mod effects_sync_cost {
+    use crate::game::{Game, GameConfig};
+    use crate::GameData;
+    use fnv_esm::{LoadOrder, Plugin, Schema};
+    use fnv_script::FunctionTable;
+    use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+    use std::collections::BTreeSet;
+    use std::time::Instant;
+
+    fn frames(g: &mut Game<'_>, actors: &BTreeSet<FormId>, n: usize) -> f64 {
+        let t = Instant::now();
+        for _ in 0..n {
+            for &a in actors {
+                g.sync_actor_effects(a);
+            }
+        }
+        t.elapsed().as_secs_f64() * 1000.0 / n as f64
+    }
+
+    #[test]
+    #[ignore]
+    fn effects_sync_cost() {
+        let Ok(data_dir) = std::env::var("NVF_DATA") else { return };
+        let plugins = vec![Plugin::open(std::path::Path::new(&data_dir).join("FalloutNV.esm")).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let schema = Schema::load_dir(root.join("schemas/fnv")).unwrap();
+        let p = root.join("schemas/script/functions.json");
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+        let mut g = Game::new(&data, World::new(&forms, &refs, SimConfig::default()), GameConfig::default());
+        let actors: Vec<FormId> = refs.by_cell.values().flatten().copied().filter(|r| refs.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))).collect();
+        // The cell with the most actors is the loaded one.
+        let cell = refs.by_cell.iter().max_by_key(|(_, v)| v.iter().filter(|r| actors.contains(r)).count()).map(|(c, _)| *c).unwrap();
+        g.loaded_cells.insert(cell);
+        let package = FormId(0x0001_0001);
+        for &a in &actors {
+            g.extra.entry(a).or_default().current_package = Some(package);
+        }
+        // Settle once (abilities given, those out of the loaded cell ended).
+        let mut before = g.package_actors();
+        before.insert(FormId::PLAYER_REF);
+        for &a in &before {
+            g.sync_actor_effects(a);
+        }
+        let after = g.effects_actors();
+        // The same loaded actors as `package_actors` gives, with the player and the
+        // effects' targets.
+        let mut expected: BTreeSet<FormId> = g.package_actors().into_iter().filter(|r| g.effects_loaded(*r)).collect();
+        expected.insert(FormId::PLAYER_REF);
+        assert!(expected.is_subset(&after), "{:?}", expected.difference(&after).collect::<Vec<_>>());
+        let (old_ms, new_ms) = (frames(&mut g, &before, 5), frames(&mut g, &after, 5));
+        let t = Instant::now();
+        for _ in 0..5 {
+            std::hint::black_box(g.effects_actors());
+        }
+        let set_ms = t.elapsed().as_secs_f64() * 1000.0 / 5.0;
+        println!("effects sync: the set itself takes {set_ms:.2} ms to build");
+        println!(
+            "effects sync, one frame: {} actors {old_ms:.2} ms -> {} actors {new_ms:.2} ms ({} placed actors with a package, {} effects)",
+            before.len(),
+            after.len(),
+            actors.len(),
+            g.effects.len()
+        );
+        assert!(after.len() < before.len());
+        assert!(after.contains(&FormId::PLAYER_REF));
     }
 }

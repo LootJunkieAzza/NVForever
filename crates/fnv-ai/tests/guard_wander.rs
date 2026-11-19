@@ -84,6 +84,8 @@ const GUARD: u8 = 14;
 // Location types [documented: xEdit PACK PLDT]: near reference 0, near current 2.
 const NEAR_REF: i32 = 0;
 const NEAR_CURRENT: i32 = 2;
+/// Near the editor location (location type 3) [documented: xEdit PACK PLDT].
+const NEAR_EDITOR: i32 = 3;
 /// "In cell" (location type 1), whose radius the editor greys out.
 const IN_CELL: i32 = 1;
 
@@ -106,6 +108,7 @@ const P_GUARD_IN_CELL: u32 = 0x82A;
 const P_GUARD_1: u32 = 0x82B;
 const P_GUARD_15: u32 = 0x82C;
 const P_GUARD_16: u32 = 0x82D;
+const P_GUARD_EDITOR: u32 = 0x82E;
 
 const N_GUARD: u32 = 0x840;
 const N_ZERO: u32 = 0x841;
@@ -121,6 +124,8 @@ const N_IN_CELL: u32 = 0x84A;
 const N_TINY_1: u32 = 0x84B;
 const N_TINY_15: u32 = 0x84C;
 const N_TINY_16: u32 = 0x84D;
+/// Never placed: created at run time (#2278).
+const N_SPAWNED: u32 = 0x84E;
 
 const YARD: u32 = 0x860;
 const WALLED: u32 = 0x861;
@@ -194,6 +199,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_GUARD_1, "GuardThePostOnTheSpot", GUARD, 0, (NEAR_REF, MARK_POST, 1), None),
         pack(P_GUARD_15, "GuardThePostAlmost", GUARD, 0, (NEAR_REF, MARK_POST, 15), None),
         pack(P_GUARD_16, "GuardThePostJust", GUARD, 0, (NEAR_REF, MARK_POST, 16), None),
+        pack(P_GUARD_EDITOR, "GuardWhereItWasMade", GUARD, 0, (NEAR_EDITOR, 0, RADIUS as i32), None),
     ]
     .concat();
     let npcs = [
@@ -212,6 +218,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_TINY_1, "SpotGuard", &[P_GUARD_1]),
         npc(N_TINY_15, "AlmostGuard", &[P_GUARD_15]),
         npc(N_TINY_16, "JustGuard", &[P_GUARD_16]),
+        npc(N_SPAWNED, "SpawnedGuard", &[P_GUARD_EDITOR]),
     ]
     .concat();
     // A chair (marker flags bit 30), a bed (bit 31) and an idle marker inside the post's
@@ -745,4 +752,29 @@ fn a_radius_below_the_floor_stands_and_the_floor_wanders() {
     let walked = s.ai.agents[&FormId(R_TINY_16)].walker.travelled;
     assert!(walked > 48.0, "walked {walked}");
     assert!(farthest <= 16.0 + 1.0, "went {farthest} from the post");
+}
+
+/// A created actor (PlaceAtMe; no placement in the plugins) whose package is near its
+/// editor location keeps to the spot where it was created (#2278): moved away before its
+/// AI starts, it walks back there and wanders inside the radius, where before it had "no
+/// editor location" and stood still.
+#[test]
+fn a_created_actor_keeps_to_where_it_was_made() {
+    let f = fixture();
+    let mut s = sim(&f, &[]);
+    let made = s.game.world.place(FormId(N_SPAWNED), Some(FormId(YARD)), POST, [0.0; 3], 1).unwrap();
+    assert!(made.is_dynamic());
+    s.game.world.get(made).unwrap().pos = FAR;
+    s.ai.add(&s.game, made).unwrap();
+    s.run(60.0);
+    let mut farthest = 0.0f32;
+    for _ in 0..120 {
+        s.run(0.5);
+        farthest = farthest.max(dist(s.ai.agents[&made].walker.feet, POST));
+    }
+    let events = s.ai.events.iter().filter(|e| e.actor == made).map(|e| &e.event).collect::<Vec<_>>();
+    assert!(!format!("{events:?}").contains("no editor location"), "{events:?}");
+    assert!(farthest <= RADIUS + 1.0, "went {farthest} from where it was made");
+    let sb = s.ai.agents[&made].sandbox.as_ref().expect("the guard's wander");
+    assert_eq!(sb.area(), (fnv_nav::Place { space: Space::Interior(YARD), pos: POST }, RADIUS));
 }

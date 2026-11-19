@@ -299,7 +299,7 @@ struct Sweeps {
     hints: ImageHints,
     parts: Unused<String>,
     part_materials: Unused<(String, usize, String)>,
-    textures: Unused<(String, bool, bool)>,
+    textures: Unused<(String, crate::texture::TextureUsage, bool)>,
 }
 
 /// Sweep now, `passes` frames in a row, with these limits instead of the [`KeepLimits`]

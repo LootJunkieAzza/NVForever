@@ -7,18 +7,22 @@
 //! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low (or the slowest frame, a choice) of the last 10 s; while frame generation shows generated frames, the frames shown and the rendered ones apart, the times the rendered frames' ([`readings::fps_text`]) | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]); frame generation's count of generated frames shown (`frame_gen::GeneratedFrames`) |
 //! | graph (off) | the last 5 s of frame times as a line | the same frame times ([`graph`]) |
 //! | SPLIT (off) | a frame's main-thread, render-thread (with its wait for the window's image) and GPU time | the schedules' spans and GPU timestamps ([`split`]) |
-//! | CPU  | the machine's use, and the game's own as cores kept busy | Windows' performance counters; the process's processor time ([`usage`]) |
-//! | GPU  | the busiest engine's use | Windows' performance counters ([`usage`]) |
+//! | CPU  | the machine's use, and the game's own as cores kept busy | Windows PDH or Linux `/proc`; process time ([`usage`]) [design] |
+//! | GPU  | device use, or game-only use labelled `game` | Windows PDH; Linux NVML, amdgpu or DRM fdinfo ([`usage`]) [design, #2249] |
 //! | VRAM | this process's GPU memory against the budget | `memory_budget.rs`'s check every 2 s (`MemoryBudget::vram_use_mb`) |
 //! | RAM  | the game's working set, the machine's RAM in use | the process's memory counters ([`usage`]); `memory_budget.rs`'s check |
 //! | LOADED (off) | cells, references drawn, actors, entities | the stress samples' counts (`stress_sample::LoadedCounts`) |
+//! | UPSCALING (off) | the upscaler that draws, its mode, the render and output size, for DLSS the model asked for ([`readings::upscale_text`]) | the effective choice (`upscaler::effective_temporal`), `Graphics::dlss_model`, what the render world drew the main camera with (`upscaler::UpscaleDrawn`), the window's size [design, #2242] |
 //!
 //! The settings page's Frame rate counter switch and `--fps` show it (off by default);
 //! the rows are its own
-//! switches. A row with nothing to read (no GPU budget on an integrated GPU; off Windows
-//! the counters' rows) is left out, and nothing is read while the overlay is hidden: the
+//! switches. [design, #2249] Missing CPU/GPU readings say `Not available`; other rows
+//! with nothing to read are left out. Nothing is read while the overlay is hidden: the
 //! frame times are kept only while the FPS or the graph row is on, the split's spans
-//! taken only while its row is on, the counts read only at a reading of their row.
+//! taken only while its row is on, the counts read only at a reading of their row. The
+//! upscaling row is read every frame while it is on (a lock and a few resources), so it
+//! follows a switch or a fallback within a frame or two; the log says each new text
+//! (`fps counter: upscaling …`).
 //! Frame generation's count of generated frames, one number, is noted every frame all the
 //! same, so that the first window of a showing counts them from where its first frame time
 //! begins ([`readings::Frames::note_generated`]). Not in the original [engineering choice,
@@ -35,7 +39,7 @@
 //! too ([`log_every`]).
 //!
 //! - [`readings`]: the numbers and the rows' text (pure, tested).
-//! - [`usage`]: the sampler thread for what Windows gives.
+//! - [`usage`]: the Windows/Linux sampler thread [design].
 //! - [`split`]: the frame split's spans and GPU times.
 //! - [`graph`]: the frame graph's pixels.
 //! - [`draw`]: the panel.
@@ -44,7 +48,11 @@
 //! draws other than a line of text, a part of [`draw`].
 
 mod draw;
+#[cfg(any(target_os = "linux", test))]
+mod drm_usage;
 mod graph;
+#[cfg(target_os = "linux")]
+mod nvml;
 mod readings;
 mod split;
 mod usage;
@@ -52,14 +60,18 @@ mod usage;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 
+use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 
 use crate::frame_gen::GeneratedFrames;
+use crate::fsr::FsrSupport;
+use crate::graphics::Graphics;
 use crate::memory_budget::MemoryBudget;
 use crate::stress_sample::LoadedCounts;
+use crate::upscaler::{UpscaleDrawn, UpscalerStatus};
 pub use readings::{Low, Rows};
 use readings::{Frames, Readings};
 
@@ -83,6 +95,8 @@ struct Overlay {
     usage: Option<Arc<usage::Shared>>,
     logged: bool,
     usage_logged: bool,
+    usage_status_logged: bool,
+    usage_waited: u32,
     process_logged: bool,
     split_logged: bool,
     /// Readings the split's first line waited for its GPU time.
@@ -174,10 +188,78 @@ fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<spl
     overlay.fresh = true;
 }
 
-fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res<GeneratedFrames>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>, timing: split::SplitInputs, counts: LoadedCounts) {
+/// The generated frames presented since the start, for the frame rate row
+/// ([`readings::Frames::note_generated`], its only consumer): FSR's frame generation's count
+/// (`frame_gen::GeneratedFrames`); none without frame generation. DLSS Frame Generation, once
+/// it exists, adds the frames Streamline presents itself here (#2242's second item), so the
+/// row keeps showing the frames shown and the rendered ones apart.
+fn generated_count(fsr: Option<&GeneratedFrames>) -> Option<u64> {
+    fsr.map(|g| g.0.load(Ordering::Relaxed))
+}
+
+/// What the upscaling row reads ([`readings::Upscale`]): the main world's effective choice,
+/// the DLSS model asked for, what the render world drew and the primary window's size.
+#[derive(SystemParam)]
+struct UpscaleInputs<'w, 's> {
+    graphics: Option<Res<'w, Graphics>>,
+    fsr: Option<Res<'w, FsrSupport>>,
+    status: Option<Res<'w, UpscalerStatus>>,
+    drawn: Option<Res<'w, UpscaleDrawn>>,
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+}
+
+impl UpscaleInputs<'_, '_> {
+    /// None without the graphics settings (a run that draws nothing).
+    fn read(&self) -> Option<readings::Upscale> {
+        let graphics = self.graphics.as_ref()?;
+        let effective = crate::upscaler::effective_temporal(graphics.fsr(), self.fsr.as_ref().is_some_and(|s| s.0), self.status.as_deref());
+        Some(readings::Upscale {
+            effective,
+            model: graphics.dlss_model,
+            drawn: self.drawn.as_ref().and_then(|d| d.get()),
+            window: self.windows.single().ok().map(|w| w.physical_size()),
+        })
+    }
+}
+
+/// The upscaling row's reading now, while it is on: set (and the panel set again) when it
+/// changed, and its text logged when that changed (`fps counter: upscaling …`); let go while
+/// the row is off, so that turning it on logs it again.
+fn follow_upscale(o: &mut Overlay, on: bool, now: impl FnOnce() -> Option<readings::Upscale>) {
+    if !on {
+        o.readings.upscale = None;
+        return;
+    }
+    let now = now();
+    if now == o.readings.upscale {
+        return;
+    }
+    // Logged when the text changes, leaving out the `<choice>  --` of a switch the render world
+    // has not drawn yet (one or two frames) or of a loading screen, so a switch logs only where it
+    // lands (a return to the same text after a loading screen logs it again).
+    let text = now.as_ref().map(readings::upscale_text);
+    let changed = text != o.readings.upscale.as_ref().map(readings::upscale_text);
+    if let Some(t) = text.as_deref().filter(|t| changed && !t.ends_with("  --")) {
+        info!("fps counter: upscaling {t}");
+    }
+    o.readings.upscale = now;
+    o.dirty = true;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sample(
+    counter: Res<FpsCounter>,
+    time: Res<Time<Real>>,
+    generated: Option<Res<GeneratedFrames>>,
+    budget: Option<Res<MemoryBudget>>,
+    mut overlay: ResMut<Overlay>,
+    timing: split::SplitInputs,
+    counts: LoadedCounts,
+    upscale: UpscaleInputs,
+) {
     // Frame generation's count, noted every frame after the frame's time, the overlay
     // shown or not ([`readings::Frames::note_generated`]).
-    let generated = generated.map(|g| g.0.load(Ordering::Relaxed));
+    let generated = generated_count(generated.as_deref());
     if !counter.show {
         overlay.frames.note_generated(generated);
         return;
@@ -190,6 +272,8 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
     u.set_want(rows.cpu, rows.gpu, rows.cpu, rows.ram);
     let due = overlay.step(&rows, time.delta_secs());
     overlay.frames.note_generated(generated);
+    // The upscaling row every frame, outside the half-second window.
+    follow_upscale(&mut overlay, rows.upscale, || upscale.read());
     if !due {
         return;
     }
@@ -202,7 +286,8 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
     let vram_share = vram_mb.map(|(used, b)| used as f64 / b.max(1) as f64);
     let (vram_warn, ram_warn) = readings::pressed_rows(budget.as_ref().is_some_and(|b| b.pressed), vram_share, ram_share);
     let o = &mut *overlay;
-    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn, split, loaded };
+    let upscale = o.readings.upscale.take();
+    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, gpu_game: got.gpu_game, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn, split, loaded, upscale };
     o.dirty = true;
     if let (false, Some(frame)) = (o.logged, frame) {
         o.logged = true;
@@ -220,7 +305,15 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
     // line says which were found), and a line without it said once would never say it.
     if !o.usage_logged && got.cpu.is_some() && got.gpu.is_some() {
         o.usage_logged = true;
-        info!("fps counter: first usage reading{}", usage_text(got.cpu, got.gpu));
+        info!("fps counter: first usage reading{}", usage_text(got.cpu, got.gpu, got.gpu_game));
+    }
+    // [design, #2249] Bound the initial wait so unsupported systems also log each part.
+    if !o.usage_status_logged && rows.cpu && rows.gpu {
+        o.usage_waited += 1;
+        if (got.cpu.is_some() && got.gpu.is_some()) || o.usage_waited >= USAGE_WAIT {
+            o.usage_status_logged = true;
+            info!("fps counter: usage availability{}", usage_text(got.cpu, got.gpu, got.gpu_game));
+        }
     }
     if let (false, Some(cores), Some(ram_mb)) = (o.process_logged, got.cores, got.ram_mb) {
         o.process_logged = true;
@@ -249,6 +342,9 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res
 /// The readings (half a second each) the split's first line waits for a GPU time that is
 /// to come [design].
 const SPLIT_GPU_WAIT: u32 = 10;
+
+/// [design, #2249] Half-second updates to await initial usage before logging missing parts.
+const USAGE_WAIT: u32 = 10;
 
 /// `NVF_FPS_LOG=<seconds>`: the readings in the log as the overlay shows them ([`rows_log`]),
 /// the first reading of each showing and then at most every `<seconds>` (at the next
@@ -287,16 +383,21 @@ fn split_log(s: &readings::Split) -> String {
     out
 }
 
-/// `  CPU 34%  GPU 71%`, each part only when it was read (the log's wording since #1704).
-fn usage_text(cpu: Option<f32>, gpu: Option<f32>) -> String {
-    let mut s = String::new();
-    if let Some(c) = cpu {
-        s += &format!("  CPU {c:.0}%");
-    }
-    if let Some(g) = gpu {
-        s += &format!("  GPU {g:.0}%");
-    }
-    s
+/// [design, #2249] English log text; each missing part is explicit. Windows' successful
+/// numeric line stays unchanged; DRM client readings name their game-only scope.
+fn usage_text(cpu: Option<f32>, gpu: Option<f32>, gpu_game: bool) -> String {
+    let cpu = cpu.map_or_else(|| "Not available".to_string(), |c| format!("{c:.0}%"));
+    let gpu = gpu.map_or_else(
+        || "Not available".to_string(),
+        |g| {
+            if gpu_game {
+                format!("game {g:.0}%")
+            } else {
+                format!("{g:.0}%")
+            }
+        },
+    );
+    format!("  CPU {cpu}  GPU {gpu}")
 }
 
 /// What the panel was last set with: its kit, its width this showing, the HUD colour, the
@@ -419,14 +520,63 @@ mod tests {
         let on = Rows { graph: true, ..Rows::default() };
         assert_eq!(rows_log(&readings::rows(&r, &on)), "FPS 156  (78 rendered)  12.8 ms  1% low 14.0; CPU 34%  game 1.6 cores; GPU 71%; VRAM! 10.9 / 11.4 GB");
         let plain = Readings { frame: r.frame.map(|f| readings::FrameReading { shown_fps: None, ..f }), ..Readings::default() };
-        assert_eq!(rows_log(&readings::rows(&plain, &on)), "FPS 78  12.8 ms  1% low 14.0");
+        assert_eq!(rows_log(&readings::rows(&plain, &on)), "FPS 78  12.8 ms  1% low 14.0; CPU Not available; GPU Not available");
         assert_eq!(rows_log(&[]), "");
+        // The upscaling row last, as `NVF_FPS_LOG` logs it.
+        use crate::upscaler::{DlssModel, DrawnUpscale, UpscaleQuality, UpscalerChoice};
+        let fsr = UpscalerChoice::Fsr(UpscaleQuality::Quality);
+        let upscale = readings::Upscale {
+            effective: fsr,
+            model: DlssModel::Default,
+            drawn: Some(DrawnUpscale::Upscaled { choice: fsr, render: UVec2::new(853, 480), output: UVec2::new(1280, 720) }),
+            window: Some(UVec2::new(1280, 720)),
+        };
+        let with = Readings { upscale: Some(upscale), ..r.clone() };
+        let log = rows_log(&readings::rows(&with, &Rows { upscale: true, ..on }));
+        assert!(log.starts_with("FPS 156  (78 rendered)"), "{log}");
+        assert!(log.ends_with("; UPSCALING FSR 3.1 Quality  853x480 -> 1280x720"), "{log}");
     }
 
     #[test]
-    fn usage_text_shows_what_was_read() {
-        assert_eq!(usage_text(None, None), "");
-        assert_eq!(usage_text(Some(34.4), Some(70.6)), "  CPU 34%  GPU 71%");
-        assert_eq!(usage_text(None, Some(5.0)), "  GPU 5%");
+    fn the_upscaling_row_follows_every_frame_and_lets_go_while_off() {
+        use crate::upscaler::{DlssModel, UpscalerChoice};
+        let mut o = Overlay::default();
+        let off = readings::Upscale { effective: UpscalerChoice::Off, model: DlssModel::Default, drawn: None, window: Some(UVec2::new(1280, 720)) };
+        // Off: nothing read, nothing kept.
+        follow_upscale(&mut o, false, || panic!("not read while the row is off"));
+        assert_eq!(o.readings.upscale, None);
+        assert!(!o.dirty);
+        // On: read and the panel set again.
+        follow_upscale(&mut o, true, || Some(off));
+        assert_eq!(o.readings.upscale, Some(off));
+        assert!(std::mem::take(&mut o.dirty));
+        // The same reading: nothing to set.
+        follow_upscale(&mut o, true, || Some(off));
+        assert!(!o.dirty);
+        // A model change while FSR or nothing draws reads the same text but is kept.
+        let k = readings::Upscale { model: DlssModel::K, ..off };
+        follow_upscale(&mut o, true, || Some(k));
+        assert_eq!(o.readings.upscale, Some(k));
+        // Off again: let go.
+        follow_upscale(&mut o, false, || None);
+        assert_eq!(o.readings.upscale, None);
+    }
+
+    #[test]
+    fn the_generated_count_is_fsr_frame_generations() {
+        assert_eq!(generated_count(None), None, "no frame generation");
+        let g = GeneratedFrames::default();
+        g.0.store(42, Ordering::Relaxed);
+        assert_eq!(generated_count(Some(&g)), Some(42));
+    }
+
+    #[test]
+    fn usage_text_explains_missing_parts_and_game_scope() {
+        assert_eq!(usage_text(Some(34.0), None, false), "  CPU 34%  GPU Not available");
+        assert_eq!(usage_text(Some(34.0), Some(71.0), true), "  CPU 34%  GPU game 71%");
+        assert_eq!(usage_text(None, None, true), "  CPU Not available  GPU Not available");
+        assert_eq!(usage_text(None, None, false), "  CPU Not available  GPU Not available");
+        assert_eq!(usage_text(Some(34.4), Some(70.6), false), "  CPU 34%  GPU 71%");
+        assert_eq!(usage_text(None, Some(5.0), false), "  CPU Not available  GPU 5%");
     }
 }

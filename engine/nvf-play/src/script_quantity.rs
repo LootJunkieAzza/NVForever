@@ -37,6 +37,20 @@ pub struct ScriptQuantity {
     drawn: Option<(i32, i32)>,
 }
 
+impl ScriptQuantity {
+    /// [design, #2403 / file refs] Logical amount/limit, excluding the redraw cache.
+    pub fn progress(&self) -> Option<(i32, i32)> {
+        self.open
+    }
+
+    /// [design, #2403] Synthetic amount/redraw state for detector regressions.
+    #[cfg(feature = "report-test-support")]
+    #[doc(hidden)]
+    pub fn report_progress_fixture(step: usize) -> Self {
+        Self { open: Some((if step >= 1 { 2 } else { 1 }, 3)), drawn: (step >= 2).then_some((2, 3)) }
+    }
+}
+
 #[derive(Component)]
 struct QuantityRoot;
 
@@ -45,12 +59,13 @@ type AmountPress = (&'static PointerState, &'static bevy::ui::RelativeCursorPosi
 
 #[allow(clippy::too_many_arguments)]
 fn keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     mut st: ResMut<ScriptQuantity>,
     script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     (buttons, meter): (Query<AmountButton, Changed<PointerState>>, Query<AmountPress, With<crate::menu::AmountMeter>>),
 ) {
+    let keys = keys.snapshot();
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let asked = rt.game.quantity_ask().filter(|_| rt.game.menu == Some(menus::QUANTITY)).map(|a| (a.initial, a.max));
     let Some((initial, most)) = asked else {
@@ -131,5 +146,5 @@ fn draw(
     let words = crate::menu::look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
     let q = Quantity { cmd: Command::One, side: Side::Player, row: 0, max: most, amount, label: None };
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-    commands.spawn((QuantityRoot, screen, GlobalZIndex(crate::tiles::draw::QUANTITY_Z))).with_children(|s| crate::menu::look::spawn_quantity(s, &q, &words, kit, data.as_deref(), &mut images, bc, &glyphs));
+    commands.spawn((QuantityRoot, screen, GlobalZIndex(crate::tiles::draw::QUANTITY_Z))).with_children(|s| crate::menu::look::spawn_quantity(s, &q, &words, kit, data.as_deref(), &mut images, bc, &glyphs, None));
 }

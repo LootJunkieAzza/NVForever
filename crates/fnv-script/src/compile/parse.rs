@@ -55,6 +55,12 @@ pub enum Kw {
     /// `if eval <expression>` / `elseif eval …` [documented: Eval].
     IfEval(Vec<XTok>),
     ElseIfEval(Vec<XTok>),
+    /// `eval <expression>` on a line of its own: the tokens after `eval`. The expression
+    /// is run for what it does, an assignment included (`eval iTemp = iTemp * (1 - …)`,
+    /// `eval Quest.rRef.Activate PlayerRef 1`) [documented: Eval, an NVSE-aware command
+    /// taking an expression; observed: JustAssortedMods.esp 4.6 ships 32 such lines with
+    /// compiled bytes, two of them assignments].
+    Eval(Vec<XTok>),
     /// `while <condition>` [documented: While].
     While(Vec<XTok>),
     /// `foreach <var> <- <source>` [documented: ForEach]: the tokens after `foreach`.
@@ -68,12 +74,13 @@ pub enum Kw {
     GoTo(i32),
 }
 
-/// The assignments the Let macro takes without `let` [documented: Let Macro], and `/=`
-/// [observed: JustAssortedMods.esp SCPT 0x04A80B, `fAP /= GetNumericGameSetting …`
-/// beside `fAP *= …`, compiled in the original], and `:=` [hypothesis: Scaled Recurring
-/// Challenges' UDF, `fNewThreshold := (…)` alone on a line, and its installer check shows
-/// "There was a problem compiling" when CompileScript gives no script, so the line
-/// compiles in the original].
+/// The assignments the Let macro takes without `let` [documented: Let Macro: `=`, `+=`,
+/// `-=`, `*=`; observed: `/=`, JustAssortedMods.esp 4.6 ships `fAP /= GetNumericGameSetting
+/// …` (JBTOnFireWeaponUDF) with compiled bytes, so the original's compiler takes it; `:=`,
+/// thirteen units of the owner's Blue Moon list (TLD_Travelers.esm `doOnce := 1`,
+/// DryWellsReloaded.esm `Quest.iObjectivePoint := 1`, DefenderRifle.esp `rContainer :=
+/// GetContainer`, …) ship compiled bytes where the line is the same Let as with `let`
+/// (#2275)].
 const MACRO_OPS: [&str; 6] = ["=", ":=", "+=", "-=", "*=", "/="];
 
 /// A line of the extender's grammar, by its first words.
@@ -81,10 +88,11 @@ fn extender(l: &Line) -> Option<Kw> {
     let head = l.toks[0].text.to_ascii_lowercase();
     let second = l.toks.get(1).map(|t| t.text.to_ascii_lowercase());
     match (head.as_str(), second.as_deref()) {
-        ("let", _) => Some(Kw::Let(xtokens(&l.text)[1..].to_vec())),
+        ("let", _) => Some(Kw::Let(spaced_assign(xtokens(&l.text)[1..].to_vec()))),
         ("if", Some("eval")) => Some(Kw::IfEval(xtokens(&l.text)[2..].to_vec())),
         ("elseif", Some("eval")) => Some(Kw::ElseIfEval(xtokens(&l.text)[2..].to_vec())),
-        ("while", _) => Some(Kw::While(xtokens(&l.text)[1..].to_vec())),
+        ("eval", Some(_)) => Some(Kw::Eval(xtokens(&l.text)[1..].to_vec())),
+        ("while", _) =>Some(Kw::While(xtokens(&l.text)[1..].to_vec())),
         ("foreach", _) => Some(Kw::ForEach(xtokens(&l.text)[1..].to_vec())),
         ("loop", None) => Some(Kw::Loop),
         ("break", None) => Some(Kw::Break),
@@ -116,6 +124,17 @@ fn extender(l: &Line) -> Option<Kw> {
     }
 }
 
+/// A `let`'s `:` and `=` written apart (`Let r : = …`) are its `:=` [observed: Hymn of
+/// The New West.esp ships `Let rVaultTerminal : = (GetFormFromMod …)` with compiled bytes
+/// where the line is the same Let as its neighbours' `:=`, #2275].
+fn spaced_assign(mut x: Vec<XTok>) -> Vec<XTok> {
+    if let Some(i) = (0..x.len().saturating_sub(1)).find(|&i| x[i].is(XKind::Op, ":") && x[i + 1].is(XKind::Op, "=")) {
+        x[i].text = ":=".into();
+        x.remove(i + 1);
+    }
+    x
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     pub line: usize,
@@ -130,7 +149,7 @@ impl Kw {
     /// The extender tokens of a `let`, `if eval`, `elseif eval`, `while` or `foreach` line.
     fn xtoks_mut(&mut self) -> Option<&mut Vec<XTok>> {
         match self {
-            Kw::Let(t) | Kw::IfEval(t) | Kw::ElseIfEval(t) | Kw::While(t) | Kw::ForEach(t) => Some(t),
+            Kw::Let(t) | Kw::IfEval(t) | Kw::ElseIfEval(t) | Kw::Eval(t) | Kw::While(t) | Kw::ForEach(t) => Some(t),
             _ => None,
         }
     }
@@ -139,7 +158,7 @@ impl Kw {
     /// script-compiler.md §8).
     pub fn extended(&self) -> bool {
         match self {
-            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue | Kw::Label(_) | Kw::GoTo(_) => true,
+            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::Eval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue | Kw::Label(_) | Kw::GoTo(_) => true,
             Kw::Decl { ty, init, .. } => matches!(ty, DeclType::String | DeclType::Array) || init.is_some(),
             // `Begin _GameMode`: a compiler-override block [documented: Script Compiler Override].
             Kw::Begin { block, .. } => block.starts_with('_') || block.eq_ignore_ascii_case("function"),
@@ -200,8 +219,12 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
             w => match DeclType::from_word(w) {
                 Some(ty) => {
                     let x = xtokens(&l.text);
+                    // A compound assignment declares and assigns too (`float fChance +=
+                    // rand fMin, fMax`) [observed: Vegas Elysium.esp ships that line with
+                    // compiled bytes adding Rand's value to the one variable, #2275; read
+                    // as a plain declaration it declared `rand` and the bounds as floats].
                     match x.get(2) {
-                        Some(eq) if eq.is(XKind::Op, "=") || eq.is(XKind::Op, ":=") => {
+                        Some(eq) if eq.kind == XKind::Op && (MACRO_OPS.contains(&eq.text.as_str()) || ["^=", "|=", "&=", "%="].contains(&eq.text.as_str())) => {
                             Kw::Decl { ty, names: vec![x[1].text.clone()], init: Some(x[1..].to_vec()) }
                         }
                         _ => Kw::Decl { ty, names: rest.iter().filter(|t| t.kind == Kind::Word).map(|t| t.text.clone()).collect(), init: None },
@@ -213,8 +236,13 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     };
     // A call's inline expressions may declare (`Fn (float f)`); the code generator reads
     // the line again and drops the type word there.
+    // So may a declaration's value (`int n = Ar_Size (array_var a = GetFiles …)`): the
+    // inline one is declared with the line's, so that a lambda's later lines find it
+    // [observed: B42 Interact's ln_B42Interact.txt runs in the original with such a line
+    // in an event handler's lambda and `xkR = ar_null` after it].
     let decls = match &kw {
         Kw::Call(_) if toks.iter().any(|t| t.kind == Kind::Open) => inline_decls(&mut xtokens(&l.text)),
+        Kw::Decl { init: Some(x), .. } => inline_decls(&mut x[1..].to_vec()),
         _ => Vec::new(),
     };
     Ok(Statement { line: l.no, kw, text: l.text.clone(), decls })

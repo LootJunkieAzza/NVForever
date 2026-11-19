@@ -15,7 +15,9 @@
 //! - **Sound** = falloff · fSneakSoundsMult · (movement + action), the falloff further ×
 //!   fSneakSoundLosMult without line of sight; movement is 0 standing still, else
 //!   (fSneakBootWeightBase + fSneakBootWeightMult · body armour weight) × fSneakRunningMult
-//!   when running; action = the loudest action sound × fSneakActionMult;
+//!   when running; action = the loudest action sound × fSneakActionMult; none at all when
+//!   that noise is under the loudest sound of the world heard where the target is
+//!   (`Situation::sound_cover`, [`masked`]; #2688, NVForever's, not the original's);
 //! - **Visual** = falloff · seen · light · movement multiplier · blindness · stealth boy:
 //!   light = (fDetectionSneakLightMod + light level × night eye) · fSneakLightMult, night
 //!   eye = fDetectionNightEyeBonus (the product capped at 100) when the detector has Night
@@ -23,13 +25,12 @@
 //!   fSneakLightRunMult; blindness is always 1 in New Vegas; stealth boy =
 //!   fSneakStealthboyMult when the target's Invisibility or Chameleon is at least 1;
 //! - **Detector skill** = falloff · Perception skill · (1 + alert · fSneakAlertMod + asleep
-//!   · fSneakSleepBonus + combat target · fSneakCombatMod), Perception skill =
-//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10; "combat target" is
-//!   IsCombatTarget: the target is one the detector fights, so a fighter perceives its own
-//!   foes at 0.8 and anyone else at 1.2 [documented: the page's formula and the Fallout
-//!   Wiki's Sneak (New Vegas) page agree; the page's one-line description of
-//!   fSneakCombatMod says "against someone else", the other way round:
-//!   docs/design/detection.md §9];
+//!   · fSneakSleepBonus + in combat with someone else · fSneakCombatMod), Perception skill =
+//!   fSneakPerceptionSkillMin + (Max − Min) · Perception / 10. A fighter perceives its own
+//!   combat targets at 1.2 and anyone else at 0.8 [observed: captures run15b_t1 and
+//!   run15b_t2, 2026-11-15; docs/spec-notes/actor-behaviour.md §2.1a]. This follows the
+//!   GECK wiki Category:Detection description of fSneakCombatMod; its IsCombatTarget
+//!   formula has the direction reversed (docs/design/detection.md §9);
 //! - **Target skill** (New Vegas) = sneaking · (Sneak + iSneakLevelBonus · (target level −
 //!   detector level) + max(iSneakStartBonus − iSneakStartBonusLevelPenatly · target level,
 //!   0) − armour penalty), the penalty iMediumArmorStealthPenalty or
@@ -246,9 +247,10 @@ impl Settings {
         let a = self.attenuation(s.distance, s.exterior);
         let moving = s.moving || s.running;
 
-        // Sound.
+        // Sound: none when the world around the target is louder than it ([`masked`]).
         let sound_falloff = if s.line_of_sight { a } else { a * self.sound_los_mult };
-        let sound = sound_falloff * self.noise(p, moving, s.running, s.action_sound);
+        let noise = self.noise(p, moving, s.running, s.action_sound);
+        let sound = if masked(noise, s.sound_cover) { 0.0 } else { sound_falloff * noise };
 
         // Visual.
         let seen = s.line_of_sight && s.in_view;
@@ -264,7 +266,7 @@ impl Settings {
         let state = 1.0
             + if s.detector_alert { self.alert_mod } else { 0.0 }
             + if s.detector_asleep { self.sleep_bonus } else { 0.0 }
-            + if s.combat_target { self.combat_mod } else { 0.0 };
+            + if s.in_combat_with_someone_else { self.combat_mod } else { 0.0 };
         let detector_skill = a * perception_skill * state;
         // The target's Sneak counts only against an actor that sees it, or hears it: an
         // unseen, silent target reads the same sneaking or standing, by distance alone
@@ -288,6 +290,14 @@ impl Settings {
         let value = self.base_value + sound + visual + self.skill_mult * (detector_skill - target_skill);
         Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen), clear: s.line_of_sight }
     }
+}
+
+/// Whether the world's sound covers a target's own: its noise ([`Settings::noise`]) under
+/// the loudest sound heard where it is, `cover`, in the same units (#2688) [design: not the
+/// original's; the owner's request 2026-11-15]. A silent target is not "masked": it makes
+/// no sound to hide.
+pub fn masked(noise: f64, cover: f64) -> bool {
+    noise > 0.0 && noise < cover
 }
 
 /// What a detection round keeps ([`Game::begin_detection_round`]).
@@ -403,12 +413,17 @@ pub struct Situation {
     pub sneaking: bool,
     /// The loudest action sound the target made this moment (a shot: 100, 50 or 10).
     pub action_sound: f64,
+    /// The loudest sound of the world heard where the target is, in the units of its noise
+    /// ([`Settings::noise`]); a noise under it is not heard ([`masked`], #2688). 0: none.
+    pub sound_cover: f64,
     /// The detector is in a combat state (Alert, Combat or Lost).
     pub detector_alert: bool,
     pub detector_asleep: bool,
-    /// The target is one of the detector's combat targets, the detector in Combat
-    /// (IsCombatTarget; fSneakCombatMod applies).
-    pub combat_target: bool,
+    /// The detector is in Combat and the target is absent from its combat target list:
+    /// fSneakCombatMod applies [observed: captures run15b_t1 and run15b_t2, 2026-11-15;
+    /// docs/spec-notes/actor-behaviour.md §2.1a]. Lost does not qualify [design: §9 of
+    /// docs/design/detection.md].
+    pub in_combat_with_someone_else: bool,
     /// What GetLineOfSight reads when it differs from the sight above: the player's is the
     /// camera's, its detection the body's [observed: capture detection-2 det4, 2026-10-17,
     /// third person: player.GetDetected Ringo 1 to 90° off the facing on both sides, 0
@@ -499,6 +514,14 @@ impl Detections {
         self.highest_among(target, |_| true)
     }
 
+    /// The detectors `keep` accepts that have `target` in the detected band, the highest
+    /// detection value first.
+    pub fn detected_by(&self, target: FormId, keep: impl Fn(FormId) -> bool) -> Vec<FormId> {
+        let mut v: Vec<(FormId, f32)> = self.pairs.iter().filter(|((d, t), (det, _))| *t == target && det.band == Band::Detected && keep(*d)).map(|((d, _), (det, _))| (*d, det.value as f32)).collect();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.into_iter().map(|(d, _)| d).collect()
+    }
+
     /// [`Detections::highest`] among the detectors `keep` accepts.
     pub fn highest_among(&self, target: FormId, keep: impl Fn(FormId) -> bool) -> Option<(FormId, Detection)> {
         self.pairs
@@ -523,6 +546,13 @@ impl Game<'_> {
     /// Whether an actor not with the player ([`Game::with_player`]) has the player in the
     /// detected band at its latest measurement: the sneak word's `[DETECTED]`
     /// (docs/spec-notes/hud.md §9). A companion's own detection is kept for its AI (#1159).
+    /// The actors behind [`Game::player_detected_for_sneak`]: those not with the player
+    /// and alive that have the player in the detected band, the most sure first (the
+    /// player's Detected by Whom tweak, `nvf_play::hud`).
+    pub fn player_detectors_for_sneak(&self) -> Vec<FormId> {
+        self.detection.detected_by(FormId::PLAYER_REF, |d| !self.with_player(d) && !self.is_dead(d))
+    }
+
     pub fn player_detected_for_sneak(&self) -> bool {
         self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
     }
@@ -595,6 +625,10 @@ impl Game<'_> {
     /// profiles, 2026-10-23, docs/design/streaming-hitches.md §4]. Within a round nothing
     /// they read changes: the pairs only record detections and awareness.
     pub fn begin_detection_round(&mut self) {
+        // Crimes that expired since the last round end first (`crate::crime`, #2467),
+        // read against the clock of the game's world (the engine's round runs on the
+        // played world, `with_world`).
+        self.expire_crimes();
         self.detection_round = Some(Round { hostile: Some(HashMap::new()), ..Default::default() });
     }
 
@@ -619,7 +653,11 @@ impl Game<'_> {
     /// them afresh for every pair [observed: CPU profile of a 50-a-side battle,
     /// 2026-10-23, `Game::comrades` → `factions_of` in `npc_combat::fight`]. Scripts and
     /// crimes that change them forget them, so what is read is always what is current.
+    ///
+    /// Crimes that expired end first, read against the clock of the game's world: the
+    /// engine begins the frame on the played world (`with_world`).
     pub fn begin_faction_frame(&mut self) {
+        self.expire_crimes();
         self.faction_frame = Some(Default::default());
     }
 
@@ -731,6 +769,19 @@ mod tests {
     }
 
     #[test]
+    fn detected_by_lists_the_detected_band_most_sure_first() {
+        let mut d = Detections::default();
+        let me = FormId::PLAYER_REF;
+        let pair = |value: f64, band: Band| (Detection { value, band, ..Default::default() }, 0.0);
+        d.pairs.insert((FormId(10), me), pair(40.0, Band::Detected));
+        d.pairs.insert((FormId(11), me), pair(90.0, Band::Detected));
+        d.pairs.insert((FormId(12), me), pair(60.0, Band::Noticed));
+        d.pairs.insert((FormId(13), FormId(99)), pair(99.0, Band::Detected));
+        assert_eq!(d.detected_by(me, |_| true), vec![FormId(11), FormId(10)]);
+        assert_eq!(d.detected_by(me, |x| x != FormId(11)), vec![FormId(10)]);
+    }
+
+    #[test]
     fn falloff_reaches_zero_at_the_maximum_distance() {
         let s = Settings::default();
         assert!(near(s.attenuation(0.0, false), 1.0));
@@ -812,6 +863,26 @@ mod tests {
     }
 
     #[test]
+    fn a_louder_world_covers_the_targets_noise() {
+        let s = Settings::default();
+        let p = Pair { target_armor_weight: 20.0, ..Pair::default() };
+        // Walking noise 1.6 · 22 = 35.2; running 1.6 · 33 = 52.8.
+        let walk = Situation { moving: true, in_view: false, sneaking: true, ..outdoors(50.0) };
+        let heard = s.evaluate(&p, &walk);
+        assert!(heard.sound > 0.0 && heard.target_skill > 0.0);
+        let covered = s.evaluate(&p, &Situation { sound_cover: 40.0, ..walk });
+        assert_eq!(covered.sound, 0.0, "a walk under a 40 cover is not heard");
+        assert_eq!(covered.target_skill, 0.0, "unseen and unheard: as a silent target");
+        assert!(near(covered.value, heard.value - heard.sound - s.skill_mult * (0.0 - heard.target_skill)));
+        let run = s.evaluate(&p, &Situation { running: true, sound_cover: 40.0, ..walk });
+        assert!(near(run.sound, 0.81 * 1.6 * 33.0), "a run over the cover is heard whole");
+        // Equal is not under; a shot over the cover is heard with the footsteps.
+        assert!(!masked(35.2, 35.2) && masked(35.1, 35.2) && !masked(0.0, 10.0));
+        let shot = s.evaluate(&p, &Situation { action_sound: s.firing_sound("Normal"), sound_cover: 40.0, ..walk });
+        assert!(near(shot.sound, 0.81 * 1.6 * (22.0 + 50.0 * s.action_mult)));
+    }
+
+    #[test]
     fn walls_stop_sight_and_muffle_sound() {
         let s = Settings::default();
         let open = Situation { moving: true, ..outdoors(50.0) };
@@ -879,11 +950,14 @@ mod tests {
         assert_eq!(s.evaluate(&boy, &sit).visual, 0.0);
         let asleep = s.evaluate(&Pair::default(), &Situation { detector_asleep: true, ..sit });
         assert!(near(asleep.detector_skill, 0.81 * 50.0 * 0.8));
-        // In Combat: its own foe at 1 + 0.2 − 0.4, anyone else at 1 + 0.2.
-        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, combat_target: true, ..sit });
-        assert!(near(foe.detector_skill, 0.81 * 50.0 * 0.8));
-        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
-        assert!(near(other.detector_skill, 0.81 * 50.0 * 1.2));
+        // Own foe at 1.2, anyone else at 0.8 [observed: captures run15b_t1 and run15b_t2,
+        // 2026-11-15; docs/spec-notes/actor-behaviour.md §2.1a].
+        let foe = s.evaluate(&Pair::default(), &Situation { detector_alert: true, ..sit });
+        assert!(near(foe.detector_skill, 0.81 * 50.0 * 1.2));
+        let other = s.evaluate(&Pair::default(), &Situation { detector_alert: true, in_combat_with_someone_else: true, ..sit });
+        assert!(near(other.detector_skill, 0.81 * 50.0 * 0.8));
+        assert!(foe.value > s.evaluate(&Pair::default(), &sit).value);
+        assert!(other.value < s.evaluate(&Pair::default(), &sit).value);
     }
 
     #[test]

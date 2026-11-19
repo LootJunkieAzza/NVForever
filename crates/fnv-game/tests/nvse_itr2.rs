@@ -4,7 +4,7 @@
 //! paths and cover through a lent navmesh answerer, ground through a lent ray caster,
 //! doors, references by distance, perk eligibility, recipes and the menus.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -504,17 +504,19 @@ fn list_edits_outlast_a_load() {
 }
 
 /// GetNifBlockTranslation with `getWorld` 1 gives the node's place in the world, not its
-/// own offset (JVO's marker over an actor's head); either form of the call.
+/// own offset (JVO's marker over an actor's head); either form of the call. The world
+/// place is composed from the nodes' own transforms and the reference's place (upstream's
+/// route, shared with GetNifBlockTranslationAlt): TestNpcRef stands at (100, 0, 0).
 #[test]
 fn a_nif_block_translation_in_the_world() {
     use fnv_game::nif_blocks::SceneNode;
     let f = fixture();
     let mut g = game(&f);
     let node = |name: &str, parent, translation, world| SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world, material: None, info: None };
-    g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None, [0.0, 0.0, 60.0], [100.0, 200.0, 60.0]), node("Bip01 Head", Some(0), [5.59, 0.0, 0.0], [100.0, 200.0, 120.0])]);
+    g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None, [0.0, 0.0, 60.0], [100.0, 0.0, 60.0]), node("Bip01 Head", Some(0), [5.59, 0.0, 60.0], [105.59, 0.0, 120.0])]);
     assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" X"), f64::from(5.59f32));
     assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" Z 1"), 120.0);
-    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" 1", "[1]"), XVal::Num(200.0));
+    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" 1", "[0]"), XVal::Num(f64::from(5.59f32 + 100.0)));
     assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\"", "[0]"), XVal::Num(f64::from(5.59f32)));
 }
 
@@ -547,4 +549,45 @@ fn a_live_menu_answers_menu_mode_without_pausing() {
     assert!(!g.in_menu() && !g.paused());
     g.live_menu = None;
     assert_eq!(num(&mut g, "MenuMode"), 0.0);
+}
+
+/// ObjectUnderReticle casts the crosshair's ray between its two ranges, out to 50000
+/// units, and gives the first reference it meets [documented: ObjectUnderReticle].
+#[test]
+fn object_under_reticle_casts_the_crosshairs_ray_between_its_ranges() {
+    let f = fixture();
+    let mut g = game(&f);
+    // No ray told (headless): nothing.
+    assert_eq!(num(&mut g, "IsFormValid (ObjectUnderReticle 0 2048)"), 0.0);
+    g.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: [0.0, 0.0, 0.0], dir: [0.0, 1.0, 0.0], hit: None });
+    // An actor 1000 units along the ray.
+    let npc = |a: [f32; 3], b: [f32; 3], _k: fnv_game::ray::CastKind| {
+        (a[1] <= 1000.0 && b[1] >= 1000.0).then(|| fnv_game::ray::Hit { distance: 1000.0 - a[1], point: [0.0, 1000.0, 0.0], form: Some(NPC_REF), material: None })
+    };
+    let (near, far, beyond, short) = fnv_game::ray::with_caster(&npc, || {
+        (
+            num(&mut g, "(ObjectUnderReticle 0 2048) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 500 90000) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 1500 4000) == TestNpcRef"),
+            num(&mut g, "(ObjectUnderReticle 0 900) == TestNpcRef"),
+        )
+    });
+    assert_eq!((near, far, beyond, short), (1.0, 1.0, 0.0, 0.0));
+}
+
+/// In an extender expression a string in parentheses names an actor value or an axis,
+/// in any case; an unknown name leaves a `let`'s variable as it was [observed: #2276
+/// job A, GetAV ("Strength"), GetAV (s), GetAV ($s), SetAV ("Luck") 7, GetPos ("Z")].
+#[test]
+fn a_string_names_an_actor_value_or_an_axis() {
+    let f = fixture();
+    let mut g = game(&f);
+    let bare = num(&mut g, "player.GetAV Strength");
+    assert_eq!(num(&mut g, "player.GetAV (\"strength\")"), bare);
+    assert_eq!(query(&mut g, "string_var s\nlet s := \"Strength\"\nSetFunctionValue (player.GetAV (s))"), XVal::Num(bare));
+    query(&mut g, "player.SetAV (\"Luck\") 7");
+    assert_eq!(num(&mut g, "player.GetAV Luck"), 7.0);
+    query(&mut g, "player.SetPos Z 12");
+    assert_eq!(num(&mut g, "player.GetPos (\"Z\")"), 12.0);
+    assert_eq!(query(&mut g, "float fA\nlet fA := -99\nlet fA := player.GetAV (\"NoSuchAV\")\nSetFunctionValue fA"), XVal::Num(-99.0));
 }

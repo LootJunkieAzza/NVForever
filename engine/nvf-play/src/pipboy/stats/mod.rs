@@ -383,7 +383,7 @@ pub struct Sources<'w> {
 
 #[derive(SystemParam)]
 pub struct Input<'w, 's> {
-    keys: Res<'w, ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<'w, KeyCode>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     time: crate::pause::AidTime<'w>,
     asks: MessageWriter<'w, UseHint>,
@@ -493,7 +493,7 @@ pub fn prepare(
         // keyboard's A stepping from S.P.E.C.I.A.L. to a Status left on RAD uses no
         // RadAway (#1899).
         if !new {
-            change(&mut view, |v| ask = keys(&input.keys, v, tab));
+            change(&mut view, |v| ask = keys(&input.keys.snapshot(), v, tab));
         }
         if let Some(a) = ask {
             input.asks.write(a);
@@ -612,7 +612,7 @@ pub fn draw(
             Card::new(LVL.0, LVL.1, label("sStatsLVLAbbrev", "LVL"), snap.level.map_or("--".into(), |l| l.to_string())),
             Card::new(HP.0, HP.1, label("sStatsHP", "HP"), value(snap.hp)),
             Card::new(AP.0, AP.1, label("sStatsAP", "AP"), value(snap.ap)),
-            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), value(snap.xp)),
+            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), snap.xp_percent.map_or_else(|| value(snap.xp), |p| format!("{p:.0}%"))),
         ];
         frame::heading(p, &mut c, Page::Stats.title(), &cards);
         match tab {
@@ -650,7 +650,7 @@ fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
             };
             match rows.get(view.selected[tab]) {
                 Some(r) => {
-                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark].into_iter().flatten().collect();
+                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark.as_deref()].into_iter().flatten().collect();
                     format!("{name}{mode}: {} selected", figure.join(" "))
                 }
                 None => format!("{name}{mode}: empty"),
@@ -864,16 +864,25 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
     let piece = boy_picture;
-    c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, c.bright());
+    // Only the actual own image supplies density, independently for every piece.
+    // Atlas-backed pieces retain the existing zoom (pipboy-paperdoll-density.md).
+    let head_path = piece("head", crippled(0));
+    let head_zoom = z * c.picture_zoom(&head_path, 128.0);
+    c.image_cut(p, &head_path, head.x, head.y, head_size.x, head_size.y, head_zoom, c.bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
     let face_size = FACE.1 * z;
-    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, z, c.bright());
+    let face_zoom = z * c.picture_zoom(BOY_FACE, 128.0);
+    c.image_cut(p, BOY_FACE, head.x + FACE.0.x, head.y + (head_size.y - face_size.y) / 2.0 + FACE.0.y * z, face_size.x, face_size.y, face_zoom, c.bright());
     let torso = head + TORSO.0 * z;
-    c.image_cut(p, &piece("torso", crippled(1)), torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, z, c.bright());
+    let torso_path = piece("torso", crippled(1));
+    let torso_zoom = z * c.picture_zoom(&torso_path, 128.0);
+    c.image_cut(p, &torso_path, torso.x, torso.y, TORSO.1.x * z, TORSO.1.y * z, torso_zoom, c.bright());
     for (i, (place, size, name)) in LIMB_PIECES.iter().enumerate() {
         let y = if i == 0 { place.y } else { place.y * z };
-        c.image_cut(p, &piece(name, crippled(i + 2)), torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, z, c.bright());
+        let path = piece(name, crippled(i + 2));
+        let zoom = z * c.picture_zoom(&path, 128.0);
+        c.image_cut(p, &path, torso.x + place.x * z, torso.y + y, size.x * z, size.y * z, zoom, c.bright());
     }
     // The bars, from the head: its bracket's file, place, the bar's x in it, and where
     // "Crippled" goes (right of the bracket's x, and down by the bar's y or not).
@@ -997,6 +1006,9 @@ fn desc_rect(tab: usize) -> Option<Rect> {
 
 /// A list (`list_box.xml`) of a tab's rows in `r`; the places that take the pointer go to
 /// `spots`.
+/// How far right a bold row's name is drawn again, interface units [design].
+const BOLD_SHIFT: f32 = 1.0;
+
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, rows: &[Row], r: Rect, spots: &mut Vec<(Rect, Spot)>) {
     let row_h = c.line_height(2) + ROW_SPACING;
     let marked = rows.iter().any(|r| r.mark.is_some());
@@ -1014,11 +1026,15 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
             c.boxed(p, Rect::new(item_x, y, item_x + item_w, y + row_h - 1.0), amber(LINE), Some(fill));
         }
         c.text(p, 2, &row.name, item_x + NAME_X, y + NAME_Y, Align::Left, c.bright());
+        // Bold, as the fonts have no bold face: the name again a unit to the right [design].
+        if row.bold {
+            c.text(p, 2, &row.name, item_x + NAME_X + BOLD_SHIFT, y + NAME_Y, Align::Left, c.bright());
+        }
         let num_x = item_x + item_w - right_buffer - 10.0;
         if let Some(n) = &row.value {
             c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, c.bright());
         }
-        if let Some(m) = row.mark {
+        if let Some(m) = &row.mark {
             c.text(p, 2, m, num_x + 10.0, y + NAME_Y, Align::Left, c.bright());
         }
         spots.push((Rect::new(item_x, y, item_x + item_w, y + row_h), Spot::Row(i)));
@@ -1062,7 +1078,8 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
     v.desc_max = 0;
     if let Some(row) = rows.get(v.selected[tab]) {
         if let Some(icon) = &row.icon {
-            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, ICON_ZOOM, c.bright());
+            let zoom = ICON_ZOOM * c.picture_zoom(icon, 256.0);
+            c.image_cut(p, icon, d.min.x + (d.width() - ICON.x) / 2.0, d.min.y + ICON_Y, ICON.x, ICON.y, zoom, c.bright());
         }
         let sep = Vec2::new(d.min.x + SEPARATOR.0, d.min.y + SEPARATOR.1);
         c.line(p, sep.x, sep.y, d.max.x - sep.x, THICK, amber(LINE));
@@ -1097,6 +1114,10 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
 /// beside, the switch at the top right.
 fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
     v.set_rows_shown(4, VISIBLE);
+    // The player's tweak: no reputations, no reputation list [design: docs/design/tweaks.md].
+    if s.hide_reputation {
+        v.reputation = false;
+    }
     let rows = s.rows(4, v.reputation);
     let mut spots = Vec::new();
     let th = c.line_height(2);
@@ -1114,7 +1135,8 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
             let h = 290.0 + th;
             let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
             if let Some(icon) = &st.icon {
-                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, ICON_ZOOM, c.bright());
+                let zoom = ICON_ZOOM * c.picture_zoom(icon, 256.0);
+                c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, zoom, c.bright());
             }
             centred(p, c, st.title, mid, top + 290.0, bw);
             centred(p, c, &st.name, mid, top + 340.0, bw);
@@ -1127,7 +1149,8 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
         let path = karma_picture(picture);
-        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, c.bright());
+        let zoom = ICON_ZOOM * c.picture_zoom(&path, 256.0);
+        c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, zoom, c.bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
             centred(p, c, title, mid, y, bw);
@@ -1135,21 +1158,23 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         }
         centred(p, c, &model::whole(karma), mid, y, bw);
     }
-    // The switch: the other list's name [hypothesis], its key after it.
-    let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
-    let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
-    let right = GENERAL.x + GENERAL_SWITCH.x;
-    let top = GENERAL.y + GENERAL_SWITCH.y;
-    let sr = Rect::new(right - size.x, top, right, top + size.y);
-    if v.hover == Some(Spot::Switch) {
-        c.boxed(p, sr, amber(LINE), None);
+    if !s.hide_reputation {
+        // The switch: the other list's name [hypothesis], its key after it.
+        let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
+        let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
+        let right = GENERAL.x + GENERAL_SWITCH.x;
+        let top = GENERAL.y + GENERAL_SWITCH.y;
+        let sr = Rect::new(right - size.x, top, right, top + size.y);
+        if v.hover == Some(Spot::Switch) {
+            c.boxed(p, sr, amber(LINE), None);
+        }
+        let ty = box_text_top(c, top, size.y);
+        c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, c.bright());
+        // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
+        let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
+        c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, c.bright());
+        spots.push((sr, Spot::Switch));
     }
-    let ty = box_text_top(c, top, size.y);
-    c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, c.bright());
-    // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
-    let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
-    c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, c.bright());
-    spots.push((sr, Spot::Switch));
     if rows.is_empty() && v.reputation {
         // [hypothesis: the words.]
         c.text(p, 2, "No reputations yet", r.min.x + r.width() / 2.0, r.min.y + (r.height() - th) / 2.0, Align::Centre, amber(DIMMED));
@@ -1204,7 +1229,9 @@ pub fn use_hints(
     mut used: MessageWriter<crate::ItemUsed>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut active: ResMut<crate::menu::ActiveMenu>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
 ) {
+    let fighting = after.is_some_and(|a| a.fighting);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -1215,16 +1242,24 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
+        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                info!("pipboy stats: {name} not used: healing in combat (tweak)");
+                sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
+                continue;
+            }
+        }
         let why = if hint == model::RADAWAY {
             // [design] Like the inventory's aid action, carried RadAway can be used
             // regardless of health or limb condition; no item means a dim hint.
             (count <= 0).then(|| "none carried".to_string())
         } else {
-            let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+            let Some((hp, limbs, hardcore, at_full)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
                 info!("pipboy stats: {name} not used: the scripts' game is not running");
                 continue;
             };
-            model::refusal(hint, limb, count, hp, &limbs, hardcore)
+            model::refusal_with(hint, limb, count, hp, &limbs, hardcore, at_full)
         };
         if let Some(why) = why {
             info!("pipboy stats: {name} not used: {why}");
@@ -1327,8 +1362,170 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
 }
 
 #[cfg(test)]
+#[path = "hd_art_tests.rs"]
+mod hd_art_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    const PAPERDOLL_FILES: [&str; 8] = ["head", "face_00", "torso", "torso_broken", "left_arm", "right_arm", "left_leg", "right_leg"];
+    type DrawnPiece = (Val, Val, Val, Val, Rect);
+    struct PaperdollDraw {
+        pieces: std::collections::BTreeMap<String, DrawnPiece>,
+        hits: Vec<Rect>,
+        sources: std::collections::BTreeMap<String, (bool, Vec2)>,
+    }
+
+    fn draw_paperdoll(files: &[(&str, u32)], atlas: Option<bool>) -> PaperdollDraw {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::interface::u;
+        use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        #[derive(Resource)]
+        struct ObservedHits(Vec<Rect>);
+        #[derive(Resource)]
+        struct ObservedSources(std::collections::BTreeMap<String, (bool, Vec2)>);
+        struct Owned(std::path::PathBuf);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                if let (Ok(path), Ok(temp)) = (self.0.canonicalize(), std::env::temp_dir().canonicalize()) {
+                    if path.parent() == Some(temp.as_path()) && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("nvf-owned-paperdoll-")) {
+                        let _ = std::fs::remove_dir_all(path);
+                    }
+                }
+            }
+        }
+        let _canvas = crate::interface::original_units();
+        let root = std::env::temp_dir().join(format!("nvf-owned-paperdoll-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir(&root).unwrap();
+        let owned = Owned(root);
+        let dir = owned.0.join("textures/interface/stats");
+        std::fs::create_dir_all(&dir).unwrap();
+        for &(name, size) in files {
+            assert!(PAPERDOLL_FILES.contains(&name));
+            std::fs::write(dir.join(format!("{name}.dds")), crate::interface::tests::authored_rgba_dds(size, size)).unwrap();
+        }
+        if atlas == Some(true) {
+            std::fs::write(owned.0.join("textures/interface/owned-paperdoll-atlas.dds"), crate::interface::tests::authored_rgba_dds(1024, 1024)).unwrap();
+        }
+        if atlas.is_some() {
+            let index: String = PAPERDOLL_FILES.iter().map(|name| format!("{name}.dds owned-paperdoll-atlas.dds, 0, 2D, 0, 0, 0, 0.125, 0.125\n")).collect();
+            std::fs::write(owned.0.join("textures/interface/interfaceshared.tai"), index).unwrap();
+        }
+        let data = nvf_assets::GameData {
+            vfs: Arc::new(fnv_vfs::Vfs::open(&owned.0, &[]).unwrap()),
+            schema: Arc::new(fnv_nif::Schema::default()),
+        };
+        let mut world = World::new();
+        world.run_system_once(move |mut commands: Commands| {
+            let mut kit = Kit::default();
+            let mut images = Assets::<Image>::default();
+            let glyphs = crate::pad::PadGlyphs::default();
+            let mut c = Ctx::new(&mut kit, Some(&data), &mut images, None, &glyphs);
+            let snap = Snapshot { limbs: [1.0; 6], ..default() };
+            let mut spots = Vec::new();
+            commands.spawn(Node::default()).with_children(|p| condition(p, &mut c, &StatsView::default(), &snap, &mut spots));
+            let sources = PAPERDOLL_FILES.iter().filter_map(|name| {
+                let (image, rect) = c.picture(&format!("Interface\\Stats\\{name}.dds"))?;
+                Some((name.to_string(), (rect.is_some(), c.images.get(&image)?.size().as_vec2())))
+            }).collect();
+            commands.insert_resource(ObservedHits(spots.into_iter().map(|(r, _)| r).collect()));
+            commands.insert_resource(ObservedSources(sources));
+        }).unwrap();
+        let z = BOY_ZOOM;
+        let head_size = HEAD * z;
+        let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
+        let torso = head + TORSO.0 * z;
+        let face_size = FACE.1 * z;
+        let mut positions = vec![("head", head), ("face_00", head + Vec2::new(FACE.0.x, (head_size.y - face_size.y) / 2.0 + FACE.0.y * z)), ("torso", torso)];
+        positions.extend(LIMB_PIECES.iter().enumerate().map(|(i, (place, _, name))| (*name, torso + Vec2::new(place.x * z, if i == 0 { place.y } else { place.y * z }))));
+        let pieces = positions.into_iter().map(|(name, at)| {
+            let value = world.query::<(&Node, &ImageNode)>().iter(&world)
+                .find(|(node, _)| node.left == u(at.x) && node.top == u(at.y))
+                .map(|(node, image)| (node.left, node.top, node.width, node.height, image.rect.unwrap()))
+                .unwrap_or_else(|| panic!("actual condition producer must draw {name} at its original position"));
+            (name.to_string(), value)
+        }).collect();
+        PaperdollDraw { pieces, hits: world.resource::<ObservedHits>().0.clone(), sources: world.resource::<ObservedSources>().0.clone() }
+    }
+
+    fn paperdoll_files(default_size: u32, changes: &[(&str, u32)]) -> Vec<(&'static str, u32)> {
+        PAPERDOLL_FILES.into_iter().filter_map(|name| {
+            let size = changes.iter().find(|(n, _)| *n == name).map_or(default_size, |(_, size)| *size);
+            (size != 0).then_some((name, size))
+        }).collect()
+    }
+
+    #[test]
+    fn paperdoll_actual_condition_draw_uses_source_density_without_moving_hit_regions() {
+        let render = |scale: u32| {
+            let drawn = draw_paperdoll(&paperdoll_files(128 * scale, &[]), None);
+            (drawn.pieces["head"], drawn.hits)
+        };
+        let (native, native_hits) = render(1);
+        let (hd, hd_hits) = render(4);
+        assert_eq!(native_hits.len(), 6);
+        assert_eq!(native_hits, hd_hits);
+        assert_eq!((native.0, native.1, native.2, native.3), (hd.0, hd.1, hd.2, hd.3));
+        assert!((native.4.width() - HEAD.x).abs() < 0.001);
+        assert!((native.4.height() - HEAD.y).abs() < 0.001);
+        assert!((hd.4.width() - HEAD.x * 4.0).abs() < 0.001);
+        assert!((hd.4.height() - HEAD.y * 4.0).abs() < 0.001);
+    }
+
+
+    #[test]
+    fn paperdoll_actual_native_atlas_ignores_shadowed_loose_hd_sources() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let atlas = draw_paperdoll(&paperdoll_files(512, &[]), Some(true));
+        assert_eq!(atlas.pieces, native.pieces);
+        assert_eq!(atlas.hits, native.hits);
+        assert_eq!(atlas.hits.len(), 6);
+        assert!(atlas.sources.values().all(|&(is_atlas, size)| is_atlas && size == Vec2::splat(1024.0)));
+    }
+
+    #[test]
+    fn paperdoll_actual_missing_atlas_uses_its_resolved_own_hd_fallback() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let fallback = draw_paperdoll(&paperdoll_files(512, &[]), Some(false));
+        assert_eq!(fallback.hits, native.hits);
+        for (name, piece) in &native.pieces {
+            let hd = fallback.pieces[name];
+            assert_eq!((hd.0, hd.1, hd.2, hd.3), (piece.0, piece.1, piece.2, piece.3));
+            assert!((hd.4.min - piece.4.min * 4.0).length() < 0.001);
+            assert!((hd.4.max - piece.4.max * 4.0).length() < 0.001);
+        }
+        assert!(fallback.sources.values().all(|&(is_atlas, size)| !is_atlas && size == Vec2::splat(512.0)));
+    }
+
+    #[test]
+    fn paperdoll_actual_torso_only_hd_does_not_change_head_or_face_density() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let mixed = draw_paperdoll(&paperdoll_files(128, &[("torso", 512)]), None);
+        assert_eq!(mixed.hits, native.hits);
+        for name in ["head", "face_00", "left_arm", "right_arm", "left_leg", "right_leg"] {
+            assert_eq!(mixed.pieces[name], native.pieces[name]);
+        }
+        let a = native.pieces["torso"];
+        let b = mixed.pieces["torso"];
+        assert_eq!((a.0, a.1, a.2, a.3), (b.0, b.1, b.2, b.3));
+        assert!((b.4.size() - a.4.size() * 4.0).length() < 0.001);
+    }
+
+    #[test]
+    fn paperdoll_actual_missing_unused_broken_torso_does_not_disable_head_hd() {
+        let native = draw_paperdoll(&paperdoll_files(128, &[]), None);
+        let mixed = draw_paperdoll(&paperdoll_files(128, &[("head", 512), ("torso_broken", 0)]), None);
+        assert_eq!(mixed.hits, native.hits);
+        let a = native.pieces["head"];
+        let b = mixed.pieces["head"];
+        assert_eq!((a.0, a.1, a.2, a.3), (b.0, b.1, b.2, b.3));
+        assert!((b.4.size() - a.4.size() * 4.0).length() < 0.001);
+        assert_eq!(mixed.pieces["face_00"], native.pieces["face_00"]);
+        assert_eq!(mixed.pieces["torso"], native.pieces["torso"]);
+        assert!(!mixed.sources.contains_key("torso_broken"));
+    }
 
     #[test]
     fn the_test_aid_reads_its_steps() {

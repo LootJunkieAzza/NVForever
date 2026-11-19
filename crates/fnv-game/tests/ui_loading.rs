@@ -1,6 +1,6 @@
 //! Startup on files written for these tests, without Bevy or game data [design].
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

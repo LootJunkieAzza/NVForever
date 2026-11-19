@@ -3,7 +3,7 @@
 //! concusses on a crippled head, Turbo slows the world's clock.
 //! docs/spec-notes/magic-archetypes.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

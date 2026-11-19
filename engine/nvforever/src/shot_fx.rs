@@ -24,9 +24,8 @@
 //!   end by the place of its `BeamEnd` node [hypothesis: the node's meaning, from its
 //!   name and its place at the far end of the beam's geometry].
 //! - **Billboards.** A `NiBillboardNode` of these models turns to the camera each
-//!   frame: about its own y axis for the "rotate about up" modes (1, 5, 9), freely for
-//!   the others [documented: nif.xml BillboardMode names; hypothesis: that the node's +z
-//!   is the side shown and +y the "up" it turns about].
+//!   frame (`crate::world::face_camera`, with placed models' ones; the turn per mode in
+//!   docs/spec-notes/billboard-nodes.md).
 //! - **Add-on nodes.** A `BSValueNode` of these models becomes an emitter of its ADDN's
 //!   particle effect for as long as the model is there (`crate::particles`): the sparks
 //!   and smoke of a flash, a missile's trail, the flamer's flame.
@@ -78,7 +77,7 @@ use bevy::prelude::*;
 use fnv_phys::{layers, Filter};
 use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
-use nvf_assets::model::{ModelCtx, PreparedModel};
+use nvf_assets::model::{Billboard, ModelCtx, PreparedModel};
 use nvf_assets::nif_material::NifMaterial;
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ExplosionLook, ImpactFx, ShotFired, ShotVisual, ShotVisuals, WATER_SURFACE_EXPLOSION};
 use nvf_play::phys::PhysState;
@@ -91,12 +90,6 @@ use crate::player_body::PlayerBody;
 use crate::weapons::{HeldWeapon, Muzzle};
 use crate::world::{WorldData, WorldRoot};
 
-/// A `NiBillboardNode`: its billboard mode and its rotation in the file.
-#[derive(Component)]
-struct Billboard {
-    mode: u16,
-    bind: Quat,
-}
 
 /// A shell casing in the air or on the ground: its velocity and spin (game space) and
 /// how long it has left.
@@ -176,6 +169,8 @@ struct ShotFx {
     flying: HashMap<u64, Option<(Entity, Option<f32>, f32)>>,
     /// Model paths that were reported.
     reported: HashSet<String>,
+    /// PROJs whose flying model's heading was reported ([`draw_flying`]).
+    headed: HashSet<FormId>,
     flashes: u32,
     lights: u32,
     /// Other actors' flashes: under their weapon's muzzle marker, and where the shot
@@ -218,7 +213,7 @@ impl Plugin for ShotFxPlugin {
         app.init_resource::<ShotFx>()
             // The casings' knocks are sounds: before sfx plays them.
             .configure_sets(Update, ShotFxSet.before(nvf_play::sfx::SfxSet))
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -318,10 +313,8 @@ fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &
         commands.entity(*e).insert(NotShadowCaster);
     }
     for n in &pm.nodes {
+        // Its billboards come with the rig (`Rig::spawn_playing`).
         let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
-        if let Some(mode) = n.billboard {
-            commands.entity(e).insert(Billboard { mode, bind: local(&n.local).rotation });
-        }
         if let Some(index) = n.addon {
             commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
         }
@@ -347,11 +340,12 @@ pub(crate) fn spawn_attached(commands: &mut Commands, parent: Entity, pm: &Prepa
     (holder, Some(root))
 }
 
-/// Spawn a model that moves by itself (the grass fire's flame and smoke models,
-/// `crate::grass_fire_fx`) under `parent` at `place`: its rig playing its idle clip, with
+/// Spawn a model that moves by itself, as a part of a creature (Mister Handy's jet,
+/// `nvf_assets::actor::PreparedPart::plays_itself`, #2228), under `parent` at `place`: its
+/// rig playing its idle clip, which holds the controllers no sequence drives, each looping
+/// on its own cycle as a placed object's do (`nvf_assets::model` "free" tracks), with
 /// its billboards turning and its add-on nodes emitting; else its node tree
 /// ([`spawn_model`]). Returns the entity above it and the entities that carry meshes.
-/// (Upstream's helper from #2228, taken with the grass fire.)
 pub(crate) fn spawn_playing_itself(commands: &mut Commands, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, Vec<Entity>) {
     let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.idle.as_ref()?))) else {
         let holder = spawn_model(commands, parent, pm, place);
@@ -559,7 +553,7 @@ fn draw_flying(
         let out = |tail: f32| if v.beam.is_some() || v.travelled >= tail { Visibility::Inherited } else { Visibility::Hidden };
         let place = |beam_end: Option<f32>| Transform {
             translation: Vec3::from_array(v.pos),
-            rotation: Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y)),
+            rotation: flight_rotation(dir),
             scale: match (v.beam, beam_end) {
                 (Some(len), Some(end)) if end > 0.0 => Vec3::new(1.0, len / end, 1.0),
                 _ => Vec3::ONE,
@@ -591,7 +585,19 @@ fn draw_flying(
                         v.beam.map_or(String::new(), |l| format!(", a beam {l:.0} units long"))
                     );
                     let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
-                    let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, place(end), model.unwrap_or_default(), v.beam.is_some());
+                    let placed = place(end);
+                    // Once a PROJ: the way its model points against the shot's (smoke
+                    // `missile-shot-one-model`, #2470).
+                    if fx.headed.insert(v.projectile) {
+                        let off = (placed.rotation * Vec3::Y).angle_between(dir.normalize_or(Vec3::Y)).to_degrees();
+                        info!(
+                            "shot fx: projectile {} {} drawn along its flight: its +y {off:.1} degrees off the shot's direction, its long axis {}",
+                            p.and_then(|p| p.edid.as_deref()).unwrap_or("?"),
+                            fnv_actor::resolve::mesh_path(model.unwrap_or_default()),
+                            long_axis(pm.bounds)
+                        );
+                    }
+                    let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, placed, model.unwrap_or_default(), v.beam.is_some());
                     // Its own particle systems too (the flamer's flame strips, the laser's
                     // sparks; particles.md §6.2).
                     commands.entity(e).insert((out(tail), crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model.unwrap_or_default()))));
@@ -612,6 +618,28 @@ fn draw_flying(
         }
         keep
     });
+}
+
+/// How a projectile's model is turned for its flight (game space): its +y along `dir`
+/// [observed: of the models decoded, the missile's, the mini nuke's, the 10mm bullet's,
+/// the 25 mm grenade's, the orbital nuke's and the Red Glare's are longest along y (the
+/// 40 mm rounds are squat), and the missile's and the orbital nuke's exhaust flames lie
+/// behind them at -y; `fnvtool nif decode`, #2470].
+fn flight_rotation(dir: Vec3) -> Quat {
+    Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y))
+}
+
+/// The axis along which a model's bounds reach farthest (`x`, `y` or `z`), for the log.
+fn long_axis(bounds: Option<(Vec3, Vec3)>) -> &'static str {
+    let Some((lo, hi)) = bounds else { return "unknown" };
+    let e = hi - lo;
+    if e.y >= e.x && e.y >= e.z {
+        "y"
+    } else if e.x >= e.z {
+        "x"
+    } else {
+        "z"
+    }
 }
 
 /// Shell casings: the WEAP's casing model thrown from the `ShellCasingNode`, falling
@@ -733,6 +761,7 @@ fn explosions(
     time: Res<Time>,
     mut boom: MessageReader<ExplosionFx>,
     (sfx, combat, mut screen): (Option<Res<Sfx>>, Res<Combat>, Option<ResMut<crate::imagespace::ScreenModifiers>>),
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
@@ -793,7 +822,9 @@ fn explosions(
         // them; nothing says the effect weakens towards the edge].
         let stats = combat.forms.explosions.get(&b.explosion);
         if let (Some(s), Some(eye), Some(screen)) = (stats, eye, screen.as_deref_mut()) {
-            if let Some(imod) = s.image_space_modifier.filter(|_| eye.distance(Vec3::from_array(b.point)) <= s.is_radius) {
+            // The player's tweak leaves out the blur of a blast in the face [design: docs/design/tweaks.md].
+        let blur_off = tweaks.as_ref().is_some_and(|t| t.no_explosion_blur);
+        if let Some(imod) = s.image_space_modifier.filter(|_| !blur_off && eye.distance(Vec3::from_array(b.point)) <= s.is_radius) {
                 screen.play(imod.0, time.elapsed_secs());
                 fx.screen_effects += 1;
             }
@@ -826,45 +857,6 @@ pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
     }
 }
 
-/// Turn the billboards of the effect models to the camera (see the module notes).
-fn face_camera(
-    camera: Query<Entity, crate::fly::WorldCamera>,
-    boards: Query<(Entity, &Billboard, &ChildOf)>,
-    parents: Query<&ChildOf>,
-    mut transforms: Query<&mut Transform>,
-) {
-    let Ok(cam) = camera.single() else { return };
-    // An entity's place in the world from this frame's transforms: the propagated ones
-    // are a frame old (the camera has moved since) and missing for what was spawned
-    // this frame.
-    let world = |transforms: &Query<&mut Transform>, e: Entity| {
-        let mut m = Affine3A::IDENTITY;
-        let mut at = Some(e);
-        while let Some(p) = at {
-            if let Ok(t) = transforms.get(p) {
-                m = t.compute_affine() * m;
-            }
-            at = parents.get(p).ok().map(ChildOf::parent);
-        }
-        m
-    };
-    let eye = Vec3::from(world(&transforms, cam).translation);
-    for (e, b, parent) in &boards {
-        let m = world(&transforms, parent.parent());
-        let Ok(mut t) = transforms.get_mut(e) else { continue };
-        // The way to the camera in the node's own frame as the file has it.
-        let d = b.bind.inverse() * (m.inverse().transform_point3(eye) - t.translation);
-        let turn = match b.mode {
-            1 | 5 | 9 => Quat::from_rotation_y(d.x.atan2(d.z)),
-            _ => Quat::from_rotation_arc(Vec3::Z, d.normalize_or(Vec3::Z)),
-        };
-        let rotation = b.bind * turn;
-        if t.rotation != rotation {
-            t.rotation = rotation;
-        }
-    }
-}
-
 fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
     if exit.read().last().is_some() && fx.flashes + fx.projectiles + fx.no_model > 0 {
         info!(
@@ -890,5 +882,31 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
         if fx.beams_animated > 0 {
             info!("shot fx: {} beams played their own animation, {} faded out over their fade duration", fx.beams_animated, fx.beams_faded);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_flying_model_points_its_plus_y_along_the_shot() {
+        // Level, up, down, straight back and a slant: the missile's nose (+y) goes the
+        // way the shot goes, never across it (#2470).
+        for d in [Vec3::X, Vec3::Y, Vec3::Z, Vec3::NEG_Z, Vec3::NEG_Y, Vec3::new(-3.0, 4.0, 1.5)] {
+            let along = flight_rotation(d) * Vec3::Y;
+            assert!(along.angle_between(d.normalize()) < 1e-3, "{d}: {along}");
+        }
+        // No direction: as built.
+        assert!((flight_rotation(Vec3::ZERO) * Vec3::Y).abs_diff_eq(Vec3::Y, 1e-6));
+    }
+
+    #[test]
+    fn the_long_axis_of_a_model() {
+        // MLProjectile.NIF's bounds, flame included (`fnvtool nif decode`).
+        assert_eq!(long_axis(Some((Vec3::new(-5.7, -55.7, -5.9), Vec3::new(5.7, 12.7, 5.9)))), "y");
+        assert_eq!(long_axis(Some((Vec3::new(-9.0, -1.0, -1.0), Vec3::new(9.0, 1.0, 1.0)))), "x");
+        assert_eq!(long_axis(Some((Vec3::new(-1.0, -1.0, -4.0), Vec3::new(1.0, 1.0, 4.0)))), "z");
+        assert_eq!(long_axis(None), "unknown");
     }
 }

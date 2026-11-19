@@ -8,6 +8,7 @@ use crate::sim::SimState;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_game::actor_values::{self as av, SKILLS, SPECIALS};
 use fnv_game::functions as gf;
+use fnv_game::game::ActiveEffect;
 use fnv_sim::FormId;
 use fnv_world::fields::{formid_of, global, winner, Fields};
 use std::collections::HashMap;
@@ -195,8 +196,6 @@ const PLAYER_BASE: FormId = FormId(7);
 /// left out ("--").
 pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Snapshot {
     let mut s = Snapshot { name: sim.name(PLAYER_BASE).unwrap_or("").to_string(), limbs: [1.0; 6], ..Snapshot::default() };
-    let (effects, temporary) = worn(forms, sim);
-    s.effects = effects;
     // The hints' counts.
     let mut texts: [String; 4] = Default::default();
     let mut counts = [0; 4];
@@ -248,8 +247,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let p = FormId::PLAYER_REF;
-        let t = &temporary;
-        let value = |g: &mut fnv_game::Game<'static>, code: u16| shown_and_permanent(g, t, code);
+        let value = shown_and_permanent;
         let level = g.player_level();
         s.level = Some(level as i64);
         // The statistics' counters (`fnv_game::misc_stats`), by name.
@@ -257,6 +255,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             if let Some(code) = fnv_game::misc_stats::code(&row.name) {
                 row.value = Some(format!("{}", g.misc_stat(code).round() as i64));
             }
+        }
+        // The player's tweak sorts them by name [design: docs/design/tweaks.md].
+        if g.tweaks.sort_misc_stats {
+            s.general.sort_by(|a, b| a.name.cmp(&b.name));
         }
         // HP and AP out of a whole that an aid item's temporary modifier raises with them
         // (Buffout, Jet) [hypothesis].
@@ -267,6 +269,11 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         s.hp = whole(g, av::HEALTH);
         s.ap = whole(g, av::ACTION_POINTS);
         s.xp = Some((g.player.xp, model::xp_for_level(level + 1.0, xp_base, xp_bump)));
+        // The player's tweak: the way through this level as a percentage [design: docs/design/tweaks.md].
+        if g.tweaks.stats_xp_percent {
+            let (from, to) = (model::xp_for_level(level, xp_base, xp_bump), model::xp_for_level(level + 1.0, xp_base, xp_bump));
+            s.xp_percent = Some(if to > from { ((g.player.xp - from) / (to - from) * 100.0).clamp(0.0, 100.0) } else { 100.0 });
+        }
         for (i, &code) in LIMBS.iter().enumerate() {
             if let Some((v, max)) = value(g, code).filter(|v| v.1 > 0.0) {
                 s.limbs[i] = (v / max).clamp(0.0, 1.0);
@@ -276,7 +283,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let hardcore = g.hardcore();
         for hint in [model::STIMPAK, model::DOCTORS_BAG] {
             let hp = s.hp.unwrap_or((0.0, 0.0));
-            s.hints.lit[hint] = model::refusal(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore).is_none();
+            s.hints.lit[hint] = model::refusal_with(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore, g.tweaks.aid_at_full_health).is_none();
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));
@@ -285,12 +292,23 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         for (rows, codes) in [(&mut s.special, SPECIALS.collect::<Vec<_>>()), (&mut skills, SKILLS.filter(|&c| c != av::BIG_GUNS).collect())] {
             for (row, code) in rows.iter_mut().zip(codes) {
                 if let Some((shown, permanent)) = value(g, code) {
-                    let shown = av::capped(code, shown);
+                    // The player's tweak: past the cap, and the amount in the mark [design: docs/design/tweaks.md].
+                    let detailed = g.tweaks.detailed_stats;
+                    let cap = |v: f64| if detailed { v } else { av::capped(code, v) };
+                    let (shown, permanent) = (cap(shown), cap(permanent));
                     row.value = Some(model::whole(shown));
-                    row.mark = model::modified_mark(shown, av::capped(code, permanent));
+                    row.mark = model::modified_mark(shown, permanent).map(|m| if detailed { format!("({:+})", (shown.round() - permanent.round()) as i64) } else { m.to_string() });
                 }
             }
         }
+        // The player's tweak: the tag skills in bold [design: docs/design/tweaks.md].
+        if g.tweaks.embolden_tags {
+            for row in &mut skills {
+                row.bold = matches!(row.key, RowKey::Av(code) if g.player.tag_skills.contains(&code));
+            }
+        }
+        // Perks the player has, playable and not hidden [hypothesis: traits are listed
+        // with them], by name; the rank when the perk has more than one.
         // Perks the player has that are not hidden [hypothesis: traits are listed with
         // them], by name; the rank when the perk has more than one. Perks no level-up
         // offers are listed too: a companion's (Spotting, Better Healing, Whiskey Rose,
@@ -311,7 +329,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                     t = Text { name: p.name.clone(), description: p.description.clone(), icon: p.icon.clone(), short: None };
                 }
             }
-            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None });
+            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
         s.perks = perks;
@@ -324,9 +342,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let scale = g.data.reputations.get(&rep).copied().unwrap_or(0.0) as f64;
             let t = forms.text(rep.0).clone();
             let title = model::reputation_title(gf::reputation_level(fame, scale), gf::reputation_level(infamy, scale));
-            standings.push(Standing { form: rep, name: t.name, title, fame, infamy, icon: t.icon });
+            // The player's tweak shows fame and infamy [design: docs/design/tweaks.md].
+            let name = if g.tweaks.show_fame_infamy { format!("{} (fame {fame:.0}, infamy {infamy:.0})", t.name) } else { t.name };
+            standings.push(Standing { form: rep, name, title, fame, infamy, icon: t.icon });
         }
         standings.sort_by(|a, b| a.name.cmp(&b.name));
+        s.hide_reputation = g.tweaks.hide_empty_reputation && standings.is_empty();
         s.standings = standings;
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
@@ -334,6 +355,28 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let setting = |n: &str| karma_titles.get(&n.to_ascii_lowercase()).cloned();
             s.karma_title = Some(model::karma_title(level as i64, word, setting));
             s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
+        }
+        // Worn apparel's enchantments taking effect now, as the game holds them: one
+        // line per worn item, its Value Modifier effects (`Forms::effect`) at the amounts
+        // the game applied [hypothesis: the line is named by the enchantment, else the
+        // item]. Inactive and dispelled effects are left out (#2495).
+        for ((item, ench), effects) in worn_effects(g) {
+            let changes: Vec<Change> = effects
+                .iter()
+                .filter_map(|x| {
+                    let c = x.change?;
+                    let (modifier, detrimental) = forms.effect(x.effect.0);
+                    modifier.then(|| Change { value: short(forms, c.code), amount: c.amount.abs(), detrimental })
+                })
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let mut name = forms.text(ench.0).name.clone();
+            if name.is_empty() {
+                name = forms.text(item.0).name.clone();
+            }
+            s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
         }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
         // apparel [hypothesis: the order]. An effect whose conditions fail (a Stimpak's
@@ -358,7 +401,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 })
                 .collect();
             if !changes.is_empty() {
-                s.effects.push(EffectLine { name: forms.text(e.source.0).name.clone(), text: model::changes_text(&changes) });
+                // The player's tweak adds the seconds left [design: docs/design/tweaks.md].
+                let name = forms.text(e.source.0).name.clone();
+                let name = if g.tweaks.effect_time_left && e.duration > 0.0 { format!("{name} ({:.0}s)", (e.duration - e.elapsed).max(0.0)) } else { name };
+                s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
             }
         }
     });
@@ -367,27 +413,26 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s
 }
 
-/// An actor value of the player: what the page shows (base, permanent modifier and
-/// worn apparel's changes, less damage) and its permanent value (base and permanent
-/// modifier) [design: worn enchantments do not change the game's actor values yet
-/// (`fnv_game::functions::actor`, the temporary modifier); the page adds them so that
-/// it reads as the original's].
+/// The player's health (now, most), limb conditions, Hardcore, and the Aid at Full
+/// Health tweak.
+pub type Condition = ((f64, f64), [f64; 6], bool, bool);
+
 /// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
 /// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
 /// by; `None` without the scripts' game.
-pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6], bool)> {
+pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<Condition> {
     let rt = script?.rt.as_mut()?;
     Some(crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
-        let hp = shown_and_permanent(g, &[], av::HEALTH).map_or((0.0, 0.0), |(v, max)| (v, max + t));
+        let hp = shown_and_permanent(g, av::HEALTH).map_or((0.0, 0.0), |(v, max)| (v, max + t));
         let mut limbs = [1.0; 6];
         for (i, &code) in LIMBS.iter().enumerate() {
-            if let Some((v, max)) = shown_and_permanent(g, &[], code).filter(|v| v.1 > 0.0) {
+            if let Some((v, max)) = shown_and_permanent(g, code).filter(|v| v.1 > 0.0) {
                 limbs[i] = (v / max).clamp(0.0, 1.0);
             }
         }
-        (hp, limbs, g.hardcore())
+        (hp, limbs, g.hardcore(), g.tweaks.aid_at_full_health)
     }))
 }
 
@@ -396,41 +441,43 @@ pub fn hint_item(sim: &SimState, hint: usize) -> Option<FormId> {
     HINT_ITEMS.get(hint).and_then(|e| sim.forms.by_edid(e))
 }
 
-fn shown_and_permanent(g: &mut fnv_game::Game<'static>, temporary: &[(u16, f64, bool)], code: u16) -> Option<(f64, f64)> {
+/// An actor value of the player: what the page shows (base, permanent and temporary
+/// modifiers, less damage) and its permanent value (base and permanent modifier). The
+/// temporary modifier already holds the worn apparel's enchantments, active effects
+/// since #377 (`fnv_game::abilities` `sync_worn`) [documented: GECK wiki ActorValue,
+/// armour's object effects "all of them target the temporary pool"], and the aid
+/// items'; the page adds nothing of its own (#2495).
+fn shown_and_permanent(g: &mut fnv_game::Game<'_>, code: u16) -> Option<(f64, f64)> {
     let [b, m, d] = gf::actor_value_parts(g, FormId::PLAYER_REF, code).ok()?;
-    // Active effects' temporary modifier (aid items) is the game's own; worn apparel's
-    // is added here.
     let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, code);
-    Some((b + m + t - d + model::added(temporary, code), b + m))
+    Some((b + m + t - d, b + m))
 }
 
-/// What is worn: the enchantments of the player's equipped apparel, as the EFF list's
-/// lines and as the changes they make.
-fn worn(forms: &mut Forms, sim: &SimState) -> (Vec<EffectLine>, Vec<(u16, f64, bool)>) {
-    let worn: Vec<FormId> = sim.world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let (mut lines, mut temporary) = (Vec::new(), Vec::new());
-    for item in worn {
-        if sim.forms.sig(item) != Some(*b"ARMO") {
-            continue;
+/// The worn apparel's enchantments taking effect on the player now, as the game holds
+/// them: each (worn item, enchantment) with its active effects, in the game's order. An
+/// effect whose conditions fail is held inactive and changes nothing, and a dispelled one
+/// is gone: neither is here (#2495).
+fn worn_effects<'g>(g: &'g fnv_game::Game<'_>) -> Vec<((FormId, FormId), Vec<&'g ActiveEffect>)> {
+    let mut out: Vec<((FormId, FormId), Vec<&ActiveEffect>)> = Vec::new();
+    for e in g.effects.iter().filter(|e| e.target == FormId::PLAYER_REF && !e.inactive) {
+        let Some(item) = e.worn else { continue };
+        let key = (item, e.source);
+        match out.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, v)) => v.push(e),
+            None => out.push((key, vec![e])),
         }
-        let Some(e) = forms.item_ench(item.0).map(|e| forms.ench(e)).filter(|e| e.apparel && !e.changes.is_empty()) else { continue };
-        let changes: Vec<Change> = e.changes.iter().map(|&(code, amount, detrimental)| Change { value: short(forms, code), amount, detrimental }).collect();
-        let name = if e.name.is_empty() { sim.name(item).unwrap_or("").to_string() } else { e.name.clone() };
-        lines.push(EffectLine { name, text: model::changes_text(&changes) });
-        temporary.extend(e.changes);
     }
-    (lines, temporary)
+    out
 }
 
 /// The player's health out of its whole, as the STATS page's HP card reads it
 /// ([`snapshot`]); `None` without the scripts' game. For the ITEMS page's HP card.
-pub fn player_hp(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<(f64, f64)> {
+pub fn player_hp(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<(f64, f64)> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
-    let (_, temporary) = worn(forms, sim);
     crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
-        shown_and_permanent(g, &temporary, av::HEALTH).map(|(v, max)| (v, max + t))
+        shown_and_permanent(g, av::HEALTH).map(|(v, max)| (v, max + t))
     })
 }
 
@@ -443,7 +490,7 @@ fn short(forms: &mut Forms, code: u16) -> String {
 /// A list row of an actor value, its figure not read yet.
 fn av_row(forms: &mut Forms, code: u16) -> Row {
     let t = forms.value(code);
-    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None }
+    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None, bold: false }
 }
 
 impl Forms {
@@ -459,3 +506,7 @@ impl Forms {
         f.decode(s)?.get("actor_value")?.as_str().and_then(gf::av_by_name)
     }
 }
+
+#[cfg(test)]
+#[path = "read_tests.rs"]
+mod tests;

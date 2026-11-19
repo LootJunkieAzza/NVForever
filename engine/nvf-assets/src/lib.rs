@@ -5,6 +5,7 @@
 pub mod actor;
 pub mod anim_blend;
 pub mod anim_play;
+mod bc5_field;
 pub mod camera_shot;
 pub mod data;
 pub mod guard;
@@ -17,12 +18,15 @@ pub mod read_pool;
 pub mod release;
 pub mod nif_material;
 pub mod nif_spawn;
+pub mod terrain_sampling;
 pub mod texture;
 
 pub use data::{ArchivePlugin, GameData};
 pub use particles::{ParticleSystemDef, PreparedParticles};
 pub use model::{ModelCache, PreparedModel, PreparedShape};
-pub use nif_material::{fade_prepass, nif_material, soft_edges, NifMaterial, NifMaterialPlugin};
+pub use nif_material::{ambient_occlusion_opt_in, ambient_occlusion_opt_out, depth_equal, fade_prepass, grass_edges, nif_material, soft_edges, NifMaterial, NifMaterialPlugin, AMBIENT_OCCLUSION_DEF};
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 pub use release::{AssetReleasePlugin, KeepLimits};
 pub use texture::TextureCache;
+
+pub mod nif_surface_blend;

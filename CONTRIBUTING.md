@@ -91,11 +91,21 @@ people building the same thing:
    Rust stable and Python 3.11+. Run the checks your change calls for:
 
    ```bash
-   cargo test --workspace --release
-   cargo clippy --workspace --all-targets --release -- -D warnings
-   (cd engine && cargo clippy --release --all-targets -- -D warnings)
-   python -m unittest discover -s parity-lab/tests      # and tools/capture, tools/smoke, tools/stress
+   cargo test --workspace --release --locked
+   cargo clippy --workspace --all-targets --release --locked -- -D warnings
+   (cd engine && cargo test --release --locked)
+   (cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
+   cargo deny check licenses advisories bans sources
+   cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
+   python -m unittest discover -s parity-lab/tests
+   python -m unittest discover -s tools/capture/tests
+   python -m unittest discover -s tools/smoke/tests
+   python -m unittest discover -s tools/stress/tests
+   python -m unittest discover -s tools/profile/tests
+   python -m unittest discover -s tools/release/tests
    ```
+
+   These are the commands CI runs (the cargo deny ones need `cargo install cargo-deny`).
 
    `python tools/smoke plan` lists the checks and smoke scenarios that your changed files
    call for.
@@ -141,6 +151,13 @@ welcome. You are still responsible for every line. Check that the result follows
 clean-room rules, and never give an assistant leaked or decompiled code as input.
 [CLAUDE.md](CLAUDE.md) holds the standing instructions the project's own sessions follow,
 and it is a good brief for any assistant.
+
+### A row of the settings page
+
+The settings page has one system for its rows (tabs, categories, lists for 7 or fewer
+values, greyed rows, Title Case on the page): `docs/design/settings-page.md` §0 says how to
+add or change one. A new row needs its place in `engine/nvf-play/src/settings_layout.rs`
+`SECTIONS`; the tests fail until it has one.
 
 ## Licence
 

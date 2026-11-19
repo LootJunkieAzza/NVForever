@@ -52,6 +52,15 @@ documentation). Reader: `fnv_collide::ragdoll`. Physics: `fnv_phys::ragdoll`. In
 - The body's stored translation and rotation are its pose in the mesh root's frame when
   the file was made: in the human skeleton, translation × 7 is the bone's bind position
   to 0.01 units [observed]. They are not used to place anything.
+- The rigid body info's `inertia_tensor` [documented: nif.xml bhkRigidBodyCInfo, three
+  rows of four floats, the fourth column unused] is in kg·(Havok unit)², in the body's
+  frame [observed: with 1 Havok unit = 7 game units = 0.1 m the human skeleton's head,
+  hands and feet carry the moments of their shapes at their stored masses, as rapier
+  works them out, and the thighs and calves the same about their short sides]. Elsewhere
+  the stored moments are larger than the shape's: the pelvis 0.25 kg·m² about every axis
+  (its shape 0.007), the lowest spine bodies 0.25 (0.04-0.06), the neck that of the head
+  (0.018; its shape 0.0003-0.001), the thighs and upper arms 5-15 times their shapes'
+  about their length [observed, `_male\skeleton.nif`, 2026-11-13].
 - Constraint axes are unit vectors in the body's frame.
 
 ## 3. Constraint limits
@@ -119,22 +128,47 @@ ragdoll keep the earlier presentation. [hypothesis: the original also drops plac
 corpses when their cell loads.]
 
 **Bodies** (`PhysWorld::add_ragdoll`). One dynamic body per ragdoll body with the stored
-shape (scaled by the actor's scale), mass and damping; friction capped at 1; no bounce;
+shape (scaled by the actor's scale), mass, inertia tensor (§2; actors' ragdolls, since
+2026-11-13, below; a Ragdoll Template's mass scales it; without a usable one rapier's from
+the shape) and damping; friction capped at 1; no bounce;
 continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
 part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
-world.
+world. Blasts reach the corpse by its ragdoll's bounds and bodies instead
+(`PhysWorld::ragdoll_bounds`, `ragdoll_body_centers`; combat-rules.md §11, #2346) [design].
 
 **Joints.** Body 1 is the constraint's b, body 2 its a; the joint frames are
 (twist, plane, twist × plane) or (axis, perp1, axis × perp1) at the pivots.
 
-- Ragdoll → a ball joint limited about x to the twist range, about z to the plane range
-  cut to ± the cone, about y to ± the cone. rapier limits the components of the relative
-  rotation's quaternion: equal to §3's angles for a turn about one axis, an
-  approximation of the cones otherwise.
+- Ragdoll → a ball joint limited about x to the twist range, and two more joints between
+  the same bodies, no axis locked, each limiting one angle between two axes with rapier's
+  coupled angular limit (a single row along the axis that turns one onto the other): the
+  **cone** (a's twist axis from b's, at most `cone_max`) and the **plane cones** (a's
+  twist axis from b's plane axis, π/2 − `plane_max` to π/2 − `plane_min`), §3's readings
+  in every direction (`fnv_phys::ragdoll::cone_joints`, since 2026-11-13).
 - Limited hinge → a revolute joint with the angle range; hinge → without.
-- A range of zero width locks the axis (the human neck's twist). Limits are kept within
-  ±3 radians.
+- A range of zero width locks the axis (the human neck's twist). Twist and hinge limits
+  are kept within ±3 radians (none of the human skeleton's comes near).
+- **Why the stored inertia and the cone joints** [observed 2026-11-13; the owner's hand
+  test of 2026-11-11 saw ragdoll limbs twisted into impossible poses]. A scratch program
+  on `fnv_phys` (not kept) dropped the human skeleton 50 times from random tilts,
+  headings, heights and shoves onto flat ground, shoved it again 1.5 s later as a
+  critical hit would (600-1200 units/s on the head, 400-800 on another body), settled it
+  from 6 s and held it at rest at 8 s, measuring every joint against its stored limits
+  (§3's angles). Before, with rapier's inertia from the shapes and the cone and plane
+  limited about the twist frame's y and z axes apart (a box), the worst joint per drop
+  at rest was on average 51° (60 steps a second), 46° (120), 45° (160) and 39° (240),
+  with one joint more than 20° out in 44, 39, 42 and 34 drops of 50; the head on the
+  neck (turned round about its twist axis or bent back), the pelvis's joints to the
+  thighs and the spine and the shoulders went furthest (up to 147°). With the head cut
+  off before the shove: 30° and 14° (60, 160). The stored inertia alone: 5.4° and 4.6°
+  (cone joints alone: 64° and 46°); both: 2.3° (60), 0.1° or less (120, 160, 240), cut 0.8° and
+  0.0°, no drop more than 20° out above 60 steps a second. At 60 two drops of 50 still
+  lay with a joint over 20° out (an elbow bent back 50°, held so for 6 s [hypothesis:
+  the forearm pinned under the body]). Just after the hard shove a joint still opens
+  past its limit for a moment (mean worst 9° at 60, 3° at 160) and comes back. Test:
+  `joints_hold_their_limits_through_hard_shoves` (a made-up figure of a person's
+  proportions with stored moments), `a_ragdoll_joint_holds_its_cone_in_every_direction`.
 - Every free angular axis is damped (`JOINT_DAMPING`, 6 per second) so limbs do not
   swing like chains; it stands in for `max_friction`. `strength` is not used.
 - Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
@@ -165,8 +199,11 @@ the ragdoll body nearest the hit point gets an impulse there along the shot (140
 per second for a shot, 220 for a blow, × 1.6 for a power attack). The killing hit's shove
 is the ragdoll's first.
 
-**Bones.** After each physics step the bodies' poses are written to their bones. Bones
-without a body (fingers, clavicles, twist bones, the weapon node) keep the pose they
+**Bones.** Every frame the bodies' poses are written to their bones: while the ragdoll
+moves, each body drawn between its poses before and after the last physics step, by the
+share of a step the clock has gone since (physics.md §5.2; the pose before the step is
+the one the physics world kept, so a frame that ran several steps draws it exactly).
+Bones without a body (fingers, clavicles, twist bones, the weapon node) keep the pose they
 died in under their parent. The actor's own transform stays where it died.
 
 **Rest.** A ragdoll is at rest when the physics engine puts its bodies to sleep, or when
@@ -205,6 +242,109 @@ fallen back within half a second [design: owner-review item 51, 2026-11-08; a co
 for battles, where corpses are shot again often]. Walking into it or rolling a barrel onto it
 does not.
 
+**Time limits and the settle** [design, 2026-11-11]. A ragdoll still moving is held at
+rest at the end of a time limit (`engine/nvforever/src/ragdoll.rs`), counted in game
+seconds of physics since it started or was roused, so it lasts as long at every physics
+rate. Under a slowed clock (VATS, a kill camera) the limit does not count, no settle
+starts and one settling moves on freely; only the physics engine's own sleep and the calm
+rule (held at once, no settle) set it at rest, so a corpse moves on, slowed, through the
+whole slow motion and settles once the clock is back [design: the owner, 2026-11-11]:
+
+| What set it moving | Limit | Settle (its last part) |
+|---|---|---|
+| A death, a knockdown, a blast, a drop from the grab, among the 4 youngest moving (`FULL_TIME`) | 8 s (`MAX_AWAKE`) | 2 s |
+| The same, beyond those 4 (`MAX_AWAKE_CROWDED`) | 3 s | 0.75 s |
+| A hit's shove on a corpse at rest (`MAX_AWAKE_SHOVED`) | 1 s | 0.5 s |
+| In water (`MAX_AWAKE_IN_WATER`) | 30 s | 2 s |
+| Calm for 1.5 s (above) | then | 0.5 s; none when its fastest bone moved under 3 units/s and 0.15 rad/s over the last window (`CALM_QUIET`) |
+
+While it **settles** (`PhysWorld::settle_ragdoll`) its bodies' damping rises from their
+own to 15 a second more (`SETTLE_DAMPING`), on linear and angular velocity, along the
+settle; free motion left at its end is about `exp(-15·T/2)` of what it was (2 % after a
+0.5 s settle), and only then are its bodies fixed. [observed 2026-11-11, smoke] Chet's
+ragdoll still rolling at 22 units/s and 2.6 rad/s when its settle began was down to
+0.7 units/s and 0.09 rad/s when held (`sever-chet`). A turn the joints and contacts drive
+anew every step keeps most of its speed (rapier damps once a step, after the solve):
+mantis nymphs' antennae and legs were held turning at 0.3-3 rad/s, a hand at 0.15 rad/s;
+raising the joints' damping motors during the settle did not change that. That shiver is
+#2083's. A hit's shove or a blast that strikes
+it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
+3 s after it started with no settle, and one still moving stopped dead: in the 50-a-side
+battle 53 of 58 fresh corpses were held while still moving, most with a neck or head
+turning at 0.7-3 rad/s [observed, frame-rate-audit.md §5]. The owner saw it: "when you
+kill somebody, their head can roll and suddenly stop because the physics calculation
+stopped" [observed, 2026-11-11]. A severed head is the cut-off body of its corpse's
+ragdoll (`PhysWorld::cut_ragdoll`), so the same limit held it. Gore pieces
+(`fnv_phys::gore`) have no limit: they stop only by the physics engine's own sleep, once
+their farthest point moves under 0.05 m/s (3.5 units/s) for 0.5 s [documented: rapier3d
+0.36.1 `RigidBodyActivation`].
+
+Why 4 and 3 s: a heap of corpses that never calms costs the solver for as long as it
+moves (mantis nymphs at the player's feet, frame-rate-audit.md §2), and at the battle's
+peak 6-7 ragdolls moved at once; the youngest 4 are most likely the ones just killed in
+view [engineering choice].
+
+**Corpses in a crowd (#2083, open).** A lone figure dropped in a test comes to rest by
+about 1.2 s, but in the 50-a-side battle (upstream main 1790ab94a, 180 s) 65 of 101 rests
+were held still moving: 32 at 1 s (shoved corpses, by design) and 9 at the 3 s crowded
+limit, the fastest bone more often a hand (22) than the head (14) [observed: a battle-50
+run of 2026-11-16, logs private]. [hypothesis] What differs in a crowd is contacts (a
+corpse on a corpse, on a loose object, on uneven ground) or hits on corpses still moving
+(stray shots keep pushing one without restarting its clock).
+
+**The probe.** With the test aid `NVF_PLAY_TEST_RAGDOLL_PROBE=1` each ragdoll set at rest
+logs a `ragdoll probe:` line (`engine/nvforever/src/ragdoll.rs` `probe`); without it none
+of this runs. The line gives how it came to rest (`slept`, `held still`, `held calm after
+settling`, `held moving at its time limit`, `held calm at its time limit`, `held calm in
+slow motion`), what woke it (`fresh`, `fresh crowded`, `shoved`, `in water`), seconds
+awake against its limit, its calm and longest calm, the frames a hit struck it while
+awake (the killing or rousing shove counts), its fastest-moving and fastest-turning bones
+over the last calm window, the bones that broke its calm spells, and what the whole
+ragdoll and its fastest-turning body touched as its settle began and when it was held
+(`PhysWorld::ragdoll_contacts`: active contact pairs by kind, terrain, fixed references,
+loose references, moving and resting ragdolls, its own bodies, other, each with its
+deepest overlap, the other corpses and the references touched). The exit's `ragdoll probe
+summary` counts rests by how and wake, with how many were hit again while awake (more than
+one hit; a corpse killed without a shove, by `killall`, a blast or a script, and hit once
+later is not counted, so it undercounts) and how many touched another corpse or a loose
+object as their settle began. Smoke `ragdoll-probe-battle-50` (the battle) and
+`ragdoll-probe-block` (nine corpses falling together with no shooter left, the town's
+residents falling alone) run it.
+
+What the probe found [observed: both scenarios, one run each, 2026-11-17, logs private]:
+
+- **Holds at the time limit split into still moving and calm by then.** A ragdoll whose
+  settle began at its time limit was counted as held still moving whatever it did during
+  the settle. In the battle 56 of the 90 such holds had a last calm window under 12
+  units/s and 0.6 rad/s (`CALM_SPEED`, `CALM_SPIN`): 33 were already that calm when the
+  settle began (calm for less than 1.5 s, so no calm settle), and 23 calmed during it, under
+  the settle's own damping (`SETTLE_DAMPING`), not by themselves; 5 of the other 34 went the
+  other way during the settle. In the block 6 of 12 were calm by then. They are now logged
+  as `ragdoll: actor <id> held at rest calm at its time limit …` and the exit report gives
+  the holds at the time limit as a sum, `N held at their time limit after settling: M still
+  moving, K of them crowded to 3 s, and J calm by then` [design, #2083]. When ragdolls are
+  held is unchanged, so `held at rest still moving` fell from 90 to 34 in the same run with
+  nothing behaving differently: a before/after against an older build compares N (M + J),
+  not M.
+- **Hits are a small part.** Of the 34 still moving in the battle, 26 were shoved corpses at
+  their 1 s limit (`MAX_AWAKE_SHOVED`), 23 of them hit no more than the once that roused
+  them; 5 of the 8 fresh ones had been hit again. In the block nothing was hit and 6 of 12
+  were still moving at the 3 s crowded limit.
+- **What keeps them moving** is a light end bone turning 0.7-4 rad/s with the trunk all
+  but still (head 11 of 34, a hand 10, a foot 8), the shiver described above; another
+  corpse (moving or at rest) was touched by 7 of the 8 fresh ones. In the block the fast
+  ones (60-90 units/s when held) lay draped over fixed references (trunk 40-63 units over
+  their lowest bone, no terrain contact) overlapping them 2-4 units deep (6 under a calm
+  one), while their terrain contacts showed no overlap [hypothesis: limbs that started
+  inside the object, or a shape whose Havok shell is not a contact skin as the terrain's
+  is (`TERRAIN_SHELL`); the probe now names the references touched, `refs [...]`].
+- [hypothesis] The 3 s crowded limit is shorter than a fresh corpse in a crowd needs to calm
+  by itself (a lone figure ~1.2 s, plus its settle). The 1 s shoved limit is the owner's
+  (owner-review item 51: a shot's shove has fallen back within half a second), a different
+  case from a fresh drop; 26 shoved corpses were still turning a head or hand at it. The 3 s
+  crowded limit and `FULL_TIME` are an engineering choice (a cost guard, frame-rate-audit.md
+  §5). Neither changed; whether to raise one is in owner-review.md (#2083).
+
 **Memory.** The bone poses of a ragdoll at rest are remembered by reference. A ragdoll
 whose ground unloads, or whose actor is no longer drawn, leaves the world and is
 remembered the same way; put back later it is held in that pose. The memory lasts for the
@@ -213,6 +353,19 @@ run (saves are not built yet). A corpse whose reference a script disables or del
 
 **Guard.** A corpse more than 150 units under the terrain is put back 20 above it, at
 most three times.
+
+**Without its ragdoll** (#2347). A corpse whose ragdoll will not be built (bad data that
+breaks the build or makes no body) or that falls through the terrain a fourth time is never
+tried again, and is shown dead as a skeleton without a ragdoll is (`ragdoll::unbuilt`): a
+fresh death plays its death pose from its first frame, or is laid on its back about its feet;
+one its ragdoll already posed (the fourth fall) takes its death pose at its end, or keeps the
+pose it last lay in, lifted above the ground. One the death handling already showed dead
+without a ragdoll (dead when drawn, ground not loaded) stays as it is. Before, a fresh death
+kept the last frame of the clip it was playing: a legionary killed running stood in his run
+(issue #2347). Placed actors only; the player's body is left out. Logged once as `ragdoll:
+actor <id>: <why>; shown dead without it: <how>`. Test aid: `NVF_PLAY_TEST_RAGDOLL_FAIL=<hex
+FormIDs, comma-separated>` refuses those actors' builds as if they had failed (smoke scenario
+`ragdoll-fail-laid-out`).
 
 **Checked** [observed 2026-10-10, `nvforever --cell Goodsprings --play` driven by the
 test aids (`NVF_PLAY_TEST_FACE`, `aimnpc`, `fire`, `aimcorpse`), exit 0, "run finished";

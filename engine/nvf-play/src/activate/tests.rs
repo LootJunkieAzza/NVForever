@@ -12,6 +12,9 @@ use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
 use fnv_world::{Cell, WorldIndex};
 
+mod crosshair_prompt_tests;
+mod crosshair_water_tests;
+
 const STIMPAK: u32 = 0x100;
 const KEY: u32 = 0x101;
 const CHEST: u32 = 0x120;
@@ -84,7 +87,7 @@ pub(crate) fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
 pub(crate) fn sim() -> SimState {
     let mut forms = FormStore::default();
     let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
-    for b in [
+    for mut b in [
         base(STIMPAK, Some("Stimpak"), item(ItemKind::Aid)),
         base(KEY, Some("Safe Key"), item(ItemKind::Key)),
         base(CHEST, Some("Chest"), chest()),
@@ -95,6 +98,11 @@ pub(crate) fn sim() -> SimState {
         base(LEVER, Some("Lever"), BaseData::Activator),
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
+        // [design, #2538] World::lock_source identifies doors through FormStore::sig.
+        if matches!(b.data, BaseData::Door(_)) {
+            b.sig = *b"DOOR";
+            forms.sigs.insert(b.id, b.sig);
+        }
         forms.bases.insert(b.id, b);
     }
     let mut refs = RefTable::default();
@@ -473,4 +481,61 @@ fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
     press_e(&mut app);
     app.update();
     assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+}
+
+#[test]
+fn a_water_prompt_carries_its_h2o() {
+    assert_eq!(water_label("Faucet", Some(-15.0)), "Faucet (H2O -15)");
+    assert_eq!(water_label("Faucet", Some(0.2)), "Faucet");
+    assert_eq!(water_label("Faucet", None), "Faucet");
+}
+
+
+#[test]
+fn switching_cancels_a_holdable_activate_tap_before_it_can_take_the_item() {
+    use crate::{bindings::{Bindings, InputDevice}, grab::{Candidate, GrabState}};
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, ButtonState};
+    let mut app = scene(&[]);
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin));
+    app.init_resource::<GrabState>();
+    visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.world_mut().resource_mut::<GrabState>().candidate = Some(Candidate {
+        on: fnv_phys::GripOn::Ref(STIM_REF), at: [60.0, 0.0, 100.0], distance: 60.0,
+    });
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    let e = KeyboardInput { key_code: KeyCode::KeyE, logical_key: Key::Character("e".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER };
+    app.world_mut().write_message(e.clone());
+    app.update();
+    assert!(app.world().resource::<GrabState>().tap.is_some());
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::North, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert!(app.world().resource::<GrabState>().tap.is_none());
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    app.world_mut().write_message(KeyboardInput { state: ButtonState::Released, ..e });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_released(KeyCode::KeyE));
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    assert_eq!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map_or(0, |i| i.count(FormId(STIMPAK))), 0);
+}
+
+
+/// [design, #2538] Both HUD states use the same partner lock as activation.
+#[test]
+fn load_door_lock_prompt_uses_partner_level_and_key() {
+    let mut sim = sim();
+    for id in [FormId(DOOR), FormId(HIDDEN_DOOR)] {
+        assert_eq!(sim.forms.get(id).unwrap().sig, *b"DOOR");
+        assert_eq!(sim.forms.sig(id), Some(*b"DOOR"));
+    }
+    sim.world.lock(FormId(DOOR_DEST), Some(255)).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Locked { level: 255 });
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1.label(), "Locked (Requires Key)");
+    sim.world.get(FormId(DOOR_DEST)).unwrap().lock.as_mut().unwrap().key = Some(FormId(KEY));
+    sim.world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
+    assert_eq!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Unlock);
+    sim.world.unlock(FormId(DOOR_REF)).unwrap();
+    assert!(matches!(describe(&sim, index(), DOOR_REF).unwrap().1, Action::Travel { .. }));
 }

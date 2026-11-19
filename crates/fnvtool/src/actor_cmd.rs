@@ -430,9 +430,34 @@ fn meshes(
             off_head.push(json!({"model": model, "prn": part.prn, "skinned_shapes": part.skinned_shapes, "rigid_shapes": part.rigid_shapes}));
         }
     }
+    // Upper-body worn models: drawn in first person by their `Arms…` shapes, or (none
+    // there) by their arm partitions (docs/spec-notes/actors.md §1.2, #2457).
+    let upper: BTreeSet<String> = actors
+        .armors
+        .values()
+        .filter(|a| a.slots & fnv_actor::resolve::slot::UPPER_BODY != 0)
+        .flat_map(|a| a.worn.iter().flatten())
+        .map(|m| fnv_actor::resolve::mesh_path(m))
+        .collect();
+    let mut first_person: BTreeMap<String, u64> = BTreeMap::new();
+    let mut by_partition = Vec::new();
+    for model in &upper {
+        let Ok(part) = load(model) else { continue };
+        let kind = if !fnv_actor::first_person::arms_by_partition(part.shape_names.iter().map(String::as_str)) {
+            "Arms shapes"
+        } else if part.shape_body_parts.iter().any(|(n, bp)| fnv_actor::first_person::partition_arm_shape(n, bp.iter().copied())) {
+            by_partition.push(model);
+            "arm partitions"
+        } else {
+            "neither"
+        };
+        bump(&mut first_person, kind);
+    }
     let missing_textures: Vec<&String> = textures.keys().filter(|t| !vfs.exists(t)).collect();
     Ok(json!({
         "schema": "fnv.actor.meshes/1",
+        "upper_body_first_person": first_person,
+        "upper_body_by_partition": by_partition,
         "pairs": pairs.len(),
         "part_kinds": kinds,
         "armor_models": worn.len(),

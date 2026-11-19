@@ -337,6 +337,39 @@ fn once_per_day_is_not_chosen_again_within_a_day() {
     assert_eq!(g.evaluate_package(d), Some(id(P_ONCE)));
 }
 
+/// With no valid package an actor keeps the one it runs while only the schedule rules
+/// that one out, not once its own conditions fail: then it has none (Mister Burke after
+/// MS11's arrest talk gets out of his chair, issue #2235).
+#[test]
+fn a_package_whose_conditions_fail_is_not_kept() {
+    let f = fixture();
+    let mut g = game(&f, None);
+    let c = id(REF_C);
+    set(&mut g, G_HOUR, 23.0);
+    set(&mut g, G_SWITCH, 1.0);
+    assert_eq!(g.evaluate_package(c), Some(id(P_NIGHT_COND)));
+    set(&mut g, G_SWITCH, 0.0);
+    assert_eq!(g.check_package(c, id(P_NIGHT_COND)), PackageCheck::ConditionsFail);
+    assert_eq!(g.evaluate_package(c), None);
+    assert_eq!(g.extra[&c].current_package, None);
+}
+
+/// A Once Per Day package that reached its goal is done for the day: though still
+/// current and its conditions still passing, it is not chosen again and the next valid
+/// package takes over (TTW's CG02AndyCutCake, whose change script sets the cake stage
+/// once Andy leaves it; issue #2221).
+#[test]
+fn a_finished_once_per_day_package_gives_way() {
+    let f = fixture();
+    let mut g = game(&f, None);
+    let d = id(REF_D);
+    set(&mut g, G_SWITCH, 1.0);
+    assert_eq!(g.evaluate_package(d), Some(id(P_ONCE)));
+    g.package_goal_met(d);
+    assert_eq!(g.check_package(d, id(P_ONCE)), PackageCheck::OncePerDay);
+    assert_eq!(g.evaluate_package(d), Some(id(P_DEFAULT)));
+}
+
 #[test]
 fn must_complete_holds_the_periodic_choice_but_not_evaluate_package() {
     let f = fixture();
@@ -542,6 +575,42 @@ fn a_script_package_whose_goal_was_met_is_removed_at_the_next_choice() {
     g.evaluate_package(a);
     assert!(g.extra[&a].script_package.is_none());
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+}
+
+/// The same script package added again after its goal was met, before any choice dropped
+/// it, begins afresh: its goal is forgotten and the AI is asked to take it up anew. Added
+/// again while it still runs, nothing changes (issue #2424: the Lucky 38 elevator's
+/// Dialogue package, added on every talk, never opened a second conversation after Stay
+/// Here, and its script waited for one for ever).
+#[test]
+fn a_script_package_added_again_after_its_goal_begins_afresh() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    for interval in [None, Some(10.0)] {
+        let mut g = game(&f, interval);
+        let a = id(REF_A);
+        let add = |g: &mut Game| {
+            let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+            g.call_function(&ctx, &[ArgValue::Value(Value::Ref(P_MORNING))]);
+        };
+        add(&mut g);
+        let _ = g.take_ai_reset(a);
+        // Still running: a second call is no restart.
+        add(&mut g);
+        assert!(!g.take_ai_reset(a), "{interval:?}");
+        g.package_goal_met(a);
+        assert!(g.extra[&a].package_goal_met);
+        add(&mut g);
+        assert!(!g.extra[&a].package_goal_met, "{interval:?}");
+        assert!(g.take_ai_reset(a), "{interval:?}");
+        assert_eq!(g.extra[&a].script_package, Some(id(P_MORNING)));
+        assert_eq!(g.current_package(a), Some(id(P_MORNING)));
+        // Not dropped at the next choice: its goal is to be met again first.
+        if interval.is_some() {
+            assert_eq!(g.evaluate_package(a), Some(id(P_MORNING)));
+        }
+    }
 }
 
 /// A package type with no done state (Sandbox, Sleep, Eat, Guard, Wander, Follow,

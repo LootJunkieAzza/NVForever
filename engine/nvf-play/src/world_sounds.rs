@@ -649,7 +649,14 @@ fn objects(
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
     }
-    let in_container = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    // Quick Loot's takes sound as the container menu's (`crate::quick_loot`): the player's
+    // inventory is followed while its list shows, but only a frame it took something in
+    // is sounded (the game runs on under it: a shot's ammo, a hotkeyed Stimpak are not takes).
+    let menu_open = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
+    let in_container = menu_open || crate::quick_loot::holds_input();
+    // Read every frame, so a take flagged while the container menu is open is not left to
+    // sound a later frame after it closes.
+    let took = crate::quick_loot::took_this_frame() | menu_open;
     for &RefChanged { form_id: id, restored } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
@@ -668,7 +675,7 @@ fn objects(
         if s.deleted() {
             // Taken from a container menu (a corpse's dropped weapon, `menu::model::Row::
             // reference`): the menu's own take sound below plays instead.
-            if in_container && s.dropped_by.is_some() {
+            if took && s.dropped_by.is_some() {
                 ws.picked.insert(id);
                 continue;
             }
@@ -695,7 +702,7 @@ fn objects(
     // at the listener [hypothesis: the same sounds as in the world].
     let now_carried: Option<BTreeMap<FormId, i32>> =
         in_container.then(|| sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default());
-    if let (Some(before), Some(now)) = (ws.carried.as_ref(), now_carried.as_ref()) {
+    if let (Some(before), Some(now)) = (ws.carried.as_ref().filter(|_| took), now_carried.as_ref()) {
         let mut moved: Vec<(FormId, bool)> = Vec::new();
         for (&item, &n) in now {
             if n > before.get(&item).copied().unwrap_or(0) {
@@ -1054,12 +1061,38 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     );
 }
 
+/// SetSoundSourceFile (`fnv_game::nvse_traits`): a SOUN whose file or folder a script
+/// changed plays from there [documented: SetSoundSourceFile, "Sets the source sound
+/// file/folder path used by the specified Sound"; observed: Titans of the New West points FSTArmorPowerL/R at its silence
+/// folders (`fx\fst\TNW_SilenceL\`) and plays its own footsteps when it hears them
+/// (#2541); before, the engine kept the record's file and the vanilla step sounded too].
+/// Only new or changed sources are applied: a source that leaves the map later (a new
+/// game, a load) is not put back to the record's file.
+fn script_sound_files(script: Option<Res<crate::script::ScriptState>>, sfx: Option<ResMut<Sfx>>, mut seen: Local<std::collections::HashMap<FormId, String>>) {
+    let (Some(script), Some(mut sfx)) = (script, sfx) else { return };
+    let Some(rt) = script.rt.as_ref() else { return };
+    let now = &rt.game.traits.sources;
+    if now.len() == seen.len() && now.iter().all(|(k, v)| seen.get(k) == Some(v)) {
+        return;
+    }
+    for (k, v) in now {
+        if seen.get(k) == Some(v) {
+            continue;
+        }
+        if let Some(sound) = sfx.forms.sounds.get_mut(k) {
+            info!("world sounds: {} plays from {v} (SetSoundSourceFile)", sound.edid.as_deref().unwrap_or("a sound"));
+            sound.file = Some(v.clone());
+        }
+    }
+    *seen = now.clone();
+}
+
 pub struct WorldSoundsPlugin;
 
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init)
-            .add_systems(Update, (knocks, objects, object_sources, water_sources).in_set(PlaySet::Sync))
+            .add_systems(Update, (knocks, objects, object_sources, water_sources, script_sound_files).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
 }

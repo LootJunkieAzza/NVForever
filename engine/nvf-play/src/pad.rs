@@ -4,7 +4,9 @@
 //!
 //! **Which device works the controls** is the player's choice, `Input Device` in
 //! `[Controls]` of `NVForever.ini` and the first row of the settings page's Controls tab
-//! (`crate::bindings::InputDevice`) [design; owner 2026-10-16: keyboard and mouse, or a
+//! (`crate::bindings::InputDevice`). Automatic Input Switching selects that saved
+//! choice on use and consumes the switching input (`device`) [design, #2200].
+//! The single-device controls remain [design; owner 2026-10-16: keyboard and mouse, or a
 //! controller, "depending on a setting under controls"]. With Controller chosen the
 //! controls answer the controller only (`crate::bindings::ControlInput`), the left stick
 //! moves, the right stick looks; Esc and the console's key still work.
@@ -19,7 +21,9 @@
 //! [design]. On top of that each menu's own buttons press the key NVForever gives the
 //! same button there ([`menu_buttons`]), as the original's menu files assign them
 //! (`_xbox_button` on each button tile, e.g. `IM_DropButton` `&xbuttonx;`) [documented:
-//! the vanilla menu files, read with `fnvtool ui tree`]; a menu's own button wins over
+//! the vanilla menu files, read with `fnvtool ui tree`]. In the Vigor Tester, the SPECIAL
+//! page and the trait list the left stick is the D-pad too ([`menu_stick`], #2313); a
+//! menu's own button wins over
 //! the shared ones (on the ITEMS page LB is Mod, not Page Up). The pause menu's own: X
 //! Delete, LT F1 and RT Tab (the settings page's tab before and after), Y F6 (its rail);
 //! LB and RB stay Page Up and Page Down, its headings (`crate::pause`) [design: #1953].
@@ -27,6 +31,10 @@
 //! (`crate::pause::Listening`).
 
 use bevy::prelude::*;
+
+pub(crate) mod device;
+pub mod pointer;
+pub use device::{ActionButtons, ActionPads, InputSwitchPlugin, SwitchingInput};
 
 /// A controller input a control can be bound to: a button, or the left stick pushed one
 /// way (the movement controls).
@@ -72,6 +80,22 @@ pub const STICK_WALK_BELOW: f32 = 0.6;
 /// A push of a stick under this counts as none [design; Bevy's own dead zone comes
 /// first].
 pub const STICK_DEAD: f32 = 0.12;
+
+/// The sticks' dead zones (left, right) as `f32` bits: [`STICK_DEAD`] unless the player's
+/// Controller Dead Zones tweak sets its own [design: docs/design/tweaks.md].
+static DEAD_ZONES: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0x3DF5_C28F), std::sync::atomic::AtomicU32::new(0x3DF5_C28F)];
+
+/// Set the sticks' dead zones (`None`: [`STICK_DEAD`] for both).
+pub fn set_dead_zones(zones: Option<(f32, f32)>) {
+    let (l, r) = zones.unwrap_or((STICK_DEAD, STICK_DEAD));
+    DEAD_ZONES[0].store(l.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    DEAD_ZONES[1].store(r.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The dead zone of the left stick, or the right.
+pub fn dead_zone(left: bool) -> f32 {
+    f32::from_bits(DEAD_ZONES[usize::from(!left)].load(std::sync::atomic::Ordering::Relaxed))
+}
 
 /// The game's controller code `JJ` of a `[Controls]` value as a controller input
 /// [hypothesis]. The fit: the original's console layout puts Activate on A, the Pip-Boy
@@ -911,17 +935,26 @@ impl StickButtons {
 
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
-pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
-    let v = pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
-    if v.length() < STICK_DEAD {
+pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
+    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }), left)
+}
+
+// Physical history and filtered actions share the existing stick normalization
+// [design, #2200; stick, update_stick_buttons]; the dead zone is the player's
+// (`dead_zone`, the Stick Dead Zones tweak).
+fn stick_vector(sticks: impl Iterator<Item = Vec2>, left: bool) -> Vec2 {
+    let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
+    if v.length() < dead_zone(left) {
         Vec2::ZERO
     } else {
         v.clamp_length_max(1.0)
     }
 }
 
+// Derived physical edges must not turn a continued stick hold into a fresh press
+// on the frame after switching [design, #2200].
 pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
-    let v = stick(&pads, true);
+    let v = stick_vector(pads.iter().map(|g| g.left_stick()), true);
     s.before = s.now;
     for d in StickDir::ALL {
         s.now[d.index()] = d.amount(v) >= STICK_PRESS;
@@ -989,6 +1022,7 @@ pub(crate) struct MenuPages<'w> {
     poker: Option<Res<'w, crate::poker::PokerScreen>>,
     stats: Option<Res<'w, crate::pipboy::stats::StatsView>>,
     items: Option<Res<'w, crate::menu::ActiveMenu>>,
+    hotkey: Option<Res<'w, crate::pipboy::hotkey_panel::HotkeyHold>>,
 }
 
 impl MenuPages<'_> {
@@ -1019,7 +1053,7 @@ impl MenuPages<'_> {
 /// "file"], pressing the key NVForever's hand-built menu answers for that control.
 pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use fnv_game::game::menus;
-    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
+    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger, RightTrigger2, South, West};
     // A help box over a minigame: its own buttons rest, so A (Enter) and B (Esc) close
     // the box as its keys do (blackjack's A is otherwise its F) [design, #1662].
     if at.tab == HELP_PAGE {
@@ -1042,8 +1076,9 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         // the D-pad: hypothesis, as the container menu, #1827].
         menus::BARTER => &[(West, KeyA), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
         // inventory_menu.xml: Repair Y, Mod LB (Drop X: `crate::pipboy::items`, which has
-        // no key for it; Hotkey RB: the hotkeys are held digits, not built for the pad).
-        menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
+        // no key for it). [design, #2312] RB opens the modal directly in hotkey_panel;
+        // reserving KeyH here keeps RB from becoming the shared PageDown.
+        menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (RightTrigger, KeyH), (LeftTrigger2, F1), (RightTrigger2, F3)],
         // stats_menu.xml: Stimpak A, Doctor's Bag Y, Rad-X X on the status tab; the
         // General/Reputation switch X on the General tab.
         // [design] CND's existing West -> KeyX mapping cycles the chosen limb.
@@ -1112,12 +1147,13 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
 /// button, which takes the buttons themselves.
 #[allow(clippy::type_complexity)]
 pub(crate) fn menu_keys(
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     bindings: Option<Res<crate::bindings::Bindings>>,
     (state, paused, listening): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Listening>>),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mk: ResMut<MenuKeys>,
-    (script, pages): (Option<Res<crate::script::ScriptState>>, MenuPages),
+    switching: Option<Res<SwitchingInput>>,
+    (script, pages, sticks): (Option<Res<crate::script::ScriptState>>, MenuPages, Option<Res<StickButtons>>),
 ) {
     let waiting = listening.is_some_and(|l| l.0.is_some());
     let on = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && !waiting;
@@ -1125,17 +1161,28 @@ pub(crate) fn menu_keys(
     let mut want: Vec<KeyCode> = Vec::new();
     if on {
         let at = if paused.as_ref().is_some_and(|p| p.0) { PAUSE_AT } else { pages.at(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.top_menu())) };
-        let own = if in_menu { menu_buttons(at) } else { &[] };
-        let shared = ALWAYS.iter().chain(if in_menu { IN_MENUS.iter() } else { [].iter() }).filter(|(b, _)| !own.iter().any(|(o, _)| o == b));
-        for (b, k) in own.iter().chain(shared) {
-            let down = if mk.held.contains(k) { pads.iter().any(|g| g.pressed(*b)) } else { pads.iter().any(|g| g.just_pressed(*b)) };
-            if down && !want.contains(k) {
-                want.push(*k);
+        // [design, #2312] Consume the opening edge as well as every modal frame.
+        // The raw pad reader owns A/B and directions; no page/list action may leak.
+        let panel = in_menu && at.code == Some(fnv_game::game::menus::INVENTORY) && at.tab != HELP_PAGE
+            && (pages.hotkey.as_ref().is_some_and(|h| h.controller.is_some()) || pads.iter().any(|g| g.just_pressed(GamepadButton::RightTrigger)));
+        if !panel {
+            let own = if in_menu { menu_buttons(at) } else { &[] };
+            let shared = ALWAYS.iter().chain(if in_menu { IN_MENUS.iter() } else { [].iter() }).filter(|(b, _)| !own.iter().any(|(o, _)| o == b));
+            for (b, k) in own.iter().chain(shared) {
+                let down = if mk.held.contains(k) { pads.iter().any(|g| g.pressed(*b)) } else { pads.iter().any(|g| g.just_pressed(*b)) };
+                if down && !want.contains(k) {
+                    want.push(*k);
+                }
+            }
+            if in_menu {
+                if let Some(s) = sticks.as_ref() {
+                    stick_keys(menu_stick(at), &pads.filter_sticks(s), &mk.held, &mut want);
+                }
             }
         }
     }
     for k in mk.held.clone() {
-        if !want.contains(&k) {
+        if !want.contains(&k) && !switching.as_ref().is_some_and(|s| s.physical_key_pressed(k)) {
             keys.release(k);
         }
     }
@@ -1145,6 +1192,52 @@ pub(crate) fn menu_keys(
         }
     }
     mk.held = want;
+}
+
+/// The left stick's directions as the arrow keys, in the menus that take the stick as the
+/// D-pad ([`menu_stick`]).
+const STICK_ARROWS: [(StickDir, KeyCode); 4] =
+    [(StickDir::Up, KeyCode::ArrowUp), (StickDir::Down, KeyCode::ArrowDown), (StickDir::Left, KeyCode::ArrowLeft), (StickDir::Right, KeyCode::ArrowRight)];
+
+/// The menus where the left stick pushed one way presses that arrow key, as the D-pad does
+/// (issue #2313). The original's SPECIAL menus give their `increase_value` and
+/// `decrease_value` tiles the left stick's picture (`_xbox_button` `&xbuttonls;`), the
+/// menus' `xright` / `xleft` clicking them and `xup` / `xdown` the review rows [documented:
+/// `menus\chargen\love_tester_menu.xml`, `menus\chargen\specialbookmenu.xml`], and the
+/// trait questionnaire's Navigate hint is the left stick [documented:
+/// `menus\trait_select_menu.xml` `TSM_Callout_Scroll`]. That `xright` and the others answer
+/// the stick as well as the D-pad is a [hypothesis] the pictures fit; not captured.
+/// - The Vigor Tester (1074): left / right lower / raise the page's attribute (on the
+///   review page the chosen row's), up / down choose the review row.
+/// - The tag-skill menu (1048), whose attributes page is NVForever's SPECIAL book
+///   (`ShowSPECIALBookMenuParams`, AddSPECIALPoints): left / right lower / raise, up /
+///   down the rows; on the tag-skill list up / down the rows [design: the code is one].
+/// - The trait menu (1084): up / down the rows, left / right the description's scroll,
+///   as the D-pad [design: `trait_menu.xml` names no stick; it stands for the
+///   questionnaire the opening does not open, chargen.md §1].
+///
+/// A push counts past [`STICK_PRESS`] (the dead zone [`STICK_DEAD`] first), one step a
+/// push, no repeat while held, as the D-pad [design: the files' `repeathorizontal` is not
+/// followed for either].
+pub fn menu_stick(at: MenuAt) -> bool {
+    use fnv_game::game::menus;
+    at.tab != HELP_PAGE && matches!(at.code, Some(menus::LOVE_TESTER | menus::TAG_SKILLS | menus::TRAITS))
+}
+
+/// Add to `want` the arrow keys the left stick `s` holds down ([`menu_keys`]): a key goes
+/// down as its direction is pushed past [`STICK_PRESS`] and stays down while it is held
+/// (`held`, the keys down last frame), so a held push is one press. None where the menu
+/// does not take the stick (`on` false).
+fn stick_keys(on: bool, s: &StickButtons, held: &[KeyCode], want: &mut Vec<KeyCode>) {
+    if !on {
+        return;
+    }
+    for (d, k) in STICK_ARROWS {
+        let down = if held.contains(&k) { s.pressed(d) } else { s.just_pressed(d) };
+        if down && !want.contains(&k) {
+            want.push(k);
+        }
+    }
 }
 
 /// Left and Right pressed this frame for a menu row's value, in order (`true` Right):
@@ -1335,7 +1428,7 @@ pub fn at_menu(code: u16) -> MenuAt {
 /// Whether `button` went down this frame on a controller that works the controls: for a
 /// menu's own controller buttons beyond the keys [`menu_keys`] stands in for (the ITEMS
 /// page's X drop, `crate::pipboy::items`).
-pub(crate) fn menu_button(pads: &Query<&Gamepad>, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
+pub(crate) fn menu_button(pads: &crate::pad::ActionPads, bindings: Option<&crate::bindings::Bindings>, button: GamepadButton) -> bool {
     bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && pads.iter().any(|g| g.just_pressed(button))
 }
 
@@ -1354,12 +1447,16 @@ pub struct PadPlugin;
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         use bevy::input::InputSystems;
-        app.init_resource::<StickButtons>()
+        app.add_plugins(InputSwitchPlugin).init_resource::<StickButtons>()
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
             .init_resource::<PadGlyphs>()
-            .add_systems(PreUpdate, (update_stick_buttons, menu_keys, track_pad, sync_labels.after(track_pad)).after(InputSystems))
+            .init_resource::<pointer::PadPointer>()
+            .add_message::<bevy::window::CursorMoved>()
+            .add_systems(PreUpdate, (track_pad, update_stick_buttons, menu_keys, sync_labels).chain().after(InputSystems).after(device::automatic))
+            // The pointer sleeps with the controller (#2310): before UI focus and picking read it.
+            .add_systems(PreUpdate, pointer::follow.after(InputSystems).after(device::automatic).before(bevy::ui::UiSystems::Focus).before(bevy::picking::PickingSystems::ProcessInput))
             .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,
@@ -1367,7 +1464,8 @@ impl Plugin for PadPlugin {
                 key: "button-style",
                 group: crate::aim_assist::GROUP,
                 label: "Button style",
-                note: "Which names and pictures the controller's buttons go by in prompts, menu hints and the Controls tab. Auto: a PlayStation controller's (Cross, Circle, Square, Triangle, L1, R2, Select…) when the controller in use says it is one, else an Xbox controller's. Xbox or PlayStation: always those. The INI keeps the Xbox names either way.",
+                note: "The names and pictures of the controller's buttons in prompts and hints. Auto: a PlayStation's when the controller says it is one, else an Xbox's.",
+                switches: "",
                 get: |_| false,
                 set: |_, _| {},
                 slider: None,
@@ -1414,6 +1512,43 @@ mod tests {
         assert_eq!(sideways(&[typed(KeyCode::ArrowLeft, Key::ArrowLeft, true)], &keys), vec![false]);
         // A D-pad held from before presses nothing again.
         assert!(sideways(&[], &keys).is_empty());
+    }
+
+    /// Issue #2313: in the Vigor Tester, the SPECIAL page (the tag-skill menu's code) and
+    /// the trait list the left stick is the D-pad's arrows; elsewhere it presses none.
+    #[test]
+    fn the_left_stick_is_the_d_pad_in_the_special_menus() {
+        use fnv_game::game::menus;
+        for code in [menus::LOVE_TESTER, menus::TAG_SKILLS, menus::TRAITS] {
+            assert!(menu_stick(at_menu(code)), "menu {code}");
+        }
+        // Menus that read the stick themselves, or have no file naming it, and a help
+        // box or the pause menu over the SPECIAL menus.
+        for at in [at_menu(menus::TUTORIAL), at_menu(menus::MAP), at_menu(menus::INVENTORY), at_menu(menus::LEVEL_UP), MenuAt::default(), PAUSE_AT, MenuAt { code: Some(menus::LOVE_TESTER), tab: HELP_PAGE }] {
+            assert!(!menu_stick(at), "{at:?}");
+        }
+        let push = |now: [bool; 4], before: [bool; 4], held: &[KeyCode]| {
+            let mut want = Vec::new();
+            stick_keys(true, &StickButtons { now, before }, held, &mut want);
+            want
+        };
+        // [Up, Down, Left, Right]. A push right presses Right once ...
+        assert_eq!(push([false, false, false, true], [false; 4], &[]), vec![KeyCode::ArrowRight]);
+        // ... held, the key stays down (no new press, no repeat) ...
+        assert_eq!(push([false, false, false, true], [false, false, false, true], &[KeyCode::ArrowRight]), vec![KeyCode::ArrowRight]);
+        // ... and let go, it comes up.
+        assert!(push([false; 4], [false, false, false, true], &[KeyCode::ArrowRight]).is_empty());
+        // A push held from before the key was taken (another menu's) presses nothing.
+        assert!(push([false, false, true, false], [false, false, true, false], &[]).is_empty());
+        assert_eq!(push([false, true, true, false], [false; 4], &[]), vec![KeyCode::ArrowDown, KeyCode::ArrowLeft]);
+        // A key the D-pad already holds is not doubled.
+        let mut want = vec![KeyCode::ArrowUp];
+        stick_keys(true, &StickButtons { now: [true, false, false, false], before: [false; 4] }, &[], &mut want);
+        assert_eq!(want, vec![KeyCode::ArrowUp]);
+        // Off in the other menus.
+        let mut want = Vec::new();
+        stick_keys(false, &StickButtons { now: [true; 4], before: [false; 4] }, &[], &mut want);
+        assert!(want.is_empty());
     }
 
     #[test]
@@ -1677,7 +1812,7 @@ mod tests {
         for g in glyphs.iter_mut().take(127).skip(33) {
             *g = fnv_font::Glyph { uv: [0.0, 0.0, 1.0, 1.0], width: 4.0, height: 4.0, before: 0.0, after: 1.0, ascent: 4.0 };
         }
-        let font = fnv_font::Font { size: 8.0, texture: String::new(), glyphs };
+        let font = fnv_font::Font { size: 8.0, texture: String::new(), glyphs, extra: Default::default() };
         let tex = vec![255u8; 4 * 4 * 4];
         let face = FontImage { font: &font, tex: &tex, tex_w: 4, tex_h: 4 };
         for g in Glyph::LABELED {
@@ -1718,7 +1853,7 @@ mod tests {
         for g in glyphs.iter_mut().take(127).skip(33) {
             *g = fnv_font::Glyph { uv: [0.25, 0.5, 0.75, 1.0], width: 2.0, height: 2.0, before: 0.0, after: 1.0, ascent: 2.0 };
         }
-        let font = fnv_font::Font { size: 4.0, texture: String::new(), glyphs };
+        let font = fnv_font::Font { size: 4.0, texture: String::new(), glyphs, extra: Default::default() };
         let mut tex = vec![0u8; 8 * 8 * 4];
         for y in 4..8 {
             tex[((y * 8 + 5) * 4 + 3) as usize] = 255;

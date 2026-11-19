@@ -333,6 +333,38 @@ player's hearing`. Checked: Violet's NormalToAlert from 3,018 units, the Fiends'
 lines near Cook-Cook from 2,268 units, no subtitle; from 1,596 units gain 0.11 and a
 subtitle (alert.md §8).
 
+**President Kimball's speech at Hoover Dam is heard beyond that range in the original**
+(#2750, owner 2026-11-15) [observed: owner, base game]: from the vertibird drop-off and
+from the sniper tower. Ours is silent there (`gain 0.00 [out of hearing, 2088 units
+away…]` in the owner's log), and already at 0.43 of full level 1,000 units out. What the
+data holds [observed: FalloutNV.esm, `fnvtool dialogue lines --quest VHDKimballSpeech`,
+`fnvtool ai show`, `fnvtool script decompile`, `fnvtool world radio`]:
+
+- The speech is 42 INFO lines of quest `VHDKimballSpeech` (0x00130C78), 40 in topic
+  `VHDKimballSpeech01` (0x00130C6D) and 2 in `VHDKimballSpeech02`, all of type
+  Conversation, flagged Say Once (two Goodbye). No response names a sound (SNDD); the
+  fixed speakers are `VHDKimball` (4 lines) and `VHDColonelMoore` (2), the first line
+  (0x00140A1A) has no fixed speaker and a GetIsID VHDKimball condition. Record flags 0.
+- No script names either topic: no Say or SayTo carries the speech, so Say's `is2D`
+  does not enter. Kimball stands at the podium on `VHDKimballSpeechPackage`
+  (0x001377CC, a Travel package to `VHDKimballSpeechMarkerREF` 0x00130C75, Must
+  Complete, Head-Tracking Off; its begin script only sets `bSpeechFailsafe`).
+- No radio station or talking activator carries it (the only Hoover Dam radio is
+  `vHDVintageRadioNVStartON` on the NCR emergency station).
+- So nothing in the records marks these lines as louder or farther-carrying than any
+  other line between actors.
+- Distances from the podium marker (68098, 22628, 4579): the Ranger's place on the
+  sniper tower, `VHDKimballRangerAmbushedRef` 0x0014280C at (68346, 26101, 5277), is
+  3,551 units away; Kimball's own start by the vertibird, `VHDKimballREF` at (67300,
+  19299, 5100), is 3,463.
+
+With nothing special in the data, the owner's observation says a line between actors is
+heard at 3,500 units in the original, so the 600 / 2,000 curve above is wrong, at least
+in its cut to nothing at `fDialogMaxDistance` [hypothesis: for every such line, since
+the records do not tell these apart]. What the level is at each distance is not known:
+observer check 205 (observer-checks.md) measures it. The curve is not changed until
+then.
+
 Reverb (2026-11-01, #987): a line heard where it is said plays through the room's
 reverb, cut at the line's end, at a send of 0.85 from `fDialogReverbAttenuation=0.15`
 [hypothesis: the unit is undocumented]; the conversation stays dry (audio.md §14.6).

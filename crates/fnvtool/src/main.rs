@@ -29,18 +29,21 @@ mod crash_report;
 mod combat_cmd;
 mod combat_sim;
 mod dds_cmd;
+mod mo2_args;
+mod mod_log_digest;
+mod runner_diagnostics;
 mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
 mod esm_fields;
 mod ext_cmd;
-mod ext_save;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
 mod observer;
 mod nif_cmd;
 mod phys_cmd;
+mod quest_sweep;
 mod script_cmd;
 mod sim_cmd;
 mod source;
@@ -119,6 +122,9 @@ enum Cmd {
     /// Layer 6 dialogue: topics, lines and headless conversations.
     #[command(subcommand)]
     Dialogue(dialogue_cmd::DialogueCmd),
+    /// Quests: static checks over the data for soft locks (issue #2365).
+    #[command(subcommand)]
+    Quest(quest_sweep::QuestCmd),
     /// Actor appearance: the parts that make up placed NPCs (workstream 5).
     #[command(subcommand)]
     Actor(ActorCmd),
@@ -973,6 +979,23 @@ pub enum VfsCmd {
         #[arg(long)]
         archive_list: Option<String>,
     },
+    /// A Mod Organizer 2 instance's profile as the merge it means (#1526): the enabled
+    /// mods from the lowest priority up, the overwrite folder last, and the profile's
+    /// active plugins (fnv.vfs.mods/1). With `--data` and `--path`, the path is resolved
+    /// through those layers as the engine reads it.
+    Mods {
+        /// The instance folder (the one holding ModOrganizer.ini).
+        instance: PathBuf,
+        /// Profile name (default: the instance's selected_profile).
+        #[arg(long)]
+        profile: Option<String>,
+        /// The game's Data folder, for `--path`.
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// A game path to resolve (e.g. `textures\clutter\vodka.dds`).
+        #[arg(long)]
+        path: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -988,6 +1011,30 @@ pub enum EsmCmd {
     /// Schema coverage report (work queue of undecoded subrecords), over one plugin or
     /// several together.
     Coverage {
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long, default_value_t = 200)]
+        max_rows: usize,
+    },
+    /// Write a plugin moving placed references (the editor's writer, fnv_esm::edit): each
+    /// of `refs` (load-order FormIDs in hex) by `dx` units along X, after `plugins`.
+    EditMove {
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long, required = true, num_args = 1.., value_parser = parse_formid)]
+        refs: Vec<u32>,
+        #[arg(long, default_value_t = 100.0)]
+        dx: f32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Decode every subrecord with the schema, encode it back and compare the bytes
+    /// (the editor's encoder, fnv_esm::encode); one report over all the plugins.
+    EncodeCheck {
         #[arg(required = true, num_args = 1..)]
         plugins: Vec<PathBuf>,
         #[arg(long)]
@@ -1114,7 +1161,9 @@ pub enum NifCmd {
 #[derive(Args)]
 pub struct LoadOrderArgs {
     pub data_dir: PathBuf,
-    /// Plugins in load order.
+    /// Plugins in load order: names in the data folder, or full paths. `--mo2-profile
+    /// <profile folder>` (anywhere in the arguments) appends a Mod Organizer 2 profile's
+    /// active plugins as full paths instead.
     #[arg(required = true)]
     pub plugins: Vec<String>,
 }
@@ -1146,7 +1195,15 @@ fn init_logging() {
 
 fn main() -> ExitCode {
     crash_report::install();
-    let cli = Cli::parse();
+    // `--mo2-profile <dir>` becomes the profile's plugins as full paths (mo2_args).
+    let args = match mo2_args::expand(std::env::args_os().collect()) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let cli = Cli::parse_from(args);
     init_logging();
     // The code page of the game's text: NVF_CODE_PAGE, else Windows-1252 (#1439).
     match fnv_util::text::chosen(None) {
@@ -1176,6 +1233,7 @@ fn main() -> ExitCode {
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
         Cmd::Dialogue(c) => dialogue_cmd::run(c),
+        Cmd::Quest(c) => quest_sweep::run(c),
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),

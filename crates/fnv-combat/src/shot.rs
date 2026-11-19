@@ -110,6 +110,24 @@ pub fn fire(
     rand: &mut dyn FnMut() -> f32,
 ) -> Vec<Projectile> {
     let Some(p) = chain.projectile.and_then(|p| forms.projectiles.get(&p)) else { return Vec::new() };
+    fire_projectile(p, chain, origin, aim, cone_deg, shooter, world_gravity, t, rand)
+}
+
+/// The same spread and spawn operation over one already resolved projectile record.
+/// The caller may supply a per-shot copy with supported session edits; no typed cache
+/// or previously launched projectile is changed.
+#[allow(clippy::too_many_arguments)]
+pub fn fire_projectile(
+    p: &crate::data::ProjectileStats,
+    chain: &ShotChain,
+    origin: V3,
+    aim: V3,
+    cone_deg: f32,
+    shooter: Option<ActorId>,
+    world_gravity: f32,
+    t: &CombatTuning,
+    rand: &mut dyn FnMut() -> f32,
+) -> Vec<Projectile> {
     (0..chain.projectiles_per_shot.max(1))
         .map(|_| {
             let dir = spread_dir(aim, cone_deg, rand(), rand());

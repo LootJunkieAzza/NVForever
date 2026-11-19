@@ -29,6 +29,7 @@
 
 pub mod anomaly;
 pub mod snapshot;
+mod controls;
 mod delete;
 mod form;
 pub mod summary;
@@ -68,6 +69,11 @@ pub struct Active {
 static ACTIVE: OnceLock<Option<Active>> = OnceLock::new();
 /// `--data` / `NVFOREVER_DATA` was given (a developer or smoke run; [`decide`]).
 static DEVELOPER_DATA: OnceLock<bool> = OnceLock::new();
+
+/// Whether this run supplied `--data` / `NVFOREVER_DATA` ([`decide`]).
+pub(crate) fn developer_data() -> bool {
+    DEVELOPER_DATA.get().copied().unwrap_or(false)
+}
 
 /// Folders hidden in everything a report sends, besides the home folder that
 /// `crash::redact` hides: the Data folder, the game folder and NVForever's own folder (a
@@ -444,6 +450,7 @@ impl Plugin for ReportsPlugin {
                 group: "Reports",
                 label: "Send reports to help fix NVForever",
                 note: "After each session: build, hardware, settings, mod list, how it ran and the log; no personal details, no saves. From the next start",
+                switches: "",
                 get: |_| EngineHome::user().is_some_and(|h| Reports::load(&h).send == Some(true)),
                 set: |_, on| {
                     if let Some(h) = EngineHome::user() {
@@ -499,7 +506,7 @@ impl Plugin for ReportsPlugin {
             .add_systems(Update, (collect, track_loads, detect).chain())
             // After Bevy's window-closed exit (AppExit in Last): else a window closed by the
             // player missed the clean end and the run was sent as a native crash (#2203).
-            .add_systems(Last, write_summary.after(bevy::window::ExitSystems));
+            .add_systems(Last, (controls::detect, write_summary.after(bevy::window::ExitSystems)).chain());
     }
 }
 
@@ -706,7 +713,12 @@ fn track_loads(
             if ms > anomaly::SLOW_LOAD_MS {
                 let c = &mut *c;
                 let t_s = c.started.elapsed().as_secs();
-                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", serde_json::json!({ "load": kind, "ms": ms.round() }));
+                // Where the time went (issue #2407): each wait's end and the longest frame.
+                let phases = loading.last_phases.as_ref().map(|p| {
+                    let until: serde_json::Map<String, serde_json::Value> = p.until.iter().map(|(n, t)| (n.to_string(), serde_json::json!((t * 1000.0).round()))).collect();
+                    serde_json::json!({ "until_ms": until, "longest_frame_ms": (p.longest_frame * 1000.0).round(), "frames": p.frames, "read_files": p.reads.files, "read_mb": (p.reads.bytes as f64 / 1e5).round() / 10.0, "read_ms": (p.reads.read_ns as f64 / 1e6).round(), "queued_ms": (p.reads.queued_ns as f64 / 1e6).round() })
+                });
+                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", serde_json::json!({ "load": kind, "ms": ms.round(), "phases": phases }));
             }
             match c.summary.loads.iter_mut().find(|(k, _)| k == kind) {
                 Some((_, l)) => l.times_ms.push(ms),

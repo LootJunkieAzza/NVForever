@@ -1,5 +1,5 @@
-//! DDS → GPU textures. Block-compressed data is uploaded as is (BC1/BC2/BC3 with its
-//! mip chain); the three uncompressed layouts are converted to RGBA8.
+//! DDS → GPU textures. BC1/BC2/BC3 retain their mip chains; BC5 data and
+//! explicitly requested normal maps have separate interpretations (dds-bc5.md).
 //!
 //! **Side cap** ([`set_side_cap`], nvforever `memory_budget.rs`): on a GPU short of memory
 //! a texture larger than the cap is uploaded from the first of its own mip levels within
@@ -20,14 +20,49 @@ use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
-/// Loaded textures by (VFS path, sRGB); `None` remembers a failure.
+/// The interpretation requested by a texture consumer. Linear data is never
+/// implicitly treated as a normal map (water also uses it for heights).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextureUsage {
+    Color,
+    #[default]
+    Linear,
+    Normal,
+}
+
+impl TextureUsage {
+    fn from_srgb(srgb: bool) -> Self {
+        if srgb { Self::Color } else { Self::Linear }
+    }
+}
+
+const TEXTURE_USAGES: [TextureUsage; 3] = [TextureUsage::Color, TextureUsage::Linear, TextureUsage::Normal];
+
+/// An image and whether its source lacked a specular alpha channel. BC5 normal
+/// expansion has a synthesized storage alpha which is not a source mask.
+struct DecodedTexture {
+    image: Image,
+    lacks_alpha: bool,
+}
+
+impl From<Image> for DecodedTexture {
+    fn from(image: Image) -> Self {
+        let lacks_alpha = crate::nif_spawn::format_lacks_alpha(image.texture_descriptor.format);
+        Self { image, lacks_alpha }
+    }
+}
+
+type CachedTextures = HashMap<(String, TextureUsage), Option<(Handle<Image>, bool)>>;
+
+/// Loaded textures by (VFS path, usage); `None` remembers a failure.
+/// Each loaded handle retains its source's alpha classification.
 #[derive(Resource, Default)]
 pub struct TextureCache {
-    map: HashMap<(String, bool), Option<Handle<Image>>>,
+    map: CachedTextures,
     /// Copies sampled with clamped edges ([`Self::get_clamped`]), by the same key.
-    clamped: HashMap<(String, bool), Option<Handle<Image>>>,
+    clamped: CachedTextures,
     /// Files read ahead on a worker thread ([`Self::offer`]), by resolved path, with when
     /// they came in.
     ahead: HashMap<String, (Vec<u8>, f64)>,
@@ -39,7 +74,7 @@ pub struct TextureCache {
     generation: u64,
     /// When each entry was made, as a count of loads ([`Self::load_count`]), by (path,
     /// sRGB, clamped): which textures [`Self::reload_since`] makes again.
-    made: HashMap<(String, bool, bool), u64>,
+    made: HashMap<(String, TextureUsage, bool), u64>,
     loads: u64,
     pub failures: Vec<String>,
 }
@@ -47,16 +82,22 @@ pub struct TextureCache {
 /// Seconds a texture read ahead waits to be loaded before it is dropped.
 const AHEAD_KEEP_SECS: f64 = 30.0;
 
-/// The textures worker threads decoded, by (resolved path, sRGB): the handle reserved for
+type TextureLoadGates = HashMap<(String, TextureUsage), Weak<Mutex<()>>>;
+
+/// The textures worker threads decoded, by (resolved path, usage): the handle reserved for
 /// each, its format, and the image until the main thread puts it in the image store
 /// ([`TextureCache::take_workers`]). A worker that needs a texture another one decoded
 /// takes the same handle. Entries stay a while after their image went in, so workers with
 /// an older copy of the cache's list ([`TextureCache::snapshot`]) still find them.
 #[derive(Default)]
 pub struct WorkerTextures {
-    entries: Mutex<HashMap<(String, bool), WorkerTexture>>,
-    /// Textures a worker could not load, with why, until the cache remembers them.
-    failed: Mutex<HashMap<(String, bool), String>>,
+    entries: Mutex<HashMap<(String, TextureUsage), WorkerTexture>>,
+    /// Failed keys remain remembered after their one diagnostic is collected. Worker
+    /// snapshots contain successes only, so removing failures would retry them forever.
+    failed: Mutex<HashMap<(String, TextureUsage), Option<String>>>,
+    /// Only workers loading the same resolved texture wait for each other. Weak entries
+    /// do not keep a lock alive after its producer and waiters finish.
+    loading: Mutex<TextureLoadGates>,
     /// Whether a texture's alpha is a cut-out mask, by resolved path
     /// ([`Self::alpha_is_mask`]).
     masks: Mutex<HashMap<String, bool>>,
@@ -65,6 +106,7 @@ pub struct WorkerTextures {
 struct WorkerTexture {
     handle: Handle<Image>,
     format: TextureFormat,
+    lacks_alpha: bool,
     image: Option<Image>,
     /// When the image went into the store (real seconds); `None` while it waits.
     stored_at: Option<f64>,
@@ -78,50 +120,84 @@ const WORKER_KEEP_SECS: f64 = 30.0;
 /// of every texture of the place left behind, or the load's flush lets none of them go
 /// [observed: the Fort move with a 3367 MB budget, 464 models dropped over six passes and
 /// 0 textures, 2026-11-09]. A texture released meanwhile is decoded again by the worker.
-pub type TextureSnapshot = HashMap<(String, bool), (std::sync::Weak<bevy::asset::StrongHandle>, TextureFormat)>;
+pub type TextureSnapshot = HashMap<(String, TextureUsage), (std::sync::Weak<bevy::asset::StrongHandle>, TextureFormat, bool)>;
 
 /// A texture for a worker thread: from the cache's list, from another worker, or read and
 /// decoded here under a handle reserved from `images` (the image store's handle provider).
 /// `None`: not in any archive, or not decodable (a load on the main thread reports why).
 pub(crate) fn worker_texture(
     raw_path: &str,
-    srgb: bool,
+    usage: TextureUsage,
     data: &GameData,
     cached: &TextureSnapshot,
     workers: &WorkerTextures,
     images: &AssetHandleProvider,
     bc_supported: bool,
-) -> Option<(Handle<Image>, TextureFormat)> {
-    let key = (resolved_path(raw_path, |p| data.vfs.exists(p)), srgb);
-    if let Some((h, format)) = cached.get(&key).and_then(|(w, f)| Some((w.upgrade()?, *f))) {
-        return Some((Handle::Strong(h), format));
+) -> Option<(Handle<Image>, TextureFormat, bool)> {
+    let key = (resolved_path(raw_path, |p| data.vfs.exists(p)), usage);
+    if let Some((h, format, lacks_alpha)) = cached.get(&key).and_then(|(w, f, l)| Some((w.upgrade()?, *f, *l))) {
+        return Some((Handle::Strong(h), format, lacks_alpha));
     }
-    let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
-    if let Some(w) = workers.entries.lock().expect("worker textures").get(&key) {
-        return Some(shared(w));
-    }
-    if workers.failed.lock().expect("worker textures").contains_key(&key) {
-        return None;
-    }
-    let image = match data.read(&key.0).ok_or_else(|| "not in any archive".to_string()).and_then(|bytes| dds_image(&bytes, srgb, bc_supported)) {
-        Ok(mut image) => {
-            image.texture_descriptor.label = Some(folder_label(&key.0));
-            image
+    workers.load_once(key, images, |path| {
+        let bytes = data.read(path).ok_or_else(|| "not in any archive".to_string())?;
+        let mut decoded = dds_texture(&bytes, usage, bc_supported, side_cap(), false)?;
+        decoded.image.texture_descriptor.label = Some(folder_label(path));
+        Ok(decoded)
+    })
+}
+
+impl WorkerTextures {
+    fn load_gate(&self, key: &(String, TextureUsage)) -> Arc<Mutex<()>> {
+        let mut loading = self.loading.lock().expect("worker texture gates");
+        if let Some(gate) = loading.get(key).and_then(Weak::upgrade) {
+            return gate;
         }
-        Err(e) => {
-            workers.failed.lock().expect("worker textures").insert(key, e);
+        // Engineering budget: bound idle key metadata without scanning the map for
+        // every texture. Active gates must stay discoverable until all waiters leave.
+        if loading.len() >= 256 {
+            loading.retain(|_, gate| gate.strong_count() != 0);
+        }
+        let gate = Arc::new(Mutex::new(()));
+        loading.insert(key.clone(), Arc::downgrade(&gate));
+        gate
+    }
+
+    /// Reserve one handle and decode once for concurrent requests for this key. The
+    /// directory mutex is never held during I/O/decoding or while waiting on a key.
+    fn load_once(
+        &self,
+        key: (String, TextureUsage),
+        images: &AssetHandleProvider,
+        load: impl FnOnce(&str) -> Result<DecodedTexture, String>,
+    ) -> Option<(Handle<Image>, TextureFormat, bool)> {
+        let gate = self.load_gate(&key);
+        // The gate carries no data. A panicking producer has published no partial
+        // image, so a later request may safely retry under the recovered gate.
+        let _loading = gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared = |w: &WorkerTexture| (w.handle.clone(), w.format, w.lacks_alpha);
+        if let Some(w) = self.entries.lock().expect("worker textures").get(&key) {
+            return Some(shared(w));
+        }
+        if self.failed.lock().expect("worker textures").contains_key(&key) {
             return None;
         }
-    };
-    let mut entries = workers.entries.lock().expect("worker textures");
-    // Another worker may have decoded it meanwhile: its handle is the one to use.
-    let w = entries.entry(key).or_insert_with(|| WorkerTexture {
-        handle: images.reserve_handle().typed::<Image>(),
-        format: image.texture_descriptor.format,
-        image: Some(image),
-        stored_at: None,
-    });
-    Some(shared(w))
+        let decoded = match load(&key.0) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                self.failed.lock().expect("worker textures").insert(key, Some(error));
+                return None;
+            }
+        };
+        let mut entries = self.entries.lock().expect("worker textures");
+        let w = entries.entry(key).or_insert_with(|| WorkerTexture {
+            handle: images.reserve_handle().typed::<Image>(),
+            format: decoded.image.texture_descriptor.format,
+            lacks_alpha: decoded.lacks_alpha,
+            image: Some(decoded.image),
+            stored_at: None,
+        });
+        Some(shared(w))
+    }
 }
 
 /// The archive path a NIF texture path loads from: normalised, the PC's own form of it if
@@ -185,12 +261,12 @@ pub fn levels_to_skip(w: u32, h: u32, levels: usize, cap: u32, block: bool) -> u
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     let cap = side_cap();
     // A panic while decoding is this texture's failure, not the game's (guard.rs).
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, cap, false))
+    dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, cap, false).map(|d| d.image)
 }
 
 /// [`dds_image`] at the file's full size whatever the side cap (the interface's pictures).
 pub fn dds_image_full(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE, false))
+    dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, MAX_TEXTURE_SIDE, false).map(|d| d.image)
 }
 
 /// [`dds_image`] with the largest level only, its smaller ones left out: for a sheet of
@@ -198,10 +274,15 @@ pub fn dds_image_full(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Im
 /// picture with its neighbours. The base game's font textures have one level
 /// [observed: fonts.md §2]; a localized or modded one may have more (#1439).
 pub fn dds_image_top(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE, true))
+    dds_texture(bytes, TextureUsage::from_srgb(srgb), bc_supported, MAX_TEXTURE_SIDE, true).map(|d| d.image)
 }
 
-fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32, top_only: bool) -> Result<Image, String> {
+fn dds_texture(bytes: &[u8], usage: TextureUsage, bc_supported: bool, cap: u32, top_only: bool) -> Result<DecodedTexture, String> {
+    crate::guard::guarded(|| dds_image_unguarded(bytes, usage, bc_supported, cap, top_only))
+}
+
+fn dds_image_unguarded(bytes: &[u8], usage: TextureUsage, bc_supported: bool, cap: u32, top_only: bool) -> Result<DecodedTexture, String> {
+    let srgb = usage == TextureUsage::Color;
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
@@ -223,7 +304,7 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32, t
                 let format = if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
                 let mut img = checked_image(w, h, levels.len() as u32, format, out)?;
                 img.sampler = sampler();
-                return Ok(img);
+                return Ok(img.into());
             }
             if !bc_supported {
                 return Err("GPU lacks BC texture support".into());
@@ -240,6 +321,37 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32, t
             };
             (f, levels.concat())
         }
+        Format::Bc5U | Format::Bc5S => {
+            if srgb {
+                return Err("BC5 has no sRGB color layout; request linear data or a normal map".into());
+            }
+            let signed = dds.format == Format::Bc5S;
+            if usage != TextureUsage::Normal && bc_supported && w % 4 == 0 && h % 4 == 0 {
+                (if signed { TextureFormat::Bc5RgSnorm } else { TextureFormat::Bc5RgUnorm }, levels.concat())
+            } else {
+                let mut out = Vec::new();
+                for (m, level) in levels.iter().enumerate() {
+                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    let pixels = fnv_dds::decode_bc5(dds.format, lw, lh, level).ok_or("invalid BC5 block data")?;
+                    for [r, g] in pixels {
+                        if usage == TextureUsage::Normal {
+                            let [x, y] = if signed { [r, g] } else { [r * 2.0 - 1.0, g * 2.0 - 1.0] };
+                            // Expand here to use Bevy's three-component path; its
+                            // vendored two-component reconstruction has no clamp.
+                            let z = (1.0 - x * x - y * y).max(0.0).sqrt();
+                            out.extend([normal_byte(x), normal_byte(y), normal_byte(z), 255]);
+                        } else if signed {
+                            out.extend([(r * 127.0).round() as i8 as u8, (g * 127.0).round() as i8 as u8]);
+                        } else {
+                            out.extend([(r * 255.0).round() as u8, (g * 255.0).round() as u8]);
+                        }
+                    }
+                }
+                let format = if usage == TextureUsage::Normal { TextureFormat::Rgba8Unorm }
+                    else if signed { TextureFormat::Rg8Snorm } else { TextureFormat::Rg8Unorm };
+                (format, out)
+            }
+        }
         other => {
             let mut out = Vec::new();
             for l in levels {
@@ -250,7 +362,12 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32, t
     };
     let mut img = checked_image(w, h, levels.len() as u32, format, data)?;
     img.sampler = sampler();
-    Ok(img)
+    let lacks_alpha = matches!(dds.format, Format::Bc5U | Format::Bc5S) || crate::nif_spawn::format_lacks_alpha(format);
+    Ok(DecodedTexture { image: img, lacks_alpha })
+}
+
+fn normal_byte(value: f32) -> u8 {
+    ((value + 1.0) * 0.5 * 255.0).round() as u8
 }
 
 /// The largest side of a texture taken from a file. Above every texture the game ships
@@ -338,12 +455,12 @@ pub fn is_first_person_texture(path: &str) -> bool {
 
 impl TextureCache {
     /// Drop the textures nothing else holds (no live material uses them), after their
-    /// grace time (`crate::release`); the number dropped. Keys: (path, sRGB, clamped).
+    /// grace time (`crate::release`); the number dropped. Keys: (path, usage, clamped).
     /// The textures held, for the stress census: an entry is idle when only the cache
     /// holds its image (it waits out its keep time).
     pub fn share(&self) -> crate::release::CacheShare {
         let mut s = crate::release::CacheShare::default();
-        for h in self.map.values().chain(self.clamped.values()).flatten() {
+        for (h, _) in self.map.values().chain(self.clamped.values()).flatten() {
             s.entries += 1;
             s.idle += usize::from(!crate::release::held_beyond(h, 1));
             s.images.insert(h.id());
@@ -354,12 +471,12 @@ impl TextureCache {
     /// Drop the textures nothing has used for `keep.secs` ([`KeepLimits`](crate::release::KeepLimits)):
     /// counted from when the model or part that last held one went unused, where `hints`
     /// says (release.rs [`ImageHints`](crate::release::ImageHints)).
-    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, hints: &crate::release::ImageHints, now: f64, keep: crate::release::KeepLimits) -> usize {
+    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, TextureUsage, bool)>, hints: &crate::release::ImageHints, now: f64, keep: crate::release::KeepLimits) -> usize {
         use crate::release::held_beyond;
         let mut ids = HashMap::new();
         let entries: Vec<_> = [(false, &self.map), (true, &self.clamped)]
             .into_iter()
-            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), h))))
+            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, usage), h)| h.as_ref().map(|(h, _)| ((p.clone(), *usage, clamp), h))))
             .map(|(k, h)| {
                 ids.insert(k.clone(), h.id());
                 (k, held_beyond(h, 1))
@@ -368,9 +485,9 @@ impl TextureCache {
         self.ahead.retain(|_, (_, at)| now - *at < AHEAD_KEEP_SECS);
         self.workers.entries.lock().expect("worker textures").retain(|_, w| w.stored_at.is_none_or(|t| now - t < WORKER_KEEP_SECS));
         let drop = idle.sweep_timed(now, entries, keep.secs, keep.max, |k| ids.get(k).and_then(|&id| hints.since(id)));
-        for ((p, srgb, clamp), _) in &drop {
-            (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
-            self.made.remove(&(p.clone(), *srgb, *clamp));
+        for ((p, usage, clamp), _) in &drop {
+            (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *usage));
+            self.made.remove(&(p.clone(), *usage, *clamp));
         }
         self.generation += u64::from(!drop.is_empty());
         drop.len()
@@ -385,7 +502,7 @@ impl TextureCache {
         for (key, w) in entries.iter_mut() {
             let Some(image) = w.image.take() else { continue };
             if images.insert(w.handle.id(), image).is_ok() {
-                self.map.entry(key.clone()).or_insert_with(|| Some(w.handle.clone()));
+                self.map.entry(key.clone()).or_insert_with(|| Some((w.handle.clone(), w.lacks_alpha)));
                 self.loads += 1;
                 self.made.insert((key.0.clone(), key.1, false), self.loads);
                 n += 1;
@@ -393,9 +510,10 @@ impl TextureCache {
             w.stored_at = Some(now);
         }
         drop(entries);
-        for (key, e) in self.workers.failed.lock().expect("worker textures").drain() {
+        for (key, error) in self.workers.failed.lock().expect("worker textures").iter_mut() {
+            let Some(e) = error.take() else { continue };
             crate::guard::failed(&mut self.failures, "texture", format!("{}: {e}", key.0));
-            self.map.entry(key).or_insert(None);
+            self.map.entry(key.clone()).or_insert(None);
         }
         self.generation += u64::from(n > 0);
         n
@@ -407,9 +525,9 @@ impl TextureCache {
         self.map
             .iter()
             .filter_map(|(k, h)| {
-                let h = h.as_ref()?;
+                let (h, lacks_alpha) = h.as_ref()?;
                 let Handle::Strong(strong) = h else { return None };
-                Some((k.clone(), (Arc::downgrade(strong), images.get(h)?.texture_descriptor.format)))
+                Some((k.clone(), (Arc::downgrade(strong), images.get(h)?.texture_descriptor.format, *lacks_alpha)))
             })
             .collect()
     }
@@ -417,7 +535,7 @@ impl TextureCache {
     /// The textures cached, and those something besides the cache holds (the log of a
     /// flush pass).
     pub fn held_counts(&self) -> (usize, usize) {
-        let all = || self.map.values().chain(self.clamped.values()).flatten();
+        let all = || self.map.values().chain(self.clamped.values()).flatten().map(|(h, _)| h);
         (all().count(), all().filter(|h| crate::release::held_beyond(h, 1)).count())
     }
 
@@ -429,7 +547,7 @@ impl TextureCache {
     /// The bytes of the texture file at `path` (resolved: [`resolved_path`]), read ahead on
     /// a worker thread, for the first load of it; kept unless it is loaded already.
     pub fn offer(&mut self, path: String, bytes: Vec<u8>, now: f64) {
-        let loaded = [true, false].iter().any(|&srgb| self.map.contains_key(&(path.clone(), srgb)) || self.clamped.contains_key(&(path.clone(), srgb)));
+        let loaded = TEXTURE_USAGES.iter().any(|&usage| self.map.contains_key(&(path.clone(), usage)) || self.clamped.contains_key(&(path.clone(), usage)));
         if !loaded {
             self.ahead.insert(path, (bytes, now));
         }
@@ -439,9 +557,9 @@ impl TextureCache {
     /// put in from a worker thread, or its file read ahead ([`Self::offer`]): loading it
     /// reads no file.
     pub fn has_or_ahead(&self, path: &str) -> bool {
-        let key = |srgb: bool| (path.to_string(), srgb);
+        let key = |usage: TextureUsage| (path.to_string(), usage);
         self.ahead.contains_key(path)
-            || [true, false].iter().any(|&srgb| self.map.contains_key(&key(srgb)) || self.workers.entries.lock().expect("worker textures").contains_key(&key(srgb)))
+            || TEXTURE_USAGES.iter().any(|&usage| self.map.contains_key(&key(usage)) || self.workers.entries.lock().expect("worker textures").contains_key(&key(usage)))
     }
 
     /// Textures loaded and held now (failures not counted).
@@ -463,7 +581,7 @@ impl TextureCache {
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<Handle<Image>> {
-        self.load(raw_path, srgb, false, data, images, formats)
+        self.load(raw_path, TextureUsage::from_srgb(srgb), false, data, images, formats).map(|(h, _)| h)
     }
 
     /// Like [`Self::get`], a copy of the texture whose sampler clamps at its edges
@@ -476,35 +594,47 @@ impl TextureCache {
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<Handle<Image>> {
-        self.load(raw_path, srgb, true, data, images, formats)
+        self.load(raw_path, TextureUsage::from_srgb(srgb), true, data, images, formats).map(|(h, _)| h)
+    }
+
+    /// Load for a material normal slot, returning the source's no-alpha flag.
+    /// Synthesized BC5 storage alpha must not become a specular mask.
+    pub fn normal(
+        &mut self,
+        raw_path: &str,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<(Handle<Image>, bool)> {
+        self.load(raw_path, TextureUsage::Normal, false, data, images, formats)
     }
 
     fn load(
         &mut self,
         raw_path: &str,
-        srgb: bool,
+        usage: TextureUsage,
         clamp: bool,
         data: &GameData,
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
-    ) -> Option<Handle<Image>> {
+    ) -> Option<(Handle<Image>, bool)> {
         let path = resolved_path(raw_path, |p| data.vfs.exists(p));
-        if let Some(h) = (if clamp { &self.clamped } else { &self.map }).get(&(path.clone(), srgb)) {
+        if let Some(h) = (if clamp { &self.clamped } else { &self.map }).get(&(path.clone(), usage)) {
             return h.clone();
         }
         // Decoded on a worker thread: its handle (and its image, if still waiting).
         if !clamp {
             let mut entries = self.workers.entries.lock().expect("worker textures");
-            if let Some(w) = entries.get_mut(&(path.clone(), srgb)) {
+            if let Some(w) = entries.get_mut(&(path.clone(), usage)) {
                 if let Some(image) = w.image.take() {
                     let _ = images.insert(w.handle.id(), image);
                     w.stored_at = Some(0.0);
                 }
-                let h = w.handle.clone();
+                let h = (w.handle.clone(), w.lacks_alpha);
                 drop(entries);
                 self.loads += 1;
-                self.made.insert((path.clone(), srgb, false), self.loads);
-                self.map.insert((path, srgb), Some(h.clone()));
+                self.made.insert((path.clone(), usage, false), self.loads);
+                self.map.insert((path, usage), Some(h.clone()));
                 self.generation += 1;
                 return Some(h);
             }
@@ -516,19 +646,19 @@ impl TextureCache {
         let decode_span = bevy::log::info_span!("texture::decode").entered();
         let result = match read {
             None => Err("not in any archive".to_string()),
-            Some(bytes) => dds_image(&bytes, srgb, bc),
+            Some(bytes) => dds_texture(&bytes, usage, bc, side_cap(), false),
         };
         drop(decode_span);
         let handle = match result {
-            Ok(mut img) => {
-                img.texture_descriptor.label = Some(folder_label(&path));
+            Ok(DecodedTexture { mut image, lacks_alpha }) => {
+                image.texture_descriptor.label = Some(folder_label(&path));
                 if clamp {
-                    if let ImageSampler::Descriptor(d) = &mut img.sampler {
+                    if let ImageSampler::Descriptor(d) = &mut image.sampler {
                         d.address_mode_u = ImageAddressMode::ClampToEdge;
                         d.address_mode_v = ImageAddressMode::ClampToEdge;
                     }
                 }
-                Some(images.add(img))
+                Some((images.add(image), lacks_alpha))
             }
             Err(e) => {
                 crate::guard::failed(&mut self.failures, "texture", format!("{path}: {e}"));
@@ -536,8 +666,8 @@ impl TextureCache {
             }
         };
         self.loads += 1;
-        self.made.insert((path.clone(), srgb, clamp), self.loads);
-        (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, srgb), handle.clone());
+        self.made.insert((path.clone(), usage, clamp), self.loads);
+        (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, usage), handle.clone());
         self.generation += 1;
         handle
     }
@@ -554,13 +684,13 @@ impl TextureCache {
     pub fn reload_since(&mut self, count: u64, data: &GameData, images: &mut Assets<Image>, formats: Option<&CompressedImageFormatSupport>) -> Vec<AssetId<Image>> {
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
         let mut out = Vec::new();
-        for ((path, srgb, clamp), &n) in &self.made {
+        for ((path, usage, clamp), &n) in &self.made {
             if n <= count {
                 continue;
             }
-            let held = (if *clamp { &self.clamped } else { &self.map }).get(&(path.clone(), *srgb));
+            let held = (if *clamp { &self.clamped } else { &self.map }).get(&(path.clone(), *usage));
             let Some(Some(h)) = held else { continue };
-            let Some(Ok(mut img)) = data.read(path).map(|b| dds_image(&b, *srgb, bc)) else { continue };
+            let Some(Ok(mut img)) = data.read(path).map(|b| dds_texture(&b, *usage, bc, side_cap(), false).map(|d| d.image)) else { continue };
             img.texture_descriptor.label = Some(folder_label(path));
             if *clamp {
                 if let ImageSampler::Descriptor(d) = &mut img.sampler {
@@ -568,8 +698,8 @@ impl TextureCache {
                     d.address_mode_v = ImageAddressMode::ClampToEdge;
                 }
             }
-            if images.insert(h.id(), img).is_ok() {
-                out.push(h.id());
+            if images.insert(h.0.id(), img).is_ok() {
+                out.push(h.0.id());
             }
         }
         out
@@ -633,7 +763,7 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
             }
         }
         // BC7 alpha is not decoded on the CPU: no shares (as for layouts without alpha).
-        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 => return None,
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 | Format::Bc5U | Format::Bc5S => return None,
     }
     let n = counts.iter().sum::<usize>().max(1) as f32;
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
@@ -678,7 +808,7 @@ pub fn alpha_map(bytes: &[u8]) -> Option<AlphaMap> {
                 *a = p[3];
             }
         }
-        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 => return None,
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 | Format::Bc5U | Format::Bc5S => return None,
     }
     Some(AlphaMap { width, height, alpha })
 }
@@ -784,6 +914,121 @@ mod tests {
     use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
+
+    fn owned_worker_image(srgb: bool) -> super::DecodedTexture {
+        super::dds_image(&dds(b"DXT1", 4, 4, &[0; 8]), srgb, true).unwrap().into()
+    }
+
+    #[test]
+    fn worker_texture_contenders_decode_once_and_share_the_uploaded_handle() {
+        use std::sync::{atomic::{AtomicUsize, Ordering}, mpsc};
+        use std::time::{Duration, Instant};
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\owned.dds".to_string(), super::TextureUsage::Color);
+        let attempts = AtomicUsize::new(0);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let handles = std::thread::scope(|scope| {
+            let workers = &*cache.workers;
+            let (key_ref, provider_ref, attempts_ref) = (&key, &provider, &attempts);
+            let producer = scope.spawn(move || workers.load_once(key_ref.clone(), provider_ref, |_| {
+                attempts_ref.fetch_add(1, Ordering::Relaxed);
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let gate = workers.load_gate(&key);
+            let consumers: Vec<_> = (0..7).map(|_| scope.spawn(|| workers.load_once(key.clone(), &provider, |_| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Ok(owned_worker_image(true))
+            }))).collect();
+            // The producer and all seven consumers must have reached the same key's
+            // gate before it is released, rather than testing eight sequential hits.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while std::sync::Arc::strong_count(&gate) != 9 && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            let reached = std::sync::Arc::strong_count(&gate);
+            release_tx.send(()).unwrap();
+            let mut handles = vec![producer.join().unwrap().unwrap()];
+            handles.extend(consumers.into_iter().map(|t| t.join().unwrap().unwrap()));
+            assert_eq!(reached, 9, "all requests must contend with the held producer");
+            handles
+        });
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(handles.iter().all(|h| *h == handles[0]));
+        assert_eq!(cache.take_workers(&mut images, 1.0), 1);
+        assert!(images.get(&handles[0].0).is_some());
+        assert!(cache.snapshot(&images)[&key].0.upgrade().is_some());
+        assert_eq!(cache.take_workers(&mut images, 2.0), 0);
+    }
+
+    #[test]
+    fn worker_texture_different_keys_make_progress_while_one_is_loading() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let (workers_ref, images_ref) = (&workers, &images);
+            let first = scope.spawn(move || workers_ref.load_once(("first.dds".into(), super::TextureUsage::Color), images_ref, |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(owned_worker_image(true))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            // Its producer releases the first: a single global decode lock deadlocks
+            // until the bounded channel timeout and fails this regression.
+            let other = workers.load_once(("other.dds".into(), super::TextureUsage::Color), &images, |_| {
+                release_tx.send(()).unwrap();
+                Ok(owned_worker_image(true))
+            }).unwrap();
+            assert_ne!(first.join().unwrap().unwrap().0, other.0);
+        });
+    }
+
+    #[test]
+    fn worker_texture_failure_stays_cached_after_its_diagnostic_is_collected() {
+        let mut cache = super::TextureCache::default();
+        let mut images = bevy::prelude::Assets::<bevy::prelude::Image>::default();
+        let provider = images.get_handle_provider();
+        let key = ("textures\\missing-owned.dds".to_string(), super::TextureUsage::Color);
+        assert!(cache.workers.load_once(key.clone(), &provider, |_| Err("owned missing texture".into())).is_none());
+        assert_eq!(cache.take_workers(&mut images, 1.0), 0);
+        assert_eq!(cache.failures.len(), 1);
+        assert!(cache.workers.load_once(key, &provider, |_| panic!("stale success-only snapshots must not retry failed textures")).is_none());
+        cache.take_workers(&mut images, 2.0);
+        assert_eq!(cache.failures.len(), 1, "each failure is reported only once");
+    }
+
+    #[test]
+    fn worker_texture_color_spaces_keep_distinct_handles_and_formats() {
+        let workers = super::WorkerTextures::default();
+        let images = bevy::prelude::Assets::<bevy::prelude::Image>::default().get_handle_provider();
+        let color = workers.load_once(("owned.dds".into(), super::TextureUsage::Color), &images, |_| Ok(owned_worker_image(true))).unwrap();
+        let linear = workers.load_once(("owned.dds".into(), super::TextureUsage::Linear), &images, |_| Ok(owned_worker_image(false))).unwrap();
+        assert_ne!(color.0, linear.0);
+        assert_ne!(color.1, linear.1);
+    }
+
+    #[test]
+    fn worker_texture_gate_pruning_keeps_active_keys_and_releases_idle_keys() {
+        let workers = super::WorkerTextures::default();
+        let key = ("active.dds".to_string(), super::TextureUsage::Color);
+        let held = workers.load_gate(&key);
+        for n in 0..1024 {
+            drop(workers.load_gate(&(format!("idle{n}.dds"), super::TextureUsage::Color)));
+        }
+        let found = workers.load_gate(&key);
+        assert!(std::sync::Arc::ptr_eq(&held, &found));
+        assert!(workers.loading.lock().unwrap().len() <= 256);
+    }
+
 
     #[test]
     fn a_capped_texture_starts_at_its_first_level_within_the_cap() {
@@ -950,8 +1195,8 @@ mod tests {
         use bevy::prelude::*;
         let mut images = Assets::<Image>::default();
         let mut cache = super::TextureCache::default();
-        let key = ("textures/a.dds".to_string(), true);
-        cache.map.insert(key.clone(), Some(images.add(Image::default())));
+        let key = ("textures/a.dds".to_string(), super::TextureUsage::Color);
+        cache.map.insert(key.clone(), Some((images.add(Image::default()), false)));
         let list = cache.snapshot(&images);
         assert_eq!(cache.held_counts(), (1, 0));
         let taken = list[&key].0.upgrade().expect("still cached");
@@ -961,5 +1206,228 @@ mod tests {
         // Released by the cache: a worker finds it gone and decodes it again.
         cache.map.clear();
         assert!(list[&key].0.upgrade().is_none());
+    }
+}
+
+
+#[cfg(test)]
+pub(crate) mod bc5_tests {
+    use super::*;
+
+    pub(crate) fn dds(tag: &[u8; 4], w: u32, h: u32, mips: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; 128];
+        bytes[..4].copy_from_slice(b"DDS ");
+        for (offset, value) in [(4, 124), (8, 0x21007), (12, h), (16, w), (28, mips), (76, 32), (80, 4)] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[84..88].copy_from_slice(tag);
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    pub(crate) struct OwnedData {
+        root: std::path::PathBuf,
+        pub(crate) data: GameData,
+    }
+
+    impl OwnedData {
+        pub(crate) fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let root = std::env::temp_dir().join(format!("nvf-bc5-owned-{}-{stamp}-{serial}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::create_dir(root.join("textures")).unwrap();
+            let mut signed = [0; 16]; signed[0] = 129; signed[8] = 127;
+            std::fs::write(root.join("textures/signed.dds"), dds(b"BC5S", 4, 4, 1, &signed)).unwrap();
+            std::fs::write(root.join("textures/unsigned.dds"), dds(b"ATI2", 4, 4, 1, &signed)).unwrap();
+            std::fs::write(root.join("textures/old.dds"), dds(b"DXT5", 4, 4, 1, &[255; 16])).unwrap();
+            let data = GameData {
+                vfs: Arc::new(fnv_vfs::Vfs::open(&root, &[]).unwrap()),
+                schema: Arc::new(fnv_nif::Schema::default()),
+            };
+            Self { root, data }
+        }
+    }
+
+    impl Drop for OwnedData {
+        fn drop(&mut self) {
+            // Only these authored files and the two directories we created, no recursion.
+            for name in ["signed.dds", "unsigned.dds", "old.dds"] {
+                let _ = std::fs::remove_file(self.root.join("textures").join(name));
+            }
+            let _ = std::fs::remove_dir(self.root.join("textures"));
+            let _ = std::fs::remove_dir(&self.root);
+        }
+    }
+
+    pub(crate) fn triangle() -> Mesh {
+        use bevy::mesh::{Indices, PrimitiveTopology};
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.0, 1.0]; 3])
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [0.0, 1.0]])
+            .with_inserted_indices(Indices::U32(vec![0, 1, 2]))
+    }
+
+    #[test]
+    fn signed_and_unsigned_linear_images_keep_format_and_endpoint_meaning() {
+        let mut block = [0; 16]; block[0] = 129; block[8] = 127;
+        let signed = dds(b"BC5S", 4, 4, 1, &block);
+        let native = dds_image(&signed, false, true).unwrap();
+        assert_eq!(native.texture_descriptor.format, TextureFormat::Bc5RgSnorm);
+        assert_eq!(native.data.as_deref(), Some(block.as_slice()));
+        let fallback = dds_image(&signed, false, false).unwrap();
+        assert_eq!(fallback.texture_descriptor.format, TextureFormat::Rg8Snorm);
+        assert_eq!(fallback.data.as_deref(), Some([129, 127].repeat(16).as_slice()));
+        let unsigned = dds(b"ATI2", 4, 4, 1, &block);
+        let native_u = dds_image(&unsigned, false, true).unwrap();
+        assert_eq!(native_u.texture_descriptor.format, TextureFormat::Bc5RgUnorm);
+        assert_eq!(native_u.data.as_deref(), Some(block.as_slice()));
+        let fallback_u = dds_image(&unsigned, false, false).unwrap();
+        assert_eq!(fallback_u.texture_descriptor.format, TextureFormat::Rg8Unorm);
+        assert_eq!(fallback_u.data, fallback.data);
+        for bytes in [&signed, &unsigned] {
+            assert!(dds_image(bytes, true, true).unwrap_err().contains("no sRGB"));
+            assert!(alpha_shares(bytes).is_none());
+            assert!(alpha_map(bytes).is_none());
+        }
+        for format in [TextureFormat::Bc5RgSnorm, TextureFormat::Bc5RgUnorm, TextureFormat::Rg8Snorm, TextureFormat::Rg8Unorm] {
+            assert!(crate::nif_spawn::format_lacks_alpha(format));
+        }
+        assert!(!crate::nif_spawn::format_lacks_alpha(TextureFormat::Rgba8Unorm));
+    }
+
+    #[test]
+    fn normal_expansion_is_finite_without_shader_bias_or_alpha_confusion() {
+        // Outside the unit disk, on its edge, and at zero: independent literal bytes.
+        for (x, y, rgba) in [(129, 127, [0, 255, 128, 255]), (127, 0, [255, 128, 128, 255]), (0, 0, [128, 128, 255, 255])] {
+            let mut block = [0; 16]; block[0] = x; block[8] = y;
+            let bytes = dds(b"BC5S", 4, 4, 1, &block);
+            for bc in [false, true] {
+                let normal = dds_texture(&bytes, TextureUsage::Normal, bc, MAX_TEXTURE_SIDE, false).unwrap();
+                assert_eq!(normal.image.texture_descriptor.format, TextureFormat::Rgba8Unorm);
+                assert_eq!(normal.image.data.as_deref(), Some(rgba.repeat(16).as_slice()));
+                assert!(normal.lacks_alpha, "synthesized alpha is not a specular mask");
+                for pixel in normal.image.data.as_ref().unwrap().as_chunks::<4>().0 {
+                    let n = Vec3::new(pixel[0] as f32, pixel[1] as f32, pixel[2] as f32) / 127.5 - Vec3::ONE;
+                    assert!(n.is_finite() && n.length_squared() > 0.0);
+                }
+            }
+        }
+        // Unsigned XY uses its own unbias, not signed byte reinterpretation.
+        let mut block = [0; 16]; block[0] = 255;
+        let normal = dds_texture(&dds(b"ATI2", 4, 4, 1, &block), TextureUsage::Normal, true, MAX_TEXTURE_SIDE, false).unwrap();
+        assert_eq!(normal.image.data.as_deref(), Some([255, 0, 128, 255].repeat(16).as_slice()));
+    }
+
+    #[test]
+    fn bc5_partial_dimensions_and_mips_keep_exact_upload_lengths() {
+        let bytes = dds(b"BC5S", 5, 3, 2, &[0; 48]);
+        let linear = dds_image(&bytes, false, true).unwrap();
+        assert_eq!((linear.width(), linear.height(), linear.texture_descriptor.mip_level_count), (5, 3, 2));
+        assert_eq!(linear.texture_descriptor.format, TextureFormat::Rg8Snorm);
+        assert_eq!(linear.data.as_ref().unwrap().len(), (15 + 2) * 2);
+        let normal = dds_texture(&bytes, TextureUsage::Normal, true, MAX_TEXTURE_SIDE, false).unwrap();
+        assert_eq!(normal.image.data.as_deref(), Some([128, 128, 255, 255].repeat(17).as_slice()));
+        let top = dds_image_top(&bytes, false, true).unwrap();
+        assert_eq!(top.texture_descriptor.mip_level_count, 1);
+        assert_eq!(top.data.as_ref().unwrap().len(), 30);
+        assert!(dds_image(&bytes[..bytes.len() - 1], false, true).is_err());
+    }
+
+    #[test]
+    fn cache_roles_isolate_normal_linear_color_and_failure() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        // A refused color request must not poison either valid interpretation.
+        assert!(cache.get("signed.dds", true, &owned.data, &mut images, None).is_none());
+        let linear = cache.get("signed.dds", false, &owned.data, &mut images, None).unwrap();
+        let normal = cache.normal("signed.dds", &owned.data, &mut images, None).unwrap();
+        assert_ne!(linear, normal.0);
+        assert!(normal.1);
+        assert_eq!(images.get(&linear).unwrap().texture_descriptor.format, TextureFormat::Bc5RgSnorm);
+        assert_eq!(images.get(&normal.0).unwrap().texture_descriptor.format, TextureFormat::Rgba8Unorm);
+        assert_eq!(cache.normal("SIGNED.dds", &owned.data, &mut images, None).unwrap(), normal);
+        assert_eq!(cache.get("signed.dds", false, &owned.data, &mut images, None), Some(linear));
+        let old_color = cache.get("old.dds", true, &owned.data, &mut images, None).unwrap();
+        let old_linear = cache.get("old.dds", false, &owned.data, &mut images, None).unwrap();
+        let old_normal = cache.normal("old.dds", &owned.data, &mut images, None).unwrap();
+        assert_ne!(old_color, old_linear);
+        assert_ne!(old_linear, old_normal.0);
+        assert_ne!(old_color, old_normal.0);
+        assert!(!old_normal.1);
+        assert_eq!(images.get(&old_color).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnormSrgb);
+        assert_eq!(images.get(&old_normal.0).unwrap().texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(images.get(&old_linear).unwrap().data, images.get(&old_normal.0).unwrap().data);
+        assert_eq!(cache.failures.len(), 1);
+        assert!(cache.has_or_ahead("textures\\signed.dds"));
+        cache.offer("textures\\signed.dds".into(), vec![1, 2, 3], 0.0);
+        assert!(cache.ahead.is_empty());
+    }
+
+    #[test]
+    fn normal_workers_share_one_handle_and_preserve_metadata_through_adoption() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        let provider = images.get_handle_provider();
+        let empty = TextureSnapshot::new();
+        let barrier = std::sync::Barrier::new(6);
+        let handles = std::thread::scope(|scope| {
+            let tasks: Vec<_> = (0..6).map(|_| scope.spawn(|| {
+                barrier.wait();
+                worker_texture("signed.dds", TextureUsage::Normal, &owned.data, &empty, &cache.workers, &provider, true).unwrap()
+            })).collect();
+            tasks.into_iter().map(|task| task.join().unwrap()).collect::<Vec<_>>()
+        });
+        assert!(handles.iter().all(|h| *h == handles[0]));
+        assert!(handles[0].2);
+        assert_eq!(cache.workers.entries.lock().unwrap().len(), 1);
+        // Main adoption runs before take_workers, using the worker's exact identity.
+        let normal = cache.normal("signed.dds", &owned.data, &mut images, None).unwrap();
+        assert_eq!(normal, (handles[0].0.clone(), true));
+        assert_eq!(cache.take_workers(&mut images, 1.0), 0);
+        let snapshot = cache.snapshot(&images);
+        assert!(snapshot[&("textures\\signed.dds".into(), TextureUsage::Normal)].0.upgrade().is_some());
+        let isolated = WorkerTextures::default();
+        assert_eq!(worker_texture("signed.dds", TextureUsage::Normal, &owned.data, &snapshot, &isolated, &provider, true), Some(handles[0].clone()));
+        assert!(isolated.entries.lock().unwrap().is_empty(), "snapshot hit must not decode again");
+        let linear = worker_texture("signed.dds", TextureUsage::Linear, &owned.data, &snapshot, &cache.workers, &provider, true).unwrap();
+        assert_ne!(linear.0, normal.0);
+        assert_eq!(linear.1, TextureFormat::Bc5RgSnorm);
+        assert_eq!(cache.take_workers(&mut images, 2.0), 1);
+        assert_eq!(cache.get("signed.dds", false, &owned.data, &mut images, None), Some(linear.0));
+        assert!(worker_texture("signed.dds", TextureUsage::Color, &owned.data, &snapshot, &cache.workers, &provider, true).is_none());
+        cache.take_workers(&mut images, 3.0);
+        assert_eq!(cache.failures.len(), 1);
+        assert!(worker_texture("signed.dds", TextureUsage::Color, &owned.data, &snapshot, &cache.workers, &provider, true).is_none());
+        cache.take_workers(&mut images, 4.0);
+        assert_eq!(cache.failures.len(), 1);
+        assert_eq!(cache.normal("signed.dds", &owned.data, &mut images, None).unwrap(), normal);
+    }
+
+    #[test]
+    fn release_tracks_each_usage_and_clamped_copy_independently() {
+        let owned = OwnedData::new();
+        let mut cache = TextureCache::default();
+        let mut images = Assets::default();
+        let color = cache.get("old.dds", true, &owned.data, &mut images, None).unwrap();
+        let linear = cache.get("old.dds", false, &owned.data, &mut images, None).unwrap();
+        let clamped = cache.get_clamped("old.dds", false, &owned.data, &mut images, None).unwrap();
+        let normal = cache.normal("old.dds", &owned.data, &mut images, None).unwrap();
+        assert_ne!(linear, clamped);
+        drop((color, linear, clamped));
+        let mut idle = crate::release::Unused::default();
+        let hints = crate::release::ImageHints::default();
+        let keep = crate::release::KeepLimits { secs: 0.0, max: 0 };
+        assert_eq!(cache.release(&mut idle, &hints, 1.0, keep), 3);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.normal("old.dds", &owned.data, &mut images, None).unwrap(), normal);
+        drop(normal);
+        assert_eq!(cache.release(&mut idle, &hints, 2.0, keep), 1);
+        assert!(cache.is_empty());
+        assert!(cache.snapshot(&images).is_empty());
     }
 }

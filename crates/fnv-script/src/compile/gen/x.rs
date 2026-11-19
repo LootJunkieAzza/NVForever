@@ -32,11 +32,17 @@ use crate::table::ParamEnc;
 pub(in crate::compile) struct P<'t> {
     t: &'t [XTok],
     i: usize,
+    // Only the current expression's root owns otherwise surplus operands.
+    // Arguments and explicit groups retain their existing boundary rules.
+    inline_surplus: bool,
 }
 
 impl<'t> P<'t> {
     pub(in crate::compile) fn new(t: &'t [XTok]) -> P<'t> {
-        P { t, i: 0 }
+        P { t, i: 0, inline_surplus: false }
+    }
+    pub(in crate::compile) fn expression(t: &'t [XTok]) -> P<'t> {
+        P { t, i: 0, inline_surplus: true }
     }
     fn peek(&self) -> Option<&'t XTok> {
         self.t.get(self.i)
@@ -128,12 +134,6 @@ const POSTFIX: u8 = 31;
 const ARG: u8 = 25;
 /// An argument of an NVSE-aware function: everything but the assignments.
 const ARG_OVERRIDE: u8 = 2;
-/// The aware commands whose argument is one whole expression [documented: NVSE
-/// Expressions; Let; TestExpr; While; Print; SetFunctionValue; Assert]: only these take
-/// a comparison into their argument; the other aware functions' arguments stop at one.
-/// Call keeps whole-expression arguments as before [hypothesis: not observed either way].
-const EXPRESSION_COMMANDS: [&str; 10] = ["let", "eval", "testexpr", "while", "foreach", "print", "printdebug", "setfunctionvalue", "assert", "call"];
-
 /// An argument inside a compiler-override block: arithmetic and the bitwise operators,
 /// not the comparisons (`Abs -3 + 1` is Abs(-3 + 1), `Sin 90 > 0.5` is (Sin 90) > 0.5)
 /// [observed: probes expressions/08, 09 in the original game; bitwise operators
@@ -186,7 +186,9 @@ impl Gen<'_> {
             if t.kind == XKind::LBracket && POSTFIX >= min {
                 p.next();
                 let was = std::mem::replace(&mut self.in_args, false);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
                 let inner = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
                 self.in_args = was;
                 let inner = inner?;
                 if p.next().map(|t| t.kind) != Some(XKind::RBracket) {
@@ -199,10 +201,29 @@ impl Gen<'_> {
             // Chained dot syntax, NVSE Expressions `.`].
             if t.kind == XKind::Word && t.text.starts_with('.') && t.text.len() > 1 && POSTFIX >= min {
                 let name = &t.text[1..];
-                // (`aA[0].ySIGetTagTrait "string"`, a function of a plugin the engine does
-                // not run [observed: JustAssortedMods.esp SCPT 0x045807].)
-                let Some(f) = self.xfunction(name).or_else(|| self.unknown_fn(name)) else { return self.xerr("unknown_function", name.to_string()) };
+                let f = match self.xfunction(name) {
+                    Some(f) => f,
+                    // In a mod's source compiled by the engine: a call of that name, as
+                    // [`Self::unknown_call`] [observed: JustAssortedMods.esp 4.6,
+                    // `aA[0].ySIGetTagTrait "string"`, a function with no page].
+                    None if self.unknown_calls => {
+                        self.diag("unknown_function", false, name.to_string());
+                        XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false }
+                    }
+                    None => return self.xerr("unknown_function", name.to_string()),
+                };
                 p.next();
+                // A quoted hex FormID as the calling reference is that form: AguaFria.esm
+                // ships `"171B39".AddItemAlt …` with bytes that call on 0x00171B39
+                // [observed: SCPT 0x06000DFA, #2275].
+                if let XExpr::Str { s } = &left {
+                    let hex = (1..9).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_hexdigit());
+                    let form = hex.then(|| u32::from_str_radix(s, 16).ok()).flatten().and_then(|l| self.env.local_form(l)).and_then(|g| self.env.info(g));
+                    if let Some(fi) = form {
+                        let r = self.ref_index(crate::unit::RefSlot::Form(fi.form), s);
+                        left = XExpr::Ref { r: RefIndex(r) };
+                    }
+                }
                 let args = self.xargs(p, &f)?;
                 left = XExpr::Call { call: XCall { on: Some(Box::new(left)), func: f.func, args } };
                 continue;
@@ -259,12 +280,59 @@ impl Gen<'_> {
                 }
                 let was = std::mem::replace(&mut self.in_args, false);
                 let was_paren = std::mem::replace(&mut self.in_paren, true);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
                 let e = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
                 self.in_args = was;
                 self.in_paren = was_paren;
                 let e = e?;
+                // A name nothing knows, taken as its text, is not such an expression: an
+                // operand after it means a call the catalogue lacks.
+                let unquoted = ends_in_text(&e) && p.i > 0 && p.t[p.i - 1].kind == XKind::Word;
+                if p.peek().is_some_and(|c| c.kind == XKind::Comma || c.kind != XKind::Close && (ends_in_call(&e) || !unquoted && starts_operand(Some(c)))) {
+                    // What is left before the `)` once the expression inside is whole and
+                    // ends in a call, or from a comma on (a function's surplus argument, `,
+                    // x`, `38 || …`), is dropped [observed:
+                    // the owner's Blue Moon list ships `(ar_size (GetActiveObjectives
+                    // QuestREF))`, `((GetFormDescription Plural), iBonus)` and
+                    // `(GetWeaponSkill rWeapon 38 || GetWeaponSkill rWeapon 45)` with
+                    // compiled bytes holding `GetActiveObjectives` with no argument, the
+                    // description alone and `GetWeaponSkill rWeapon` alone, #2275]. So is an
+                    // operand that meets the whole expression without an operator (`("a" +
+                    // $s ".nif")` is `"a" + $s`) [observed: MrShersh Functional
+                    // Backpack.esp ships `AttachModel Player 2 ("…" + $sv ".nif")` with
+                    // compiled bytes whose string sum ends at the variable, #2275].
+                    let from = p.i;
+                    let mut depth = 0i32;
+                    while let Some(c) = p.peek() {
+                        match c.kind {
+                            XKind::Open | XKind::LBracket | XKind::LBrace => depth += 1,
+                            XKind::Close if depth == 0 => break,
+                            XKind::Close | XKind::RBracket | XKind::RBrace => depth -= 1,
+                            _ => {}
+                        }
+                        p.next();
+                    }
+                    if p.peek().is_none() {
+                        p.i = from;
+                        return self.xerr("syntax", "missing )");
+                    }
+                    let dropped: Vec<&str> = p.t[from..p.i].iter().map(|t| t.text.as_str()).collect();
+                    self.diag("rest_of_parentheses_dropped", false, dropped.join(" "));
+                }
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
+                }
+                // On a `set` line the editor drops the parentheses (§3), so a call they
+                // close before it has all its arguments takes the ones after the `)`:
+                // `set t to 1 + (GetVariable (…)) Quest` reads the quest's variable
+                // [observed: Animated Ingestibles.esp ships that line with compiled bytes
+                // holding GetVariable with the inline expression and the quest, #2275].
+                let mut e = e;
+                if self.set_line {
+                    if let XExpr::Call { call } = &mut e {
+                        self.more_args(p, call)?;
+                    }
                 }
                 Some(e)
             }
@@ -294,11 +362,37 @@ impl Gen<'_> {
                 if !p.next().is_some_and(|a| a.is(XKind::Op, "=>")) {
                     return self.xerr("syntax", "a lambda's {params} without =>");
                 }
-                let value = self.xexpr(p, 2)?;
+                // The value takes the rest of the expression, an assignment included:
+                // `({} => iInventory = iRefresh = 1)` assigns when the lambda runs
+                // [observed: JustAssortedMods.esp 4.6 ships that line in JLMScript, as an
+                // event handler and as a stored callback, with compiled bytes; hypothesis:
+                // the original binds it so. Stopping before the assignment made the line
+                // an assignment to the lambda itself, refused when it ran].
+                let value = self.xexpr(p, 0)?;
                 Some(XExpr::Lambda { params, body: Vec::new(), value: Some(Box::new(value)), index: self.next_lambda() })
             }
             _ => self.xerr("syntax", format!("unexpected {}", t.text)),
         }
+    }
+
+    /// More arguments for `call`, up to as many as its function takes.
+    fn more_args(&mut self, p: &mut P<'_>, call: &mut XCall) -> Option<()> {
+        let name = match &call.func {
+            FuncId::Name(n) => n.clone(),
+            FuncId::Opcode(op) => self.table.get(*op).map(|f| f.name.clone())?,
+        };
+        let Some(f) = self.xfunction(&name) else { return Some(()) };
+        let left = match f.params {
+            Some(n) if n <= call.args.len() => return Some(()),
+            Some(n) => Some(n - call.args.len()),
+            None => None,
+        };
+        if !starts_operand(p.peek()) {
+            return Some(());
+        }
+        let more = self.xargs(p, &XFn { params: left, ..f })?;
+        call.args.extend(more);
+        Some(())
     }
 
     /// Whether `name` (with or without `Ref.`) is a function the catalogue lists without
@@ -309,7 +403,7 @@ impl Gen<'_> {
     }
 
     fn xfunction(&self, name: &str) -> Option<XFn> {
-        if let Some(op) = self.table.by_name(name) {
+        if let Some(op) = self.numbered(name) {
             let f = self.table.get(op)?;
             let params = match f.param_count {
                 Some(n) => Some(n),
@@ -341,8 +435,12 @@ impl Gen<'_> {
             None
         } else {
             // A parameter typed `arg(up to 15)` (DispatchEventAlt, the Call… family) or
-            // `variable(up to 14)` stands for that many [documented: their pages' types].
-            let repeats: usize = u.params.iter().filter_map(|p| up_to(p.wiki_type.as_deref()?)).map(|n| n.saturating_sub(1)).sum();
+            // `variable(up to 14)` stands for that many [documented: their pages' types],
+            // and so does one named `filters(up-to-16)` (SetEventHandlerAlt) [documented:
+            // its page; observed: FreePostMojave.esm and WeaponRequirementSystem.esp pass
+            // two filters and a `"priority"::n` pair, five arguments, with compiled bytes
+            // holding all five, #2275].
+            let repeats: usize = u.params.iter().filter_map(|p| p.wiki_type.as_deref().and_then(up_to).or_else(|| up_to(&p.name))).map(|n| n.saturating_sub(1)).sum();
             Some(named + repeats)
         };
         Some(XFn { func: FuncId::Name(u.name.clone()), params, opcode: None, aware: u.aware })
@@ -362,11 +460,7 @@ impl Gen<'_> {
         // `Quest.refVar.Function`: the function on the reference a quest variable holds
         // [observed: JustAssortedMods.esp, `JLM.rContainer.LNGetName`].
         if let Some((target, fname)) = w.rsplit_once('.').filter(|(t, _)| t.contains('.')) {
-            // A function the table lacks, in a mod's source compiled by the engine
-            // (`JLM.rContainer.DisableScriptedActivate 1`, a JIP LN function) [observed:
-            // JustAssortedMods.esp SCPT 0x045806].
-            let f = self.xfunction(fname).or_else(|| self.unknown_fn(fname));
-            if let (Some(f), Some((q, v))) = (f, target.split_once('.')) {
+            if let (Some(f), Some((q, v))) = (self.xfunction(fname), target.split_once('.')) {
                 let on = self.remote(q, v)?;
                 let args = self.xargs(p, &f)?;
                 return Some(XExpr::Call { call: XCall { on: Some(Box::new(val_expr(on))), func: f.func, args } });
@@ -398,6 +492,11 @@ impl Gen<'_> {
                 return Some(XExpr::Call { call: XCall { on, func: f.func, args } });
             }
         }
+        // `Ref.Name args` or `Quest.refVar.Name args` where nothing knows `Name`, in a
+        // mod's source compiled by the engine: a call of that name on the reference.
+        if self.unknown_calls && head.is_some() && self.names_nothing(w) {
+            return self.unknown_call(p, w);
+        }
         if let Some(h) = head {
             let v = self.remote(h, name)?;
             return Some(val_expr(v));
@@ -416,6 +515,11 @@ impl Gen<'_> {
             None if self.in_args && name.len() == 1 && matches!(name.to_ascii_uppercase().as_str(), "X" | "Y" | "Z") => {
                 Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
             }
+            // In parentheses a name nothing knows with an operand right after it can only
+            // be a call (as text it would leave two operands side by side), in a mod's
+            // source compiled by the engine [observed: JIP Companions Command & Control
+            // 2.60, `SetFunctionValue (CCCInFaction SomeFaction == 0)`].
+            None if self.unknown_calls && head.is_none() && self.in_paren && !self.in_args && starts_operand(p.peek()) && self.unknown_operand_ok() => self.unknown_call(p, name),
             // Any other bare word that names nothing is its own text, with the editor's
             // "Unquoted argument" warning, parenthesised too [observed: nvse-fourth,
             // `SetFunctionValue (GetFOSEVersion)` returns the text "GetFOSEVersion" in xNVSE
@@ -424,32 +528,76 @@ impl Gen<'_> {
                 self.diag("unquoted_argument", false, name.to_string());
                 Some(XExpr::Str { s: name.to_string() })
             }
-            // A call line starting with an unknown name, in a mod's source compiled by the
+            // An unknown name where a call can stand (a call line's start, an operand of
+            // a `let`, an `if eval` or an `eval`), in a mod's source compiled by the
             // engine: a call of that name, reporting "not built" when it runs
             // ([`super::super::Seed::unknown_calls`]) [observed: TaleOfTwoWastelands.esm
             // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
-            // the wiki does not document].
-            // Also one standing for a value (`sTag = ySIGetTagTrait "filename" rItem`)
-            // [observed: JustAssortedMods.esp SCPT 0x045905].
-            // Without [`super::super::Seed::unknown_operands`] only on a call line.
-            None if self.unknown_calls && !self.in_args && head.is_none() && (self.unknown_operands || self.call_line) => {
-                let f = self.unknown_fn(name)?;
-                let args = self.xargs(p, &f)?;
-                Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
-            }
+            // the wiki does not document; JustAssortedMods.esp 4.6, `sATag =
+            // ySIGetTagTrait "string" (aA[0])`]. As an argument the name stays its own
+            // text (the arm above). Without [`super::super::Seed::unknown_operands`] only on
+            // a call line (the Script Runner files: `set x to SRNoSuchForm` must not compile).
+            None if self.unknown_calls && head.is_none() && self.unknown_operand_ok() => self.unknown_call(p, name),
             None => self.xerr("unresolved_name", name.to_string()),
         }
     }
 
-    /// A function the table does not have, as a call of its name that reports "not built"
-    /// when it runs, in a mod's source compiled by the engine ([`super::super::Seed::
-    /// unknown_calls`]); None elsewhere.
-    fn unknown_fn(&mut self, name: &str) -> Option<XFn> {
-        if !self.unknown_calls || name.is_empty() {
-            return None;
-        }
+    /// An unknown bare name may be a call here: always with
+    /// [`super::super::Seed::unknown_operands`], otherwise only on a call line.
+    fn unknown_operand_ok(&self) -> bool {
+        self.unknown_operands || self.call_line
+    }
+
+    /// A call of a function nothing knows, by its name: `Name`, `Ref.Name` or
+    /// `Quest.refVar.Name` ([`Gen::names_nothing`] said so for the dotted forms), with
+    /// every argument that follows. It compiles with a warning and reports "not built"
+    /// when it runs, which skips the statement or reads 0 and lets the script go on.
+    fn unknown_call(&mut self, p: &mut P<'_>, w: &str) -> Option<XExpr> {
+        let (target, name) = match w.rsplit_once('.') {
+            Some((t, n)) => (Some(t), n),
+            None => (None, w),
+        };
+        let on = match target.map(|t| (t, t.split_once('.'))) {
+            None => None,
+            Some((_, Some((q, v)))) => Some(Box::new(val_expr(self.remote(q, v)?))),
+            Some((t, None)) => match self.reference(t) {
+                Some(r) => Some(Box::new(XExpr::Ref { r: RefIndex(r) })),
+                None => return self.xerr("unresolved_name", t.to_string()),
+            },
+        };
         self.diag("unknown_function", false, name.to_string());
-        Some(XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false })
+        let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
+        let args = self.xargs(p, &f)?;
+        Some(XExpr::Call { call: XCall { on, func: f.func, args } })
+    }
+
+    /// Whether the catalogue gives `f` a first parameter that is not optional.
+    fn first_param_required(&self, f: &XFn) -> bool {
+        let first = match (&f.func, f.opcode) {
+            (_, Some(o)) => self.table.get(o).and_then(|x| x.params.first()),
+            (FuncId::Name(n), None) => self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.first()),
+            _ => None,
+        };
+        first.is_some_and(|p| !p.optional)
+    }
+
+    /// The call stands inside an expression: an `if eval`, `let` or `while` line's, an
+    /// argument of another call, or parentheses; not the line's own call.
+    fn in_expression(&self) -> bool {
+        !self.call_line || self.in_args || self.in_paren
+    }
+
+    /// Parameter `k` of `f` is documented as a whole expression (`eval`, `TestExpr`,
+    /// `Print`, `while`, `ToString`), or `f` is `let`, whose assignment is one
+    /// (`eval x && let s += "+"` [observed: JustAssortedMods.esp ships such lines with
+    /// compiled bytes]).
+    fn expression_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(name) = &f.func else { return false };
+        if name.eq_ignore_ascii_case("let") {
+            return true;
+        }
+        let p = self.table.unnumbered.get(&name.to_ascii_lowercase()).and_then(|u| u.params.get(k));
+        p.and_then(|p| p.wiki_type.as_deref()).is_some_and(|t| matches!(t.to_ascii_lowercase().as_str(), "expression" | "exp"))
     }
 
     /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
@@ -460,6 +608,12 @@ impl Gen<'_> {
         let formatted = u.params.iter().any(|p| p.name.starts_with("...") || p.name.to_ascii_lowercase().contains("format"));
         // The wiki's type is "string", not "string_var" (Sv_Erase takes the variable).
         matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
+    }
+
+    /// The plugin function's parameter `k` is a string (`kind: "string"`).
+    fn string_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "string")
     }
 
     /// An extender function without an opcode whose parameter `k` the catalogue gives as
@@ -483,14 +637,38 @@ impl Gen<'_> {
         params.and_then(|ps| ps.get(k)).is_some_and(|p| matches!(p.kind.as_str(), "form" | "reference") || p.name.to_ascii_lowercase().contains("global"))
     }
 
+    /// A vanilla source-bridge call keeps its already resolved head spelling;
+    /// only its arguments use the extended parser. Its cursor includes nested
+    /// calls, without consuming binary operators of the surrounding expression.
+    pub(super) fn inline_bound_call(&mut self, head: Option<&str>, opcode: u16, params: usize, toks: &[XTok]) -> Option<(XExpr, usize)> {
+        let on = match head {
+            Some(name) => Some(Box::new(XExpr::Ref { r: RefIndex(self.reference(name)?) })),
+            None => None,
+        };
+        let f = XFn { func: FuncId::Opcode(opcode), params: Some(params), opcode: Some(opcode), aware: false };
+        let mut p = P::new(toks);
+        let args = self.xargs(&mut p, &f)?;
+        Some((XExpr::Call { call: XCall { on, func: f.func, args } }, p.i))
+    }
+
     fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
         let mut args = Vec::new();
         loop {
             if f.params.is_some_and(|n| args.len() >= n) {
+                if self.unknown_calls && p.inline_surplus {
+                    self.drop_inline_surplus(p)?;
+                }
                 break;
             }
             let mut comma = false;
-            if !args.is_empty() && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
+            // A comma between arguments, and one between the name and a first argument
+            // the function cannot go without (`ListGetNthForm, SomeList, i`) [observed:
+            // Unofficial Patch NVSE Plus ships `rForm = ListGetNthForm, <list>, iPos`
+            // with compiled bytes; hypothesis: the original's compiler takes a comma
+            // there as it takes a space]. Before a first argument the function can go
+            // without, or none, the comma ends the call (a list's next element).
+            let leading = args.is_empty() && self.first_param_required(f) && starts_operand(p.peek2());
+            if (!args.is_empty() || leading) && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
                 p.next();
                 comma = true;
             }
@@ -498,8 +676,36 @@ impl Gen<'_> {
             // signed number after a space (`GetMaxOf -1 -5`).
             let minus = p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
             let minus_first = f.params != Some(0) && minus && (comma || args.is_empty() || p.peek().is_some_and(|t| t.sign));
-            if !starts_operand(p.peek()) && !minus_first {
+            // A `&` after a comma boxes the argument (`Call Fn, &rRef, 0`) [documented: NVSE
+            // Expressions, unary `&` "Box"; observed: Famine.esp ships that line with
+            // compiled bytes holding the variable and the box operator as the first of
+            // five arguments, #2275].
+            let boxed = comma && p.peek().is_some_and(|t| t.is(XKind::Op, "&"));
+            // `{expr}` not followed by `=>` is the expression, one argument (`call Fn
+            // {(BuildRef 0 n)}`, `call Fn {Quest.var}`) [observed: Animated Ingestibles.esp
+            // ships both with compiled bytes holding the value alone as the one argument,
+            // #2275].
+            let braced = p.peek().is_some_and(|t| t.kind == XKind::LBrace) && !lambda_at(p);
+            let boxing = f.params != Some(0) && p.peek().is_some_and(|t| t.sign && (t.is(XKind::Op, "*") || t.is(XKind::Op, "&")));
+            if !starts_operand(p.peek()) && !minus_first && !boxed && !boxing && !braced {
                 break;
+            }
+            if braced {
+                p.next();
+                let was = std::mem::replace(&mut self.in_args, false);
+                let was_paren = std::mem::replace(&mut self.in_paren, true);
+                let surplus = std::mem::replace(&mut p.inline_surplus, false);
+                let e = self.xexpr(p, 0);
+                p.inline_surplus = surplus;
+                self.in_args = was;
+                self.in_paren = was_paren;
+                let e = e?;
+                if p.next().map(|c| c.kind) != Some(XKind::RBrace) {
+                    self.xerr("syntax", "missing }");
+                    return None;
+                }
+                args.push(e);
+                continue;
             }
             // A string variable given by name to an xNVSE function's plain string
             // parameter, on a line that is that call alone, is its name as text [observed: nvse-sixth,
@@ -511,6 +717,21 @@ impl Gen<'_> {
                     let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
                     let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
                     if string_var && alone {
+                        p.next();
+                        args.push(XExpr::Str { s: t.text.clone() });
+                        continue;
+                    }
+                }
+            }
+            // A game setting's name given alone to a plugin function's string parameter
+            // is the name as text, not the setting's record [observed: WaterToTravel.esp
+            // ships `SetStringSetting sNoFastTravelScriptBlock "…"` with compiled bytes
+            // whose reference list does not hold the setting, #2275].
+            if self.string_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let setting = self.var(&t.text).is_none() && self.form(&t.text).is_some_and(|fi| &fi.sig == b"GMST");
+                    if alone && setting {
                         p.next();
                         args.push(XExpr::Str { s: t.text.clone() });
                         continue;
@@ -532,48 +753,63 @@ impl Gen<'_> {
                         continue;
                     }
                 }
+                // A word or number of hex digits that names nothing, given alone to a form
+                // parameter, is the form with that FormID when the load order has one
+                // [observed 2026-11-14, nvse-cmd-probes in the stock game, the runtime
+                // compiler: `AuxVarSetFlt "*_q" 7 0 f` reads back 7 under Caps001 (0xF),
+                // `a` under Lockpick (0xA), `14` under PlayerRef; `g` and `FFFFFF` (no form)
+                // do not compile; Armor Damage Fix's gr_CondDamFix.txt ships `… 0 f`].
+                if let Some(t) = p.peek().filter(|t| matches!(t.kind, XKind::Word | XKind::Num) && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let named = self.var(&t.text).is_some() || self.form(&t.text).is_some();
+                    if let (true, false, Some(fi)) = (alone, named, self.hex_form_id(&t.text)) {
+                        p.next();
+                        args.push(val_expr(self.form_val(fi, &t.text)));
+                        continue;
+                    }
+                }
             }
             let enc = match f.opcode {
                 Some(o) => self.table.param_enc(o, args.len()),
                 None if self.axis_param(f, args.len()) => ParamEnc::Axis,
                 None => ParamEnc::Value,
             };
-            // On a vanilla line an aware function's argument stops at a comparison, as
-            // inside a compiler-override block ([`super::Gen::vanilla_x`]); arithmetic
-            // still binds into it [hypothesis: only the comparison was seen].
-            // The other aware functions' arguments (the ar_* family, the INI cache
-            // functions…) stop at a comparison in an `if eval` too: Keybinder's
-            // `if eval (Ar_Find (svControl) (Goo1.AuxVarGetAsArr "*mappedControls") ==
-            // Ar_BadNumericIndex)` compares Ar_Find's result, or every key it maps would be
-            // a duplicate in the original [observed: its warning does not show there for a
-            // config without a repeated key, owner 2026-11-11; the vanilla-line and override
-            // observations above stop at the comparison the same way].
-            let expression_command = matches!(&f.func, FuncId::Name(n) if EXPRESSION_COMMANDS.iter().any(|c| n.eq_ignore_ascii_case(c)));
-            let min = if f.aware && (self.vanilla_x || !expression_command) {
-                ARG_IN_OVERRIDE
-            } else if f.aware {
+            // Inside an expression an NVSE-aware function's argument stops at a comparison
+            // or a logical operator, which then applies to the call's result: shipped
+            // bytes of `if eval IsModLoaded "X.esm" == 0` call it with the string alone and
+            // compare its result with 0, and of `if eval Ar_HasKey aConvo, "Conditions" ==
+            // 1` pass two arguments and compare with 1 [observed: mil_Add-On.esp SCPT
+            // 0x0700254B, Party Banter 2.esm SCPT 0x0701D892, #2275]. Arithmetic stays in
+            // the argument and a range or pair (`1:2`, `"k"::v`) continues it, as in an
+            // override block [hypothesis].
+            let nested_aware = f.aware && self.in_expression() && !self.expression_param(f, args.len());
+            let min = if f.aware && !nested_aware {
                 ARG_OVERRIDE
-            } else if self.co {
+            } else if self.co || nested_aware {
                 ARG_IN_OVERRIDE
             } else {
                 ARG
             };
             let was = std::mem::replace(&mut self.in_args, true);
             let was_any = std::mem::replace(&mut self.in_arg_any, true);
+            let surplus = std::mem::replace(&mut p.inline_surplus, false);
             let mut a = self.xarg(p, &enc, min);
-            // An aware function's argument that stops at a comparison still takes a key-value
-            // pair or a range (`Ar_Map "b"::2`, `Ar_Erase a, 1:2`), which bind looser than a
-            // comparison [documented: NVSE Expressions, `::` and `:`].
-            if f.aware && min == ARG_IN_OVERRIDE {
-                while let (Some(l), Some(t)) = (a.as_ref(), p.peek().filter(|t| t.is(XKind::Op, ":") || t.is(XKind::Op, "::"))) {
-                    let op = if t.text == "::" { XOp::Pair } else { XOp::Slice };
-                    let l = l.clone();
-                    p.next();
-                    a = self.xexpr(p, ARG_IN_OVERRIDE).map(|r| XExpr::Binary { op, l: Box::new(l), r: Box::new(r) });
-                }
+            while nested_aware && a.is_some() {
+                let op = match p.peek() {
+                    Some(t) if t.is(XKind::Op, ":") => XOp::Slice,
+                    Some(t) if t.is(XKind::Op, "::") => XOp::Pair,
+                    _ => break,
+                };
+                p.next();
+                let r = self.xarg(p, &ParamEnc::Value, min);
+                a = match (a, r) {
+                    (Some(l), Some(r)) => Some(XExpr::Binary { op, l: Box::new(l), r: Box::new(r) }),
+                    _ => None,
+                };
             }
             self.in_args = was;
             self.in_arg_any = was_any;
+            p.inline_surplus = surplus;
             let a = a?;
             if self.runtime {
                 self.runtime_refusal(f, args.len(), &a);
@@ -581,6 +817,40 @@ impl Gen<'_> {
             args.push(a);
         }
         Some(args)
+    }
+
+    /// Apply the existing mod-source surplus policy at an expression's own call
+    /// boundary. The enclosing operator and an outer call's arguments stay owned
+    /// by their original consumers (script-compiler.md, inline surplus operands).
+    fn drop_inline_surplus(&mut self, p: &mut P<'_>) -> Option<()> {
+        let starts = |p: &P<'_>| {
+            let postfix_call = p.peek().is_some_and(|t| t.kind == XKind::Word && t.text.starts_with('.'));
+            // A minus after a complete call already belongs to the enclosing
+            // expression, even when the lexer marks an adjacent signed number.
+            !postfix_call && starts_operand(p.peek())
+        };
+        if !starts(p) { return Some(()); }
+        let from = p.i;
+        let permission = std::mem::replace(&mut p.inline_surplus, false);
+        let count = self.discard_parsed(|g| {
+            let mut count = 0;
+            while starts(p) {
+                let was = std::mem::replace(&mut g.in_args, true);
+                let was_any = std::mem::replace(&mut g.in_arg_any, true);
+                let operand = g.xexpr(p, ARG);
+                g.in_args = was;
+                g.in_arg_any = was_any;
+                operand?;
+                count += 1;
+            }
+            Some(count)
+        });
+        p.inline_surplus = permission;
+        let text = p.t[from..p.i.min(p.t.len())].iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ");
+        match count {
+            Some(count) => { self.diag("surplus_arguments", false, format!("{count} dropped: {text}")); Some(()) }
+            None => { self.diag("syntax", true, format!("invalid surplus argument: {text}")); None }
+        }
     }
 
     /// What the extender's runtime compiler refuses in argument `k` of `f`
@@ -608,8 +878,13 @@ impl Gen<'_> {
             _ => None,
         };
         if let Some((_, text)) = literal.filter(|(v, _)| v.fract() != 0.0) {
+            // A plugin's function, as every row observed; xNVSE's own keep the fraction
+            // [hypothesis: the owner's Blue Moon list's Vanilla SWEEP files pass
+            // `SetWeaponFireRate 7.5` (NVSE, whose page types the rate int while
+            // GetWeaponFireRate gives a float), #2275].
+            let plugin = self.table.unnumbered.get(&low).is_some_and(|u| !matches!(u.origin.as_str(), "NVSE" | "FOSE1" | "GECK1"));
             let int = INT_PARAMS_OBSERVED.contains(&(low.as_str(), k))
-                || self.table.unnumbered.get(&low).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "int");
+                || plugin && self.table.unnumbered.get(&low).and_then(|u| u.params.get(k)).is_some_and(|p| p.kind == "int");
             if int {
                 self.diag("fraction_for_int_parameter", true, format!("{name}: {text}"));
             }
@@ -658,6 +933,12 @@ impl Gen<'_> {
                     let code = t.text.parse::<u16>().ok().or_else(|| self.enums.get(kind).and_then(|m| m.get(&t.text.to_ascii_lowercase())).copied());
                     match code {
                         Some(code) => Some(XExpr::Enum { code }),
+                        // As the vanilla grammar's (`Gen::arg`): a warning and the code
+                        // nothing has, in a mod's source compiled by the engine.
+                        None if self.unknown_calls => {
+                            self.diag("unknown_enum_name", false, format!("{kind}: {}", t.text));
+                            Some(XExpr::Enum { code: super::UNKNOWN_ENUM })
+                        }
                         None => self.xerr("unknown_enum_name", format!("{kind}: {}", t.text)),
                     }
                 }
@@ -676,6 +957,38 @@ impl Gen<'_> {
 /// `X/Z`, which the catalogue does not take for an axis).
 fn axis_letters(t: &str) -> bool {
     t.len() >= 3 && t.split('/').all(|c| matches!(c.trim(), "X" | "Y" | "Z" | "x" | "y" | "z"))
+}
+
+/// Whether the `{` at the parser's place opens a lambda's parameters (`{a, b} =>`).
+fn lambda_at(p: &P<'_>) -> bool {
+    let mut j = p.i + 1;
+    while let Some(t) = p.t.get(j) {
+        match t.kind {
+            XKind::RBrace => return p.t.get(j + 1).is_some_and(|a| a.is(XKind::Op, "=>")),
+            XKind::Word | XKind::Comma => j += 1,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// The expression's last operand is text (`a || SomeName`, a name taken as its text).
+fn ends_in_text(e: &XExpr) -> bool {
+    match e {
+        XExpr::Str { .. } => true,
+        XExpr::Binary { r, .. } => ends_in_text(r),
+        _ => false,
+    }
+}
+
+/// The expression's last operand is a call (`a && GetWeaponSkill w`).
+fn ends_in_call(e: &XExpr) -> bool {
+    match e {
+        XExpr::Call { .. } => true,
+        XExpr::Binary { r, .. } => ends_in_call(r),
+        XExpr::Unary { e, .. } => ends_in_call(e),
+        _ => false,
+    }
 }
 
 fn val_expr(v: Val) -> XExpr {
@@ -704,9 +1017,10 @@ const UNTYPED_RESULTS: [&str; 3] = ["GetPackageLocation", "RemovePackageAt", "Ge
 /// `…Ex` setters, vm.rs).
 const FORMAT_EX: [&str; 6] = ["SetNameEx", "SetNthFactionRankNameEx", "SetModelPathEx", "SetIconPathEx", "SetBipedModelPathEx", "SetBipedIconPathEx"];
 
-/// The count of a catalogue type `…(up to N)`: `arg(up to 15)` is 15.
+/// The count of a catalogue type or name `…(up to N)`: `arg(up to 15)` is 15,
+/// `filters(up-to-16)` 16.
 fn up_to(wiki_type: &str) -> Option<usize> {
-    let t = wiki_type.to_ascii_lowercase();
+    let t = wiki_type.to_ascii_lowercase().replace("up-to-", "up to ");
     let n = t.split_once("(up to ")?.1.strip_suffix(')')?;
     n.trim().parse().ok()
 }
@@ -718,5 +1032,6 @@ mod up_to_tests {
         assert_eq!(super::up_to("arg(up to 15)"), Some(15));
         assert_eq!(super::up_to("variable(up to 14)"), Some(14));
         assert_eq!(super::up_to("string"), None);
+        assert_eq!(super::up_to("filters(up-to-16)"), Some(16));
     }
 }

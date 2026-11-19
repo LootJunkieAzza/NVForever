@@ -94,6 +94,12 @@ impl MaterialExtension for TreeBillboards {
     }
 }
 
+/// Whether leaf cards take the ambient occlusion in the lighting (ssao_lighting.rs) where
+/// bevy_pbr's rule gives it the def (alpha-masked, in the prepass). On by default; the
+/// switch to leave them out if their shimmer in shade outweighs the darker crowns in
+/// pictures [engineering choice, #2897 stage two plan §4].
+const LEAVES_READ_AMBIENT_OCCLUSION: bool = true;
+
 impl MaterialExtension for LeafCards {
     fn vertex_shader() -> ShaderRef {
         SHADER.into()
@@ -114,6 +120,9 @@ impl MaterialExtension for LeafCards {
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
         nvf_assets::soft_edges(descriptor, key.mesh_key);
+        if !LEAVES_READ_AMBIENT_OCCLUSION {
+            nvf_assets::ambient_occlusion_opt_out(descriptor);
+        }
         Ok(())
     }
 }
@@ -134,6 +143,7 @@ impl MaterialExtension for BarkWind {
         descriptor.vertex.shader_defs.push("TREE_BARK".into());
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
         Ok(())
     }
 }
@@ -554,7 +564,7 @@ fn bounds(points: impl Iterator<Item = [f32; 3]>, pad: f32) -> Aabb {
 pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, extra: impl Bundle + Clone) -> usize {
     let t = Transform::from_matrix(rt * Mat4::from_scale(Vec3::splat(v.scale)));
     for p in &v.parts {
-        let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone());
+        let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone(), crate::shadow_rate::TreePart);
         match &p.material {
             PartMaterial::Bark(m) => {
                 commands.entity(parent).with_child((common, MeshMaterial3d(m.clone())));

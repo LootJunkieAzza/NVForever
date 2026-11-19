@@ -256,6 +256,56 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   mod archives; owner report 2026-11-14 from the Long 15 pool]. The model loader skips
   property-less shapes outside `meshes\landscape\lod\` (`model::bare_shapes_drawn`)
   [hypothesis: the game never draws them].
+  on themselves or an ancestor. 532 carry no property at all (next item), 16 have a
+  NiTexturingProperty (debris, doors) and 434 only a NiMaterialProperty. The last group
+  is helper geometry by its names: bone display boxes (`TTail1:0`, `Bone01:0`),
+  collision proxies (`c_Minigun`, `DummyCol:3`) and invisible markers (`##PLRInvis:0`).
+  The renderers skip shapes with properties but neither a shader property nor a
+  texture [hypothesis: the game does not draw them; consistent with the Goodsprings flag
+  in game, whose bone boxes are not visible].
+- **Shapes with no property at all** (issue #2469) [observed,
+  `crates/fnv-nif/examples/marker_shape_survey.rs`; visible shapes as above]:
+
+  | Archives | Files / visible shapes | No property: landscape LOD | No property: elsewhere |
+  |---|---|---|---|
+  | `Fallout - Meshes.bsa` | 14,881 / 48,996 | 524 shapes in 305 files | 8 shapes in 1 file |
+  | `Update.bsa`, the five DLC and four pack `Main.bsa` | 5,865 / 18,113 | 40 shapes in 40 files | none |
+
+  The landscape LOD ones are the one or two extra shapes of a terrain chunk
+  (`BSSegmentedTriShape` 428, `NiTriShape` 136), none with texture coordinates, beside
+  the chunk's terrain shape and its own BSShaderPPLightingProperty; `lod.rs` never drew
+  them (it skips shapes without texture coordinates; its notes take them for a water
+  LOD surface). The one other file is the Tops lounge chair,
+  `furniture\loungechair_tops.nif` (FURN `TopsPoolLoungeChair`, two of them at the
+  Great Khans' camp at Red Rock Canyon, 0013F0E9 and 0013F0EA): beside its three shaded
+  shapes `Shape01:0/1/2` it holds eight bare NiTriStrips, each the only child of a node
+  named `MarkerSource` (656 triangles), `MarkerTarget` (696), `Capsule01` (176) or
+  `ChairBoundary` (32; its UPB says `Simulation_Geometry = 2`), two of each, none
+  flagged hidden. Its BSXFlags is 2 (bit 5 clear), and its entry points come from its
+  BSFurnitureMarker `FRN`, not from these shapes. `MarkerSource`/`MarkerTarget` are
+  also the figures of the editor's furniture marker models `markers\furnituremarker*.nif`
+  (22 and 20 shaded shapes in 23 files), which the game does not show: a furniture
+  marker's "white markers and blue characters will not show up in-game, they just help
+  line things up" [documented: GECK wiki "Bethsoft Tutorial NPC population"]. The
+  BSXFlags "Editor Marker" bit only "hides Nodes named EditorMarker and their children"
+  [documented: GECK wiki "NIF Block Types"]; it is set on 336 + 71 files, none with a
+  bare shape, so neither the bit nor that name covers this chair.
+
+  Rule: **a shape with no property on itself or an ancestor, in a model that holds any
+  BSShaderProperty-derived block, is editor geometry: it is not drawn** (`Props::is_helper`
+  in `engine/nvf-assets/src/nif_spawn.rs`) **and is no drawn floor**
+  (`engine/nvf-play/src/phys/drawn.rs`). A model with no shader property anywhere
+  keeps its bare shapes [hypothesis that the game draws none of them; design for the
+  model-wide condition: no model in the archives has bare shapes and no shader property,
+  and the rule should never blank a whole model]. On the archives above it leaves out
+  exactly the chair's 8 shapes and the 564 LOD shapes that were not drawn before; the
+  model loader logs `<model>: N editor shape(s) without any property left out: …`.
+  Rules weighed and not taken: by node name, `MarkerSource`/`MarkerTarget`/`Capsule*`/
+  `ChairBoundary` reach only this chair outside `markers\`, but would miss the next
+  such copy under other names, and a looser "marker" match also takes the shaded anvil
+  of `clutter\junk\anvil01.nif` (under a node `FurnitureMarker`); by BSXFlags bit 5, it
+  misses the chair. The chair's collision (bhk blocks) and furniture entry points are
+  not touched.
 - **Animated statics** [observed, same survey]: 164 meshes embed a controller sequence
   named `Idle` (others: `Forward` 226, `Open`/`Close` ~149, `SpecialIdle` 159, ...).
   Flags (`clutter\flags\*.nif`) are skinned cloth: e.g. `nv_nevadaflag.nif` has two
@@ -943,6 +993,55 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `MZGlass03`, and single jars, maps and pods. The lit SRC_ALPHA / ONE ones include the
   plasma rifles' glass tubes (`##PLRGlassTube:0`). Those were not compared after the
   change except the Securitron face named in the item 207 run notes.
+- **Fog on added light** (2026-11-15, #2435). The Gomorrah Suites (`Gomorrah03`,
+  0x0010DA71) have 7 lit wall sconces (`NeoclassicalSconce`,
+  `clutter\neoclassical\neoclassicalsconce.nif`, e.g. refs 0x0011A90A, 0x0011A90C) and 14
+  unlit ones (`NeoclassicalSconceOff`) [observed, `fnvtool world refs --cell Gomorrah03`].
+  The lit model [observed, `fnvtool nif decode`, `Fallout - Meshes.bsa`]:
+  - `NeoclassicalSconce:2` and `:6`: the bowl, BSShaderPPLightingProperty on
+    `NeoclassicalMainTile01/02.dds`, about 43 units wide.
+  - `NeoclassicalSconce:4`: BSShaderNoLightingProperty (flags 0x82000000, no file name),
+    NiAlphaProperty flags 0x1043 (blend on, source ZERO, destination SRC_COLOR
+    [documented: nif.xml AlphaFlags]: a multiply), vertex colours grey 0.34 and white,
+    a little larger than the bowl.
+  - `NeoclassicalSconce:9`, the glow on the wall: BSShaderNoLightingProperty (flags
+    0x82000000: neither Vertex_Alpha, bit 3, nor the falloff bit 6 [documented: nif.xml
+    BSShaderFlags]; no file name, so no texture), NiAlphaProperty flags 0x1001 (blend on,
+    source ONE, destination ONE, no test), NiMaterialProperty emissive black × 1. 61
+    vertices in the wall's plane (y 87.1), x −104 to 104, z 134 to 206, around the bowl's
+    rim (z 126 to 148): a trapezoid widening upwards. Vertex colours (0.34, 0.32, 0.27)
+    along the rim, (0.23, 0.22, 0.19) just below it, black on the whole outline; alpha 1.
+
+  So the soft wash is in the vertex colours alone: warm 0.34 at the bowl falling to
+  nothing at the outline, and black adds nothing to the frame [documented: nif.xml
+  AlphaFlags, ONE / ONE adds the colour]. In NVForever (smoke `gomorrah-suite-sconce-glow`,
+  `gomorrah_sconce_near.png`) it was a flat warm board: grey levels 140 to 190 over the
+  trapezoid on a wall of about 62, a step of 50 to 60 levels at the outline [observed].
+  The built material was as the data says (additive, vertex colours up to 0.093 linear,
+  no emissive; checked with a temporary log), and with the card's colour set to black the
+  board was gone. Two causes, both in how the colour reached the frame:
+  1. Fog. The shader fogged the added colour as a surface, mix(colour, fog colour, k), so
+     even black added k × the room's fog colour over the whole card. A textured
+     SRC_ALPHA / ONE glow hides this (its alpha goes to 0 with its texture); a ONE / ONE
+     card adds at alpha 1 and shows it whole. Rule [hypothesis: the frame behind the shape
+     is already fogged, and a black outline that adds nothing is what the data asks for;
+     no frame of the original was compared]: fog dims added light and adds no colour of
+     its own. Bevy's fogs are colour × k plus a term without the colour [documented:
+     `engine/vendor/bevy_pbr/src/render/fog.wesl`, linear, exponential and atmospheric],
+     so the shader runs the post-lighting step on the colour and on black and adds the
+     difference (`nif_material.wesl`, `nif_material::fogged_addition`). In a view without
+     HDR (tonemapping in the shader) that is the tonemapped step the colour makes over the
+     fog [engineering choice]. Every additive shape takes the rule; beyond the fog's end
+     one now adds nothing where it added the fog colour × alpha.
+  2. The vertex colours were made linear at the vertices and blended linear
+     ("Unlit vertex colours as display values").
+
+  After both (same frame): about 165 next to the bowl, 110 to 130 halfway, 80 to 95 near
+  the outline on a wall of 60 to 70 (the frame with the card black), the step at the top
+  edge some 10 to 20 levels [observed]. What is left follows the data under the
+  display-value sum ("Additive blend"): the card adds display 0.34 at the bowl on a wall
+  darker than the original's (owner's choice), so the wash is strong near the bowl. An
+  observer frame of the corridor would settle its strength (observer-checks.md 201).
 - **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
   BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
   system, which `nvf_assets::particles` draws with the same material). The blend is
@@ -1255,6 +1354,14 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   where the smoke can barely be seen (playtest list 4 item 16); read as linear it drew
   as a display 0.78, a white plume. Lit shapes still take their vertex colours as linear
   factors (see "Multiply blend" for what that leaves).
+  Since 2026-11-15 (#2435) the conversion is made per fragment, after the colours are
+  blended across the triangle as display values, not at the vertices (the material
+  marks the shape, `NifSurface::emissive_rule` z; `nif_material.wesl`
+  `display_to_linear`) [hypothesis: the game blends the stored values; the vertices
+  themselves draw as before]. Made linear at the vertices, a colour falling to black
+  across a triangle stayed bright almost to its black edge: nine tenths of the way from
+  display 0.34 to 0 it was display 0.096, where the stored values give 0.034. That was
+  half of the Gomorrah sconces' hard-edged glow ("Fog on added light").
 - **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
   `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
   with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have
@@ -1383,6 +1490,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   dark grey to be tinted (`seductress_d.dds`), drew as flat near-black cards under a
   dark HCLR (the Strip gambler, HCLR 24 16 7, 2026-11-16). What the hair shader does
   with the `_hl` map (slot 2) is still open.
+  of Sunny Smiles shows matte auburn hair. The renderers give shapes with the Hair flag
+  (hair, brows, beards) no specular [hypothesis: the hair shader does not use the
+  normal-map alpha as an ordinary specular mask; what it does with it and with the
+  `_hl` map is open — an in-game picture of hair under a strong light, from the side,
+  would show whether there is any highlight to rebuild].
+  L'il Devil (HAIR 0x000987DB `HairRaiderFCat`, `Characters\Hair\HairRaiderFCat.NIF`)
+  has strands in `HairRaider01_hl.dds` where `HairRaider01.dds` is black on its crown:
+  9% of `NoHat`'s area samples black, opaque diffuse texels (RGB ≈ 0.001,
+  alpha ≈ 0.99), against at most 1% for the other raider hairs. Of 2,506 black,
+  opaque diffuse texels, 2,084 have `_hl` luma above 0.08; crown-region luma is
+  about 0.17 in `_hl` against 0.001 in the diffuse, despite overall luma correlation
+  0.97 [documented: issue #2350, supplied `fnvtool esm decode`, `fnvtool nif` and
+  texture measurements]. The original may use `_hl` for crown colour or brightness
+  [hypothesis, #2350]; whether its crown tints is unknown. Settle
+  [observer check 216](../handoff/observer-checks.md#added-2026-11-15-lil-devils-crown-issue-2350)
+  before considering a change to the provisional tint rule [design, #2350].
 - **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
   NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
   INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw

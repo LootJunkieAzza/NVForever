@@ -3,7 +3,7 @@
 //! action reference; an activation that runs only the parent's OnActivate does not; a
 //! "Parent Activate Only" child is flagged. docs/spec-notes/traps.md §2.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

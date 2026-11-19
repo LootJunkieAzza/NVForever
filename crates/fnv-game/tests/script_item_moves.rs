@@ -3,7 +3,7 @@
 //! game's own moves do, OnAdd included, and a note becomes one of the player's notes
 //! (`fnv_game::functions::items::script_move_items`).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

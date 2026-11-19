@@ -335,7 +335,12 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         // unless a script asked for the speaker's subtitles always
         // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
         // it as a 2D sound heard anywhere (Say's is2D).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
+        // The player's tweak sets its own distance [design: docs/design/tweaks.md].
+        let reach = g.tweaks.subtitle_distance;
+        // Heard where it is said: through a talking activator, at the activator, with no
+        // distance attenuation (`crate::voice::in_reach`).
+        let heard = crate::voice::audible_line(sim, player, s.place(), s.through.is_some(), (reach > 0.0).then_some(reach));
+        if !heard && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
@@ -354,7 +359,8 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         }
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
         if !talking {
-            on_screen.push(text);
+            // The player's tweak names the speaker [design: docs/design/tweaks.md].
+            on_screen.push(if g.tweaks.subtitle_names { format!("{who}: {text}") } else { text });
         }
     }
     // The other players' quips (co-op), drawn like any line said nearby.
@@ -378,6 +384,17 @@ struct Subtitles {
     logged: String,
     on_screen: Vec<String>,
     wheel: Option<String>,
+}
+
+impl Subtitles {
+    // [design, #2714] Log clearing once as well as newly selected text, so smoke can
+    // distinguish a finished subtitle from one left on screen.
+    fn log_change(&self, shown: &Self) -> Option<String> {
+        if self.logged == shown.logged {
+            return None;
+        }
+        Some(if self.logged.is_empty() { "subtitle: cleared".into() } else { format!("subtitle: {}", self.logged.replace('\n', " / ")) })
+    }
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -414,8 +431,8 @@ fn draw(
         panel.show(p, showing);
     }
     if subs != *shown {
-        if subs.logged != shown.logged && !subs.logged.is_empty() {
-            info!("subtitle: {}", subs.logged.replace('\n', " / "));
+        if let Some(line) = subs.log_change(&shown) {
+            info!("{line}");
         }
         if subs.on_screen != shown.on_screen {
             let _hud = crate::interface::hud_units();
@@ -440,7 +457,7 @@ fn draw(
 /// `ScriptState::answer`.
 #[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     clicks: Query<(&PointerState, &BoxButton), Changed<PointerState>>,
     hud: Res<ScriptHud>,
     mut panel: ResMut<MessagePanel>,
@@ -448,6 +465,7 @@ pub fn menu_keys(
     creator: Option<Res<crate::creator::CreatorData>>,
     (tile_click, tiles): (Option<ResMut<crate::tiles::input::MessageClick>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
     let tile_click = tile_click.and_then(|mut c| c.0.take());
@@ -513,6 +531,19 @@ mod tests {
         let b = pending_box(&events, FormId(0)).expect("the form-less box");
         assert_eq!((b.message, b.text.as_str(), b.buttons.as_slice()), (0, "Heartbeat Sensor Framework missing requirement!", &["Ok".to_string()][..]), "the first one queued is the one on screen");
         assert!(pending_box(&events, FormId(0x1234)).is_none());
+    }
+
+    #[test]
+    fn subtitle_log_reports_clearing_once_after_the_line() {
+        let empty = Subtitles::default();
+        let speaking = Subtitles { logged: "Speaker: synthetic line".into(), on_screen: vec!["synthetic line".into()], wheel: None };
+        assert_eq!(empty.log_change(&empty), None);
+        assert_eq!(speaking.log_change(&empty).as_deref(), Some("subtitle: Speaker: synthetic line"));
+        assert_eq!(speaking.log_change(&speaking), None);
+        assert_eq!(empty.log_change(&speaking).as_deref(), Some("subtitle: cleared"));
+        assert_eq!(empty.log_change(&empty), None);
+        let multiple = Subtitles { logged: "A: first\nB: second".into(), ..Default::default() };
+        assert_eq!(multiple.log_change(&speaking).as_deref(), Some("subtitle: A: first / B: second"));
     }
 
     #[test]

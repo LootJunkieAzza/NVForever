@@ -19,7 +19,7 @@ use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Base object types drawn as static models. NPCs and creatures are assembled from parts
 /// (`actors.rs`); sounds and idle markers have no model. PROJ: placed mines and charges
@@ -53,19 +53,19 @@ pub struct OpenedPlugins {
     pub dropped: Vec<String>,
 }
 
-/// Open the plugins `names` (load order) in `data_dir` for the game. A plugin that cannot
+/// Open the plugins `names` (load order) for the game: from the mods folder `mods` when it
+/// has the file, else from `data_dir` (`fnv_install::plugins::plugin_path`). A plugin that cannot
 /// be read or parsed (a truncated or broken mod) is left out, and then every plugin the
 /// load order would refuse: a missing master, a master that loads after it, a second
 /// copy, past the 255th (`fnv_esm::loadorder::drop_unloadable`). The game goes on without
 /// them; a line for each is printed now (the log is not up yet) and kept for the log.
-pub fn open_plugins(data_dir: &Path, names: &[String]) -> OpenedPlugins {
+pub fn open_plugins(data_dir: &Path, mods: &[PathBuf], names: &[String]) -> OpenedPlugins {
     let mut dropped = Vec::new();
     let mut plugins = Vec::with_capacity(names.len());
     for n in names {
         // The file whatever its case on disk (a case-sensitive copy may hold
         // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
-        // A plugin not in Data may be in a test aid's mod folder (fnv_vfs::MOD_DIR_ENV).
-        let path = fnv_install::child_ci(data_dir, n).or_else(|| fnv_vfs::mod_dir_file(n)).unwrap_or_else(|| data_dir.join(n));
+        let path = fnv_install::plugins::plugin_path_in(data_dir, mods, n);
         match EsmPlugin::open(path) {
             Ok(mut p) => {
                 p.name = n.clone();
@@ -115,10 +115,18 @@ impl WorldData {
         self.index.cells.get(w.grid.get(&g)?)
     }
 
-    /// The LAND of the grid squares around `g` ([`crate::terrain::NEIGHBOURS`]): a cell's
-    /// texture layers are stitched to theirs along its edges.
-    pub fn neighbour_lands(&self, g: (i32, i32)) -> [Option<u32>; 4] {
-        crate::terrain::NEIGHBOURS.map(|(dx, dy)| self.grid_cell((g.0 + dx, g.1 + dy)).and_then(|c| c.land))
+    /// The LAND of grid square `g` and of the eight around it
+    /// (`fnv_world::land_surface::LandIds`): a cell's texture layers are stitched to its
+    /// side neighbours' ([`crate::terrain::NEIGHBOURS`]) and its smoothed surface reads
+    /// their heights along its edges (#2149).
+    pub fn land_ids(&self, g: (i32, i32)) -> fnv_world::land_surface::LandIds {
+        fnv_world::land_surface::land_ids(g, |n| self.grid_cell(n).and_then(|c| c.land))
+    }
+
+    /// The landscape surface of grid square `g` as this run draws and collides it (smoothed
+    /// or as stored, `nvf_play::smooth_terrain::spec`); `None` without landscape.
+    pub fn land_surface(&self, g: (i32, i32)) -> Option<fnv_world::land_surface::Surface> {
+        fnv_world::land_surface::load_surface(self.lo, self.schema, &self.land_ids(g), nvf_play::smooth_terrain::spec())
     }
 
     /// Whether a reference is enabled at the start of a game: not deleted, and its enable
@@ -274,6 +282,10 @@ pub enum CellKey {
 
 #[derive(Debug, Default, Clone)]
 pub struct StreamStats {
+    /// Cumulative cell construction and reference spawn attempts, including work that
+    /// produces no visual [design, #2248: begin_cell, spawn_ref; quality_probe.rs].
+    pub cell_starts: u64,
+    pub reference_attempts: u64,
     pub cells_loaded: usize,
     pub refs_drawn: usize,
     pub refs_skipped_disabled: usize,
@@ -291,8 +303,12 @@ pub struct StreamStats {
     pub refs_doors: usize,
     /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
     pub refs_group_rigs: usize,
-    /// References drawn in the pose their `XRGD` stores (clutter skeletons, clutter_pose.rs).
+    /// References drawn in the pose their `XRGD` stores (clutter skeletons, `nvf_play::clutter_pose`).
     pub refs_posed: usize,
+    /// `NiBillboardNode`s of placed models drawn turning to the camera (`face_camera`,
+    /// #2549), on both paths, and the references they belong to.
+    pub billboards: usize,
+    pub refs_billboards: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
     pub water_planes: usize,
@@ -519,7 +535,8 @@ const DESPAWN_PER_FRAME: usize = 400;
 /// half drawn (the LOD stands in for it meanwhile).
 #[derive(Debug)]
 pub struct CellSpawn {
-    entity: Entity,
+    /// The cell's entity (also read by terrain_lod.rs: a cell being spawned is alive).
+    pub entity: Entity,
     refs: Vec<u32>,
     /// Index of the next reference to spawn.
     next: usize,
@@ -625,12 +642,13 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
             let mut refs = cell.refs.clone();
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
-            let around = world.neighbour_lands(c);
+            let around = world.land_ids(c);
+            let (spec, draw) = (nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw());
             let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
             let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
                     models: cell_models(lo, schema, &refs, &hide),
-                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around)),
+                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around, spec, draw)),
                     ready: false,
                 }
             });
@@ -786,7 +804,7 @@ pub fn respecialize_late_meshes(
 }
 
 /// Log what streaming did at the exit (stress runs read it).
-pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>) {
+pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models: Res<nvf_assets::ModelCache>, late: Res<LateMeshes>, terrain: Option<Res<crate::terrain::TerrainCache>>) {
     if exit.read().last().is_none() {
         return;
     }
@@ -795,6 +813,17 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
+    // The smoke scenario `terrain-smoothing` reads it (#2149).
+    if let Some(t) = terrain {
+        // Cell draws counted over the run (a cell drawn again after it unloaded counts
+        // again), not the cells loaded now.
+        // Under 4 x 4 near, after the recipe: its redraws (terrain_lod.rs, #2676).
+        let levels = t.lod.as_ref().map_or(String::new(), |l| format!("; {}", l.summary()));
+        info!("terrain summary: {} cells drawn smoothed, {} on the stored triangles ({}){levels}", t.smoothed_cells, t.stored_cells, nvf_play::smooth_terrain::spec().describe());
+    }
+    if s.billboards > 0 {
+        info!("world: {} placed billboard nodes turn to the camera ({} references)", s.billboards, s.refs_billboards);
+    }
 }
 
 /// Behind a loading screen (`nvf_play::loading`) cells are loaded one after another for
@@ -854,6 +883,54 @@ pub fn face_billboards(
         let d = eye - bevy_to_game(g.translation());
         if d.x * d.x + d.y * d.y > 1e-6 {
             t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+        }
+    }
+}
+
+/// Turn every `NiBillboardNode` drawn as an entity ([`Billboard`]: placed models' glow
+/// cards, whether their node hierarchy is spawned or their shapes baked, and the effect
+/// models of `shot_fx`) to the camera, each frame before transforms propagate
+/// (docs/spec-notes/billboard-nodes.md): about the node's own y axis for the "rotate
+/// about up" modes (1, 9: about the node's y; 5, BSROTATE_ABOUT_UP: about its z, +y
+/// shown), its +z straight at the camera for the others [documented: nif.xml
+/// BillboardMode names; hypothesis: the axes, docs/spec-notes/billboard-nodes.md §1].
+pub fn face_camera(
+    camera: Query<Entity, crate::fly::WorldCamera>,
+    boards: Query<(Entity, &nvf_assets::model::Billboard, &ChildOf)>,
+    parents: Query<&ChildOf>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let Ok(cam) = camera.single() else { return };
+    // An entity's place in the world from this frame's transforms: the propagated ones
+    // are a frame old (the camera has moved since) and missing for what was spawned
+    // this frame.
+    let world = |transforms: &Query<&mut Transform>, e: Entity| {
+        let mut m = Affine3A::IDENTITY;
+        let mut at = Some(e);
+        while let Some(p) = at {
+            if let Ok(t) = transforms.get(p) {
+                m = t.compute_affine() * m;
+            }
+            at = parents.get(p).ok().map(ChildOf::parent);
+        }
+        m
+    };
+    let eye = Vec3::from(world(&transforms, cam).translation);
+    for (e, b, parent) in &boards {
+        let m = world(&transforms, parent.parent());
+        let Ok(mut t) = transforms.get_mut(e) else { continue };
+        // The way to the camera in the node's own frame as the file has it.
+        let d = b.bind.inverse() * (m.inverse().transform_point3(eye) - t.translation);
+        let turn = match b.mode {
+            1 | 9 => Quat::from_rotation_y(d.x.atan2(d.z)),
+            // About the node's z, its +y towards the camera (#2549: the torch's flame
+            // stands along +z under a mode-5 node).
+            5 => Quat::from_rotation_z((-d.x).atan2(d.y)),
+            _ => Quat::from_rotation_arc(Vec3::Z, d.normalize_or(Vec3::Z)),
+        };
+        let rotation = b.bind * turn;
+        if t.rotation != rotation {
+            t.rotation = rotation;
         }
     }
 }
@@ -921,6 +998,7 @@ pub fn note_other_cameras(
 /// worldspace and an interior; streaming reloads around the camera, which the player
 /// systems have moved to the destination. With `--play` this happens behind a loading
 /// screen, which stays until `Streamer::settled` ([`loading_gate`]).
+#[allow(clippy::too_many_arguments)]
 pub fn travel(
     mut commands: Commands,
     mut msgs: MessageReader<nvf_play::Travel>,
@@ -929,6 +1007,7 @@ pub fn travel(
     mut sky: ResMut<crate::sky::SkyState>,
     mut lod: ResMut<crate::lod::LodState>,
     args: Res<crate::Args>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
     for (_, e) in streamer.loaded.drain() {
@@ -943,9 +1022,38 @@ pub fn travel(
     streamer.settled = false;
     streamer.interior = t.interior;
     streamer.arrival = t.interior.is_none().then(|| cell_of(t.feet[0], t.feet[1]));
-    sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    sky.set_interior(t.interior.and_then(|id| effective_cell_lighting(&world, game, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
+}
+
+/// The actual cell-lighting reader shared by startup/travel and authored
+/// headless camera controls. No ScriptState testing constructor is needed.
+pub(crate) fn effective_cell_lighting(world: &WorldData, game: Option<&fnv_game::Game<'_>>, cell: u32) -> Option<fnv_world::lighting::CellLighting> {
+    match game {
+        Some(game) => game.session_cell_lighting(world.lo, world.schema, fnv_sim::FormId(cell)),
+        None => fnv_world::lighting::cell_lighting(world.lo, world.schema, cell),
+    }
+}
+
+/// Reapply lighting when the cell is applied by travel, or when its runtime
+/// becomes available/unavailable. Live setter-driven refresh is deliberately a
+/// separate timing policy; unchanged frames neither resolve fields nor allocate.
+pub fn cell_lighting(
+    mut travels: MessageReader<nvf_play::Travel>,
+    streamer: Res<Streamer>, world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut seen: Local<Option<(Option<u32>, bool)>>,
+) {
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let key = (streamer.interior, game.is_some());
+    let travelled = travels.read().count() > 0;
+    if *seen == Some(key) && !travelled { return; }
+    *seen = Some(key);
+    let light = streamer.interior.and_then(|cell| effective_cell_lighting(&world, game, cell));
+    if sky.interior != light { sky.set_interior(light); }
 }
 
 /// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
@@ -1030,6 +1138,7 @@ fn begin_cell(
     streamer: &mut Streamer,
 ) -> (Entity, Vec<u32>, Vec3) {
     let stats = &mut streamer.stats;
+    stats.cell_starts += 1;
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -1047,14 +1156,14 @@ fn begin_cell(
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
-            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.neighbour_lands(g)));
+            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.land_ids(g), nvf_play::smooth_terrain::spec(), crate::terrain_lod::first_draw()));
             if let Some(prep) = prep {
-                let land = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
+                let (land, surface) = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
                 // Grass grows on the landscape's textures (grass.rs); the water surface
                 // is the one drawn below (`spawn_water`).
                 let ws = world.index.worldspaces.get(&world.world);
                 let water = c.has_water().then(|| c.water_surface(ws.and_then(|w| w.default_water_height))).flatten();
-                grass.spawn(commands, cell_e, world, land_id, &land, g, water, models);
+                grass.spawn(commands, cell_e, world, land_id, &land, &surface, g, water, models);
             }
         }
         if let Some(p) = world.persistent_by_grid.get(&g) {
@@ -1084,6 +1193,7 @@ fn spawn_ref(
 ) {
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
     // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
+    streamer.stats.reference_attempts += 1;
     let waits = streamer.settled;
     let override_model = streamer.model_overrides.get(&r).cloned();
     let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);
@@ -1145,7 +1255,7 @@ fn spawn_ref(
             light_scale,
             &p,
             emittance,
-        )
+        ).is_some_and(|light| light.emitting)
     {
         stats.lights += 1;
     }
@@ -1238,6 +1348,13 @@ pub fn spawn_model(
     hide: &[String],
     stats: &mut StreamStats,
 ) {
+    // Armour only ever worn (Non-Playable, no world model): its biped model would hang in
+    // the air at the reference (the Fort's slave backpacks, #2439; `fnv_world::placed::worn_only`).
+    if base.worn_only {
+        stats.refs_no_model += 1;
+        info!("world: 0x{r:08X} {}: armour only ever worn (Non-Playable, no world model), not drawn on its own", base.edid.as_deref().unwrap_or("?"));
+        return;
+    }
     let Some(path) = base.world_model_path() else {
         stats.refs_no_model += 1;
         return;
@@ -1300,6 +1417,13 @@ pub fn spawn_model(
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
         }
+        // [design] Census while the blend is on (#2661): a rigged STAT's or SCOL's shapes
+        // are tracked, never converted.
+        if let Some(census) = blend_census(world, p, r, base, &path, &model, false) {
+            for (index, e) in drawn.iter().enumerate() {
+                commands.entity(*e).insert(crate::mesh_terrain_blend::BlendCensus { shape: index, ..census.clone() });
+            }
+        }
         if door.is_some() {
             commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes.clone(), p.open_by_default));
             stats.refs_doors += 1;
@@ -1340,33 +1464,37 @@ pub fn spawn_model(
         // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
         // took it above, as before).
         commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
+        let boards = rig.nodes.iter().skip(1).filter(|n| n.billboard.is_some()).count();
+        stats.billboards += boards;
+        stats.refs_billboards += usize::from(boards > 0);
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
         return;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
-    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
-    // named node below the model's root), the same condition the collision uses.
-    let posed = crate::clutter_pose::posable(&base.sig)
-        .then(|| crate::clutter_pose::stored(world.lo, r))
-        .flatten()
-        .and_then(|bones| {
-            let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
-            let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match &posed {
-                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
-            }
-            posed.ok()
-        });
+    // A jointed object left posed by its designer (`XRGD`, `nvf_play::clutter_pose`).
+    // Whether it poses is decided by `clutter_pose::drawn` (the matching rule and every
+    // body on a named node below the model's root), the same condition the collision
+    // uses and the same function `nvf_play::script_draw` draws references enabled later
+    // with (issue #2339).
+    let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path));
+    if let Some(p) = &posed {
+        info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", p.bodies);
+    }
     stats.refs_posed += usize::from(posed.is_some());
-    for s in &model.shapes {
-        let shape = match (&posed, s.node) {
-            (Some(p), Some(n)) => p[n] * s.own,
-            _ => s.transform,
+    // [design] Census of every STAT and SCOL shape while the blend is on, before any
+    // selection (#2661).
+    let census = blend_census(world, p, r, base, &path, &model, posed.is_some());
+    // Shapes below a billboard node go under an entity for it that turns to the camera
+    // (#2549: a torch's glow card, else a flat sheet); a posed model stays as posed. Its
+    // holder carries the reference's RefVisual, so moving and redrawing it take them along.
+    let mut boards = nvf_assets::model::BakedBillboards::default();
+    for (index, s) in model.shapes.iter().enumerate() {
+        let shape = nvf_play::clutter_pose::shape_transform(posed.as_ref(), s);
+        let (parent, m, billboard) = match posed.is_none().then(|| boards.place(commands, parent, &model, rt, s, RefVisual(r))).flatten() {
+            Some((board, below)) => (board, Mat4::from(below), true),
+            None => (parent, Mat4::from(rt * shape), false),
         };
-        let m = Mat4::from(rt * shape);
         // External emittance: the reference's XEMI source drives the colour.
         if let (Some(x), true) = (p.emittance, s.external_emittance) {
             let m = models.materials.get(&s.material);
@@ -1385,6 +1513,15 @@ pub fn spawn_model(
         // A shape below a damage-stage node: under a holder of its own, shown at its stages
         // only (destroyed.rs); the holder's RefVisual follows the reference's presence.
         let stages = s.node.and_then(|n| nvf_assets::model::damage_stages_of(&model.nodes, n));
+        // [design] Morphing meshes are registered independently of rigs (nvf-assets/src/morph.rs).
+        // Only shapes without reference or shape reasons may be converted (BlendShape).
+        // [design] A shape turned to the camera under a billboard holder (#2549) is counted
+        // but never blends, as the backfill (`blend_backfill`) leaves it out.
+        let blend = census.as_ref().map(|c| {
+            let mut tracked = shape_census(c, index, s, models);
+            tracked.reasons |= crate::mesh_terrain_blend::billboard_reason(billboard);
+            (tracked, material.clone())
+        });
         let e = match stages {
             Some(st) => {
                 let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
@@ -1392,14 +1529,129 @@ pub fn spawn_model(
             }
             None => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id(),
         };
+        if let Some((tracked, original)) = blend {
+            if tracked.reasons == 0 {
+                commands.entity(e).insert(crate::mesh_terrain_blend::BlendShape::new(original));
+            }
+            commands.entity(e).insert(tracked);
+        }
         // A mine's light parts: shown and hidden by its state (`nvf_play::mines`).
         if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
             commands.entity(e).insert(l);
         }
         stats.shapes += 1;
     }
+    stats.billboards += boards.len();
+    stats.refs_billboards += usize::from(!boards.is_empty());
     spawn_emitters(commands, parent, r, &model, &path, rt);
     stats.refs_drawn += 1;
+}
+
+/// [design] The mesh terrain blend's census of a STAT or SCOL reference (#2661;
+/// mesh_terrain_blend.rs) while the blend is on: its reference reasons from the actual
+/// spawn path and prepared model, before any selection; `None` while the blend is off or
+/// for another record type. Record presence follows fnv-game/src/data.rs (DEST); no
+/// asset-name selection. The shape index and shape reasons are the caller's.
+fn blend_census(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    if !crate::mesh_terrain_blend::recording() {
+        return None;
+    }
+    census_of(world, p, r, base, path, model, posed)
+}
+
+/// [`blend_census`] whether or not the blend records spawns now (the backfill's).
+fn census_of(world: &WorldData, p: &Placement, r: u32, base: &BaseObject, path: &str, model: &PreparedModel, posed: bool) -> Option<crate::mesh_terrain_blend::BlendCensus> {
+    let base_type = crate::mesh_terrain_blend::BaseType::of(&base.sig)?;
+    let exterior = world.index.refs.get(&r).and_then(|r| world.index.cells.get(&r.cell))
+        .is_some_and(|c| !c.is_interior() && c.world == Some(world.world));
+    let destructible = fnv_world::fields::winner(world.lo, base.form_id)
+        .and_then(|(pi, record)| fnv_world::fields::Fields::new(record, pi, world.schema).ok())
+        .is_some_and(|f| f.raw(b"DEST").is_some());
+    let facts = crate::mesh_terrain_blend::ReferenceFacts {
+        exterior,
+        rigged: model.rig.is_some() || model.skinned != 0,
+        particles: model.particles,
+        posed: model.jointed || model.loose || posed,
+        damage_stages: model.nodes.iter().any(|n| n.damage_stages.is_some()),
+        destructible,
+        distant: p.imposter,
+    };
+    Some(crate::mesh_terrain_blend::BlendCensus {
+        reference: r,
+        base: base.form_id,
+        base_type,
+        model: path.into(),
+        shape: 0,
+        reasons: crate::mesh_terrain_blend::reference_reasons(facts),
+    })
+}
+
+/// [design] Shape `index` of a reference's census: its shape reasons (external emittance,
+/// a registered morph mesh, nvf-assets/src/morph.rs) added to the reference's.
+fn shape_census(c: &crate::mesh_terrain_blend::BlendCensus, index: usize, s: &nvf_assets::model::PreparedShape, models: &ModelCtx) -> crate::mesh_terrain_blend::BlendCensus {
+    let morph = models.cache.morphs.ids().any(|id| id == s.mesh.id());
+    let reasons = c.reasons | crate::mesh_terrain_blend::shape_reasons(s.external_emittance, morph);
+    crate::mesh_terrain_blend::BlendCensus { shape: index, reasons, ..c.clone() }
+}
+
+/// The shapes drawn while the blend was off: no census yet, the ordinary material on.
+type Untracked<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static Mesh3d, &'static MeshMaterial3d<NifMaterial>, &'static ChildOf), Without<crate::mesh_terrain_blend::BlendCensus>>;
+
+/// [design] The blend turned on while cells were drawn (#2661, the settings row): the
+/// census and selection of every STAT and SCOL shape already drawn directly under a cell
+/// as `spawn_model` draws a static one, once per switch (`BlendState::shapes_pending`).
+/// The same rules as at spawn: the reference's placement, base (a destroyed reference's
+/// replacement model, destroyed.rs), prepared model and stored pose decide its reasons
+/// ([`census_of`]); a shape is matched to its model's shape by its mesh, which gives its
+/// index and shape reasons ([`shape_census`]); the material it draws with now is its
+/// source. Shapes under a rig's nodes (animated models), under a damage stage's holder,
+/// under a billboard holder (#2549) or drawn as an imposter have no cell for a parent and
+/// are left out; those can never blend anyway.
+pub(crate) fn blend_backfill(
+    mut commands: Commands,
+    world: Res<WorldData>,
+    streamer: Res<Streamer>,
+    mut state: ResMut<crate::mesh_terrain_blend::BlendState>,
+    mut models: ModelCtx,
+    shapes: Untracked,
+    cells: Query<(), With<CellEntity>>,
+) {
+    if !std::mem::take(&mut state.shapes_pending) {
+        return;
+    }
+    let mut by_ref = HashMap::<u32, Vec<_>>::new();
+    for (e, r, mesh, material, parent) in &shapes {
+        if cells.contains(parent.parent()) {
+            by_ref.entry(r.0).or_default().push((e, &mesh.0, &material.0));
+        }
+    }
+    let (mut tracked, mut convertible) = (0, 0);
+    for (r, drawn) in by_ref {
+        let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { continue };
+        if crate::mesh_terrain_blend::BaseType::of(&base.sig).is_none() {
+            continue;
+        }
+        let base = match streamer.model_overrides.get(&r) {
+            Some(m) => base_object_with_model(base, m),
+            None => base,
+        };
+        let Some(path) = base.world_model_path() else { continue };
+        let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else { continue };
+        let posed = nvf_play::clutter_pose::drawn(world.lo, &base.sig, r, &path, &model.nodes, || nvf_play::clutter_pose::body_nodes(&models.data, &path)).is_some();
+        let Some(census) = census_of(&world, &p, r, &base, &path, &model, posed) else { continue };
+        for (e, mesh, material) in drawn {
+            let Some((index, s)) = model.shapes.iter().enumerate().find(|(_, s)| &s.mesh == mesh) else { continue };
+            let shape = shape_census(&census, index, s, &models);
+            if shape.reasons == 0 {
+                commands.entity(e).try_insert(crate::mesh_terrain_blend::BlendShape::new(material.clone()));
+                convertible += 1;
+            }
+            commands.entity(e).try_insert(shape);
+            tracked += 1;
+        }
+    }
+    info!("mesh terrain blend: backfill tracked-shapes={tracked} convertible-shapes={convertible}");
 }
 
 /// A placed model's own particle systems (a fire's flames: Gomorrah's roof,
@@ -1469,9 +1721,9 @@ pub(crate) fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
+            if let Some(light) = crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt, light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
-                stats.lights_hidden += 1;
+                if light.emitting { stats.lights_hidden += 1; }
             } else {
                 commands.entity(holder).despawn();
             }
@@ -1796,6 +2048,145 @@ mod tests {
         for (id, _, _, want) in cases {
             let p = placement(&lo, &schema, id).unwrap();
             assert_eq!(enabled(&lo, &schema, &p, 0), want, "0x{id:X}");
+        }
+    }
+
+    /// Issue #2549: a placed torch's glow card (`oasistorch01.nif`'s `GlowMesh`, a
+    /// mode-4 `NiBillboardNode` whose one quad lies in its XY plane, +z its face) faces a
+    /// camera at its side after one update, whether its shapes are baked (the static
+    /// path, `BakedBillboards`) or its node hierarchy spawned (`Rig::spawn_playing`, the
+    /// animated path); drawn unturned it is a flat sheet seen edge-on.
+    #[test]
+    fn placed_billboard_nodes_face_a_camera_at_their_side() {
+        use nvf_assets::model::{BakedBillboards, Billboard, ModelNode, PreparedModel, PreparedShape, Rig, RigNode};
+        let glow_at = Vec3::new(0.0, 0.0, 106.3);
+        let node = |name: &str, parent, local, billboard| ModelNode { name: Some(name.into()), parent, local, billboard, addon: None, damage_stages: None };
+        let nodes = vec![node("Torch", None, Affine3A::IDENTITY, None), node("GlowMesh", Some(0), Affine3A::from_translation(glow_at), Some(4))];
+        let own = Affine3A::from_translation(Vec3::new(0.0, 0.0, 9.2));
+        let shape = |node: Option<usize>, transform| PreparedShape {
+            mesh: Handle::default(),
+            material: Handle::default(),
+            transform,
+            name: None,
+            ancestors: Vec::new(),
+            node,
+            own,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
+        };
+        let glow = shape(Some(1), Affine3A::from_translation(glow_at) * own);
+        let stick = shape(Some(0), Affine3A::IDENTITY);
+        let model = PreparedModel { nodes, shapes: vec![glow, stick], ..Default::default() };
+        let rt = Affine3A::from_translation(Vec3::new(500.0, -300.0, 20.0));
+        let world_of = |w: &World, e: Entity| {
+            let mut m = Affine3A::IDENTITY;
+            let mut at = Some(e);
+            while let Some(p) = at {
+                m = w.get::<Transform>(p).unwrap().compute_affine() * m;
+                at = w.get::<ChildOf>(p).map(ChildOf::parent);
+            }
+            m
+        };
+        // A camera level with the glow, off to the reference's side and a little behind.
+        let eye = Vec3::from(rt.translation) + Vec3::new(800.0, -200.0, 115.5);
+        let faces = |w: &World, e: Entity| {
+            let m = world_of(w, e);
+            let to_eye = (eye - Vec3::from(m.translation)).normalize();
+            m.transform_vector3(Vec3::Z).normalize().dot(to_eye)
+        };
+
+        for animated in [false, true] {
+            let mut app = App::new();
+            app.add_systems(Update, face_camera);
+            app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+            let cell = app.world_mut().spawn(Transform::IDENTITY).id();
+            let card = if animated {
+                let rig_node = |name: &str, parent, local: Vec3, billboard| RigNode { name: Some(name.into()), parent, local: Transform::from_translation(local), hidden: false, billboard };
+                let rig = Rig { nodes: vec![rig_node("Torch", None, Vec3::ZERO, None), rig_node("GlowMesh", Some(0), glow_at, Some(4))], shapes: Vec::new(), idle: None, door: None, groups: Vec::new(), effect: None };
+                let (_, _, by_name) = rig.spawn_nodes(&mut app.world_mut().commands(), cell, Transform::from_matrix(Mat4::from(rt)), "test", 0.0);
+                app.world_mut().flush();
+                by_name["GlowMesh"]
+            } else {
+                let mut boards = BakedBillboards::default();
+                let mut commands = app.world_mut().commands();
+                let (board, below) = boards.place(&mut commands, cell, &model, rt, &model.shapes[0], RefVisual(7)).expect("the glow is under a billboard node");
+                assert!(boards.place(&mut commands, cell, &model, rt, &model.shapes[1], ()).is_none(), "the torch's stick stays baked");
+                let card = commands.spawn((Transform::from_matrix(Mat4::from(below)), ChildOf(board))).id();
+                app.world_mut().flush();
+                // Where the file puts it, before any turn.
+                let at = Vec3::from(world_of(app.world(), card).translation);
+                // The holder, a child of the cell, is the reference's: moved.rs and
+                // destroyed.rs move and redraw it with the rest of the reference.
+                let holder = app.world().get::<ChildOf>(board).unwrap().parent();
+                assert_eq!((app.world().get::<RefVisual>(holder).map(|v| v.0), app.world().get::<ChildOf>(holder).map(|c| c.parent())), (Some(7), Some(cell)));
+                assert!((at - Vec3::from((rt * model.shapes[0].transform).translation)).length() < 1e-3, "{at}");
+                card
+            };
+            let node = if animated { card } else { app.world().get::<ChildOf>(card).unwrap().parent() };
+            assert_eq!(app.world().get::<Billboard>(node).map(|b| b.mode), Some(4), "animated {animated}");
+            assert!(faces(app.world(), card) < 0.2, "unturned, the card lies flat (seen edge-on): {}", faces(app.world(), card));
+            app.update();
+            assert!(faces(app.world(), card) > 0.999, "animated {animated}: the card faces the camera: {}", faces(app.world(), card));
+        }
+    }
+
+    /// Issue #2549: the torch's flame stands along +z under a mode-5 node; turned, it
+    /// stays upright (about its z) with its +y towards the camera.
+    #[test]
+    fn a_mode_5_billboard_turns_about_its_z() {
+        let mut app = App::new();
+        app.add_systems(Update, face_camera);
+        let eye = Vec3::new(300.0, -300.0, 500.0);
+        app.world_mut().spawn((Camera3d::default(), Transform::from_translation(eye), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+        let holder = app.world_mut().spawn(Transform::IDENTITY).id();
+        let flame = app.world_mut().spawn((Transform::from_xyz(0.0, 0.0, 100.0), nvf_assets::model::Billboard { mode: 5, bind: Quat::IDENTITY }, ChildOf(holder))).id();
+        app.update();
+        let r = app.world().get::<Transform>(flame).unwrap().rotation;
+        assert!((r * Vec3::Z).abs_diff_eq(Vec3::Z, 1e-5), "upright: {}", r * Vec3::Z);
+        let level = Vec3::new(eye.x, eye.y, 0.0).normalize();
+        assert!((r * Vec3::Y).dot(level) > 0.9999, "+y to the camera: {}", r * Vec3::Y);
+    }
+}
+
+#[cfg(test)]
+mod blend_census_tests {
+    use super::*;
+    use crate::mesh_terrain_blend::{reason, BaseType};
+
+    /// #2661 round 7: a SCOL reference is taken into the census as a STAT is, under the
+    /// same reference rules and labelled by its base type; other record types are not.
+    /// Synthetic index and records; no game data.
+    #[test]
+    fn scol_references_get_the_census_of_a_stat_and_other_records_none() {
+        let mut world = crate::outfits::tests::empty_world_data();
+        let mut index = WorldIndex::default();
+        index.cells.insert(0x10, fnv_world::Cell { form_id: 0x10, world: Some(0), grid: Some((-16, -2)), ..default() });
+        index.cells.insert(0x11, fnv_world::Cell { form_id: 0x11, data_flags: 1, ..default() });
+        index.refs.insert(0x100, fnv_world::index::RefEntry { cell: 0x10, sig: *b"REFR", persistent: false });
+        index.refs.insert(0x101, fnv_world::index::RefEntry { cell: 0x11, sig: *b"REFR", persistent: false });
+        world.index = Box::leak(Box::new(index));
+        let placement = |imposter: bool| Placement {
+            form_id: 0x100, sig: *b"REFR", flags: 0, base: Some(0x200), position: [0.0; 3], rotation: [0.0; 3], scale: 1.0,
+            enable_parent: None, open_by_default: false, teleport: false, emittance: None, imposter, primitive: false,
+        };
+        let base = |sig: [u8; 4]| BaseObject {
+            form_id: 0x200, sig, edid: None, model: Some("scol/synthetic_road.nif".into()), world_model: None, world_alt_textures: vec![], worn_only: false,
+        };
+        let model = PreparedModel::default();
+        let path = "scol/synthetic_road.nif";
+        let scol = census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, false).expect("a SCOL is tracked");
+        assert_eq!((scol.base_type, scol.reasons, scol.reference, scol.base), (BaseType::Scol, 0, 0x100, 0x200));
+        assert_eq!(&*scol.model, path);
+        let stat = census_of(&world, &placement(false), 0x100, &base(*b"STAT"), path, &model, false).expect("a STAT is tracked");
+        assert_eq!((stat.base_type, stat.reasons), (BaseType::Stat, 0));
+        // The same reference rules: an imposter, an interior, a stored pose.
+        assert_eq!(census_of(&world, &placement(true), 0x100, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::DISTANT);
+        assert_eq!(census_of(&world, &placement(false), 0x101, &base(*b"SCOL"), path, &model, false).unwrap().reasons, reason::WORLD);
+        assert_eq!(census_of(&world, &placement(false), 0x100, &base(*b"SCOL"), path, &model, true).unwrap().reasons, reason::POSED);
+        for sig in [*b"MSTT", *b"DOOR", *b"ACTI", *b"TREE", *b"MISC"] {
+            assert!(census_of(&world, &placement(false), 0x100, &base(sig), path, &model, false).is_none(), "{}", String::from_utf8_lossy(&sig));
         }
     }
 }

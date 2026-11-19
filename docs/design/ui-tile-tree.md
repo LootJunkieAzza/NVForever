@@ -303,7 +303,16 @@ at the same view size). That is the work of each migration task, not guessed up 
 3. **A menu moves to the tile renderer** when it matches the original as well as the
    current code does: compared against the same screenshots as the current spec notes.
    - Each menu has a switch, `NVForever.ini` `[UI] TileMenus=`, a list of menu names.
-     The old drawing stays the default until the owner agrees a menu has moved.
+     [design, #2215] With no key, the default list is
+     `StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu`: the Pip-Boy's
+     pages and its quantity prompt use their menu files. An explicit list replaces these
+     defaults; an empty `[UI] TileMenus=` restores the hand-built Pip-Boy pages. The
+     existing missing-file and cut-down-file fallbacks remain (pipboy.md sections 5.1.1 to 5.3.1,
+     repair.md section 5.1, weapon-mods.md section 5.1). The maintainer decides at PR review whether to
+     keep this default (owner-review.md). The policy is one constant,
+     `tiles/vanilla.rs::DEFAULT_PIPBOY_MENUS`, to keep reverting it small.
+     Other menus' defaults are unchanged: StartMenu's Mods page stays on unless the
+     list names `-StartMenu` (#976); the other page renderers remain opt-in.
      `HUDMainMenu` (T12), `MessageMenu` and `QuantityMenu` (T15a), `SleepWaitMenu` (T15b) and
      `ContainerMenu` (T15c, a candidate: barter-menu.md §8; its prompt follows from
      `QuantityMenu`'s file with no switch of its own, while the container is so drawn) are
@@ -311,7 +320,9 @@ at the same view size). That is the work of each migration task, not guessed up 
      prompt rule) [design: `tiles/barter_menu.rs`], `RepairServicesMenu` (candidate:
      repair.md §3.1) [design: `tiles/repair_services_menu.rs`], `RepairMenu`, the Pip-Boy's
      repair page painted in its image (candidate: repair.md §5.1) [design: `tiles/repair_menu.rs`],
-     and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
+     `ItemModMenu`, the Pip-Boy's weapon mod menu painted there too (candidate: weapon-mods.md
+     §5.1, issue #1513; the card writer shared with the repair pages) [design:
+     `tiles/item_mod_menu.rs`], and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
      `tiles/recipe_menu.rs`].
      Also `TraitMenu` (chargen.md §4.1), `CharGenMenu` (tag skills only, chargen.md §3.1), `DialogMenu` (its contract and fallback:
      spec-notes/dialogue-menu.md §6), `StatsMenu` for the Pip-Boy's STATS page,

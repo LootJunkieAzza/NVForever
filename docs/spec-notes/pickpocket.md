@@ -66,6 +66,14 @@ it, `actor_values`) [hypothesis].
 - **Each take and each placement** rolls once against its chance [hypothesis: placing is
   judged as taking is]. The menu's line shows the chance of the selected row for one
   unit [design: the original's display is not captured].
+- **The rolls of one opening** of a pocket come from a seed made when it opens: the wall
+  clock and the count of pockets opened this session, so every opening rolls afresh and a
+  take caught once can go otherwise after a reload [design: taken from its being a
+  chance; the original's generator is not captured]. Seeded by the victim alone (as it
+  was before #2751), a victim whose first roll was over fPickPocketMaxChance could never
+  be robbed at the first try. The test aid `NVF_PLAY_TEST_PICKPOCKET_SEED` (a number)
+  gives each victim the same rolls at every opening, for smoke scenarios whose take must
+  go one way.
 
 ## 3. The menu
 

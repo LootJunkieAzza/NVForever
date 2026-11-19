@@ -2,7 +2,7 @@
 //! AddNewEffect, primitives, the requests to the engine (dismemberment, shots, sounds),
 //! models, VATS, the gun wobble, sequence frequencies and the nothing values.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

@@ -2,6 +2,9 @@
 //! repository schemas (no game data). The builders follow
 //! crates/fnv-sim/tests/synthetic.rs.
 
+#[path = "search_tests.rs"]
+mod search_tests;
+
 use super::*;
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -1249,4 +1252,134 @@ fn barter_lists_every_stack_of_the_stock_and_scrolls_to_the_last() {
     assert!(m.visible(Side::Container).contains(&8));
     // Outside a trade there is no stock.
     assert_eq!(MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap().stock_rows(&w), None);
+}
+
+#[test]
+fn barter_kind_mults_pick_the_side_and_kind() {
+    let k = BarterKindMults { sell: [0.5, 0.6, 0.7, 0.8, 0.9, 1.1], buy: [2.0, 2.1, 2.2, 2.3, 2.4, 2.5], water_unscaled: true };
+    assert_eq!(k.of(false, Some(ItemKind::Weapon), false), 0.6);
+    assert_eq!(k.of(true, Some(ItemKind::ItemMod), false), 2.5);
+    assert_eq!(k.of(true, Some(ItemKind::Book), false), 2.4);
+    assert_eq!(k.of(true, Some(ItemKind::Aid), true), 1.0);
+    assert_eq!(BarterKindMults { water_unscaled: false, ..k }.of(true, Some(ItemKind::Aid), true), 2.2);
+}
+
+/// Take All Confirmation: the first Take All asks, the next takes.
+#[test]
+fn take_all_asks_first_under_the_tweak() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.take_all_confirm = Some(1);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(!a.changed && m.confirming_take_all(), "{:?}", m.status);
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert!(a.changed);
+    assert!(m.list(Side::Container).rows.is_empty());
+}
+
+/// The Clicking the Tab Sorts tweak's orders: value, then weight, the most first, name
+/// order kept between equals; name brings the usual order back.
+#[test]
+fn the_player_list_sorts_by_value_or_weight() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let m = MenuModel::open_inventory(&mut w).unwrap();
+    let row = m.list(Side::Player).rows[0].clone();
+    let mk = |name: &str, value, weight| Row { name: name.into(), value: Some(value), weight: Some(weight), ..row.clone() };
+    let base = vec![mk("a", 5, 1.0), mk("b", 20, 0.5), mk("c", 5, 9.0)];
+    let names = |rows: &[Row]| rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+    let mut rows = base.clone();
+    SortBy::Value.apply(&mut rows);
+    assert_eq!(names(&rows), ["b", "a", "c"]);
+    let mut rows = base.clone();
+    SortBy::Weight.apply(&mut rows);
+    assert_eq!(names(&rows), ["c", "a", "b"]);
+    let mut rows = base.clone();
+    SortBy::Name.apply(&mut rows);
+    assert_eq!(names(&rows), ["a", "b", "c"]);
+    assert_eq!(SortBy::Name.next().next().next(), SortBy::Name);
+}
+
+/// The Quantity Menu Respects Companion Carry Cap tweak: what fits, at least one.
+#[test]
+fn a_companion_takes_no_more_than_it_can_carry() {
+    assert_eq!(carry_cap(10, 2.0, 7.0), 3);
+    assert_eq!(carry_cap(10, 2.0, 100.0), 10);
+    assert_eq!(carry_cap(10, 2.0, 1.0), 1);
+    assert_eq!(carry_cap(10, 2.0, -5.0), 1);
+    assert_eq!(carry_cap(10, 0.0, 0.0), 10);
+}
+
+
+#[test]
+fn switching_cancels_quantity_meter_drag_and_preserves_the_mouse_release() {
+    use bevy::prelude::*;
+    use bevy::input::{gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent}, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput, ButtonState};
+    use crate::{bindings::{Bindings, InputDevice}, menu::{ActiveMenu, AmountMeter, MenuInput, quantity_mouse}, ui_pointer::{PointerState, UiPointerPlugin}};
+    let mut model = MenuModel::empty(Mode::Inventory, "Synthetic inventory".into());
+    model.quantity = Some(Quantity { cmd: crate::menu::model::Command::One, side: Side::Player, row: 0, max: 10, amount: 1, label: None });
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, crate::pad::InputSwitchPlugin, UiPointerPlugin))
+        .init_resource::<Bindings>().init_resource::<bevy::ui::UiStack>()
+        .insert_resource(ActiveMenu(Some(model)))
+        .add_message::<MenuInput>().add_systems(Update, quantity_mouse);
+    let meter = app.world_mut().spawn((AmountMeter, PointerState::Pressed,
+        bevy::ui::RelativeCursorPosition { normalized: Some(Vec2::ZERO), ..default() })).id();
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Messages<MenuInput>>().len(), 1, "the real quantity reader sees the initial drag");
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    let pad = app.world_mut().spawn(Gamepad::default()).id();
+    app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(pad, GamepadButton::South, 1.0)));
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    crate::bindings::set_device(app.world_mut(), InputDevice::Controller);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    app.world_mut().write_message(KeyboardInput { key_code: KeyCode::KeyX, logical_key: Key::Character("x".into()), state: ButtonState::Pressed, text: None, repeat: false, window: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
+    crate::bindings::set_device(app.world_mut(), InputDevice::KeyboardMouse);
+    assert_eq!(app.world().resource::<Bindings>().device, InputDevice::KeyboardMouse);
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window: Entity::PLACEHOLDER });
+    app.update();
+    assert!(app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left));
+    assert_ne!(app.world().get::<PointerState>(meter), Some(&PointerState::Pressed));
+    // Isolate post-release travel from buffered commands from earlier drag frames
+    // [design, #2200; menu::quantity_mouse, bevy::ecs::message::Messages].
+    app.world_mut().resource_mut::<Messages<MenuInput>>().clear();
+    app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(meter).unwrap().normalized = Some(Vec2::splat(0.4));
+    app.update();
+    assert!(app.world().resource::<Messages<MenuInput>>().is_empty(), "pointer travel after release cannot change the quantity");
+}
+
+/// #2751: two openings of one victim's pocket do not roll the same; with the test aid's
+/// number they do; and over many openings a first take at 85% goes unnoticed about 85%
+/// of the time (seeded by the victim alone, the Legion assassin's first roll was 90.79
+/// at every opening: caught every time).
+#[test]
+fn every_opening_of_a_pocket_rolls_afresh() {
+    let victim = FormId(0x0013_4FF6);
+    let rolls_of = |seed: u64| {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, seed);
+        (0..4).map(|_| st.rng.next_f32()).collect::<Vec<f32>>()
+    };
+    let clock = 1_763_000_000_000_000_000u64;
+    // The same instant, the next opening: other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock, 1)));
+    // A later instant, the same count (another session after a reload): other rolls.
+    assert_ne!(rolls_of(steal_seed(victim, None, clock, 0)), rolls_of(steal_seed(victim, None, clock + 1_000_000, 0)));
+    // The test aid: the same at every opening, and what the fixed seed gave.
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), steal_seed(victim, Some(0x5EED), clock + 77, 9));
+    assert_eq!(steal_seed(victim, Some(0x5EED), clock, 0), u64::from(victim.0) ^ 0x5EED);
+    let fixed = rolls_of(steal_seed(victim, Some(0x5EED), 0, 0));
+    assert!(fixed[0] * 100.0 > 85.0, "the old seed's first roll on the assassin was over the cap: {}", fixed[0] * 100.0);
+    // 10,000 openings, a few milliseconds apart: the first take at 85%.
+    let mut unseen = 0;
+    for i in 0..10_000u64 {
+        let mut st = Steal::new(victim, rolls(true), 100.0, 15.0, steal_seed(victim, None, clock + i * 3_141_593, i));
+        unseen += u32::from(st.unnoticed(85));
+    }
+    assert!((8_300..=8_700).contains(&unseen), "{unseen} of 10,000 first takes at 85% went unnoticed");
 }

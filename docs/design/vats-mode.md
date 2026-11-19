@@ -427,7 +427,15 @@ marks) or if he dies. i dont want the player to get stuck in vats" [design].
   what it does outside it. The one exception is Activate while marking with a mark
   made: that accepts (§11.5). So E with nothing marked activates what is under the
   crosshair, and Wait opens the Wait menu (or is refused as usual, the mode ended all the
-  same). The check runs in `read_keys`, before activation, so the same frame's E
+  same). The other exception is the Pip-Boy (Menu Mode), whose own action comes on the
+  release (a tap opens the Pip-Boy) or after a hold (the flashlight, `flashlight.rs`): a
+  Menu Mode press made while the mode is on (Drawing, Marking or Firing) is the mode's
+  and is used up (`flashlight::MenuKeyHold::consume`), so it only leaves, or on the
+  controller's classic screen, where B is also the screen's Return, only returns; its
+  release opens no Pip-Boy and its hold switches no flashlight, and the next press out
+  of the mode opens the Pip-Boy as usual [design, #2311: B, a controller's back button,
+  left Dead Eye and opened the Pip-Boy on its release; Tab the same]. The
+  check runs in `read_keys`, before activation, so the same frame's E
   reaches the target. Use, Block, V, movement, looking and Toggle POV stay the mode's
   or go on as before. Log: `vats mode: off (…; Wait pressed)`, the control's name from
   `bindings::label`.
@@ -1111,3 +1119,19 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   may not target logs `nothing to mark under the crosshair (<ref> is not a VATS target)`.
 - Not built: thrown grenades and placed mines in flight or on the ground (projectiles,
   not placed objects).
+
+## 21. Projectiles as targets (the Tweaks tab, 2026-11-13, #1891)
+
+[design: Stewie's Tweaks' `bTargetProjectilesInVATS` and its options, our own way] With
+the Tweaks tab's Target Projectiles in V.A.T.S. on, a click marks a missile or lobbed
+projectile in flight (not a hitscan shot, beam or flame) whose path passes within 24
+units of the crosshair's line, or within 0.03 rad of it far off, nearer than what the
+line meets; the one nearest the line by angle. Not the player's own (unless V.A.T.S.
+Targets Your Own Projectiles), not thrown mines (unless Mines Too), only explosive ones
+under V.A.T.S. Ignores Non-Explosive Projectiles. The mark's chance is the usual work
+(§17) on a held weapon's size with no body part: the distance and the player's skill.
+The mark follows the projectile and is dropped when it no longer flies. A landed shot
+ends it where it is, its explosion going off there as the player's (`Combat::shoot_down`).
+With Mines Too, an armed mine lying in the world is marked as a placed object (§20) and
+the shot sets it off as any destructible. The classic style's target list still holds
+actors only.

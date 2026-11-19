@@ -331,7 +331,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<StressStats>) {
 /// The travel to an exterior point: its feet high above it, found on the ground once in
 /// ([`land`]).
 fn exterior(world: Option<u32>, p: [f32; 2]) -> Travel {
-    Travel { world, interior: None, feet: [p[0], p[1], DROP_FROM], heading_deg: 0.0 }
+    Travel { world, interior: None, feet: [p[0], p[1], DROP_FROM], heading_deg: 0.0, pitch_deg: None }
 }
 
 /// Put the player on the ground under (x, y) once the cells there are in.
@@ -386,14 +386,14 @@ fn walk_cells(
                 info!("stress cell: {}/{n} start {}", i + 1, stop.describe());
                 let t = match &stop {
                     Stop::Interior { cell, .. } => Ok(match crate::player::safe::cell_spot(sim.refs, *cell) {
-                        Some(s) => Travel { world: None, interior: Some(*cell), feet: s.feet, heading_deg: s.heading.to_degrees() },
+                        Some(s) => Travel { world: None, interior: Some(*cell), feet: s.feet, heading_deg: s.heading.to_degrees(), pitch_deg: None },
                         None => {
                             // No door or marker: by the reference nearest the middle of the
                             // cell's, or the cell's origin, so the cell is load-tested too.
                             let at: Vec<[f32; 3]> = sim.refs.by_cell.get(&FormId(*cell)).into_iter().flatten().filter_map(|r| sim.refs.refs.get(r).map(|p| p.pos)).collect();
                             let feet = middle_spot(&at);
                             info!("stress cell: {}/{n} has no marker or door: arriving at ({:.0}, {:.0}, {:.0}), by {} placed references", i + 1, feet[0], feet[1], feet[2], at.len());
-                            Travel { world: None, interior: Some(*cell), feet, heading_deg: 0.0 }
+                            Travel { world: None, interior: Some(*cell), feet, heading_deg: 0.0, pitch_deg: None }
                         }
                     }),
                     Stop::Exterior { world, x, y, cell, .. } => match sim.refs.world_grid.get(&FormId(*world)).and_then(|g| g.get(&(*x, *y))) {

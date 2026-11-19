@@ -4,7 +4,7 @@ The xNVSE and FOSE functions left after the 2026-10-26 batches, and two JIP/LU g
 lab asked for. Built in `crates/fnv-game/src/nvse_rest.rs`, `ui_functions.rs`,
 `nvse_misc.rs`, `nvse_gaps.rs` and the script VM (`fnv-script/src/vm.rs`). Sources: the
 GECK wiki export [documented: the page named], the lab's probe goldens [observed], and
-the HUD captures in hud.md §14 [observed]. Every change lasts for the session.
+the HUD captures in hud.md §14 [observed]. Changes last for the session unless an entry states a saved lifetime.
 
 ## 1. Setters whose getters were built
 
@@ -99,3 +99,67 @@ it. The console's exact line is not documented: the name alone [hypothesis].
 
 - `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census
   counts it only because it calls every catalogue name as a function.
+
+## 7. Critical weapon damage in hit calculation
+
+[documented: https://fose.silverlock.org/fose_command_doc.html#SetWeaponCritDamage;
+`schemas/script/functions.json`, SetWeaponCritDamage] `SetWeaponCritDamage amount
+[weapon]` changes the weapon base's critical hit damage. The first argument is an
+integer. An omitted weapon selects the calling weapon reference's base form, as
+the matching getter does [documented:
+https://geckwiki.com/index.php?title=GetWeaponCritDamage].
+
+[design] The effective critical damage must reach the existing melee and projectile
+hit calculations, for player and NPC attacks alike. The getter and combat read the
+same session override; no second setter store or extra per-frame weapon scan is
+needed. The existing setter's receiver and argument admission are retained.
+[hypothesis] That the original game's hits use the changed value on every one of
+these paths (player and NPC melee, player and NPC projectiles) is inferred from
+the documented base-form change, not observed.
+
+[documented: `schemas/fnv/objects.json`, WEAP CRDT] The accepted data model holds
+critical damage in an unsigned 16-bit field. [design] Preserve the accepted setter's
+numeric conversion and source readback; combat consumes the numeric override in
+its existing unsigned 32-bit damage domain (fractional values truncate and values
+outside that domain saturate). [hypothesis] Native fractional, negative,
+out-of-range and nonnumeric conversion needs a game probe. These cases are not
+qualified for native parity. The accepted generic setter's explicit invalid
+weapon-argument fallback remains unchanged pending behavioral evidence.
+
+[hypothesis] The spelling `SetCritDam` is not established by the consulted public
+function documentation or accepted catalogue. Keep its registration open pending
+an original-game command-identity capture; identity alone will not establish wire
+encoding. This note does not import FOSE opcode numbers into New Vegas.
+
+[design] Overrides retain this module's existing session lifetime: save/load
+resets them, and a weapon clone without its own override reads its source
+weapon's. [hypothesis] Whether the original saves the change, and whether a
+temporary clone inherits it, need separate
+captures. Core source execution, engine hit calculation, native captures and real
+installed-mod acceptance are separate validation states.
+
+## 8. Player swimming and Hardcore achievement eligibility
+
+[documented: https://geckwiki.com/index.php?title=IsPlayerSwimming]
+`IsPlayerSwimming` takes no arguments and returns whether the player is swimming.
+It is global: the calling object's motion does not select its result. The existing
+source handler reads the player's `Game::motion` state. [design] The engine keeps
+that state supplied from the player's physics character; it must not substitute
+water contact, height or NPC motion. Vanilla `IsSwimming` keeps its documented
+player-zero behavior.
+
+[documented: `schemas/script/functions.json`, DisableHardcoreTracking]
+`DisableHardcoreTracking` (alias `babby`) permanently invalidates the playthrough's
+always-Hardcore eligibility. [design] It sets the existing saved
+`PlayerState::hardcore_was_off` field, consumed by `IsAlwaysHardcore`; repeated calls
+are idempotent. The eligibility state survives a serialized snapshot and cannot be
+restored by calling `SetHardcore 1` (the documented "permanently").
+[hypothesis] It does not turn off Hardcore mode or toggle needs accumulation; the
+documentation describes only the eligibility flag. It returns 0.
+This is separate from `ToggleHardcoreTracking` and `GetHardcoreTracking`, whose
+existing needs-tracking switch is unchanged.
+
+[hypothesis] Receiver quirks, exact native return values and native command/condition
+encoding remain capture work. Source compiler support is exercised independently
+of numeric bytecode admission. Native command identity is insufficient evidence for
+an argument decoder or CTDA mapping.

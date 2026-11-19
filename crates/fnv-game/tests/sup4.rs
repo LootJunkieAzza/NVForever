@@ -3,7 +3,7 @@
 //! frames later, the save names and sizes (the engine's part played by the test), the
 //! cells near the player, the caught-pickpocketing flag and transliteration.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

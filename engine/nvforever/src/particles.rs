@@ -230,6 +230,29 @@ impl ModelEmitter {
     }
 }
 
+/// [design, #2685] An ANIO hierarchy driven by an actor idle's external KF.
+#[derive(Component)]
+pub struct IdleParticleRig {
+    pub nodes: HashMap<String, Entity>,
+    pub clip: Arc<nvf_assets::anim_play::Clip>,
+}
+
+/// [design, #2685] Particle meshes live in world space, but their materials use
+/// the attachment's idle clock and the ordinary rig material player.
+#[derive(Component)]
+pub struct IdleParticleMaterial(Entity);
+
+pub fn sync_idle_materials(
+    owners: Query<&Playing, Without<IdleParticleMaterial>>,
+    mut particles: Query<(&IdleParticleMaterial, &mut Playing)>,
+) {
+    for (owner, mut player) in &mut particles {
+        if let Ok(source) = owners.get(owner.0) {
+            player.time = source.time;
+        }
+    }
+}
+
 /// A model emitter drawn with its own nodes: the rig's entity, and the sequence playing
 /// on it with the span of its time this frame covers (`None`: none plays).
 struct Drive {
@@ -687,6 +710,7 @@ pub fn game_affine(e: Entity, transforms: &Query<&Transform>, parents: &Query<&C
     m
 }
 
+#[allow(clippy::too_many_arguments)]
 fn systems_of<'a>(
     p: &'a mut Particles,
     key: &Key,
@@ -695,6 +719,7 @@ fn systems_of<'a>(
     commands: &mut Commands,
     root: Entity,
     fuller: bool,
+    idle: Option<&IdleParticleRig>,
 ) -> Option<&'a mut Vec<Live>> {
     let source = &key.source;
     if !p.systems.contains_key(key) {
@@ -749,7 +774,18 @@ fn systems_of<'a>(
                     let entity = commands
                         .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(def.material.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root)))
                         .id();
-                    Live { def: def.clone(), particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0 }
+                    if let (Some(idle), Some(owner)) = (idle, key.instance) {
+                        if let Some(materials) = def.idle_materials(entity, &idle.clip) {
+                            let mut player = Playing::new(&idle.clip.name, &idle.clip, |_| None);
+                            player.held = true;
+                            commands.entity(entity).insert((IdleParticleMaterial(owner), player, materials));
+                        }
+                    }
+                    let mut def = def.clone();
+                    if let Some(idle) = idle {
+                        def.bind_idle(&idle.clip);
+                    }
+                    Live { def, particles: Vec::new(), geometry: ParticleGeometry::default(), mesh, entity, served: 0, owed: 0.0 }
                 })
                 .collect()
         });
@@ -787,6 +823,7 @@ type ModelEmitterItem = (
     &'static mut ModelEmitter,
     Option<&'static InheritedVisibility>,
     Option<&'static crate::object_anims::GroupRig>,
+    Option<&'static IdleParticleRig>,
     Option<&'static Playing>,
     Option<&'static crate::effect_shaders::PlayerEffectEmitter>,
 );
@@ -812,6 +849,7 @@ fn emit(
     mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>, Option<&crate::effect_shaders::PlayerEffectEmitter>)>,
     mut model_emitters: Query<ModelEmitterItem>,
     rigs: Query<&crate::object_anims::GroupRig>,
+    idle_rigs: Query<&IdleParticleRig>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
     graphics: Option<Res<crate::graphics::Graphics>>,
@@ -847,7 +885,7 @@ fn emit(
         }
         em.age += dt;
     }
-    for (e, mut em, v, rig, playing, part) in &mut model_emitters {
+    for (e, mut em, v, rig, idle_rig, playing, part) in &mut model_emitters {
         // A placed model's systems are its own (particles.md §7.1).
         let instance = em.placed.map(|_| e);
         if let Some(r) = em.placed {
@@ -858,7 +896,7 @@ fn emit(
         // Drawn with its own nodes: the sequence playing on it and the span of its time
         // since last frame; a sequence just begun counts from its start, unless it was
         // shown already well into it (drawn at a group's held end).
-        let drive = rig.map(|_| {
+        let drive = (rig.is_some() || idle_rig.is_some()).then(|| {
             let now = playing.map(|p| (p.name.clone(), (p.time - p.start).max(0.0)));
             let last = em.clock.take();
             let mut began = false;
@@ -899,7 +937,7 @@ fn emit(
         let (age, placed) = (*age, *placed);
         let rig = drive.as_ref().and_then(|d| rigs.get(d.rig).ok());
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, fuller) else { continue };
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root, fuller, key.instance.and_then(|e| idle_rigs.get(e).ok())) else { continue };
         let node = places[i];
         // A fire burning a volumetric flame (fire_volume.rs) leaves its flame squares
         // unborn; its sparks stay.
@@ -942,7 +980,9 @@ fn emit(
             live.served += 1;
             *owed += rate * on;
             // From its emitter object's node as the drawn model's sequence moves it.
-            let moved = rig.filter(|_| d.emitter.mesh.is_none()).and_then(|r| r.node(d.emitter.object.as_deref()?)).map(|e| game_affine(e, &transforms, &parents, root));
+            let moved = d.emitter.object.as_deref().filter(|_| d.emitter.mesh.is_none()).and_then(|name| {
+                rig.and_then(|r| r.node(name)).or_else(|| drive.as_ref().and_then(|dr| idle_rigs.get(dr.rig).ok()).and_then(|r| r.nodes.get(name).copied()))
+            }).map(|e| game_affine(e, &transforms, &parents, root));
             let frame = moved.unwrap_or(node * d.emitter.frame);
             let (_, turn, origin) = frame.to_scale_rotation_translation();
             // The reference's scale and the system node's set the spray's speed and its
@@ -1369,6 +1409,7 @@ mod tests {
             name: "test".into(),
             max: 0,
             material: default(),
+            look: nvf_assets::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
             emitter: Emitter {
                 frame: Affine3A::IDENTITY,
                 size: Vec3::ZERO,

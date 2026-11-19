@@ -59,7 +59,11 @@ dead actor searches it (`nvf_play::activate`).
   before the start-game quests run. Saves keep it like any death.
 - Drawn dead: with an `XRGD` that fits its skeleton, in that pose, at rest (§5); else the
   end of a death pose, then the ragdoll drops the body and it comes to rest (ragdoll.md
-  §4); with the ground not loaded the death pose holds until it is.
+  §4); with the ground not loaded the death pose holds until it is. A corpse drawn at a
+  reference placed under the ground (the leveled spawns' invisible `nvvoid` placeholders
+  laid out dead, 3 and 360 units under it) starts its ragdoll lifted over the terrain, or
+  it fell through it; a stored pose (`XRGD`) only when it lies more than 20 units under,
+  and then it starts awake (physics.md §4.3, #2753).
 - Corpses whose base respawns come back alive after three days away (§4).
 
 ## 4. Cell resets: Respawn [2026-10-12]
@@ -162,7 +166,7 @@ resting pose it feeds. Surveyed with a private script over FalloutNV.esm (not co
 
 ### 5.1 Clutter skeletons (`REFR` with `XRGD`) [2026-10-16, playtest list 5 item 71]
 
-Code: `engine/nvforever/src/clutter_pose.rs`. The Goodsprings cave's three clutter
+Code: `engine/nvf-play/src/clutter_pose.rs`. The Goodsprings cave's three clutter
 skeletons (`SLGoodspringsCaveINT`: 0x00153170, 0x00153171 `Skeleton50sCasualFemale`,
 0x001531F5 `Skeleton50sCasualMale`, MSTT) stood upright with the arms out, where the
 owner's screenshot of the original shows one lying on the floor.
@@ -286,3 +290,34 @@ needed to pose it.
 Not done here (compared against the original later): case C (a jointed model with no
 `XRGD` — settle as a ragdoll on load, or stay as authored), case D (a STAT skeleton with
 no usable `XRGD` stays fixed), and case E (skinned skeleton models placed as clutter).
+
+### 5.3 References enabled at run time [2026-11-14, issue #2339]
+
+A player's report showed the Wild Wasteland refrigerator skeleton (0x000ED565, MSTT
+`Skeleton50sCasualMale`, model `skeletonmale50scasual.nif`) standing upright beside the
+open fridge 0x000ED566. Its `XRGD` has 16 entries for the model's 16 collision objects
+and `fnvtool world posed-clutter` puts it on the "posed" branch [documented: `fnvtool esm
+decode`, `fnvtool world posed-clutter`]. Its enable parent is 0x000ED563
+`WildWastelandEnabler`, which is Initially Disabled and which the trait's quest script
+`WildWastelandQuestScript` 0x000ED510 enables [documented: `fnvtool esm decode` of
+0x000ED565 (XESP 0x000ED563), 0x000ED563 (record flags 0xC00) and 0x000ED510 (it
+references 0x000ED563)].
+
+- Render streaming (nvforever `world.rs`) draws only references enabled at the start of
+  a game by the plugins; the rest are drawn by `nvf_play::script_draw` once the
+  simulation says they are present (a script's Enable, or a save that holds the parent
+  enabled). That second path drew every shape at the file's own transform and never read
+  `XRGD`, so such a skeleton stood in the file's pose while its collision, built by the
+  same physics loader as at a cell load, lay in the stored pose [design: before #2339].
+- **In NVForever** [design, #2339]: both drawing paths pose through one function,
+  `nvf_play::clutter_pose::drawn` (the §5.2 condition: a `posable` type, a fitting `XRGD`,
+  every body on a named node below the root) and `shape_transform` (`p[n] * own` for a
+  shape under a node). `clutter_pose` moved from the nvforever crate down to nvf-play,
+  which both paths can reach. `script_draw` logs `clutter pose: 0x… <model> drawn in its
+  stored pose, enabled at run time (N bodies)` once per reference.
+- Which references this covers: every posable reference with a fitting `XRGD` whose
+  enable parent chain does not leave it enabled at the start (Wild Wasteland enablers,
+  quest enable parents, other initially disabled parents). Those with a rig (an idle, a
+  door, script groups) stay unposed on both paths, as before.
+- Smoke: `wild-wasteland-fridge-skeleton` enables the enabler from the console and expects
+  the line above and the collision's.

@@ -60,8 +60,14 @@ Goodsprings (packages.md §4).
      target [documented]. Conditions are not evaluated outside the schedule
      [documented], which also keeps random conditions from being rolled needlessly.
 3. **No valid package: keep the current one** if it is a package of the list
-   [observed; hypothesis that it is the current rather than the last of the list].
-   An actor that has none stays without a package.
+   [observed; hypothesis that it is the current rather than the last of the list],
+   unless its own conditions fail (only its schedule or Once Per Day may rule it out):
+   then the actor has no package, stands where it is and leaves its furniture
+   [hypothesis, from the data, issue #2235: Mister Burke sits on his bar chair under
+   MS11BurkeBattle; the arrest talk ends its condition (MS11 battle 2) and nothing else
+   of his list applies, yet Lucas Simms' script, Fallout 3's and TTW's alike, has Burke
+   shoot him only once Burke's GetSitting reads 0]. An actor that has none stays
+   without a package.
 
 Two ways of choosing:
 - **`evaluate_package`** (the `EvaluatePackage` function, and the first choice): always
@@ -102,9 +108,17 @@ switch delays after a schedule boundary are spread from 0.4 to 26 real seconds].
 and disabled actors do not choose. Menus stop the clock as they stop scripts.
 
 **Package scripts** (only with `package_interval` set): a new package runs its begin
-script and OnPackageStart; a package replaced before its goal runs its change script and
-OnPackageChange; a package whose goal is met runs its end script and OnPackageDone
-[documented: the three state changes; hypothesis: no change event after the end event].
+script and OnPackageStart; a package whose goal is met runs its end script and
+OnPackageDone; a package the actor leaves for another runs its change script and
+OnPackageChange, also after its end script ran [documented: the three state changes;
+hypothesis from the data: TTW's CG02AndyCutCake (Must Complete, Once Per Day) sets the
+cake stage the birthday party waits for only in its change script, and nothing ends it
+before its goal, issue #2221; until 2026-11-12 no change event followed the end event].
+A Once Per Day package whose goal is met is not chosen again within the day even while
+it is still the current one, so the next valid package takes over ("not immediately
+selected again after being completed", GECK wiki Category:Packages); TTW's chains of
+such travels (Andy's cake, Amata's escape route `CG04AmataToApartmentDoor1` → `…2new`
+→ `CG04AmataToOverseersOffice`, #2227) depend on it.
 Without the interval nothing runs by itself and the Layer 5 runner's `package` input
 stands in, so Layer 5 scenarios behave as before apart from the validity rules.
 
@@ -254,6 +268,25 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   included (navmesh.md). Everything the actor carries counts as a key for locked doors.
   Always Run packages run (344 units a second), others walk (86.8) [observed: the
   player's speeds; NPC speeds are not captured].
+- **Walking with a pistol drawn** (#2124, `fnv_ai::carry::drawn_walk_share`): a person
+  in light armour or clothes walking a package outside combat with a pistol out walks
+  its walk / fMoveNoWeaponMult (85.3 / 1.1 = 77.5) [observed: 77.5–78.3, actors.md §8.10,
+  People; design: the fit chosen, docs/owner-review.md]. A package's walk (planned by
+  `Ai::plan`, a Dialogue package's approach, a sandbox's or a Find errand's walk)
+  remembers the share it was given (`Agent::walk_pace`) until it ends, and while it travels (`Ai::repace_walk`, the AI's own steps: not
+  in a fight, an alert or a script's weapon use) its speed is scaled to the share now
+  when the weapon is drawn or put away, whatever its base. Every other setter of the
+  walker's speed gives that up (a run, a Follow package's walk, a companion's Back Up, a
+  walk-up to the player, a search, a random conversation's walk), and so does a walk a
+  random conversation or a search has taken over: it keeps its speed. New speeds on the
+  way (a Speed Mult or armour change, `Ai::set_speeds`, #2118) keep the share and the
+  walk's own: it goes on at the new walk / 1.1, also after a stop at Speed Mult 0. A
+  follower's speed comes through `Ai::pace` too and is worked out again under way as the
+  gap changes, so it takes the share at once (in step, its target's pace wins, the share
+  only lowering the slowest it eases to) [design: not measured, actors.md §8.10]. The weapon is the one
+  the actor's equipment holds (none: its fists); the animating side's last drawn weapon
+  counts only for an actor the simulation has no equipment for. Other stances and armour
+  classes keep the holstered walk.
 - **No way there** (no navmesh at either end, no chain of doors, a locked door without
   the key, or a location that names nothing): the package is set aside for one game
   hour (`Game::block_package`, `PackageCheck::Unreachable`) and the actor chooses again:
@@ -336,7 +369,12 @@ package sends it through doors into other spaces, and stays until its package ch
 - **Drawing** is the travellers' (`nav::show_actor`, shared with `--npc-travel`): the
   actor is spawned while its space is the one drawn, placed at the walker's feet, and
   its locomotion blends walk, turn and idle from the speed. The cell streamer leaves
-  these actors to the module.
+  these actors to the module. The body it drives is the one it spawned (`actors::spawn_body`),
+  never one looked for under the world root: through a load door, the body left at the
+  door fades out (`door_fade.rs`) while the new one is spawned at the far side, often in
+  the same frame, and a scan then took the fading body, leaving the new one standing
+  undriven (#2461). A driven body that is gone is let go, looked for again, or drawn anew.
+  [design]
 - **Doors that open in place** are opened and waited for, as travellers do
   (`Ai::update_with`).
 - **Hours passed in the Wait menu** (`--play`; docs/spec-notes/wait-menu.md §7): for
@@ -555,12 +593,30 @@ forgets both). Before this, a sandbox with one object used it once and then stoo
 wandered) until the package changed [observed: issue #1505's synthetic run, 50 standing
 choices in 600 s].
 
+The narrow exception is an idle-marker-only package: idle markers enabled and eating,
+sleeping, conversation, furniture and wandering all disabled. When its last marker is
+the only eligible marker, it selects that marker again at expiry, with no Standing
+choice between [design, #2715: `Allowed::only_idle_markers`, `Sandbox::next`]. A second
+eligible marker still takes priority; disabled, reserved, incompatible and failed-route
+markers pass through the existing eligibility filters. Every other package retains the
+60-second rule, including one permitting wandering without a reachable wander spot
+[design: `Sandbox::objects`, `Sandbox::next`]. The wiki's action-type rule includes
+“unless it has no other options” [documented: GECK wiki,
+[Sandbox Package, Action Selection](https://geckwiki.com/index.php?title=Sandbox_Package),
+offline revision 32636]; extending that qualification to the sole marker keeps Pacer's
+cover pose continuous [hypothesis: original scene unmeasured; observer check 208].
+After loading, the first choice has no initial timer wait: `Sandbox::start` is immediately
+due, and `set_schedule` restores only the day's rolls. An actor already at its marker
+begins it on the first AI update [design: `Ai::settle`, `Ai::sandbox_step`; regression
+`a_loaded_idle_marker_only_sandbox_picks_its_marker_on_the_first_update`].
+
 The GECK wiki documents a setting for this area, `iSandBoxPreventRepeatedActionTime`,
 default 30: a sandboxing NPC does not repeat an action on the same object until that many
 seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime;
 docs/spec-notes/packages.md §3]. NVForever does not read it. The two differ: the setting
 reads as a wait on every object (several objects could each come back after 30 s), with
-nothing said about when the seconds start; ours keeps the object just used out for as
+nothing said about when the seconds start; except for the idle-only exemption above,
+ours keeps the object just used out for as
 long as any other object is open, and lets it back only when it is the only one, 60 s
 after the first other behaviour began. Whether to follow the setting instead is the
 maintainer's question in owner-review.md.
@@ -575,10 +631,16 @@ radius and uses nothing; no-wander alternates chair and idle marker; all off sta
 night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
 on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
 sandboxers never on one chair; the same run twice; the patrol wait). The only object
-(#1505), in the same file: a lone chair, and a lone idle marker, used again a minute after
+(#1505), in the same file: a lone chair, and a lone idle marker with another behaviour
+permitted, used again a minute after
 each stand and never at the look after it, nor early after an interruption; a disabled
 second chair and one with no way to it (its #1504 backoff going on) leave the first as the
 only one; two chairs, and a chair with a marker, still take turns without standing between.
+Idle-only coverage (#2715) checks a sole marker through repeated timer expiries without
+Standing (zero and nonzero marker timers), immediate selection after schedule restoration,
+two markers alternating, disabled markers excluded, and each of the five other allowed
+behaviours retaining the minute of Standing when alternatives are unavailable
+[design: `crates/fnv-ai/tests/carry.rs`].
 `fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
@@ -776,8 +838,15 @@ FFCaptiveMarker in the Bison Steve hotel); farther, it stays. Released, its pack
 begins again. A package placed at "Near linked reference" whose linked reference is
 furniture gives that furniture, as a specific reference does (the crucified Powder
 Gangers' crosses in Nipton). A patrol point that is furniture is used for the point's
-idle time (Gomorrah's courtesans on DanceMarker03, 800 s) [hypothesis]. Smoke:
-`restrained-furniture`, `crucified-stay`, `patrol-point-furniture`.
+idle time (Gomorrah's courtesans on DanceMarker03, 800 s) [hypothesis]. A restrained
+actor's Dialogue package still runs: it waits where it stands (on its wait location's
+furniture when that is within reach) and talks once the target is within the activate
+distance, never going up to it [documented: GECK wiki SetRestrained, restrained actors
+still "go into dialogue"]; one restrained on its way waits where it stopped, and one
+released in the conversation it opened does not greet again [our choice]. Hardin's power
+armor training (HVHardinPowerArmorTrainingPackage) depends on it: only the line it opens
+releases him and the player (#2309). Smoke:
+`restrained-furniture`, `crucified-stay`, `patrol-point-furniture`, `restrained-dialogue-package`.
 
 **Talking to a sleeper** (list 7 item 38): the player activating an actor asleep in its
 bed (GetSleeping 3) wakes it (`Game::wake`): it gets off the bed and the conversation
@@ -976,7 +1045,9 @@ destination, 13) and "no navmesh near the start" 1; every other verdict is uncha
 With them came: GetIsUsedItem, GetIsUsedItemType, GetIsUsedItemEquipType and
 GetUsedItemActivate (what an actor uses: its furniture, or what its package had it take
 or use); Pretend In Combat (running, weapon out), Allow Swimming (water avoided without
-it), Allow Falls (ledge links allowed with it) and No Warn/Attack Behavior (no
+it), Allow Falls (unrestricted downward ledge links allowed with it;
+[design, #2532] harmless authored drops can connect an otherwise unreachable route
+without it, packages.md section 7.1) and No Warn/Attack Behavior (no
 aggro-radius warnings); packages.md §3.1.
 
 ## 6. Decisions for the owner

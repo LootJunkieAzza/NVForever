@@ -10,7 +10,9 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseButtonInput;
 use bevy::input::ButtonState;
 use bevy::prelude::*;
-use std::collections::HashSet;
+use bevy::input::mouse::MouseWheel;
+use bevy::window::PrimaryWindow;
+use std::collections::{BTreeSet, HashSet};
 use fnv_sim::FormId;
 use fnv_game::script_input::MOUSE_BASE;
 
@@ -19,7 +21,9 @@ pub struct ScriptInputPlugin;
 impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
-            .add_systems(PreUpdate, (script_input, key_events).chain().after(bevy::input::InputSystems))
+            .add_message::<MouseWheel>()
+            // [design, #2200] Scripts see consumed switching presses as absent too.
+            .add_systems(PreUpdate, (script_input, key_events).chain().after(bevy::input::InputSystems).after(crate::pad::device::automatic).after(crate::pad::update_stick_buttons))
             // The player's state the scripts read (sights up, for the HUD bars' aiming
             // condition) is handed over after combat has updated it this frame and before
             // the scripts run [design]. `tell_magazine` keeps its own place: it also
@@ -82,12 +86,12 @@ struct Pressed {
 }
 
 impl Pressed {
-    fn player_pressed(&mut self, typed: &mut MessageReader<KeyboardInput>, clicked: &mut MessageReader<MouseButtonInput>) {
-        for k in typed.read().filter(|k| k.state == ButtonState::Pressed) {
-            self.keys.remove(&k.key_code);
+    fn player_pressed(&mut self, typed: &[(KeyCode, bool)], clicked: &[(MouseButton, bool)]) {
+        for (k, _) in typed {
+            self.keys.remove(k);
         }
-        for b in clicked.read().filter(|b| b.state == ButtonState::Pressed) {
-            self.mouse.remove(&b.button);
+        for (b, _) in clicked {
+            self.mouse.remove(b);
         }
     }
 
@@ -121,34 +125,72 @@ impl Pressed {
     }
 }
 
-/// What the player did on the devices this frame: key and button presses, the wheel.
+/// What the player did on the devices this frame: key and button presses (the wheel is
+/// read from its own messages). Absent without the input plugin.
 #[derive(bevy::ecs::system::SystemParam)]
 struct Devices<'w, 's> {
-    typed: MessageReader<'w, 's, KeyboardInput>,
-    clicked: MessageReader<'w, 's, MouseButtonInput>,
-    scroll: Option<Res<'w, bevy::input::mouse::AccumulatedMouseScroll>>,
+    typed: Option<MessageReader<'w, 's, KeyboardInput>>,
+    clicked: Option<MessageReader<'w, 's, MouseButtonInput>>,
 }
 
+impl Devices<'_, '_> {
+    /// The keys and mouse buttons pressed this frame, each with whether the actions see
+    /// the press (the input switch consumes its switching press) [design, #2200].
+    #[allow(clippy::type_complexity)]
+    fn presses(&mut self, switching: Option<&crate::pad::SwitchingInput>) -> (Vec<(KeyCode, bool)>, Vec<(MouseButton, bool)>) {
+        let mut keys = Vec::new();
+        let mut buttons = Vec::new();
+        if let Some(typed) = self.typed.as_mut() {
+            for k in typed.read().filter(|k| k.state == ButtonState::Pressed) {
+                keys.push((k.key_code, switching.is_none_or(|s| s.allows(k))));
+            }
+        }
+        if let Some(clicked) = self.clicked.as_mut() {
+            for b in clicked.read().filter(|b| b.state == ButtonState::Pressed) {
+                buttons.push((b.button, switching.is_none_or(|s| s.allows_mouse(b))));
+            }
+        }
+        (keys, buttons)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn script_input(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     mut bindings: Option<ResMut<Bindings>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut wheel: MessageReader<MouseWheel>,
+    primary: Query<Entity, With<PrimaryWindow>>,
     mut blocked: ResMut<ScriptBlocked>,
+    switching: Option<Res<crate::pad::SwitchingInput>>,
+    pads: crate::pad::ActionPads,
+    sticks: Option<Res<crate::pad::StickButtons>>,
     mut devices: Devices,
     mut ours: Local<Pressed>,
 ) {
-    ours.player_pressed(&mut devices.typed, &mut devices.clicked);
+    let (typed, clicked) = devices.presses(switching.as_deref());
+    ours.player_pressed(&typed, &clicked);
     // Last frame's taps and the keys the scripts held.
     let (mut tapped, mut script_held) = std::mem::take(&mut ours.last);
     // Last frame's taps end.
     for c in tapped.drain(..) {
         ours.release(c, &mut keys, &mut mouse);
     }
+    // Wheel directions are physical pulses, not MouseButton::Other aliases. Drain
+    // current messages even without a runtime/window so they cannot replay later.
+    let window = primary.single().ok();
+    let mut wheel_codes = [false; 2];
+    for event in wheel.read() {
+        if Some(event.window) != window || !event.y.is_finite() { continue; }
+        if event.y > 0.0 { wheel_codes[0] = true; }
+        else if event.y < 0.0 { wheel_codes[1] = true; }
+    }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         ours.last.1 = script_held;
         return;
     };
+    blocked.wheel = rt.game.jam.vanity_wheel_off;
     let input = &mut rt.game.input;
     // Keys scripts held last frame and no longer hold (ReleaseKey, ReleaseControl) are let go.
     for c in script_held.drain(..).filter(|c| !input.script_held.contains(c)) {
@@ -167,16 +209,14 @@ fn script_input(
             b.set(control, new);
         }
     }
-    input.held = held_codes(&keys, &mouse);
-    // The wheel turned this frame is held for the frame (IsKeyPressed 264/265, JIP's key
-    // events) [hypothesis: one frame a notch].
-    match devices.scroll.map_or(0.0, |s| s.delta.y) {
-        d if d > 0.0 => _ = input.held.insert(WHEEL_UP),
-        d if d < 0.0 => _ = input.held.insert(WHEEL_DOWN),
-        _ => {}
-    }
-    blocked.wheel = rt.game.jam.vanity_wheel_off;
-    let input = &mut rt.game.input;
+    let action_keys = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*keys), |s| s.filter(&keys));
+    let action_mouse = switching.as_ref().map_or_else(|| std::borrow::Cow::Borrowed(&*mouse), |s| s.filter(&mouse));
+    input.held = held_codes(&action_keys, &action_mouse, &typed, &clicked);
+    drop((action_keys, action_mouse));
+    // 264/265 are the documented up/down wheel codes. Rebuilding held each frame
+    // releases a direction immediately when that frame has no matching message.
+    input.held.extend(wheel_codes.into_iter().zip([WHEEL_UP, WHEEL_DOWN])
+        .filter_map(|(pressed, code)| pressed.then_some(code)));
     if let Some(b) = bindings.as_deref() {
         // The engine's controls are the extender's 0–27, in the same order.
         input.bindings = GAME_CONTROLS[..GAME_INI_CONTROLS].iter().map(|(c, _, _)| {
@@ -184,6 +224,18 @@ fn script_input(
             (bind.key.and_then(key_code), bind.mouse.and_then(mouse_code))
         }).collect();
     }
+    // Before taps/holds below alter engine keys: use the published input snapshot,
+    // selected device and the same controller binding reader as ControlInput.
+    // DisableControl blocks gameplay, not these documented event transitions.
+    input.event_controls = bindings.as_deref().map(|b| {
+        let controller = b.device == crate::bindings::InputDevice::Controller;
+        let keys = !controller || crate::bindings::keys_with_pad();
+        GAME_CONTROLS.iter().take(fnv_game::script_input::CONTROLS).enumerate().fold(0, |mask, (c, (control, _, _))| {
+            let keyboard = keys && input.bindings.get(c).is_some_and(|(k, m)| [*k, *m].into_iter().flatten().any(|code| input.held.contains(&code)));
+            let pad = controller && crate::bindings::pad_binding_held(b.pad(*control), &pads, sticks.as_deref());
+            mask | (u32::from(keyboard || pad) << c)
+        })
+    });
     set_blocked(&mut blocked, input);
     for c in std::mem::take(&mut input.taps).into_iter().chain(input.script_held.iter().copied()) {
         ours.press(c, &mut keys, &mut mouse);
@@ -200,10 +252,12 @@ fn script_input(
 /// frame rate) is held for that one frame, so it gives scripts one key-down and, the frame
 /// after, one key-up, as the wheel's notch does [hypothesis: the original reads the keys
 /// buffered and never misses a press; observed: at ~60 ms frames an 11 ms press of V
-/// reached no handler, and JAM's bullet time stayed on].
-fn held_codes(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> std::collections::BTreeSet<u16> {
-    let keys = keys.get_pressed().chain(keys.get_just_pressed()).filter_map(|&k| key_code(k));
-    let buttons = mouse.get_pressed().chain(mouse.get_just_pressed()).filter_map(|&b| mouse_code(b));
+/// reached no handler, and JAM's bullet time stayed on]. `keys` and `mouse` are the
+/// actions' view (#2200); the presses are this frame's device messages, each with whether
+/// the actions see it, so a consumed switching press is no tap either.
+fn held_codes(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>, typed: &[(KeyCode, bool)], clicked: &[(MouseButton, bool)]) -> BTreeSet<u16> {
+    let keys = keys.get_pressed().copied().chain(typed.iter().filter(|p| p.1).map(|p| p.0)).filter_map(key_code);
+    let buttons = mouse.get_pressed().copied().chain(clicked.iter().filter(|p| p.1).map(|p| p.0)).filter_map(mouse_code);
     keys.chain(buttons).collect()
 }
 
@@ -363,7 +417,7 @@ fn tell_player_state(
     control: Option<Res<crate::control::PlayerControl>>,
     combat: Option<Res<crate::combat::Combat>>,
     anim: Option<Res<crate::combat::WeaponAnim>>,
-    pads: Query<&Gamepad>,
+    pads: crate::pad::ActionPads,
     mut script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -455,17 +509,29 @@ mod tests {
         keys.release(KeyCode::KeyV);
         mouse.press(MouseButton::Left);
         mouse.release(MouseButton::Left);
-        let held = held_codes(&keys, &mouse);
+        let held = held_codes(&keys, &mouse, &[(KeyCode::KeyV, true)], &[(MouseButton::Left, true)]);
         assert!(held.contains(&v));
         assert!(held.contains(&MOUSE_BASE));
         // The next frame: up.
         keys.clear();
         mouse.clear();
-        assert!(held_codes(&keys, &mouse).is_empty());
+        assert!(held_codes(&keys, &mouse, &[], &[]).is_empty());
         // A key held across frames stays held, once.
         keys.press(KeyCode::KeyV);
-        assert_eq!(held_codes(&keys, &mouse).into_iter().collect::<Vec<_>>(), vec![v]);
+        assert_eq!(held_codes(&keys, &mouse, &[(KeyCode::KeyV, true)], &[]).into_iter().collect::<Vec<_>>(), vec![v]);
         keys.clear();
-        assert_eq!(held_codes(&keys, &mouse).into_iter().collect::<Vec<_>>(), vec![v]);
+        assert_eq!(held_codes(&keys, &mouse, &[], &[]).into_iter().collect::<Vec<_>>(), vec![v]);
+        // A tap the input switch consumed is no tap for the scripts either (#2200).
+        keys.release(KeyCode::KeyV);
+        keys.clear();
+        assert!(held_codes(&keys, &mouse, &[(KeyCode::KeyV, false)], &[]).is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "script_input_wheel_tests.rs"]
+mod wheel_tests;
+
+#[cfg(test)]
+#[path = "script_input_mcm_page_tests.rs"]
+mod mcm_page_tests;

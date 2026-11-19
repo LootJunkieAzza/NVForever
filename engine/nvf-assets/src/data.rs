@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use fnv_nif::Schema;
 use fnv_vfs::Vfs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Resource, Clone)]
@@ -21,13 +21,21 @@ impl GameData {
     /// [`GameData::open`] with the archives of `plugins` (load order): mods' archives
     /// over the base game's, loose files over both.
     pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
-        let mut vfs = Vfs::open_for_plugins(data_dir, plugins).map_err(|e| e.to_string())?;
-        // NVF_MOD_DIR (tests): a mod folder's loose files over the data, as
-        // MO2 would put them (headless runs read the plain game Data).
-        for dir in fnv_vfs::mod_dirs() {
-            let n = vfs.add_loose_dir(&dir);
-            eprintln!("NVF_MOD_DIR: {} loose files of {} over the data", n, dir.display());
-        }
+        GameData::open_for_plugins_in(data_dir, None, plugins, schema_dir)
+    }
+
+    /// [`GameData::open_for_plugins`] with the archives beside the plugins in NVForever's
+    /// mods folder `mods` too (`fnv_vfs::Vfs::archive_order_in`).
+    pub fn open_for_plugins_in<S: AsRef<str>>(data_dir: &Path, mods: Option<&Path>, plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
+        let vfs = Vfs::open_for_plugins_in(data_dir, mods, plugins).map_err(|e| e.to_string())?;
+        let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
+        Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
+    }
+
+    /// [`GameData::open_for_plugins`] with loose files of the mods folders `roots` layered
+    /// over `Data`, lowest precedence first (#1526, Mod Organizer 2's profile).
+    pub fn open_for_plugins_layered<S: AsRef<str>>(data_dir: &Path, roots: &[PathBuf], plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
+        let vfs = Vfs::open_for_plugins_layered(data_dir, roots, plugins).map_err(|e| e.to_string())?;
         let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
         Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
     }

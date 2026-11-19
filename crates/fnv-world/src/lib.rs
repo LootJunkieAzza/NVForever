@@ -9,6 +9,7 @@
 //! - [`imposter`]: references drawn at any distance while the player is in a region listing them
 //! - [`index`]: which cells belong to which worldspace and which references to which cell
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
+//! - [`reach`]: references whose bounds reach into grid squares other than their own
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
 //! - [`grass`]: grass types and the plants generated on a landscape's textures
 //! - [`lighting`]: interior cell lighting and light sources
@@ -28,10 +29,12 @@ pub mod imagespace;
 pub mod imposter;
 pub mod index;
 pub mod land;
+pub mod land_surface;
 pub mod lighting;
 pub mod loadscreen;
 pub mod placed;
 pub mod radio;
+pub mod reach;
 pub mod sky;
 pub mod teleport;
 pub mod transform;

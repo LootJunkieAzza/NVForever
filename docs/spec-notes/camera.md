@@ -98,6 +98,7 @@ is not covered: the frames show no weapon.
   | 10mmpistol.nif | (−25.76, 7.69, 0.18) | (17.84, 4.05, 0) |
   | huntingshotgun.nif | (−3.83, 7.25, 0.23) | (62.11, 5.90, 0.23) |
   | cowboyrepeater.nif | (−6.09, 7.71, 0) | (53.10, 6.55, 0) |
+  | trailcarbine.nif | (−8.07, 7.75, 0) | (49.04, 6.36, 0.01) |
   | 357revolver.nif | (−25.78, 7.67, 0) | (23.44, 6.51, −0.02) |
 
   [hypothesis] The node marks where the eye goes down the sights. 18 more guns name it
@@ -121,7 +122,14 @@ is not covered: the frames show no weapon.
 - NVForever (on by default, settings page, `--no-true-iron-sights`): the arms rig's
   `Bip01 Translate` is turned about the sighting node so the barrel's axis lies along
   the view and moved so the node lands on the camera node, eased in with the zoom
-  [design]. Only weapons whose model has the node; the others keep the original aim
+  [design]. A lever-action rifle's node is on the receiver, so with it on the eye the
+  gripping hand came to the eye's depth (Trail Carbine 0.35 units ahead, Cowboy
+  Repeater −1.6; Varmint Rifle 14.8) [observed: the motion trace, 2026-11-17] and the
+  right forearm, reaching back past the camera, filled the bottom of the view (the
+  owner's video). The node goes on along the line of sight until the right hand is 12
+  units ahead of the eye (`iron_sights::eye_relief`, measured while the gun is only
+  held, not while a lever is worked); the sights stay on the eye's line [design].
+  Only weapons whose model has the node; the others keep the original aim
   [design: the owner, 2026-10-20, "check its nif for the sight node"]. The crosshair is
   hidden while the sights come up [design: the owner, 2026-10-20]. The switch is on the
   settings page's Gameplay tab.

@@ -391,6 +391,10 @@ impl Game<'_> {
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
         let threshold = self.aid_setting("fAddictionUsageMonitorThreshold");
         let mut chance = addiction_chance(&def, usage, threshold);
+        // The player's tweak: only the player gets addicted [design: docs/design/tweaks.md].
+        if self.tweaks.no_npc_addiction && actor != FormId::PLAYER_REF {
+            chance = 0.0;
+        }
         // "Addiction Chance accounts for the Modify Addiction Chance Perk Entry Point"
         // [documented: GECK wiki Addiction Formula].
         if chance > 0.0 {
@@ -422,7 +426,12 @@ impl Game<'_> {
             return false;
         }
         e.spells.push(spell);
+        // Conditions may read actor values, which sync listed abilities. The new
+        // spell is already listed but has no ActiveEffect until admission completes.
+        let syncing = self.syncing_effects;
+        self.syncing_effects = true;
         self.apply_magic_item(actor, spell, None, true);
+        self.syncing_effects = syncing;
         true
     }
 

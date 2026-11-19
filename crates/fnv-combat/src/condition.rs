@@ -57,7 +57,13 @@ pub const ARMOR_CONDITION_PENALTY: f32 = 1.0;
 /// [documented: GECK wiki SetArmorConditionPenalty, the formula the JIP function
 /// overrides].
 pub fn armor_mult(condition: f32) -> f32 {
-    1.0 - (ARMOR_CONDITION_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * ARMOR_CONDITION_PENALTY
+    armor_mult_with(condition, ARMOR_CONDITION_PENALTY)
+}
+
+/// [`armor_mult`] with another `penalty` in place of the hard-coded 1.0 (NVForever's
+/// Custom Armor Condition Penalty tweak, docs/design/tweaks.md), never below none.
+pub fn armor_mult_with(condition: f32, penalty: f32) -> f32 {
+    (1.0 - (ARMOR_CONDITION_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * penalty.max(0.0)).max(0.0)
 }
 
 /// The chance one shot jams a weapon at `condition` (the owner's playtest list 5 item 9)
@@ -120,7 +126,12 @@ impl CombatForms {
     /// DT and DR (percent) of worn armour, each piece at its condition
     /// ([`CombatForms::armor_values`] with [`armor_mult`]).
     pub fn armor_values_worn(&self, worn: &[(FormId, f32)]) -> (f32, f32) {
-        worn.iter().filter_map(|(id, c)| Some((self.armor.get(id)?, armor_mult(*c)))).fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
+        self.armor_values_worn_with(worn, ARMOR_CONDITION_PENALTY)
+    }
+
+    /// [`CombatForms::armor_values_worn`] with [`armor_mult_with`] `penalty`.
+    pub fn armor_values_worn_with(&self, worn: &[(FormId, f32)], penalty: f32) -> (f32, f32) {
+        worn.iter().filter_map(|(id, c)| Some((self.armor.get(id)?, armor_mult_with(*c, penalty)))).fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
     }
 
     /// The full health of a weapon or a piece of armour (its record's `DATA` health); 0

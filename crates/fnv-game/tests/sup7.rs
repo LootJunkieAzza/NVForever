@@ -3,7 +3,7 @@
 //! vertices the engine tells, and the HUD bars' script-variable and UDF values. The
 //! engine's part is played by the test (it fills the scene mirror as the engine would).
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

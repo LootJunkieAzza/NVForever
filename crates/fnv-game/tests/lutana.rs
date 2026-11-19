@@ -2,7 +2,7 @@
 //! challenges, casinos, recipes, actor AI data, perks, zones, leveled lists, activators,
 //! terminals, load screens, form flags and playability, and the misc getters.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -401,4 +401,41 @@ SetFunctionValue s") {
     }
     // Nothing under the crosshair.
     assert_eq!(n(&mut g, "CrosshairRefInList TestList"), 0.0);
+}
+
+/// One GetUserTime field.
+fn user_time(g: &mut Game, key: &str) -> f64 {
+    n(g, &format!("(GetUserTime)[\"{key}\"]"))
+}
+
+#[test]
+fn local_time_functions_read_the_computers_clock() {
+    let f = fixture();
+    let mut g = game(&f);
+    // GetUserTime [documented: the computer's local time, a string map] and GetTimeStamp
+    // ("HH-MM-SS") read between two readings of the clock; a minute turning between those
+    // readings retries.
+    for _ in 0..3 {
+        let before = jiff::ZonedDateTime::now();
+        let stamp = match q(&mut g, "string_var s
+let s := GetTimeStamp
+SetFunctionValue s") {
+            XVal::Str(s) => s,
+            v => panic!("{v:?}"),
+        };
+        let got: Vec<f64> = ["Year", "Month", "Day", "DayOfWeek", "Hour", "Minute"].iter().map(|k| user_time(&mut g, k)).collect();
+        let (second, milli) = (user_time(&mut g, "Second"), user_time(&mut g, "Millisecond"));
+        let after = jiff::ZonedDateTime::now();
+        if before.strftime("%Y%m%d%H%M").to_string() != after.strftime("%Y%m%d%H%M").to_string() {
+            continue;
+        }
+        let want = [before.year(), i16::from(before.month()), i16::from(before.day()), i16::from(before.weekday().to_sunday_zero_offset()), i16::from(before.hour()), i16::from(before.minute())];
+        assert_eq!(got, want.map(f64::from).to_vec());
+        assert!((f64::from(before.second())..=f64::from(after.second())).contains(&second), "{second}");
+        assert!((0.0..1000.0).contains(&milli), "{milli}");
+        let (b, a) = (before.strftime("%H-%M-%S").to_string(), after.strftime("%H-%M-%S").to_string());
+        assert!(b <= stamp && stamp <= a, "{b} {stamp} {a}");
+        return;
+    }
+    panic!("the clock turned a minute on every try");
 }

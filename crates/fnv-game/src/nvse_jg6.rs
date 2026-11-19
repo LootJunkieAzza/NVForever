@@ -285,18 +285,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `cell`: -1 not visited or the player is in it, 1 expired (ResetInterior, or left
         // for iHoursToRespawnCell game hours and not in a zone that never resets), 0
         // otherwise [documented: IsCellExpired; the timing: `crate::respawn`].
-        "iscellexpired" => {
-            let Some(c) = form(args, 0) else { return Some(Ok(XVal::Num(-1.0))) };
-            if g.cell_of(FormId::PLAYER_REF) == Some(c) || !g.forms.visited_cells.contains(&c) {
-                return Some(Ok(XVal::Num(-1.0)));
-            }
-            if g.forms.expired_cells.contains(&c) {
-                return Some(Ok(XVal::Num(1.0)));
-            }
-            let now = g.world.calendar().ok().map(|k| k.days_passed);
-            let away = now.zip(g.world.detached_since(c)).map(|(n, s)| (f64::from(n) - f64::from(s)) * 24.0);
-            yes(away.is_some_and(|h| h + 1e-3 >= f64::from(g.world.respawn_hours())) && !g.world.cell_never_resets(c))
-        }
+        "iscellexpired" => match form(args, 0).and_then(|c| g.cell_expired(c)) {
+            None => XVal::Num(-1.0),
+            Some(e) => yes(e),
+        },
         // `template [cell]`: the cell SetLightingTemplateCell gave the lighting template,
         // 0 before [documented: Get/SetLightingTemplateCell; hypothesis: a lighting
         // template record names no cell (LGTM holds DATA and DALC only), so the link is

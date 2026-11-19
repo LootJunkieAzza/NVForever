@@ -58,9 +58,11 @@ pub const PUSH_OUT: f32 = 80.0;
 /// how fast the game's player pushes an actor].
 pub const PUSH_SHARE: f32 = 0.5;
 /// A pushed player that got less than this share of the way it was pushed is held by
-/// something (a wall): it is not pushed again for [`HELD_STEPS`] fixed steps [design].
+/// something (a wall): it is not pushed again for [`HELD_SECS`] seconds of fixed steps
+/// [design: half a second, which was 30 steps at 60 a second; in seconds so it lasts as
+/// long at any physics rate].
 pub const HELD_SHARE: f32 = 0.5;
-pub const HELD_STEPS: u32 = 30;
+pub const HELD_SECS: f32 = 0.5;
 /// The player as the actor of a [`Block`] or a [`Push`] (its reference's FormID).
 pub const PLAYER: u32 = fnv_sim::FormId::PLAYER_REF.0;
 
@@ -103,9 +105,10 @@ pub struct ActorBlocks {
     /// Fixed steps in which the player pushed an actor, in which a walking actor pushed
     /// another, and in which one pushed the player (for the exit report).
     pub steps_pushing: [u64; 3],
-    /// Fixed steps for which the player is not pushed: something held it when an actor
-    /// last pushed it (`crate::player`).
-    pub player_held: u32,
+    /// Seconds of fixed steps for which the player is not pushed: something held it when
+    /// an actor last pushed it (`crate::player`; each step takes its `dt` off, and it is
+    /// over once under half a step is left, so the steps' rounding never adds one).
+    pub player_held: f32,
     /// Actors playing an attack clip (nvforever `attack_anims`): their blocks stay where
     /// they were when the attack began, so a lunge moves nobody [design; owner
     /// 2026-10-11: a dog gets into range and bites, it does not push the player around].

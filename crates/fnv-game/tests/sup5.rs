@@ -63,6 +63,9 @@ fn folders() -> (PathBuf, PathBuf) {
         let base = std::env::temp_dir().join(format!("nvf-sup5-{}-{nanos}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (game, layer) = (base.join("game"), base.join("layer"));
+        // Windows reuses process ids: an earlier run's folder of the same id would hand
+        // this run its workbooks (a renamed sheet, an erased one) and fail the Excel test.
+        let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(game.join("Data")).unwrap();
         std::fs::create_dir_all(&layer).unwrap();
         std::fs::write(game.join("nvac.log"), b"0123456789").unwrap();
@@ -202,6 +205,22 @@ fn file_sizes_times_and_the_load_order() {
     assert_eq!(s(&mut g, "GetFileTimeSTR \"none.log\" 2 0"), "");
     assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 2)"), 6.0);
     assert!(n(&mut g, "(GetFileTime \"nvac.log\" 2)[0]") >= 2026.0);
+    // The values, in the computer's time zone: the file is given a written time of
+    // 2026-07-15 12:00:30 UTC. In mid-month the month reads 07 in every time zone, so
+    // the two orders tell apart whatever the zone.
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_784_116_830);
+    std::fs::File::options().write(true).open(game_dir.join("nvac.log")).unwrap().set_modified(at).unwrap();
+    let local = jiff::Timestamp::try_from(at).unwrap().to_zoned_datetime(jiff::tz::TimeZone::system());
+    let fields: Vec<f64> = (0..6).map(|i| n(&mut g, &format!("(GetFileTime \"nvac.log\" 2)[{i}]"))).collect();
+    let want = [local.year(), i16::from(local.month()), i16::from(local.day()), i16::from(local.hour()), i16::from(local.minute()), i16::from(local.second())];
+    assert_eq!(fields, want.map(f64::from).to_vec());
+    let (dmy, mdy) = (s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 0"), s(&mut g, "GetFileTimeSTR \"nvac.log\" 2 1"));
+    assert_eq!(dmy, local.strftime("%d/%m/%y %H:%M").to_string());
+    assert_eq!(mdy, local.strftime("%m/%d/%y %H:%M").to_string());
+    assert_eq!((&dmy[3..5], &mdy[0..2], &dmy[6..8]), ("07", "07", "26"), "{dmy} {mdy}");
+    // A request outside 0-2 gives nothing [hypothesis].
+    assert_eq!(n(&mut g, "ar_Size (GetFileTime \"nvac.log\" 3)"), 0.0);
+    assert_eq!(s(&mut g, "GetFileTimeSTR \"nvac.log\" 3 0"), "");
     // The load order into NVForever's SUPNVSE.log [documented: DumpLoadOrder].
     q(&mut g, "DumpLoadOrder");
     let log = std::fs::read_to_string(layer.join("GameRoot").join("SUPNVSE.log")).unwrap();
@@ -260,4 +279,105 @@ fn screenshots_and_qr_codes() {
     q(&mut g, "\"\"\nlet aIn := ar_Construct \"array\"\nDrawGraphicsToDDSTextureAndSave \"MyMod\" \"T.dds\" aIn 500 500");
     // No dialog: "" [decision].
     assert_eq!(s(&mut g, "OpenFolderDialogBox MarkRef"), "");
+}
+
+struct TimeFixture(PathBuf);
+
+impl Drop for TimeFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn failed_zone_discovery_uses_utc_and_warns_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tracing_subscriber::{layer::Context, prelude::*, Layer};
+
+    const CHILD: &str = "NVF_SUP5_FAILED_ZONE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let missing = std::env::temp_dir().join(format!("nvf-missing-zone-{}.tzif", std::process::id()));
+        assert!(!missing.exists());
+        let mut tz = std::ffi::OsString::from(":");
+        tz.push(missing);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "failed_zone_discovery_uses_utc_and_warns_once"])
+            .env(CHILD, "1")
+            .env("TZ", tz)
+            .env_remove("TZDIR")
+            .status()
+            .unwrap();
+        assert!(status.success(), "invalid-zone child: {status}");
+        return;
+    }
+
+    struct Warnings;
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    impl<S: tracing::Subscriber> Layer<S> for Warnings {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+            let meta = event.metadata();
+            if meta.target() == "fnv_game::local_time" && *meta.level() == tracing::Level::WARN {
+                COUNT.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    use jiff::{civil::Time, tz::TimeZone, Timestamp};
+    assert!(TimeZone::try_system().is_err(), "the real zone lookup must fail");
+    let _subscriber = tracing::subscriber::set_default(tracing_subscriber::registry().with(Warnings));
+    let file = TimeFixture(folders().0.join("failed-zone-time.log"));
+    let instant: Timestamp = "2024-03-10T07:00:30Z".parse().unwrap();
+    let modified = std::time::SystemTime::try_from(instant).unwrap();
+    std::fs::File::create(&file.0).unwrap().set_modified(modified).unwrap();
+    assert_eq!(std::fs::metadata(&file.0).unwrap().modified().unwrap(), modified);
+
+    // Clock fields wrap at midnight; accept any matching value between samples.
+    let in_window = |before: i64, value: i64, after: i64, cycle: i64| {
+        (value - before.rem_euclid(cycle)).rem_euclid(cycle) <= after - before
+    };
+    let f = fixture();
+    for _ in 0..2 {
+        let mut g = game(&f);
+        let before = Timestamp::now().as_second().div_euclid(3600);
+        let hour = n(&mut g, "(GetUserTime)[\"Hour\"]");
+        let after = Timestamp::now().as_second().div_euclid(3600);
+        assert!((0.0..24.0).contains(&hour) && hour.fract() == 0.0);
+        assert!(in_window(before, hour as i64, after, 24), "{hour}: UTC hour outside sampled interval {before}..={after}");
+        let before = Timestamp::now().as_second();
+        let stamp = s(&mut g, "GetTimeStamp");
+        let after = Timestamp::now().as_second();
+        let t = Time::strptime("%H-%M-%S", &stamp).unwrap();
+        let seconds = i64::from(t.hour()) * 3600 + i64::from(t.minute()) * 60 + i64::from(t.second());
+        assert!(in_window(before, seconds, after, 86_400), "{stamp}: UTC stamp outside sampled interval {before}..={after}");
+        let fields: Vec<_> = (0..6).map(|i| n(&mut g, &format!("(GetFileTime \"failed-zone-time.log\" 2)[{i}]"))).collect();
+        assert_eq!(fields, [2024.0, 3.0, 10.0, 7.0, 0.0, 30.0]);
+        assert_eq!(s(&mut g, "GetFileTimeSTR \"failed-zone-time.log\" 2"), "10/03/24 07:00");
+    }
+    assert_eq!(COUNT.load(Ordering::Relaxed), 1, "one warning per process, not per call or Game");
+}
+
+#[cfg(windows)]
+#[test]
+fn unrepresentable_file_mtime_returns_empty_script_results() {
+    use jiff::Timestamp;
+    use std::time::{Duration, SystemTime};
+
+    let f = fixture();
+    let mut g = game(&f);
+    let path = TimeFixture(folders().0.join("unrepresentable-time.log"));
+    let file = std::fs::File::create(&path.0).unwrap();
+    let size = |g: &mut Game| n(g, "ar_Size (GetFileTime \"unrepresentable-time.log\" 2)");
+    let text = |g: &mut Game| s(g, "GetFileTimeSTR \"unrepresentable-time.log\" 2");
+    let outside = SystemTime::try_from(Timestamp::MAX).unwrap() + Duration::from_secs(1);
+    file.set_modified(outside).unwrap();
+    let actual = std::fs::metadata(&path.0).unwrap().modified().unwrap();
+    assert_eq!(actual, outside, "the filesystem must retain the out-of-range value");
+    assert!(Timestamp::try_from(actual).is_err());
+    assert_eq!(size(&mut g), 0.0);
+    assert_eq!(text(&mut g), "");
+
+    let ordinary: Timestamp = "2024-03-10T07:00:30Z".parse().unwrap();
+    file.set_modified(SystemTime::try_from(ordinary).unwrap()).unwrap();
+    assert_eq!(size(&mut g), 6.0, "the same admitted file has representable metadata");
+    assert!(!text(&mut g).is_empty());
 }

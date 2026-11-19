@@ -20,6 +20,17 @@ pub struct Rules {
     /// SetConditionDamagePenalty (`fnv_game::Game::condition_damage_penalty`)
     /// [documented: GECK wiki SetConditionDamagePenalty].
     pub condition_damage_penalty: f32,
+    /// NVForever's tweaks, set by the engine each frame and left out of the dumps
+    /// (docs/design/tweaks.md): the condition at and above which a weapon deals its full
+    /// damage (0.75; 1 with Remove Weapon Damage Buffer), whether an automatic weapon's
+    /// critical chance is left undivided by its fire rate, and a factor on critical
+    /// damage.
+    #[serde(skip)]
+    pub condition_damage_threshold: f32,
+    #[serde(skip)]
+    pub crit_ignores_fire_rate: bool,
+    #[serde(skip)]
+    pub crit_damage_scale: f32,
     pub damage_skill_base: f32,
     pub damage_skill_mult: f32,
     pub melee_damage_strength_mult: f32,
@@ -43,6 +54,14 @@ pub struct Rules {
     /// o14_reach, 2026-11-01, #1076; that the 45 is the two bodies' radii, and so not
     /// part of the setting, is a hypothesis; docs/spec-notes/combat-rules.md §10].
     pub combat_distance: f32,
+    /// V.A.T.S. melee reach: the swing's reach times `fVATSMeleeReachMult` (default 2:
+    /// "doubling the reach a melee weapon can actually swing"), at most
+    /// `fVATSMeleeMaxDistance` (default 300) [documented: GECK wiki "VATS Settings";
+    /// neither setting is in FalloutNV.esm, so the defaults apply, observed; the page
+    /// began as a Fallout 3 page, so that New Vegas keeps the defaults is a hypothesis]
+    /// (`crate::damage::vats_melee_reach`, issue #2656).
+    pub vats_melee_reach_mult: f32,
+    pub vats_melee_max_distance: f32,
     // Gun Spread Formula (New Vegas)
     pub spread_unaimed: f32,
     pub spread_walking: f32,
@@ -129,6 +148,8 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fVATSCriticalChanceBonus", 15.0),
     ("fMaxArmorRating", 85.0),
     ("fCombatDistance", 107.0),
+    ("fVATSMeleeReachMult", 2.0),
+    ("fVATSMeleeMaxDistance", 300.0),
     ("fUnaimedSpreadPenalty", 0.2),
     ("fWalkingSpreadPenalty", 0.1),
     ("fRunningSpreadPenalty", 0.2),
@@ -238,6 +259,8 @@ impl Rules {
             vats_crit_bonus: n(),
             max_armor_rating: n(),
             combat_distance: n(),
+            vats_melee_reach_mult: n(),
+            vats_melee_max_distance: n(),
             spread_unaimed: n(),
             spread_walking: n(),
             spread_running: n(),
@@ -295,6 +318,9 @@ impl Rules {
             },
             vats_classic: crate::vats::ClassicTuning { max_engage: n(), player_damage_mult: n() },
             condition_damage_penalty: crate::damage::CONDITION_DAMAGE_PENALTY,
+            condition_damage_threshold: crate::damage::CONDITION_DAMAGE_THRESHOLD,
+            crit_ignores_fire_rate: false,
+            crit_damage_scale: 1.0,
             defaulted,
         }
     }
@@ -339,6 +365,13 @@ pub struct CombatTuning {
     pub melee_arc_deg: f32,
     /// Explosion damage at the edge of the radius as a share of the centre's.
     pub explosion_edge: f32,
+    /// NVForever's Explosion Radius Buff tweak, set by the engine and left out of the
+    /// dumps (docs/design/tweaks.md): the inner share of the radius that takes full
+    /// damage (0: none) and the edge's share with it on.
+    #[serde(skip)]
+    pub explosion_inner: f32,
+    #[serde(skip)]
+    pub explosion_inner_edge: f32,
     /// The share of its speed a lobber keeps at a bounce, before its PROJ's Bouncy Mult.
     pub default_bounce: f32,
     /// A thrown grenade's contacts (combat-rules.md §5): the share of the speed into a
@@ -418,6 +451,8 @@ impl Default for CombatTuning {
             melee_rays: 5,
             melee_arc_deg: 35.0,
             explosion_edge: 0.25,
+            explosion_inner: 0.0,
+            explosion_inner_edge: 0.2,
             default_bounce: 0.3,
             grenade_restitution: 0.01,
             grenade_roll_keep: 0.9,

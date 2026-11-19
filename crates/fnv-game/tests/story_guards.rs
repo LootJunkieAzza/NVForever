@@ -1,7 +1,7 @@
 //! The story guards (`fnv_game::story_guards`): Honest Hearts' arrival, with two made-up
 //! quests standing in for NVDLC02MQ00 and NVDLC02MQ01.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

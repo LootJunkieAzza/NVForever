@@ -105,6 +105,11 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
 - Actors on paths: they stop in front of the door, open it and wait until the Open
   sequence has ended, then walk through square to the door (docs/design/navmesh.md §4,
   §6.1) [owner decision for the waiting; the rest engine choices].
+- A door a script enables at run time (directly or through its enable parent) is drawn
+  by `nvf_play::script_draw` and posed as render streaming's doors are (a `DoorRig`,
+  `nvforever::doors::script_drawn`) [design, #2420: Ranger Station Charlie's
+  OffDoorSmR02a 0x000CD068, enabled with CharlieEnableParentREF, stayed drawn shut while
+  it opened and its collision swung away].
 - `GetOpenState` still reports only 1 (open) and 3 (closed); the GECK wiki's opening
   and closing codes are not produced yet.
 
@@ -276,3 +281,40 @@ to the player.
   under the street: the player fell and was put outside the gate (overnight queue item
   37). **NVForever** [design]: a destination door whose x or y rotation changed by more
   than 0.1 rad was taken out of the way, not moved, so its marker is used as stored.
+## 6. A scripted load door and a player a script disabled (#2617)
+
+- **The Power Plant 01 elevator.** VHDODeckElevREF (REFR 0x0013151C, in
+  HooverDamIntODeck) is a load door (XTEL to VHDPowerPlantElev01REF 0x00130DE1 in
+  HooverDamIntPowerPlant01); its base VHDODeckElevatorDoor (DOOR 0x001465A5) carries
+  SCPT 0x0014659A, whose OnActivate sets `activatingActor` to GetActionRef, enables six
+  references and sets VHDLegionBattle's two respawners once when
+  vHDBattleController.iBattleState is 2, and ends in a bare `Activate` for anyone
+  [observed: `fnvtool script decompile --form 0014659A`, `esm decode`].
+- **Activate's rules.** With no arguments inside OnActivate, `Activate` runs the default
+  action for the action reference; "Disabled actors cannot be forced to activate objects
+  via Activate" [documented: GECK wiki Activate; Disable, Notes]. Neither page says
+  anything about disabling the player.
+- **What disabled the player.** VHDIntakeTowerLegionaryDespawnScript (SCPT 0x0013CA2C) on
+  VHDIntakeTowerLegionaryDespawnTriggerREF (REFR 0x0013CA72, a box of half extents
+  58 x 59 x 122 in an intake tower interior) runs on OnTriggerEnter; in the branch for
+  VHDLegionBattle.IntakeTowerStrategy 2 it calls `enteringactor.Disable 1` with no
+  GetIsID test, so anyone who walks in is disabled, the player too [observed: decompile,
+  `esm decode --formid 0013CA72`]. IntakeTowerStrategy is set to 2 by the result script
+  of INFO 0x0013CA26 [observed: decompile].
+- **The tester's run (2026-11-15).** After the load the player's reference was not
+  present (`reference 0x00000014 gone`); eleven presses of the elevator each ran its
+  OnActivate and played the door's sound, and none made an activation event or a travel
+  [observed: run log `nvforever-20261115-001123-20144.log`]. Smoke
+  `dam-elevator-disabled-player` on main gives the same lines: the trigger disables the
+  player (`0x00000014 disabled (fading out)`), and the elevator runs its block and stays.
+- **Ours now.** Disable (and DisableAlt) of the player does nothing and logs `Disable of
+  the player ignored`; a save that holds the player disabled loads with the player
+  enabled [hypothesis: the original's Legion route through the intake tower reaches the
+  Power Plant, which the wiki's Activate rule could not allow if the trigger disabled
+  the player; whether the original ignores Disable on the player, or its trigger never
+  fires for the player, is observer check 172; the load rule is design]. The owner's
+  ruling: owner-review item 80.
+- **Related (#2621, not changed here).** The same tester's soft lock in General Oliver's
+  room after a `coc` started from this state: a disabled player [hypothesis: not checked
+  against that run's log, which is not in hand]. A save from before this fix loads with
+  the player enabled again.

@@ -26,13 +26,15 @@
 //!   real time (`Game::tick` advances them in menu mode too).
 //!   What the picture does is the switch for every menu, [`MenuPause`] (`--menu-pause`,
 //!   `crate::pause`): `living` (the default) keeps everything that is only presentation
-//!   running (animations, wind, water, sky, effects) and lets the player look around
-//!   with the mouse while the actor speaks ([`FreeLook`]; the cursor comes back when
-//!   choices are offered [owner decision 2026-10-10]); `original` stops the virtual
-//!   clock, so the picture stands still, with the cursor free throughout [owner
-//!   preference 2026-10-10 for `living`: a deliberate departure from the original's look
-//!   that keeps what scripts see]. A message box a result script shows holds the
-//!   conversation until it is answered (the runtime's rule); Esc opens the pause menu,
+//!   running (animations, wind, water, sky, effects). A zoomed conversation locks the view
+//!   on the speaker [owner decision 2026-11-13, #2254; `crate::dialogue_look::view_locked`];
+//!   without the zoom the player looks around with the mouse while the actor speaks
+//!   ([`FreeLook`]; the cursor comes back when choices are offered [owner decision
+//!   2026-10-10]); `original` stops the virtual clock, so the picture stands still,
+//!   with the cursor free throughout [owner preference 2026-10-10 for `living`: a
+//!   deliberate departure from the original's look that keeps what scripts see]. A
+//!   message box a result script shows holds the conversation until it is answered (the
+//!   runtime's rule); Esc opens the pause menu,
 //!   which holds everything, the actor's voice included.
 //! - **The actor speaks.** The response being said is shown on a dark band, the actor's
 //!   name at the top right (`crate::dialogue_menu`); the log's `subtitle:` line has it as
@@ -301,7 +303,8 @@ fn response_text(g: &Game) -> Option<String> {
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
-    let text = shown_text(&g.expand_codes(&def.responses[r].text));
+    // The player's tweak keeps the acting notes [design: docs/design/tweaks.md].
+    let text = if g.tweaks.keep_acting_notes { g.expand_codes(&def.responses[r].text).trim().to_string() } else { shown_text(&g.expand_codes(&def.responses[r].text)) };
     (!text.is_empty()).then_some(text)
 }
 
@@ -373,7 +376,8 @@ pub(crate) fn view_named(g: &Game, speaker: String) -> Option<MenuView> {
         .iter()
         .map(|ch| {
             let fallback = g.data.name(ch.topic);
-            let tag = ch.challenge.as_ref().map(|t| tag_of(g, t));
+            // The player's tweak leaves the skill tags off [design: docs/design/tweaks.md].
+            let tag = ch.challenge.as_ref().filter(|_| !g.tweaks.no_skill_tags).map(|t| tag_of(g, t));
             let short = ch.challenge.as_ref().is_some_and(|t| matches!((t.needed, t.have), (Some(n), Some(h)) if h < n));
             ChoiceRow { label: row_label(&g.shown_choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })
@@ -528,6 +532,12 @@ pub struct DialogueScreen {
 }
 
 impl DialogueScreen {
+    /// [design, #2403 / file refs] Logical choice progress from this screen's state;
+    /// excludes aid timers and the key counter, which also advances at list boundaries.
+    pub fn progress(&self) -> impl std::fmt::Debug + '_ {
+        (self.list, self.selected, self.framed)
+    }
+
     fn new(talks: Vec<TalkScript>, unattended: bool) -> DialogueScreen {
         let aid_delay = std::env::var("NVF_PLAY_TEST_TALK_DELAY").ok().and_then(|d| d.trim().parse().ok()).unwrap_or(AID_CHOOSE_SECONDS);
         let debug_break = debug_switch(std::env::var("NVF_PLAY_DEBUG_TALK_BREAK").ok().as_deref());
@@ -561,6 +571,20 @@ impl DialogueScreen {
         }
         (self.selected, self.list, self.framed) = (0, None, false);
         (self.talk_since, self.choosing_since, self.speaking) = (None, None, None);
+    }
+}
+
+/// [design, #2403] Synthetic navigation states for reports integration tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> DialogueScreen {
+    DialogueScreen {
+        list: Some((FormId(42), 1)),
+        selected: step.min(1),
+        framed: true,
+        keyed: step as u64,
+        choosing_since: Some(step as f32),
+        ..Default::default()
     }
 }
 
@@ -687,8 +711,9 @@ impl ViewInput {
 pub struct WorldHeld(pub bool);
 
 /// The player may look around with the mouse although not `Playing`: while an actor
-/// speaks in a conversation, in [`MenuPause::Living`] (`player::mouse_look`,
-/// `player::grab_cursor`).
+/// speaks in a conversation that is not zoomed, in [`MenuPause::Living`]
+/// (`player::mouse_look`, `player::grab_cursor`; a zoomed one locks the view [owner
+/// decision 2026-11-13, #2254]).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreeLook(pub bool);
 
@@ -733,7 +758,7 @@ pub fn held(g: &Game) -> bool {
 /// The test aid's due steps and the player's keys and clicks, as actions on the runtime.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn input(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
     controls: ControlInput,
     scroll: Res<AccumulatedMouseScroll>,
     time: (crate::pause::AidTime, Res<Time<Real>>),
@@ -746,6 +771,7 @@ pub(crate) fn input(
     mut sim: ResMut<SimState>,
     mut view_input: ResMut<ViewInput>,
 ) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     // Taken whatever happens below: what a view asked is for this frame only.
     let asked = std::mem::take(&mut *view_input);
@@ -905,7 +931,9 @@ pub(crate) fn input(
                 act = Some((Act::BreakOff, "Shift+Tab"));
             }
         } else if speaking.is_some() {
-            if confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip {
+            // The player's tweak: spoken lines are not cut short by the player [design: docs/design/tweaks.md].
+            let no_skip = rt.game.tweaks.no_skip_dialogue;
+            if !no_skip && (confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip) {
                 act = Some((Act::Skip, if asked.skip { "tile click" } else { "key or click" }));
             }
         } else if choosing {
@@ -979,30 +1007,32 @@ pub(crate) fn input(
 /// game clock, activation, combat. Runs after `script::hold_player`
 /// (which would put the player in `Menu` for a message box): in a conversation the box
 /// is answered from the `Dialogue` state, and when the conversation ends under an open
-/// box the player goes to `Menu`.
+/// box the player goes to `Menu`. The repair services and the recipe menu a line's result
+/// script opens (#2308) are `Menu` over the conversation, which waits under them: their
+/// own close goes back to `Dialogue` (`crate::repair::after_close`), and a conversation
+/// that ends as one opens (a Goodbye line's end script) leaves the player in `Menu`.
 #[allow(clippy::too_many_arguments)]
 fn sync_state(
     script: Option<Res<ScriptState>>,
     active: Res<ActiveMenu>,
+    services: (Option<Res<crate::repair::RepairServices>>, Option<Res<crate::crafting::RecipeMenu>>),
     paused: Res<Paused>,
     mode: Res<MenuPause>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
-    (repair, recipes): (Option<Res<crate::repair::RepairServices>>, Option<Res<crate::crafting::RecipeMenu>>),
+    zoom: Res<crate::dialogue_zoom::DialogueZoom>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
     let boxed = game.and_then(|g| g.menu).is_some_and(is_script_menu);
-    // The repair and recipe menus a line opened stay over the conversation until closed
-    // (queue item 143: Major Knight's repair menu was put back to the dialogue at once).
-    let script_menu = repair.is_some_and(|r| r.is_open()) || recipes.is_some_and(|r| r.is_open());
-    let own_menu = active.0.is_some() || paused.0 || script_menu;
+    let service = services.0.is_some_and(|r| r.is_open()) || services.1.is_some_and(|r| r.is_open());
+    let own_menu = active.0.is_some() || paused.0 || service;
     match (*state.get(), talking) {
         (PlayState::Playing, true) => next.set(PlayState::Dialogue),
         (PlayState::Menu, true) if !own_menu => next.set(PlayState::Dialogue),
-        (PlayState::Dialogue, false) => next.set(if boxed { PlayState::Menu } else { PlayState::Playing }),
+        (PlayState::Dialogue, false) => next.set(if boxed || service { PlayState::Menu } else { PlayState::Playing }),
         _ => {}
     }
     world_held.set_if_neq(WorldHeld(talking && !crate::coop_tables::keeps_world()));
@@ -1010,7 +1040,9 @@ fn sync_state(
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
     // Whether the picture stands still meanwhile is `crate::pause::freeze_picture`'s.
-    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue));
+    // The pointer stays free throughout a zoomed conversation: the zoom locks the view
+    // [owner decision 2026-11-13, #2254].
+    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue && !crate::dialogue_look::view_locked(&zoom)));
 }
 
 // ---- drawing ----------------------------------------------------------------------------

@@ -29,138 +29,12 @@ const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRa
 /// The embedded asset path under which bevy_pbr registers `bevy_pbr::pbr_functions`.
 const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wesl";
 
-/// The display-value lighting sum (docs/spec-notes/world.md §8 "Light on surfaces in
-/// display values") [hypothesis, fitted to the original's frames]: the game adds its
-/// lights as display values (colour bytes / 255) — ambient + Σ sun and lights × fade ×
-/// attenuation × N·L — and multiplies the texture by the sum, where Bevy adds linear
-/// light. In a world view (marked by a negative ambient alpha, [`display_ambient`]) the
-/// patched `apply_pbr_lighting` leaves Bevy's diffuse terms out (diffuse colour 0 for the
-/// lights and the ambient light, so only their specular parts stay), forms the sum from
-/// the same lights' colours, which hold display values there ([`display_color`]), and
-/// adds diffuse colour × sum^2.2 (the display gamma) as light. Views without the mark
-/// (the minigame views) keep Bevy's sum. `nvf_apply_pbr_lighting` takes weights for the
-/// ambient and the direct part of the sum (grass.wesl); `apply_pbr_lighting` is it with
-/// weights 1. Each helper carries the condition Bevy puts on `apply_pbr_lighting`
-/// (`@if(!PREPASS_FRAGMENT)`), whose line the first edit takes in.
-const DISPLAY_HELPERS: &str = "// NVForever (nvforever lights.rs DISPLAY_HELPERS): the game's lighting sum in display values.
-@if(!PREPASS_FRAGMENT)
-fn nvf_display_lighting() -> bool {
-    return view_bindings::lights.ambient_color.a < 0.0;
-}
-
-// A clustered point or spot light's diffuse light on a surface at P facing N, as display
-// values: colour × fade × attenuation × N.L (the uniform holds colour × fade × pi × light
-// unit, nvforever lights.rs `lumens`).
-@if(!PREPASS_FRAGMENT)
-fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
-    let light = &view_bindings::clustered_lights.data[light_id];
-    let to_light = (*light).position_radius.xyz - P;
-    let d2 = dot(to_light, to_light);
-    let attenuation = lighting::getDistanceAttenuation(d2, (*light).color_inverse_square_range.w);
-    let n_dot_l = saturate(dot(N, to_light * inverseSqrt(max(d2, 0.0001))));
-    return (*light).color_inverse_square_range.rgb * (attenuation * n_dot_l * view_bindings::view.exposure / 3.14159265);
-}
-
-// The same for a spot light, with Bevy's cone falloff (bevy_pbr::lighting::spot_light).
-@if(!PREPASS_FRAGMENT)
-fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
-    let light = &view_bindings::clustered_lights.data[light_id];
-    var spot_dir = vec3<f32>((*light).light_custom_data.x, 0.0, (*light).light_custom_data.y);
-    spot_dir.y = sqrt(max(0.0, 1.0 - spot_dir.x * spot_dir.x - spot_dir.z * spot_dir.z));
-    if ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE) != 0u {
-        spot_dir.y = -spot_dir.y;
-    }
-    let cd = dot(-spot_dir, normalize((*light).position_radius.xyz - P));
-    let cone = saturate(cd * (*light).light_custom_data.z + (*light).light_custom_data.w);
-    return nvf_point_display(light_id, P, N) * (cone * cone);
-}
-
-// What is left of Bevy's ambient light in a world view, its highlight, takes the ambient
-// colour as linear light: the factor from the display value to it (a^2.2 / a).
-@if(!PREPASS_FRAGMENT)
-fn nvf_ambient_ratio() -> vec3<f32> {
-    return pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6)), vec3(1.2));
-}
-
-// A directional light's diffuse light on a surface facing N, as display values.
-@if(!PREPASS_FRAGMENT)
-fn nvf_directional_display(i: u32, N: vec3<f32>) -> vec3<f32> {
-    let light = &view_bindings::lights.directional_lights[i];
-    return (*light).color.rgb * (saturate(dot(N, (*light).direction_to_light.xyz)) * view_bindings::view.exposure / 3.14159265);
-}
-
-@if(!PREPASS_FRAGMENT)
-fn apply_pbr_lighting(
-    in: pbr_types::PbrInput,
-) -> vec4<f32> {
-    return nvf_apply_pbr_lighting(in, vec2(1.0));
-}
-
-@if(!PREPASS_FRAGMENT)
-fn nvf_apply_pbr_lighting(
-    in: pbr_types::PbrInput,
-    nvf_weights: vec2<f32>,
-) -> vec4<f32> {";
-
-/// Replacements in `apply_pbr_lighting` [observed: bevy_pbr 0.20.1 `pbr_functions.wesl`],
-/// in order; the light loops' line occurs three times (point, spot, directional).
-const DISPLAY_EDITS: [(&str, &str); 7] = [
-    ("@if(!PREPASS_FRAGMENT)\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {", DISPLAY_HELPERS),
-    (
-        "    lighting_input.diffuse_color = diffuse_color;",
-        "    let nvf_display = nvf_display_lighting();
-    var nvf_direct = vec3(0.0);
-    lighting_input.diffuse_color = select(diffuse_color, vec3(0.0), nvf_display);",
-    ),
-    (
-        "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }",
-    ),
-    (
-        "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
-    ),
-    (
-        "        direct_light += light_contrib * shadow;",
-        "        direct_light += light_contrib * shadow;
-        if nvf_display { nvf_direct += nvf_directional_display(i, in.N) * shadow; }",
-    ),
-    (
-        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);",
-        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, select(diffuse_color, vec3(0.0), nvf_display), F0, perceptual_roughness, diffuse_occlusion) * select(vec3(1.0), nvf_ambient_ratio(), nvf_display);",
-    ),
-    (
-        "    // Total light\n",
-        "    if nvf_display {
-        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
-        let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
-        // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
-        direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
-    }
-
-    // Total light\n",
-    ),
-];
-
-/// `source` with [`DISPLAY_EDITS`] made, each to the first occurrence after the last
-/// edit; `None` when one is missing (Bevy changed).
-fn display_patched(source: &str) -> Option<String> {
-    let mut out = String::with_capacity(source.len() + 4096);
-    let mut rest = source;
-    for (from, to) in DISPLAY_EDITS {
-        let at = rest.find(from)?;
-        out.push_str(&rest[..at]);
-        out.push_str(to);
-        rest = &rest[at + from.len()..];
-    }
-    out.push_str(rest);
-    Some(out)
-}
+mod display_shader;
+pub(crate) use self::display_shader::display_patched;
+pub use self::display_shader::unix_lines;
 
 /// A light colour of a world view as display values (bytes / 255, or a model's stored
-/// colour): handed to Bevy unconverted, for the display-value sum ([`DISPLAY_HELPERS`]).
+/// colour): handed to Bevy unconverted, for the display-value sum (`display_shader`).
 pub fn display_color(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
 }
@@ -203,14 +77,6 @@ pub fn display_clip() -> bool {
     CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Bevy's shader text with Windows line ends made `\n`: the patches' anchors are written
-/// with `\n`. A checkout with git's `core.autocrlf` gave the bevy_pbr vendored until #939
-/// `\r\n` (issue #946: no patch matched, so grass lost `nvf_apply_pbr_lighting`); Bevy
-/// now comes from crates.io as published, and this stays as a guard for any patched copy.
-pub fn unix_lines(source: &str) -> String {
-    source.replace("\r\n", "\n")
-}
-
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
@@ -227,7 +93,7 @@ impl Plugin for LightsPlugin {
             app.insert_resource(NeonShader { handle: nif, tune, patched: false }).add_systems(PreUpdate, patch_neon);
         }
         app
-            .add_systems(Update, (patch_attenuation, patch_display_sum, dropped_lights, animate_lights.run_if(nvf_play::photo_mode::view_live), bind_model_lights, animate_model_lights.run_if(nvf_play::photo_mode::view_live)).chain());
+            .add_systems(Update, (patch_attenuation, patch_display_sum, sync_script_lights, dropped_lights, animate_lights.run_if(nvf_play::photo_mode::view_live), bind_model_lights, animate_model_lights.run_if(nvf_play::photo_mode::view_live)).chain().after(nvf_play::PlaySet::Scripts));
     }
 }
 
@@ -256,7 +122,7 @@ fn dropped_lights(
         let Some(base) = fnv_world::placed::base_object(world.lo, world.schema, l.base) else { continue };
         let pos = sim.as_ref().and_then(|s| s.world.peek(fnv_sim::FormId(l.reference))).map_or([0.0; 3], |s| s.pos);
         let placed = created_placement(l.reference, l.base, pos);
-        let lit = spawn_light(&mut commands, root, &world, l.base, base.model.as_deref(), &mut models, bevy::math::Affine3A::IDENTITY, scale, &placed, emittance);
+        let lit = spawn_light(&mut commands, root, &world, l.base, base.model.as_deref(), &mut models, bevy::math::Affine3A::IDENTITY, scale, &placed, emittance).is_some_and(|s| s.emitting);
         info!("lights: created light 0x{:08X} (base 0x{:08X}) {}", l.reference, l.base, if lit { "lit" } else { "sheds no light (negative, off by default, no radius or black)" });
     }
 }
@@ -382,16 +248,41 @@ fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Ass
     state.patched = true;
     let bevy::shader::Source::Wesl(source) = &shader.source else {
         error!("{PBR_FUNCTIONS}: not WESL; surfaces keep Bevy's linear lighting sum");
+        crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
         return;
     };
     let source = unix_lines(source);
     let Some(patched) = display_patched(&source) else {
         error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
+        crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
         return;
+    };
+    // The sun visibility's hook goes into the same function, after these edits; it acts
+    // only under its shader def (sun_visibility.rs).
+    let patched = match crate::sun_visibility::hook_patched(&patched) {
+        Some(hooked) => hooked,
+        None => {
+            error!("{PBR_FUNCTIONS}: the sun visibility hook's anchors not found (Bevy changed?); clouds and terrain do not shade the sun");
+            patched
+        }
+    };
+    // The ambient occlusion's hook goes in after the sun's; it too acts only under its
+    // shader def (ssao_lighting.rs).
+    let (patched, ao_hooked) = match crate::ssao_lighting::hook_patched(&patched) {
+        Some(hooked) => (hooked, true),
+        None => {
+            error!("{PBR_FUNCTIONS}: the ambient occlusion hook's anchors not found (Bevy changed?); the occlusion stays on the picture");
+            crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Failed);
+            (patched, false)
+        }
     };
     let patched = crate::fog::with_source(shader, patched);
     let _ = shaders.insert(&state.handle, patched);
     info!("lights: display-value lighting sum installed");
+    if ao_hooked {
+        crate::ssao_lighting::set_hook_state(crate::ssao_lighting::HookState::Installed);
+        info!("lights: ambient occlusion hook installed");
+    }
 }
 
 /// How a light's brightness moves by itself: LIGH DATA flags 3 "Flicker", 6 "Flicker
@@ -464,7 +355,7 @@ pub struct CellLight {
 /// Leaves out a reference's light sources: they carry its [`RefVisual`] to follow its
 /// enabled state ([`spawn_light`]), but are no part of its model, neither its root nor a
 /// shape to swap for another model's.
-pub type NotLightSource = (Without<PointLight>, Without<SpotLight>);
+pub type NotLightSource = (Without<PointLight>, Without<SpotLight>, Without<SessionLight>);
 
 /// On a placed light that flickers or pulses: its motion, full intensity and phase.
 #[derive(Component, Debug, Clone, Copy)]
@@ -472,6 +363,101 @@ pub struct MovingLight {
     pub motion: LightMotion,
     pub full: f32,
     pub seed: f32,
+}
+
+/// One cell-owned light instance, including a currently non-emitting one. The
+/// renderer derives values from canonical session edits only when their revision
+/// changes (docs/spec-notes/light-session-consumers.md).
+#[derive(Component)]
+pub struct SessionLight {
+    base: u32,
+    original: fnv_world::lighting::LightData,
+    radius_offset: Option<f32>,
+    scale: f32,
+    model_color: Option<[f32; 3]>,
+    model_driven: bool,
+    seed: f32,
+    seen: Option<u64>,
+}
+
+struct LightValues {
+    shown: [f32; 3],
+    intensity: f32,
+    radius: f32,
+    moving: Option<MovingLight>,
+    spot: Option<f32>,
+    emitting: bool,
+}
+
+fn light_values(l: fnv_world::lighting::LightData, instance: &SessionLight) -> LightValues {
+    let radius = placed_light_radius(l.radius, instance.radius_offset);
+    let shown = if l.color == [0; 3] {
+        instance.model_color.unwrap_or([0.0; 3]).map(|v| v.clamp(0.0, 1.0))
+    } else {
+        l.color.map(|b| b as f32 / 255.0)
+    };
+    let intensity = lumens(l.fade.max(0.0) * instance.scale, crate::sky::light_unit());
+    let motion = LightMotion::of(l.flags);
+    LightValues {
+        shown,
+        intensity,
+        radius: if matches!(motion, Some(LightMotion::Flicker | LightMotion::FlickerSlow)) { radius * FLAME_REACH } else { radius },
+        moving: motion.map(|motion| MovingLight { motion, full: intensity, seed: instance.seed }),
+        spot: (l.flags & light_flags::SPOT != 0).then(|| (l.fov.clamp(1.0, 179.0) / 2.0).to_radians()),
+        emitting: l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) == 0 && radius > 0.0
+            && (l.color != [0; 3] || instance.model_color.is_some() || instance.model_driven),
+    }
+}
+
+pub(crate) type SessionLights<'w, 's> = Query<'w, 's, (Entity, &'static mut SessionLight, Option<&'static mut PointLight>, Option<&'static mut SpotLight>, Option<&'static mut crate::emittance::LightEmittance>)>;
+
+pub(crate) fn sync_script_lights(mut commands: Commands, script: Option<Res<nvf_play::script::ScriptState>>, mut lights: SessionLights) {
+    let Some(game) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    sync_lights_from_game(game, &mut commands, &mut lights);
+}
+
+fn sync_lights_from_game(game: &fnv_game::Game<'_>, commands: &mut Commands, lights: &mut SessionLights) {
+    let revision = game.gaps.jip4.light_revision;
+    for (entity, mut instance, point, spot, emittance) in lights.iter_mut() {
+        if instance.seen == Some(revision) { continue; }
+        instance.seen = Some(revision);
+        let l = game.session_light_data(fnv_sim::FormId(instance.base), instance.original);
+        let v = light_values(l, &instance);
+        if let Some(mut e) = emittance {
+            e.color = LinearRgba::rgb(v.shown[0], v.shown[1], v.shown[2]);
+        }
+        if !v.emitting {
+            commands.entity(entity).remove::<(PointLight, SpotLight, MovingLight)>();
+            continue;
+        }
+        let color = display_color(v.shown);
+        if let Some(angle) = v.spot {
+            if let Some(mut s) = spot {
+                s.color = color;
+                s.intensity = v.intensity;
+                s.range = v.radius;
+                s.outer_angle = angle;
+                s.inner_angle = angle * 0.8;
+            } else {
+                commands.entity(entity).insert(SpotLight { color, intensity: v.intensity, range: v.radius, outer_angle: angle, inner_angle: angle * 0.8, shadow_maps_enabled: false, ..default() });
+            }
+            commands.entity(entity).remove::<PointLight>();
+        } else {
+            if let Some(mut p) = point {
+                p.color = color;
+                p.intensity = v.intensity;
+                p.range = v.radius;
+            } else {
+                commands.entity(entity).insert(PointLight { color, intensity: v.intensity, range: v.radius, shadow_maps_enabled: false, ..default() });
+            }
+            commands.entity(entity).remove::<SpotLight>();
+        }
+        if let Some(moving) = v.moving {
+            commands.entity(entity).insert(moving);
+        } else {
+            commands.entity(entity).remove::<MovingLight>();
+        }
+    }
 }
 
 /// Flicker and pulse the lights that do so.
@@ -518,16 +504,34 @@ pub struct LightRig {
 /// light: it then moves as the model's sequences move that node (the Vault klaxon's
 /// light turns 224 units out on its spinning `Dummy`, model-lights.md §2). Spot lights
 /// keep their place and aim [design: no base-game model drives a spot light].
-fn bind_model_lights(mut commands: Commands, rigs: Query<(Entity, &LightRig), Added<LightRig>>, mut lights: Query<(Entity, &mut ModelDrivenLight), With<PointLight>>) {
-    if rigs.is_empty() {
+fn bind_model_lights(
+    mut commands: Commands,
+    rigs: Query<(Entity, &LightRig)>,
+    new_rigs: Query<(Entity, &LightRig), Added<LightRig>>,
+    new_lights: Query<Entity, (Added<PointLight>, With<ModelDrivenLight>)>,
+    mut lights: Query<(Entity, &mut ModelDrivenLight), With<PointLight>>,
+) {
+    if new_rigs.is_empty() && new_lights.is_empty() {
         return;
     }
-    for (root, rig) in &rigs {
+    for (root, rig) in &new_rigs {
         let Some((e, mut l)) = lights.iter_mut().find(|(_, l)| l.reference == rig.reference && l.root.is_none()) else { continue };
-        l.root = Some(root);
-        commands.entity(e).insert((ChildOf(rig.anchor), l.light.local));
-        debug!("model lights: 0x{:08X} light {} hangs from {}", rig.reference, l.light.name, l.light.parent.as_deref().unwrap_or("the root"));
+        bind_model_light(&mut commands, e, &mut l, root, rig);
     }
+    // A dormant modeled light can resume after its rig was loaded. Unrelated
+    // muzzle/fire lights must not cause a scan of all rigs and modeled lights.
+    for e in &new_lights {
+        let Ok((_, mut l)) = lights.get_mut(e) else { continue };
+        if l.root.is_some() { continue; }
+        let Some((root, rig)) = rigs.iter().find(|(_, rig)| rig.reference == l.reference) else { continue };
+        bind_model_light(&mut commands, e, &mut l, root, rig);
+    }
+}
+
+fn bind_model_light(commands: &mut Commands, entity: Entity, light: &mut ModelDrivenLight, root: Entity, rig: &LightRig) {
+    light.root = Some(root);
+    commands.entity(entity).insert((ChildOf(rig.anchor), light.light.local));
+    debug!("model lights: 0x{:08X} light {} hangs from {}", rig.reference, light.light.name, light.light.parent.as_deref().unwrap_or("the root"));
 }
 
 /// Colour the model-driven lights by their rig's playing clip: the diffuse key times
@@ -591,18 +595,44 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
     } else {
         error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
     }
+    if patched.matches(FRESNEL_EDIT.0).count() == 1 {
+        patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
+        info!("lights: the highlight's Fresnel factor stays at F0 in world views");
+    } else {
+        error!("{PBR_LIGHTING}: the highlight's Fresnel line not found once (Bevy changed?); highlights keep Bevy's Fresnel rise");
+    }
     let patched = crate::fog::with_source(shader, patched);
     let _ = shaders.insert(&state.handle, patched);
     info!("lights: game attenuation installed");
 }
 
 /// Bevy's point and directional lights apply their colour to what is left of their light
-/// in a world view, the specular highlight ([`DISPLAY_HELPERS`]: the diffuse part is
+/// in a world view, the specular highlight (`display_shader`: the diffuse part is
 /// summed apart). There the colour holds display values: the highlight takes its linear
 /// light, the display value raised to the display gamma, as before the display-value sum
 /// [observed: bevy_pbr 0.20.1 `pbr_lighting.wesl`; the helper goes in front of
 /// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
 /// Jacobstown's lodge that the original does not show.
+/// The Fresnel factor of the direct lights' isotropic highlight in a world view stays at
+/// F0, in place of Bevy's Schlick Fresnel, which raises it towards f90 (for a grey F0,
+/// saturate(49.5 × F0)), up to about 50 times, as the view grazes the surface
+/// (bevy_pbr 0.20.1 `pbr_lighting.wesl` `fresnel`). The rest of the highlight (the GGX
+/// distribution, visibility and the multiscatter compensation) still varies with the
+/// angle. This covers the sun's highlight as well as the point and spot lights'. With that rise, a fire barrel in
+/// Primm drew a long orange streak on the shaded sidewalk where the original shows none
+/// [observed: #2266, a tester's run 2026-11-12, and both games at the same spots
+/// 2026-11-13; docs/spec-notes/world.md §8 "Highlights at grazing angles"]. The
+/// original's lighting is believed to have no Fresnel term on ordinary surfaces
+/// [hypothesis, nif.md "Specular"]. Only the direct lights' isotropic highlight
+/// (`specular`) changes: clearcoat, anisotropy, transmission and the environment keep
+/// Bevy's terms (no world material uses them), and views without the world mark (the
+/// minigame views) keep Bevy's Fresnel.
+const FRESNEL_EDIT: (&str, &str) = (
+    "    let F = fresnel(F0, LdotH);",
+    "    // NVForever (nvforever lights.rs FRESNEL_EDIT): F = F0 in a world view.
+    let F = select(fresnel(F0, LdotH), F0, view_bindings::lights.ambient_color.a < 0.0);",
+);
+
 const SPECULAR_EDITS: [(&str, &str); 3] = [
     (
         "fn getDistanceAttenuation(",
@@ -645,7 +675,9 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 /// colour by a sequence gets [`ModelDrivenLight`] (docs/spec-notes/model-lights.md) and is
 /// drawn even when both colours are black: its keys light it. The source carries
 /// [`RefVisual`], so `RefVisual` sync puts it out and lights it again with the reference
-/// (docs/spec-notes/model-lights.md §2).
+/// (docs/spec-notes/model-lights.md §2). A valid light registers a cell-owned instance
+/// even when it currently emits nothing; the result keeps that separate from the
+/// existing emitting-light statistics.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_light(
     commands: &mut Commands,
@@ -658,34 +690,38 @@ pub fn spawn_light(
     scale: f32,
     placed: &Placement,
     emittance: &mut crate::emittance::EmittanceState,
-) -> bool {
-    let Some(l) = light_data(world.lo, world.schema, ligh) else { return false };
-    let radius = placed_light_radius(l.radius, ref_xrds(world.lo, world.schema, placed.form_id));
-    if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || radius <= 0.0 {
-        return false;
-    }
-    let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
+) -> Option<SpawnedLight> {
+    let l = light_data(world.lo, world.schema, ligh)?;
+    let from_model = model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")));
     let prepared = model.and_then(|m| models.model(&format!(r"meshes\{m}")));
     let model_driven = prepared.as_ref().and_then(|pm| pm.light.clone());
     // The light sits on the model's `AttachLight` node when it has one (a fire barrel's
     // flames, 102 units over its foot), else at the reference [hypothesis,
     // model-lights.md §4].
     let at: Vec3 = prepared.as_ref().and_then(|pm| nvf_assets::model::attach_light(&pm.nodes)).map_or(rt.translation, |a| (rt * a).translation).into();
-    let shown = match from_model {
-        // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
-        Some(c) => c.map(|v| v.clamp(0.0, 1.0)),
-        None if l.color == [0; 3] && model_driven.is_none() => return false,
-        None => l.color.map(|b| b as f32 / 255.0),
+    let instance = SessionLight {
+        base: ligh, original: l, radius_offset: ref_xrds(world.lo, world.schema, placed.form_id), scale,
+        model_color: from_model, model_driven: model_driven.is_some(),
+        seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0,
+        seen: None,
     };
+    let values = light_values(l, &instance);
+    let shown = values.shown;
     let model_driven = model_driven.map(|light| ModelDrivenLight { reference: placed.form_id, light, root: None });
     let color = display_color(shown);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, LinearRgba::rgb(shown[0], shown[1], shown[2])));
-    let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
-    let radius = if matches!(LightMotion::of(l.flags), Some(LightMotion::Flicker | LightMotion::FlickerSlow)) { radius * FLAME_REACH } else { radius };
+    let intensity = values.intensity;
+    let radius = values.radius;
     let t = Transform::from_translation(at);
     let cell_light = CellLight { full: intensity, cell: Some(fnv_world::cell_of(placed.position[0], placed.position[1])) };
     // Lights out of step with each other: a phase from the reference.
-    let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });
+    let moving = values.moving;
+    if !values.emitting {
+        let mut e = commands.spawn((instance, t, Visibility::Inherited, RefVisual(placed.form_id), ChildOf(cell_e)));
+        if let Some(d) = driven { e.insert(d); }
+        if let Some(m) = model_driven { e.insert(m); }
+        return Some(SpawnedLight { emitting: false });
+    }
     // Neither kind casts shadows. If one ever does, give it the sun's render layers
     // (`sky::SHADOW_LAYER`, `sky::BODY_LAYER`), or the player's body casts none from it.
     if l.flags & light_flags::SPOT != 0 {
@@ -697,6 +733,7 @@ pub fn spawn_light(
             RefVisual(placed.form_id),
             ChildOf(cell_e),
             cell_light,
+            instance,
         ));
         if let Some(d) = driven {
             e.insert(d);
@@ -708,7 +745,7 @@ pub fn spawn_light(
             e.insert(m);
         }
     } else {
-        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, RefVisual(placed.form_id), ChildOf(cell_e), cell_light));
+        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, RefVisual(placed.form_id), ChildOf(cell_e), cell_light, instance));
         if let Some(d) = driven {
             e.insert(d);
         }
@@ -719,12 +756,54 @@ pub fn spawn_light(
             e.insert(m);
         }
     }
-    true
+    Some(SpawnedLight { emitting: true })
+}
+
+pub struct SpawnedLight {
+    pub emitting: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn foreign_point_light_does_not_rebind_models_and_cold_modeled_light_still_binds() {
+        let mut app = App::new();
+        app.add_systems(Update, bind_model_lights);
+        let anchor = app.world_mut().spawn(Transform::IDENTITY).id();
+        let root = app.world_mut().spawn(LightRig { reference: 42, anchor }).id();
+        let model = || ModelDrivenLight {
+            reference: 42, root: None,
+            light: nvf_assets::model::ModelLight {
+                name: "AuthoredLight".into(), parent: None,
+                local: Transform::from_xyz(1.0, 2.0, 3.0), diffuse: [1.0; 3], dimmer: 1.0,
+            },
+        };
+        let established = app.world_mut().spawn((PointLight::default(), model())).id();
+        app.update();
+        assert_eq!(app.world().get::<ModelDrivenLight>(established).unwrap().root, Some(root));
+        let parent = app.world().get::<ChildOf>(established).unwrap().parent();
+        // Leave a deferred unbound model in an existing archetype. A foreign point
+        // light is not a model/rig publication event and must not trigger its bind.
+        app.world_mut().get_mut::<ModelDrivenLight>(established).unwrap().root = None;
+        let foreign = app.world_mut().spawn(PointLight::default()).id();
+        app.update();
+        assert_eq!(app.world().get::<ModelDrivenLight>(established).unwrap().root, None);
+        assert_eq!(app.world().get::<ChildOf>(established).unwrap().parent(), parent);
+        assert!(app.world().get::<ModelDrivenLight>(foreign).is_none());
+        // The actual off->on publication is eligible even with an older rig.
+        app.world_mut().entity_mut(established).remove::<PointLight>();
+        app.update();
+        app.world_mut().entity_mut(established).insert(PointLight::default());
+        app.update();
+        assert_eq!(app.world().get::<ModelDrivenLight>(established).unwrap().root, Some(root));
+        assert_eq!(app.world().get::<ChildOf>(established).unwrap().parent(), anchor);
+        let later = app.world_mut().spawn((PointLight::default(), model())).id();
+        app.update();
+        assert_eq!(app.world().get::<ModelDrivenLight>(later).unwrap().root, Some(root));
+        assert_eq!(app.world().get::<ChildOf>(later).unwrap().parent(), anchor);
+    }
 
     #[test]
     fn flicker_and_pulse_stay_within_the_light() {
@@ -739,6 +818,22 @@ mod tests {
         }
         // Two lights out of step.
         assert_ne!(LightMotion::Pulse.factor(1.0, 0.1), LightMotion::Pulse.factor(1.0, 0.6));
+    }
+
+    #[test]
+    fn the_fresnel_line_is_in_bevys_shader_once() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/bevy_pbr/src/render/pbr_lighting.wesl");
+        let source = unix_lines(&std::fs::read_to_string(path).expect("vendored pbr_lighting.wesl"));
+        assert_eq!(source.matches(FRESNEL_EDIT.0).count(), 1, "the edit's anchor");
+        let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+        for (from, to) in SPECULAR_EDITS {
+            patched = patched.replace(from, to);
+        }
+        assert_eq!(patched.matches(FRESNEL_EDIT.0).count(), 1, "the anchor survives the other edits");
+        let patched = patched.replace(FRESNEL_EDIT.0, FRESNEL_EDIT.1);
+        assert!(patched.contains("let F = select(fresnel(F0, LdotH), F0,"));
+        // The anisotropic and transmission callers keep Bevy's Fresnel.
+        assert!(patched.contains("let Fa = fresnel(F0, LdotH);"));
     }
 
     #[test]
@@ -800,6 +895,10 @@ mod tests {
         const CHILD_REF: u32 = 0x304; // XESP -> PARENT_REF
         const OPPOSITE_REF: u32 = 0x305; // XESP -> PARENT_REF, opposite
         const DORMANT_REF: u32 = 0x306; // Initially Disabled
+        const UNCHANGED: u32 = 0x102;
+        const OFF: u32 = 0x103;
+        const UNCHANGED_REF: u32 = 0x307;
+        const OFF_REF: u32 = 0x308;
 
         fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
             Subrecord { sig: *sig, data, extended: false }
@@ -833,7 +932,7 @@ mod tests {
 
         fn plugin_bytes() -> Vec<u8> {
             let tes4 = record(b"TES4", 1, 0, &[sub(b"HEDR", cat(&[&1.34f32.to_le_bytes(), &0i32.to_le_bytes(), &0x800u32.to_le_bytes()]))]);
-            let lights = group(*b"LIGH", 0, &cat(&[&ligh(POINT, 0), &ligh(SPOT, light_flags::SPOT)]));
+            let lights = group(*b"LIGH", 0, &cat(&[&ligh(POINT, 0), &ligh(SPOT, light_flags::SPOT), &ligh(UNCHANGED, 0), &ligh(OFF, light_flags::OFF_BY_DEFAULT)]));
             let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", b"TestCell\0".to_vec())]);
             let refs = cat(&[
                 &refr(POINT_REF, 0, POINT, None),
@@ -842,6 +941,8 @@ mod tests {
                 &refr(CHILD_REF, 0, POINT, Some((PARENT_REF, false))),
                 &refr(OPPOSITE_REF, 0, POINT, Some((PARENT_REF, true))),
                 &refr(DORMANT_REF, ref_flags::INITIALLY_DISABLED, POINT, None),
+                &refr(UNCHANGED_REF, 0, UNCHANGED, None),
+                &refr(OFF_REF, 0, OFF, None),
             ]);
             let label = CELL.to_le_bytes();
             let children = group(label, 6, &group(label, 9, &refs));
@@ -871,13 +972,19 @@ mod tests {
         /// The light source of enabled-at-start reference `r`, spawned under `cell` as
         /// render streaming does (`world.rs` `spawn_ref`).
         fn spawn(app: &mut App, cell: Entity, r: u32) -> Entity {
-            app.world_mut()
+            let (source, emitting) = spawn_result(app, cell, r);
+            assert!(emitting);
+            source
+        }
+
+        fn spawn_result(app: &mut App, cell: Entity, r: u32) -> (Entity, bool) {
+            let spawned = app.world_mut()
                 .run_system_once(move |mut commands: Commands, world: Res<WorldData>, mut models: ModelCtx, mut emittance: ResMut<EmittanceState>| {
                     let p = placement(world.lo, world.schema, r).unwrap();
-                    assert!(spawn_light(&mut commands, cell, &world, p.base.unwrap(), None, &mut models, Affine3A::IDENTITY, 1.0, &p, &mut emittance));
+                    spawn_light(&mut commands, cell, &world, p.base.unwrap(), None, &mut models, Affine3A::IDENTITY, 1.0, &p, &mut emittance)
                 })
-                .unwrap();
-            *app.world().get::<Children>(cell).unwrap().last().unwrap()
+                .unwrap().expect("valid light registers an owner");
+            (*app.world().get::<Children>(cell).unwrap().last().unwrap(), spawned.emitting)
         }
 
         /// The holder and light source of reference `r`, not enabled at the start of a game
@@ -986,6 +1093,154 @@ mod tests {
             assert!(shines(&app, holder) && shines(&app, source));
             set_enabled(&mut app, DORMANT_REF, false, &[DORMANT_REF]);
             assert!(!shines(&app, source));
+        }
+
+        #[derive(Resource)]
+        struct LightGame(fnv_game::Game<'static>);
+
+        fn session_bridge(mut commands: Commands, game: Res<LightGame>, mut lights: SessionLights) {
+            sync_lights_from_game(&game.0, &mut commands, &mut lights);
+        }
+
+        fn session_emittance(game: Res<LightGame>, world: Res<WorldData>, mut state: ResMut<EmittanceState>) {
+            state.refresh_session_lights(&world, &game.0);
+        }
+
+        fn session_app() -> (App, TestFiles) {
+            let (mut app, files) = light_app();
+            let world = app.world().resource::<WorldData>();
+            let sim = app.world().resource::<SimState>();
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+            let json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let data = Box::leak(Box::new(fnv_game::GameData::build(world.lo, world.schema, fnv_script::FunctionTable::load(&path).unwrap(), &json, sim.refs)));
+            let game = fnv_game::Game::new(data, World::new(sim.forms, sim.refs, SimConfig::default()), Default::default());
+            app.insert_resource(LightGame(game)).init_resource::<Time>()
+                .insert_resource(crate::sky::authored_session_sky())
+                .add_systems(Update, (session_bridge, session_emittance, crate::emittance::update_emittance).chain());
+            (app, files)
+        }
+
+        fn source(app: &mut App, body: &str) {
+            let text = format!("Begin Function {{}}\n{body}\nEnd");
+            app.world_mut().resource_mut::<LightGame>().0.run_query(&text, Default::default()).unwrap();
+        }
+
+        fn instances(app: &mut App) -> usize {
+            let mut query = app.world_mut().query_filtered::<Entity, With<SessionLight>>();
+            query.iter(app.world()).count()
+        }
+
+        #[test]
+        fn session_setters_reach_existing_point_spot_and_flag_consumers() {
+            let (mut app, _files) = session_app();
+            let cell = cell(&mut app);
+            let point = spawn(&mut app, cell, POINT_REF);
+            let spot = spawn(&mut app, cell, SPOT_REF);
+            let unchanged = spawn(&mut app, cell, UNCHANGED_REF);
+            app.update();
+            let original = app.world().get::<PointLight>(unchanged).unwrap().color;
+            source(&mut app, "SetLightTraitNumeric (BuildRef 0 256) 0 450\nSetLightTraitNumeric (BuildRef 0 256) 1 32\nSetLightTraitNumeric (BuildRef 0 256) 6 2\nSetLightTraitNumeric (BuildRef 0 257) 5 60");
+            app.update();
+            let p = app.world().get::<PointLight>(point).unwrap();
+            assert_eq!(p.range, 450.0);
+            assert_eq!(p.color, display_color([32.0 / 255.0, 200.0 / 255.0, 100.0 / 255.0]));
+            assert_eq!(p.intensity, lumens(2.0, crate::sky::light_unit()));
+            let s = app.world().get::<SpotLight>(spot).unwrap();
+            assert!((s.outer_angle - 30f32.to_radians()).abs() < 1e-6);
+            assert_eq!(app.world().get::<PointLight>(unchanged).unwrap().color, original);
+            source(&mut app, "SetLightFlag (BuildRef 0 256) 3 1\nSetLightFlag (BuildRef 0 256) 9 1");
+            app.update();
+            assert!(app.world().get::<PointLight>(point).is_none());
+            assert_eq!(app.world().get::<SpotLight>(point).unwrap().range, 450.0 * FLAME_REACH);
+            assert_eq!(app.world().get::<MovingLight>(point).unwrap().full, lumens(2.0, crate::sky::light_unit()));
+            source(&mut app, "SetLightFlag (BuildRef 0 256) 9 0\nSetLightFlag (BuildRef 0 256) 3 0");
+            app.update();
+            assert!(app.world().get::<SpotLight>(point).is_none());
+            assert_eq!(app.world().get::<PointLight>(point).unwrap().range, 450.0);
+            assert!(app.world().get::<MovingLight>(point).is_none());
+            assert_eq!(instances(&mut app), 3, "type/flag updates reuse the same owners");
+        }
+
+        #[test]
+        fn cold_dormant_repeated_and_cell_lifecycle_keep_one_light_instance() {
+            let (mut app, _files) = session_app();
+            source(&mut app, "SetLightTraitNumeric (BuildRef 0 256) 0 410\nSetLightFlag (BuildRef 0 259) 5 0");
+            let first = cell(&mut app);
+            let point = spawn(&mut app, first, POINT_REF);
+            let (off, emitting) = spawn_result(&mut app, first, OFF_REF);
+            assert!(!emitting, "streaming retains a currently non-emitting owner");
+            assert!(app.world().get::<PointLight>(off).is_none());
+            app.update();
+            assert_eq!(app.world().get::<PointLight>(point).unwrap().range, 410.0);
+            assert!(app.world().get::<PointLight>(off).is_some(), "cold edit reaches dormant carrier");
+            let revision = app.world().resource::<LightGame>().0.gaps.jip4.light_revision;
+            for _ in 0..12 {
+                source(&mut app, "SetLightTraitNumeric (BuildRef 0 256) 0 410");
+                app.update();
+                assert_eq!(instances(&mut app), 2);
+            }
+            assert_eq!(app.world().resource::<LightGame>().0.gaps.jip4.light_revision, revision, "same values do not invalidate every held frame");
+            let held = app.world().resource::<LightGame>().0.time;
+            assert_eq!(held, 0.0);
+            app.world_mut().resource_mut::<LightGame>().0.tick();
+            app.update();
+            assert_eq!(instances(&mut app), 2);
+            assert!(app.world().resource::<LightGame>().0.time > held);
+            source(&mut app, "SetLightFlag (BuildRef 0 256) 5 1");
+            app.update();
+            assert!(app.world().get::<PointLight>(point).is_none());
+            source(&mut app, "SetLightFlag (BuildRef 0 256) 5 0");
+            app.update();
+            assert!(app.world().get::<PointLight>(point).is_some());
+            app.world_mut().entity_mut(first).despawn();
+            assert!(app.world().get_entity(point).is_err() && app.world().get_entity(off).is_err());
+            assert_eq!(instances(&mut app), 0);
+            let next = cell(&mut app);
+            let again = spawn(&mut app, next, POINT_REF);
+            app.update();
+            assert_ne!(again, point);
+            assert_eq!(app.world().get::<PointLight>(again).unwrap().range, 410.0);
+            assert_eq!(instances(&mut app), 1);
+        }
+
+        #[test]
+        fn light_backed_emittance_updates_at_fixed_hour_without_compounding() {
+            let (mut app, _files) = session_app();
+            let cell = cell(&mut app);
+            let point = spawn(&mut app, cell, POINT_REF);
+            let spot = spawn(&mut app, cell, SPOT_REF);
+            let light = app.world_mut().run_system_once(|world: Res<WorldData>, mut state: ResMut<EmittanceState>| {
+                state.light(&world, SPOT, LinearRgba::rgb(1.0, 200.0 / 255.0, 100.0 / 255.0)).unwrap()
+            }).unwrap();
+            app.world_mut().entity_mut(point).insert(light);
+            let light = app.world_mut().run_system_once(|world: Res<WorldData>, mut state: ResMut<EmittanceState>| {
+                state.light(&world, SPOT, LinearRgba::rgb(1.0, 200.0 / 255.0, 100.0 / 255.0)).unwrap()
+            }).unwrap();
+            app.world_mut().entity_mut(spot).insert(light);
+            let material = app.world_mut().run_system_once(|world: Res<WorldData>, mut state: ResMut<EmittanceState>, mut materials: ResMut<Assets<nvf_assets::NifMaterial>>| {
+                let shared = materials.add(nvf_assets::nif_material::nif_material(StandardMaterial { emissive: LinearRgba::WHITE, ..default() }));
+                state.material(&world, &mut materials, &shared, SPOT).unwrap()
+            }).unwrap();
+            app.update();
+            let hour = app.world().resource::<crate::sky::SkyState>().hour;
+            source(&mut app, "SetLightTraitNumeric (BuildRef 0 257) 1 64\nSetLightTraitNumeric (BuildRef 0 257) 2 128\nSetLightTraitNumeric (BuildRef 0 257) 3 255\nSetLightTraitNumeric (BuildRef 0 257) 6 0.5");
+            app.update();
+            let expected = display_color([64.0 / 255.0 * 0.5, (200.0 / 255.0) * (128.0 / 255.0 * 0.5), 100.0 / 255.0 * 0.5]);
+            assert_eq!(app.world().get::<PointLight>(point).unwrap().color, expected);
+            let spot_expected = display_color([(64.0 / 255.0) * (64.0 / 255.0 * 0.5), (128.0 / 255.0) * (128.0 / 255.0 * 0.5), 0.5]);
+            assert_eq!(app.world().get::<SpotLight>(spot).unwrap().color, spot_expected);
+            let emitted = app.world().resource::<Assets<nvf_assets::NifMaterial>>().get(&material).unwrap().base.emissive;
+            assert!((emitted.blue - 0.5).abs() < 1e-6);
+            assert!(emitted.red > 0.02 && emitted.red < 0.03 && emitted.green > 0.1 && emitted.green < 0.12);
+            for _ in 0..8 {
+                source(&mut app, "SetLightTraitNumeric (BuildRef 0 257) 6 0.5");
+                app.update();
+                assert_eq!(app.world().get::<PointLight>(point).unwrap().color, expected);
+                assert_eq!(app.world().get::<SpotLight>(spot).unwrap().color, spot_expected);
+                assert_eq!(app.world().resource::<Assets<nvf_assets::NifMaterial>>().get(&material).unwrap().base.emissive, emitted);
+            }
+            assert_eq!(app.world().resource::<crate::sky::SkyState>().hour, hour);
+            assert_eq!(instances(&mut app), 2);
         }
     }
 }

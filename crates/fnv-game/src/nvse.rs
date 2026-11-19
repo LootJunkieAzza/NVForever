@@ -154,6 +154,19 @@ impl Game<'_> {
         }
     }
 
+    /// Session critical damage used by both scripts and engine hit calculations.
+    /// See ext-last-core.md, critical weapon damage. Authored data stays in the
+    /// combat loader; this view supplies only script changes to that data.
+    pub fn weapon_critical_damage_override(&self, weapon: FormId) -> Option<u32> {
+        let key = "CRDT/critical_damage";
+        let value = self.field_overrides.get(&(weapon, key.into()))
+            .or_else(|| self.field_overrides.get(&(self.unclone(weapon), key.into())))?;
+        match value {
+            XVal::Num(value) => Some(*value as u32),
+            _ => None,
+        }
+    }
+
     /// The members of a form list, with the session's ListAddForm/ListRemove… edits.
     pub(crate) fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
         if !self.list_edits.contains_key(&list) {
@@ -167,6 +180,10 @@ impl Game<'_> {
 /// An xNVSE function by catalogue name (lower case); `None` when it is not built here.
 /// `on` is the reference it was called on, else the calling reference.
 pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
+    if let Some(result) = crate::nvse_faction_modifiers::call(g, name, args) {
+        return Some(result);
+    }
+    if name == "setcasinowinningslevel" { return Some(crate::casino::set_winnings_level(g, args)); }
     if let Some(r) = crate::delayed::call(g, ctx, name, on, args) {
         return Some(r);
     }
@@ -182,10 +199,28 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         return Some(Ok(v));
     }
     let subject = on.or(ctx.self_ref);
+    // ext-last-core.md: irreversible achievement eligibility, independent of the
+    // Hardcore needs switch. The existing saved field feeds IsAlwaysHardcore.
+    if name == "disablehardcoretracking" {
+        g.player.hardcore_was_off = true;
+        return Some(Ok(XVal::Num(0.0)));
+    }
+    if let Some(result) = crate::ui_projection::call(g, name, subject, args) {
+        return Some(result);
+    }
     if let Some(r) = crate::nvse_lutana::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_ttw::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_unlisted::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_unlisted2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_json::call(g, name, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_refs::call(g, name, subject, args) {

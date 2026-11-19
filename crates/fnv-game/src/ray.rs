@@ -13,11 +13,18 @@ pub enum CastKind {
     Terrain,
     /// Everything but the player, the terrain included (GetRayCastPos and its kin).
     World,
+    /// Static camera-room collision, without actors or dynamic bodies. The source
+    /// lateral-clearance mapping uses the existing kill-camera filter.
+    CameraClearance,
     /// The terrain alone, the hit's `form` the landscape texture (LTEX) showing most
     /// where it hits, `None` for the default texture (JohnnyGuitar's
     /// GetLandTextureUnderFeet, `crate::nvse_jg10`).
     LandTexture,
 }
+
+/// Shared existing actor-origin mapping of the script ray queries, game units.
+/// This is not a native eye-height parity claim (vats-script-clearance.md).
+pub(crate) const ACTOR_RAY_EYE_HEIGHT: f32 = 64.0;
 
 /// The first thing a cast meets.
 #[derive(Debug, Clone, Copy, PartialEq)]

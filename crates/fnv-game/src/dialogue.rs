@@ -20,7 +20,7 @@
 //! SayTo lines are ([`Game::speech`]), each line's Link To topics give the next one
 //! (dialogue.md §5.1).
 
-use crate::cond::{Operand, RunOn};
+use crate::cond::{CondResult, Operand, RunOn};
 use crate::data::{info_flag, InfoDef};
 use crate::game::{Game, LineKind, LineLook, Speech};
 use crate::trace::EventKind;
@@ -201,7 +201,7 @@ const ACTOR_VALUE_OPCODES: [u16; 3] = [0x100E, 0x1115, 0x11EF];
 
 /// Who says a line ([`Game::can_say_as`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Says {
+pub enum Says {
     Actor,
     /// A radio station's placed reference (`crate::radio`).
     Station,
@@ -224,11 +224,58 @@ pub(crate) struct Link {
 /// Default Dialog": GetIsVoiceType, GetIsID, GetInFaction, GetIsClass, GetIsRace,
 /// IsInList [documented: GECK wiki VoiceType] (function index = opcode − 0x1000, the
 /// function catalogue) (docs/spec-notes/actor-flags.md §9).
-const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
+pub(crate) const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
 
-/// GetIsID (function 0x48) on the subject: a line's own condition naming who says it.
-fn is_own_id_condition(c: &crate::cond::Condition) -> bool {
-    c.function == 0x48 && matches!(c.run_on, crate::cond::RunOn::Subject)
+/// A line's own condition on the subject naming who says it: GetIsID, or one of the
+/// others of [`VOICE_GATE_FUNCTIONS`] (GetInFaction, GetIsClass, GetIsRace,
+/// GetIsVoiceType, IsInList), which name a group of speakers (#2548).
+fn is_own_speaker_condition(c: &crate::cond::Condition) -> bool {
+    VOICE_GATE_FUNCTIONS.contains(&c.function) && matches!(c.run_on, crate::cond::RunOn::Subject)
+}
+
+/// Why a speaker cannot say a line now ([`Game::line_verdict`]), in the order the rules
+/// are checked.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Blocked {
+    /// The FormID is not a dialogue line (INFO).
+    NotALine,
+    /// Say Once, and an actor has said it.
+    SaidOnce,
+    /// A Low (`low`) or High Intelligence line, and the player is the other kind.
+    Intelligence { low: bool },
+    /// Say Once a Day, said by this speaker `hours_ago` game hours ago.
+    SaidToday { hours_ago: f64 },
+    /// The line's fixed speaker (ANAM) is someone else.
+    Speaker(FormId),
+    /// The line's quest is not running.
+    QuestNotRunning(FormId),
+    /// The line's quest's own conditions fail.
+    QuestConditions(FormId, Vec<CondResult>),
+    /// The speaker's voice type lacks Allow Default Dialog and the line has no condition
+    /// on who says it.
+    VoiceType,
+    /// The line's own conditions fail.
+    Conditions(Vec<CondResult>),
+}
+
+/// The end of the group of lines starting at `at` that [`Game::select_among`] takes
+/// together: a line without the Random flag alone, else the Random lines from there to
+/// the first line without the flag, or through the first one with Random End
+/// ([`Game::select_line`], rule 3). Shared by the game and the debugger.
+pub(crate) fn group_end(dv: &crate::dialogue_edits::DialogueView, lines: &[FormId], at: usize) -> usize {
+    let flag = |i: &FormId, f: u16| dv.info(i).is_some_and(|d| d.has(f));
+    if !flag(&lines[at], info_flag::RANDOM) {
+        return at + 1;
+    }
+    let mut end = at;
+    while end < lines.len() && flag(&lines[end], info_flag::RANDOM) {
+        end += 1;
+        if flag(&lines[end - 1], info_flag::RANDOM_END) {
+            break;
+        }
+    }
+    end
 }
 
 impl<'a> Game<'a> {
@@ -254,8 +301,13 @@ impl<'a> Game<'a> {
     ///   greeting; hypothesis: one case, and the two may count as one speaker] (#1113);
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
-    ///   the line has a GetIsID condition on the subject of its own: then that condition
-    ///   decides. The wiki has the field act like GetIsID "when dialogue is exported";
+    ///   the line has a condition on the subject of its own that names who says it
+    ///   (GetIsID, or GetInFaction, GetIsClass, GetIsRace, GetIsVoiceType, IsInList):
+    ///   then that condition decides [hypothesis, #2548: Cottonwood Cove's "Halt!"
+    ///   greeting 0x0013AC97 names the AAM explorer and tests the explorers' faction,
+    ///   and the three other explorers have force-greet packages of their own on
+    ///   GREETING that would end on "Move along." otherwise; 19 lines of FalloutNV.esm
+    ///   have a fixed speaker and such a group condition without GetIsID]. The wiki has the field act like GetIsID "when dialogue is exported";
     ///   262 lines of FalloutNV.esm name a fixed speaker other than the actor of their
     ///   own GetIsID condition, 167 of them the end slides (fixed speaker a Boomer or
     ///   another character, GetIsID Narrator), which the narrator says
@@ -277,10 +329,11 @@ impl<'a> Game<'a> {
     }
 
     /// The fixed-speaker (ANAM) check alone, from the data: the line names a fixed speaker
-    /// that is neither `speaker` nor its base, and has no GetIsID condition of its own
+    /// that is neither `speaker` nor its base, and has no condition of its own naming
+    /// who says it (GetIsID, GetInFaction …)
     /// ([`Game::can_say`]). It does not look at run-time state (Say Once, conditions).
     pub(crate) fn fixed_speaker_refuses(&self, def: &InfoDef, speaker: FormId) -> bool {
-        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_id_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
+        def.speaker.is_some_and(|s| !def.conditions.iter().any(is_own_speaker_condition) && s != speaker && Some(s) != crate::functions::base_of(self, speaker))
     }
 
     /// Whether every line of `topic` ([`GameData::lines_tried`]) fails the fixed-speaker
@@ -300,51 +353,69 @@ impl<'a> Game<'a> {
     /// "plays with a filter effect to indicate it's not him"; observed: Black Mountain
     /// Radio's segment lines name Tabitha or Raul Tejada, radio.md §5].
     pub(crate) fn can_say_as(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> bool {
+        self.line_verdict(speaker, listener, info, says).is_ok()
+    }
+
+    /// [`Game::can_say_as`] with the reason: the line's evaluated conditions when it can be
+    /// said, else the first rule that holds it back, checked in the order the game
+    /// checks them. **The one implementation** of the rules: `can_say_as` is this
+    /// function's `is_ok`, so the editor's debugger ([`Game::explain_topic`]) can never
+    /// disagree with the game (docs/design/editor.md §14.3).
+    pub(crate) fn line_verdict(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> Result<Vec<CondResult>, Blocked> {
         let data = self.data;
         let dv = self.dialogue_view();
-        let Some(def) = dv.info(&info) else { return false };
+        let Some(def) = dv.info(&info) else { return Err(Blocked::NotALine) };
         if def.say_once && self.said_once(info) {
-            return false;
+            return Err(Blocked::SaidOnce);
         }
         // Low / High Intelligence lines: for a dim player, and for one who is not
         // ([`Game::player_dim`]).
         let (low, high) = (def.has(info_flag::LOW_INTELLIGENCE), def.has(info_flag::HIGH_INTELLIGENCE));
         if (low || high) && self.player_dim() != low {
-            return false;
+            return Err(Blocked::Intelligence { low });
         }
         if def.has(info_flag::SAY_ONCE_A_DAY) {
             if let Some(&at) = self.said_day.get(&speaker).and_then(|m| m.get(&info)) {
-                if self.game_hours() - at < self.say_once_a_day_hours() {
-                    return false;
+                let ago = self.game_hours() - at;
+                if ago < self.say_once_a_day_hours() {
+                    return Err(Blocked::SaidToday { hours_ago: ago });
                 }
             }
         }
-        if says == Says::Actor && self.fixed_speaker_refuses(def, speaker) {
-            return false;
+        if let Some(s) = def.speaker.filter(|_| says == Says::Actor && self.fixed_speaker_refuses(def, speaker)) {
+            return Err(Blocked::Speaker(s));
         }
         if let Some(q) = def.quest {
             if !self.quests.get(&q).is_some_and(|s| s.running) {
-                return false;
+                return Err(Blocked::QuestNotRunning(q));
             }
             if let Some(c) = data.quests.get(&q).map(|d| &d.conditions).filter(|c| !c.is_empty()) {
-                if !self.conditions_pass(c, Some(speaker), listener, &format!("QUST {q} dialogue")) {
-                    return false;
+                let r = self.eval_conditions(c, Some(speaker), listener, &format!("QUST {q} dialogue"));
+                if !crate::cond::combine_results(&r) {
+                    return Err(Blocked::QuestConditions(q, r));
                 }
             }
         }
         // A voice type without Allow Default Dialog says only lines conditioned on it; not
-        // the player's own lines (its voice types lack the flag, observed). The line's
-        // quest's dialogue conditions count as the line's [hypothesis, fit to the data:
-        // ED-E's only greeting, 001579D7 of vDialogueEDE, has no conditions of its own and
-        // its quest's are GetIsID on the three ED-E bases; its voice RobotEDE lacks the
-        // flag, and the greeting's begin script is what gives the player's controls back
-        // after the repair (overnight queue item 52); actor-flags.md §9].
-        let gated = |c: &crate::cond::Condition| VOICE_GATE_FUNCTIONS.contains(&c.function);
-        let quest_gated = def.quest.and_then(|q| data.quests.get(&q)).is_some_and(|d| d.conditions.iter().any(gated));
-        if says != Says::Station && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(gated) && !quest_gated {
-            return false;
+        // the player's own lines (its voice types lack the flag, observed). The condition
+        // may be the line's own or its quest's, which gates all of the quest's lines and
+        // has passed by here [observed: ED-E's greetings 0x001579D7/8 have no conditions,
+        // their quest vDialogueEDE has GetIsID on the three ED-Es, voice type RobotEDE
+        // lacks the flag; hypothesis: the original counts the quest's conditions, since
+        // its ED-E says them] (#2378, docs/spec-notes/actor-flags.md §9).
+        if says != Says::Station && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) {
+            let gate = |c: &crate::cond::Condition| VOICE_GATE_FUNCTIONS.contains(&c.function);
+            let quest_gates = def.quest.and_then(|q| data.quests.get(&q)).is_some_and(|q| q.conditions.iter().any(gate));
+            if !quest_gates && !def.conditions.iter().any(gate) {
+                return Err(Blocked::VoiceType);
+            }
         }
-        self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {info}"))
+        let r = self.eval_conditions(&def.conditions, Some(speaker), listener, &format!("INFO {info}"));
+        if crate::cond::combine_results(&r) {
+            Ok(r)
+        } else {
+            Err(Blocked::Conditions(r))
+        }
     }
 
     /// Whether `speaker`'s voice type (from the definition supplying its traits) leaves
@@ -444,28 +515,12 @@ impl<'a> Game<'a> {
     #[allow(clippy::too_many_arguments)]
     fn select_among_but(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says, stale: &BTreeSet<FormId>) -> Option<FormId> {
         let dv = self.dialogue_view();
-        let flag = |i: &FormId, f: u16| dv.info(i).is_some_and(|d| d.has(f));
         let kept = |i: &FormId| !(lead_only && dv.is_follow_up(i)) && dv.info(i).is_some_and(keep);
         let mut at = 0;
         while at < lines.len() {
-            if !flag(&lines[at], info_flag::RANDOM) {
-                if kept(&lines[at]) && self.can_say_as(speaker, listener, lines[at], says) {
-                    return Some(lines[at]);
-                }
-                at += 1;
-                continue;
-            }
-            // A pool: the Random lines from here to the first line without the flag, or
-            // through the first one with Random End.
-            let mut end = at;
-            while end < lines.len() && flag(&lines[end], info_flag::RANDOM) {
-                end += 1;
-                if flag(&lines[end - 1], info_flag::RANDOM_END) {
-                    break;
-                }
-            }
-            let pool: Vec<FormId> = lines[at..end].to_vec();
-            let sayable: Vec<FormId> = pool.into_iter().filter(|i| kept(i) && self.can_say_as(speaker, listener, *i, says)).collect();
+            let end = group_end(&dv, lines, at);
+            // A plain line is a group of one; a Random pool may be more.
+            let sayable: Vec<FormId> = lines[at..end].iter().copied().filter(|i| kept(i) && self.can_say_as(speaker, listener, *i, says)).collect();
             let fresh: Vec<FormId> = sayable.iter().copied().filter(|i| !stale.contains(i)).collect();
             let sayable = if fresh.is_empty() { sayable } else { fresh };
             match sayable.len() {
@@ -694,6 +749,9 @@ impl<'a> Game<'a> {
         }
         self.dialogue_serial = self.dialogue_serial.wrapping_add(1);
         self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), topic_list: false, lines: 0, then: None, ending: false });
+        // [design, #2724] Opening by any route fulfils this actor's pending walk-up;
+        // consume it before the first line's scripts can run (`Game::speak`).
+        self.walk_up_greets.remove(&actor);
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);
@@ -774,6 +832,9 @@ impl<'a> Game<'a> {
     /// over the line ends ([`Game::finish_line`]). An actor that died, was disabled or
     /// deleted ends the conversation [hypothesis].
     pub(crate) fn update_dialogue(&mut self, dt: f64) {
+        /// What is left of a response the No Auto Continue Dialog tweak holds: next to
+        /// nothing, so a click ends it at once.
+        const HELD_RESPONSE: f64 = 1e-6;
         let Some(c) = self.dialogue.as_ref() else { return };
         let actor = c.actor;
         if !self.present(c.through.unwrap_or(actor)) || self.extra.get(&actor).is_some_and(|e| e.dead) {
@@ -785,6 +846,15 @@ impl<'a> Game<'a> {
         let Some(def) = dv.info(&line.info) else { return };
         let order = def.response_order();
         line.remaining -= dt;
+        // The player's tweak: a response that has run out waits for the player's click
+        // (`Game::skip_response`, which calls with no time passing) [design: docs/design/tweaks.md].
+        if self.tweaks.no_auto_continue_dialogue && dt > 0.0 && line.remaining <= 1e-9 {
+            line.remaining = HELD_RESPONSE;
+            if let Some(c) = self.dialogue.as_mut() {
+                c.line = Some(line);
+            }
+            return;
+        }
         while line.remaining <= 1e-9 {
             line.response += 1;
             match order.get(line.response) {
@@ -1313,6 +1383,8 @@ impl<'a> Game<'a> {
             force_subtitles: false,
             two_d: false,
             end_ran: def.has(info_flag::RUN_IMMEDIATELY),
+            leads_on: false,
+            through: None,
         });
         self.farewell_said = Some((actor, info));
         self.end_dialogue_as(ended::GOODBYE);
@@ -1536,9 +1608,19 @@ impl<'a> Game<'a> {
         let (speaker, Some(listener)) = (said.speaker, said.target) else { return };
         let end = |g: &mut Self, reason: &'static str| g.emit(EventKind::ActorConversationEnded { speaker, target: listener, reason, lines });
         let Some(def) = dv.info(&said.info) else { return end(self, ended::NO_LINKS) };
-        if def.goodbye {
+        // A Goodbye line ends the conversation [documented: Conversation Tab], unless it
+        // links on (Link To, follow-ups): then the conversation goes on [hypothesis from
+        // the data: 19 Conversation lines of FalloutNV.esm carry both, among them Jason
+        // Bright's speech, whose script starts only its first part (SCPT 0008D41A,
+        // JasonBrightSpeech1) and whose Goodbye part 4 links to parts 5 to 9, and
+        // Veronica's exchange with Ramos at Hidden Valley's intercom, whose third line's
+        // end script opens the bunker (INFO 0015B6D3, issue #2451); observer check 139].
+        if def.goodbye && def.choices.is_empty() && def.follow_ups.is_empty() {
             return end(self, ended::GOODBYE);
         }
+        // The two sides as they stand in the world: a speaker that said its line
+        // through a talking activator is that activator (`Speech::through`).
+        let speaker = said.through.unwrap_or(speaker);
         if [speaker, listener].iter().any(|&a| !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead)) {
             return end(self, ended::ACTOR_GONE);
         }
@@ -1555,16 +1637,26 @@ impl<'a> Game<'a> {
         // but it carries the history on.
         let earlier: Vec<FormId> = said.earlier_topics.iter().copied().chain(std::iter::once(said.topic)).collect();
         for &(who, to) in turns {
-            if let Some(&f) = def.follow_ups.iter().find(|&&f| dv.info(&f).is_some_and(between_actors) && self.can_say(who, Some(to), f)) {
+            let (talker, via) = self.talker(who);
+            self.talking_through = via.map(|t| (talker, t));
+            let follow = def.follow_ups.iter().copied().find(|&f| dv.info(&f).is_some_and(between_actors) && self.can_say(talker, Some(to), f));
+            self.talking_through = None;
+            if let Some(f) = follow {
                 let topic = dv.info(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.say_line(who, Some(to), topic, f, next);
-                self.set_line_look(who, said.look);
-                if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == f) {
+                // Said through the activator from the start, so it cuts a line the
+                // activator is saying (`Game::say_line_through`, #2768).
+                self.say_line_through(talker, Some(to), topic, f, next, via);
+                self.set_line_look(talker, said.look);
+                if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == talker && s.info == f) {
                     s.earlier_topics = earlier;
                 }
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
+            // A talking activator says the lines of its talking actor (`Game::talker`),
+            // which are chosen with IsActorTalkingThroughActivator 1.
+            let (who, through) = self.talker(who);
+            self.talking_through = through.map(|t| (who, t));
             for link in self.links_after(said.topic, def) {
                 if let Some(i) = self.link_line_where(who, Some(to), link, between_actors, Says::Actor) {
                     let repeats_ok = dv.info(&i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).is_some_and(|q| q.repeated_topics());
@@ -1574,12 +1666,13 @@ impl<'a> Game<'a> {
                     linked.push((link.topic, i));
                 }
             }
+            self.talking_through = None;
             let (topic, info) = match linked.len() {
                 0 => continue,
                 1 => linked[0],
                 n => linked[self.rng.next_u32() as usize % n],
             };
-            self.say_line(who, Some(to), topic, info, next);
+            self.say_line_through(who, Some(to), topic, info, next, through);
             self.set_line_look(who, said.look);
             if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == info) {
                 s.earlier_topics = earlier;

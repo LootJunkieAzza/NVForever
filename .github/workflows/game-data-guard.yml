@@ -46,6 +46,9 @@ jobs:
             ':(icase)*.tiff' ':(icase)*.hdr' ':(icase)*.exr' ':(icase)*.ico' \
             ':(exclude)engine/nvforever/assets/icon.png' \
             ':(exclude)engine/nvforever/assets/nvforever.ico' \
+            ':(exclude)crates/nvf-launcher/assets/icon-64.png' \
+            ':(exclude)crates/nvf-launcher/assets/logo-256.png' \
+            ':(exclude)crates/nvf-launcher/assets/nvf-launcher.ico' \
             ':(exclude)engine/vendor/*')
           if [ -n "$found" ]; then
             echo "::error::Images may be screenshots or textures from the game; only the allow-list in game-data-guard.yml is accepted:"

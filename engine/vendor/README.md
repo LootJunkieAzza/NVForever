@@ -37,6 +37,23 @@ memory does not go to a host-visible device-local memory type whose heap is unde
 (the 256 MB BAR window of a card without Resizable BAR, shared with every other program);
 it takes a host-visible, host-coherent type on a heap that is not device-local. Upstream
 prefers that small heap and falls back only when an allocation in it fails.
+## bevy_post_process 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+Bevy's post-processing, for its auto exposure, which meters the view for the game's eye
+adaptation (`engine/nvforever/src/eye_adapt.rs`). One change (#2892), marked `NVForever
+exact curve`, in `src/auto_exposure/`:
+
+- `compensation_curve.rs`: the compensation curve's table holds the compensation values
+  themselves as `f32` (texture `R32Float`); upstream keeps a `u8` between the curve's
+  lowest and highest value, rounded down (`R8Unorm`). `AutoExposureCompensationCurve::
+  compensation` gives the value for an average as the shader reads it, for tests.
+- `auto_exposure.wesl`: the curve is read between two table entries in proportion;
+  upstream reads the one entry at or below the average.
+
+Why: the exposure is `curve(average) − average`. With one byte entry per 0.086 EV of
+average and bytes 0.067 EV apart, a curve `y = x` (no change) came out as a sawtooth
+between 0 and about −0.15 EV, so a daylight picture was darkened by up to 10 %, by an
+amount that jumped as the view's average crossed an entry.
 
 ## bevy_pbr 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -77,7 +94,30 @@ Both FSR changes are already in Bevy's `main`, written almost the same way: bevy
 2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
 Bevy release that has both.
 
-Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
+Another change (prepass coverage, docs/design/frame-rate-audit.md §9), in
+`src/render/pbr_prepass_functions.wesl`, marked `NVForever prepass coverage`:
+`nvf_prepass_sample_color` and its result struct, which hand out the base colour, flags and
+alpha cutoff that `prepass_sample_color_and_alpha_discard` samples, without testing them.
+nvf-assets' `fade_prepass.wesl` turns that alpha into a sample mask (the soft edge of grass,
+leaf cards and tree billboards, written by the depth prepass). Upstream's function is
+unchanged, so nothing else behaves differently. Upstream has no way to get the sampled alpha
+out of the prepass's own code; drop this when it has, or when the sampling is written in
+nvf-assets.
+
+Another change (equal-depth position invariance,
+docs/spec-notes/depth-equality-invariance.md), marked `NVForever equal-depth passes`:
+`src/render/forward_io.wesl` and `src/prepass/io.wesl` mark both vertex position
+producers invariant for the engine's Equal-depth passes. Position calculations and
+depth policy are unchanged. `nvf-shader-tests/tests/depth_invariance.rs` composes the actual
+source through Bevy WESL and Naga and checks the SPIR-V decoration, including
+unannotated controls. An earlier integrated run passed three controls and exposed
+two compiler-setup failures; the corrected pass-specific feature matrix and shared
+production lighting preparation are unrun. Reapply both annotations
+after upgrading Bevy until upstream provides the same guarantee, or retire them
+with the Equal-depth policy.
+
+Third change (#1803), in `src/material.rs`, each part marked by a comment starting
+`NVForever material queue probe`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
 pass does what upstream does. Drop it when an upstream observation API replaces its
@@ -86,7 +126,119 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
 
+Another change (held shadow maps, docs/design/frame-rate-audit.md §9 and §10; the game's
+Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs), marked
+`NVForever held shadow maps`:
+
+- `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`, a bit per
+  cascade index (#2063: it was one switch for all of them). `per_view_shadow_pass` leaves
+  out the directional light views whose cascade's bit is set, so their shadow maps keep the
+  picture of the last frame that drew them. Point and spot lights' maps are drawn as ever.
+- `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` leaves out the same
+  views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
+  for those cascades that frame.
+- `src/render/light.rs` `prepare_lights`: when the directional shadow texture the cache hands
+  out is not the one of the frame before (a shadowed spot light such as the flashlight
+  switched on or off changes its layer count, or the old one was dropped), the render
+  world's hold is cleared for that frame, so every cascade is drawn into the new texture
+  instead of a held one sampling an empty or stale layer (#2182 review). It logs
+  `held shadow maps: a new directional shadow texture`.
+
+Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
+Whoever sets it must hand the lights the held cascades as the frame that drew them had
+them, as the game does.
+Upstream has no way to draw a light's shadow map less often than every frame.
+
+Gated materials (#2661, docs/design/graphics-enhanced.md §3.14 "Off"), in `src/material.rs`,
+each part marked `NVForever gated materials`: `MaterialPlugin::gated(MaterialGate)` (a new
+`gate` field, `None` by default). With a gate, the material type's own systems run only
+while it is open (main world: `mark_meshes_as_changed_if_their_materials_changed`,
+`check_entities_needing_specialization`; render world: `extract_mesh_materials`,
+`early_sweep_material_instances`, the two specialization extractions, and the asset
+extraction and preparation through `ErasedRenderAssetPlugin::gated` below); its shaders are
+loaded and its bind group allocator (with the bindless fallback buffers) made at the first
+extraction after the gate opens, and both dropped at the first extraction after it closes
+(a device recovery while open makes the allocator again, as upstream's startup system
+does). The owner opens the gate before the type's first asset or component and closes it
+only once none has been left for a few frames. Without a gate (every Bevy and every other
+NVForever material) the plugin does what upstream does. Upstream registers a material's
+systems, loads its shaders and makes its allocator at startup, and a plugin cannot be added
+after startup; nvforever's mesh terrain blend, off in most runs, gates its two material
+types with it. Drop it if upstream gains a way to register a material type lazily.
+
+Another change (sun visibility, #2670 and #2671, docs/design/sun-visibility.md), each part
+marked `NVForever sun visibility`, for nvforever's `sun_visibility.rs`:
+
+- `src/render/light.rs`: the render-world component `NvfOutdoorSun`. `prepare_lights` sets
+  the new `DirectionalLightFlags::NVF_OUTDOOR_SUN` (bit 4; `mesh_view_types.wesl`
+  `DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT`) in the GPU flags of the directional light
+  whose render entity has it, so a shader can tell the outdoor sun from other directional
+  lights without assuming an index.
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfSunVisibilityBindings` (a uniform buffer, a filterable float 2D texture for the
+  clouds, an unfilterable float 2D texture for the terrain shadow-height map and a
+  filtering sampler), the layout key bit `MeshPipelineViewLayoutKey::NVF_SUN_VISIBILITY`
+  and bindings 39-42 of the mesh view bind group, present only for a view with it.
+  Binding 41 is declared `Float { filterable: false }` (2026-11-17, #2671 stage T2): the
+  terrain map is `Rgba32Float`, which is filterable only with the optional
+  `FLOAT32_FILTERABLE` feature, so nvforever reads it with `textureLoad` and never with
+  the sampler; its stand-in while no map is uploaded is nvforever's own one-texel
+  `Rgba32Float` texture, not Bevy's fallback image.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_SUN_VISIBILITY`, `NVF_CLOUD_VISIBILITY` and
+  `NVF_TERRAIN_VISIBILITY` (bits 25-27; the key's bit fields above them move up by three,
+  well below the base mesh key's bits from 58), set by `check_views_need_specialization`
+  from the same component, and the shader defs of the same names. The pipelines' layout
+  key and the view's bind group are both read from that one component in the same frame,
+  so they cannot disagree; the component is inserted, changed and removed only during
+  extraction.
+
+The shaders that use the bindings are nvforever's (`sun_visibility.wesl`, patched into
+`apply_pbr_lighting` at run time like lights.rs's edits). Bevy inserts neither component;
+without them the flags, layouts and shader defs are upstream's, and so is every view while
+the game's switches are off; the pipeline keys are the same keys numbered differently (the
+packed fields above the new bits moved up by three). The meshlet path (feature off here) builds its
+view key without the bits, so a meshlet view must not get the component. Upstream has no
+way for an application to add bindings to the mesh view bind group.
+
+Another change (ambient occlusion on the ambient light, #2897 stage two,
+docs/design/graphics-enhanced.md §3.1), each part marked `NVForever ambient occlusion`, for
+nvforever's `ssao_lighting.rs`, built the same way as the sun visibility's:
+
+- `src/render/mesh_view_bindings.rs`: the render-world view component
+  `NvfAmbientOcclusionBindings` (a uniform buffer and an unfilterable float 2D texture, the
+  half-resolution occlusion read with `textureLoad`), the layout key bit
+  `MeshPipelineViewLayoutKey::NVF_AMBIENT_OCCLUSION` and bindings 43-44 of the mesh view
+  bind group, present only for a view with it.
+- `src/render/mesh.rs`: `MeshPipelineKey::NVF_AMBIENT_OCCLUSION` (bit 28; the key's bit
+  fields above it move up by one more, their top, the colour target format, ending at bit
+  49, still below the base mesh key's bits from 58, which the file's `const_assert_eq!`
+  checks), set by `check_views_need_specialization` from the same component, and the shader
+  def of the same name, pushed only for a pipeline that writes depth (opaque, alpha mask,
+  alpha to coverage), the rule Bevy's own `SCREEN_SPACE_AMBIENT_OCCLUSION` def follows: a
+  blended draw is not in the depth prepass the occlusion is worked out from. A blended
+  pipeline of such a view keeps the bindings in its layout and leaves them unread.
+
+The shader that reads the bindings is nvforever's (`ssao_lighting.wesl`, patched into
+`apply_pbr_lighting` at run time after the sun visibility's hook). Bevy inserts no such
+component; without it the layouts and shader defs are upstream's, and the pipeline keys are
+the same keys numbered differently (the packed fields above the new bit moved up by one).
+As for the sun visibility, a meshlet view must not get the component.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
+
+[documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
+`RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
+Each compilation holds its read side. NVForever's device poll thread shares it;
+`gpu_poll::quiet` takes its write side during DLSS-G's live load/unload, so no pipeline
+compile overlaps `slSetFeatureLoaded` (`sl_core_api.h:130-131` forbids parallel Vulkan calls).
+The guard is taken inside the task, covering even a compile whose cache entry was replaced
+by shader reload. `PipelineTaskOutput` also takes the read side when destroying an unclaimed
+output: async-task can discard a cancelled task's pipeline after its compilation guard was
+released. Outputs taken by the render thread are stored as upstream does. A switch waits
+without a time limit for running driver compiles: they cannot safely be cancelled, so a
+user-requested switch must wait to preserve device safety. A GPU-free unit test checks that
+discarded outputs are destroyed while the gate excludes writers. Drop this patch if Bevy
+supplies an equivalent device-operation gate.
 
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
@@ -133,6 +285,11 @@ only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`
 `unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
 frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
 first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+Gated render assets (#2661), in `src/erased_render_asset.rs`, marked `NVForever gated
+materials`: `ErasedRenderAssetPlugin::gated(Arc<AtomicBool>)` runs the asset type's
+extraction and preparation systems only while the flag is set, for bevy_pbr's gated
+materials above. `Default` has no flag and does what upstream does.
 
 A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
 in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
@@ -256,6 +413,113 @@ changes, each marked `NVForever` in the source:
 
 What the game then does (autosave, a message, a clean error exit): gpu_lost.rs. Drop these
 device-lost changes when upstream Bevy handles map failures on a lost device without panicking.
+Window changes held for one frame (2026-11-13, the DLSS Frame Generation spike, #2317), in
+`src/view/window/mod.rs`, each part marked `NVForever (2026-11-13)`:
+
+- `HoldSurfaceReconfigure`, a render-world resource (default `false`). While `true`,
+  `create_surfaces` does not reconfigure a window whose size or present mode changed or whose
+  surface is outdated: it marks the surface outdated (the 2026-11-09 mark) and reconfigures it
+  on the first frame after the hold is released; `prepare_windows` gives a window whose image
+  comes back `Outdated` no image that frame (marked the same way) instead of configuring the
+  surface there.
+- `SurfaceData::reconfigure_pending`: whether `create_surfaces` would reconfigure the surface
+  this frame, for the system that decides the hold.
+- `extract_windows` is public, so a system can be ordered around it (DLSS Frame Generation sets
+  its mode off before a closing window's surface is removed there, and switches DLSS-G on or
+  off after it).
+
+NVIDIA's DLSS Frame Generation must be off (its mode set off and presented once) before the
+swapchain changes [documented: Streamline 2.14.16 `ProgrammingGuideDLSS_G.md` §12.0, §17],
+and upstream reconfigures in the frame the change is extracted. NVForever's
+`engine/nvforever/src/dlss/frame_gen.rs` holds the reconfigure for that one frame. Nothing
+else sets it, so every other run takes upstream's path.
+
+Vulkan library for the instance (2026-11-12, DLSS spike, #2198), in
+`src/renderer/raw_vulkan_init.rs`, each part marked by a comment starting `NVForever
+(2026-11-12, DLSS spike #2198)`, and an optional `ash` 0.38 dependency (the version wgpu-hal
+30 uses) under the `raw_vulkan_init` feature in `Cargo.toml`:
+
+- `RawVulkanInitSettings::set_vulkan_library` (unsafe): the raw Vulkan instance is made from
+  that library (`ash::Entry::load_from`) instead of the system's loader, for NVIDIA
+  Streamline's interposer. wgpu-hal 30.0.1's `Instance::init_with_callback` loads the loader
+  itself, so its steps are done here with wgpu-hal's public `desired_extensions` and
+  `from_raw`: the same application info, extensions, validation layer and features, and the
+  loader's API version. Instance callbacks cannot run on that path (their argument type has a
+  private field), so with any registered it is not taken. wgpu-hal's debug messenger cannot be
+  handed over (private fields), so when the instance flags ask for `VK_EXT_debug_utils` the
+  file's own messenger writes the layers' messages as wgpu-hal does (same log target, levels,
+  wording and suppressed ids) and is destroyed before the instance. On success
+  `VulkanLibraryInstance` is set in `AdditionalVulkanFeatures`; on any failure the caller's
+  report hears why and upstream's path runs.
+
+Without `set_vulkan_library`, upstream's path runs unchanged. NVForever calls it only once
+its DLSS loader has passed every check (on Windows, with Vulkan among the renderer's
+backends). The loader runs when DLSS is chosen, when the four DLSS files are in the DLSS
+folder, or with `NVF_DLSS_PRELOAD=1`; `NVF_DLSS_PRELOAD=0` leaves out the files case
+(`engine/nvforever/src/upscaler.rs` `UpscalerStartup`, docs/design/dlss-upscaling.md, "Loaded
+whenever the files are there"). Every other run takes upstream's path. Drop it if wgpu-hal gains a way to pass the entry in.
+
+## wgpu-hal 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's Vulkan backend, for NVIDIA low latency (`VK_NV_low_latency2`,
+docs/design/latency-reduction.md, `nvforever/src/nv_low_latency.rs`). One change, in
+`src/vulkan/swapchain/native.rs` and `src/vulkan/mod.rs`, each part marked by a comment
+starting `NVForever (2026-11-12)`:
+
+- `NativeSurface::create_swapchain`: on a device whose enabled extensions include
+  `VK_NV_low_latency2`, the swapchain is created with `VkSwapchainLatencyCreateInfoNV`,
+  `latencyModeEnable` true. Low latency mode may be used only on a swapchain created so
+  [documented: Vulkan spec, "Latency Reduction", `VkSwapchainLatencyCreateInfoNV`], wgpu
+  creates the swapchain, and it has no hook there. wgpu-hal itself never enables the
+  extension; only a device-creation callback does (`nv_low_latency.rs`), so without one the
+  crate does what upstream does.
+- `vulkan::with_latency_swapchain` (new, public): calls a closure with the newest such
+  swapchain, under a lock that `create_swapchain` takes to clear the handle before the old
+  swapchain is handed over as `oldSwapchain`, and `NativeSwapchain`'s `Drop` before
+  `vkDestroySwapchainKHR`. The extension's calls (`vkSetLatencySleepModeNV`,
+  `vkLatencySleepNV`, `vkSetLatencyMarkerNV`) take the swapchain and come from threads that
+  do not present; upstream's `Surface::raw_native_swapchain` gives the handle but nothing
+  keeps it alive afterwards, and reading it waits behind a blocked acquire or present. One
+  handle for the process: with two windows the newer swapchain takes the calls.
+- `vulkan::swapchains_made` (new, public; marked `NVForever (2026-11-16)`): a count of the
+  swapchains `create_swapchain` has made in the process, on any device, moved on after
+  `vkCreateSwapchainKHR` returned. Streamline's Reflex sets its sleep mode and frame limit on
+  the swapchain it tracks at the call, and a new swapchain starts without them, so the
+  engine sets Reflex's options again when the count moves (`nvforever/src/dlss/frame_token.rs`,
+  LootJunkieAzza/NVForever#2732).
+
+Not run on a GPU yet (2026-11-12): built, and the engine's tests and clippy pass. The copy
+is the crates.io package as published (its `examples` are kept: the manifest names them).
+Drop it when wgpu lets a caller extend swapchain creation, or creates the swapchain with
+the structure itself.
+
+## naga 30.0.1 (MIT OR Apache-2.0, the gfx-rs developers)
+
+wgpu's shader translator, for the Vulkan SPIR-V of `@builtin(sample_mask)` (#2413). Vulkan
+requires the `SampleMask` built-in to be an array of 32-bit integers
+[documented: Vulkan spec, "Built-In Variables", VUID-SampleMask-SampleMask-04359]; naga's
+SPIR-V back end declares it as a scalar `u32`, as WGSL writes it (open upstream as
+gfx-rs/wgpu#7311). The engine's prepass coverage (`nvf-assets/src/nif_material.rs`
+`prepass_coverage`, PR #2181) returns that built-in from the depth prepass. One change,
+each part marked by a comment starting `NVForever`:
+
+- `src/back/spv/mod.rs`: `Writer::sample_mask_vars`, the ids of the `SampleMask` varyings.
+- `src/back/spv/writer.rs`: `write_varying` declares a `SampleMask` input or output as
+  `OpTypeArray` of `u32` with length 1; `load_io_with_f16_polyfill` and
+  `store_io_with_f16_polyfill` load and store it through `sample_mask_element`, an
+  `OpAccessChain` to element 0. The WGSL side (`u32`) and every other varying are as
+  upstream.
+
+Why: on an Intel N150 (driver 32.0.101.7088, Vulkan) the game crashed in the driver's
+shader compiler (`igc64.dll`) while building `pbr_prepass_pipeline` with MSAA on (the
+default `--msaa 4`), 5 runs of 5 [observed]. Upstream naga's output fails `spirv-val` with
+VUID 04359 and the patched output passes [observed]; on the N150 the game then ran 60 s at
+`--msaa 4` with prepass coverage on, all 25 `pbr_prepass_pipeline` builds done
+[observed, 2026-11-13]. The coverage is worth keeping there: the opaque pass took 40.3 ms
+with it and 48.3 ms without, 1080p 4x MSAA [observed]. `nvf-assets/tests/sample_mask_spirv.rs`
+checks the declaration. The copy is the crates.io package as published; its own
+`.gitignore` lists `Cargo.lock`, which is kept here all the same, as for the other copies.
+Drop it when a naga release declares `SampleMask` as an array (gfx-rs/wgpu#7311 fixed).
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 

@@ -38,6 +38,74 @@ fn prepass_alpha_discard(material_flags: u32, alpha_cutoff: f32, output_color: v
     }
 }
 
+/// NVForever prepass coverage (2026-11-10, engine/vendor/README.md): what
+/// `prepass_sample_color_and_alpha_discard` tests, handed out untested, for a prepass
+/// fragment that turns the alpha into a sample mask (nvf-assets `coverage.wesl`).
+struct NvfPrepassColor {
+    color: vec4<f32>,
+    flags: u32,
+    alpha_cutoff: f32,
+}
+
+/// NVForever prepass coverage: the StandardMaterial's base color (including the base color
+/// texture, if any), its flags and its alpha cutoff, sampled exactly as
+/// `prepass_sample_color_and_alpha_discard` samples them.
+fn nvf_prepass_sample_color(in: VertexOutput) -> NvfPrepassColor {
+    var result: NvfPrepassColor;
+    result.color = vec4<f32>(1.0);
+    result.flags = 0u;
+    result.alpha_cutoff = 0.0;
+
+@if(MAY_DISCARD) {
+@if(BINDLESS) {
+    let slot = mesh[in.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+    var output_color: vec4<f32> = pbr_bindings::material_array[material_indices[slot].material].base_color;
+    let flags = pbr_bindings::material_array[material_indices[slot].material].flags;
+    let alpha_cutoff = pbr_bindings::material_array[material_indices[slot].material].alpha_cutoff;
+}
+@else {
+    var output_color: vec4<f32> = pbr_bindings::material.base_color;
+    let flags = pbr_bindings::material.flags;
+    let alpha_cutoff = pbr_bindings::material.alpha_cutoff;
+}
+
+@if(VERTEX_UVS) {
+@if(STANDARD_MATERIAL_BASE_COLOR_UV_B)
+    var uv = in.uv_b;
+@else   // STANDARD_MATERIAL_BASE_COLOR_UV_B
+    var uv = in.uv;
+
+@if(BINDLESS)
+    let uv_transform = pbr_bindings::material_array[material_indices[slot].material].uv_transform;
+@else
+    let uv_transform = pbr_bindings::material.uv_transform;
+
+    uv = (uv_transform * vec3(uv, 1.0)).xy;
+    if (flags & pbr_types::STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
+@if(BINDLESS)
+        let texture = bindless_textures_2d[material_indices[slot].base_color_texture];
+@else
+        let texture = pbr_bindings::base_color_texture;
+@if(BINDLESS)
+        let sampler_ = bindless_samplers_filtering[material_indices[slot].base_color_sampler];
+@else
+        let sampler_ = pbr_bindings::base_color_sampler;
+        output_color = output_color * textureSampleBias(
+            texture,
+            sampler_,
+            uv,
+            view.mip_bias
+        );
+    }
+}
+
+    result.color = output_color;
+    result.flags = flags;
+    result.alpha_cutoff = alpha_cutoff;
+}
+    return result;
+}
+
 /// Samples the StandardMaterial's base color (including the base color texture, if any) and then
 /// invokes `prepass_alpha_discard` with the material's flags and alpha cutoff.
 fn prepass_sample_color_and_alpha_discard(in: VertexOutput) {

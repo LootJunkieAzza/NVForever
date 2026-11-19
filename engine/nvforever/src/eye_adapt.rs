@@ -341,6 +341,32 @@ mod tests {
         assert_eq!(reference_ev(0.0), REFERENCE_EV);
     }
 
+    /// #2892: the exposure the meter's pass works out for an average (curve − average, as
+    /// its shader reads the curve) is the lift, and exactly none above the reference. With
+    /// Bevy's own byte table read one entry at a time it was a sawtooth between 0 and
+    /// about −0.15 EV there, so a noon picture came out darker by an amount that jumped
+    /// with the view.
+    #[test]
+    fn the_metered_exposure_is_the_lift_and_none_above_the_reference() {
+        for (target_lum, extra) in [(1.4, 0.0), (4.2, 0.0), (1.4, 1.0)] {
+            let c = curve(target_lum, extra);
+            let r = reference_ev(target_lum);
+            // One table entry is (6 − −16) / 255 EV wide; the corner at the reference is
+            // rounded within the entry it falls in.
+            let entry = (METER_HIGH - METER_LOW) / 255.0;
+            let mut avg = METER_LOW;
+            while avg <= METER_HIGH {
+                let exposure = c.compensation(avg) - avg;
+                let want = lift(avg, target_lum) + extra;
+                if avg >= r + entry {
+                    assert!((exposure - extra).abs() < 1e-4, "Target LUM {target_lum}: average {avg} above the reference is exposed by {exposure}");
+                }
+                assert!((exposure - want).abs() < 0.03, "Target LUM {target_lum}: average {avg}: {exposure}, want {want}");
+                avg += 0.013;
+            }
+        }
+    }
+
     #[test]
     fn speed_follows_eye_adapt_speed() {
         // 0.9 is the base image spaces' own value: the speed is ADAPT_SPEED (to f32 rounding).

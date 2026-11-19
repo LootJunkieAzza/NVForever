@@ -24,6 +24,9 @@
 //!   first saw it in this fight, with its weapon drawn, and a gun only facing it (within
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
+//!   a semi-automatic gun's shots are spaced by its attack clip in its own rig once known
+//!   (`attack_anims`, the player's rule: `fnv_combat::attack::npc_clip_timing`, #2739),
+//!   by 1 ÷ Attack Shots/Sec until then;
 //!   an automatic weapon's trigger is held for a burst and let go for a pause
 //!   (`fnv_combat::burst`: the V.A.T.S. burst's rounds, a 0.5–1.5 s pause scaled by the
 //!   style's semi-automatic delay multipliers; embedded weapons too, issue #1448), and
@@ -42,7 +45,11 @@
 //!   reloads, which would close the weapon after one. The same gun keeps its magazine
 //!   on a new target. Rounds come from nowhere: an NPC uses no ammunition from its
 //!   inventory [design: owner 2026-10-17, "they dont use ammo"]. Reloading before the
-//!   magazine is empty (in cover, out of sight) is not built.
+//!   magazine is empty (in cover, out of sight) is not built. A creature's embedded gun
+//!   has a magazine, and reloads so, once its rig is known to have the weapon's reload
+//!   clip; without one (the sentry bot's folder has none) it fires on without a magazine
+//!   (`fnv_combat::body_weapon::has_magazine` [design, #2739]; docs/spec-notes/
+//!   combat-rules.md §4.1).
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
@@ -134,6 +141,8 @@
 //!   fCombatFleeBoostConfidenceTargetRadius, its confidence goes up a level and it checks
 //!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
 //!   without a boost [hypothesis: what the wait time is for].
+//!   A child (its race's Child flag, `Game::never_fights`) flees at once, unhurt, and
+//!   never turns to fight again [owner decision 2026-11-13, #2438].
 //! - **Hiding at the flee spot** (docs/design/combat-ai.md §12.2.1): a person that has
 //!   reached its flee spot is crouched there by the rules (`Game::sneaks`,
 //!   `Game::at_flee_spot`: the crouched set, and the original's cower idle over it,
@@ -144,7 +153,8 @@
 //! - **Tactics** (`combat_tactics`): cover by the style's Take Cover Chance and timers,
 //!   flank places for a group's gunmen, no shot while a friend stands in the line of
 //!   fire, and a step back from a target nearer than [`tactics::BACK_OFF_WITHIN`]
-//!   [design].
+//!   [design]; a short-reach gun's step back ends short of where it stops closing in
+//!   ([`tactics::back_off_band`], #2351).
 //! - **Moving while it fights**: it stays facing its target and strafes or backs away
 //!   (nvforever `residents`, `Core::aims`), so it fires on the move.
 //!
@@ -844,7 +854,7 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
 /// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
 /// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
-fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+pub(crate) fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
     if !g.is_teammate(me) {
         return 1.0;
     }
@@ -1322,15 +1332,15 @@ pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize
 /// state (`in_combat`, `State::in_combat`) that is any such use, as before #2120. In one
 /// it is a package's only when the package continues during combat (#2120), and then
 /// only while the shooter acts on it this frame (`use_weapon::acts_on`: in place, its
-/// target standing among the drawn people, `target_standing`): a marker target, one not
-/// drawn, or an actor still on its way leaves the actor to the ordinary attacks, which
-/// would otherwise hold it in Combat with neither acting (#2145 review). So the shooter
-/// and the ordinary attacks do not take turns on one actor; once the use is spent and
+/// target having a drawn or placed aim point, `target_available`): a missing target
+/// position or an actor still on its way leaves ordinary attacks in charge (#2145,
+/// #2652). So the shooter and the ordinary attacks do not take turns on one actor;
+/// once the use is spent and
 /// landed, or let go, the fight takes the actor back. `shoot` and `fight` are not
 /// ordered, so in the frame a use begins or ends one of them may still act on the state
 /// the other has just left [design].
-fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, in_combat: bool, target_standing: bool, landing: bool) -> bool {
-    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || landing || active.is_some_and(|w| !in_combat || crate::use_weapon::acts_on(w, target_standing))
+fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, in_combat: bool, target_available: bool, landing: bool) -> bool {
+    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || landing || active.is_some_and(|w| !in_combat || crate::use_weapon::acts_on(w, target_available))
 }
 
 /// Whether an actor a weapon use holds the fight for keeps its fight's state (its
@@ -1363,8 +1373,8 @@ enum UseHold {
 }
 
 /// [`UseHold`] from [`weapon_use_holds_fight`] and [`keeps_fight`] (#2145 review).
-fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, state: State, target_standing: bool, landing: bool) -> UseHold {
-    if weapon_use_holds_fight(any, active, state.in_combat(), target_standing, landing) {
+fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, state: State, target_available: bool, landing: bool) -> UseHold {
+    if weapon_use_holds_fight(any, active, state.in_combat(), target_available, landing) {
         if keeps_fight(active, state == State::Combat) {
             UseHold::Kept
         } else {
@@ -1526,10 +1536,11 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
-    // Each actor's factions, read by every comrade and hostility check below, are kept
-    // for the frame (`Game::begin_faction_frame`).
-    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
+        // Each actor's factions, read by every comrade and hostility check below, are kept
+        // for the frame (`Game::begin_faction_frame`). Begun on the played world: it reads
+        // the clock there for crimes that expired (#2467).
+        rt.game.begin_faction_frame();
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
         for b in &blocked_blows {
@@ -1559,10 +1570,10 @@ pub(crate) fn fight(
             // A weapon use being carried out fires instead (`use_weapon`), while the
             // shooter acts on it (`weapon_use_holds_fight`).
             let landing = g.weapon_use(me).is_some_and(|w| shooters.as_deref().is_some_and(|s| s.landing(id, w.seq)));
-            let target_standing = g.weapon_use(me).is_some_and(|w| places.contains_key(&w.target.0));
-            match use_hold(g.weapon_use(me), g.active_weapon_use(me), g.awareness.state(me), target_standing, landing) {
+            let target_available = g.weapon_use(me).is_some_and(|w| places.contains_key(&w.target.0) || crate::use_weapon::target_place(g, me, w.target).is_some());
+            match use_hold(g.weapon_use(me), g.active_weapon_use(me), g.awareness.state(me), target_available, landing) {
                 // The hand-over goes back and forth as the use's target comes and goes
-                // among the drawn people: its fight is kept as it is meanwhile.
+                // among the available targets: its fight is kept as it is meanwhile.
                 UseHold::Kept => {
                     if let Some(x) = f.fighters.get_mut(&id) {
                         hold_for_use(x);
@@ -1606,7 +1617,8 @@ pub(crate) fn fight(
                 g.awareness.pace.remove(&me);
             }
             // What it fights with; its combat style may keep it to melee.
-            let style = g.combat_style(me);
+            let style_view = g.combat_style(me);
+            let style = style_view.as_deref();
             // Its Max Targeting FOV (§17.5): a new target outside it is not taken up.
             let new_target = f.fighters.get(&id).is_none_or(|x| x.target != target);
             if new_target && style.is_some_and(|s| fnv_game::combat_style::outside_targeting_fov(s, facing_off(global, feet, tfeet))) {
@@ -1617,6 +1629,9 @@ pub(crate) fn fight(
                 continue;
             }
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
+            // Ranged Only: "will always use ranged weapons as their primary weapon"
+            // [documented: GECK wiki Combat Style] (a creature's body arms: `body_weapons`).
+            let ranged_only = style.is_some_and(|s| s.weapon_restrictions == 2);
             // A creature with nothing in its hands fights with an embedded gun whose node its
             // skeleton has (WEAP NNAM; module notes).
             let held = weapons.get(&id).copied().or_else(|| rigs.get(&id).and_then(|rig| embedded_gun(c, &g.world, me, &rig.skel.names)));
@@ -1684,8 +1699,9 @@ pub(crate) fn fight(
                                 info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
                             }
                             let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
-                            // A body weapon has no magazine to change: it never reloads (§19).
-                            Cycle::new(ws, timing, ws.embedded, ws.clip_size.max(1))
+                            // A body weapon has no magazine until its creature's reload
+                            // clip for it is known (below; `body_weapon::has_magazine`, #2739).
+                            Cycle::new(ws, timing, !fnv_combat::body_weapon::has_magazine(ws.embedded, None), ws.clip_size.max(1))
                         })
                     }),
                     _ => None,
@@ -1824,9 +1840,11 @@ pub(crate) fn fight(
                         }
                     }
                 }
-                None if fighter.flee_check_in <= 0.0 => {
+                // A coward or a child checks at once, hurt or not (`Game::always_flees`,
+                // `Game::never_fights`, #2438).
+                None if fighter.flee_check_in <= 0.0 || g.always_flees(me) || g.never_fights(me) => {
                     fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
-                    if health < full {
+                    if health < full || g.always_flees(me) || g.never_fights(me) {
                         f.stats.flee_checks += 1;
                         let check = g.flee_check(me, fighter.confidence_mod);
                         if check.flees {
@@ -1837,14 +1855,20 @@ pub(crate) fn fight(
                             f.stats.flees += 1;
                             let side = battle.side_of(g, id);
                             battle.sides[side].flights += 1;
-                            let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
-                            info!(
-                                "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
-                                ratio.unwrap_or(0.0),
-                                check.threshold,
-                                check.rating,
-                                fighter.confidence_mod
-                            );
+                            // A coward the ratios alone would not send off says so.
+                            let by_ratio = check.personal || check.group_ratio.is_some_and(|r| fnv_game::combat_style::flees(r, check.threshold, fighter.confidence_mod));
+                            if check.rating <= 0 && !by_ratio {
+                                info!("npc combat: {me_name} flees from {target_name}: its confidence is Cowardly (health {health:.0} of {full:.0})");
+                            } else {
+                                let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
+                                info!(
+                                    "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
+                                    ratio.unwrap_or(0.0),
+                                    check.threshold,
+                                    check.rating,
+                                    fighter.confidence_mod
+                                );
+                            }
                         }
                     }
                 }
@@ -1884,6 +1908,13 @@ pub(crate) fn fight(
             let gun = match &arm {
                 Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| gun_reach_of(c, *w, ws, range_mult)),
                 _ => None,
+            };
+            // Its Min Range times the style's Ranged Weapon Min Range Mult, for a short-reach
+            // gun's step back (`combat_tactics::back_off_band`, #2351).
+            let min_mult = style.filter(|_| !fixed).map_or(1.0, |s| if s.range_mult.0 > 0.0 { s.range_mult.0 } else { 1.0 });
+            let min_range = match &arm {
+                Arm::Gun(w) => c.forms.weapons.get(w).map_or(0.0, |ws| ws.min_range.max(0.0) * min_mult),
+                _ => 0.0,
             };
             let reach = reach_of(c, &arm, scale);
             let gap = gap(id, target.0, tfeet);
@@ -2105,11 +2136,15 @@ pub(crate) fn fight(
                 }
                 // A step back from a target too near, before any cover or flank: it is on top of it.
                 {
-                    // A launcher keeps clear of its own blast (§16).
-                    let within = tactics::BACK_OFF_WITHIN.max(gun.map_or(0.0, |r| r.clearance()));
+                    // A launcher keeps clear of its own blast (§16); a short-reach gun ends
+                    // its step back short of where it stops closing in (#2351).
+                    let (within, until) = tactics::back_off_band(gun.map_or(0.0, |r| r.clearance()), gun.map(|_| want.0), min_range);
                     let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::BackOff);
-                    let near = away < if current.is_some() { within + tactics::BACK_OFF_SLACK } else { within };
-                    if near && !barred(t, PostKind::BackOff) && !strikes_near.contains(&id) {
+                    let near = away < if current.is_some() { until } else { within };
+                    // A creature with a melee arm strikes instead, unless its style is
+                    // Ranged Only (`body_weapons`: it takes up no melee arm then).
+                    let strikes = strikes_near.contains(&id) && !ranged_only;
+                    if near && !barred(t, PostKind::BackOff) && !strikes {
                         // On to the step it is taking; reached, another one.
                         let at = match current.filter(|p| (p.at[0] - feet[0]).hypot(p.at[1] - feet[1]) >= tactics::AT_POST) {
                             Some(p) => p.at,
@@ -2669,7 +2704,7 @@ pub(crate) fn fight(
                         Decision::Throw(throw) => {
                             if let Some(throw) = npc_grenades::commit(throw, |weapon| g.world.remove_item(me, weapon, 1)) {
                                 let gr = throw.grenade;
-                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false, always_hit: None });
+                                fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
                                 let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.free_count(gr.weapon));
                                 f.stats.grenades += 1;
@@ -2689,12 +2724,34 @@ pub(crate) fn fight(
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some((cycle, reload_timed)) = fighter.ranged.as_mut().and_then(RangedAttack::firearm_mut) else { continue };
                     // Its reload takes as long as its reload clips in its rig, once known
-                    // (between reloads, so one under way runs to its end).
+                    // (between reloads, so one under way runs to its end); a semi-automatic
+                    // gun's shots follow its attack clip there as the player's do (#2739:
+                    // `fnv_combat::attack::npc_clip_timing`).
                     if !*reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
-                        if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            let rate = teammate_attack_rate(g, me, Some(*w));
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
+                        if let Some((timed, timing)) = times.gun_timing(id, *w, ws, &c.tuning, || teammate_attack_rate(g, me, Some(*w))) {
+                            cycle.timing = timing;
                             *reload_timed = true;
+                            // A body gun gets its magazine with its reload clip: it reloads
+                            // as the people's guns do; without the clip it fires on without
+                            // one (`body_weapon::has_magazine`, #2739).
+                            let magazine = fnv_combat::body_weapon::has_magazine(ws.embedded, timed.reload_len);
+                            if ws.embedded {
+                                let pace = match timed.attack_len {
+                                    Some(len) => format!(
+                                        "fires every {:.2} s (its attack clip {len:.2} s{})",
+                                        cycle.timing.interval,
+                                        timed.next_attack.map_or(String::new(), |(t, _)| format!(", the next shot from its a: key at {t:.2} s"))
+                                    ),
+                                    None if ws.automatic => format!("fires every {:.2} s (its Fire Rate)", cycle.timing.interval),
+                                    None => format!("fires every {:.2} s (1 / Attack Shots/Sec: no attack clip in its rig)", cycle.timing.interval),
+                                };
+                                let mag = match timed.reload_len.filter(|_| magazine) {
+                                    Some(len) => format!("has a magazine of {} and reloads in {len:.2} s", cycle.clip_size),
+                                    None => "has no reload clip in its rig: no magazine".to_string(),
+                                };
+                                info!("npc combat: {me_name}'s body gun {} {pace}; {mag}", ws.edid.as_deref().unwrap_or("?"));
+                            }
+                            cycle.no_ammo = !magazine;
                         }
                     }
                     let reloading = cycle.reloading();
@@ -2826,7 +2883,7 @@ pub(crate) fn fight(
                                 let actor_spread = shot_spread(&c.rules, &c.tuning, ws, &st, g.gun_wobble_off(me));
                                 g.other.jg9.spreads.insert(me, actor_spread);
                                 let cone = spread::cone_deg(actor_spread, 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false, always_hit: None });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false, sure: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
                                 f.stats.shot_offs.push(off.to_degrees());
@@ -3376,13 +3433,13 @@ mod tests {
         assert!(weapon_use_holds_fight(Some(&package), Some(&package), false, false, false));
         assert!(weapon_use_holds_fight(Some(&there), Some(&there), false, false, false));
         // Its package continues during combat: the attacks are off only while the shooter
-        // acts on it, in place with its target standing among the drawn people.
+        // acts on it, in place with a drawn or placed aim point [design, #2652].
         assert!(weapon_use_holds_fight(Some(&there), Some(&there), true, true, false));
         // Not yet at its stand (on its way, or never got there): the actor fights.
         assert!(!weapon_use_holds_fight(Some(&package), Some(&package), true, true, false), "on its way to its stand");
-        // At its stand, a target that is no actor (a marker: the Ultra-Luxe torchers') or
-        // one not drawn: nothing for the shooter, the actor fights.
-        assert!(!weapon_use_holds_fight(Some(&there), Some(&there), true, false, false), "a marker or undrawn target");
+        // [design, #2652] At its stand without any drawn or placed aim point,
+        // nothing for the shooter: ordinary attacks take over.
+        assert!(!weapon_use_holds_fight(Some(&there), Some(&there), true, false, false), "no drawn or placed target position");
         // Spent (kept, done, until the package changes) or let go: the actor fights again,
         // but not while the last blow of a melee use is still to land.
         let spent = WeaponUse { done: true, ..there.clone() };
@@ -3823,6 +3880,52 @@ mod tests {
         assert_eq!(resume, 1800.0);
         // A blast wider than the reach: it stops at the edge of its reach.
         assert_eq!(gun_reach(1000.0, 1.0, 10_000.0, 1500.0).engage().0, 900.0);
+    }
+
+    /// #2351: a gun's step back (`combat_tactics::back_off_band`) ends no farther than where
+    /// it stops closing in (`GunReach::engage`), so it does not go back and forth between
+    /// the two; short-reach guns step back from nearer, by their Min Range.
+    #[test]
+    fn short_reach_guns_step_back_short_of_their_stop() {
+        let band = |r: &GunReach, min_range: f32| tactics::back_off_band(r.clearance(), Some(r.engage().0), min_range);
+        // The bloatfly's dart gun: Max Range 250, Min Range 100, BloatflyDart range 10,000,
+        // no explosion; CSBloatfly's range mults 1.0 (FalloutNV.esm Bloatfly1HP 0x00046BDD,
+        // 0x0004741A, 0x0004713F [documented: fnvtool esm decode]). It stops at 225 and
+        // steps back only from a target within its Min Range, to 164.
+        let dart = gun_reach(250.0, 1.0, 10_000.0, 0.0);
+        assert!((dart.engage().0 - 225.0).abs() < 1e-3);
+        let (within, until) = band(&dart, 100.0);
+        assert!((within - 100.0).abs() < 1e-3 && (until - 164.0).abs() < 1e-3);
+        // Without a Min Range: the stop less the slack, on to the stop.
+        let (within, until) = band(&dart, 0.0);
+        assert!((within - (225.0 - tactics::BACK_OFF_SLACK)).abs() < 1e-3 && (until - 225.0).abs() < 1e-3);
+        // A Min Range beyond the room left is held to it.
+        let (within, until) = band(&dart, 500.0);
+        assert!((within - (225.0 - tactics::BACK_OFF_SLACK)).abs() < 1e-3 && (until - 225.0).abs() < 1e-3);
+        // Guns whose stop leaves room keep the 256 / 320 band whatever their Min Range: the
+        // 10mm pistol (Max Range 768) and a rifle with Min Range 768 (§12.6).
+        let pistol = gun_reach(768.0, 1.0, 10_000.0, 0.0);
+        let keep = (tactics::BACK_OFF_WITHIN, tactics::BACK_OFF_WITHIN + tactics::BACK_OFF_SLACK);
+        assert_eq!(band(&pistol, 0.0), keep);
+        assert_eq!(band(&gun_reach(3000.0, 1.0, 10_000.0, 0.0), 768.0), keep);
+        // No reach in its data: the band, whatever its stop.
+        assert_eq!(tactics::back_off_band(0.0, None, 100.0), keep);
+        // Every reach, Min Range and blast: it steps back from nearer than it goes on to,
+        // never past its stop, and never nearer than its blast's clearance.
+        for reach in (20..4000).step_by(10) {
+            for min_range in [0.0, 50.0, 100.0, 300.0, 768.0] {
+                for blast in [0.0, 40.0, 200.0, 1000.0] {
+                    let g = gun_reach(reach as f32, 1.0, 10_000.0, blast);
+                    let (stop, _) = g.engage();
+                    let (within, until) = band(&g, min_range);
+                    assert!(within <= until, "reach {reach} min {min_range} blast {blast}: {within} > {until}");
+                    assert!(within >= g.clearance().min(stop) - 1e-3, "reach {reach} blast {blast}: within {within}");
+                    if g.clearance() <= stop {
+                        assert!(until <= stop + 1e-3, "reach {reach} min {min_range} blast {blast}: until {until} beyond stop {stop}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -16,9 +16,10 @@ use bevy_ecs::change_detection::Tick;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::{
     prelude::*,
+    schedule::ScheduleConfigs,
     system::{
         lifetimeless::{SRes, SResMut},
-        SystemParamItem, SystemState,
+        ScheduleSystem, SystemParamItem, SystemState,
     },
 };
 use bevy_material::{
@@ -427,6 +428,9 @@ impl Plugin for MaterialsPlugin {
 pub struct MaterialPlugin<M: Material> {
     /// Debugging flags that can optionally be set when constructing the renderer.
     pub debug_flags: RenderDebugFlags,
+    /// NVForever gated materials: see [`MaterialGate`]. `None` (the default) is upstream's
+    /// behaviour.
+    pub gate: Option<MaterialGate>,
     pub _marker: PhantomData<M>,
 }
 
@@ -434,9 +438,92 @@ impl<M: Material> Default for MaterialPlugin<M> {
     fn default() -> Self {
         Self {
             debug_flags: RenderDebugFlags::default(),
+            gate: None,
             _marker: Default::default(),
         }
     }
+}
+
+impl<M: Material> MaterialPlugin<M> {
+    /// NVForever gated materials: the material type's systems wait for `gate`.
+    pub fn gated(gate: MaterialGate) -> Self {
+        Self {
+            gate: Some(gate),
+            ..Default::default()
+        }
+    }
+}
+
+/// NVForever gated materials (nvforever `mesh_terrain_blend.rs`, #2661): a switch for a
+/// material type that most runs never draw. While it is closed the type's own systems do
+/// not run (main world: change marking and the specialization check; render world: its
+/// asset extraction and preparation, instance extraction and sweep, specialization
+/// extraction), its shaders are not loaded and its bind group allocator (with the
+/// bindless fallback buffers) does not exist. The asset type is still registered, so its
+/// asset store exists, empty. Opening it loads the shaders and makes the allocator at the
+/// next extraction, before anything of the type is extracted; closing it drops both
+/// there. The owner opens it before making the first asset or component of the type and
+/// closes it only after none has existed for a few frames (their removals extracted and
+/// unloaded); pipelines compiled while it was open stay in Bevy's pipeline cache, as every
+/// pipeline does. Without a gate the plugin does what upstream does.
+#[derive(Clone, Default, Debug)]
+pub struct MaterialGate(Arc<core::sync::atomic::AtomicBool>);
+
+impl MaterialGate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn is_open(&self) -> bool {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+    pub fn set_open(&self, open: bool) {
+        self.0.store(open, core::sync::atomic::Ordering::Release);
+    }
+    /// The shared flag, for other plugins gated with it.
+    pub fn flag(&self) -> Arc<core::sync::atomic::AtomicBool> {
+        self.0.clone()
+    }
+}
+
+/// NVForever gated materials: the render world's side of a [`MaterialGate`]; `ready` while
+/// the shaders and the allocator exist.
+#[derive(Resource)]
+struct GatedMaterial<M: Material> {
+    gate: MaterialGate,
+    ready: bool,
+    _marker: PhantomData<fn() -> M>,
+}
+
+fn gated_material_ready<M: Material>(gated: Res<GatedMaterial<M>>) -> bool {
+    gated.ready
+}
+
+fn gated_material_opening<M: Material>(gated: Res<GatedMaterial<M>>) -> bool {
+    gated.gate.is_open() && !gated.ready
+}
+
+fn gated_material_closing<M: Material>(gated: Res<GatedMaterial<M>>) -> bool {
+    !gated.gate.is_open() && gated.ready
+}
+
+/// What upstream does at startup, at the first extraction after the gate opens.
+fn open_gated_material<M: Material>(world: &mut World) {
+    let shaders = initialize_material_shaders::<M>(world);
+    world.insert_resource(MaterialShaders::<M>::with_shader_cache(shaders));
+    let render_device = world.resource::<RenderDevice>().clone();
+    world
+        .resource_mut::<MaterialBindGroupAllocators>()
+        .add::<M>(&render_device);
+    world.resource_mut::<GatedMaterial<M>>().ready = true;
+}
+
+/// The gate closed with nothing of the type left: the allocator and shader handles go.
+fn close_gated_material<M: Material>(world: &mut World) {
+    world
+        .resource_mut::<MaterialBindGroupAllocators>()
+        .remove(&TypeId::of::<M>());
+    world.insert_resource(MaterialShaders::<M>::default());
+    world.resource_mut::<GatedMaterial<M>>().ready = false;
 }
 
 impl<M: Material> Plugin for MaterialPlugin<M>
@@ -444,26 +531,76 @@ where
     M::Data: PartialEq + Eq + Hash + Clone,
 {
     fn build(&self, app: &mut App) {
+        // NVForever gated materials: with a gate, every system below waits for it.
+        let open = |configs: ScheduleConfigs<ScheduleSystem>| match &self.gate {
+            Some(gate) => {
+                let gate = gate.clone();
+                configs.run_if(move || gate.is_open())
+            }
+            None => configs,
+        };
+        let render_assets = match &self.gate {
+            Some(gate) => ErasedRenderAssetPlugin::<MeshMaterial3d<M>>::gated(gate.flag()),
+            None => ErasedRenderAssetPlugin::<MeshMaterial3d<M>>::default(),
+        };
         app.init_asset::<M>()
             .register_type::<MeshMaterial3d<M>>()
             .init_resource::<EntitiesNeedingSpecialization<M>>()
-            .add_plugins((ErasedRenderAssetPlugin::<MeshMaterial3d<M>>::default(),))
+            .add_plugins((render_assets,))
             .add_systems(
                 PostUpdate,
-                (
-                    mark_meshes_as_changed_if_their_materials_changed::<M>.ambiguous_with_all(),
-                    check_entities_needing_specialization::<M>.after(AssetEventSystems),
-                )
-                    .after(mark_3d_meshes_as_changed_if_their_assets_changed),
+                open(
+                    (
+                        mark_meshes_as_changed_if_their_materials_changed::<M>
+                            .ambiguous_with_all(),
+                        check_entities_needing_specialization::<M>.after(AssetEventSystems),
+                    )
+                        .after(mark_3d_meshes_as_changed_if_their_assets_changed)
+                        .into_configs(),
+                ),
             );
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            let shaders = initialize_material_shaders::<M>(render_app.world());
-            render_app
-                .insert_resource(MaterialShaders::<M>::with_shader_cache(shaders))
-                .add_systems(RenderStartup, add_material_bind_group_allocator::<M>)
-                .add_systems(
-                    ExtractSchedule,
+            match &self.gate {
+                None => {
+                    let shaders = initialize_material_shaders::<M>(render_app.world());
+                    render_app
+                        .insert_resource(MaterialShaders::<M>::with_shader_cache(shaders))
+                        .add_systems(RenderStartup, add_material_bind_group_allocator::<M>);
+                }
+                Some(gate) => {
+                    render_app
+                        .insert_resource(MaterialShaders::<M>::default())
+                        .insert_resource(GatedMaterial::<M> {
+                            gate: gate.clone(),
+                            ready: false,
+                            _marker: PhantomData,
+                        })
+                        // A device recovery while open makes the allocator again, as
+                        // upstream's startup system does.
+                        .add_systems(
+                            RenderStartup,
+                            add_material_bind_group_allocator::<M>
+                                .run_if(gated_material_ready::<M>),
+                        )
+                        .add_systems(
+                            ExtractSchedule,
+                            (
+                                open_gated_material::<M>.run_if(gated_material_opening::<M>),
+                                close_gated_material::<M>.run_if(gated_material_closing::<M>),
+                            )
+                                .before(MaterialExtractionSystems)
+                                .before(
+                                    bevy_render::erased_render_asset::AssetExtractionSystems,
+                                )
+                                .before(DirtySpecializationSystems::CheckForChanges)
+                                .before(DirtySpecializationSystems::CheckForRemovals),
+                        );
+                }
+            }
+            render_app.add_systems(
+                ExtractSchedule,
+                open(
                     (
                         extract_mesh_materials::<M>.in_set(MaterialExtractionSystems),
                         early_sweep_material_instances::<M>
@@ -473,8 +610,10 @@ where
                             .in_set(DirtySpecializationSystems::CheckForChanges),
                         extract_entities_that_need_specializations_removed::<M>
                             .in_set(DirtySpecializationSystems::CheckForRemovals),
-                    ),
-                );
+                    )
+                        .into_configs(),
+                ),
+            );
         }
     }
 }
@@ -1184,6 +1323,8 @@ pub(crate) fn specialize_material_meshes(
         .retain(|view, _| all_views.contains(view));
 }
 
+// NVForever material queue probe (#1803, engine/vendor/README.md): this resource and its
+// two uses in `queue_material_meshes` are NVForever's patch.
 /// Optional observation of selected main-pass entries, retained just like the phases.
 /// [design: nvforever/pipboy_ready.rs, #1803] No resource is installed by Bevy itself.
 #[derive(Resource, Default)]
@@ -1216,6 +1357,7 @@ pub fn queue_material_meshes(
     )>,
     specialized_material_pipeline_cache: ResMut<SpecializedMaterialPipelineCache>,
     dirty_specializations: Res<DirtySpecializations>,
+    // NVForever material queue probe: the scratch space shares its parameter with the probe.
     (mut mesh_instances_queued_this_iteration_scratch_space, mut probe): (
         Local<MainEntityHashSet>, Option<ResMut<MaterialQueueProbe>>,
     ),
@@ -1250,6 +1392,7 @@ pub fn queue_material_meshes(
         for &main_entity in dirty_specializations
             .iter_to_dequeue(view.retained_view_entity, render_visible_mesh_entities)
         {
+            // NVForever material queue probe: a dequeued entry is no longer queued.
             if let Some(probe) = probe.as_mut() {
                 if let Some(queued) = probe.queued.get_mut(&view.retained_view_entity) {
                     queued.remove(&main_entity);
@@ -1470,6 +1613,7 @@ pub fn queue_material_meshes(
                     });
                 }
             }
+            // NVForever material queue probe: a watched entry is recorded as queued.
             if let Some(probe) = probe.as_mut() {
                 if probe.watched.contains(visible_entity) {
                     probe.queued.entry(view.retained_view_entity).or_default().insert(

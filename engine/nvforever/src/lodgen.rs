@@ -651,14 +651,16 @@ impl BakerShared {
     }
 }
 
-/// Run the calling thread only when no other thread wants its core.
-fn lowest_thread_priority() {
+/// Run the calling thread only when no other thread wants its core (also the sun
+/// heightfield's loader, sun_heightfield.rs).
+pub(crate) fn lowest_thread_priority() {
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST};
         // SAFETY: GetCurrentThread returns a pseudo-handle for this thread; no memory is shared.
         if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST) } == 0 {
-            warn!("generated LOD: cannot lower the bake thread's priority");
+            let name = std::thread::current().name().unwrap_or("unnamed").to_string();
+            warn!("background thread {name}: cannot lower its priority");
         }
     }
 }

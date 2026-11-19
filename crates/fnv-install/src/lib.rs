@@ -434,7 +434,7 @@ struct LegacyConfig {
     game_dir: Option<PathBuf>,
 }
 
-const INI_HEADER: &str = "; NVForever settings. Path is your Fallout: New Vegas folder (the one holding Data);\n; change it here, or delete this file to be asked again at the next start.\n";
+const INI_HEADER: &str = "; NVForever settings. Path is your Fallout: New Vegas folder (the one holding Data);\n; change it here, or delete this file to be asked again at the next start.\n; [design, #2215] Pip-Boy pages use their menu files by default.\n; To use hand-built Pip-Boy pages, add a [UI] section with an empty TileMenus= line.\n";
 
 impl Config {
     /// The INI, else the `nvforever.json` of an earlier build in the same folder, else
@@ -488,7 +488,7 @@ impl Config {
 /// flushed, then renamed over the old one. A crash or a full disk mid-write leaves the
 /// old file, not a cut one (a cut plugins.txt would come back with the lost plugins
 /// switched off, #1982). The caller has passed `path` through [`guard_write`].
-pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
+pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
     use std::io::Write;
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
@@ -515,6 +515,24 @@ fn ini_pair(line: &str) -> Option<(&str, &str)> {
         return None;
     }
     t.split_once('=').map(|(k, v)| (k.trim(), v.trim()))
+}
+
+/// Every `key=value` line of `[section]` (the section's name compared without case), in
+/// file order, comments left out; a key given twice is listed twice. The launcher lists
+/// the `[Settings]` rows with it.
+pub fn ini_pairs(text: &str, section: &str) -> Vec<(String, String)> {
+    let mut in_section = false;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(s) = ini_section(line) {
+            in_section = s.eq_ignore_ascii_case(section);
+        } else if in_section {
+            if let Some((k, v)) = ini_pair(line) {
+                out.push((k.to_string(), v.to_string()));
+            }
+        }
+    }
+    out
 }
 
 /// The value of `key` in `[section]` (names compared without case); the first one wins.
@@ -818,6 +836,39 @@ mod tests {
         assert_eq!(plain(Path::new(r"\\?\UNC\srv\share\FNV")), PathBuf::from(r"\\srv\share\FNV"));
         assert_eq!(plain(Path::new(r"\\?\Volume{x}\FNV")), PathBuf::from(r"\\?\Volume{x}\FNV"));
         assert_eq!(plain(Path::new("/home/x")), PathBuf::from("/home/x"));
+    }
+
+    #[test]
+    fn ini_keeps_missing_and_empty_tile_menu_lists_distinct() {
+        for (text, expected) in [
+            ("", None),
+            ("[UI]\n;TileMenus=MapMenu\n", None),
+            ("[UI]\nTileMenus=\n", Some("")),
+            ("[ui]\ntilemenus =   \n", Some("")),
+            ("[UI]\nTileMenus=MapMenu,StatsMenu\n", Some("MapMenu,StatsMenu")),
+        ] {
+            assert_eq!(ini_get(text, "UI", "TileMenus").as_deref(), expected);
+            let saved = Config::default().to_ini(text);
+            assert_eq!(ini_get(&saved, "UI", "TileMenus").as_deref(), expected);
+        }
+        let new = Config::default().to_ini("");
+        assert!(new.contains("add a [UI] section with an empty TileMenus= line"));
+    }
+
+    #[test]
+    fn ini_pairs_lists_one_section() {
+        let t = "[Game]
+Path=X
+
+[settings]
+; c
+a=1
+ b = 0.50 
+[Other]
+c=2
+";
+        assert_eq!(ini_pairs(t, "Settings"), vec![("a".to_string(), "1".to_string()), ("b".to_string(), "0.50".to_string())]);
+        assert!(ini_pairs(t, "None").is_empty());
     }
 
     #[test]

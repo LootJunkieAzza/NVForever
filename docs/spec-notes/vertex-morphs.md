@@ -68,35 +68,36 @@ as far as the data shows [hypothesis]. Placed morphing models in WastelandNV
 
 ## 3. What NVForever plays (`nvf-assets` `model::shape_morphs`, `morph.rs`)
 
-Taken when a model is prepared, per shape:
+[design, #2685; engine/nvf-assets/src/model.rs::shape_morphs,
+morph.rs::SequenceMorph::bind] Relative targets with at least two morphs and matching
+vertex counts are retained when their weights change over their span. Free controllers
+(Active, not manager controlled) retain the shared world clock. A free CLAMP controller
+is retained only when its weights return to their start; those play looping
+[hypothesis: the flag cycles are intended to repeat].
 
-1. an own controller (Active, not manager controlled), or a manager-controlled one fed
-   by the file's `Idle` (else `SpecialIdle`) sequence, its timing then the sequence's
-   (start, stop, frequency, cycle type);
-2. relative targets, at least two morphs, every morph with the shape's vertex count, and
-   a weight that changes over the span;
-3. clamped controllers only when every weight ends where it started (the NCR, Nevada and
-   Followers flags: they are played looping) [hypothesis: those are cycles meant to
-   repeat; a world object's clamped controller on the game clock would have ended before
-   anyone sees it]. Other clamped ones (the tripwire's snap, the dart gun's band, the
-   vault chamber's 66.7 s shock) are left for whatever starts them.
+[design, #2685; model.rs::Rig::spawn_playing, morph.rs::play_sequence_morphs]
+Manager-controlled morphs bind every named sequence that targets the shape and its
+morph frame names, including `Forward` and non-repeating CLAMPs. Morph-only groups
+also receive a rig. On its first active sample each rig shape clones its readable
+source mesh. Positions follow the active `Playing::sequence_time`, with no second
+frequency or phase conversion. Thus two references may play independently, and a
+held or restored CLAMP endpoint retains its final geometry alongside alpha/UV.
+A sequence not driving the morph leaves the previous geometry in place.
 
-The shape's mesh is kept readable in the main world (`RenderAssetUsages::all()`), and
-`morph::play_vertex_morphs` rewrites its positions whenever the weights at the game's
-clock (`Time::elapsed_secs`, paused with the game) differ from the last ones written;
-Bevy then recomputes the mesh's bounds. Normals are left as stored (morpher flags 0
-everywhere). A skinned shape (the NCR-style flags) morphs its rig copy too, before
-skinning.
-
-Every placed copy of a model shares the mesh, so they wave in step [hypothesis: in the
-original a controller runs on the application clock unless something sets its phase;
-not compared in a capture]. Log lines: `<model> <shape>: vertex morphs, N morph(s) over a
-S s cycle (own controller | idle sequence)` when read, `vertex morphs: <model> <shape>
-running (…)` the first time its weights change (smoke `vertex-morphs`).
+[design; morph.rs::play_vertex_morphs] Free morphs still rewrite their shared readable
+meshes on the game's `Time::elapsed_secs` clock when weights change; skinned free
+morphs update both prepared copies. Normals remain stored. The existing
+`vertex morphs: <model> <shape> running (...)` log covers free playback.
+[design, #2685; morph.rs::play_sequence_morphs] Manager morphs log
+`vertex morphs: <source> <shape> plays <sequence> on rig clock` after writing a
+sample, once per sequence per instance. Smoke `house-chamber-fx` requires this
+write-path log for `GroundFog:0` and `Forward`, alongside the sequence-start log.
+[documented: issue #2685 main-session decode, 2026-11-15] The chamber fog's
+`GroundFogM1` is a morph in `Forward` (CLAMP, 0..52.33 seconds).
 
 ## 4. Left open
 
-- Morphs a script or a non-idle sequence starts (the tripwire, the Pitt press, the
-  B-29's rise, Harold's heart, the explosion splash) and the 1st-person `.kf` morphs.
+- [design: morph.rs, model.rs] Autonomous non-repeating CLAMP controllers without a
+  manager sequence, absolute morph targets, and external 1st-person `.kf` morphs.
 - Whether the original's flags are out of step with each other (per-reference phase).
 - Updating normals (no base-game file asks for it).

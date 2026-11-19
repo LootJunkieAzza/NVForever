@@ -27,10 +27,11 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
 | — | `fancy-regex` 0.14 (MIT) | JIP's Sv_RegexMatch/Search/Replace and ValidateRegex in fnv-script (jip-strings.md §1): ECMAScript-style patterns need back-references, which the `regex` crate lacks |
 | — | `toml` 1 (MIT/Apache-2.0), `parse` + `serde` only, the version the engine already has through Bevy | fnv-util `words` (#1443): the language files of NVForever's own words (`lang/<id>.toml`) |
-| — | `chrono` 0.4 (MIT/Apache-2.0), `clock` only | xNVSE GetUserTime in fnv-game (the computer's local time); the standard library has no time zones |
+| — | `jiff` 1 (Unlicense OR MIT) | xNVSE GetUserTime, GetTimeStamp, GetFileTime and GetFileTimeSTR in fnv-game (the computer's local time); the standard library has no time zones |
 | — | `png` 0.18 (MIT/Apache-2.0), the version the engine already builds, and `qrcodegen` 1.8 (MIT) | fnv-game `image_files.rs` (#1008, SUP batch 5): CaptureScreenshot's PNG files and TextToQRCode's code (ext-sup5.md) |
 | — | `wgpu` 30 (`vulkan`) + `ash` 0.38, MIT/Apache-2.0, the versions Bevy already uses | nvforever `memory_budget.rs` (#1170): the GPU's `VK_EXT_memory_budget` through wgpu's Vulkan device (`Device::as_hal`); no wgpu patch |
 | — | `tracy-client` 0.19 (MIT/Apache-2.0; its `tracy-client-sys` 0.30.1 carries the Tracy 0.14.1 C++ client, BSD-3-Clause) with `tracing-tracy` 0.12 (MIT/Apache-2.0), through Bevy's `trace_tracy`, the versions Bevy 0.20.1 pins | optional, only in the engine's `tracy`/`tracy-memory` build features (#1329): Bevy's spans sent live to the Tracy profiler; built `ondemand` + `only-localhost`; never in release or CI builds (frame-rate-audit.md §1) |
+| — | `eframe`/`egui` 0.37 (glow, no accesskit), `egui_extras`, `egui_commonmark` 0.26, `image` 0.25, `ureq` 3 (native TLS), `rfd` 0.15 (Windows), all MIT/Apache-2.0; egui's fonts OFL-1.1 / Ubuntu Font Licence (deny.toml exception for `epaint_default_fonts` only) | `nvf-launcher` (#2708, docs/design/launcher.md): the launcher window, its news and the newest save's picture |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 
@@ -46,9 +47,11 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 3 | temporal upscaling (FSR 3.1) | **chosen (2026-11-05)**: `wgpu-ffx` 0.1.0 and `wgpu-ffx-shaders-spv` 0.1.0 (MIT; the FidelityFX SDK 1.1.4 FSR 3.1.4 shaders as SPIR-V). Not on crates.io, so vendored at commit `6fe7064` with the FSR 3.1 shader sources and the compile tool (the SDK's other effects left out), and moved to wgpu 30 (engine/vendor/README.md). It turns on wgpu's `spirv` and `wgsl` and brings `pollster` 0.4 (MIT/Apache-2.0) and `termcolor` 1.4 (Unlicense/MIT, through naga's `codespan-reporting`). No AMD DLL; Vulkan only ([fsr-upscaling](fsr-upscaling.md)) |
 | 3 | scaled main passes (FSR) | `bevy_pbr` 0.20.1 patched (MIT/Apache-2.0, engine/vendor/README.md): the transmission pass and the clustered lights follow `MainPassResolutionOverride` |
 | 3 | frame generation (FSR 3.1) | **chosen (2026-11-07)**: no new crate. The vendored `wgpu-ffx` gains optical flow and frame interpolation, ported from FidelityFX SDK 1.1.4's MIT host code, with the SDK's MIT GLSL compiled to SPIR-V in `wgpu-ffx-shaders-spv` (engine/vendor/README.md). Not used: AMD's FSR SDK 2.x DLLs (binary-only licence) and its frame-generation swapchain; the frames are presented through Bevy's own window surface ([frame-generation](frame-generation.md)) |
+| 3 | temporal upscaling (NVIDIA DLSS, #2198) | **chosen (2026-11-12)**: no new crate. NVIDIA Streamline 2.14.16 is not linked: the player supplies its DLLs and NVIDIA's DLSS (`<program folder>\dlss\`), loaded at run time on Windows and only when DLSS is chosen at start; NVForever ships no NVIDIA file. The few declarations called are translated from Streamline's MIT headers (`engine/nvforever/src/dlss/ffi.rs`, `security.rs`; notice in `dlss/LICENSE-MIT`, carried into the releases' `THIRD-PARTY-LICENSES.txt` by `tools/release/third_party_licenses.py`). `windows-sys` 0.61 (already in the build) gains its `Win32_System_LibraryLoader`, `Win32_Security_WinTrust` and `Win32_Security_Cryptography` features; `ash` 0.38 (as above) reads the GPUs on a probe instance; the vendored `bevy_render` makes the Vulkan instance from the interposer (`RawVulkanInitSettings::set_vulkan_library`, engine/vendor/README.md). Not used: Bevy's own DLSS (`dlss_wgpu` links NVIDIA's NGX SDK statically, which NVIDIA's licence does not allow in an open-source program) ([dlss-upscaling](dlss-upscaling.md)) |
 | 3 | latency reduction (AMD Anti-Lag) | **chosen (2026-11-06)**: no new crate. Bevy's `raw_vulkan_init` feature (bevy_render 0.20.1) adds `VK_AMD_anti_lag` at device creation; the calls are written against the Vulkan registry, as ash 0.38 predates the extension ([latency-reduction](latency-reduction.md)) |
+| 3 | latency reduction (NVIDIA low latency) | **chosen (2026-11-12)**: no new crate. `VK_NV_low_latency2` from the public Vulkan registry through `ash` 0.38, which has its structures and calls; NVIDIA's Streamline, Reflex SDK and NvAPI are not used (proprietary). `wgpu-hal` 30.0.1 patched (MIT/Apache-2.0, engine/vendor/README.md): the swapchain is created with `VkSwapchainLatencyCreateInfoNV` on a device that has the extension ([latency-reduction](latency-reduction.md)) |
 | 3 | first Pip-Boy readiness (#1803) | `bevy_pbr` 0.20.1 patched (engine/vendor/README.md): the optional `MaterialQueueProbe` records watched main-pass entries for the rig's readiness check; nothing changes without it |
-| 4 | physics / character controller | **chosen**: `rapier3d` 0.36 with `enhanced-determinism` (pure Rust, Apache-2.0, no Bevy coupling; Jolt bindings rejected for the C++ build and FFI, `avian3d` for its Bevy coupling; layer4.md §2.8). Used by `fnv-phys`, which runs rapier in metres internally and exposes game units, and directly by the game's `nvforever` crate for the Caravan pot falling onto the table (`engine/nvforever/src/caravan_pot.rs`, its own small world in metres, same pin); terrain as triangle meshes (rapier's heightfield missed rays along grid lines). Pinned to `=0.36.0` (traces are compared bit for bit; licence Apache-2.0, its new dependencies `glamx`/`glam`/`parry3d` MIT/Apache-2.0, within deny.toml). docs/spec-notes/physics.md |
+| 4 | physics / character controller | **chosen**: `rapier3d` 0.36 with `enhanced-determinism` (pure Rust, Apache-2.0, no Bevy coupling; Jolt bindings rejected for the C++ build and FFI, `avian3d` for its Bevy coupling; layer4.md §2.8). Used by `fnv-phys` only, which runs rapier in metres internally and exposes game units; terrain as triangle meshes (rapier's heightfield missed rays along grid lines). Pinned to `=0.36.1` (0.36.0 until the physics rate work, #2358; traces are compared bit for bit; licence Apache-2.0, its new dependencies `glamx`/`glam`/`parry3d` MIT/Apache-2.0, within deny.toml). docs/spec-notes/physics.md |
 | 4 | entity model | **decided**: plain ordered maps in `fnv-sim`, no ECS in the core (layer4.md §2.2); `rand_chacha` for the seeded, reproducible RNG |
 | 5 | script runtime | in-house bytecode interpreter (no off-the-shelf fit) |
 | 7 | audio decode / playback | `symphonia` (WAV/MP3/OGG), `kira` or `cpal`. **Dialogue voice (2026-10-10)**: no new dependency. Playback uses Bevy's own audio (`bevy_audio`, already built by Bevy's default features: `rodio` with `lewton` for Ogg Vorbis; WAV, MP3 and FLAC decoding are not enabled and not needed, every voice line has an `.ogg`). File lengths come from `crates/fnv-voice`'s own header readers (Ogg pages and the Vorbis identification header, RIFF chunks), so the headless tools need no audio crate (docs/spec-notes/voice.md §5). **Music and ambient sound (2026-10-11)**: `nvf-play` depends on `rodio` 0.22 directly, the version Bevy's audio is built on (no second copy), with its `mp3`, `vorbis` and `wav` features; these bring in `symphonia` (MPL-2.0, already allowed in `deny.toml`). Music files are MP3 and many ambient sounds Ogg Vorbis; they are decoded while they play by a source of our own that mixes a media set's three layers (docs/spec-notes/audio.md §7) |
@@ -63,13 +66,34 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 placeholder): dependencies may be permissive or GPL-3.0-compatible copyleft. Most are
 MIT/Apache-2.0 or similar, one MPL-2.0 (`option-ext`, via `directories`), and the intro
 film's decoder (`infinitier_bik_decoder`, `infinitier_datasource`) GPL-3.0-or-later.
-`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories; CI runs
-it on every push to main.
+`cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories, for the
+root workspace and, with `--manifest-path engine/Cargo.toml`, the engine workspace (the
+game binary, its own lock) against the same `deny.toml`; CI runs both (#1998). The engine
+adds BSD-2-Clause (`arrayref`), MIT-0 (`encase`) and ISC (`libloading`, `inotify`) to
+the allow-list. One advisory is ignored with its reason: RUSTSEC-2026-0192, `ttf-parser`
+unmaintained, which comes only through winit's Linux window decorations in Bevy 0.20
+(no upgrade available; look again at the next Bevy upgrade).
 
 ## CI
 
-`.github/workflows/ci.yml`: one Linux job, run on pushes to main (and manually), that does
-`cargo deny`, tests and clippy (`-D warnings`) for both workspaces and the Python lab/capture
-self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
-minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
-`parity-lab/ci/github-actions.yml` (self-hosted runner only).
+`.github/workflows/ci.yml` (read 2026-11-12): one Linux job, so branch protection has a
+single check to require. It runs on every pull request, on pushes to main that change more
+than docs (`docs/` and `*.md`), and by hand. In order: `cargo deny` (licences, advisories,
+bans, sources) for the root workspace; the root workspace's tests and clippy (`--release
+--locked`, `-D warnings`); the Python self-tests of the parity lab, the capture tools, the
+smoke runner, the stress tool and the profile campaign; the engine workspace's tests and
+clippy. A pull request that changes only docs skips those steps and passes at once; a newer
+push to the same branch or pull request cancels the run still in progress. The repository
+is public, so runner minutes are free. Windows and macOS are not run in CI; the local
+checks in CLAUDE.md cover them before each push. The parity job that needs game data
+stays in `parity-lab/ci/github-actions.yml`, a template for a self-hosted runner only.
+
+
+## Optional Linux GPU usage (#2249)
+
+[design, #2249: `engine/nvforever/Cargo.toml`, `perf_overlay/nvml.rs`]
+`nvforever` directly uses `libloading` 0.8.9 on Linux only, reusing the exact version
+already in `engine/Cargo.lock` through the graphics stack. This avoids another crate
+and hand-written loader bindings. NVML remains optional at run time; no NVIDIA SDK
+or link-time NVIDIA library is required. The library stays loaded through all calls
+and a matching `nvmlShutdown`, including initialization paths with no readable devices.

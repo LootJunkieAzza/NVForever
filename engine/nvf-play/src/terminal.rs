@@ -21,7 +21,10 @@
 //!
 //! Keys (hacking.md §7): in the hacking game the arrows (or W A S D) move the cursor a
 //! character or a row, over a word at once; Enter or E enters what is under it; the
-//! pointer moves it and a click enters. In the menu Up / Down choose, Enter or E
+//! pointer moves it and a click enters. The cursor follows the pointer at once, but its
+//! hover sound (`UiEvent::Focus`) is asked for at most once every [`HOVER_SOUND_GAP`] of
+//! real time (a sound whose file is still being read can start later); the moves in
+//! between are silent and their sounds are dropped, not played later (#2216) [design]. A key's move always sounds. In the menu Up / Down choose, Enter or E
 //! (or a click) takes the item. Tab or Backspace go back: from a note to the list, from a
 //! sub menu to its parent, else out of the terminal; Esc leaves at once. [hypothesis: the
 //! original's PC keys beyond Tab are not captured]
@@ -40,8 +43,11 @@
 //! that for terminals, `wrong` enters a word that is not the password, `right` the
 //! password, `brackets` the first bracket pair left, `symbol` a lone symbol,
 //! `item:<n>` takes the n-th listed item (from 0), `back` and `exit` as Tab and Esc,
-//! `power` clicks the monitor's power button.
-//! At exit, when a terminal was opened: "terminal summary: …".
+//! `power` clicks the monitor's power button, `point:<index>` puts the hacking cursor on
+//! dump character `index` as the pointer does (`TerminalInput::Point`).
+//! At exit, when a terminal was opened: "terminal summary: …"; when the pointer moved the
+//! hacking cursor: "terminal hover: P changed points, F focus sounds, S suppressed" (the
+//! pointer's moves onto another character, or showing it, and how many of them sounded).
 
 pub mod screen;
 
@@ -63,6 +69,7 @@ use fnv_sim::FormId;
 use nvf_assets::GameData;
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
+use std::time::Duration;
 
 /// The menu codes scripts see [documented: GECK wiki GetMenuTargetRef].
 pub const MENU_HACKING: u16 = 1055;
@@ -73,6 +80,11 @@ pub const MENU_TERMINAL: u16 = 1057;
 /// screen [design].
 pub const GRANTED_SECONDS: f32 = 2.0;
 pub const LOCKED_SECONDS: f32 = 1.5;
+
+/// The pointer's hover sound in the hacking game is asked for at most this often (real time):
+/// the hover record's file is a click 66.6 ms long (issue #2216), so this is that rounded
+/// up, whatever the frame rate [design]. Keys and the menu's rows are not held to it.
+pub const HOVER_SOUND_GAP: Duration = Duration::from_millis(70);
 
 /// The game's word list [observed: `Fallout - Misc.bsa`].
 pub const DICTIONARY: &str = "menus\\falloutdict.txt";
@@ -170,6 +182,27 @@ pub struct Words(pub Dictionary);
 #[derive(Resource, Default)]
 pub struct TerminalScreen(pub Option<Session>);
 
+/// [design, #2403] Synthetic hacking states for reports integration tests only.
+#[cfg(feature = "report-test-support")]
+#[doc(hidden)]
+pub fn report_progress_fixture(step: usize) -> TerminalScreen {
+    let dict = Dictionary::parse("AAAA\nAAAB\nAABA\nABAA\nBAAA\n");
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+    let mut h = Hacking::new(Puzzle::new(&dict, fnv_game::hacking::Difficulty::VeryEasy, 2, &mut rng).unwrap(), 0);
+    if step >= 1 {
+        h.cursor = 1;
+    }
+    if step >= 2 {
+        h.puzzle.attempts -= 1;
+        h.puzzle.log.push("Synthetic attempt".into());
+    }
+    if step >= 3 {
+        h.ended = Some(step as f32);
+        h.last_hover_focus = Some(Duration::from_secs(step as u64));
+    }
+    TerminalScreen(Some(Session { reference: FormId(41), base: FormId(42), page: Page::Hacking(h) }))
+}
+
 pub struct Session {
     pub reference: FormId,
     pub base: FormId,
@@ -192,6 +225,82 @@ pub struct Hacking {
     pub hidden: bool,
     /// When the game ended (aid clock seconds): won or locked out.
     pub ended: Option<f32>,
+    /// When the pointer's last hover sound started (real time, `Time<Real>`): the next
+    /// waits [`HOVER_SOUND_GAP`]. The pointer leaving the dump does not clear it, so going
+    /// off and on again does not skip the wait; a new game starts without one.
+    pub last_hover_focus: Option<Duration>,
+}
+
+impl Hacking {
+    pub fn new(puzzle: Puzzle, cursor: usize) -> Self {
+        Hacking { puzzle, cursor, hidden: true, ended: None, last_hover_focus: None }
+    }
+}
+
+/// What an input did to the hacking game's cursor ([`cursor_step`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorStep {
+    /// Enter the dump character at this index.
+    Pick(usize),
+    /// Nothing entered; the cursor's focus sound.
+    Moved(Focus),
+}
+
+/// The focus sound of a cursor input that entered nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    /// The cursor stayed where it was, or went out of sight: no sound.
+    Silent,
+    /// It moved onto another character, or showed again: the sound.
+    Sound,
+    /// The pointer moved it within [`HOVER_SOUND_GAP`] of the last hover sound: no sound,
+    /// and none later.
+    Suppressed,
+}
+
+/// Apply a cursor input to the hacking game at real time `now`: where the cursor goes,
+/// what is to be entered, and whether its move sounds. A pointer's move (`Point`) sounds
+/// at most once every [`HOVER_SOUND_GAP`] (#2216) [design]; a key's (`Step`) always.
+fn cursor_step(h: &mut Hacking, cmd: TerminalInput, now: Duration) -> CursorStep {
+    let (cursor_was, hidden_was) = (h.cursor, h.hidden);
+    let pick = match cmd {
+        TerminalInput::Point(i) => {
+            (h.cursor, h.hidden) = (i, false);
+            None
+        }
+        TerminalInput::Unpoint => {
+            h.hidden = true;
+            None
+        }
+        // The first key shows the cursor where it is.
+        TerminalInput::Step(dx, dy) => {
+            if !h.hidden {
+                h.cursor = step_cursor(&h.puzzle, h.cursor, dx, dy);
+            }
+            h.hidden = false;
+            None
+        }
+        TerminalInput::Select if h.hidden => None,
+        TerminalInput::Select => Some(h.cursor),
+        TerminalInput::Aid(a) => aid_pick(&h.puzzle, a),
+        _ => None,
+    };
+    if let Some(at) = pick {
+        (h.cursor, h.hidden) = (at, false);
+        return CursorStep::Pick(at);
+    }
+    // Sound only when the cursor moved onto another character (or showed again).
+    if h.hidden || (h.cursor == cursor_was && !hidden_was) {
+        return CursorStep::Moved(Focus::Silent);
+    }
+    if !matches!(cmd, TerminalInput::Point(_)) {
+        return CursorStep::Moved(Focus::Sound);
+    }
+    if h.last_hover_focus.is_some_and(|last| now.saturating_sub(last) < HOVER_SOUND_GAP) {
+        return CursorStep::Moved(Focus::Suppressed);
+    }
+    h.last_hover_focus = Some(now);
+    CursorStep::Moved(Focus::Sound)
 }
 
 pub struct MenuView {
@@ -217,6 +326,54 @@ pub struct MenuView {
     pub server: u8,
     pub welcome: String,
 }
+
+/// The terminal entries whose note the player has read, by terminal (FormID) and item
+/// index, under the Grey Read Notes tweak (an entry read with it off is not counted);
+/// the menu draws them dimmer while the tweak is on. Kept with the save
+/// ([`READ_ENTRIES_SAVE_HOOK`]) [design: docs/design/tweaks.md].
+#[derive(Resource, Default, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReadEntries(pub std::collections::BTreeSet<(u32, u32)>);
+
+impl ReadEntries {
+    pub fn has(&self, terminal: FormId, item: usize) -> bool {
+        self.0.contains(&(terminal.0, item as u32))
+    }
+}
+
+/// The player's Grey Read Notes tweak, set by `crate::tweaks` each frame.
+static GREY_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Switch the Grey Read Notes tweak on or off.
+pub fn set_grey_read(on: bool) {
+    GREY_READ.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn grey_read() -> bool {
+    GREY_READ.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`ReadEntries`] in the save; the terminals moved to the current load order, those of
+/// a plugin no longer loaded dropped.
+pub const READ_ENTRIES_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "terminal_read_entries",
+    save: |w| w.get_resource::<ReadEntries>().filter(|r| !r.0.is_empty()).and_then(|r| serde_json::to_value(r).ok()),
+    load: |w, v| {
+        if let (Ok(r), Some(mut read)) = (serde_json::from_value::<ReadEntries>(v.clone()), w.get_resource_mut::<ReadEntries>()) {
+            *read = r;
+        }
+    },
+    remap: Some(|v, r| {
+        if let Some(list) = v.as_array_mut() {
+            list.retain_mut(|e| match e.get(0).and_then(serde_json::Value::as_u64).and_then(|n| r.map(n as u32)) {
+                Some(n) => {
+                    e[0] = serde_json::Value::from(n);
+                    true
+                }
+                None => false,
+            });
+        }
+    }),
+};
 
 /// A command for the open terminal.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
@@ -260,6 +417,27 @@ struct TerminalStats {
     items: u32,
     /// Result scripts that called ForceTerminalBack.
     forced_back: u32,
+    /// The pointer's moves of the hacking cursor onto another character (or showing it),
+    /// and of those, the ones that sounded and the ones held back by [`HOVER_SOUND_GAP`].
+    hover_points: u32,
+    hover_sounds: u32,
+    hover_suppressed: u32,
+}
+
+impl TerminalStats {
+    /// Counts a cursor input's hover sound for the exit line: only the pointer's moves
+    /// onto another character (or showing it) count, each as sounded or held back.
+    fn count_hover(&mut self, cmd: TerminalInput, focus: Focus) {
+        if !matches!(cmd, TerminalInput::Point(_)) || focus == Focus::Silent {
+            return;
+        }
+        self.hover_points += 1;
+        if focus == Focus::Sound {
+            self.hover_sounds += 1;
+        } else {
+            self.hover_suppressed += 1;
+        }
+    }
 }
 
 /// `NVF_PLAY_TEST_TERMINAL`.
@@ -293,7 +471,14 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "back" => AidStep::Input(TerminalInput::Back),
                 "exit" => AidStep::Input(TerminalInput::Exit),
                 "power" => AidStep::Power,
-                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back, exit or power")),
+                "point" => AidStep::Input(TerminalInput::Point(
+                    arg.trim()
+                        .parse()
+                        .ok()
+                        .filter(|&i| i < fnv_game::hacking::DUMP_CHARS)
+                        .ok_or_else(|| format!("{what:?}: expected point:<index below {}>", fnv_game::hacking::DUMP_CHARS))?,
+                )),
+                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back, exit, power or point:")),
             };
             Ok((t, step))
         })
@@ -312,6 +497,7 @@ impl Plugin for TerminalPlugin {
             }
             Err(_) => Vec::new(),
         };
+        crate::save::add_save_hook(app, READ_ENTRIES_SAVE_HOOK);
         app.init_resource::<TerminalScreen>()
             .init_resource::<TerminalStats>()
             .init_resource::<Words>()
@@ -319,6 +505,7 @@ impl Plugin for TerminalPlugin {
             .init_resource::<PowerAid>()
             .init_resource::<MenuRows>()
             .init_resource::<TerminalOpening>()
+            .init_resource::<ReadEntries>()
             .insert_resource(TerminalAid { steps, science: None })
             .add_message::<OpenTerminal>()
             .add_message::<TerminalInput>()
@@ -331,6 +518,7 @@ impl Plugin for TerminalPlugin {
                     .in_set(PlaySet::Ui),
             )
             .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(Update, fade_out.in_set(PlaySet::Ui))
             .add_systems(Last, report);
     }
 }
@@ -552,6 +740,8 @@ fn open(
                     fnv_util::words::trf("You need a Science skill of {needed} to hack this terminal.", &[("needed", &format!("{needed:.0}"))])
                 }
             };
+            // The player's tweak says the player's own Science [design: docs/design/tweaks.md].
+            let line = if matches!(r, fnv_game::hacking::Refusal::Science { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {sci:.0})", line.trim_end_matches('.')) } else { line };
             info!("terminal: {reference} {name} refused (Science {sci:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {
@@ -562,10 +752,13 @@ fn open(
         }
         Opening::Hack { difficulty, words: n } => {
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let Some(puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
+            let Some(mut puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
                 warn!("terminal: {reference} {name}: the word list has too few words for {}", difficulty.name());
                 return;
             };
+            // The player's hacking tweaks [design: docs/design/tweaks.md].
+            let t = &rt.game.tweaks;
+            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",
@@ -576,7 +769,7 @@ fn open(
             );
             rt.game.open_menu(MENU_HACKING);
             let cursor = first_target(&puzzle);
-            Page::Hacking(Hacking { puzzle, cursor, hidden: true, ended: None })
+            Page::Hacking(Hacking::new(puzzle, cursor))
         }
     };
     screen.0 = Some(Session { reference, base, page });
@@ -627,13 +820,20 @@ pub fn step_cursor(p: &Puzzle, cursor: usize, dx: i32, dy: i32) -> usize {
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>) {
+/// How long the granted screen stays with the Faster Hacking tweak [design: docs/design/tweaks.md].
+const FAST_GRANTED_SECONDS: f32 = 0.5;
+
+fn keys(keys: crate::pad::ActionButtons<KeyCode>, screen: Res<TerminalScreen>, mut out: MessageWriter<TerminalInput>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    let keys = keys.snapshot();
     use KeyCode::*;
     let Some(s) = screen.0.as_ref() else { return };
     let mut send = |i| {
         out.write(i);
     };
-    if keys.just_pressed(Escape) {
+    // The player's tweak: Tab closes the terminal from any page (Backspace still goes
+    // back) [design: docs/design/tweaks.md].
+    let tab_closes = tweaks.as_ref().is_some_and(|t| t.tab_closes_terminals);
+    if keys.just_pressed(Escape) || (tab_closes && keys.just_pressed(Tab)) {
         send(TerminalInput::Exit);
         return;
     }
@@ -645,6 +845,16 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
         send(TerminalInput::Select);
     }
     let hacking = matches!(s.page, Page::Hacking(_));
+    // The player's tweak: 1 to 9 and 0 (the tenth) choose a row [design: docs/design/tweaks.md].
+    if !hacking && tweaks.as_ref().is_some_and(|t| t.numbered_terminal_keys) {
+        let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0];
+        let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9, Numpad0];
+        if let Some(row) = (0..10).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])) {
+            send(TerminalInput::Row(row));
+            send(TerminalInput::Select);
+            return;
+        }
+    }
     if keys.any_just_pressed([ArrowUp, KeyW]) {
         send(TerminalInput::Step(0, -1));
     }
@@ -663,13 +873,14 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
 /// character or the menu row under it, and a click enters that.
 fn mouse(
     screen: Res<TerminalScreen>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    buttons: crate::pad::ActionButtons<MouseButton>,
     pointer: Res<TerminalPointer>,
     rows: Res<MenuRows>,
     mut last: Local<Option<usize>>,
     mut last_row: Local<Option<usize>>,
     mut out: MessageWriter<TerminalInput>,
 ) {
+    let buttons = buttons.snapshot();
     let Some(s) = screen.0.as_ref() else { return };
     match &s.page {
         Page::Hacking(h) => {
@@ -725,11 +936,15 @@ fn apply(
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     time: AidTime,
+    real: Res<Time<Real>>,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
-    (mut sounds, mut opened): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>),
+    (mut sounds, mut opened, mut read): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>, ResMut<ReadEntries>),
 ) {
     let now = time.elapsed_secs();
+    // The hover sound's gap is real time: the menu's pause and the game's speed do not
+    // stretch it.
+    let real_now = real.elapsed();
     // The hacking menu's sounds (list 5 item 47; `crate::ui_sounds`).
     let mut sound = |event| {
         sounds.write(UiSound { menu: UiMenu::Terminal, event });
@@ -756,6 +971,11 @@ fn apply(
         let (reference, base) = (s.reference, s.base);
         match &mut s.page {
             Page::Hacking(h) => {
+                // The player's tweak: no leaving once a guess is made, until the game ends [design: docs/design/tweaks.md].
+                if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) && h.ended.is_none() && !h.puzzle.log.is_empty() && rt.game.tweaks.no_exit_hacking {
+                    info!("terminal: leaving refused, a guess was made (tweak)");
+                    continue;
+                }
                 if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) {
                     // Leaving keeps nothing: the next visit is a new game with every
                     // attempt [the owner, 2026-10-11]; a lockout stays.
@@ -765,39 +985,17 @@ fn apply(
                 if h.ended.is_some() {
                     continue;
                 }
-                let p = &mut h.puzzle;
-                let (cursor_was, hidden_was) = (h.cursor, h.hidden);
-                let pick = match cmd {
-                    TerminalInput::Point(i) => {
-                        (h.cursor, h.hidden) = (i, false);
-                        None
-                    }
-                    TerminalInput::Unpoint => {
-                        h.hidden = true;
-                        None
-                    }
-                    // The first key shows the cursor where it is.
-                    TerminalInput::Step(dx, dy) => {
-                        if !h.hidden {
-                            h.cursor = step_cursor(p, h.cursor, dx, dy);
+                let at = match cursor_step(h, cmd, real_now) {
+                    CursorStep::Pick(at) => at,
+                    CursorStep::Moved(focus) => {
+                        stats.count_hover(cmd, focus);
+                        if focus == Focus::Sound {
+                            sound(UiEvent::Focus);
                         }
-                        h.hidden = false;
-                        None
+                        continue;
                     }
-                    TerminalInput::Select if h.hidden => None,
-                    TerminalInput::Select => Some(h.cursor),
-                    TerminalInput::Aid(a) => aid_pick(p, a),
-                    _ => None,
                 };
-                let Some(at) = pick else {
-                    // The cursor moved onto another character (or showed again).
-                    if !h.hidden && (h.cursor != cursor_was || hidden_was) {
-                        sound(UiEvent::Focus);
-                    }
-                    continue;
-                };
-                h.cursor = at;
-                h.hidden = false;
+                let p = &mut h.puzzle;
                 sound(UiEvent::Picked);
                 let entered = p.text(p.target(at));
                 let rng = rng.get_or_insert_with(|| ChaCha8Rng::seed_from_u64(seed(reference, now)));
@@ -908,6 +1106,9 @@ fn apply(
                 let from = rt.game.events.len();
                 let chosen = with_world(rt, &mut sim, |rt| rules::choose(&mut rt.game, reference, terminal, item));
                 let Some(c) = chosen else { continue };
+                if c.note.is_some() && grey_read() && read.0.insert((terminal.0, item as u32)) {
+                    debug!("terminal: item {item} of {} read (Grey Read Notes)", rt.game.data.name(terminal));
+                }
                 let ran: Vec<String> = rt.game.events[from..].iter().take(8).map(|e| format!("{:?}", e.kind)).collect();
                 if !ran.is_empty() {
                     info!("terminal: its result script: {}", ran.join("; "));
@@ -984,7 +1185,10 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
     let Page::Hacking(h) = &s.page else { return };
     let Some(ended) = h.ended else { return };
     let won = h.puzzle.state == GameState::Granted;
-    if now - ended < if won { GRANTED_SECONDS } else { LOCKED_SECONDS } {
+    // The player's tweak keeps the granted screen up briefly only [design: docs/design/tweaks.md].
+    let fast = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.faster_hacking_transition);
+    let granted = if fast { FAST_GRANTED_SECONDS } else { GRANTED_SECONDS };
+    if now - ended < if won { granted } else { LOCKED_SECONDS } {
         return;
     }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -1023,17 +1227,30 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, With<screen::ScreenRoot>>,
+    fading: Query<Entity, With<FadeOut>>,
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
     time: Res<Time<Real>>,
     image: Option<Res<TerminalImage>>,
-    mut rows: ResMut<MenuRows>,
+    (mut rows, read): (ResMut<MenuRows>, Res<ReadEntries>),
     mut faces: Local<Option<screen::Faces>>,
     mut shown: Local<Option<String>>,
 ) {
     // The screen is laid out in its own texture, at its size whatever the UI scale; the
     // picture of it on the window scales (`screen::spawn_backdrop`, #1631).
     let _canvas = crate::interface::original_units();
-    let key = screen.0.as_ref().map(view_key);
+    let grey = grey_read();
+    let key = screen.0.as_ref().map(|s| format!("{}:{grey}", view_key(s)));
+    // A closing screen keeps its picture while it fades (`fade_out`); one opened meanwhile
+    // takes its place at once.
+    if !fading.is_empty() {
+        if key.is_none() {
+            return;
+        }
+        for e in &fading {
+            commands.entity(e).try_despawn();
+        }
+        *shown = None;
+    }
     let on = ((time.elapsed_secs() / screen::BLINK_SECONDS) as u32).is_multiple_of(2);
     if key == *shown {
         for mut v in &mut blinks {
@@ -1048,9 +1265,46 @@ fn draw(
     rows.0.clear();
     let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on);
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, &rt.game, on, grey.then_some(&*read));
 }
 
+/// How long the screen fades out as it closes, seconds [documented:
+/// `menus\computers_menu.xml` `menufade` 0.25; hypothesis: that the trait is the close's
+/// fade].
+pub const CLOSE_FADE: f32 = 0.25;
+
+/// A closed terminal's backdrop and screen, fading out: seconds left of how many.
+#[derive(Component)]
+struct FadeOut {
+    left: f32,
+    total: f32,
+}
+
+/// The closing screen fades: its backdrop's shade and pictures lose their strength, and
+/// all of it goes once the fade is over.
+fn fade_out(mut commands: Commands, time: Res<Time<Real>>, mut fading: Query<(Entity, &mut FadeOut, Option<&mut BackgroundColor>, Option<&Children>)>, mut pictures: Query<&mut ImageNode>) {
+    for (e, mut f, bg, children) in &mut fading {
+        let start = f.left / f.total.max(1e-3);
+        f.left -= time.delta_secs();
+        if f.left <= 0.0 {
+            commands.entity(e).try_despawn();
+            continue;
+        }
+        let k = (f.left / f.total.max(1e-3)) / start.max(1e-3);
+        if let Some(mut bg) = bg {
+            let a = bg.0.alpha();
+            bg.0.set_alpha(a * k);
+        }
+        for c in children.into_iter().flatten() {
+            if let Ok(mut img) = pictures.get_mut(*c) {
+                let a = img.color.alpha();
+                img.color.set_alpha(a * k);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn close(
     mut commands: Commands,
     mut screen: ResMut<TerminalScreen>,
@@ -1058,7 +1312,11 @@ fn close(
     backdrops: Query<Entity, With<screen::Backdrop>>,
     script: Option<ResMut<ScriptState>>,
     doors: Option<ResMut<crate::doors::Doors>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's Terminal Fade Time tweak sets the fade's length [design: docs/design/tweaks.md].
+    let fade = tweaks.as_ref().filter(|t| t.terminal_fade).map_or(CLOSE_FADE, |t| t.terminal_fade_seconds);
+    let had = screen.0.is_some();
     if let Some(s) = screen.0.take() {
         close_model(doors.map(|d| d.into_inner()), s.reference.0);
         if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
@@ -1068,7 +1326,11 @@ fn close(
         }
     }
     for e in roots.iter().chain(&backdrops) {
-        commands.entity(e).despawn();
+        if had && fade > 0.0 {
+            commands.entity(e).insert(FadeOut { left: fade, total: fade });
+        } else {
+            commands.entity(e).despawn();
+        }
     }
 }
 
@@ -1123,19 +1385,36 @@ mod opening_tests {
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<TerminalStats>) {
-    if exit.read().next().is_none() || (stats.opened == 0 && stats.refused == 0) {
+    if exit.read().next().is_none() {
         return;
     }
-    info!(
-        "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen ({} sent back by ForceTerminalBack)",
-        stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items, stats.forced_back
-    );
+    if stats.opened != 0 || stats.refused != 0 {
+        info!(
+            "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen ({} sent back by ForceTerminalBack)",
+            stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items, stats.forced_back
+        );
+    }
+    if stats.hover_points != 0 {
+        info!("terminal hover: {} changed points, {} focus sounds, {} suppressed", stats.hover_points, stats.hover_sounds, stats.hover_suppressed);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use fnv_game::hacking::{Word, ATTEMPTS, DUMP_CHARS};
+
+    #[test]
+    fn read_entries_are_kept_by_terminal_and_item() {
+        let mut r = ReadEntries::default();
+        r.0.insert((0x1234, 2));
+        assert!(r.has(FormId(0x1234), 2));
+        assert!(!r.has(FormId(0x1234), 1) && !r.has(FormId(0x1235), 2));
+        // Saved as pairs, the terminal first (the save hook's remap moves it).
+        let v = serde_json::to_value(&r).expect("saved");
+        assert_eq!(v, serde_json::json!([[0x1234, 2]]));
+        assert_eq!(serde_json::from_value::<ReadEntries>(v).expect("loaded"), r);
+    }
 
     fn puzzle() -> Puzzle {
         let mut chars = vec!['.'; DUMP_CHARS];
@@ -1146,7 +1425,7 @@ mod tests {
             }
         }
         let words = vec![Word { text: "LOOTING".into(), len: 7, start: 9, removed: false }, Word { text: "MEETING".into(), len: 7, start: 204, removed: false }];
-        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing }
+        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing, rules: Default::default(), guessed: Vec::new() }
     }
 
     #[test]
@@ -1195,5 +1474,100 @@ mod tests {
         assert_eq!(s[3], (4.0, AidStep::Input(TerminalInput::Aid(AidPick::Item(2)))));
         assert_eq!(s[4], (5.0, AidStep::Input(TerminalInput::Back)));
         assert!(parse_aid("1:dance").is_err());
+        let s = parse_aid("6:point:12").unwrap();
+        assert_eq!(s[0], (6.0, AidStep::Input(TerminalInput::Point(12))));
+        assert!(parse_aid(&format!("6:point:{}", DUMP_CHARS - 1)).is_ok());
+        assert!(parse_aid(&format!("6:point:{DUMP_CHARS}")).is_err(), "past the dump");
+        assert!(parse_aid("6:point:x").is_err());
+        assert!(parse_aid("6:point").is_err());
+    }
+
+    fn game() -> Hacking {
+        Hacking::new(puzzle(), first_target(&puzzle()))
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    #[test]
+    fn a_mouse_sweep_limits_focus_sounds() {
+        for hz in [60u64, 144] {
+            let mut h = game();
+            let inputs = 120;
+            let mut sounded: Vec<Duration> = Vec::new();
+            for k in 0..inputs {
+                let now = Duration::from_nanos(k as u64 * 1_000_000_000 / hz);
+                let step = cursor_step(&mut h, TerminalInput::Point(k), now);
+                assert_eq!(h.cursor, k, "{hz} Hz: the cursor follows every point");
+                assert!(!h.hidden);
+                match step {
+                    CursorStep::Moved(Focus::Sound) => sounded.push(now),
+                    CursorStep::Moved(Focus::Suppressed) => {}
+                    other => panic!("{hz} Hz: a changed point is a sound or held back, not {other:?}"),
+                }
+            }
+            assert!(!sounded.is_empty() && sounded.len() < inputs, "{hz} Hz: {} sounds for {inputs} points", sounded.len());
+            for w in sounded.windows(2) {
+                assert!(w[1] - w[0] >= HOVER_SOUND_GAP, "{hz} Hz: sounds {:?} apart", w[1] - w[0]);
+            }
+        }
+    }
+
+    #[test]
+    fn hover_sounds_resume_at_the_gap() {
+        let mut h = game();
+        let t = Duration::from_secs(1);
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(1), t), CursorStep::Moved(Focus::Sound));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(2), t + HOVER_SOUND_GAP - Duration::from_micros(1)), CursorStep::Moved(Focus::Suppressed));
+        assert_eq!(h.cursor, 2, "held back, the cursor still moves");
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(3), t + HOVER_SOUND_GAP), CursorStep::Moved(Focus::Sound));
+    }
+
+    #[test]
+    fn leaving_the_dump_does_not_reset_the_sound_gap() {
+        let mut h = game();
+        let steps = [(TerminalInput::Point(1), ms(0)), (TerminalInput::Unpoint, ms(10)), (TerminalInput::Point(2), ms(20))];
+        let got: Vec<CursorStep> = steps.iter().map(|&(i, t)| cursor_step(&mut h, i, t)).collect();
+        assert_eq!(got, [CursorStep::Moved(Focus::Sound), CursorStep::Moved(Focus::Silent), CursorStep::Moved(Focus::Suppressed)]);
+        assert_eq!((h.cursor, h.hidden), (2, false), "shown again where the pointer is");
+    }
+
+    #[test]
+    fn keyboard_focus_is_not_throttled() {
+        let mut h = game();
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(5), ms(0)), CursorStep::Moved(Focus::Sound));
+        // Keys right after the pointer's sound, and after each other: every move sounds.
+        for (k, t) in [(6, 1), (7, 2), (8, 3)] {
+            assert_eq!(cursor_step(&mut h, TerminalInput::Step(1, 0), ms(t)), CursorStep::Moved(Focus::Sound));
+            assert_eq!(h.cursor, k);
+        }
+        // A point that does not move the cursor neither sounds nor starts the wait again.
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(20), ms(100)), CursorStep::Moved(Focus::Sound));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(20), ms(150)), CursorStep::Moved(Focus::Silent));
+        assert_eq!(cursor_step(&mut h, TerminalInput::Point(21), ms(170)), CursorStep::Moved(Focus::Sound), "70 ms after the last sound");
+        // A new game: its first point sounds at once.
+        let mut next = game();
+        assert_eq!(cursor_step(&mut next, TerminalInput::Point(3), ms(171)), CursorStep::Moved(Focus::Sound));
+    }
+
+    #[test]
+    fn the_hover_line_counts_the_pointers_moves() {
+        // A sweep at 144 Hz, with keys, unchanged points and Unpoint between: only the
+        // pointer's moves count, each as sounded or held back (P = F + S).
+        let mut h = game();
+        let mut stats = TerminalStats::default();
+        let mut sounds = 0;
+        let mut inputs: Vec<TerminalInput> = (0..60).map(TerminalInput::Point).collect();
+        inputs.extend([TerminalInput::Point(59), TerminalInput::Step(1, 0), TerminalInput::Unpoint, TerminalInput::Step(-1, 0)]);
+        for (k, cmd) in inputs.into_iter().enumerate() {
+            let CursorStep::Moved(focus) = cursor_step(&mut h, cmd, Duration::from_nanos(k as u64 * 1_000_000_000 / 144)) else { panic!("nothing is entered") };
+            stats.count_hover(cmd, focus);
+            sounds += u32::from(focus == Focus::Sound && matches!(cmd, TerminalInput::Point(_)));
+        }
+        assert_eq!(stats.hover_points, 60, "the 60 moves; the unchanged point, the keys and Unpoint do not count");
+        assert_eq!(stats.hover_sounds, sounds);
+        assert_eq!(stats.hover_points, stats.hover_sounds + stats.hover_suppressed);
+        assert!(stats.hover_sounds >= 1 && stats.hover_suppressed >= 1);
     }
 }

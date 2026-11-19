@@ -2,7 +2,7 @@
 //! synthetic plugin written for the test (no game data, made-up names):
 //! docs/spec-notes/ext-one111.md.
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::raw::Subrecord;

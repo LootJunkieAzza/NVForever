@@ -21,7 +21,8 @@
 //!   A/X to exit]: Left/Right or A/D lower/raise the page's attribute (on the review page
 //!   the chosen row's), Up/Down or W/S choose the row, Tab or Page Down the next page,
 //!   Shift+Tab or Page Up the previous one, Enter or E Done; the → button on the review
-//!   page is Done too. Clicks on the model's buttons, found by their outlines on the
+//!   page is Done too. A controller's D-pad and left stick are the arrow keys
+//!   (`crate::pad::menu_stick`, #2313). Clicks on the model's buttons, found by their outlines on the
 //!   screen.
 //! - Done only with every point given out (`SpecialSheet::complete`); then the sheet is
 //!   written to the player and the menu answered (`chargen::finish`).
@@ -32,6 +33,15 @@
 //! pages between), `done`, `click:<shape>` (a click at the middle of the shape's outline
 //! on the screen, e.g. `click:P1_RT_Btn:0`). Attributes by number 0–6, name or letter;
 //! pages by name (`attract`, `review`, an attribute) or number 0–8.
+//!
+//! - **Made ready behind the start's loading screen** in a new game ([`warm`], #2406):
+//!   the two models are read, parsed and spawned (hidden, 508 parts, 16 textures) and the
+//!   sequences read while the screen that brings the player into Doc Mitchell's house is
+//!   up, and the first opening takes them. Built in the frame the menu opened, they made
+//!   it 79 ms on the bench machine, 104 ms with the driver's shader cache empty and
+//!   319 ms with other programs on 60% of the processor [observed: profile campaign
+//!   `new-game-chargen` runs, 2026-11-15, docs/design/streaming-hitches.md §6]. What was
+//!   made ready and not used is dropped at the next travel's loading screen.
 
 pub mod model;
 pub mod view;
@@ -78,7 +88,7 @@ impl Plugin for VigorPlugin {
             .insert_resource(VigorAid(aid))
             .add_systems(
                 Update,
-                (open_close, input).chain().in_set(PlaySet::Scripts).before(crate::script::run_scripts).run_if(resource_exists::<GameData>),
+                (warm, open_close, input).chain().in_set(PlaySet::Scripts).before(crate::script::run_scripts).run_if(resource_exists::<GameData>),
             )
             .add_systems(Update, draw.in_set(PlaySet::Ui).run_if(resource_exists::<GameData>))
             .add_systems(Last, report);
@@ -89,11 +99,60 @@ impl Plugin for VigorPlugin {
 #[derive(Resource, Default)]
 pub struct VigorMenu {
     open: Option<OpenMenu>,
-    /// The activate model's sequences by name, read on the first opening.
+    /// The activate model's sequences by name, read on the first opening (or by [`warm`]).
     clips: Option<Arc<HashMap<String, Clip>>>,
+    /// The machine spawned hidden ahead of its first opening ([`warm`]).
+    ready: Option<Machine>,
+    /// [`warm`] has run in this run (once at most).
+    warmed: bool,
+}
+
+/// The two models, spawned and hidden: their roots and named objects (the activate
+/// model's first).
+struct Machine {
+    roots: [Entity; 2],
+    nodes: HashMap<String, Entity>,
 }
 
 impl VigorMenu {
+    /// [design, #2403 / file refs] Page, review row and attribute allocation;
+    /// excludes animation playback, textures and aid clocks in `OpenMenu`.
+    pub fn progress(&self) -> Option<&Vigor> {
+        self.open.as_ref().map(|o| &o.vigor)
+    }
+
+    /// [design, #2403] Synthetic logical transitions using the machine's own actions.
+    #[cfg(feature = "report-test-support")]
+    #[doc(hidden)]
+    pub fn report_progress_fixture(step: usize) -> Self {
+        let mut vigor = Vigor::new(SpecialSheet::new([5; 7]));
+        if step >= 1 {
+            vigor.act(Action::Next);
+        }
+        if step >= 2 {
+            vigor.act(Action::Raise(None));
+        }
+        if step >= 3 {
+            vigor.page = Page::Review;
+            vigor.act(Action::Select(1));
+        }
+        Self {
+            open: Some(OpenMenu {
+                vigor,
+                roots: [Entity::PLACEHOLDER; 2],
+                nodes: HashMap::new(),
+                flip: None,
+                materials: HashMap::new(),
+                shown: HashMap::new(),
+                keyed_row: step >= 4,
+                fov_before: None,
+                aid_from: Some(step as f32),
+            }),
+            clips: None,
+            ready: None,
+            warmed: false,
+        }
+    }
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
@@ -143,6 +202,7 @@ fn open_close(
     mut ctx: SpawnCtx,
     mut camera: Query<(Entity, &mut Projection), With<PlayerCamera>>,
     mut stats: ResMut<VigorStats>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let code = crate::chargen::open_code(&script);
     if code != Some(menus::LOVE_TESTER) {
@@ -168,28 +228,28 @@ fn open_close(
     if menu.clips.is_none() {
         menu.clips = Some(Arc::new(read_clips(&ctx.data)));
     }
-    let (act, cab) = match (ctx.spawn_nif(ACTIVATE, None), ctx.spawn_nif(CABINET, None)) {
-        (Ok(a), Ok(c)) => (a, c),
-        (a, c) => {
-            warn!("vigor tester: model not drawn: {:?} {:?}", a.err(), c.err());
-            return;
-        }
-    };
-    let (Some(ra), Some(rc)) = (act.root, cab.root) else { return };
-    let mut nodes = act.nodes;
-    for (k, v) in cab.nodes {
-        nodes.entry(k).or_insert(v);
+    let warmed = menu.ready.is_some();
+    let Some(Machine { roots: [ra, rc], nodes }) = menu.ready.take().or_else(|| spawn_machine(&mut ctx)) else { return };
+    if warmed {
+        info!("vigor tester: the machine made ready behind the loading screen is used");
     }
-    // Hidden until `draw` has put the shapes on the machine's layer, or the main camera
-    // would draw them for a frame in the room's light.
     for r in [ra, rc] {
-        ctx.commands.entity(r).insert((VigorPart, Visibility::Hidden, view::model_in_camera(1.0)));
         ctx.commands.entity(cam).add_child(r);
     }
-    let vigor = Vigor::new(sheet);
+    let mut vigor = Vigor::new(sheet);
     // The Attract page: the stored pose, as the end of the turn back to it holds it.
+    // The player's tweak opens on the review page instead, in the end pose of the turn
+    // to it [design: docs/design/tweaks.md].
     let clips = menu.clips.clone().unwrap_or_default();
-    let flip = clips.get(model::ATTRACT_POSE).map(|c| Playing::new(ACTIVATE, c, |n| nodes.get(n).copied()).at_phase(1.0));
+    let mut pose = model::ATTRACT_POSE;
+    if tweaks.is_some_and(|t| t.vigor_review_first) {
+        if let Some(seq) = model::sequence(Page::Stat(6), Page::Review).filter(|s| clips.contains_key(*s)) {
+            vigor.page = Page::Review;
+            pose = seq;
+            info!("vigor tester: opens on the review page (tweak)");
+        }
+    }
+    let flip = clips.get(pose).map(|c| Playing::new(ACTIVATE, c, |n| nodes.get(n).copied()).at_phase(1.0));
     info!(
         "vigor tester: open, S.P.E.C.I.A.L. {}, {} points remaining ({} sequences, {} parts)",
         vigor.values(),
@@ -199,6 +259,62 @@ fn open_close(
     );
     stats.opened += 1;
     menu.open = Some(OpenMenu { vigor, roots: [ra, rc], nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None, aid_from: None });
+}
+
+/// Spawn the two models, hidden until `draw` has put the shapes on the machine's layer
+/// (or the main camera would draw them for a frame in the room's light), not yet under
+/// the camera.
+fn spawn_machine(ctx: &mut SpawnCtx) -> Option<Machine> {
+    let (act, cab) = match (ctx.spawn_nif(ACTIVATE, None), ctx.spawn_nif(CABINET, None)) {
+        (Ok(a), Ok(c)) => (a, c),
+        (a, c) => {
+            warn!("vigor tester: model not drawn: {:?} {:?}", a.err(), c.err());
+            return None;
+        }
+    };
+    let (Some(ra), Some(rc)) = (act.root, cab.root) else { return None };
+    let mut nodes = act.nodes;
+    for (k, v) in cab.nodes {
+        nodes.entry(k).or_insert(v);
+    }
+    for r in [ra, rc] {
+        ctx.commands.entity(r).insert((VigorPart, Visibility::Hidden, view::model_in_camera(1.0)));
+    }
+    Some(Machine { roots: [ra, rc], nodes })
+}
+
+/// A new game's opening has the Vigor Tester: behind the start's loading screen, read its
+/// sequences and spawn the machine hidden, so its first opening builds nothing (module
+/// notes, #2406). Once a run; what is still unused at the next travel's loading screen
+/// is dropped.
+fn warm(
+    mut menu: ResMut<VigorMenu>,
+    mut ctx: SpawnCtx,
+    loading: Option<Res<crate::loading::Loading>>,
+    new_game: Option<Res<crate::script::NewGame>>,
+) {
+    let Some(loading) = loading else { return };
+    if loading.travelling() {
+        if let Some(m) = menu.ready.take() {
+            for e in m.roots {
+                ctx.commands.entity(e).despawn();
+            }
+            info!("vigor tester: the machine made ready was not used here; dropped");
+        }
+        return;
+    }
+    if menu.warmed || new_game.is_none() || !loading.starting() {
+        return;
+    }
+    menu.warmed = true;
+    let t = std::time::Instant::now();
+    if menu.clips.is_none() {
+        menu.clips = Some(Arc::new(read_clips(&ctx.data)));
+    }
+    menu.ready = spawn_machine(&mut ctx);
+    if let Some(m) = &menu.ready {
+        info!("vigor tester: made ready behind the loading screen in {:.0} ms ({} parts)", t.elapsed().as_secs_f64() * 1000.0, m.nodes.len());
+    }
 }
 
 /// The machine's clips by name. A broken file (a panic reading it) gives none, and a clip
@@ -223,8 +339,8 @@ fn read_clips(data: &GameData) -> HashMap<String, Clip> {
 
 #[allow(clippy::too_many_arguments)]
 fn input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keys: crate::pad::ActionButtons<KeyCode>,
+    mouse: crate::pad::ActionButtons<MouseButton>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     shapes: Query<(&Aabb, &GlobalTransform, &InheritedVisibility)>,
@@ -236,6 +352,8 @@ fn input(
     mut stats: ResMut<VigorStats>,
     mut sounds: MessageWriter<UiSound>,
 ) {
+    let keys = keys.snapshot();
+    let mouse = mouse.snapshot();
     use KeyCode::*;
     let clips = menu.clips.clone().unwrap_or_default();
     let Some(o) = menu.open.as_mut() else { return };

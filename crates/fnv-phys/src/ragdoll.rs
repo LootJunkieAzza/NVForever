@@ -3,14 +3,13 @@
 //! dead actor falls and comes to rest under gravity and contacts.
 //!
 //! - **Bodies.** One dynamic body per ragdoll body, started at its bone's pose, with the
-//!   stored mass and damping, and continuous collision detection (a thin limb must not
-//!   pass through a floor). Their colliders carry [`Owner::Actor`] on the DEAD_BIP layer,
-//!   so rays find the corpse as they found its hit volume.
+//!   stored mass, inertia tensor (an actor's) and damping, and continuous collision
+//!   detection (a thin limb must not pass through a floor). Their colliders carry
+//!   [`Owner::Actor`] on the DEAD_BIP layer, so rays find the corpse as they found its
+//!   hit volume.
 //! - **Joints.** The stored constraints with their limits ([`joint`]): a ragdoll
-//!   constraint is a ball joint limited about its twist axis, its plane axis and the
-//!   third axis; a hinge is a revolute joint. rapier limits the components of the
-//!   relative rotation's quaternion, which equal the stored angles for a turn about one
-//!   axis and approximate the cones for mixed turns [design].
+//!   constraint is a ball joint limited about its twist axis, with two more joints for its
+//!   cone and its plane cones ([`cone_joints`]); a hinge is a revolute joint [design].
 //! - **Contacts** [design]: with the world (terrain, references, other ragdolls); not
 //!   between two small ragdolls ([`SMALL_RAGDOLL_SPAN`]: a heap of small corpses would
 //!   cost the solver for nothing the eye sees; hypothesis that the original allows it); not
@@ -20,7 +19,9 @@
 //!   do not fight their joints).
 //!
 //! - **Rest** [design]: a ragdoll that has come to rest is held with fixed bodies until a
-//!   hit or a blast ([`PhysWorld::set_ragdoll_at_rest`]).
+//!   hit or a blast ([`PhysWorld::set_ragdoll_at_rest`]). Before that the game settles it
+//!   ([`PhysWorld::settle_ragdoll`]: damping raised over a fraction of a second or two), so
+//!   that a ragdoll still moving is not stopped dead.
 //!
 //! Poses in and out are those of the bodies' **bones** (nodes), game units.
 
@@ -44,13 +45,25 @@ pub const MAX_FRICTION: f32 = 1.0;
 /// like chains].
 pub const JOINT_DAMPING: f32 = 6.0;
 
+/// The damping (per second, on each body's linear and angular velocity, on top of its
+/// own) a settling ragdoll has at the end of its settle ([`PhysWorld::settle_ragdoll`])
+/// [design, 2026-11-11: raised along a settle of `T` seconds from 0 to this, free motion
+/// left at its end is about `exp(-15·T/2)` of what it was (2 % after half a second, under
+/// a thousandth after one), so holding the ragdoll at rest then shows no stop. rapier
+/// damps each body once a step, after the constraint solve, so a turn the joints and
+/// contacts drive anew every step (a light limb shivering against a limit) keeps most of
+/// its speed [observed: smoke `mantis-egg-spawn`, antennae and legs at 0.3-3 rad/s when
+/// held; raising the joints' damping motors as well did not lower it]].
+pub const SETTLE_DAMPING: f32 = 15.0;
+
 /// The most a push turns the body it strikes, radians per second, and the shortest arm
 /// (game units) its turning is worked out with [design].
 pub const MAX_PUSH_SPIN: f32 = 5.0;
 pub const PUSH_ARM: f32 = 6.0;
 
-/// Angular limits are kept inside ±this many radians: rapier compares sines of half
-/// angles, which stop growing at π.
+/// A twist or hinge range is kept inside ±this many radians: rapier measures the angle
+/// within (−π, π], so a limit at π could never be reached. No stored twist or hinge limit
+/// of the human skeleton comes near it (the widest, an elbow's, is −2.27) [observed].
 const MAX_LIMIT: f32 = 3.0;
 
 /// Bodies of one ragdoll closer than this in the bind pose never collide with each
@@ -102,6 +115,57 @@ pub struct RagdollReport {
     pub freed: Vec<usize>,
 }
 
+/// What a ragdoll touches ([`PhysWorld::ragdoll_contacts`]): contact pairs by what the
+/// other collider belongs to.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RagdollContacts {
+    /// The terrain's heightfields.
+    pub terrain: ContactTally,
+    /// References whose body is not dynamic (buildings, rocks, furniture).
+    pub fixed: ContactTally,
+    /// References whose body is dynamic (loose objects).
+    pub loose: ContactTally,
+    /// Other actors' ragdolls that move, and those held at rest.
+    pub moving_ragdolls: ContactTally,
+    pub resting_ragdolls: ContactTally,
+    /// Two of its own bodies.
+    pub own: ContactTally,
+    /// Anything else (gore pieces).
+    pub other: ContactTally,
+    /// The other actors' ragdolls it touches, by FormID, ascending.
+    pub ragdolls: Vec<u32>,
+    /// The references (fixed and loose) it touches, by FormID, ascending.
+    pub refs: Vec<u32>,
+}
+
+/// Contact pairs of one kind, and the deepest overlap among them (game units, 0 when
+/// none overlaps).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ContactTally {
+    pub pairs: usize,
+    pub deepest: f32,
+}
+
+impl RagdollContacts {
+    /// For a log line: `terrain 3 (0.4 deep), fixed 0, loose 0, moving ragdolls 2 (1.2 deep), resting ragdolls 0, own 1 (0.0 deep), other 0, touching [00012345], refs [0001ABCD]`.
+    pub fn summary(&self) -> String {
+        let t = |name: &str, c: &ContactTally| if c.pairs == 0 { format!("{name} 0") } else { format!("{name} {} ({:.1} deep)", c.pairs, c.deepest) };
+        let ids: Vec<String> = self.ragdolls.iter().map(|f| format!("{f:08X}")).collect();
+        format!(
+            "{}, {}, {}, {}, {}, {}, {}, touching [{}], refs [{}]",
+            t("terrain", &self.terrain),
+            t("fixed", &self.fixed),
+            t("loose", &self.loose),
+            t("moving ragdolls", &self.moving_ragdolls),
+            t("resting ragdolls", &self.resting_ragdolls),
+            t("own", &self.own),
+            t("other", &self.other),
+            ids.join(" "),
+            self.refs.iter().map(|f| format!("{f:08X}")).collect::<Vec<_>>().join(" ")
+        )
+    }
+}
+
 /// A ragdoll in the world.
 #[derive(Debug, Clone)]
 pub(crate) struct RagdollBodies {
@@ -118,13 +182,17 @@ pub(crate) struct RagdollBodies {
     pub(crate) data: Arc<Ragdoll>,
     scale: f32,
     parts: Vec<u8>,
-    /// Per stored joint, its joint in the world (none at rest, or when cut).
-    joints: Vec<Option<ImpulseJointHandle>>,
+    /// Per stored joint, its joints in the world (the joint and a ragdoll constraint's
+    /// [`cone_joints`]; none at rest, or when cut).
+    joints: Vec<Vec<ImpulseJointHandle>>,
     /// Joints cut by dismemberment ([`PhysWorld::cut_ragdoll`]), by stored index: never
     /// built again.
     cut: Vec<usize>,
     /// Smaller than [`SMALL_RAGDOLL_SPAN`]: no contacts with other small ragdolls.
     small: bool,
+    /// Settling ([`PhysWorld::settle_ragdoll`]): the share of [`SETTLE_DAMPING`] its
+    /// bodies have on top of their own; `None` when it is not settling.
+    settle: Option<f32>,
     /// A placed object's jointed bodies (a swinging trap, [`PhysWorld::add_object_ragdoll`]),
     /// not an actor's: its colliders report the reference ([`Owner::Ref`]) and its
     /// keyframed and static bodies are fixed.
@@ -238,19 +306,16 @@ pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
     let (pa, pb) = (vec3(j.pivot_a) * s, vec3(j.pivot_b) * s);
     let ball = || GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES).local_anchor1(pb).local_anchor2(pa).build();
     let mut out = match j.kind {
-        JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, cone_max, plane_min, plane_max, twist_min, twist_max } => {
+        JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, twist_min, twist_max, .. } => {
             match (frame(twist_a, plane_a), frame(twist_b, plane_b)) {
                 (Some(fa), Some(fb)) => {
                     let mut g = GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES)
                         .local_frame1(Pose::from_parts(pb, fb))
                         .local_frame2(Pose::from_parts(pa, fa))
                         .build();
-                    let cone = cone_max.abs();
-                    // x: about the twist axis. z: the twist axis leaning towards the plane
-                    // axis, inside the plane cones and the cone. y: the cone alone.
+                    // x: the twist. The cone and the plane cones are joints of their own
+                    // ([`cone_joints`]).
                     limit(&mut g, JointAxis::AngX, JointAxesMask::ANG_X, twist_min, twist_max);
-                    limit(&mut g, JointAxis::AngY, JointAxesMask::ANG_Y, -cone, cone);
-                    limit(&mut g, JointAxis::AngZ, JointAxesMask::ANG_Z, plane_min.max(-cone), plane_max.min(cone));
                     g
                 }
                 _ => ball(),
@@ -277,6 +342,47 @@ pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
     for (axis, mask) in [(JointAxis::AngX, JointAxesMask::ANG_X), (JointAxis::AngY, JointAxesMask::ANG_Y), (JointAxis::AngZ, JointAxesMask::ANG_Z)] {
         if !out.locked_axes.contains(mask) && !matches!(j.kind, JointKind::Spring { .. }) {
             out.set_motor_velocity(axis, 0.0, JOINT_DAMPING);
+        }
+    }
+    out
+}
+
+/// The cone limits of a ragdoll constraint (ragdoll.md §3), each held by a joint of its own
+/// between the same two bodies as [`joint`]'s: the **cone** (the angle between the two
+/// twist axes at most `cone_max`) and the **plane cones** (the angle between a's twist axis
+/// and b's plane axis, π/2 − plane, inside π/2 − `plane_max` … π/2 − `plane_min`). Each is a
+/// rapier joint with no locked axes whose two coupled angular axes limit the angle between
+/// its frames' x axes: one row along the axis that turns one onto the other, the exact
+/// gradient of that angle in every direction [design, 2026-11-13: limited about the twist
+/// frame's y and z axes apart, as before, the cone was a box that let a limb through on
+/// the diagonal (observed: `a_ragdoll_joint_holds_its_cone_in_every_direction` fails that
+/// way); with the stored inertia these joints brought the human skeleton's worst joint at
+/// rest from 5.4° to 2.3° outside its limits at 60 steps a second and from 4.6° to 0.1° at
+/// 160 (ragdoll.md §4)].
+pub fn cone_joints(j: &RagdollJoint, s: f32) -> Vec<GenericJoint> {
+    let JointKind::Ragdoll { twist_a, plane_a, twist_b, plane_b, cone_max, plane_min, plane_max, .. } = j.kind else { return Vec::new() };
+    let (pa, pb) = (vec3(j.pivot_a) * s, vec3(j.pivot_b) * s);
+    let coupled = JointAxesMask::ANG_Y | JointAxesMask::ANG_Z;
+    let cone_joint = |fa: Rotation, fb: Rotation, lo: f32, hi: f32| {
+        let mut g = GenericJointBuilder::new(JointAxesMask::empty()).local_frame1(Pose::from_parts(pb, fb)).local_frame2(Pose::from_parts(pa, fa)).coupled_axes(coupled).build();
+        g.set_limits(JointAxis::AngY, [lo, hi]);
+        g.set_contacts_enabled(false);
+        g
+    };
+    let mut out = Vec::new();
+    let (pi, half_pi) = (std::f32::consts::PI, std::f32::consts::FRAC_PI_2);
+    if let (Some(fa), Some(fb)) = (frame(twist_a, plane_a), frame(twist_b, plane_b)) {
+        let cone = cone_max.abs();
+        if cone.is_finite() && cone < pi {
+            out.push(cone_joint(fa, fb, -1.0, cone));
+        }
+    }
+    // The plane cones: the angle between a's twist axis and b's plane axis is π/2 − plane.
+    if let (Some(fa), Some(fb)) = (frame(twist_a, plane_a), frame(plane_b, twist_b)) {
+        let lo = if plane_max.is_finite() && plane_max < half_pi { half_pi - plane_max } else { -1.0 };
+        let hi = if plane_min.is_finite() && plane_min > -half_pi { half_pi - plane_min } else { 4.0 };
+        if lo > 0.0 || hi < pi {
+            out.push(cone_joint(fa, fb, lo, hi));
         }
     }
     out
@@ -311,8 +417,8 @@ impl PhysWorld {
         let mut report = RagdollReport::default();
         let start_velocity = Some(vec3(velocity) * k).filter(|v| v.is_finite()).unwrap_or_default();
         let n = data.bodies.len();
-        let joints = vec![None; data.joints.len()];
-        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object };
+        let joints = vec![Vec::new(); data.joints.len()];
+        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut, small: false, object, settle: None };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
         for (i, b) in data.bodies.iter().enumerate() {
@@ -356,6 +462,10 @@ impl PhysWorld {
             }
             if !at_rest && !held {
                 self.set_mass(body, o.mass);
+                // An actor's bodies turn with their stored inertia (ragdoll.md §2, §4).
+                if let (Some(t), false) = (b.inertia, object) {
+                    self.set_inertia(body, t.map(|v| v * (f * k) * (f * k)));
+                }
             }
             rag.bodies[i] = Some(body);
             report.bodies += 1;
@@ -387,7 +497,12 @@ impl PhysWorld {
             } else {
                 joint(j, f * k)
             };
-            rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, built));
+            rag.joints[ji].push(self.w.insert_impulse_joint(*b, *a, built));
+            if !starts_outside {
+                for cone in cone_joints(j, f * k) {
+                    rag.joints[ji].push(self.w.insert_impulse_joint(*b, *a, cone));
+                }
+            }
             report.joints += 1;
         }
         // Its size from the bind-pose shapes (scaled as built).
@@ -424,6 +539,37 @@ impl PhysWorld {
         report
     }
 
+    /// Give a dynamic body the inertia tensor `inertia` (kg·m², rows of a 3×3 matrix in the
+    /// body's frame) about its mass centre, in place of the one rapier works out from its
+    /// shapes; its mass and mass centre stay. Its colliders then carry no mass of their own
+    /// (density 0) and the body's mass properties are all its additional ones. Returns
+    /// false, changing nothing, when the tensor's principal moments are not all positive.
+    ///
+    /// For actors' ragdolls [observed, `_male\skeleton.nif`, ragdoll.md §2]: rapier's
+    /// moments from the shapes equal the stored ones for the head, hands and feet and about
+    /// the thighs' and calves' short sides, but are a seventeenth to a sixty-seventh of them
+    /// for the neck, a thirty-sixth for the pelvis, a sixth for the lowest spine body and a
+    /// fifteenth for the upper arms about their length. Turning that easily, those bodies
+    /// spun through their joints' limits under a fall or a shove and corpses lay with heads
+    /// turned round, necks bent back and hips and shoulders twisted (ragdoll.md §4).
+    fn set_inertia(&mut self, body: RigidBodyHandle, inertia: [f32; 9]) -> bool {
+        let Some(b) = self.w.bodies.get(body) else { return false };
+        let mp = b.mass_properties().local_mprops;
+        let props = MassProperties::with_inertia_matrix(mp.local_com, mp.mass(), Matrix::from_cols_array(&inertia).transpose());
+        let moments = props.principal_inertia();
+        if !(mp.mass() > 0.0 && moments.is_finite() && moments.min_element() > 0.0) {
+            return false;
+        }
+        let colliders: Vec<ColliderHandle> = b.colliders().to_vec();
+        for c in colliders {
+            self.w.colliders[c].set_density(0.0);
+        }
+        let b = &mut self.w.bodies[body];
+        b.set_additional_mass_properties(props, true);
+        b.recompute_mass_properties_from_colliders(&self.w.colliders);
+        true
+    }
+
     /// Build a ragdoll again where it is now, at rest or moving.
     fn rebuild_ragdoll(&mut self, form_id: u32, at_rest: bool) -> bool {
         let Some(nodes) = self.ragdoll_nodes(form_id) else { return false };
@@ -446,7 +592,7 @@ impl PhysWorld {
             if bodies.contains(&j.a) != bodies.contains(&j.b) && !r.cut.contains(&ji) {
                 r.cut.push(ji);
                 newly += 1;
-                handles.extend(r.joints.get_mut(ji).and_then(Option::take));
+                handles.extend(r.joints.get_mut(ji).map(std::mem::take).unwrap_or_default());
                 woken.extend([j.a, j.b].iter().filter_map(|&i| r.bodies.get(i).copied().flatten()));
             }
         }
@@ -489,6 +635,41 @@ impl PhysWorld {
         if self.ragdolls.get(&form_id).is_some_and(|r| r.at_rest) {
             self.rebuild_ragdoll(form_id, false);
         }
+    }
+
+    /// Settle a moving ragdoll before it is held at rest: `share` (0 to 1) of
+    /// [`SETTLE_DAMPING`] is added to each body's own damping, so that its motion dies out
+    /// as friction would stop it, instead of stopping dead when its bodies are fixed
+    /// ([`PhysWorld::set_ragdoll_at_rest`]). The caller raises the share over the settle.
+    /// A push or a blast that strikes it ends the settle ([`PhysWorld::push_ragdoll`],
+    /// [`PhysWorld::push_dynamic`]), as does [`PhysWorld::unsettle_ragdoll`]. Returns false
+    /// without a moving actor's ragdoll.
+    pub fn settle_ragdoll(&mut self, form_id: u32, share: f32) -> bool {
+        let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        self.set_settle(form_id, Some(share))
+    }
+
+    /// End a ragdoll's settle ([`PhysWorld::settle_ragdoll`]): its bodies have their own
+    /// damping again. Returns whether it was settling.
+    pub fn unsettle_ragdoll(&mut self, form_id: u32) -> bool {
+        self.ragdoll_settling(form_id) && self.set_settle(form_id, None)
+    }
+
+    /// Whether the ragdoll is settling ([`PhysWorld::settle_ragdoll`]).
+    pub fn ragdoll_settling(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.settle.is_some())
+    }
+
+    fn set_settle(&mut self, form_id: u32, settle: Option<f32>) -> bool {
+        let Some(r) = self.ragdolls.get_mut(&form_id).filter(|r| !r.at_rest && !r.object) else { return false };
+        r.settle = settle;
+        let extra = settle.unwrap_or(0.0) * SETTLE_DAMPING;
+        for (b, d) in r.bodies.iter().zip(&r.data.bodies) {
+            let Some(body) = b.and_then(|h| self.w.bodies.get_mut(h)) else { continue };
+            body.set_linear_damping(damping(d.linear_damping) + extra);
+            body.set_angular_damping(damping(d.angular_damping) + extra);
+        }
+        true
     }
 
     /// The ragdolls held at rest that have a body within `radius` of `center` (game units).
@@ -534,6 +715,70 @@ impl PhysWorld {
             .count()
     }
 
+    /// What the bodies of an actor's ragdoll touch now (as of the last step): every pair
+    /// with an active contact, by what the other collider is, or only those of body
+    /// `body` (index in the ragdoll's bodies). Diagnostics for a ragdoll that does not come
+    /// to rest (#2083); reads the world, changes nothing. Empty without a ragdoll.
+    pub fn ragdoll_contacts(&self, form_id: u32, body: Option<usize>) -> RagdollContacts {
+        let mut out = RagdollContacts::default();
+        let Some(r) = self.ragdolls.get(&form_id) else { return out };
+        let mut seen = std::collections::HashSet::new();
+        let mut others = std::collections::BTreeSet::new();
+        let mut refs = std::collections::BTreeSet::new();
+        for (i, h) in r.bodies.iter().enumerate() {
+            if body.is_some_and(|b| b != i) {
+                continue;
+            }
+            let Some(b) = h.and_then(|h| self.w.bodies.get(h)) else { continue };
+            for &c in b.colliders() {
+                for pair in self.w.contact_pairs_with(c).filter(|p| p.has_any_active_contact()) {
+                    // A pair of two of its own bodies is met from both sides: counted once.
+                    let (c1, c2) = (pair.collider1.into_raw_parts(), pair.collider2.into_raw_parts());
+                    let key = if c1 < c2 { (c1, c2) } else { (c2, c1) };
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    let other = if pair.collider1 == c { pair.collider2 } else { pair.collider1 };
+                    let depth = pair.find_deepest_contact().map_or(0.0, |(_, k)| (-k.dist / self.k).max(0.0));
+                    let co = self.w.colliders.get(other);
+                    let parent = co.and_then(|co| co.parent());
+                    let owner = co.and_then(|co| Owner::decode(co.user_data));
+                    let touch = match (parent.and_then(|p| self.ragdoll_of.get(&p)), owner) {
+                        (Some(&(f, _)), _) if f == form_id => &mut out.own,
+                        (Some(&(f, _)), _) => {
+                            others.insert(f);
+                            if self.ragdolls.get(&f).is_some_and(|o| o.at_rest) {
+                                &mut out.resting_ragdolls
+                            } else {
+                                &mut out.moving_ragdolls
+                            }
+                        }
+                        (None, Some(Owner::Terrain { .. })) => &mut out.terrain,
+                        (None, Some(Owner::Ref { form_id: f, .. })) => {
+                            refs.insert(f);
+                            match parent.and_then(|p| self.w.bodies.get(p)) {
+                                Some(p) if p.is_dynamic() => &mut out.loose,
+                                _ => &mut out.fixed,
+                            }
+                        }
+                        _ => &mut out.other,
+                    };
+                    touch.pairs += 1;
+                    touch.deepest = touch.deepest.max(depth);
+                }
+            }
+        }
+        out.ragdolls = others.into_iter().collect();
+        out.refs = refs.into_iter().collect();
+        out
+    }
+
+    /// Whether the ragdoll is held at rest ([`PhysWorld::set_ragdoll_at_rest`]), not merely
+    /// asleep in the engine ([`PhysWorld::ragdoll_asleep`] is either).
+    pub fn is_ragdoll_at_rest(&self, form_id: u32) -> bool {
+        self.ragdolls.get(&form_id).is_some_and(|r| r.at_rest)
+    }
+
     /// Whether the player's grab holds a body of this actor's ragdoll.
     pub fn ragdoll_held(&self, form_id: u32) -> bool {
         self.grip.as_ref().is_some_and(|g| g.on == crate::GripOn::Ragdoll(form_id))
@@ -551,6 +796,18 @@ impl PhysWorld {
     /// The pose of each ragdoll body's bone now, in the ragdoll's body order (`None` for
     /// a body that was not built), and its velocity and sleep state.
     pub fn ragdoll_nodes(&self, form_id: u32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_nodes`] as drawn this frame, `alpha` of a step after the last
+    /// one: each body's pose blended between before and after the last step
+    /// (`crate::drawn`). For drawing only.
+    pub fn drawn_ragdoll_nodes(&self, form_id: u32, alpha: f32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, Some(alpha))
+    }
+
+    /// The bones' poses from the bodies' poses now (`alpha` `None`) or as drawn.
+    fn nodes_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<Vec<Option<BodyState>>> {
         let r = self.ragdolls.get(&form_id)?;
         let k = self.k;
         Some(
@@ -558,8 +815,10 @@ impl PhysWorld {
                 .iter()
                 .zip(&r.local)
                 .map(|(b, local)| {
-                    let body = self.w.bodies.get((*b)?)?;
-                    let node = iso_of(body.position(), k).compose(&local.inverse());
+                    let h = (*b)?;
+                    let body = self.w.bodies.get(h)?;
+                    let pose = alpha.map_or(*body.position(), |a| self.drawn_pose(h, body, a));
+                    let node = iso_of(&pose, k).compose(&local.inverse());
                     Some(BodyState { translation: node.translation, rotation: node.rotation, ..body_state(body, k) })
                 })
                 .collect(),
@@ -588,24 +847,91 @@ impl PhysWorld {
 
     /// The mass centre of the ragdoll's heaviest body (the trunk of a person), game units.
     pub fn ragdoll_center(&self, form_id: u32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_center`] as drawn this frame, `alpha` of a step after the last
+    /// one (`crate::drawn`): for what follows a corpse on screen (the kill camera).
+    pub fn drawn_ragdoll_center(&self, form_id: u32, alpha: f32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, Some(alpha))
+    }
+
+    /// The speed of [`PhysWorld::ragdoll_center`]'s body (its heaviest), game units a
+    /// second: for telling a corpse that should move from one that rests.
+    pub fn ragdoll_center_speed(&self, form_id: u32) -> Option<f32> {
+        let b = self.w.bodies.get(self.heaviest(form_id)?)?;
+        Some(b.linvel().length() / self.k)
+    }
+
+    /// A ragdoll's heaviest body: by the stored masses, the first of equals, the same body
+    /// however it is built.
+    fn heaviest(&self, form_id: u32) -> Option<RigidBodyHandle> {
         let r = self.ragdolls.get(&form_id)?;
-        // By the stored masses, the first of equals: the same body however it is built.
         let mut best: Option<(f32, RigidBodyHandle)> = None;
         for (b, d) in r.bodies.iter().zip(&r.data.bodies) {
             if let Some(h) = b.filter(|_| best.is_none_or(|(m, _)| d.object.mass > m)) {
                 best = Some((d.object.mass, h));
             }
         }
-        Some(arr3(self.w.bodies.get(best?.1)?.center_of_mass() / self.k))
+        best.map(|b| b.1)
+    }
+
+    /// The heaviest body's mass centre now (`alpha` `None`) or as drawn.
+    fn center_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<[f32; 3]> {
+        let h = self.heaviest(form_id)?;
+        let b = self.w.bodies.get(h)?;
+        let Some(a) = alpha else { return Some(arr3(b.center_of_mass() / self.k)) };
+        let pose = self.drawn_pose(h, b, a);
+        Some(arr3((pose.rotation * b.local_center_of_mass() + pose.translation) / self.k))
+    }
+
+    /// A sphere holding an actor's ragdoll, game units: its centre its heaviest body's (the
+    /// trunk of a person), its radius out to the far side of every one of its colliders'
+    /// bounds. What a blast reaches a corpse by, as it reaches a living actor by its hit
+    /// volume (#2346) [design]. None for a placed object's ragdoll, or none at all.
+    pub fn ragdoll_bounds(&self, form_id: u32) -> Option<([f32; 3], f32)> {
+        let r = self.ragdolls.get(&form_id).filter(|r| !r.object)?;
+        let center = *self.ragdoll_body_centers(form_id).first()?;
+        let c = vec3(center) * self.k;
+        let mut reach = 0.0f32;
+        for (lo, hi) in r.bodies.iter().flatten().filter_map(|&b| self.body_extent(b)) {
+            reach = reach.max(((lo + hi) * 0.5 - c).length() + ((hi - lo) * 0.5).length());
+        }
+        Some((center, reach / self.k))
+    }
+
+    /// The centres of an actor's ragdoll bodies (each the middle of its colliders' bounds),
+    /// heaviest first by their stored masses (the trunk of a person first), game units: the
+    /// points of a corpse a blast sees and measures to (#2346) [design]. The colliders'
+    /// bounds, not the bodies' mass centres, which the engine works out only at its next step.
+    /// Empty for a placed object's ragdoll, or none at all.
+    pub fn ragdoll_body_centers(&self, form_id: u32) -> Vec<[f32; 3]> {
+        let Some(r) = self.ragdolls.get(&form_id).filter(|r| !r.object) else { return Vec::new() };
+        let mut out: Vec<(f32, [f32; 3])> = r
+            .bodies
+            .iter()
+            .zip(&r.data.bodies)
+            .filter_map(|(b, d)| self.body_extent((*b)?).map(|(lo, hi)| (d.object.mass, arr3((lo + hi) * 0.5 / self.k))))
+            .collect();
+        // Stable: equal masses keep the stored order.
+        out.sort_by(|x, y| y.0.total_cmp(&x.0));
+        out.into_iter().map(|(_, p)| p).collect()
+    }
+
+    /// The bounds of a body's colliders (engine units), if it has any.
+    fn body_extent(&self, b: RigidBodyHandle) -> Option<(Vector, Vector)> {
+        let body = self.w.bodies.get(b)?;
+        body.colliders().iter().filter_map(|&h| self.w.colliders.get(h)).map(|co| co.compute_aabb()).map(|a| (a.mins, a.maxs)).reduce(|x, y| (x.0.min(y.0), x.1.max(y.1)))
     }
 
     /// Change the velocity of the ragdoll body nearest to `at` by `dv` (game units per
     /// second), as a hit there does: the body's own velocity changes by `dv` whatever its
     /// mass, and it is turned as a blow at `at` turns it, by at most [`MAX_PUSH_SPIN`] (a
     /// small body struck off centre would otherwise spin fast enough to pass through the
-    /// ground). Returns false without a ragdoll.
+    /// ground). A settling ragdoll stops settling. Returns false without a ragdoll.
     pub fn push_ragdoll(&mut self, form_id: u32, at: [f32; 3], dv: [f32; 3]) -> bool {
         self.rouse_ragdoll(form_id);
+        self.unsettle_ragdoll(form_id);
         let Some(r) = self.ragdolls.get(&form_id) else { return false };
         let k = self.k;
         let p = vec3(at) * k;

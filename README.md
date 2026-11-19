@@ -18,6 +18,9 @@ Microsoft or Obsidian Entertainment. See [LEGAL.md](LEGAL.md).
 NVForever never writes into the game folder. Its settings, saves and logs live in
 `Documents\My Games\NVForever`.
 
+Optional: NVIDIA DLSS upscaling on an RTX graphics card (Windows), with files downloaded
+from NVIDIA: see [docs/dlss.md](docs/dlss.md).
+
 ## Mods
 
 - **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside

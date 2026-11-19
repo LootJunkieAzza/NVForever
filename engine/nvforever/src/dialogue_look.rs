@@ -53,7 +53,8 @@
 //! The angles and timings are NVForever's design choices unless tagged otherwise.
 //!
 //! Log, one line each, starting `dialogue look:`: an actor starts facing the player
-//! (head and body, head only and why, or nobody and why; the angles), and stops.
+//! (head and body, head only and why, or nobody and why; the angles, and how far its
+//! chest as posed is off the player), and stops.
 //!
 //! Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no body turns (as if every actor were
 //! [`BodyHeld`]), to see the head at its limit. Not a game behaviour.
@@ -131,6 +132,32 @@ pub struct BodyHeld;
 /// of a direction in the actor's own space (x right, y forward, z up).
 pub fn yaw_pitch(d: Vec3) -> (f32, f32) {
     (d.x.atan2(d.y), d.z.atan2(d.x.hypot(d.y)))
+}
+
+/// The yaw and pitch of a head whose forward and up axes, in the actor's space, are
+/// `forward` and `up`, such that [`look_quat`] of them faces the same way with the same
+/// side up (whatever roll the head has besides, under a quarter turn). For a head the
+/// right way up that is [`yaw_pitch`] of its forward. A head hanging past straight down
+/// (or thrown back past straight up) is upside down in that reading: its forward points
+/// a little behind its face's way, so the yaw is the opposite one. It gets its face's
+/// yaw and a pitch beyond ±90° instead (the same forward, the other side up): a turn
+/// built from the reading of the forward alone turned it over (the crucified Anders,
+/// whose cross clips hang the head chin on chest: #2471).
+pub fn head_yaw_pitch(forward: Vec3, up: Vec3) -> (f32, f32) {
+    let (yaw, pitch) = yaw_pitch(forward);
+    if up.dot(look_quat(yaw, pitch) * Vec3::Z) >= 0.0 {
+        (yaw, pitch)
+    } else {
+        (wrap(yaw + PI), if pitch < 0.0 { -PI - pitch } else { PI - pitch })
+    }
+}
+
+/// Whether a head turned fully onto someone is drawn upside down: its up axis (the
+/// actor's space) points below the level. A head on its target looks at most
+/// [`HEAD_PITCH_LIMIT`] and [`KEEP_LIMIT`] up or down, so its up axis points above the
+/// level unless it rolled over.
+pub fn upside_down(up: Vec3) -> bool {
+    up.z < 0.0
 }
 
 /// The rotation, in the actor's space, that takes its forward to that yaw and pitch
@@ -300,6 +327,11 @@ struct Look {
     wanted_yaw: Option<f32>,
     /// The yaw and pitch the head had last frame (the actor's space).
     shown: (f32, f32),
+    /// The chest's yaw last frame (the actor's space, [`torso_yaw`]), for the log.
+    torso: f32,
+    /// Frames in which the turned head was drawn upside down (its up axis pointing down
+    /// against the look's level up), for the log (#2471).
+    upside_down: u32,
     /// The animation's head direction averaged over [`KEEP_SECONDS`] ([`follow_rest`]).
     rest: Option<(f32, f32)>,
     /// Per bone of the chain: the local rotation the animation gave it and the one written
@@ -313,7 +345,7 @@ struct Look {
 impl Look {
     fn new(entity: Entity, name: String, head: Option<HeadRig>, weight: f32, body: Option<BodyTurn>) -> Look {
         let written = vec![None; head.as_ref().map_or(0, |h| h.chain.len())];
-        Look { entity, name, head, active: true, weight, wanted_yaw: None, shown: (0.0, 0.0), rest: None, written, body }
+        Look { entity, name, head, active: true, weight, wanted_yaw: None, shown: (0.0, 0.0), torso: 0.0, upside_down: 0, rest: None, written, body }
     }
 }
 
@@ -425,6 +457,15 @@ fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<HeadRig, String> 
     })
 }
 
+/// How far (degrees, clockwise) the chest as posed faces from the player, who is `off`
+/// radians off the actor's front: where the bone above the turned neck faces
+/// ([`torso_yaw`]), against the player.
+fn chest_off(rig: &ActorRig, h: &HeadRig, off: f32, transforms: &Query<&mut Transform>) -> Option<f32> {
+    let top = rig.skel.parents.get(h.chain[0].0).copied().flatten().unwrap_or(0);
+    let m = in_actor_space(rig, top, transforms)?;
+    Some(wrap(torso_yaw(rotation(&m) * h.frame_bind.inverse()) - off).to_degrees())
+}
+
 /// The compass heading (degrees) a root's rotation faces.
 pub(crate) fn heading_deg(rotation: Quat) -> f32 {
     let f = rotation * Vec3::Y;
@@ -521,6 +562,13 @@ pub(crate) fn turn_speaker(
                         )
                     },
                 );
+                // Where the chest faces, against the player: a pose that turns the body
+                // away from the actor's heading shows here (#2246).
+                let chest = head.as_ref().ok().zip(off).and_then(|(h, off)| chest_off(rig, h, off, &transforms));
+                let reach = match chest {
+                    Some(c) => format!("{reach}; its chest is {c:+.0}° off the player"),
+                    None => reach,
+                };
                 let off_deg = off.map_or(f32::NAN, f32::to_degrees);
                 match (&turns, &body) {
                     (Turns::Nobody(why), _) => info!("dialogue look: {name} does not turn to the player: {why}"),
@@ -568,13 +616,22 @@ pub(crate) fn turn_speaker(
         };
         if look.active && talking != Some(r) {
             look.active = false;
-            if look.head.is_some() {
-                let heading = transforms.get(look.entity).map_or(f32::NAN, |t| heading_deg(t.rotation));
+            if let Some(h) = look.head.as_ref() {
+                let root = transforms.get(look.entity).ok().copied();
+                let heading = root.map_or(f32::NAN, |t| heading_deg(t.rotation));
+                // The player against the actor's front, and the chest against the player.
+                let off = root.zip(globals.get(child_of.parent()).ok()).map(|(root, parent)| {
+                    let to_actor = (parent.affine() * root.compute_affine()).inverse();
+                    yaw_pitch(to_actor.transform_point3(space::to_bevy(player.feet))).0
+                });
+                let chest = off.and_then(|off| chest_off(rig, h, off, &transforms)).map_or_else(String::new, |c| format!("; its chest is {c:+.0}° off the player"));
                 info!(
-                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°",
+                    "dialogue look: {} stops facing the player: the head (yaw {:+.0}°, pitch {:+.0}°; {:+.0}° from its chest) eases back over {HEAD_OUT_SECONDS:.2} s, the body keeps its heading {heading:.0}°{chest}; the head was upside down in {} frames",
                     look.name,
                     look.shown.0.to_degrees(),
-                    look.shown.1.to_degrees()
+                    look.shown.1.to_degrees(),
+                    wrap(look.shown.0 - look.torso).to_degrees(),
+                    look.upside_down
                 );
             }
         }
@@ -659,12 +716,13 @@ pub(crate) fn turn_speaker(
             head_m *= l.compute_affine();
         }
         let head_rot = rotation(&head_m);
-        let cur = yaw_pitch(head_rot * head.forward);
+        let cur = head_yaw_pitch(head_rot * head.forward, head_rot * head.up);
         let eye = root.inverse().transform_point3(space::to_bevy(player.eye()));
         let want = yaw_pitch(eye - Vec3::from(head_m.translation));
         // The limit is the neck's: measured from where the chest faces, whatever the
         // animation does with the body below it.
         let torso = torso_yaw(rotation(&above_m) * head.frame_bind.inverse());
+        look.torso = torso;
         let yaw = sided(wrap(want.0 - torso), look.wanted_yaw);
         look.wanted_yaw = Some(yaw);
         let target = limited_from((yaw, want.1), torso, head.yaw_limit);
@@ -686,7 +744,10 @@ pub(crate) fn turn_speaker(
             above = turns[k];
         }
         let turned = above * head_rot;
-        look.shown = yaw_pitch(turned * head.forward);
+        look.shown = head_yaw_pitch(turned * head.forward, turned * head.up);
+        if look.active && look.weight >= 1.0 && upside_down(turned * head.up) {
+            look.upside_down += 1;
+        }
         if look.active {
             let point = Vec3::from(head_m.translation) + turned * (head.forward * FACE_FORWARD + head.up * FACE_UP);
             said = Some((r, space::to_game(root.transform_point3(point))));
@@ -733,6 +794,40 @@ mod tests {
             let (y, p) = yaw_pitch(q * Vec3::Y);
             assert!((wrap(y - yaw)).abs() < 1e-5 && (p - pitch).abs() < 1e-5, "{yaw} {pitch}: {y} {p}");
             assert!((q * Vec3::X).z.abs() < 1e-6, "no roll: the ear-to-ear axis stays level");
+        }
+    }
+
+    #[test]
+    fn a_head_hanging_past_straight_down_is_turned_up_not_over() {
+        // Issue #2471: on the cross the chest faces the actor's back (yaw 180°) and the
+        // clip hangs the head chin on chest, its face 100° below the level, so its forward
+        // points down and a little backwards from the chest. Read from the forward alone
+        // the head faces the root's front (yaw 0) upside down.
+        let chest = PI;
+        let hanging = look_quat(chest, -100f32.to_radians());
+        let (fwd, up) = (hanging * Vec3::Y, hanging * Vec3::Z);
+        assert!(wrap(yaw_pitch(fwd).0).abs() < 1e-3, "the forward alone points to the root's front");
+        let (yaw, pitch) = head_yaw_pitch(fwd, up);
+        assert!(wrap(yaw - chest).abs() < 1e-3 && (pitch + 100f32.to_radians()).abs() < 1e-3, "{yaw} {pitch}");
+        // Turned onto a player in front of the chest, 30° to its side: the head ends on
+        // the player, right side up, within the limit from the chest.
+        let limit = 60f32.to_radians();
+        let want = (wrap(chest + 0.5), 0.0);
+        let target = limited_from((wrap(want.0 - chest), want.1), chest, limit);
+        let turns = chain_turns((yaw, pitch), target, 1.0, &shares(2));
+        let head = *turns.last().unwrap() * hanging;
+        let (y, p) = head_yaw_pitch(head * Vec3::Y, head * Vec3::Z);
+        assert!(wrap(y - target.0).abs() < 1e-3 && (p - target.1).abs() < 1e-3, "{y} {p}");
+        assert!(wrap(y - chest).abs() <= limit + 1e-3);
+        assert!(!upside_down(head * Vec3::Z), "right side up: {:?}", head * Vec3::Z);
+        // The old reading turned it over.
+        let old = chain_turns(yaw_pitch(fwd), target, 1.0, &shares(2));
+        assert!(upside_down(*old.last().unwrap() * hanging * Vec3::Z));
+        // A head the right way up reads as before, rolled or not.
+        for (y0, p0) in [(0.3f32, 0.2f32), (-2.0, -0.5), (3.0, 1.2)] {
+            let q = look_quat(y0, p0) * Quat::from_rotation_y(0.6);
+            let (y, p) = head_yaw_pitch(q * Vec3::Y, q * Vec3::Z);
+            assert!(wrap(y - y0).abs() < 1e-4 && (p - p0).abs() < 1e-4, "{y0} {p0}: {y} {p}");
         }
     }
 

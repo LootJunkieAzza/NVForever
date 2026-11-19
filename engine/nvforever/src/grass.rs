@@ -23,8 +23,9 @@ use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, Shade
 use bevy::shader::ShaderRef;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject};
 use fnv_nif::NifFile;
-use fnv_world::grass::{load_grass, place, texture_grasses, Grass, GrassSettings, Plant};
+use fnv_world::grass::{load_grass, place_on, texture_grasses, Grass, GrassSettings, Plant};
 use fnv_world::land::{load_land, Land, LandParts};
+use fnv_world::land_surface::Surface;
 use fnv_world::CELL_SIZE;
 use nvf_play::grass_fire::GrassFires;
 use nvf_assets::model::ModelCtx;
@@ -85,6 +86,12 @@ impl FromWorld for GrassBurn {
     }
 }
 
+/// Whether grass takes the ambient occlusion in the lighting (ssao_lighting.rs) where
+/// bevy_pbr's rule gives it the def (it writes depth, in the prepass with its coverage). On by
+/// default; the switch to leave the swaying blades out if their shimmer in shade outweighs
+/// the darker roots in pictures [engineering choice, #2897 stage two plan §4].
+const GRASS_READS_AMBIENT_OCCLUSION: bool = true;
+
 impl MaterialExtension for GrassSway {
     fn vertex_shader() -> ShaderRef {
         SHADER.into()
@@ -103,8 +110,17 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
-        // Main pass of a multisampled view: the fragment's alpha is the share of the
-        // pixel's samples it covers.
+        if !GRASS_READS_AMBIENT_OCCLUSION {
+            nvf_assets::ambient_occlusion_opt_out(descriptor);
+        }
+        // A multisampled view with a depth-only prepass: the prepass writes the share of
+        // the pixel's samples each blade covers, and the main pass tests depth for
+        // equality (nvf_assets `grass_edges`).
+        if nvf_assets::grass_edges(descriptor, key.mesh_key) {
+            return Ok(());
+        }
+        // Main pass of any other multisampled view: the fragment's alpha is the share of
+        // the pixel's samples it covers.
         let prepass = descriptor.vertex.shader_defs.contains(&"PREPASS_PIPELINE".into());
         if !prepass && descriptor.multisample.count > 1 {
             if let Some(fragment) = descriptor.fragment.as_mut() {
@@ -112,6 +128,9 @@ impl MaterialExtension for GrassSway {
                 descriptor.multisample.alpha_to_coverage_enabled = true;
             }
         }
+        // Without multisampling both passes test the alpha at the cutoff: the main pass
+        // tests depth for equality with the prepass (left alone with alpha to coverage).
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
         Ok(())
     }
 }
@@ -272,7 +291,9 @@ fn grow_owed(
     let Some((cell, &o)) = owed.iter().next() else { return };
     commands.entity(cell).remove::<GrassOwed>();
     let Some(land) = load_land(world.lo, world.schema, o.land, LandParts::ALL) else { return };
-    grass.spawn(&mut commands, cell, &world, o.land, &land, o.grid, o.water, &mut models);
+    // The surface the cell's ground is drawn on (smoothed or stored, #2149).
+    let Some(surface) = world.land_surface(o.grid) else { return };
+    grass.spawn(&mut commands, cell, &world, o.land, &land, &surface, o.grid, o.water, &mut models);
     if streamer.fade_secs > 0.0 {
         // The new meshes need a fade range like the cell's other meshes (fade.rs).
         streamer.fades.entry(o.grid).and_modify(CellFade::again).or_insert(CellFade::new(1.0, false));
@@ -349,21 +370,21 @@ impl GrassCtx<'_> {
     }
 
     /// Generate and draw the grass of one cell's landscape (`land`, the LAND record
-    /// `land_id`) under `cell` (an entity at the cell's south-west corner, game space).
-    /// With grass switched off the cell is owed it ([`GrassOwed`]).
+    /// `land_id`, drawn on `surface`) under `cell` (an entity at the cell's south-west
+    /// corner, game space). With grass switched off the cell is owed it ([`GrassOwed`]).
     #[allow(clippy::too_many_arguments)]
-    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
         if !self.config.enabled {
             commands.entity(cell).insert(GrassOwed { land: land_id, grid, water });
             return;
         }
         let t0 = std::time::Instant::now();
-        self.grow(commands, cell, world, land, grid, water, models);
+        self.grow(commands, cell, world, land, surface, grid, water, models);
         self.cache.build_ms += t0.elapsed().as_secs_f64() * 1000.0;
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn grow(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+    fn grow(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, surface: &Surface, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
         let max_types = self.config.generate.max_types_per_texture;
         for t in land.layers.iter().filter_map(|l| l.texture) {
             if self.cache.texture_types.contains_key(&t) {
@@ -373,7 +394,7 @@ impl GrassCtx<'_> {
             let kinds: Vec<usize> = texture_grasses(world.lo, world.schema, t).into_iter().filter_map(|g| self.kind(world, g)).take(max_types).collect();
             self.cache.texture_types.insert(t, kinds);
         }
-        let plants = place(land, grid, water, &self.cache.types, &self.cache.texture_types, &self.config.generate);
+        let plants = place_on(land, surface, grid, water, &self.cache.types, &self.cache.texture_types, &self.config.generate);
         if plants.is_empty() {
             return;
         }

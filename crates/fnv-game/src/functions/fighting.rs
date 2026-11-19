@@ -13,12 +13,12 @@ use std::collections::BTreeSet;
 
 /// `actor.SetCombatStyle style`: the reference fights with that combat style from now
 /// on; the base form's style is not changed [documented: catalogue notes]. Kept in
-/// `RefExtra::combat_style`, which [`Game::combat_style`] reads first. A form that is not
+/// `RefExtra::combat_style`, which [`Game::combat_style`] reads after a package's style. A form that is not
 /// a combat style is refused.
 pub fn set_combat_style(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let style = a.form(0)?;
-    if !g.data.combat_styles.contains_key(&style) {
+    if g.combat_style_origin(style).is_none() {
         return Err(format!("{style} is not a combat style"));
     }
     g.extra.entry(r).or_default().combat_style = Some(style);

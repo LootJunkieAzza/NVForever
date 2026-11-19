@@ -28,7 +28,7 @@ use fnv_game::game::Game;
 use fnv_game::package::{fallout, flags, PackageType};
 use fnv_game::use_weapon::Source;
 use fnv_nav::follow::heading_of;
-use fnv_nav::{NavGraph, PathParams, Place, Space, WalkEvent, Walker};
+use fnv_nav::{NavGraph, PathError, PathParams, Place, Space, WalkEvent, Walker};
 use fnv_sim::FormId;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -65,6 +65,10 @@ const HOME_REACH: f32 = 4096.0;
 /// What a unit of water costs on a way planned for an actor whose package does not
 /// allow swimming (`Ai::path_params`), against 1 on land [our choice].
 pub const NO_SWIM_WATER_COST: f32 = 50.0;
+
+/// Fallback safe drop height [design, #2532; documented: physics.md §6.10 and
+/// engine/nvf-play/src/falls.rs use 600 when fJumpFallHeightMin is absent].
+const SAFE_DROP_HEIGHT: f32 = 600.0;
 
 /// A way through a radiation marker's radius costs this many times as much for an actor
 /// that avoids radiation [design: kept off where a way round is not far longer, still
@@ -125,6 +129,51 @@ pub const NPC_RUN: f32 = 344.0;
 
 /// fMoveSneakMult when the load order does not set it [observed: FalloutNV.esm].
 const SNEAK_MULT: f32 = 0.57;
+
+/// fMoveNoWeaponMult when the load order does not set it [documented: GECK wiki Movement
+/// Settings, default 1.1, "Movement speed is multiplied by this when the actor's weapon is
+/// holstered, or the actor has no weapon equipped"].
+const NO_WEAPON_MULT: f32 = 1.1;
+
+/// The weapons, by WEAP DNAM animation type, a person walks with drawn at the drawn walk
+/// ([`drawn_walk_share`]): Pistol - Ballistic (1 Hand) 3 and Pistol - Energy (1 Hand) 4
+/// [documented: xEdit wbWeaponAnimTypeEnum, schemas/fnv/objects.json]. [observed: walks
+/// with a 10mm pistol drawn only, actors.md §8.10, People; the energy pistols share its
+/// stance's clips, not measured.] [design, #2124: every other stance keeps the holstered
+/// walk until it is measured; docs/owner-review.md.]
+pub const DRAWN_WALK_ANIM_TYPES: [i64; 2] = [3, 4];
+
+/// The share of its walk a person keeps walking outside combat with a weapon drawn
+/// (#2124): 1 / fMoveNoWeaponMult (85.3 / 1.1 = 77.5 units/s) for a person, not a
+/// creature, in light armour or clothes (`fnv_game::combat::worn_armor_class`) with a
+/// weapon of [`DRAWN_WALK_ANIM_TYPES`] out (`Game::weapon_is_out`) and not in combat; 1
+/// for everyone else. [observed: walking with a 10mm pistol drawn, in leather or a
+/// mercenary outfit, the Novac merchant held 78.0 and two mercenaries 77.5 and 78.3,
+/// against the holstered people's 85 (docs/spec-notes/actors.md §8.10, People).]
+/// [documented: fMoveNoWeaponMult multiplies the speed of an actor whose weapon is
+/// holstered, GECK wiki Movement Settings.] [design, #2124: our holstered walk
+/// ([`NPC_WALK`]) is fitted to the holstered people, so the drawn walk divides it by the
+/// setting; whether the original's drawn walk comes from the setting, the `1hm`/`h2h`
+/// walk clip (77.5) or fMoveBaseSpeed (77) is open, the maintainer's choice in
+/// docs/owner-review.md.]
+pub fn drawn_walk_share(game: &Game, actor: FormId) -> f32 {
+    if game.awareness.state(actor).in_combat() || !game.weapon_is_out(actor) {
+        return 1.0;
+    }
+    // The weapon it holds by the rules (none: its fists); only an actor the simulation
+    // holds no equipment for falls back on the one the animating side last drew for it,
+    // which is not cleared when the weapon is taken off (`Game::set_held_weapon`).
+    let weapon = match game.world.equipment(actor) {
+        Some(items) => items.into_iter().find(|i| game.world.forms.item(*i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)),
+        None => game.extra.get(&actor).and_then(|e| e.held_weapon),
+    };
+    let stance = weapon.and_then(|w| game.data.weapon_anim_types.get(&w).copied());
+    let light = || fnv_game::combat::worn_armor_class(&game.world, actor) == fnv_sim::forms::ArmorClass::Light;
+    if !stance.is_some_and(|t| DRAWN_WALK_ANIM_TYPES.contains(&t)) || crate::alert::creature(game, actor) || !light() {
+        return 1.0;
+    }
+    1.0 / game.world.forms.setting_f32("fMoveNoWeaponMult").filter(|m| *m > 0.0).unwrap_or(NO_WEAPON_MULT)
+}
 
 impl Default for AiConfig {
     fn default() -> Self {
@@ -195,11 +244,19 @@ pub enum AiEvent {
     DoorWaitCancelled { door: FormId },
     /// The walk ended at the package's place, after `seconds` and `travelled` units.
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
+    /// Arrival's standing heading target, radians [design, #2526; `Ai::settle`].
+    ArrivalFacing { heading: f32 },
     /// No way to the package's location: the package is set aside.
     Unreachable { package: FormId, why: String },
     /// No navmesh near it or its package's place, which is close by: it walks straight
     /// there (`length` units) ([`STRAIGHT_REACH`]).
     Straight { package: FormId, length: f32 },
+    /// Out of sight, with no door joining where it is and where its package sends it: it
+    /// is put there (docs/spec-notes/packages.md §11).
+    PutThere { package: FormId, from: Place, to: Place },
+    /// The way there needs a load door and the creature cannot open doors (Can't Open
+    /// Doors, packages.md §7.1): it stays, and the package is set aside as for no way.
+    DoorsClosedToIt { package: FormId },
     /// Its feet at `at` do not fit its goal's height and no new path helped: its walk ends
     /// as if they did (`fnv_nav::Walker::off_path`).
     HeightWaived { at: [f32; 3] },
@@ -247,6 +304,14 @@ pub enum AiEvent {
     /// It is near enough to force-greet `target`, `away` units off, but something solid
     /// is between them (a wall, a closed door): it waits ([`Game::greet_sight`]).
     TalkUnseen { package: FormId, target: FormId, away: f32 },
+    /// Its Dialogue package walks the player, `away` units off, into its trigger location
+    /// before it talks, to `to` (`Game::player_lead`; "Do Not Control Target Movement"
+    /// off).
+    LeadsPlayer { package: FormId, to: [f32; 3], away: f32 },
+    /// The walk of [`AiEvent::LeadsPlayer`] got no nearer its point for
+    /// [`LEAD_STUCK_SECONDS`] (a rail, furniture, a step in the way): the actor talks
+    /// where the player stands, `left` units short of the point.
+    LeadStuck { package: FormId, left: f32 },
     /// A script's StartConversation sent it to the player (`Game::walk_up_greet`): it sets
     /// off, `away` units from the player, a way of `length` units.
     WalkUp { away: Option<f32>, length: f32 },
@@ -331,15 +396,25 @@ pub enum AiEvent {
     /// Its weapon does not fire at its target `distance` away: it holds `weapon`, which
     /// does (`crate::rearm`).
     RangeSwap { weapon: FormId, distance: f32 },
+    /// Its target `distance` away stayed inside its explosive `weapon`'s blast and it
+    /// carries nothing that fires there: it puts `weapon` away and fights with its fists
+    /// (`crate::rearm`, #2745).
+    RangeFists { weapon: FormId, distance: f32 },
     /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
     Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
+    /// In a combat state, its package's Continue During Combat flag now holds it on the
+    /// package (`held`), or no longer does and it fights (`crate::alert`).
+    PackageHolds { package: FormId, held: bool },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
     /// Back to its package inside the package's place (after a search, a push or a
     /// chat), it settles there again: its bed or chair, a sandbox ([`Ai::back_to_package`]).
     Resettles { package: FormId },
+    /// Back to an Escort, Find or Use Item At package whose walk a search, a push or a
+    /// chat cut off: it takes the package up afresh ([`Ai::back_to_package`]).
+    TakesUpAgain { package: FormId },
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
@@ -404,7 +479,7 @@ pub enum Talking {
 
 /// Whether `actor` is saying its greeting at the player outside a conversation
 /// (`Speech::greeting`).
-fn greets(game: &Game, actor: FormId) -> bool {
+pub(crate) fn greets(game: &Game, actor: FormId) -> bool {
     game.speech.iter().any(|s| s.greeting && s.speaker == actor)
 }
 
@@ -629,6 +704,11 @@ pub struct Agent {
     /// Let go of that seat: it stays where getting up leaves it until this `Game::time`
     /// ([`SEAT_LINGER`]), then walks on its package.
     pub(crate) linger: Option<f64>,
+    /// An ordinary walk's drawn-weapon share ([`drawn_walk_share`]) as last applied and
+    /// the walker speed it gave: set where a package's walk is planned at the walk, kept
+    /// up by [`Ai::repace_walk`] and by [`Ai::set_speeds`] (new speeds on the way, the
+    /// share kept); given up once anything else sets the walker's speed.
+    pub(crate) walk_pace: Option<(f32, f32)>,
     /// How many times ResetAI had its package taken up afresh ([`Ai::step_actor`];
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
     /// when the package gives it the same furniture again (issue #2119).
@@ -636,6 +716,12 @@ pub struct Agent {
     /// The door it was last asked at and has not yet left behind, with the package it
     /// was walking for (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
     pub(crate) asked_door: Option<(u32, Option<FormId>)>,
+    /// Where it last stood out of a combat state: the post of a "near current location"
+    /// Guard that has no wander area (`crate::alert`, Continue During Combat).
+    pub(crate) calm_at: Option<Place>,
+    /// Its package's Continue During Combat flag held it at its last update in a combat
+    /// state (`crate::alert`): a change is logged.
+    pub(crate) held: bool,
 }
 
 /// How long an actor let go of the seat it was sent to (the arm-wrestling opponent,
@@ -682,17 +768,27 @@ pub struct Ai {
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
     /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
-    applied_locks: Option<u64>,
+    applied_locks: Option<(u64, u64)>,
+    /// Doors the game has locked that are not in the world now: their locks are left out
+    /// of the graph until they are enabled ([`Ai::apply_door_locks`]).
+    withheld_locks: Vec<u32>,
     /// The world's presence serial and the graph's obstacle stamp after the obstacles
     /// were last brought into the graph ([`Ai::obstacles_in_line`]).
     applied_obstacles: Option<(u64, u64)>,
+    /// The world's presence serial last brought into the graph's load doors
+    /// ([`Ai::apply_door_presence`]).
+    applied_presence: Option<u64>,
     /// The graph's locked doors as last brought in ([`Ai::apply_door_locks`]): the ones an
     /// actor owns are open to its paths ([`Ai::path_params`]).
     locked_doors: Vec<u32>,
     /// Actors near enough to force-greet the one their Dialogue package names but with a
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
-    unseen_greets: std::collections::BTreeSet<FormId>,
+    pub(crate) unseen_greets: std::collections::BTreeSet<FormId>,
+    /// Actors leading the player into their trigger location ([`Ai::lead_player`]): the
+    /// player's nearest approach to the lead's point so far and when it last grew
+    /// nearer, so that a walk that gets no nearer (something solid in the way) ends.
+    lead_progress: BTreeMap<FormId, (f32, f64)>,
     /// Progress a loaded save kept, by actor, until the actor takes up that package again
     /// ([`crate::progress`]).
     pub(crate) restored: BTreeMap<FormId, crate::progress::Progress>,
@@ -777,7 +873,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, withheld_locks: Vec::new(), applied_obstacles: None, applied_presence: None, locked_doors: Vec::new(), unseen_greets: Default::default(), lead_progress: BTreeMap::new(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -843,17 +939,48 @@ impl Ai {
     /// locked: the actors whose way goes through it plan again (a locked door they cannot
     /// open is no longer a way) [hypothesis: as for a navmesh switched off]. Returns the
     /// actors sent to plan again, `None` when no lock changed.
+    ///
+    /// A door that is not in the world ([`Game::present`]: disabled by a script or an
+    /// enable parent, or placed Initially Disabled) holds no lock here: "a disabled
+    /// reference is not in the world" [documented: GECK wiki Disable], so it shuts no way,
+    /// and the graph's authored XLOC of it is taken out. Broken Steel's in-place door
+    /// 0x0D009B07 (lock level 255, no key, disabled when Death From Above gets there) made
+    /// every path past it unreachable (issue #2766). Its lock comes back when it is
+    /// enabled, so the world's presence serial is watched as well as the lock serial.
     pub fn apply_door_locks(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
-        let serial = game.world.lock_serial();
+        let serial = (game.world.lock_serial(), game.world.presence_serial());
         if self.applied_locks == Some(serial) {
             return None;
         }
+        // Only the presence moved (references enabled, disabled, created): the doors to
+        // look at are those that hold a lock or have one withheld, not every door.
+        let locks_moved = self.applied_locks.is_none_or(|a| a.0 != serial.0);
         self.applied_locks = Some(serial);
-        let states = game.world.changed().filter_map(|(id, s)| {
-            let lock = s.lock?;
-            Some((id.0, lock.locked.then_some(fnv_nav::graph::DoorLock { level: lock.level, key: lock.key.map(|k| k.0) })))
-        });
-        let changes = nav.sync_door_locks(states.collect::<Vec<_>>());
+        // [design, #2538] Include cold load doors: their applicable lock can live on
+        // the other side, even when this side has never been materialised.
+        let doors: Vec<u32> = if locks_moved {
+            nav.door_refs()
+        } else {
+            let mut v: Vec<u32> = nav.door_locks.keys().copied().chain(self.withheld_locks.iter().copied()).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let mut withheld = Vec::new();
+        let states: Vec<_> = doors
+            .into_iter()
+            .map(|id| {
+                // A door the world does not know (no placed reference) is taken as there.
+                let there = game.world.is_enabled(FormId(id)).is_err() || game.present(FormId(id));
+                let lock = game.world.lock_of(FormId(id)).filter(|l| l.locked);
+                if lock.is_some() && !there {
+                    withheld.push(id);
+                }
+                (id, lock.filter(|_| there).map(|l| fnv_nav::graph::DoorLock { level: l.level, key: l.key.map(|k| k.0) }))
+            })
+            .collect();
+        self.withheld_locks = withheld;
+        let changes = nav.sync_door_locks(states);
         self.locked_doors = nav.door_locks.keys().copied().collect();
         self.locked_doors.sort_unstable();
         if changes.is_empty() {
@@ -865,6 +992,56 @@ impl Ai {
         }
         if !changes.locked.is_empty() {
             again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.locked))).map(|(id, _)| *id));
+        }
+        again.sort();
+        again.dedup();
+        for actor in &again {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some(again)
+    }
+
+    /// Bring the graph's load doors in line with whether the game has them in the world
+    /// now ([`Game::present`]: a script's Enable or Disable, an enable parent's), when the
+    /// world's presence serial moved since the last call (`fnv_sim::World::presence_serial`,
+    /// which every such change moves; a new world starts from a number of its own). A door
+    /// that is not there takes no part in paths (`fnv_nav::NavGraph::disabled_doors`), as
+    /// a locked one an actor cannot open: Nellis's hangar has a door into each of its two
+    /// versions on the same spot, one disabled until the B-29 is up, and Loyal, whose
+    /// package after a failed Volare! is in the B-29's hangar, was walked through the
+    /// disabled one into a hangar the player cannot enter (issue #2566).
+    ///
+    /// A door gone: the actors whose way goes through it plan again. A door back: the
+    /// packages set aside as out of reach may be chosen again (`Game::unblock_packages`)
+    /// [design: as for a door locked and unlocked, [`Ai::apply_door_locks`]]. Returns the
+    /// actors sent to plan again, `None` when no door changed.
+    pub fn apply_door_presence(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
+        let serial = game.world.presence_serial();
+        if self.applied_presence == Some(serial) {
+            return None;
+        }
+        self.applied_presence = Some(serial);
+        // A door the world does not know (no placed reference) is left as the graph has it.
+        let states: Vec<(u32, bool)> = nav.door_refs_through().into_iter().filter(|&d| game.world.is_enabled(FormId(d)).is_ok()).map(|d| (d, game.present(FormId(d)))).collect();
+        let changes = nav.sync_door_presence(states);
+        if changes.is_empty() {
+            return None;
+        }
+        let mut again: Vec<FormId> = Vec::new();
+        if !changes.back.is_empty() {
+            again.extend(game.unblock_packages());
+        }
+        if !changes.gone.is_empty() {
+            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.gone))).map(|(id, _)| *id));
         }
         again.sort();
         again.dedup();
@@ -941,7 +1118,10 @@ impl Ai {
     /// walk where it is, and it goes on in the same gait when they come back (a package's
     /// walk planned while they were 0 in the gait `Ai::plan` chose, any other at the
     /// calm walk). Crippled
-    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is.
+    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is. A package's
+    /// walk with a drawn-weapon share ([`Agent::walk_pace`], #2124) keeps it: the share is
+    /// in the gait's (`gait_of` finds the walk at that share), and the walk stays its own,
+    /// at the new speed, for [`Ai::repace_walk`] to follow the weapon from [design].
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
         let default = Speeds { walk: self.cfg.walk_speed, run: self.cfg.run_speed };
         let old = self.speeds.insert(actor, speeds).unwrap_or(ActorSpeeds { calm: default, alert: default, turn_rate: None, spot_turn_start: None });
@@ -956,6 +1136,8 @@ impl Ai {
             return;
         }
         let to = a.walker.trip.as_ref().map(|t| t.to);
+        // A package's walk at its drawn-weapon share (#2124), still at the speed it set.
+        let owned = a.walk_pace.filter(|&(_, set)| set == a.walker.speed).map(|(applied, _)| applied);
         // The gait this walk was stopped in, or planned in at 0 (`Ai::plan`); none kept
         // for another walk.
         let stall = self.stalled.get(&actor).copied().filter(|s| s.to == to && a.walker.speed <= 0.0);
@@ -963,12 +1145,15 @@ impl Ai {
             (Some(s), _) => (s.gait, s.share),
             (None, Some(g)) => g,
             // Planned at 0 where the gait was not kept: it walks [design] until its next
-            // plan rather than standing on its way.
-            (None, None) if a.walker.speed <= 0.0 => (0, 1.0),
+            // plan rather than standing on its way, at its drawn-weapon share.
+            (None, None) if a.walker.speed <= 0.0 => (0, owned.unwrap_or(1.0)),
             (None, None) => return,
         };
         let now = gait_speeds(&speeds)[gait].max(0.0) * share;
         a.walker.speed = now;
+        if let Some(applied) = owned {
+            a.walk_pace = Some((applied, now));
+        }
         if now > 0.0 {
             self.stalled.remove(&actor);
         } else {
@@ -1009,7 +1194,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, seat: None, linger: None, fixed: false, asked_door: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, fixed: false, asked_door: None, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0, calm_at: None, held: false, idle_door_hold: None, seat: None, linger: None });
         Ok(())
     }
 
@@ -1164,21 +1349,63 @@ impl Ai {
         if let Some((place, radius)) = a.sandbox.as_ref().filter(|s| s.off_guard_area(here)).map(Sandbox::area) {
             let a = self.agents.get_mut(&actor).expect("listed");
             a.sandbox = None;
-            a.goal = Some(Goal::Near { place, radius });
+            a.goal = Some(Goal::Near { place, radius, reference: None });
         }
         let a = &self.agents[&actor];
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let Some(goal) = a.goal.clone() else { return };
+        let free = a.using.is_none();
+        let goal_met = game.extra.get(&actor).is_some_and(|e| e.package_goal_met);
         let Some(to) = self.way_to(feet, &goal) else {
-            // Already in the package's place: taken off its bed or chair (an alert takes
-            // an actor off its furniture), it settles again as on arrival. In the original
-            // Easy Pete, fought off his chair, had his chair package back at the fight's
-            // end and sat again about 5 real seconds later [observed: AI observer
-            // 2026-11-10, issue #2013].
-            if a.using.is_none() {
-                self.log(game, actor, AiEvent::Resettles { package });
-                self.settle(game, actor);
+            match goal {
+                // A patrol whose walk to a point was cut off, or whose wait at one was
+                // cleared, walks on (issue #2137) [documented: "Actor moves along patrol
+                // route continuously until another package evaluates", GECK wiki Patrol
+                // Package]: to the point it was at or going to, or, standing at it, on
+                // to the next one [design: which point the original resumes at is not
+                // captured]. A route walked to its end stays done.
+                Goal::Route(route) if !goal_met => {
+                    let Some(&(point, place)) = route.points.get(self.agents[&actor].route_at) else { return };
+                    if self.within(feet, place, 0.0) {
+                        self.patrol_on(game, nav, actor);
+                    } else {
+                        self.log(game, actor, why(package, hdist(feet.pos, place.pos)));
+                        self.plan(game, nav, actor, package, place, Some(point));
+                    }
+                }
+                // An ambusher goes back to its wait location [documented: "When combat
+                // ends, the actor will return to the Wait Location", GECK wiki Ambush
+                // Package]; one sprung stands there, not lying in wait again (whether
+                // the original re-arms it is not known; issue #2137).
+                Goal::Ambush(am) => {
+                    if let Some(to) = self.way_to(feet, &am.wait) {
+                        self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
+                        self.plan(game, nav, actor, package, to, None);
+                    }
+                }
+                // An Escort, Find or Use Item At walk not finished is taken up afresh at
+                // the next update, as after a search that leaves the loaded area
+                // (`leave_loaded_area`) [design: issue #2137]. One whose goal was met
+                // stays done.
+                Goal::Escort(_) | Goal::Find(_) | Goal::UseAt(_) if !goal_met => {
+                    self.log(game, actor, AiEvent::TakesUpAgain { package });
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.walker.follower = None;
+                    a.activity = Activity::None;
+                    a.package = None;
+                }
+                Goal::Route(_) | Goal::Escort(_) | Goal::Find(_) | Goal::UseAt(_) => {}
+                // Already in the package's place: taken off its bed or chair (an alert
+                // takes an actor off its furniture), it settles again as on arrival. In
+                // the original Easy Pete, fought off his chair, had his chair package
+                // back at the fight's end and sat again about 5 real seconds later
+                // [observed: AI observer 2026-11-10, issue #2013].
+                _ if free => {
+                    self.log(game, actor, AiEvent::Resettles { package });
+                    self.settle(game, actor);
+                }
+                _ => {}
             }
             return;
         };
@@ -1197,7 +1424,7 @@ impl Ai {
         if a.rooted || a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() {
             return;
         }
-        let Some(home) = goal::editor_place(game.world.placed, actor) else { return };
+        let Some(home) = goal::editor_place_of(game, actor) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         // Not one a script put somewhere else (MoveTo): only back from nearby.
         let away = if feet.space == home.space { hdist(feet.pos, home.pos) } else { f32::INFINITY };
@@ -1207,7 +1434,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let Ok(length) = a.walker.go_to(nav, home, &params).map(|p| p.length) else { return };
         a.activity = Activity::Travelling;
         a.trip_started = game.time;
@@ -1241,7 +1468,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let Ok(length) = a.walker.go_to(nav, Place { space: player.space, pos: to }, &params).map(|p| p.length) else { return };
         a.activity = Activity::Travelling;
         a.trip_started = game.time;
@@ -1298,6 +1525,14 @@ impl Ai {
     /// original's actors do while the player waits.]
     pub fn pass_time(&mut self, game: &mut Game, nav: &NavGraph, seconds: f32, step: f32) -> usize {
         let step = step.max(1e-3);
+        // The actors processed out of the loaded cells run their scripts once in the
+        // hour, as at a low-process update (`Game::run_far_frame`) [design: the loaded
+        // cells' scripts wait for the game to go on; issue #2445, Chauncey's warp to the
+        // bathhouse at 15 h had to come while the player waited there].
+        let far: Vec<FormId> = self.low.iter().filter(|(_, owed)| owed.is_some()).map(|(a, _)| *a).collect();
+        for a in far {
+            self.process_stats.far_scripts += usize::from(game.run_far_frame(a));
+        }
         let mut walked: std::collections::BTreeSet<FormId> = Default::default();
         let (mut left, mut still) = (seconds, 0);
         // Two updates running with nobody on its way end it: one may only have set an
@@ -1386,6 +1621,15 @@ impl Ai {
             return;
         }
         if self.agents[&actor].rooted {
+            // A rooted actor's weapon use (a script's UseWeapon, or its Use Weapon
+            // package) is used from where it stands: it cannot walk to a place [design,
+            // as `weapon_step` does with no way there]. Before, a rooted turret's use
+            // never reached `weapon_step`, so it never fired: ARCHIMEDES at HELIOS One
+            // drew and holstered for good and That Lucky Old Sun's strike never came
+            // (#2544).
+            if game.active_weapon_use(actor).is_some_and(|w| !w.in_place) && !game.ai_off(actor) {
+                game.weapon_use_in_place(actor);
+            }
             self.rooted_turn(game, actor, dt);
             return;
         }
@@ -1405,9 +1649,15 @@ impl Ai {
             Some(_) => self.agents.get_mut(&actor).expect("listed").linger = None,
             None => {}
         }
-        // Released: its package begins again, now with the walk to its place.
+        // Released: its package begins again, now with the walk to its place. Not a
+        // Dialogue package that has already started its conversation in place: it would
+        // greet a second time (the line that releases the actor is said in that
+        // conversation, as in Hardin's power armor training, #2309).
         if !restrained && self.restrained.remove(&actor) {
-            self.agents.get_mut(&actor).expect("listed").package = None;
+            let a = self.agents.get_mut(&actor).expect("listed");
+            if !matches!(a.talk, Some(Talking::Speaking | Talking::Done)) {
+                a.package = None;
+            }
         }
         // Woken by the player talking to it (`Game::wake`): off its bed while it stays
         // up; afterwards its package begins again, and takes it back to bed.
@@ -1476,6 +1726,7 @@ impl Ai {
             // package's walk must not be taken for the end of the walk-up's, which would
             // open the conversation from afar (a package changed in the low process).
             a.walk_up = None;
+            a.walk_pace = None;
             self.set_using(game, actor, None);
             self.taken.retain(|_, user| *user != actor);
             // What the old package had it use ends with it.
@@ -1499,6 +1750,21 @@ impl Ai {
             if a.activity == Activity::Travelling {
                 (a.walker.follower, a.activity, a.following) = (None, Activity::Staying, None);
             }
+            // A Dialogue package still runs: the actor waits where it stands and talks
+            // once its target is within the activate distance, without going up to it
+            // [documented: GECK wiki SetRestrained, restrained actors "will not move from
+            // their current position, or enter combat, but will continue to \"think\"
+            // ... and go into dialogue"; docs/spec-notes/script-functions-catalogue.md,
+            // "still thinks and can talk"]. Stopped on its way to the wait location or
+            // the target, it waits where it stopped [hypothesis]. Before, the update ended
+            // here and Hardin's training package never spoke, so the player stayed
+            // restrained (#2309).
+            if matches!(a.talk, Some(Talking::ToWait | Talking::Approaching { .. })) {
+                a.talk = Some(Talking::Waiting);
+            }
+            if !quiet && self.agents[&actor].talk.is_some() {
+                self.talk_step(game, nav, actor, dt);
+            }
             return;
         }
         // A script's weapon use comes before the fight and the package
@@ -1521,8 +1787,17 @@ impl Ai {
         if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
             self.back_after_push(game, nav, actor);
         }
+        if self.agents[&actor].activity != Activity::Travelling {
+            // Its walk is over: the next one is owned only if planned as a package's.
+            self.agents.get_mut(&actor).expect("listed").walk_pace = None;
+        }
         match self.agents[&actor].activity {
-            Activity::Travelling => self.walk(game, nav, actor, dt, open),
+            Activity::Travelling => {
+                if !quiet && !alerted && !ordered {
+                    self.repace_walk(game, actor);
+                }
+                self.walk(game, nav, actor, dt, open)
+            }
             Activity::There if !quiet && !chatting && !alerted && !ordered => {
                 if let Some(h) = self.agents[&actor].face_to {
                     self.face_heading(game, actor, h, dt);
@@ -1613,6 +1888,8 @@ impl Ai {
     ///
     /// The wait location's radius is not wandered in; the target is not made to stand
     /// still or to walk to the trigger location ("Do Not Control Target Movement" off).
+    /// Except that with that flag off, in case 2 a player within the activate distance
+    /// but outside the trigger location is walked into it first (issue #2453, below).
     fn talk_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
@@ -1620,6 +1897,8 @@ impl Ai {
         let travelling = a.activity == Activity::Travelling;
         // Seated at a wait location that is furniture (`settle`).
         let seated = a.using.is_some();
+        // Seated or restrained: it does not go up to the target (`step_actor_inner`).
+        let stays = seated || game.extra.get(&actor).is_some_and(|e| e.restrained);
         let target = goal::place_of_ref(game, talk.target).filter(|_| game.present(talk.target) && !game.extra.get(&talk.target).is_some_and(|e| e.dead));
         match phase {
             Talking::ToWait | Talking::Done => return,
@@ -1628,7 +1907,9 @@ impl Ai {
                 // (`Game::start_dialogue`): the actor talks for as long as it says the
                 // line [hypothesis: the package lasts as long as the line, as it lasts
                 // as long as a conversation].
-                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) {
+                // A conversation with another actor lasts while either says its lines.
+                let with_actor = talk.target != FormId::PLAYER_REF && game.in_actor_conversation(actor);
+                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) || with_actor {
                     // It turns to the one it talks to [documented: unless No
                     // Headtracking, speaker and target are "forced to look at each
                     // other by the package"; how fast is our choice]. Seated, only its
@@ -1662,9 +1943,26 @@ impl Ai {
                 let triggered = talk.trigger.holds(game, feet, target);
                 // Case 2: a trigger location and a wait location without a radius.
                 let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0;
-                if near && (triggered || on_the_spot) {
+                // With "Do Not Control Target Movement" off the target "will walk
+                // towards that location [the trigger location] when the dialogue
+                // package starts" [documented: GECK wiki, Dialogue Package]. End scripts
+                // count on the player standing in it: Ramos's "Follow me" (INFO
+                // 000A3CE0) leaves the escort to an OnTrigger block of the trigger
+                // location itself (HVRamosTargetDialogTrigger), which runs only with the
+                // player inside it (issue #2453). So once the player is within the
+                // activate distance (and in sight, as for the greeting itself) but not
+                // in the trigger location, the player is walked into it
+                // (`Game::player_lead`) and the conversation opens there [hypothesis:
+                // when the walk starts, and that it ends inside the location;
+                // docs/spec-notes/packages.md §3].
+                let leads = on_the_spot && talk.control_target && talk.target == FormId::PLAYER_REF && talk.trigger.has_room(game);
+                if near && triggered {
                     self.talk_start(game, actor, package, &talk, away);
-                } else if triggered && !seated {
+                } else if near && leads {
+                    self.lead_player(game, actor, package, &talk, feet, target, away);
+                } else if near && on_the_spot {
+                    self.talk_start(game, actor, package, &talk, away);
+                } else if triggered && !stays {
                     self.approach(game, nav, actor, package, &talk, target, true);
                 }
             }
@@ -1797,7 +2095,8 @@ impl Ai {
                 // The pace follows the gap: the catch-up boost eases off as it closes, and
                 // in step it keeps to the target's.
                 let (speed, _) = self.follow_speed(game, actor, package, away, keep, lead_away, pace);
-                self.agents.get_mut(&actor).expect("listed").walker.speed = speed;
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.walker.speed, a.walk_pace) = (speed, None);
             }
             return;
         }
@@ -1861,13 +2160,13 @@ impl Ai {
         let pace = self.pace(game, actor, running);
         let params = self.path_params(game, actor);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
                 let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
                 // In another space the length of the way is the gap the boost goes by.
                 if !away.is_finite() {
-                    a.walker.speed = pace * catch_up(length - keep);
+                    (a.walker.speed, a.walk_pace) = (pace * catch_up(length - keep), None);
                 }
                 if a.activity != Activity::Travelling {
                     a.trip_started = game.time;
@@ -1882,7 +2181,8 @@ impl Ai {
             }
             Err(e) => {
                 a.following = None;
-                self.unreachable(game, actor, package, e.to_string());
+                let from = Place { space: a.walker.space, pos: a.walker.feet };
+                self.no_way_after(game, nav, actor, package, from, target, e);
             }
         }
     }
@@ -1894,8 +2194,9 @@ impl Ai {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
+        let own = Ai::walk_pace_of(game, actor, running, speed);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, own);
         let from = Place { space: a.walker.space, pos: a.walker.feet };
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
@@ -1919,7 +2220,7 @@ impl Ai {
             }
             Err(e) => {
                 a.talk = None;
-                self.unreachable(game, actor, package, e.to_string());
+                self.no_way_after(game, nav, actor, package, from, target, e);
             }
         }
     }
@@ -1940,10 +2241,10 @@ impl Ai {
         // Kendall's "There he is!" (TTW, CG04Security02Ambush, activate distance 1500)
         // came through the walls while the player was still in bed, and its end script's
         // stage 12 kept the wake-up's stage 3 from coming (docs/design/actor-behaviour.md).
-        // Only the player is measured, so a Say To line to an NPC is not held back. The
-        // actor stays as it is (waiting, or at the end of its walk) and tries again every
-        // update.
-        let needs_sight = !talk.say_to || talk.target == FormId::PLAYER_REF;
+        // Only the player is measured, so a Say To line or a conversation to anyone else
+        // (an actor, a talking activator) is not held back. The actor stays as it is
+        // (waiting, or at the end of its walk) and tries again every update.
+        let needs_sight = talk.target == FormId::PLAYER_REF;
         if needs_sight && !game.greet_sight(actor, talk.target) {
             if self.unseen_greets.insert(actor) {
                 self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
@@ -1956,7 +2257,7 @@ impl Ai {
         a.activity = Activity::There;
         if talk.say_to {
             let Some(topic) = talk.topic else { return };
-            match game.say(actor, Some(talk.target), topic, true) {
+            match game.say_package_line(actor, talk.target, topic) {
                 Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true, greeting: false }),
                 None => {
                     let why = format!("it has no line of {} to say", game.data.name(topic));
@@ -1969,10 +2270,26 @@ impl Ai {
         if game.in_menu() || game.loading {
             return;
         }
+        // A conversation with another actor, or with a talking activator, which speaks
+        // for its talking actor (`Game::start_actor_conversation`): said in the world.
+        if talk.target != FormId::PLAYER_REF {
+            match game.start_actor_conversation(actor, talk.target, talk.topic) {
+                Ok(line) => {
+                    self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
+                    self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false, greeting: false });
+                }
+                Err(why) => {
+                    self.log(game, actor, AiEvent::NoTalk { package, why });
+                    self.talk_done(game, actor);
+                }
+            }
+            return;
+        }
         // The force greet: a conversation also for a greeting with the Goodbye flag
         // (`Game::force_greet`).
         match game.force_greet(actor, talk.topic) {
             Ok(line) => {
+                Self::end_lead(game, actor);
                 self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
                 let greeting = greets(game, actor);
                 self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false, greeting });
@@ -1990,7 +2307,57 @@ impl Ai {
     /// Must Complete Dialogue package "will not reevaluate until actor has engaged in
     /// dialogue with the target"]. The actor stays in the package until it chooses
     /// another; it does not start over [our choice].
+    /// Walk the player into the trigger location of `actor`'s Dialogue package
+    /// ([`Self::talk_step`]): set [`Game::player_lead`] again, once the actor sees the
+    /// player (as for a force greet, `Game::greet_sight`). Without a point to walk to,
+    /// the actor talks where the player is.
+    #[allow(clippy::too_many_arguments)]
+    fn lead_player(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, feet: Place, target: Place, away: f32) {
+        if !game.greet_sight(actor, talk.target) {
+            if self.unseen_greets.insert(actor) {
+                self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
+            }
+            return;
+        }
+        self.unseen_greets.remove(&actor);
+        let Some(to) = talk.trigger.lead_point(game, feet, target) else {
+            self.talk_start(game, actor, package, talk, away);
+            return;
+        };
+        let new = !game.player_lead.is_some_and(|l| l.by == actor && l.fresh(game.time));
+        // A walk that gets no nearer gives up: the player is never held walking into
+        // something solid for as long as the actor sees them [our choice, review of
+        // #2465]; the actor greets where the player stands.
+        let left = (to[0] - target.pos[0]).hypot(to[1] - target.pos[1]);
+        let now = game.time;
+        let p = self.lead_progress.entry(actor).or_insert((left, now));
+        if new {
+            *p = (left, now);
+        }
+        if left < p.0 - LEAD_GAIN {
+            *p = (left, now);
+        } else if now - p.1 > LEAD_STUCK_SECONDS {
+            self.lead_progress.remove(&actor);
+            Self::end_lead(game, actor);
+            self.log(game, actor, AiEvent::LeadStuck { package, left });
+            self.talk_start(game, actor, package, talk, away);
+            return;
+        }
+        game.player_lead = Some(fnv_game::game::PlayerLead { by: actor, to, at: game.time });
+        if new {
+            self.log(game, actor, AiEvent::LeadsPlayer { package, to, away });
+        }
+    }
+
+    /// The lead of `actor`'s package is over ([`Self::lead_player`]).
+    fn end_lead(game: &mut Game, actor: FormId) {
+        if game.player_lead.is_some_and(|l| l.by == actor) {
+            game.player_lead = None;
+        }
+    }
+
     fn talk_done(&mut self, game: &mut Game, actor: FormId) {
+        Self::end_lead(game, actor);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.talk = Some(Talking::Done);
         a.activity = Activity::There;
@@ -2014,11 +2381,21 @@ impl Ai {
     /// detects, else the one detected last) or to the place of its alarm (Alert, Lost), as
     /// a fighter standing its ground does (`crate::alert`). Before, it never turned, so a
     /// HELIOS One ceiling turret kept its placed heading and the player stayed out of its
-    /// view (#1537). SetActorsAI 0 holds it as any other actor. One that never turns
-    /// ([`Ai::fix_heading`], Mr. House's screen) does not here either (#2150).
+    /// view (#1537). A weapon use's target comes before the fight's (#2544). SetActorsAI 0
+    /// holds it as any other actor. One that never turns ([`Ai::fix_heading`], Mr.
+    /// House's screen) does not here either (#2150).
     fn rooted_turn(&mut self, game: &mut Game, actor: FormId, dt: f32) {
         if game.ai_off(actor) || game.extra.get(&actor).is_some_and(|e| e.restrained) {
             return;
+        }
+        // Its weapon use's target first, unless the fight took the use over (#2544): the
+        // shooter fires only once it faces the target (`use_weapon::shot_facing`).
+        let space = self.agents[&actor].walker.space;
+        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && !w.taken).map(|w| w.target) {
+            if let Some(to) = goal::weapon_target_place(game, t, space) {
+                self.combat_face(game, actor, to, dt);
+                return;
+            }
         }
         let state = game.awareness.state(actor);
         if !state.in_combat() {
@@ -2032,7 +2409,6 @@ impl Ai {
             aw.search_alarm().map(|a| a.at)
         };
         let Some(at) = at else { return };
-        let space = self.agents[&actor].walker.space;
         self.combat_face(game, actor, Place { space, pos: at }, dt);
     }
 
@@ -2139,13 +2515,14 @@ impl Ai {
             self.set_using(game, actor, Some(f));
         } else if let Some((centre, radius)) = guard {
             sandbox = Some(Sandbox::guard(game, actor, package, def, centre, radius));
-        } else if let Some(heading) = marker_heading(game, def) {
+        } else if let Some(heading) = marker_heading(game, actor, def, a.goal.as_ref()) {
             // At an xMarkerHeading it stands the way the marker faces [documented: GECK
             // wiki, NPC population, level-design.md: the heading version "shows which way
             // an actor standing there will face"]. Mr. Brotch's teaching spot in the
             // G.O.A.T. (CG03MrBrotchTeachMarker, 22°) faces the desks; before, he kept the
             // heading he walked in with and taught the wall.
             self.agents.get_mut(&actor).expect("listed").face_to = Some(heading);
+            self.log(game, actor, AiEvent::ArrivalFacing { heading });
         }
         if let Some(mut sandbox) = sandbox {
             if let Some(s) = self.restored_schedule(actor, package) {
@@ -2179,8 +2556,7 @@ impl Ai {
         // set"; "Allow Falls: Actors will not jump off of an elevation that will cause
         // damage unless this flag is set" [documented: GECK wiki Packages, Flags tab].
         // Without Allow Swimming water costs [`NO_SWIM_WATER_COST`] times as much (a way
-        // through water is still taken when there is no other) [our choice]; Allow Falls
-        // lets the way use the navmesh's ledge links [hypothesis: ledges are the drops].
+        // through water is still taken when there is no other) [design].
         if game.package_has(actor, flags::ALLOW_SWIMMING) {
             params.water_cost = params.water_cost.min(self.cfg.params.water_cost);
         } else {
@@ -2188,6 +2564,11 @@ impl Ai {
         }
         if game.package_has(actor, flags::ALLOW_FALLS) {
             params.ledges = true;
+        } else if !params.ledges {
+            // [hypothesis, #2532] An authored drop no higher than the damage threshold
+            // is safe without Allow Falls; use the planned takeoff and landing. The
+            // threshold/fallback follows nvf-play falls.rs (physics.md §6.10).
+            params.safe_drop_max = Some(game.world.forms.setting_f32("fJumpFallHeightMin").unwrap_or(SAFE_DROP_HEIGHT).max(0.0));
         }
         // Avoid Radiation: the radiation markers near it cost a way through them more
         // (`avoids_radiation`).
@@ -2210,7 +2591,13 @@ impl Ai {
         // key and owned by Dad's base (TTW's Fallout3.esm REFR 0602EA4A); without this his
         // package was out of reach and the scene stopped, owner's TTW run 2026-11-02].
         params.owned_doors.extend(self.locked_doors.iter().copied().filter(|&d| game.ownership(FormId(d)).is_some_and(|o| !o.from_cell && game.counts_as_owner(actor, &o))));
-        // Doors the game has open (opened, or open by default and since touched).
+        // [design, #2716 / fnv_sim::World::initial] An untouched locked door uses its
+        // default-open placement; a materialized reference's live state wins below.
+        // Open locked doors do not refuse nav triangles [hypothesis,
+        // docs/spec-notes/navmesh.md; observer check 206].
+        params.open_doors.extend(self.locked_doors.iter().copied().filter(|&d| {
+            game.world.peek(FormId(d)).is_none() && game.world.placed.get(FormId(d)).is_some_and(|r| r.open_by_default)
+        }));
         params.open_doors.extend(game.world.changed().filter(|(_, s)| s.open).map(|(id, _)| id.0));
         // A creature flagged "Can't Open Doors" [documented: GECK wiki
         // GetActorBaseFlagsHigh, Creature column] uses no teleport door [hypothesis: what
@@ -2273,7 +2660,26 @@ impl Ai {
         }
         let Some(door) = ahead else { return true };
         a.asked_door = Some((door, a.package));
-        if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
+        let answer = game.npc_door(actor, FormId(door));
+        // [hypothesis, #2716] An already-open in-place door is no barrier, even with
+        // a cached or fresh script refusal (navmesh.md; observer check 206). [design]
+        // Ask first to preserve crossing events and use live state after the script.
+        let in_place = game.world.placed.get(FormId(door)).is_some_and(|r| r.teleport.is_none());
+        let open_in_place = in_place && game.world.get(FormId(door)).is_ok_and(|s| s.open);
+        // [design, #2716] SetOpenState can close a door without changing its lock
+        // (`Game::set_ref_open`). A path planned while open grants no permission to
+        // reopen it: recheck the live lock, key and own ownership after activation,
+        // with the same configured overrides as `path_params`. Cell ownership does
+        // not authorize opening a locked door (`path_params`).
+        let p = &self.cfg.params;
+        let locked_out = in_place && !open_in_place && game.world.lock_of(FormId(door)).is_some_and(|lock| {
+            lock.locked
+                && !p.open_locked
+                && !p.owned_doors.contains(&door)
+                && !game.ownership(FormId(door)).is_some_and(|o| !o.from_cell && game.counts_as_owner(actor, &o))
+                && !lock.key.is_some_and(|key| p.keys.contains(&key.0) || game.world.item_count(actor, key).is_ok_and(|n| n > 0))
+        });
+        if open_in_place || (answer != fnv_game::npc_doors::DoorAnswer::Refused && !locked_out) {
             return true;
         }
         a.walker.follower = None;
@@ -2340,7 +2746,8 @@ impl Ai {
         let to = choice.target.expect("checked");
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk.
+        (a.walker.speed, a.walk_pace) = (speed, Some((1.0, speed)));
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;
@@ -2395,7 +2802,7 @@ impl Ai {
         };
         match &goal {
             Goal::Here => there(self, game),
-            Goal::Near { place, radius } => {
+            Goal::Near { place, radius, .. } => {
                 if self.within(feet, *place, *radius) {
                     there(self, game)
                 } else {
@@ -2462,12 +2869,27 @@ impl Ai {
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
         let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
-        let near = match &goal {
+        let at = |place: &Goal| match place {
             Goal::Here => true,
-            Goal::Near { place, radius } => place.space == feet.space && hdist(feet.pos, place.pos) <= radius.max(RESTRAINED_REACH) && (feet.pos[2] - place.pos[2]).abs() <= 256.0,
+            Goal::Near { place, radius, .. } => place.space == feet.space && hdist(feet.pos, place.pos) <= radius.max(RESTRAINED_REACH) && (feet.pos[2] - place.pos[2]).abs() <= 256.0,
             Goal::Inside { space, .. } => *space == feet.space,
             _ => false,
         };
+        // A Dialogue package: the actor waits where it stands, on its wait location's
+        // furniture when that is within reach, and talks from there (`step_actor_inner`)
+        // [documented: GECK wiki SetRestrained, restrained actors still "go into
+        // dialogue"; hypothesis: a wait location out of reach is not waited for].
+        if let Goal::Talk(talk) = &goal {
+            let settle = at(&talk.wait);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            (a.talk, a.activity) = (Some(Talking::Waiting), Activity::There);
+            a.goal = Some(goal);
+            if settle {
+                self.settle(game, actor);
+            }
+            return;
+        }
+        let near = at(&goal);
         self.agents.get_mut(&actor).expect("listed").goal = Some(goal);
         if near {
             self.agents.get_mut(&actor).expect("listed").activity = Activity::There;
@@ -2484,7 +2906,7 @@ impl Ai {
     /// ([`Goal::Near`], [`Goal::Inside`]); `None`: it is there.
     pub(crate) fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
         match stay {
-            Goal::Near { place, radius } => (!self.within(feet, *place, *radius)).then_some(*place),
+            Goal::Near { place, radius, .. } => (!self.within(feet, *place, *radius)).then_some(*place),
             Goal::Inside { space, at } => (feet.space != *space).then_some(*at),
             _ => None,
         }
@@ -2494,14 +2916,57 @@ impl Ai {
         feet.space == place.space && hdist(feet.pos, place.pos) <= radius.max(self.cfg.arrive) && (feet.pos[2] - place.pos[2]).abs() <= 256.0
     }
 
-    /// The pace of a package's walk: the walking or running speed, times
-    /// fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
+    /// The pace of a package's walk: the walking or running speed, the walk times
+    /// [`drawn_walk_share`] (a person walking with a pistol drawn outside combat, #2124),
+    /// times fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
     /// (`Game::sneaks`: SetForceSneak, the package's Always Sneak) [hypothesis: the
     /// setting's name; the player's sneaking pace uses it too].
     pub(crate) fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
         let own = self.calm_speeds(actor);
-        let speed = if running { own.run } else { own.walk };
+        let speed = if running { own.run } else { own.walk * drawn_walk_share(game, actor) };
         speed * sneak_share(game, actor)
+    }
+
+    /// A package's walk under way keeps up with the weapon being drawn or put away
+    /// ([`drawn_walk_share`]): its speed is scaled from the share last applied to the share
+    /// now ([`Agent::walk_pace`]), whatever its base (new speeds on the way, an armour or
+    /// Speed Mult change, come through [`Ai::set_speeds`], which keeps the share and the
+    /// walk's ownership). The walk is owned from where
+    /// a package's walk is planned (`Ai::plan`, `Ai::approach`, a sandbox's or a Find
+    /// errand's walk) until it ends (`Ai::arrived`, or the actor is not travelling); every
+    /// other setter of the walker's speed gives it up, as does another owner of the walk
+    /// (a random conversation, a search, a follow) or a speed it did not set. Such a
+    /// walk is left as it is [design, #2124: the animating side tells the weapon out only
+    /// once it is drawn, after the walk was planned].
+    fn repace_walk(&mut self, game: &Game, actor: FormId) {
+        let a = &self.agents[&actor];
+        let Some((applied, set)) = a.walk_pace else { return };
+        // Another owner of the walk (a random conversation's, a search's, a Follow
+        // package's, a Back Up, a walk-up) gives it up, whatever speed it has.
+        let other = a.chat.is_some() || a.search.is_some() || a.following.is_some() || a.backing.is_some() || a.walk_up.is_some();
+        if other || a.walker.speed != set {
+            self.agents.get_mut(&actor).expect("listed").walk_pace = None;
+            return;
+        }
+        let want = drawn_walk_share(game, actor);
+        if want != applied && applied > 0.0 {
+            let speed = set / applied * want;
+            let a = self.agents.get_mut(&actor).expect("listed");
+            (a.walker.speed, a.walk_pace) = (speed, Some((want, speed)));
+            // Standing at speeds of 0: the gait it goes on in when they come back takes
+            // the new share too (`Ai::set_speeds`).
+            if speed <= 0.0 {
+                if let Some(stall) = self.stalled.get_mut(&actor) {
+                    stall.share = stall.share / applied * want;
+                }
+            }
+        }
+    }
+
+    /// What [`Agent::walk_pace`] holds for a walk planned at `speed` by [`Ai::pace`]: the
+    /// share applied for a walk, nothing for a run.
+    pub(crate) fn walk_pace_of(game: &Game, actor: FormId, running: bool, speed: f32) -> Option<(f32, f32)> {
+        (!running).then(|| (drawn_walk_share(game, actor), speed))
     }
 
     /// Plan a walk to `to`; without a way there the package is set aside.
@@ -2512,8 +2977,10 @@ impl Ai {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
+        let own = Ai::walk_pace_of(game, actor, running, speed);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, own);
+        let from = Place { space: a.walker.space, pos: a.walker.feet };
         let found = a.walker.go_to(nav, to, &params).map(|path| (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect::<Vec<_>>()));
         // No navmesh where it stands or where it goes (a mod's plaza left without one: the
         // Heart of the Mojave sitters of Gomorrah's benches, overnight queue item 3), and the
@@ -2536,7 +3003,9 @@ impl Ai {
                 if speed > 0.0 {
                     self.stalled.remove(&actor);
                 } else {
-                    self.stalled.insert(actor, Stall { gait: usize::from(running), share: sneak_share(game, actor), to });
+                    // A walk's drawn-weapon share (#2124) is kept with the sneak's.
+                    let share = sneak_share(game, actor) * own.map_or(1.0, |(drawn, _)| drawn);
+                    self.stalled.insert(actor, Stall { gait: usize::from(running), share, to });
                 }
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;
@@ -2545,9 +3014,70 @@ impl Ai {
             }
             Err(e) => {
                 a.talk = None;
-                self.unreachable(game, actor, package, e.to_string())
+                self.no_way(game, nav, actor, package, from, to, patrol_point, e, &params)
             }
         }
+    }
+
+    /// No way from `from` to `to` for a package's walk ([`Ai::plan`]); packages.md §11:
+    /// - the way needs a load door and the creature cannot open doors: it stays
+    ///   ([`AiEvent::DoorsClosedToIt`]);
+    /// - out of sight (out of the high process: no body is drawn for it), going to its
+    ///   package's one place (a Travel's, a Sleep's, a Sandbox's centre; not a patrol
+    ///   point, not a walk of its own), with no door at all between the two places,
+    ///   locked or disabled: it is put there and has arrived [hypothesis: the data moves
+    ///   such actors only by scripts or not at all, Gomez in the NCR safehouse's side
+    ///   room, Malcolm Holmes back to his holding cell; observer check 145];
+    /// - otherwise the package is set aside ([`Ai::unreachable`]).
+    #[allow(clippy::too_many_arguments)]
+    fn no_way(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, patrol_point: Option<FormId>, e: PathError, params: &PathParams) {
+        if !matches!(e, PathError::Unreachable { .. }) {
+            return self.unreachable(game, actor, package, e.to_string());
+        }
+        if !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params.clone() }) {
+            self.log(game, actor, AiEvent::DoorsClosedToIt { package });
+            return self.set_aside(game, actor, package);
+        }
+        // Only the walk to the package's own place: not a patrol's, a sandbox's own walk
+        // to its furniture, a wait location's.
+        let own_place = match &self.agents[&actor].goal {
+            Some(Goal::Near { place, .. }) => *place == to,
+            Some(Goal::Inside { at, .. }) => *at == to,
+            _ => false,
+        };
+        if own_place && patrol_point.is_none() && !self.is_high(actor) && nav.joined_by_doors(from, to) == Some(false) {
+            return self.put_there(game, nav, actor, package, from, to);
+        }
+        self.unreachable(game, actor, package, e.to_string())
+    }
+
+    /// [`Ai::no_way`] for a walk after someone (a Follow, the way up to whom it talks to):
+    /// only the creature that cannot open doors is told apart.
+    #[allow(clippy::too_many_arguments)]
+    fn no_way_after(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place, e: PathError) {
+        let params = self.path_params(game, actor);
+        if matches!(e, PathError::Unreachable { .. }) && !params.opens_doors && nav.can_reach(from, to, &PathParams { opens_doors: true, ..params }) {
+            self.log(game, actor, AiEvent::DoorsClosedToIt { package });
+            return self.set_aside(game, actor, package);
+        }
+        self.unreachable(game, actor, package, e.to_string())
+    }
+
+    /// Out of sight, `actor` is put at `to`, the place of its package, and arrives there
+    /// ([`Ai::no_way`]).
+    fn put_there(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, from: Place, to: Place) {
+        self.log(game, actor, AiEvent::PutThere { package, from, to });
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let w = &mut a.walker;
+        (w.space, w.feet) = (to.space, to.pos);
+        w.tri = nav.nearest(to.space, to.pos, 64.0).map_or(fnv_nav::graph::NONE, |(t, _)| t);
+        (w.turning, w.moving, w.follower) = (false, false, None);
+        let heading = w.heading;
+        a.trip_started = game.time;
+        a.trip_from = a.walker.travelled;
+        let cell = goal::cell_of_place(game.world.placed, &to);
+        let _ = game.set_actor_place(actor, cell, to.pos, heading);
+        self.arrived(game, nav, actor);
     }
 
     /// A script's StartConversation with the player from afar (`Game::walk_up_greet`):
@@ -2590,7 +3120,7 @@ impl Ai {
         let speed = self.pace(game, actor, true);
         let a = self.agents.get_mut(&actor).expect("listed");
         (a.search, a.sandbox, a.talk, a.face_to, a.following) = (None, None, None, None, None);
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         match a.walker.go_to(nav, player, &params).map(|p| p.length) {
             Ok(length) => {
                 if a.activity != Activity::Travelling {
@@ -2664,7 +3194,7 @@ impl Ai {
                 (a.weapon_order, a.search, a.sandbox, a.talk, a.face_to, a.following) = (Some(seq), None, None, None, None, None);
                 let feet = Place { space: a.walker.space, pos: a.walker.feet };
                 let to = stand.and_then(|s| goal::place_of_ref(game, s)).filter(|t| t.space != feet.space || hdist(t.pos, feet.pos) > arrive);
-                a.walker.speed = speed;
+                (a.walker.speed, a.walk_pace) = (speed, None);
                 let way = to.map(|t| a.walker.go_to(nav, t, &params).map(|p| p.length));
                 let length = match way {
                     Some(Ok(length)) => {
@@ -2727,7 +3257,7 @@ impl Ai {
                 self.combat_face(game, actor, Place { space, pos: at }, dt);
             }
         } else if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
-            if let Some(at) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
+            if let Some(at) = goal::weapon_target_place(game, t, space) {
                 self.face(game, actor, at, dt);
             }
         }
@@ -2736,6 +3266,12 @@ impl Ai {
 
     fn unreachable(&mut self, game: &mut Game, actor: FormId, package: FormId, why: String) {
         self.log(game, actor, AiEvent::Unreachable { package, why });
+        self.set_aside(game, actor, package);
+    }
+
+    /// The package cannot be carried out from here: the actor stays and chooses again,
+    /// the package blocked for a while.
+    fn set_aside(&mut self, game: &mut Game, actor: FormId, package: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.activity = Activity::Staying;
         a.walker.follower = None;
@@ -2820,7 +3356,7 @@ impl Ai {
             // radius had "arrived" in the walk's first frame and talked from where it
             // stood, docs/spec-notes/npc-behaviour-compare.md §8).
             _ if own_walk || a.search.is_some() || a.chat.is_some() => false,
-            (Some(Goal::Near { place, radius }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
+            (Some(Goal::Near { place, radius, .. }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
             (Some(Goal::Inside { space, .. }), _) => feet.space == *space,
             _ => false,
         };
@@ -2831,7 +3367,8 @@ impl Ai {
 
     pub(crate) fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.follower = None;
+        // The walk is over: what comes next owns its own speed.
+        (a.walker.follower, a.walk_pace) = (None, None);
         // The end of the way to a conversation partner: `crate::social` starts the
         // conversation.
         if a.chat.is_some() {
@@ -2984,11 +3521,25 @@ pub fn guard_wander_radius(def: &fnv_game::package::PackageDef) -> Option<f32> {
 /// steps of a few units would only twitch the actor on the spot.
 pub const GUARD_WANDER_MIN_RADIUS: f32 = 16.0;
 
-/// The heading of the xMarkerHeading a package's location names ("near reference"), if
-/// it names one.
-fn marker_heading(game: &Game, def: &fnv_game::package::PackageDef) -> Option<f32> {
-    let fnv_game::package::LocationKind::NearReference(Some(r)) = def.location.as_ref()?.kind else { return None };
-    game.world.placed.get(r).filter(|p| p.base == X_MARKER_HEADING).map(|p| p.rot[2])
+/// Arrival's standing heading [documented: GECK wiki, Bethsoft Tutorial NPC population,
+/// linked xMarkerHeading destinations; docs/spec-notes/packages.md §3].
+fn marker_heading(game: &Game, actor: FormId, def: &fnv_game::package::PackageDef, goal: Option<&Goal>) -> Option<f32> {
+    // At a small editor location, Travel and standing Guard restore the placed
+    // heading [hypothesis, #2526, observer check 213]. Sandbox/wander choose their own;
+    // a Guard remaining near its target uses that target's place (`goal::resolve`).
+    if def.location.is_some_and(|loc| loc.kind == fnv_game::package::LocationKind::NearEditor && (loc.radius as f32) < GUARD_WANDER_MIN_RADIUS)
+        && (def.ty == PackageType::Travel || def.ty == PackageType::Guard && !def.remain_near_reference())
+    {
+        return game.world.placed.get(actor).map(|p| p.rot[2]);
+    }
+    // Read the effective destination kept when travel began, including a Guard's
+    // target, rather than selecting the location again [design, #2526; goal::resolve].
+    let destination = match goal? {
+        Goal::Talk(talk) => talk.wait.as_ref(),
+        goal => goal,
+    };
+    let Goal::Near { reference: Some(r), .. } = destination else { return None };
+    game.world.placed.get(*r).filter(|p| p.base == X_MARKER_HEADING).map(|p| p.rot[2])
 }
 
 /// The actor is where its package wants it: the package's goal is met, or, for a Use
@@ -3023,6 +3574,15 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
         })
         .unwrap_or(0)
 }
+
+
+/// How long the player's walk into a Dialogue package's trigger location may get no
+/// nearer its point before the actor talks where the player stands
+/// ([`Ai::lead_player`]) [our choice].
+pub const LEAD_STUCK_SECONDS: f64 = 1.5;
+
+/// How much nearer the point counts as progress on that walk, in units [our choice].
+const LEAD_GAIN: f32 = 8.0;
 
 #[cfg(test)]
 mod tests {

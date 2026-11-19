@@ -10,7 +10,9 @@
 //!   streaming drops the cell or a door reloads everything, and comes back with the cell.
 //!   Its mesh entities carry `RefVisual(id)`, so the crosshair's render-bounds fallback
 //!   finds it like a placed item. A taken one (`RefState::deleted`) is despawned; one
-//!   that moved (falling, settling, pushed) follows the simulation's pose. Markers and
+//!   that moved (falling, settling, pushed) follows the simulation's pose; while its body
+//!   moves it is drawn between the last two physics steps instead
+//!   (`crate::phys::PhysState::drawn_ref_pose`), as smoothly as the frame rate allows. Markers and
 //!   bases of a type placed references are not drawn for (PlaceAtMe of an explosion) draw
 //!   nothing ([`draws_model`]).
 //! - Physics (`crate::phys`): its model's collision objects, dynamic when the model says
@@ -66,9 +68,11 @@ pub fn phys_cell(index: &WorldIndex, world: u32, space: Space, s: &RefState) -> 
     }
 }
 
-/// Whether a created reference is in the world (not taken or deleted, enabled).
+/// Whether a created reference stands in the world as a dropped item, drawn and collided:
+/// not taken or deleted, enabled, and not a shot's reference for scripts (the shot's
+/// flying model is `shot_fx`'s, `RefState::shot`, #2186).
 pub fn present(s: &RefState) -> bool {
-    !s.deleted() && s.enabled()
+    !s.deleted() && s.enabled() && !s.shot
 }
 
 /// Where a created reference is drawn (or should be).
@@ -156,6 +160,27 @@ pub fn model_path(d: &crate::PlayData, base: FormId, mods: u8) -> Option<String>
     b.world_model_path().filter(|m| !m.ends_with(".spt"))
 }
 
+/// The same resolved model for created drawing and collision. Session aliases keep
+/// their identity, with immutable metadata from their known authored original.
+pub fn created_model_path(d: &crate::PlayData, world: &fnv_sim::World<'_>, base: FormId, mods: u8) -> Option<String> {
+    match world.temporary_scene_base(base) {
+        Some(descriptor) => match &descriptor.model_override {
+            Some(path) if path.trim().is_empty() => None,
+            Some(path) => Some(fnv_actor::resolve::mesh_path(path)).filter(|p| !p.ends_with(".spt")),
+            None => model_path(d, descriptor.original, mods),
+        },
+        None => model_path(d, base, mods),
+    }
+}
+
+fn created_draws_model(d: &crate::PlayData, world: &fnv_sim::World<'_>, base: FormId, mods: u8) -> bool {
+    let Some(descriptor) = world.temporary_scene_base(base) else { return draws_model(d, base, mods) };
+    // A selected replacement NIF may differ from an authored SpeedTree model.
+    // Type comes from the original; drawable model kind comes from the same
+    // selected path physics consumes, rather than the original's stale path.
+    fnv_world::placed::base_object(d.lo, d.schema, descriptor.original.0).is_some_and(|b| matches!(&b.sig, b"STAT" | b"MSTT" | b"PROJ")) && created_model_path(d, world, base, mods).is_some_and(|path| !crate::script_draw::is_marker(&path))
+}
+
 /// Whether a created reference draws the model [`model_path`] gives: the rule placed
 /// references are drawn by (`crate::script_draw`), so a marker made at run time is as
 /// unseen as a placed one and an explosion's reference draws no effect model. The
@@ -185,6 +210,11 @@ pub fn modded_model(w: Option<&fnv_actor::records::Weapon>, mods: u8) -> Option<
 /// Marks the root entity of a drawn created reference (child of its cell's entity).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DroppedRoot(pub u32);
+
+/// On a [`DroppedRoot`]: the model drawn (under meshes), for JIP's NIF block functions
+/// (nvforever nif_mirror.rs reads the tree of an item drawn as flat shapes from it, #2132).
+#[derive(Component, Clone, Debug)]
+pub struct DroppedModel(pub String);
 
 /// A drawn created reference.
 #[derive(Debug, Clone, Copy)]
@@ -247,6 +277,7 @@ fn sync_drawn(
     mut drawn: ResMut<Drawn>,
     mut models: ModelCtx,
     mut not_drawn: Local<BTreeSet<(FormId, u8)>>,
+    phys: Option<Res<crate::phys::PhysState>>,
 ) {
     let loaded: HashMap<RenderCell, (Entity, Vec3)> = cells.iter().map(|(e, c, t)| (*c, (e, t.translation))).collect();
     // Drawn under a cell entity that is gone (render streaming, door travel: the root
@@ -280,6 +311,15 @@ fn sync_drawn(
         }
         r.at = w;
     }
+    // Falling, rolling or carried: drawn between the last two physics steps every frame
+    // while its body moves, and once more where it came to rest (`PhysState::between`);
+    // the simulation keeps the stepped pose.
+    for &id in phys.as_deref().map_or(&[][..], |p| &p.between.redraw) {
+        let Some(r) = drawn.0.get(&id) else { continue };
+        let (Ok(mut t), Some((_, origin))) = (transforms.get_mut(r.root), loaded.get(&r.at.cell)) else { continue };
+        let at = phys.as_deref().and_then(|p| p.drawn_ref_pose(id)).map_or_else(|| r.at.affine(), |(pos, rot)| crate::moved::ref_affine_matrix(pos, &rot, 1.0));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-*origin) * at));
+    }
     for id in p.spawn {
         let w = wanted[&id];
         let (cell_e, origin) = loaded[&w.cell];
@@ -298,16 +338,17 @@ fn sync_drawn(
         if not_drawn.contains(&(base, mods)) {
             continue;
         }
-        if !draws_model(&d, base, mods) {
+        if !created_draws_model(&d, &sim.world, base, mods) {
             info!("dropped reference 0x{id:08X}: base {base} draws nothing (a marker, or a type with no model in the world)");
             not_drawn.insert((base, mods));
             continue;
         }
-        let Some(path) = model_path(&d, base, mods) else {
+        let Some(path) = created_model_path(&d, &sim.world, base, mods) else {
             warn_once!("dropped reference 0x{id:08X}: base {base} has no model to draw");
             continue;
         };
-        let swaps = model_swaps(&d, base, mods);
+        let original = sim.world.temporary_scene_base(base).map_or(base,|descriptor|descriptor.original);
+        let swaps = model_swaps(&d, original, mods);
         let Some(model) = models.model_swapped(&path, false, &swaps) else {
             warn_once!("dropped reference 0x{id:08X}: model {path} could not be loaded");
             continue;
@@ -315,7 +356,7 @@ fn sync_drawn(
         // `ChildOf` on the new entity (not a command on the cell): if render streaming
         // despawns the cell this frame, the relationship is dropped with a warning and
         // the next frame despawns the root, instead of a command failing on the cell.
-        let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
+        let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), DroppedModel(path.clone()), t, Visibility::default(), ChildOf(cell_e))).id();
         if light {
             commands.entity(root).insert(DroppedLight { reference: id, base: base.0 });
         }

@@ -36,6 +36,35 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
 
 ## 2. The device
 
+### First-person script animations while the device is open
+
+[reported in NVForever: owner's 060d playtest, 2026-11-17] The device can be invisible with
+holstered hands or no weapon while an opening with a drawn weapon works. The
+engine log records a first-person script animation above the built-in Pip-Boy
+layer during affected openings; a successful menu phase does not establish a
+visible model.
+
+[design] While a Pip-Boy menu holds game time, the player's first-person animation
+clock advances by the script frame's menu time. Explicit sequence samples,
+GetGlobalAnimTime/GetAnimCurrentTime and their setters share that clock. Its
+activation, deactivation, resume and automatic completion use the same clock.
+World time, NPC animations and the player's third-person clock stay held. A
+loading screen and other menus retain their existing clock behavior. The
+first-person sequence's blend also advances under the device menu when the
+virtual world clock is paused; ordinary weapon and locomotion layers keep the
+world clock. The final first-person pose's seam smoothing uses that admitted
+menu time too, so smoothing cannot replace the new sample with its last held
+pose. The preparation consumer takes actual menu-clock progress once; retained
+frame configuration during a skipped runtime tick supplies no new time.
+Closing the device returns to the world clock without a jump.
+
+[documented: GECK wiki GetGlobalAnimTime] The argument chooses first-person
+animation time; the page does not specify menu pause behavior. The menu clock
+mapping above is NVForever behavior, not established native pause parity.
+Authored core and CPU pose regressions exercise this mapping; their execution
+and an installed-profile replay are recorded separately. No model visibility
+override or suppressed readiness warning is part of this change.
+
 - **The clip** [observed]: `pipboy.kf` is one sequence `Pipboy`, 0.7333 s, clamped, with
   text keys `start` 0, `Blend: 8` 0.033, `Hit` 0.333, `end` 0.733. It drives
   `Camera1st` (a small move, no turn) and both arms from the spine out. Measured on the
@@ -308,12 +337,26 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
   is the device's drawing and keeps its 213 [design].
   The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`,
-  `RepairMenu`, `MapMenu`; all off by default) take their file's brightness, 255, on
-  the device too. By default every page on the device is hand-built, so all of them are at
-  213. With a tile-drawn page switched on, its text and pictures stand about a fifth brighter
-  than the hand-built pages next to it (255 against 213, so a text-to-line ratio near the
-  earlier 1.57 rather than the original's 1.31) [design: the arithmetic; not measured on the
-  tile pages]. Putting the same factor on the tile-drawn text on the device is open.
+  `RepairMenu`, `ItemModMenu`, `MapMenu`; on by default when the list is absent [design, #2215]) take the same device
+  brightness, by role as the hand-built pages do, not by a flat factor [design: #2212,
+  `tiles::draw::device_brightness`, applied in the tile painter before it compares the
+  pieces, for every Pip-Boy page and the DATA page's map picture]: while the Pip-Boy is on
+  the device (`Frame::Device`, its flat fallback image included), a piece painted at the
+  page's colour at the file's full level (resolved `brightness` 255 over `&pipboy;`) takes
+  213 of 255: the texts, the Vault Boy and icons, the bars, the map's picture (its alpha
+  128 kept). A piece the file already dims keeps the file's value: the boxes' lines at 200
+  (the hand-built lines' 200), the dimmed texts and the highlight fills at 128, the
+  background at 90; so do the maps' location icons (`MapMarker`, 220 and 255 under the
+  highlight box, as the hand-built page keeps them in both frames) and any piece in another
+  colour. The alpha is never changed. One difference the rule keeps: the file's heading
+  lines (`MM_Headline_h*`/`_v*` and the like, `line.xml` with its brightness picked as
+  255 by the heading) resolve at 255 [observed: fnvtool `ui tree` of map_menu.xml and
+  item_mod_menu.xml at 1280 x 720, `_brightness` 2, `brightness` 255], so on the device they
+  come out at 213 where the hand-built heading's lines are 200; the rule is kept whole
+  rather than special-cased by picture [design; to be checked on shots]. In the screen menu
+  the tile pages keep the file's values, as the hand-built pages keep 255 there. The
+  hotkey panel over the pages and the radio's waveform are drawn by hand and keep their
+  own colours. With every tile switch off nothing changes.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].
@@ -412,12 +455,17 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     requirement) over VAL; the second row CND (a bar 62 in, 15 down, 20 high, 72 short
     of the card) and beside it, two cards and 10 wide, the ammunition ("20ga (2/30)":
     the AMMO short name, then what a clip holds of what is carried over what is
-    carried, hypothesis) or armour's class ("Light", "Medium", "Heavy"); EFFECTS across
+    carried, hypothesis) or armour's class ("Light", "Medium", "Heavy"); EFFECTS (a value too long for the room
+    beside the title, as an aid item's four Hardcore effects, goes on in right-aligned
+    lines under it, broken between effects: `frame::card_value_lines` [design, #2537; the
+    file's `CI_ValueText` has a `wrapwidth`, documented, its look is not captured]) across
     the three cards on the first free row: an aid item's own effects, apparel's or a
     weapon's enchantment's (EITM), written as the STATS EFF list writes them ("HP +40",
     "AGL -1") [observed: the owner's ITEMS screenshots, all five tabs]. WG and VAL are
     the stack's (the Stimpak's VAL 675 is 9 × 75; WG "--" for nothing) [observed: VAL;
     hypothesis: WG].
+  - Ammo effect card lines (#2502): see the formatting and shared-card rule below
+    [design, #2502].
   - Added 2026-10-19 (`items.rs`):
     - **DPS** [documented: `item_stats_display.xml` `DPSInfo`, `sInventoryDamagePerSecond`;
       hypothesis: formula]: the damage a shot does at the item's condition
@@ -456,11 +504,15 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     - **With a controller** the whole column, top to bottom in the original's order: the
       equip action ("Equip A)", "Unequip A)" on what is worn, "Use A)" on aid and books),
       "Drop X)", the repair action ("Repair Y)", "Maintain Y)" at full condition; dim on
-      what nothing repairs: aid, misc, ammo), "Hotkey 1-8)", and on Weapons "Mod LB)" (dim
+      what nothing repairs: aid, misc, ammo), the Hotkey hint, and on Weapons "Mod LB)" (dim
       on a weapon without mod slots) [observed: the original's screenshots on issue #1896,
       taken with a controller connected, 1920 × 1080: Equip (Use on Aid), Drop, Repair,
-      Hot Key, then Mod on Weapons only]. The hotkey keeps "1-8)", no button assigns
-      hotkeys yet [design].
+      Hot Key, then Mod on Weapons only]. [design, #2312; `hotkey_panel.rs`]
+      Hotkey now names RB (R1 with PlayStation labels): it opens the panel for the
+      selected item, D-pad right/down advances and left/up goes back with wrapping,
+      A assigns and B cancels. This selection method is provisional [hypothesis;
+      observer check 211]; Ammo Swap refuses assignment. The word still comes from
+      the load order's `sInventoryHotKey`, else our built-in label.
     - **With the keyboard and mouse** only the repair action ("Repair R)" / "Maintain R)")
       on every tab, dim where it does nothing, and "Mod X)" under it on Weapons [observed
       2026-11-09: the original's InventoryMenu button tiles read with keyboard and mouse
@@ -604,7 +656,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
     of type Apparel) of each worn piece of apparel, named by the enchantment's FULL
     ("Vault Jumpsuit"), its Value Modifier effects written "Speech +2, Melee Weap. +2"
     with the actor values' short names (AVIF `ANAM`) [observed: the screenshot and the
-    records]; then aid items (ALCH) with active effects. A detrimental effect (MGEF flag)
+    records], read from the game's active effects (aid-items.md §13): an effect whose
+    conditions fail or that a Dispel took off is not listed [design: #2495]; then aid
+    items (ALCH) with active effects. A detrimental effect (MGEF flag)
     is written with a minus [hypothesis]. "No Effects" when there is none [hypothesis:
     the words].
 - **Lists** (S.P.E.C.I.A.L., Skills, Perks): 35, 110, 325 / 350 / 420 wide (25 / 50 more
@@ -612,8 +666,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
   15 in and 20 down, its number right-aligned 10 before a right buffer of 20 (55 when
   marked), the mark 10 after [documented]. Skills are in name order [observed: Guns
   between Explosives and Lockpick], Big Guns left out [observed: thirteen; its AVIF is
-  "Big Guns - OBSOLETE"]. A value shown is the current value plus worn apparel's changes
-  [design: the game does not apply worn enchantments to actor values yet], skills kept to
+  "Big Guns - OBSOLETE"]. A value shown is the game's actor value (base, permanent and
+  temporary modifiers, less damage), which holds the worn apparel's enchantments in the
+  temporary pool [documented: GECK wiki ActorValue; aid-items.md §13; #2495], skills kept to
   0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
   hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
   [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
@@ -676,8 +731,7 @@ is the top left 85 × 92 of `head.dds`) [observed].
   reaches `pad::menu_keys` and chooses the head, then torso on CND.
 - **Open**: the game settings the page's words come from (`sStatsCrippled`,
   `sStatsNoEffects`, `sPCMenuHint*`) are not in the masters; when each face shows;
-  whether the hints count 0 and when they are bright; whether worn enchantments should
-  change the actor values themselves (then the page needs no sum of its own); the
+  whether the hints count 0 and when they are bright; the
   highlight box's rule; General's list height, order and right buffer, the reputation
   list's rule and second line, the karma titles. (The misc statistics' codes: misc-stats.md §1.)
 
@@ -1025,7 +1079,8 @@ General's mode survives a load; effects overflowing the page; the switch's and h
 ### 5.2.1 ITEMS from its file: what the code writes
 
 The ITEMS page drawn from `menus\main\inventory_menu.xml`, in the Pip-Boy's image, behind
-`[UI] TileMenus=InventoryMenu`, off by default (`tiles/inventory_menu.rs`; issues #1513, #1468).
+`[UI] TileMenus=InventoryMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2] (`tiles/inventory_menu.rs`; issues #1513, #1468).
 Off, nothing of it runs. The rules stay `menu::model`'s and `pipboy::items`'; the module writes
 values and says what a tile stands for [design]. Tile names and where they stand are
 [documented: the file, by `fnvtool ui tree`]. "The capture" below is the original at 1280x720 in the
@@ -1065,9 +1120,9 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 | The rows (`MenuModel`'s player list) | `IM_InventoryListTemplate` rows under `IM_InventoryList`, by `item_menu`: `ListItemText/string` (`look::row_text`), `IM_Template_ItemMarker/visible` (equipped), `_y`, `height`, `_scroll_delta`, the bar's counts, `_highlight_y`, `_selected_height` | As the container's, one side. Folder rows and "Back" are rows like any other. `IM_EquipItemMarker`, the hollow square by the highlighted row, is the file's, from `_EquippableItem` [observed: the capture]. |
 | The selected row's picture, badge, skill | `IM_ItemIcon/filename,visible,x,width,height`; `IM_ItemIconBadge/filename,visible`; `IM_StrReq/string,visible` (the number only) | Hidden with the panel. Ammunition's picture stands at x 410, 350 square, against 450 and 380 [observed: the capture, on ammunition no carried weapon takes; hypothesis: on all]. |
 | The figures (`items::info_of`, no DPS on this page) | `item_card::write` under `IM_ItemInfoRect`, whose `visible` follows having a row [observed: the capture] | The same cards as the container's; `user6` 1 on weapons, 0 on armour; effects on the first free row, one row up on aid, at y 110 under two rows [observed]. `ModInfoOne` to `Three` unwritten (not in `Info`). |
-| The buttons | `visible`: Repair on every tab but inside a Misc folder, `target` while R does something (a spare and something to repair), the file dimming it; Mod on the Weapons tab, `target` with a row; Cancel inside a Misc folder, in Repair's place, sending `Back` there, E or a click; Equip, Drop and Hotkey never [observed: all of it, the capture; the file has those three for a controller, and the hand-built page shows none] | The words are the file's, but Repair's follows the condition, the longer word can be lit: `sMaintainItem`'s text where the load order defines it, else "Upkeep", by `fnv_game::repair::hint`'s rule, on the button's `string`, the file's coming back. With no row it holds on Weapons and Apparel, and is the file's on the others [observed: the capture]. |
+| The buttons | `visible`: Repair on every tab but inside a Misc folder, `target` while R does something (a spare and something to repair), the file dimming it; Mod on the Weapons tab, `target` with a row; Cancel inside a Misc folder, in Repair's place, sending `Back` there, E or a click; Equip, Drop and Hotkey hidden with keyboard/mouse [observed: the capture]. Hotkey shows with Controller and names RB/R1, its target following `hotkeys::can_hold` [design, #2312] | The words are the file's, but Repair's follows the condition, the longer word can be lit: `sMaintainItem`'s text where the load order defines it, else "Upkeep", by `fnv_game::repair::hint`'s rule, on the button's `string`, the file's coming back. With no row it holds on Weapons and Apparel, and is the file's on the others [observed: the capture]. |
 | Root | `_EquippableItem` (a weapon, armour or aid row, not broken [observed: 0 at condition 0]), `_KeyringOpen` (a Misc folder open) | Armour and aid [hypothesis]. |
-| The hotkey panel (`HotkeyHold`, `Hotkeys`) | Nothing of the file's: `hotkey_panel::draw_over_tiles` draws the owner's panel over the page while a key is held, and `IM_ButtonRect` and the picture, badge and skill give way. `IM_HotKeyWheel` stays hidden | [the owner 2026-10-26, and 2026-10-27 for its place]. **A difference**: the capture never saw the file's wheel open, so it is not built here. |
+| The hotkey panel (`HotkeyHold`, `Hotkeys`) | Nothing of the file's: `hotkey_panel::draw_over_tiles` draws the owner's panel over the page while a key is held or the controller modal is open [design, #2312], and `IM_ButtonRect` and the picture, badge and skill give way. `IM_HotKeyWheel` stays hidden | [the owner 2026-10-26, and 2026-10-27 for its place]. **A difference**: the capture never saw the file's wheel open, so it is not built here. |
 | `IM_Background` | hidden in both frames | The shell's background and scanlines, as §5.1.1. |
 | The prompt | nothing in the image: `QuantityMenu` on the window (`menus::quantity_tiled`) | As the container's. |
 | The repair list, the mod menu | not eligible: the hand-built body draws them | Their own files are other work. |
@@ -1083,7 +1138,7 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 | Cards' values, the headline's values, `IM_StrReq` | Figures from the model and record data; "--" for what is unread, as the hand-built page. |
 | `AmmoInfo`'s title | Record data, or armour's class by the model's word (`item_card`, `info_of`), as the container's. |
 | The panel's line | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`), drawn by that module. |
-| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's); with a controller the button's name, and none on Cancel: B closes the Pip-Boy, as on the hand-built page. Equip, Drop and Hotkey: none, as the original's. |
+| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's); with a controller the button's name, and none on Cancel: B closes the Pip-Boy, as on the hand-built page. Equip and Drop: none. Hotkey: the current pad's RB/R1 with Controller, hidden with keyboard/mouse [design, #2312; `inventory_menu::hints_of`]. |
 
 **Input** (`inventory_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written;
 nothing else here touches the hand-built pointer [design]. It takes nothing under the prompt, with
@@ -1387,7 +1442,19 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     McCarran 8, Hoover Dam 7]), flags `FNAM`, radius `XRDS`. Shown when the player has been
     within the radius (`XRDS`) in the marker's own worldspace with its type's icon,
     or when ShowMap or the Visible flag made it known, with the undiscovered icon
-    [hypothesis]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
+    [hypothesis]. A marker without `XRDS` is found within `iMapMarkerRevealDistance`
+    [documented: GECK wiki "Complete List of GameSettings", the Fallout: New Vegas default
+    1000; no master sets it], that setting being this distance a [hypothesis] (#2338;
+    observer check 128); a plugin's value is used as it is, and 0 finds no such marker by
+    walking [design]; before #2338 such a marker was never found by walking up to it.
+    Named markers (`XMRK` and `FULL`) in each master's own worldspaces, and how many have no
+    `XRDS` [documented: fnvtool esm decode of each placed MapMarker reference]:
+    FalloutNV.esm 189 / 66 (WastelandNV 186 / 65, Coyote Den 0x00154A69 and the four
+    Powder Ganger Camps among them; FreesideWorld 1 / 1; WastelandNVmini 2 / 0; the
+    others carry XRDS 200-15000, median 2500 in WastelandNV); DeadMoney.esm 11 / 4;
+    HonestHearts.esm 55 / 26; OldWorldBlues.esm 35 / 16; LonesomeRoad.esm 28 / 18. None
+    carries an `XRDS` of 0, so an absent radius and a non-positive one are read alike
+    [design: `discovery_radius` in `engine/nvf-play/src/pipboy/data.rs`]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
     under the highlight box [hypothesis: by the files' names]; 24 wide, 1.75 times and
     brightness 255 (else 220) under the box [documented: the template's 1.75 and
     brightness; observed: 24 fitted].
@@ -1564,7 +1631,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
 ### 5.3.1 DATA from its file: what the code writes
 
 The DATA page drawn from `menus\main\map_menu.xml`, in the Pip-Boy's image, behind
-`[UI] TileMenus=MapMenu`, off by default (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
+`[UI] TileMenus=MapMenu`, on by default when the list is absent [design, #2215;
+ui-tile-tree.md section 6.2] (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
 runs and the hand-built page (`pipboy/data.rs`) draws as before. The rules stay `pipboy::data`'s:
 the module writes values and says what a tile stands for; commands go where the hand-built page's
 go [design]. Tile names, places and expressions are [documented: `menus\main\map_menu.xml` and the
@@ -2089,3 +2157,85 @@ still need runtime checks after this review revision.
 - The mouse pointer: the screenshots show an amber arrow (`interface\icons\misc\
   glow_cursor.dds` is in the archives); NVForever now shows the game's own `cursor.dds`
   tinted amber everywhere in the window (`engine/nvf-play/src/cursor.rs`, 2026-10-16).
+
+## Ammo effect card lines (#2502)
+
+- [design, #2502] The shared item card reads AMMO RCIL in record order through the
+  loaded `CombatForms.ammo_effects` (`engine/nvf-play/src/pipboy/items.rs`). Each
+  resolved effect supplies one line below WG/VAL; no heading is added. Empty
+  lists retain the previous WG/VAL-only card. Unresolved IDs and unsupported
+  operations supply no line, rather than inventing a numeric meaning.
+- [documented: fnvtool esm inventory, FalloutNV.esm, main session 2026-11-14,
+  #2502 writer brief] All 54 base AMEF records have FULL. [design, #2502] Use that
+  name verbatim when nonempty. For an absent or whitespace-only FULL, our own
+  labels by kind are Damage, Damage resist, Damage threshold, Spread, Weapon wear,
+  Fatigue; an unknown kind uses Ammo effect. These English keys use
+  `fnv_util::words::tr` and `lang/{de,es,fr,it,ru}.toml`; FULL is never translated
+  by this fallback table.
+- [documented: offline GECK wiki Ammo Effect, revision 37444;
+  `schemas/fnv/combat.json`; `crates/fnv-combat/src/damage.rs::apply_effects`]
+  The operations are Add, Multiply, Subtract. [design, #2502, settled owner
+  choice] Multiply displays `x0.80` (two decimals); Add displays its signed
+  value, Subtract its negation (`+5`, `-5`, `-0.75`), with fractional digits
+  only when needed. These lines describe the record, including fatigue effects;
+  they do not alter combat.
+- [design / file refs] `Info` supplies the same text to the hand-built inventory,
+  barter and container cards and to `tiles/item_card.rs::write`, including the
+  default tile ITEMS page. Hand-built cards get a row per line because their
+  text helper draws one line. Tile cards use the multiline effect value and
+  hide only its title text for ammo, saving its prior visibility on that title
+  tile. Non-ammo and empty selections restore that value (including a hidden
+  title), or remove the code-created visibility trait if the menu omitted it.
+  Non-ammo selections before ammo leave the menu's title visibility untouched.
+- [design / file refs] Synthetic tests `pipboy::items::tests::ammo_` cover all
+  three operations, FULL/fallback labels, RCIL order, missing IDs and cards with
+  and without effects. `tiles::item_card::tests::ammo_` checks the text, first
+  free row, hidden heading and selection cleanup, including custom menus with
+  initially hidden or absent title visibility.
+- [documented: #2502 round-w2 writer brief, fnvtool esm decode, FalloutNV.esm,
+  main session 2026-11-14] `Ammo357MagnumHollowPoint` (0x0013E43C) references
+  AMEF 0x00157B54 ("Damage Bonus", Multiply 1.75) and 0x00157B56
+  ("Dam. Thresh. Increase", Multiply 3.0); `Ammo357Magnum` (0x0008ED02)
+  has no RCIL. [design, #2502] Smoke scenarios `pipboy-ammo-effects` and
+  `tiles-items-ammo-effects` give both rounds and select each on ITEMS > Ammo,
+  requiring `Damage Bonus x1.75` and `Dam. Thresh. Increase x3.00` in order,
+  then no effects after returning to the ordinary round. The former uses the
+  hand-built page; the latter uses the default tile menus without an override.
+  [design / file refs] They read existing selected-card logs from
+  `pipboy/items.rs::draw` and `tiles/inventory_menu.rs::describe`; screenshots
+  accompany both selections for visual review. Log checks verify card text
+  and selection cleanup; layout still needs the runtime screenshots.
+
+
+### Replacement-art density and map-image dimensions
+
+- [design] The hand-built STATS list, karma and reputation panels retain their
+  existing 256-pixel logical image height and zoom. An actually selected own-file
+  replacement with another pixel density uses the same density conversion already
+  used by the fallback paperdoll: logical height divided by selected image height.
+  The displayed geometry and normalized source region stay unchanged. Selected
+  atlas pieces retain their existing texel contract; the size of a shadowed own
+  file is not used. A missing atlas uses the density of its actual own-file fallback.
+- [design] MapMenu publishes own-file image dimensions before evaluating image
+  layout, using the same file-size writer as StatsMenu. This includes zero-size
+  metadata children used by ratio-based map-marker templates. A replacement
+  image's filename or zoom change refreshes its dimensions; cached decoded sizes
+  do not substitute another image's dimensions. Atlas-backed and runtime images
+  retain their existing metadata owners.
+- [hypothesis] These repair two reported Windows QA boundaries: clipped high-
+  resolution skill art when the Stats page falls back to the hand-built view, and
+  ratio-based map markers whose child-image dimensions were never supplied. They
+  do not establish original-game UI parity or repair a tile-page admission failure.
+- [design] Authored CPU controls call the actual fallback page producer through
+  GameData/VFS and inspect its ImageNode geometry/source rectangle, including TGA
+  content under a DDS name, native atlas selection and missing-atlas fallback. A
+  MapMenu page control reads authored DDS files through the same image provider
+  and checks evaluated image dimensions, normalized crop, zoom and emitted pieces
+  across a filename/density change. Execution results belong to their exact tested
+  revision; source authoring alone supplies no runtime or screenshot acceptance.
+
+- [design] The fallback-art controls explicitly choose General's karma or reputation
+  mode instead of inheriting the default view. Positions and layout units stay exact;
+  positive emitted dimensions may differ by at most one representable f32 step when
+  an atlas subrectangle is multiplied back into canvas units. Normalized source
+  regions and the selected atlas rectangle remain independent, unchanged checks.

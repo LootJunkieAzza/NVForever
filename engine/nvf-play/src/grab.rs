@@ -201,7 +201,7 @@ impl Plugin for GrabPlugin {
         let aid = std::env::var("NVF_PLAY_TEST_GRAB").map(|v| parse_aid(&v)).unwrap_or_default();
         app.insert_resource(GrabState { aid, ..default() })
             .add_systems(Update, holding_controls.after(PlaySet::Input).before(PlaySet::Physics))
-            .add_systems(Update, grab.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate));
+            .add_systems(Update, grab.in_set(PlaySet::Activation).after(crate::quick_loot::follow).before(crate::activate::activate));
     }
 }
 
@@ -357,13 +357,18 @@ fn grab(
 
     // What could be held now.
     let found = if playing && g.held.is_none() { find_candidate(&mut phys, &sim, eye, dir) } else { Err("holding or not playing".into()) };
+    // The player's tweak: someone else's things stay where they are [design: docs/design/tweaks.md].
+    let found = match found {
+        Ok(c) if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_grab_owned && crate::activate::owned_by_other(Some(&rt.game), &sim, c.on.form_id(), &crate::activate::outcome::Action::Take { count: 1 })) => Err("owned by someone else (tweak)".into()),
+        other => other,
+    };
     g.candidate = found.as_ref().ok().copied();
 
     // A press of Activate on something holdable without an activation of its own (the
     // other presses are handed here by `activate::activate`), and the aid's press.
     let activate_down = input.pressed(Control::Activate) || g.aid_now.is_some_and(|a| a.activate);
     if let (Some(c), true) = (g.candidate, playing) {
-        let pressed_e = (input.just_pressed(Control::Activate) && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
+        let pressed_e = (input.just_pressed(Control::Activate) && !crate::quick_loot::holds_input() && target.0.as_ref().is_none_or(|t| t.form_id != c.on.form_id())) || aid_press == Some(true);
         if pressed_e && g.tap.is_none() {
             let t = target.0.clone().filter(|t| t.form_id == c.on.form_id() && aid_press != Some(true));
             g.tap = Some(Tap { target: t, candidate: c, held: 0.0 });
@@ -394,6 +399,15 @@ fn grab(
     if let Some((c, by)) = start {
         let id = c.on.form_id();
         let name = name_of(&sim, script.as_deref(), id);
+        // The player's tweak: grabbing someone else's thing is stealing it [design: docs/design/tweaks.md].
+        if let (GripOn::Ref(_), Some(rt)) = (c.on, script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
+            if rt.game.tweaks.grabbing_is_theft && crate::activate::owned_by_other(Some(&rt.game), &sim, id, &crate::activate::outcome::Action::Take { count: 1 }) {
+                if let Some(base) = sim.base_of(id) {
+                    let seen = crate::script::with_world(rt, &mut sim, |rt| rt.game.player_stole(Some(FormId(id)), None, base, 1));
+                    info!("grab: {name} is someone else's: stolen (tweak){}", if seen { ", seen" } else { "" });
+                }
+            }
+        }
         let mass = phys.world.grip_mass(c.on, c.at).unwrap_or(0.0);
         if mass > max_walk {
             info!("grab: {name} is too heavy to pick up ({mass:.1} kg, the limit {max_walk:.0})");

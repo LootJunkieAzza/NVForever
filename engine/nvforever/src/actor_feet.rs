@@ -16,9 +16,11 @@ const GROUND_FROM: f32 = 30.0;
 
 /// The collision and drawn ground under a drawn root, as log text: ", collision ground
 /// z …, drawn ground z …, root … above the drawn ground", or nothing without physics.
+/// Fixed collision only: a dynamic body resting at the actor's feet (a tumbleweed the
+/// wind left there) is not the ground it stands on (`PhysState::fixed_ground_drawn`).
 fn ground_text(phys: Option<&mut PhysState>, root: Vec3) -> String {
     let Some(phys) = phys else { return String::new() };
-    match phys.ground_drawn([root.x, root.y, root.z + GROUND_FROM], 2.0 * GROUND_FROM, None) {
+    match phys.fixed_ground_drawn([root.x, root.y, root.z + GROUND_FROM], 2.0 * GROUND_FROM) {
         Some((bare, drawn)) => format!(", collision ground z {bare:.1}, drawn ground z {drawn:.1}, root {:.1} above the drawn ground", root.z - drawn),
         None => ", no collision ground under it".to_string(),
     }
@@ -131,10 +133,11 @@ pub fn on_the_land(feet: [f32; 3], land: Option<f32>) -> [f32; 3] {
 }
 
 /// The full-detail landscape height at game (x, y), as the terrain mesh draws it.
+/// The full-detail landscape height at game (x, y), as the terrain mesh draws it (on the
+/// smoothed or stored surface, `WorldData::land_surface`).
 fn land_height(world: &WorldData, x: f32, y: f32) -> Option<f32> {
     let g = fnv_world::cell_of(x, y);
-    let land = world.grid_cell(g)?.land?;
-    let land = fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?;
+    let surface = world.land_surface(g)?;
     let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
-    Some(fnv_world::grass::height_at(land.heights.as_ref()?, x - ox, y - oy))
+    Some(surface.height_at_clamped(x - ox, y - oy))
 }

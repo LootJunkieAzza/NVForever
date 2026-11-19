@@ -80,7 +80,7 @@ actor meshes`]:
   `Prn` whose string names the parent bone (`Bip01 Head` for hair, beards and eyes); 19
   headgear models (cowboy hats, fiend helmets, NCR trooper helmets, berets) and the
   child-female mouth parts have none.
-- A rigid part on the head has its vertices in the **skeleton's axes** with the origin
+- Most surveyed rigid parts on the head have vertices in the **skeleton's axes** with the origin
   at the parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above
   `Bip01 Head` (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's
   own x axis points up. Node rotations of the 206 rigid shapes placed NPCs use: all
@@ -102,6 +102,34 @@ actor meshes`]:
   original; nothing in the record or the file marks it]: a part whose unskinned
   geometry, root and shape transforms applied, is centred further along x than along z
   (by more than 2 units) is an ordinary child of the bone (`PreparedPart::rigid_in_bone_axes`).
+- **Bone-local rigid headgear (#2529).** [documented: #2529 writer brief, fnvtool,
+  FalloutNV.esm + Fallout - Meshes.bsa] General Lee Oliver (`VHDGeneralOliver`, NPC_
+  0x001300A9) carries `NVGenOliverCap` (ARMO 0x00134490, slots Hair, Headband, Hat) and
+  `OutfitGeneralOliver` (0x0015E35D). The cap's worn MODL is
+  `armor\headgear\GeneralOliverCap\GenOliverCap.NIF`; MOD2 is `GenOliverCapGO.NIF`.
+  The worn file has identity root `BSFadeNode` "GenOliverCap", one identity child
+  `NiTriStrips` "GenOliverCap:5", no skin and no bone-naming extra data. Its 700
+  vertices span x 8.89..17.71, y -7.71..10.99, z -8.57..8.57; bounding sphere centre
+  (13.30, 1.64, 0), radius 10.3. [hypothesis] This is the head bone's own frame,
+  whose +X runs up the skull, rather than the skeleton-axis layout above.
+  [design: `engine/nvf-assets/src/actor.rs::spawn_parts`, `rigid_local`] The cap already
+  hangs from `Bip01 Head`; the old unconditional inverse-bind correction turns its
+  +X offset sideways at the bind pose. This is a frame-selection error, not a missing
+  parent. [design, #2529] `rigid_part_frame` chooses one frame per part using combined
+  bounds of its unskinned, non-cap shapes, with root * shape applied to each vertex.
+  Hidden shapes contribute so visibility changes do not change the frame. It keeps
+  root * shape for every rigid shape when those bounds straddle skeleton Z=0 and their
+  centre's unit direction aligns with bone-local up by at least
+  `BONE_LOCAL_HEAD_ALIGNMENT` (0.9). Splitting geometry into material submeshes keeps
+  the same placement, including each shape's authored transform.
+  Bone-local up is inverse bind linear transform times skeleton +Z, normalized.
+  Other layouts, empty combined geometry, missing position attributes, any nonfinite
+  rigid vertex and singular bind transforms keep the old rule for the whole part.
+  The bone-local part inherits the head's full animated transform, including
+  head tracking and dialogue turns, at spawn and equipment changes; skinned shapes
+  and creatures use their existing paths. [hypothesis] The geometry test identifies
+  this layout in other rigid hats, but asymmetric meshes can be ambiguous. Owner
+  review tracks the threshold; observer check 168 asks for original-game parity.
 - A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
   transforms kept, no rotation added. Over the worn models of every ARMO in the ten
   masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61
@@ -148,6 +176,44 @@ actor meshes`]:
   the Pip-Boy off the arms had no forearm sleeve and the body shown in first person kept
   `PipBoyOff…` in the air where its hidden arm was (#2173).
   Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
+- Outfits with no `Arms…` shape (#2457). The NCR Trooper Fatigues (`OutfitTrooperFatigues`
+  0x0010D2CD: BMDT biped flags Upper Body only; MODL `armor\troupers\ArmorNVNCRTrooperPlain.NIF`,
+  MOD3 `…Plain_F.NIF`) [observed: `fnvtool esm decode`] name no shape `Arms…`. Their
+  skins' partitions (`BSDismemberSkinInstance`, body parts as in dismemberment.md §2.5),
+  with the bones they are weighted to and their extents [observed: `fnvtool nif decode`,
+  male model, NIF units, x across the arms]:
+  - `hest:0` (`trooperplain.dds`): 0 (torso: Spine, Spine1, Spine2), 3000 (left shoulder
+    and upper arm: LUpArmTwistBone, L UpperArm; x −28.6…−12.8), 3 (left elbow: L Forearm
+    0.71, L UpperArm 0.23; x −34.8…−25.0), 5000 (the right arm's; x 12.8…35.1).
+  - `objdefault01:0`: 3000 and 5000 only (the upper arms: L/R UpperArm and twist bones).
+  - `objdefault02:0`: 0 (torso) and 5 (right forearm; x 32.5…47.6).
+  - `pipboyoff:0`: 3 (left forearm and cuff; x −47.6…−31.2); `pipboyon:0`: 3 (the cuff;
+    x −47.6…−41.0): the device sits between −41 and the elbow's −34.8, as on the jumpsuit.
+  - `body:0`, `body:1`, `upperbody2:0`, `Object08:0`: torso and legs (0, 7, 10, 7000,
+    10000); the rest are caps (101–110, 201–210).
+  With the rule "only `Arms…` shapes" the arms rig drew the wrist cuff `pipboyon:0` and
+  nothing else of the outfit: no upper arm, elbow or right sleeve, the street seen through
+  the arm beside the raised Pip-Boy (the owner's report). Rule since #2457
+  (`fnv_actor::first_person::arms_by_partition`): an upper-body model with no `Arms…` shape
+  is drawn in first person by the arm partitions of its skins, body parts 3–6 (BP_LEFTARM,
+  BP_LEFTARM2, BP_RIGHTARM, BP_RIGHTARM2) and their torso sections 3000–6000, each such
+  shape with only those partitions' triangles; the forearm sleeves still go by their names
+  [hypothesis: the original shows these sleeves in first person as it does a jumpsuit's;
+  no capture of it with this outfit is at hand]. A model with an `Arms…` shape keeps the
+  name rule. Of the 247 upper-body worn models of FalloutNV.esm, 207 have an `Arms…`
+  shape, 31 are drawn by their arm partitions (the trooper fatigues and MP outfits male and
+  female, Combat Armor, Reinforced (`mark1combat.nif`; plain Combat Armor's `outfitm.nif` has `Arms`), Benny's suit, Boone's, Cass's, the centurion's, the Powder
+  Gangers', the Viva Las Vegas and NCR gambler outfits, among others) and 9 have neither
+  [observed: `fnvtool actor meshes`, `upper_body_first_person`]. The Pip-Boy plays no part: the Pimp-Boy 3 Billion (`PimpBoy` 0x0011BACB, BMDT
+  PipBoy slot, all four models `PimpBoy3Billion\PimpBoyArm.NIF`) is built like the Pip-Boy
+  3000 (`PipBoy` 0x00015038, `PipBoy3000\PipBoyArm.NIF`): the same buttons, glows, knobs,
+  needle, screen and light shapes, unskinned under `Bip01 L ForeTwist`, the arm piece
+  `PipBoyArm:0` (2,222 and 2,218 vertices) over the same span, 4.4…17.1 units down the
+  forearm, plus a diamond (`Plane09:0`, `PimpBoyDiamond.dds`) on the case [observed:
+  `fnvtool nif decode`]. So the sleeve shows the same way under either.
+  The third-person body drawn in first person (`--first-person-body`, off by default)
+  still hides only the shapes the arms rig draws by name, so with such an outfit it keeps
+  its own arm partitions while its arms are hidden [open].
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
@@ -859,6 +925,37 @@ have no `.nif` of their name; which model each belongs to is [open].
 
 Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
 
+### 4.4 Hair outside an old-head race's list (#2714)
+
+[documented: issue #2714, spooknik's 2026-11-15 comment, record/archive audit at
+main 1790ab94a; supplied findings, not a new run or original-game observation]
+Roy is VFSRoyREF 0x0011365D, base VFSLocalVictim03 0x00113649. His race is
+CaucasianOldAged 0x000987DF, with `headold.nif`, but his HAIR is
+HairAfricanAmericanBase 0x000306BE (Buzz Cut): `hairbase.nif`, texture
+`hairafricanamericanbase.dds`, HCLR 192,192,192, and no hat. That HAIR is outside
+the race's HNAM list: 0x000987DA, 0x000987D8, 0x00044529, 0x00044528,
+0x00044527, 0x000987D9. The race's default male hair is HairBaldingOld.
+
+[documented: the same #2714 audit] Old-head alternatives include HairBaseOld
+0x00044528 (`hairbaseold.nif`, with `hairbaseoldnohat.egm` /
+`hairbaseoldhat.egm`) and HairAfricanAmericanBaseOld 0x000987D9
+(`hairafricanamericanbaseold.nif`). Of the 24 placed old-head NPCs surveyed,
+20 use an `…old.nif` hair. The exceptions are Roy (`hairbase.nif`),
+VNovacDoctorMerc2 (`hairraiderspike.nif`, no old version), DeadSlaveFemale
+(`hairbun.nif`) and Boomer05F (`hairfemaleb.nif`, under a hat).
+
+[design: `crates/fnv-actor/src/resolve.rs`, hair selection;
+`engine/nvforever/src/facegen.rs::FaceGenCache::morph`] NVForever keeps the
+NPC's selected HAIR model (race default only when no hair is selected), then
+uses that model's own applicable EGM, including per-shape files such as
+`hairbasenohat.egm`. It does not substitute an old-head model because the hair
+is outside HNAM. [hypothesis, #2714] A model fitted to `headhuman.nif` could
+leave a gap at the back of `headold.nif`; the original might keep that gap,
+substitute an old-head hair, or use the race default. Keep the current model
+provisionally; no hair resolution or morphing change is justified yet.
+Observer check [210](../handoff/observer-checks.md) compares Roy from behind
+and VNovacDoctorMerc2 to distinguish those alternatives [design, #2714].
+
 ## 5. CLI contract
 
 - `fnvtool actor forms <Data> <plugins…> --schema <dir>` → `fnv.actor.forms/1`:
@@ -891,6 +988,9 @@ Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
   `skinned_shapes`, `rigid_shapes`}] (those naming another bone than `Bip01 Head`),
   `armor_pipboy_sleeves` (models with `PipBoyOn…` and `PipBoyOff…` shapes: `on and off`,
   `on only`, `off only`), `armor_light_effect` (models with the Pip-Boy light's glow).
+  Over the worn models of the ARMO covering Upper Body: `upper_body_first_person` (how
+  the arms rig draws them, §1.2: `Arms shapes`, `arm partitions`, `neither`) and
+  `upper_body_by_partition` (the models drawn by their arm partitions).
 
 ## 6. Captures wanted
 
@@ -1138,11 +1238,27 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   in-cycle deviations and removes the travel [engine rule; hypothesis that the game
   moves the actor at the clip's average speed]. A clip without a `Bip01` track holds it
   at the identity (§7.2), so all locomotion clips blend on the same root.
+- **Back-and-forth moves (#2352).** [documented: issue #2352, supplied clip-root
+  survey] The bloatfly's `mtleft.kf`/`mtright.kf` reach 225/243 units sideways and
+  return to net travel 100. [design, #2352] At move load, `BoundClip::locomotion`
+  compares peak horizontal distance from the start (the 61 samples of
+  `Clip::root_reach`) with `ROOT_EXCURSION_RATIO` (1.5) times net horizontal travel.
+  A strict exceedance holds the drawn root x/y at its track's start throughout the
+  cycle, removing the oscillation as well as the linear travel; a zero-net move
+  qualifies if its peak is positive. All other moving clips retain linear correction.
+  [hypothesis] This in-place rendering is provisional: whether the original instead
+  moves the actor along these darts is unknown (observer check 169).
+  [design] The rule applies generally to moving clips, including weapon, hurt and
+  script-replacement sets; actor movement, clip pace, root height/rotation correction,
+  and carried attacks retain their existing rules (`locomotion.rs::bind_move`,
+  `anim_play.rs::BlendPlayer::sample`). Narrow peaks between samples can be missed.
 - The root's **height** counts from the track's start: sampling also removes the
   track's start z. Only the 2ha/2hh `Holster` clips (and their power-armour and sneak
   copies) start `Bip01` off height 0, at a constant 67–68 with no `Bip01 NonAccum`
   track; taken as they are they lifted NPCs 66 units off the ground
   [observed; rule hypothesis, docs/spec-notes/floating-actors.md].
+  The same four clips also turn `Bip01` 90° about z: with no `Bip01 NonAccum` track a
+  clip's root rotation counts from its track's start too (floating-actors.md §8, #2246).
 
 ### 8.3 Selection, blending, phase and speed (engine)
 
@@ -1170,18 +1286,37 @@ All rules here are engine choices unless tagged otherwise. Layer 6 replaces the 
 - **Pose blend**: per skeleton node, translation and scale are lerped and rotations
   nlerped along the shorter arc by weight; a node that only one clip drives blends
   towards its bind pose by the missing weight.
-- **A creature's idle under its movement clips** (owner's playtest list 7 item 17,
-  2026-10-23; `locomotion.rs` `UNDER_LAYER`): while a creature plays another clip than
-  its idle (moving, turning, fading), its idle is laid under it at a priority below every
-  track, with its own phase running on, wherever the idle drives a node the other clip
-  does not. The bloatfly's `mtidle.kf` drives the wings (`Bip01 L/R UpperArm`,
-  `Forearm`, priority 45) and the head; `mtforward.kf`, `mtfastforward.kf` and the side
-  clips drive neither (priority 30, 32 tracks), so the wings stood in their bind pose
-  while it flew [observed: kf_layer_survey]. [hypothesis: the original keeps the idle
-  under the movement clips, as the player body does, animation.md §9.4.] Not for
-  people [design]: their idle drives the pauldrons and twist bones the movement clips
-  leave, posed for the idle's arms. The run summary: `actor idle under movement: N actor
-  frames …`.
+- **A creature's idle under movement and upper clips** (owner's playtest list 7
+  item 17; #2352). [design, #2352] `locomotion.rs::under_layer` runs after stance,
+  aim, attack and special-idle layers are assembled. With `idle_under` enabled and an
+  Idle clip in the current set, it keeps that idle running on bones and part nodes
+  none of the other active clips drive, excluding the accumulation root. The idle's
+  own phase runs on; its fallback tracks have `UNDER_PRIORITY`, below other tracks.
+  [design, #2352] The fallback occupies `BlendPlayer::pose_only`, separate from
+  regular layers and consumed only by the pose blender (including its cycle tracking
+  and held-pose cache). Its Clip view copies timing only: no text/sound/event keys,
+  materials, visibility, emitters, lights or free-controller tracks. Filling an omitted
+  bone therefore cannot become an event source or override special-idle materials
+  (`material_anim::actor_material_values`). Its bound transform mask follows all
+  active clip identities, ignoring zero or nonfinite weights and the real Idle itself.
+  [design, #2352] One root-free `BoundClip` allocation and timing-only Clip view stay
+  alive for each real Idle while it plays. Bound and unbound track masks live beside
+  the playback entry (`BlendPlayer::pose_only_mask`) and change without replacing
+  either identity. `Loops` therefore preserves accumulated per-cycle rotations across
+  upper-clip changes; fully masked intervals keep the same entry at zero weight to
+  follow phase wraps, without counting as fallback contribution frames or sound owners.
+  Mask changes also invalidate held poses without changing playback identity.
+  [design, #2352] `anim_sounds::actor_sound_sources` keeps one sound owner for that
+  idle: an audible regular Idle layer, otherwise the real Idle source at its continuing
+  phase while the pose fallback is active. The pose-only view never supplies keys;
+  upper-clip/mask changes preserve the real Idle's source identity and sound timeline.
+  [documented: issue #2352, supplied wing-track
+  survey] `mtidle.kf` drives the bloatfly's wing bones (`Bip01 L/R UpperArm`,
+  `Forearm`, priority 45); its movement, aim, attack and hover clips omit them.
+  [hypothesis] The original keeps these bones animating from its idle (observer
+  check 169; animation.md §9.4). [design] People retain their existing layering.
+  The existing summary `actor idle under movement: N actor frames …` now counts the
+  under-layer during upper clips too (`drive_one`, `main.rs`).
 - **Phase sync**: between two walk/run clips, the incoming clip starts at the same
   footfall phase as the outgoing one, using the time of each clip's first `Enum: Left`
   text key as its left-footfall mark [hypothesis: `Enum: Left`/`Enum: Right` are footstep
@@ -1692,9 +1827,35 @@ stopped and started, as Victor's walk had before #258). Code:
     two-handed run penalty was built before (`npc_combat::pace`, item 61) for every
     two-handed weapon drawn in combat; whether rifles count as "big" is not measured
     (the paladins walked holstered with Gauss rifles at about the heavy armour's pace).
-  - **Not built**: the walk with a weapon drawn outside combat (77–78 here, about the
-    `1hm`/`h2h` clip or `fMoveBaseSpeed`, which of the two is open); in combat, walking
-    with a weapon drawn was faster (a fiend 105, Cook-Cook 97; not explained).
+  - **The walk with a pistol drawn** (issue #2124; `fnv_ai::carry::drawn_walk_share`)
+    [design, the fit chosen: docs/owner-review.md]: a person, not a creature, in light
+    armour or clothes, with a pistol out (WEAP animation type 3 or 4, the ballistic and
+    energy pistols; IsWeaponOut's state, `Game::weapon_is_out`) and not in combat walks its
+    walk divided by `fMoveNoWeaponMult` (1.1 [documented: GECK wiki Movement Settings,
+    "Movement speed is multiplied by this when the actor's weapon is holstered, or the
+    actor has no weapon equipped"]): 85.3 / 1.1 = 77.5 against the 10mm pistol walks
+    above (78.0, 77.5, 78.3). Our holstered walk being the fitted one, the setting is
+    read backwards; the `1hm`/`h2h` walk clip (77.5) and `fMoveBaseSpeed` (77) give
+    about the same number and are not taken. It is a package's walk (`Ai::pace`), times
+    the actor's Speed Mult and fMoveSneakMult as before; a walk under way changes
+    between the two paces when the weapon is drawn or put away, a run, a follower's
+    matched pace and the alert and combat speeds do not. New speeds on the way (a Speed
+    Mult or armour change, `Ai::set_speeds`, issue #2118) keep the walk's share: the walk
+    goes on at the new walk / 1.1 and still follows the weapon, also through a stop at
+    Speed Mult 0 [design]. A follower (a Follow or Accompany package) takes the share
+    too, as every walk `Ai::pace` gives does [design: no person was measured following
+    with a weapon drawn, observer check 13; the movement settings apply "to all actors
+    unless otherwise noted", documented: GECK wiki Movement Settings]: in step with its
+    target it goes at the target's pace (`keep_step_speed`; the share only lowers its
+    slowest walk), and at the drawn walk where the target's pace is not known (its first
+    plan, a way through another space). Its speed is worked out again under way as the
+    gap changes (`follow_step`, `follow_speed`), so a weapon drawn or put away on the way
+    shows at once: as its walk where the target's pace is not known, as the slowest it
+    eases to otherwise. Every other stance, medium and
+    heavy armour keep the holstered walk until they are measured drawn (the stances'
+    walk clips differ, above; observer check 13).
+  - **Not built**: in combat, walking with a weapon drawn was faster (a fiend 105,
+    Cook-Cook 97; not explained).
   - **The player** (issues #1364, #1742): the player's walk and run (86.8 and 344) are
     multiplied by its Speed Mult over 100 (SetAV's base, ModAV's and effects' modifiers
     and damage, as GetActorValue reads it; 0 at the least) and by its body armour's
@@ -2654,6 +2815,31 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
+- **Part nodes for the clips** (#2228): the named nodes between such a shape and where
+  it hangs are kept as nodes of their own (`creature_rigid_chain`; with a `Prn` bone and
+  a named node, the part's root as one too), and a clip track naming a node the
+  skeleton lacks drives the part node of that name (`BlendPlayer::add_part_node`). The
+  same placement as before when nothing moves. [observed: `SpecialIdle_CutCake.kf`
+  (IDLE `CutCake`, Mister Handy cutting the cake) has 40 rotation keys on
+  `Buzzsawblad`, about one turn every 0.4 s from 3.3 s; `Buzzsawblad` is a node of
+  `gutsybuzzsaw.nif` (root the identity, `Prn` `Bip01 R Foot 01`), whose stored
+  rotation is the track's first key, and not of `creatures\mistergutsy\skeleton.nif`;
+  hypothesis: the original grafts the part's nodes under the bone, so its clips reach
+  them.]
+- **Parts that move by themselves** (#2228): a part with no skinned shape whose file has
+  controllers no sequence drives (Active, not manager controlled: texture scrolls,
+  alpha, emittance, refraction strength, transforms, visibility; `nvf_assets::model`
+  "free" tracks) is drawn as a model on its `Prn` bone at the part's root transform,
+  playing them each on its own cycle as a placed object does, its billboards turning
+  and add-on nodes emitting (`shot_fx::spawn_playing_itself`), unless a shape of it
+  hangs from a skeleton-named node of the part. [observed: Mister Handy's and Gutsy's
+  jet `fxmrhandyjetaddon.nif` (`Prn` `Bip01 Pelvis`) has no sequence; under three
+  NiBillboardNodes `##JetFlames…`, the three flame shapes share one
+  NiTexturingProperty with two looping NiTextureTransformControllers (0.47 s and
+  2.13 s) and one NiMaterialProperty with an NiAlphaController; each refraction cloud
+  node has a looping NiTransformController (0.67 s) and its shader property a
+  BSRefractionStrengthController.] Such a part is not a dismemberment shape (it is not
+  hidden with a severed limb) [design].
 
 ### 10.3 Idle
 

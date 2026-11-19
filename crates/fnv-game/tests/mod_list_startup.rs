@@ -194,7 +194,7 @@ fn the_players_first_person_model_is_asked_with_pc_model_2() {
         info: None,
         world: [0.0; 3],
     };
-    g.scene.set_first_person_tree(Some(vec![node("Bip01", None), node("NeckController", Some(0))]));
+    g.scene.set_tree_for(fnv_sim::FormId::PLAYER_REF, fnv_game::nif_blocks::ModelView::FirstPerson, vec![node("Bip01", None), node("NeckController", Some(0))]);
     let q = |g: &mut Game, s: &str| g.run_query(&format!("Begin Function {{ }}
 SetFunctionValue {s}
 End
@@ -202,5 +202,4 @@ End
     assert_eq!(q(&mut g, "(PlayerREF.GetNifScale \"NeckController\" 2)"), XVal::Num(1.0));
     // The third-person model (no tree told here) has no such node.
     assert_eq!(q(&mut g, "(PlayerREF.GetNifScale \"NeckController\" 1)"), XVal::Num(0.0));
-    assert!(g.scene.first_person_wanted());
 }

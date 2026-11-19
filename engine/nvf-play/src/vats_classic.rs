@@ -77,9 +77,10 @@ impl VatsStyle {
 /// its own then.
 pub const DARKEN: f32 = 1.0;
 
-pub const SLOWDOWN_MIN: f32 = 0.5;
-/// The slider's step [design: owner 2026-11-09].
-pub const SLOWDOWN_STEP: f32 = 0.05;
+pub const SLOWDOWN_MIN: f32 = 0.0;
+/// The row's choices: 0% (time runs at full speed) to 100% (a full stop) in quarters
+/// [design: owner 2026-11-15, the menu overhaul; 50-100% in 5% steps before].
+pub const SLOWDOWN_CHOICES: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 
 /// How far the world is slowed while the classic style's targets are chosen: the settings
 /// page's "V.A.T.S. time slowdown" (`vats-slowdown` in NVForever.ini), from
@@ -100,6 +101,22 @@ impl Default for VatsSlowdown {
 pub fn clock_scale(slowdown: f32) -> f32 {
     let s = slowdown.clamp(SLOWDOWN_MIN, 1.0);
     (((1.0 - s) * 100.0).round() / 100.0).max(0.0)
+}
+
+/// The row's choices' names.
+fn slowdown_names() -> Vec<String> {
+    SLOWDOWN_CHOICES.iter().map(|&s| slowdown_text(s)).collect()
+}
+
+/// The slowdown `text` names (or an older slider's number, the slowdown itself: the nearest).
+fn take_slowdown(w: &mut World, text: &str) -> bool {
+    match crate::settings::choice_of(text, &slowdown_names(), |v| crate::settings::nearest(&SLOWDOWN_CHOICES, v)) {
+        Some(i) => {
+            w.resource_mut::<VatsSlowdown>().0 = SLOWDOWN_CHOICES[i];
+            true
+        }
+        None => false,
+    }
 }
 
 /// A slowdown as the settings page shows it.
@@ -257,7 +274,7 @@ fn from_env() -> (Option<VatsStyle>, Option<f32>) {
     let slow = std::env::var("NVF_PLAY_TEST_VATS_SLOWDOWN").ok().and_then(|v| {
         let s = v.trim().parse::<f32>().ok().filter(|x| x.is_finite()).map(|x| x.clamp(SLOWDOWN_MIN, 1.0));
         if s.is_none() {
-            warn!("vats: NVF_PLAY_TEST_VATS_SLOWDOWN={v}: not a number from 0.5 to 1");
+            warn!("vats: NVF_PLAY_TEST_VATS_SLOWDOWN={v}: not a number from 0 to 1");
         }
         s
     });
@@ -295,6 +312,7 @@ pub fn register(app: &mut App) {
             // Advanced" (`fnvtool esm inventory`); #1740, LEGAL.md]; "style" is ours.
             label: "V.A.T.S. style",
             note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Mark and Fire: time runs very slowly while you mark targets under the crosshair. Real time: V locks on to a target while the world runs on; you keep moving, the aim stays on it and its limb is lit, Aim switches to the next target, Z the limb, V lets go. Co-op is always real time.",
+            switches: "",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -308,28 +326,45 @@ pub fn register(app: &mut App) {
             ask_keep: false,
         },
     );
-    crate::settings::add_setting(
+    crate::settings::add_choice_list(
         app,
-        crate::settings::Setting::slider(
-            "vats-slowdown",
-            crate::pause::GROUP_MENUS,
+        crate::settings::Setting {
+            key: "vats-slowdown",
+            group: crate::pause::GROUP_MENUS,
             // "V.A.T.S." as the data spells it (MESG `HelpVATS`, as the row above).
-            "V.A.T.S. time slowdown",
-            "How far the world slows while you choose targets in the Classic style: 100% stops it, 50% runs it at half speed. Enemies keep attacking at anything less than a full stop.",
-            crate::settings::Slider {
-                get: |w| w.resource::<VatsSlowdown>().0,
-                set: |w, v| w.resource_mut::<VatsSlowdown>().0 = v.clamp(SLOWDOWN_MIN, 1.0),
-                min: SLOWDOWN_MIN,
-                step: SLOWDOWN_STEP,
-                shown: Some(slowdown_text),
-            },
-        ),
+            label: "V.A.T.S. time slowdown",
+            note: "How far the world slows while you choose targets in Classic: 100% stops it, 50% runs at half speed, 0% not at all. Enemies attack at anything less than a stop.",
+            switches: "",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        crate::settings::ChoiceList {
+            names: |_| slowdown_names(),
+            chosen: |w| slowdown_names()[crate::settings::nearest(&SLOWDOWN_CHOICES, w.resource::<VatsSlowdown>().0)].clone(),
+            pick: take_slowdown,
+            save: |w| slowdown_names()[crate::settings::nearest(&SLOWDOWN_CHOICES, w.resource::<VatsSlowdown>().0)].clone(),
+            load: take_slowdown,
+            ask_keep: false,
+        },
     );
+    // Only the classic style slows the world [design: the menu overhaul, greyed otherwise]:
+    // `settings_layout::NEEDS_CHOICE`, shared with the launcher.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shared rule that greys Time Slowdown (`settings_layout::NEEDS_CHOICE`) names a
+    /// style this list has.
+    #[test]
+    fn the_shared_rule_names_a_style() {
+        let names: Vec<&str> = VatsStyle::ALL.iter().map(|s| s.name()).collect();
+        let (_, parent, choices, _) = crate::settings_layout::NEEDS_CHOICE.iter().find(|(k, ..)| *k == "vats-slowdown").unwrap();
+        assert_eq!(*parent, "vats-style");
+        assert!(choices.iter().all(|c| names.contains(c)), "{choices:?}");
+    }
 
     #[test]
     fn a_refusal_names_what_was_passed_over() {
@@ -345,8 +380,10 @@ mod tests {
         assert_eq!(clock_scale(0.75), 0.25);
         assert_eq!(clock_scale(0.5), 0.5);
         assert_eq!(clock_scale(0.95), 0.05, "Dead Eye's speed is within the range");
-        // Out of range values are brought into it.
-        assert_eq!(clock_scale(0.2), 0.5);
+        // 0% (the menu overhaul) leaves the clock as it is; out of range values are brought in.
+        assert_eq!(clock_scale(0.0), 1.0);
+        assert_eq!(clock_scale(0.25), 0.75);
+        assert_eq!(clock_scale(-1.0), 1.0);
         assert_eq!(clock_scale(3.0), 0.0);
         assert_eq!(VatsSlowdown::default().0, 1.0, "the original's full stop is the default");
     }

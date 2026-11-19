@@ -69,7 +69,7 @@ pub fn clear_actors_factions_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Arg
     let tracks = |g: &Game, f: FormId| g.data.faction_flags.get(&f).is_some_and(|x| x & crate::crime::faction_flags::TRACK_CRIME != 0);
     for f in actor::factions_of(g, r) {
         if tracks(g, f) {
-            g.player.enemy_of.remove(&f);
+            g.clear_enemy_of(f);
         }
     }
     actor::forget_relations(g);
@@ -184,8 +184,8 @@ pub fn is_waiting(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// `value` [documented: GECK wiki SetFactionReaction], the disposition modifier between
 /// the two [documented: GECK wiki GetFactionReaction, "the disposition modifier between
 /// two factions"; xEdit FACT XNAM "Modifier"]. Kept (`FormChanges::faction_modifiers`,
-/// saved); the modifiers are not part of a disposition yet (docs/spec-notes/factions.md),
-/// so nothing reads it. The group combat reaction (SetEnemy, SetAlly) is not changed.
+/// saved); source queries and integer changes read it (`nvse_faction_modifiers`). NPC
+/// disposition aggregation remains open (factions.md §8). Combat reactions are unchanged.
 pub fn set_faction_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let (f, target) = (a.form(0)?, a.form(1)?);
     let v = a.num(2)?;

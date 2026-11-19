@@ -2146,7 +2146,7 @@ fn leash(
     }
     let (world, interior) = if interior != 0 { (None, Some(interior)) } else { (Some(w), None) };
     info!("co-op: summoned: to the host at {:?} {:?} {feet:?} (guest place {slot})", world, interior);
-    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees() }));
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees(), pitch_deg: None }));
 }
 
 /// Draw each other player where the link last put it, in this game's space only.
@@ -2239,7 +2239,7 @@ fn draw(
         }
         let reference = p.reference(id);
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
-        let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR), jumped: false };
+        let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR), jumped: false, at_once: false };
         let sim_world = sim.as_deref().map(|s| &s.world);
         if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &gone, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
             warn!("co-op: {} cannot be drawn as {base:#010X}: {e}", label(id, &p.name));
@@ -3615,6 +3615,8 @@ fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::
             two_d: l.has(L::TWO_D),
             end_ran: false,
             remote: true,
+            leads_on: false,
+            through: None,
         })
         .collect()
 }
@@ -3815,7 +3817,7 @@ fn downed_body(
                     Place::Interior(c) => (None, Some(c)),
                     Place::Exterior(w) => (Some(w), None),
                 };
-                travel.write(TravelRequest(Travel { world, interior, feet: q.feet, heading_deg: q.yaw.to_degrees() }));
+                travel.write(TravelRequest(Travel { world, interior, feet: q.feet, heading_deg: q.yaw.to_degrees(), pitch_deg: None }));
                 say(format!("You respawned by {name}"));
             } else {
                 say("You respawned".into());

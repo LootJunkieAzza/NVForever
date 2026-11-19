@@ -326,7 +326,8 @@ pub fn neighbour(from: &str, dx: f32, dy: f32) -> Option<String> {
 
 /// The help message to show as the menu opens, the first time only (as lockpicking's).
 pub fn first_help(g: &mut Game) -> Option<(String, String)> {
-    if g.player.roulette_help_shown {
+    // The player's tweak: no first-time help [design: docs/design/tweaks.md].
+    if g.player.roulette_help_shown || g.tweaks.no_tutorials {
         return None;
     }
     let m = g.data.messages.get(&HELP_MESSAGE)?;

@@ -63,6 +63,16 @@ next to StartCombat, and ResetAI is used to end it.
   Securitrons); 38 of them carry conditions [observed: `fnvtool ai packages` and `ai
   show`, 2026-11-11].
 
+- A Do No Damage hit (a shot or a blow) runs the target's OnHit and OnHitWith blocks with
+  the shooter as attacker and deals no damage of its own (`Game::harmless_hit`, #2433)
+  [hypothesis from the data, observer check 134: G.I. Blues' staged ambush. Orris's
+  VFSOrrisShootThug01-03Package are Always Hit and Do No Damage, one volley of 1 to 6
+  shots, Once Per Day, each conditioned on his `shootingthugsstate` and the thug not
+  unconscious. Each thug's OnHit block for Orris (SCPT 0x00118A77) knocks it out
+  (SetUnconscious 1, PushActorAway) and moves the state on, the third adds his
+  after-fight Dialogue package. Without OnHit the first package ended after its shot
+  and none followed: the owner's soft lock].
+
 ## 4. SetRestrained
 
 Restrained actors still try Use Weapon packages and UseWeapon and their animations but
@@ -81,3 +91,47 @@ never attack [documented: catalogue notes on SetRestrained].
   to stand, whether a blow counts as one of `numberOfShots`, and what Always Hit and Do No
   Damage do to a blow (ours: docs/design/use-weapon.md §3.1, all [hypothesis]). Which
   shipped calls name a melee weapon was not surveyed.
+
+## 6. Non-actor reference targets (#2652, #2715 shooter half)
+
+- [documented: GECK wiki UseWeapon (Function), revision 30345, offline snapshot
+  2026-10-28] The target parameter has type `ref`; the page does not restrict it to
+  actors or specify an aim point for objects.
+- [documented: #2652 issue report and its final #2715 comment, supplied record facts]
+  LonesomeRoad.esm PACK 0x008923's end script gives ED-E one Always Hit / Do No Damage
+  shot at ACTI NVDLC04Silo01MainframeREF (REFR 0x0075E5). Its script SCPT 0x008952
+  waits in `OnHit NVDLC04EDEREF` and sets NVDLC04MQ01a 55. The commissary activators
+  use the same Use Weapon / OnHit pattern. Other DLC scripts target XMarkers without
+  waiting for a hit. FalloutNV.esm PACK 0x0012943D gives the NCR barkers Always Hit,
+  Do No Damage, Repeat Fire at VFSPacerBusShelterREF (0x0011BD4E, STAT); BusShelter01
+  has OBND z -1..227.
+- [hypothesis: inferred from those supplied scripts, original not captured in this run]
+  The original fires at objects and markers; finite marker shots release the actor,
+  and harmless object hits pass the shooter to OnHit. Observer check 207 requests the
+  original behavior and aim placement.
+- [design, #2652; `engine/nvforever/src/use_weapon/targets.rs`] NVForever keeps drawn
+  actor aim unchanged and resolves other present references from moved/placed positions.
+  An actor target that is not drawn gets no aim point (#2782 review): the use waits and
+  the ordinary attacks keep the actor, as before #2652.
+  It adds the base OBND centre when available, otherwise fires toward the position
+  itself [hypothesis: aim placement pending observer check 207]. Collision and hit
+  dispatch stay on the existing object path; the shot count, rather than collision,
+  finishes a finite use. The fight handover uses the same target availability rule.
+- [documented: #2652 w4 brief, supplied fnvtool world list / world refs facts]
+  The barkers' fight markers (0x001293F0 / 0x001293F5) and Pacer's cower marker
+  (0x001293EC) belong to FreesideNorthWorld (0x0012D94D), but the shelter target
+  (0x0011BD4E) belongs to FreesideWorld (0x0010BEEA). Both worldspaces name
+  WastelandNV (0x000DA726) as parent (parent flags 4) and share coordinates:
+  the shelter at (-3961,5246,1033) is near Pacer's marker at (-3863,5234,1049).
+- [observed: main session's c2 run and trace supplied in #2652 w4 brief] The King's
+  INFO end script runs, sets ncrfight to 1, gives the barkers rifles, moves them to
+  their fight markers and calls EvaluatePackage, but the smoke records zero shots.
+  [design: `fnv-ai/src/carry.rs::weapon_step`] Exact-space filtering prevents the
+  barkers turning toward that sibling-worldspace target.
+- [hypothesis, #2652; observer check 207] A Use Weapon / UseWeapon non-actor placed
+  target in another worldspace with the same nonempty immediate parent is aimed at
+  by its coordinates plus OBND centre, as if in the shooter's worldspace. Different
+  parents, absent parents, and interiors do not qualify. Actor targets keep their
+  existing behavior. [design: `fnv-ai/src/goal.rs::weapon_target_place`]
+  Facing, resident use-owned combat aim, object aim and fight handover share this
+  rule; ordinary reference positions, distances and combat targets do not change.

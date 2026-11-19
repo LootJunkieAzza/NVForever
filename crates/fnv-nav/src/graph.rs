@@ -186,6 +186,13 @@ pub struct NavGraph {
     /// Lock data of door references (authored XLOC; the game updates it as doors are
     /// unlocked, [`NavGraph::set_door_lock`]).
     pub door_locks: HashMap<u32, DoorLock>,
+    /// Load doors that are not in the world now (disabled, or deleted): no path goes
+    /// through them ([`NavGraph::door_open`]). Built from the
+    /// load order's enable state ([`NavGraph::build`]); the game brings it in line as
+    /// scripts enable and disable references ([`NavGraph::sync_door_presence`]). Nellis's
+    /// hangar has two pairs of doors on the same spot, one into each version of the
+    /// hangar, and only one pair is enabled at a time (issue #2566).
+    pub disabled_doors: std::collections::HashSet<u32>,
     /// The up component of each triangle's unit normal (1 level, 0 vertical): the cosine
     /// of its slope.
     pub up: Vec<f32>,
@@ -235,6 +242,44 @@ impl DoorLockChanges {
     pub fn is_empty(&self) -> bool {
         self.unlocked.is_empty() && self.locked.is_empty()
     }
+}
+
+/// What [`NavGraph::sync_door_presence`] changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DoorPresenceChanges {
+    /// Doors no longer in the world (disabled, deleted).
+    pub gone: Vec<u32>,
+    /// Doors back in it (enabled).
+    pub back: Vec<u32>,
+}
+
+impl DoorPresenceChanges {
+    pub fn is_empty(&self) -> bool {
+        self.gone.is_empty() && self.back.is_empty()
+    }
+}
+
+/// Whether a reference is enabled as the load order places it: its own "Initially
+/// Disabled" flag, or, when it has an enable parent (XESP), the state at the end of its
+/// chain of parents, turned over by each "opposite" link [documented: xEdit
+/// wbDefinitionsFNV.pas REFR XESP "Set Enable State to Opposite of Parent"; the same
+/// rule as `fnv_sim::World::is_enabled` for a reference no script has touched]. A
+/// deleted reference is not there; a chain that loops, or names a reference the load
+/// order lacks, leaves the reference's own flag.
+pub fn authored_enabled(lo: &LoadOrder, schema: &Schema, id: u32) -> bool {
+    let Some(p) = fnv_world::placed::placement(lo, schema, id) else { return true };
+    if p.deleted() {
+        return false;
+    }
+    let own = !p.initially_disabled();
+    let (mut cur, mut invert, mut seen) = (p, false, vec![id]);
+    while let Some((parent, opposite)) = cur.enable_parent {
+        let Some(next) = fnv_world::placed::placement(lo, schema, parent).filter(|_| !seen.contains(&parent)) else { return own };
+        seen.push(parent);
+        invert ^= opposite;
+        cur = next;
+    }
+    !cur.initially_disabled() ^ invert
 }
 
 /// A door reference's lock data, if any.
@@ -296,6 +341,8 @@ impl NavGraph {
                 g.door_locks.insert(d, l);
             }
         }
+        let doors = g.door_refs_through();
+        g.disabled_doors = doors.into_iter().filter(|&d| !authored_enabled(lo, schema, d)).collect();
         g.learn_in_place_doors(lo, schema, ix);
         g.learn_obstacles(lo, schema, ix);
         g
@@ -562,6 +609,35 @@ impl NavGraph {
                     self.door_locks.remove(&d);
                     out.unlocked.push(d);
                 }
+            }
+        }
+        out
+    }
+
+    /// The load doors of the graph (those with a teleport that leave a triangle), in
+    /// order, each once.
+    pub fn door_refs_through(&self) -> Vec<u32> {
+        let mut v: Vec<u32> = self.doors.values().flatten().map(|d| d.door).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    /// Bring the load doors' presence in line with the game's: `states` gives each door
+    /// and whether it is in the world now (enabled, with its enable parents, and not
+    /// deleted). Doors the graph has no load door for are passed over. Returns the doors
+    /// gone from the world and those back in it.
+    pub fn sync_door_presence(&mut self, states: impl IntoIterator<Item = (u32, bool)>) -> DoorPresenceChanges {
+        let mut out = DoorPresenceChanges::default();
+        let known = self.door_refs_through();
+        for (d, present) in states {
+            if known.binary_search(&d).is_err() {
+                continue;
+            }
+            if present && self.disabled_doors.remove(&d) {
+                out.back.push(d);
+            } else if !present && self.disabled_doors.insert(d) {
+                out.gone.push(d);
             }
         }
         out

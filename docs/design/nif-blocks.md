@@ -15,9 +15,23 @@ are known by name only; no memory layout of the original is used (extender-compa
   reads back in the same frame]. Until the engine has told a tree, the getters give
   ar_Null or 0, as the original does before a placed actor's 3D exists [observed: 5
   frames after PlaceAtMe].
-- **Engine side (`nvforever` nif_mirror.rs):** a reference's root is its actor rig, else
-  the topmost entity drawing it; actors' skeleton node names come from the rig (their
-  entities carry no `Name`). Each frame the queued changes are applied; a set
+- **Engine side (`nvforever` nif_mirror.rs):** a reference's root is its actor rig (the
+  player's: the third-person body), else the topmost entity drawing it. An actor's tree
+  starts at its skeleton's root node, `Scene Root` [observed: GetNifBlockParentNodes of
+  `Bip01 Head` ends there, #2132]; actors' skeleton node names come from the rig (their
+  entities carry no `Name`), their parts' shapes are named as their models spell them.
+  Once scripts use these functions, the player's tree and those of references scripts
+  created (actors placed with PlaceAtMe, dropped items) are told every frame, watched or
+  not, so a first read finds them [observed: the original reads the player's tree, Doc's
+  copy and a pistol placed six frames before at once]; a game whose scripts never use
+  them walks no tree. An actor a script creates in view is drawn the frame after, its
+  parts read then rather than by the read-ahead (residents.rs `at_once`, #2133). Any
+  other reference is told from the frame after a script first asks about it: a first
+  read of it gives ar_Null or 0 [hypothesis: the original's reads it at once]. A created item drawn
+  as flat shapes (a weapon on the ground) has no node entities: its tree is its model
+  file's (names, parents, local transforms; rotation from the stored rows taken as
+  columns [observed: the pistol's ProjectileNode reads 90 0 90]), with the scripts' set
+  transforms over it. Each frame the queued changes are applied; a set
   translation, rotation or scale is held over the animation, frame after frame [observed:
   set-then-read stays exact on an animated bone]; the trees of the watched references are
   told back, depth first, a repeated name shown as `name:0`, `name:1` … [observed:
@@ -37,5 +51,19 @@ are known by name only; no memory layout of the original is used (extender-compa
 
 ## Not built yet
 
-AttachModel's model is not drawn (the mirror keeps the request); the first-person model
-(`pcModel`); GetBlockTextureSet; the world-space translation (`getWorld`).
+What the nif-blocks set still finds different on the engine (#2132, 49 of 60 rows): the head's
+FaceGen nodes are named by the original in its own way (HeadAnims:0, BSFaceGenNiNodeBiped,
+FaceGenMouth …, names the data files do not hold [observed]), where NVForever gives the
+head models' shape names; the player's skeleton lists 90 nodes under Bip01 against the
+original's 108 (Bip01 Looking, Translate, Rotate …); GetNifBlockFlag's flag 2, and
+RenameNifBlock, InsertNode and RemoveNifBlock on the head as the set chains them.
+Rotations read from drawn nodes go through nif_spawn's transpose; whether they read
+as the original's needs a set that reads a static's node [hypothesis].
+
+AttachModel's reference consumer is described in
+[nif-attachments](../spec-notes/nif-attachments.md); its base-form-wide replay and
+particle simulation remain separate. GetBlockTextureSet;
+the world-space translation (`getWorld`). JIP player-model selection has a provisional
+implementation with separate rig identities. Focused core controls pass; renderer,
+asset and native acceptance remain incomplete:
+[contract and limitations](../spec-notes/nif-player-model-selection.md).

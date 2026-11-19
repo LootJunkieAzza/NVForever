@@ -2,7 +2,7 @@
 //! Accessory Pack's quest script does every GameMode run: the same entry is added once,
 //! another level or count is a new entry [hypothesis: nvse_leveled.rs].
 
-mod common;
+use crate::common;
 
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};

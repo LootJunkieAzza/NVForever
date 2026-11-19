@@ -6,7 +6,6 @@
 //! [documented: "not counted in real-life seconds"].
 
 use crate::game::{Game, RunCtx};
-use crate::trace::EventKind;
 use fnv_script::vm::{Value, XVal};
 use fnv_sim::FormId;
 
@@ -201,7 +200,7 @@ impl Game<'_> {
         match self.run_function(func, on.map(|f| Value::Ref(f.0)), args, None, ctx) {
             Ok(v) => Some(v),
             Err(error) => {
-                self.emit(EventKind::ScriptError { unit: what.into(), error });
+                self.handler_failed(what.into(), error);
                 None
             }
         }

@@ -98,6 +98,24 @@ pub(crate) const WORD: &str = "RAD/SEC";
 /// original's +9 in the test site's shack is its 9.013784 [observed: issue #894;
 /// radiation.md]. Shared with the tree [design].
 pub(crate) fn value_text(resisted: f64) -> String {
+    value_text_at(resisted, RAD_DECIMALS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The player's More Precise RAD Meter tweak: the decimal places the meter's number shows
+/// (0: whole, as the original), set by `crate::tweaks` each frame [design:
+/// docs/design/tweaks.md].
+static RAD_DECIMALS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Set the More Precise RAD Meter tweak's decimal places (0 for off, at most 9).
+pub fn set_rad_decimals(places: u8) {
+    RAD_DECIMALS.store(places.min(9), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// [`value_text`] with `decimals` places; 0 is the whole number.
+fn value_text_at(resisted: f64, decimals: u8) -> String {
+    if decimals > 0 {
+        return format!("+{:.*}", usize::from(decimals), resisted.max(0.0));
+    }
     let whole = if resisted > 0.0 { resisted.round().max(1.0) as i64 } else { 0 };
     format!("+{whole}")
 }
@@ -447,6 +465,15 @@ fn summary(mut exit: MessageReader<AppExit>, log: Res<RadLog>) {
 
 #[cfg(test)]
 mod tests {
+    /// More Precise RAD Meter: the places asked for; off, the whole number as before.
+    #[test]
+    fn the_precise_meter_shows_its_decimal_places() {
+        assert_eq!(value_text_at(9.013784, 2), "+9.01");
+        assert_eq!(value_text_at(0.4, 1), "+0.4");
+        assert_eq!(value_text_at(0.0, 3), "+0.000");
+        assert_eq!(value_text_at(0.4, 0), "+1");
+    }
+
     use super::*;
 
     #[test]
