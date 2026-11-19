@@ -7,6 +7,7 @@ use bevy_platform::{collections::HashSet, hash::FixedHasher};
 use wgpu::BindGroupLayoutEntry;
 
 use crate::{
+    material_bind_groups::material_uses_bindless_resources,
     render_resource::{
         AsBindGroup, AsBindGroupError, BindGroupBuilder, BindGroupLayout, BindlessDescriptor,
         BindlessResourceType, BindlessSlabResourceLimit,
@@ -63,10 +64,10 @@ pub fn build_bind_group<B: AsBindGroup, E: AsBindGroup>(
     layout: &BindGroupLayout,
     render_device: &RenderDevice,
     (base_param, extended_param): &mut SystemParamItem<'_, '_, (B::Param, E::Param)>,
-    mut force_no_bindless: bool,
+    force_no_bindless: bool,
     output: &mut BindGroupBuilder,
 ) -> Result<(), AsBindGroupError> {
-    force_no_bindless = force_no_bindless || bindless_slot_count::<B, E>().is_none();
+    let force_no_bindless = force_no_bindless || !both_use_bindless::<B, E>(render_device);
 
     B::build_bind_group(
         base,
@@ -91,14 +92,21 @@ pub fn build_bind_group<B: AsBindGroup, E: AsBindGroup>(
 /// Combines [`AsBindGroup::bind_group_layout_entries`] implementations from base `B` and extension `E` by deduplicatinig identical bindings
 pub fn bind_group_layout_entries<B: AsBindGroup, E: AsBindGroup>(
     render_device: &RenderDevice,
-    mut force_no_bindless: bool,
+    force_no_bindless: bool,
 ) -> Vec<BindGroupLayoutEntry> {
-    force_no_bindless = force_no_bindless || bindless_slot_count::<B, E>().is_none();
+    let force_no_bindless = force_no_bindless || !both_use_bindless::<B, E>(render_device);
 
     let base_entries = B::bind_group_layout_entries(render_device, force_no_bindless);
     let extension_entries = E::bind_group_layout_entries(render_device, force_no_bindless);
 
     combine_bind_group_layout_entries(base_entries, extension_entries)
+}
+
+// The two materials can have different device limits. If either falls back, both must
+// use ordinary bindings: wgpu rejects a uniform buffer alongside a binding array.
+fn both_use_bindless<B: AsBindGroup, E: AsBindGroup>(render_device: &RenderDevice) -> bool {
+    material_uses_bindless_resources::<B>(render_device)
+        && material_uses_bindless_resources::<E>(render_device)
 }
 
 /// Combines two sets of [`BindGroupLayoutEntry`]s, deduplicating identical bindings

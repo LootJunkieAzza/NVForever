@@ -237,6 +237,17 @@ As for the sun visibility, a meshlet view must not get the component.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
+[documented: `Cargo.toml`, `src/settings.rs`, `src/view/window/mod.rs`]
+macOS defaults to Metal; `WGPU_BACKEND` still overrides it. `raw_vulkan_init` enables
+wgpu's `vulkan-portability` so the shared Vulkan code compiles on Apple targets. The
+frame pacing diagnostic asks the existing window surface for its present modes rather
+than constructing another surface from an AppKit view on the render thread.
+
+[observed: M1 Pro, Metal] The base material and its extension can disagree on whether
+the device supports bindless resources. `src/combined_bind_group.rs` applies the joint
+decision to both layouts and entries: mixing binding arrays with ordinary uniform
+buffers made wgpu reject the `NifSurface` layout and every pipeline using it.
+
 [documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]
 `RENDER_DEVICE_API_GATE` gates pipeline creation on task threads (and synchronous creation).
 Each compilation holds its read side. NVForever's device poll thread shares it;
