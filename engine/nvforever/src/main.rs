@@ -1189,15 +1189,20 @@ fn main() -> AppExit {
     // A mods folder's copy of a plugin is opened instead of Data's (fnv_install::plugins):
     // NVForever's own mods folder, or an MO2 profile's mods from the highest priority down
     // with its overwrite folder first (#1526).
-    let mods: Vec<PathBuf> = match &mo2 {
-        Some(l) => {
-            let mut roots = l.mod_roots();
+    let own = fnv_install::EngineHome::user();
+    let loose_roots: Vec<PathBuf> = match &mo2 {
+        Some(l) => l.mod_roots(),
+        None => own.as_ref().map(|h| mod_loose_roots(&h.mods())).unwrap_or_default(),
+    };
+    let plugin_roots: Vec<PathBuf> = match &mo2 {
+        Some(_) => {
+            let mut roots = loose_roots.clone();
             roots.reverse();
             roots
         }
-        None => fnv_install::EngineHome::user().map(|h| h.mods()).into_iter().collect(),
+        None => own.as_ref().map(|h| mod_plugin_roots(&h.mods())).unwrap_or_default(),
     };
-    let opened = world::open_plugins(args.data(), &mods, &args.plugins);
+    let opened = world::open_plugins(args.data(), &plugin_roots, &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // No setting names the code page: the plugins' own text says it (#1443).
     if !code_page_named {
@@ -1269,8 +1274,9 @@ fn main() -> AppExit {
     // the layers lowest precedence first (usvfs' merge order), unlike the plugin lookup
     // above, which wants the overwrite folder first.
     let game = match &mo2 {
-        Some(l) => GameData::open_for_plugins_layered(args.data(), &l.mod_roots(), &args.plugins, &args.nif_schema),
-        None => GameData::open_for_plugins_in(args.data(), mods.first().map(|p| p.as_path()), &args.plugins, &args.nif_schema),
+        Some(_) => GameData::open_for_plugins_layered(args.data(), &loose_roots, &args.plugins, &args.nif_schema),
+        None if loose_roots.is_empty() => GameData::open_for_plugins_in(args.data(), None, &args.plugins, &args.nif_schema),
+        None => GameData::open_for_plugins_layered(args.data(), &loose_roots, &args.plugins, &args.nif_schema),
     };
     let game = match game {
         Ok(g) => g,
@@ -2853,3 +2859,79 @@ mod tests {
 
 #[cfg(test)]
 mod mesh_blend_shader_tests;
+
+fn mod_data_root(dir: &std::path::Path) -> PathBuf {
+    let nested = dir.join("Data");
+    if nested.is_dir() { nested } else { dir.to_path_buf() }
+}
+
+fn enabled_mod_dirs(mods: &std::path::Path) -> Vec<PathBuf> {
+    let order = mods.parent().map(|p| p.join("mod-order.txt"));
+    let mut named: Vec<(String, bool)> = Vec::new();
+    let mut saw = false;
+    if let Some(path) = order {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            saw = true;
+            for line in text.lines() {
+                let t = line.trim();
+                if t.is_empty() || t.starts_with(';') || t.starts_with('#') {
+                    continue;
+                }
+                if let Some(name) = t.strip_prefix('*') {
+                    named.push((name.trim().to_string(), true));
+                } else {
+                    named.push((t.to_string(), false));
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut used = std::collections::HashSet::new();
+    if saw {
+        for (name, on) in &named {
+            if !on || name.is_empty() {
+                continue;
+            }
+            let dir = mods.join(name);
+            if dir.is_dir() {
+                out.push(dir);
+                used.insert(name.to_ascii_lowercase());
+            }
+        }
+    }
+    let mut extra = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(mods) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() || !path.is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue };
+            if used.contains(&name.to_ascii_lowercase()) {
+                continue;
+            }
+            if saw && named.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
+            extra.push(name);
+        }
+    }
+    extra.sort();
+    for name in extra {
+        out.push(mods.join(name));
+    }
+    out
+}
+
+fn mod_loose_roots(mods: &std::path::Path) -> Vec<PathBuf> {
+    let mut roots = vec![mods.to_path_buf()];
+    roots.extend(enabled_mod_dirs(mods).into_iter().map(|d| mod_data_root(&d)));
+    roots
+}
+
+fn mod_plugin_roots(mods: &std::path::Path) -> Vec<PathBuf> {
+    let mut roots = enabled_mod_dirs(mods);
+    roots.reverse();
+    roots.push(mods.to_path_buf());
+    roots
+}
