@@ -115,6 +115,10 @@ pub struct App {
     plugin_home: HashMap<String, String>,
     /// How many plugin files are in each mod folder.
     folder_counts: HashMap<String, usize>,
+    /// Files in each mod folder, relative to its Data folder when it has one.
+    folder_files: HashMap<String, Vec<String>>,
+    /// Which folders overwrite this one, and which it overwrites. A lower row wins.
+    clashes: HashMap<String, Vec<Clash>>,
     /// The find box on the plugin list.
     plugin_find: String,
     /// How many older copies of the plugin list to keep.
@@ -165,6 +169,12 @@ struct ModRow {
     on: bool,
 }
 
+struct Clash {
+    other: String,
+    files: Vec<String>,
+    wins: bool,
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> App {
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -201,6 +211,8 @@ impl App {
             plugin_masters: HashMap::new(),
             plugin_home: HashMap::new(),
             folder_counts: HashMap::new(),
+            folder_files: HashMap::new(),
+            clashes: HashMap::new(),
             plugin_find: String::new(),
             backup_keep: 5,
             apply_ask: false,
@@ -849,6 +861,69 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
         }
     }
     order
+}
+
+fn mod_file_keys(folder: &Path) -> Vec<String> {
+    let root = if folder.join("Data").is_dir() { folder.join("Data") } else { folder.to_path_buf() };
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(&root) else { continue };
+            let key = rel.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            if !key.is_empty() {
+                out.push(key);
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn clash_notes(rows: &[(String, bool)], files: &HashMap<String, Vec<String>>) -> HashMap<String, Vec<Clash>> {
+    let mut owners: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, on) in rows {
+        if !on {
+            continue;
+        }
+        let Some(list) = files.get(name) else { continue };
+        for file in list {
+            let who = owners.entry(file.clone()).or_default();
+            if who.last().map(String::as_str) != Some(name.as_str()) {
+                who.push(name.clone());
+            }
+        }
+    }
+    let mut grouped: HashMap<(String, String, bool), Vec<String>> = HashMap::new();
+    for (file, who) in owners {
+        if who.len() < 2 {
+            continue;
+        }
+        let winner = who.last().cloned().unwrap_or_default();
+        for loser in &who[..who.len() - 1] {
+            grouped.entry((winner.clone(), loser.clone(), true)).or_default().push(file.clone());
+            grouped.entry((loser.clone(), winner.clone(), false)).or_default().push(file.clone());
+        }
+    }
+    let mut out: HashMap<String, Vec<Clash>> = HashMap::new();
+    for ((folder, other, wins), mut found) in grouped {
+        found.sort();
+        out.entry(folder).or_default().push(Clash { other, files: found, wins });
+    }
+    for notes in out.values_mut() {
+        notes.sort_by(|a, b| b.wins.cmp(&a.wins).then_with(|| a.other.cmp(&b.other)));
+    }
+    out
 }
 
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
@@ -1635,12 +1710,14 @@ impl App {
         self.plugin_masters.clear();
         self.plugin_home.clear();
         self.folder_counts.clear();
+        self.folder_files.clear();
         let Some(home) = self.home.clone() else { return };
         let mods = home.mods();
         let mut files: HashMap<String, PathBuf> = HashMap::new();
         for row in &self.mod_rows {
             let listed = plugins::plugins_in_tree(&mods.join(&row.name));
             self.folder_counts.insert(row.name.clone(), listed.len());
+            self.folder_files.insert(row.name.clone(), mod_file_keys(&mods.join(&row.name)));
             for (name, path) in listed {
                 let key = name.to_ascii_lowercase();
                 self.plugin_home.insert(key.clone(), row.name.clone());
@@ -1672,6 +1749,12 @@ impl App {
                 self.plugin_masters.insert(key, names);
             }
         }
+        self.recompute_clashes();
+    }
+
+    fn recompute_clashes(&mut self) {
+        let rows: Vec<(String, bool)> = self.mod_rows.iter().map(|r| (r.name.clone(), r.on)).collect();
+        self.clashes = clash_notes(&rows, &self.folder_files);
     }
 
     fn mods_page(&mut self, ui: &mut egui::Ui) {
@@ -1792,11 +1875,23 @@ impl App {
                             if ui.checkbox(&mut on, "").changed() {
                                 box_changed = true;
                             }
-                            ui.label(&name);
-                            let count = self.folder_counts.get(&name).copied().unwrap_or(0);
-                            if count > 0 {
-                                ui.label(RichText::new(count.to_string()).small().color(WEAK));
-                            }
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(&name);
+                                    let count = self.folder_counts.get(&name).copied().unwrap_or(0);
+                                    if count > 0 {
+                                        ui.label(RichText::new(count.to_string()).small().color(WEAK));
+                                    }
+                                });
+                                if let Some(notes) = self.clashes.get(&name) {
+                                    for note in notes {
+                                        let (mark, word, color) = if note.wins { ("▲", "overwrites", GOLD) } else { ("✕", "overwritten by", BAD) };
+                                        let shown = if note.files.len() == 1 { note.files[0].rsplit(['/', '\\']).next().unwrap_or(&note.files[0]).to_string() } else { format!("{} files", note.files.len()) };
+                                        let hover = format!("{word} {}\n{}", note.other, note.files.join("\n"));
+                                        ui.label(RichText::new(format!("{mark} {word} {} · {shown}", note.other)).small().strong().color(color)).on_hover_text(hover);
+                                    }
+                                }
+                            });
                         });
                     });
                 });
@@ -1815,6 +1910,7 @@ impl App {
                         }
                     }
                     self.mods_dirty = true;
+                    self.recompute_clashes();
                 }
                 let resp = row.response;
                 if resp.drag_started() {
@@ -1854,6 +1950,7 @@ impl App {
                 let row = self.mod_rows.remove(from);
                 self.mod_rows.insert(to, row);
                 self.mods_dirty = true;
+                self.recompute_clashes();
             }
         });
     }
@@ -1923,7 +2020,9 @@ impl App {
                             }
                             if let Some(have) = folders.get(&key).filter(|v| v.len() > 1) {
                                 if let Some(win) = have.last() {
-                                    ui.label(RichText::new(format!("wins: {win}")).small().color(GOLD));
+                                    let lost: Vec<&str> = have[..have.len() - 1].iter().map(String::as_str).collect();
+                                    ui.label(RichText::new(format!("▲ {win}")).small().strong().color(GOLD)).on_hover_text(format!("{win} overwrites this file"));
+                                    ui.label(RichText::new(format!("✕ {}", lost.join(", "))).small().strong().color(BAD)).on_hover_text(format!("overwritten by {win}"));
                                 }
                             }
                             if e.active {
@@ -1961,6 +2060,8 @@ impl App {
                     }
                     row.on = homes.iter().any(|(plugin, folder)| folder == &row.name && active_now.contains(plugin));
                 }
+                let rows: Vec<(String, bool)> = self.mod_rows.iter().map(|r| (r.name.clone(), r.on)).collect();
+                self.clashes = clash_notes(&rows, &self.folder_files);
             }
             if !find.is_empty() {
                 return;
