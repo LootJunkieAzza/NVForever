@@ -10,11 +10,16 @@
 //!   trooper; the pictures are the HUD file's `compass_npc_icon`, `glow_hud_tick_mark.dds`].
 //!   An actor that sneaks (as IsSneaking reads it) gets none (`fnv_game::Game::compass_shows`)
 //!   [observed: the owner, 2026-10-23].
-//! - **Map markers**: every map marker of the worldspace within Perception ×
-//!   [`MARKER_RANGE_PER_PERCEPTION`], while the player is outdoors: a hollow triangle
-//!   until the player has been there, a filled one after [observed: the owner's
-//!   screenshots in C:\fnv-private\Map Markers; the pictures `glow_hud_compass_landmark`
-//!   and `…_landmark_discovered.dds`].
+//! - **Map markers**: every map marker of the worldspace within the game setting
+//!   `iMapMarkerVisibleDistance` ([`marker_range`]; 10000 without it, the executable's
+//!   default [documented: GECK wiki "Complete List of GameSettings"]), found or not and
+//!   whatever the Perception, while the player is outdoors [hypothesis: that this setting
+//!   is the compass's cut-off: its name, and Oblivion's setting of the same name; observer
+//!   check 227, #2348]: a hollow triangle until the player has been there, a filled one
+//!   after [observed: the owner's screenshots in C:\fnv-private\Map Markers; the pictures
+//!   `glow_hud_compass_landmark` and `…_landmark_discovered.dds`]. The owner's playtest
+//!   list 5 item 12 asked for a range by Perception (Perception × 2048 until #2348); the
+//!   fixed range follows the original instead (docs/owner-review.md).
 //! - **Discovery**: the Pip-Boy's DATA page notes the markers the player comes within the
 //!   radius of (`crate::pipboy::data`); each new one shows "You have discovered" over its
 //!   name where quests are announced (`crate::quest_messages`), and gives the player
@@ -43,7 +48,7 @@
 //!   a quest mark or the player's marker more than [`HEIGHT_STEP`] above or below the
 //!   player's feet gets a short bar over or under its picture on the hand-built HUD
 //!   [design: docs/design/tweaks.md; NVForever's own sign, the tile-drawn HUD shows none].
-//! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
+//! - The actors' range is a guess: no game setting for it is in the masters [hypothesis].
 //! - Who and what is near is looked at ten times a second ([`gather`], [`CompassNear`]);
 //!   where each mark stands on the compass is worked out every frame from the camera's
 //!   heading, the player's place and the actors' moving bodies ([`place`]), unrounded,
@@ -70,11 +75,15 @@ use fnv_sim::FormId;
 use nvf_assets::GameData;
 use std::collections::BTreeSet;
 
-/// Game units of range per point of Perception for actors and for map markers
-/// [hypothesis: Perception 5 shows actors within about 21 m and markers within about
-/// 146 m (1 unit ≈ 1.43 cm); the owner asks for actors "in a close proximity"].
+/// Game units of range per point of Perception for actors [hypothesis: Perception 5
+/// shows actors within about 21 m (1 unit ≈ 1.43 cm); the owner asks for actors "in a
+/// close proximity"].
 pub const ACTOR_RANGE_PER_PERCEPTION: f32 = 300.0;
-pub const MARKER_RANGE_PER_PERCEPTION: f32 = 2048.0;
+/// How far the compass shows map markers without the game setting
+/// `iMapMarkerVisibleDistance`: the executable's default, 10000 [documented: GECK wiki
+/// "Complete List of GameSettings"]. The setting is not in FalloutNV.esm, and
+/// `FormStore::setting_f32` knows only the plugins' records.
+pub const MARKER_RANGE: f32 = 10000.0;
 /// The experience for finding a marker without the game setting [observed: its value].
 const DISCOVER_XP: f64 = 10.0;
 
@@ -279,6 +288,10 @@ fn doors_of(refs: &fnv_sim::refs::RefTable, loc: &Location) -> Vec<(u32, [f32; 3
         .collect()
 }
 
+/// What the log last said of the map marker range: the range and the Perception (as `f32`
+/// bits), the markers in range and those on the compass (#2348).
+type RangeLogged = Option<(u32, u32, usize, usize)>;
+
 /// The doors of the place the compass last looked in ([`doors_of`]), by its space.
 type DoorCache = Option<(u32, Vec<(u32, [f32; 3])>)>;
 
@@ -401,8 +414,26 @@ pub(crate) fn actor_range(g: &mut fnv_game::Game) -> f32 {
 /// The most a SPECIAL reaches [documented: GECK wiki Actor Value Indices, 1 to 10].
 const MAX_PERCEPTION: f32 = 10.0;
 
+/// How far the compass shows map markers: the load order's `iMapMarkerVisibleDistance`,
+/// else [`MARKER_RANGE`]; the player's Perception plays no part (see the module notes;
+/// [hypothesis: that this setting is the cut-off], #2348).
+pub(crate) fn marker_range(forms: &fnv_sim::FormStore) -> f32 {
+    forms.setting_f32("iMapMarkerVisibleDistance").unwrap_or(MARKER_RANGE)
+}
+
+/// The map markers of `markers` (form, place, found) within `range` of a player at
+/// `here`, measured across the ground, that `present` lets through (not disabled):
+/// hollow ([`Mark::Place`]) or filled ([`Mark::Found`]), whatever their bearing [design].
+pub(crate) fn markers_near(markers: &[(u32, [f32; 3], bool)], here: [f32; 2], range: f32, present: &dyn Fn(u32) -> bool) -> Vec<Near> {
+    markers
+        .iter()
+        .filter(|&&(form, pos, _)| present(form) && (pos[0] - here[0]).hypot(pos[1] - here[1]) <= range)
+        .map(|&(_, pos, found)| Near { mark: if found { Mark::Found } else { Mark::Place }, at: [pos[0], pos[1]], body: None, rise: 0 })
+        .collect()
+}
+
 /// Who and what is near, ten times a second.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)] // a Bevy system: its parameters
 fn gather(
     time: Res<Time>,
     state: Res<State<PlayState>>,
@@ -419,7 +450,7 @@ fn gather(
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
-    (mut dead_seen, target, mut door_cache, mut logged_places): (Local<DeadSeen>, Option<Res<crate::activate::Target>>, Local<DoorCache>, Local<PlacesLogged>),
+    (mut dead_seen, target, mut door_cache, mut logged_places, mut logged_range): (Local<DeadSeen>, Option<Res<crate::activate::Target>>, Local<DoorCache>, Local<PlacesLogged>, Local<RangeLogged>),
 ) {
     // The player's tweak leaves hostile actors off the compass [design: docs/design/tweaks.md].
     let hide_foes = tweaks.as_ref().is_some_and(|t| t.hide_enemy_markers);
@@ -522,7 +553,7 @@ fn gather(
     }
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         if loc.interior.is_none() {
-            let range = perception.max(1.0) * MARKER_RANGE_PER_PERCEPTION;
+            let range = marker_range(sim.forms);
             PLACE_RANGE.store(range.to_bits(), std::sync::atomic::Ordering::Relaxed);
             // The player's tweak: a place not found yet shows only when the map shows it
             // [design: docs/design/tweaks.md].
@@ -531,21 +562,29 @@ fn gather(
             } else {
                 Default::default()
             };
-            for (form, pos, found) in st.markers_of(loc.world) {
-                if !sim.present(form) || unmapped.contains(&form) || (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > range {
-                    continue;
+            let listed: Vec<_> = st.markers_of(loc.world).into_iter().filter(|(form, _, _)| !unmapped.contains(form)).collect();
+            let in_reach = markers_near(&listed, here, range, &|f| sim.present(f));
+            let in_range = in_reach.len();
+            let mut shown = 0;
+            for n in in_reach {
+                if on_compass(offset(heading, here, n.at)) {
+                    marks.push(n.mark);
+                    shown += 1;
                 }
-                let mark = if found { Mark::Found } else { Mark::Place };
-                if on_compass(offset(heading, here, [pos[0], pos[1]])) {
-                    marks.push(mark);
-                }
-                found_near.push(Near { mark, at: [pos[0], pos[1]], body: None, rise: 0 });
+                found_near.push(n);
+            }
+            // The range and the markers in it, beside the Perception they do not depend on
+            // (#2348), whenever one of them changes.
+            let now = (range.to_bits(), perception.to_bits(), in_range, shown);
+            if *logged_range != Some(now) {
+                info!("compass: map markers within {range:.0} units (Perception {perception}): {in_range} in range, {shown} on the compass");
+                *logged_range = Some(now);
             }
             // The player's tweak: the nearest place not yet found shows at any distance
             // [design: docs/design/tweaks.md].
             if nearest_unfound {
                 let away = |pos: [f32; 3]| (pos[0] - feet[0]).hypot(pos[1] - feet[1]);
-                let nearest = st.markers_of(loc.world).into_iter().filter(|(form, _, found)| !found && sim.present(*form) && !unmapped.contains(form)).min_by(|a, b| away(a.1).total_cmp(&away(b.1)));
+                let nearest = listed.iter().copied().filter(|(form, _, found)| !found && sim.present(*form)).min_by(|a, b| away(a.1).total_cmp(&away(b.1)));
                 if let Some((_, pos, _)) = nearest.filter(|n| away(n.1) > range) {
                     if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                         marks.push(Mark::Place);
@@ -960,6 +999,31 @@ mod tests {
         assert!((at(thirty)[0].1 - 30.0 * 1024.0 / 360.0).abs() < 1e-2);
         assert_eq!(pinned(-140.0), -139.0);
         assert_eq!(pinned(12.5), 12.5);
+    }
+
+    /// #2348: map markers show within `iMapMarkerVisibleDistance` (10000 without it, as
+    /// the masters lack it), found or not; the range takes no Perception.
+    #[test]
+    fn map_markers_show_within_the_game_setting_whatever_the_perception() {
+        use fnv_sim::settings::Setting;
+        let mut forms = fnv_sim::FormStore::default();
+        assert_eq!(marker_range(&forms), MARKER_RANGE);
+        assert_eq!(MARKER_RANGE, 10000.0);
+        // Unfound 9,000 units north of the player, found 11,000 south, and a disabled one
+        // 500 east: only the first is in range.
+        let markers = [(1, [0.0, 9000.0, 50.0], false), (2, [0.0, -11000.0, 0.0], true), (3, [500.0, 0.0, 0.0], true)];
+        let present = |f: u32| f != 3;
+        let near = markers_near(&markers, [0.0, 0.0], marker_range(&forms), &present);
+        assert_eq!(near, [Near { mark: Mark::Place, at: [0.0, 9000.0], body: None, rise: 0 }]);
+        // A found marker in range is filled.
+        let found = [(4, [6000.0, 7900.0, 0.0], true)];
+        assert_eq!(markers_near(&found, [0.0, 0.0], MARKER_RANGE, &|_| true), [Near { mark: Mark::Found, at: [6000.0, 7900.0], body: None, rise: 0 }]);
+        // A plugin's setting wins over the default, farther or nearer.
+        forms.settings.insert("imapmarkervisibledistance".into(), Setting::Int(12000));
+        assert_eq!(marker_range(&forms), 12000.0);
+        assert_eq!(markers_near(&markers, [0.0, 0.0], marker_range(&forms), &present).len(), 2);
+        forms.settings.insert("imapmarkervisibledistance".into(), Setting::Int(3000));
+        assert!(markers_near(&markers, [0.0, 0.0], marker_range(&forms), &present).is_empty());
     }
 
     #[test]

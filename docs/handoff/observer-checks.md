@@ -451,7 +451,7 @@ engine if needed, and delete the item here.
     - Sneak-indicator states. Does a following companion (or an actor on a Follow
       package on the player) seeing the player leave the word at [HIDDEN]? Does a
       neutral (non-hostile) NPC seeing the player give [DETECTED]? (#1159)
-    - Compass ticks within PER × 300; markers within PER × 2048.
+    - Compass ticks within PER × 300 (markers: check 227).
     - "How many?" asks only above 5 (barter) or above 1 (crafting).
     - The crafting filter arrows.
     - Wait pace: 1 hour per 0.5 s, and it can be cancelled.
@@ -3305,6 +3305,19 @@ already talking takes over at once, same topic or another; nothing is queued or 
      again on SetStage and on SetObjectiveDisplayed (layer5-captures.md §5.8). Not
      separated: whether CompleteAllObjectives or the stage's Complete Quest flag completed
      the objective; FailAllObjectives; what the Pip-Boy lists for such a quest.
+
+## Added 2026-11-14 (the compass's map marker range, #2348)
+
+227. **How far does the compass show map markers, and does Perception change it?** (P2;
+     #2348, hud.md §11.) Ours since #2348: within `iMapMarkerVisibleDistance` (10000 by
+     the executable's default [documented: GECK wiki "Complete List of GameSettings"]),
+     found and unfound alike, whatever the Perception [hypothesis: the setting's name,
+     and Oblivion's setting of the same name]. Before it, Perception × 2048. To check:
+     walk straight away from a known marker and note where it leaves the compass (about
+     10,000 units expected; `player.getpos x` / `y` at that point and the marker's place
+     give the distance). Then `setgs iMapMarkerVisibleDistance 3000` and check that the
+     cut-off follows. Repeat with one found and one unfound marker, and at Perception 1
+     and 10 (`player.setav perception`), to confirm Perception plays no part.
 
 
 ## Added 2026-11-17 (OK on a message box without buttons, #2925)
