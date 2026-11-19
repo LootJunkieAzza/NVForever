@@ -35,10 +35,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            exe: .exe
-            archive: zip
           # Pinned, not ubuntu-latest: a Linux program needs at least the glibc of the
           # system it was built on. ubuntu-latest moved to 26.04 (glibc 2.43), which no
           # Steam Deck has, and the loader refused the game before it could write a log
@@ -68,10 +64,7 @@ jobs:
       - name: Build nvforever and nvf-viewer
         run: cargo build --release --locked -p nvforever -p nvf-viewer
         working-directory: engine
-        # Only builds made here may send player reports to the project's server
-        # (engine/nvforever/src/reports/mod.rs); local builds never do.
-        env:
-          NVF_OFFICIAL_BUILD: "1"
+        # Test build on a fork: not an official build, so it sends no player reports.
 
       # The newest glibc any shipped binary asks for must not pass the floor: on an older
       # system the loader refuses the program with no window and no log. Weak references
