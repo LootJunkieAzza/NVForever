@@ -909,23 +909,6 @@ fn mod_file_keys(folder: &Path) -> Vec<String> {
     out
 }
 
-fn pair_color(loser: &str, winner: &str) -> egui::Color32 {
-    const COLORS: [egui::Color32; 6] = [
-        egui::Color32::from_rgb(0xF0, 0xA3, 0x2A),
-        egui::Color32::from_rgb(0x6A, 0xB0, 0xE0),
-        egui::Color32::from_rgb(0x8C, 0xC0, 0x6A),
-        egui::Color32::from_rgb(0xE0, 0x6A, 0x50),
-        egui::Color32::from_rgb(0xC0, 0x84, 0xC8),
-        egui::Color32::from_rgb(0xE0, 0xC0, 0x6A),
-    ];
-    let mut h = 2166136261u32;
-    for b in loser.bytes().chain([0]).chain(winner.bytes()) {
-        h ^= b as u32;
-        h = h.wrapping_mul(16777619);
-    }
-    COLORS[(h as usize) % COLORS.len()]
-}
-
 fn note_files(files: &HashMap<String, Vec<String>>, folder: &str, plugin: &str) -> String {
     let key = plugin.to_ascii_lowercase();
     files.get(folder).and_then(|list| list.iter().find(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).eq_ignore_ascii_case(&key)).cloned()).unwrap_or_else(|| plugin.to_string())
@@ -1894,11 +1877,10 @@ impl App {
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
         if self.show_overwrites {
-            ui.label(RichText::new("Folders run from the top of this list to the bottom. The game checks the bottom folder last.").small().color(WEAK));
-            ui.label(RichText::new("If two checked folders contain the same file, the lower folder's copy is the one used. The higher folder's copy is skipped.").small().color(WEAK));
-            ui.label(RichText::new("A note under a folder names the other folder with that file. Rest the pointer on a note to see the file names.").small().color(WEAK));
-            ui.label(RichText::new("Use the color to find both sides of one shared file. The note that says the copy is used and the note that says it is skipped are the same color.").small().color(WEAK));
-            ui.label(RichText::new("The color does not pick a winner and it does not rank the folders. No color is stronger than another. Place in this list decides it: a lower folder's copy is used, a higher folder's copy is skipped. Drag a folder and that same color still marks the pair.").small().color(WEAK));
+            ui.label(RichText::new("Mods run from the top of this list to the bottom. The game checks the bottom mod last.").small().color(WEAK));
+            ui.label(RichText::new("If two checked mods contain the same file, the lower mod's copy is used. The higher mod's copy is skipped.").small().color(WEAK));
+            ui.label(RichText::new("Green means the copy in this mod is used. Red means the copy in this mod is skipped. The same result always uses the same color.").small().color(WEAK));
+            ui.label(RichText::new("The note names the other mod. Rest the pointer on a note to see which files.").small().color(WEAK));
             if self.clashes.is_empty() {
                 ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
             }
@@ -1947,18 +1929,39 @@ impl App {
                                         ui.label(RichText::new("clicked plugin").small().color(GOLD));
                                     }
                                 });
-                                if self.show_overwrites { if let Some(notes) = self.clashes.get(&name) {
-                                    for note in notes {
-                                        let n = note.files.len();
-                                        let word = if n == 1 { "file" } else { "files" };
-                                        let (color, line) = if note.wins {
-                                            (pair_color(&note.other, &name), format!("{n} shared {word} in this mod {} used. {} is higher in the list, so the copy in that mod is skipped.", if n == 1 { "is" } else { "are" }, note.other))
-                                        } else {
-                                            (pair_color(&name, &note.other), format!("{n} shared {word} in this mod {} skipped. {} is lower in the list, so the copy in that mod is used.", if n == 1 { "is" } else { "are" }, note.other))
-                                        };
-                                        ui.label(RichText::new(line).small().color(color)).on_hover_text(note.files.join("\n"));
+                                if self.show_overwrites {
+                                    if let Some(notes) = self.clashes.get(&name) {
+                                        let order: Vec<&str> = self.mod_rows.iter().map(|r| r.name.as_str()).collect();
+                                        let place = |mod_name: &str| order.iter().position(|n| *n == mod_name).unwrap_or(usize::MAX);
+                                        let mut used_mods: Vec<&str> = notes.iter().filter(|n| n.wins).map(|n| n.other.as_str()).collect();
+                                        let mut skipped_mods: Vec<&str> = notes.iter().filter(|n| !n.wins).map(|n| n.other.as_str()).collect();
+                                        used_mods.sort_by_key(|m| place(m));
+                                        skipped_mods.sort_by_key(|m| place(m));
+                                        let used_files: Vec<String> = notes.iter().filter(|n| n.wins).flat_map(|n| n.files.iter().map(|f| format!("{f}  (also in {})", n.other))).collect();
+                                        let skipped_files: Vec<String> = notes.iter().filter(|n| !n.wins).flat_map(|n| n.files.iter().map(|f| format!("{f}  (used from {})", n.other))).collect();
+                                        let file_word = |n: usize| if n == 1 { "file" } else { "files" };
+                                        let be = |n: usize| if n == 1 { "is" } else { "are" };
+                                        if !used_mods.is_empty() {
+                                            let nfiles = notes.iter().filter(|n| n.wins).flat_map(|n| n.files.iter()).collect::<HashSet<_>>().len();
+                                            let who = if used_mods.len() == 1 {
+                                                format!("{} is higher in the list, so the copy in that mod is skipped", used_mods[0])
+                                            } else {
+                                                format!("These mods are higher in the list, so the copy in each of them is skipped: {}", used_mods.join(", "))
+                                            };
+                                            let line = format!("{nfiles} shared {} in this mod {} used. {who}.", file_word(nfiles), be(nfiles));
+                                            ui.label(RichText::new(line).small().color(GOOD)).on_hover_text(used_files.join("\n"));
+                                        }
+                                        if !skipped_mods.is_empty() {
+                                            let nfiles = notes.iter().filter(|n| !n.wins).flat_map(|n| n.files.iter()).collect::<HashSet<_>>().len();
+                                            let who = if skipped_mods.len() == 1 {
+                                                format!("{} is lower in the list, so the copy in that mod is used", skipped_mods[0])
+                                            } else {
+                                                format!("These mods are lower in the list, so the copy in each of them is used: {}", skipped_mods.join(", "))
+                                            };
+                                            let line = format!("{nfiles} shared {} in this mod {} skipped. {who}.", file_word(nfiles), be(nfiles));
+                                            ui.label(RichText::new(line).small().color(BAD)).on_hover_text(skipped_files.join("\n"));
+                                        }
                                     }
-                                }
                                 }
                             });
                         });
@@ -2101,11 +2104,13 @@ impl App {
                             if let Some(have) = folders.get(&key).filter(|v| v.len() > 1) {
                                 if let Some(win) = have.last() {
                                     let lost: Vec<&str> = have[..have.len() - 1].iter().map(String::as_str).collect();
-                                    for loser in &lost {
-                                        let color = pair_color(loser, win);
-                                        ui.label(RichText::new("\u{f072e}").size(16.0).color(color)).on_hover_text(note_files(&self.folder_files, loser, &e.name));
-                                        ui.label(RichText::new("\u{f0737}").size(16.0).color(color)).on_hover_text(note_files(&self.folder_files, win, &e.name));
-                                    }
+                                    let skipped = if lost.len() == 1 {
+                                        format!("The copy in {} is skipped.", lost[0])
+                                    } else {
+                                        format!("The copies in these mods are skipped: {}.", lost.join(", "))
+                                    };
+                                    ui.label(RichText::new(format!("The copy in {win} is used.")).small().color(GOOD)).on_hover_text(note_files(&self.folder_files, win, &e.name));
+                                    ui.label(RichText::new(skipped).small().color(BAD)).on_hover_text(lost.iter().map(|loser| note_files(&self.folder_files, loser, &e.name)).collect::<Vec<_>>().join("\n"));
                                 }
                             }
                             if e.active {
