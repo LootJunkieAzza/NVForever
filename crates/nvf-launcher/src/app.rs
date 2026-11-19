@@ -888,20 +888,49 @@ fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool, height: 
     let ink = if primary { theme::ON_GOLD } else { theme::TEXT };
     let p = ui.painter();
     p.rect(rect, CornerRadius::same(4), fill, Stroke::new(1.0, if primary { GOLD } else { LINE }), egui::StrokeKind::Inside);
-    let left = rect.left() + 18.0;
-    let c = egui::pos2(left + 10.0, rect.center().y);
-    p.add(egui::Shape::convex_polygon(vec![c + Vec2::new(-7.0, -9.0), c + Vec2::new(9.0, 0.0), c + Vec2::new(-7.0, 9.0)], ink, Stroke::NONE));
-    p.text(egui::pos2(left + 34.0, rect.top() + height * 0.16), egui::Align2::LEFT_TOP, title, crate::fonts::title((height * 0.34).clamp(9.0, 28.0)), ink);
-    let sub_font = egui::FontId::proportional((height * 0.2).clamp(8.0, 16.0));
-    let max = rect.right() - left - 44.0;
-    let mut s = sub.to_string();
-    let mut chars: Vec<char> = sub.chars().collect();
-    while chars.len() > 4 && p.layout_no_wrap(s.clone(), sub_font.clone(), ink).size().x > max {
-        chars.pop();
-        s = format!("{}…", chars.iter().collect::<String>().trim_end());
-    }
-    p.text(egui::pos2(left + 34.0, rect.bottom() - 10.0), egui::Align2::LEFT_BOTTOM, s, sub_font, ink.gamma_multiply(0.8));
+    let pad_x = (height * 0.14).clamp(6.0, 18.0);
+    let icon = (height * 0.15).clamp(5.0, 13.0);
+    let left = rect.left() + pad_x;
+    let c = egui::pos2(left + icon, rect.center().y);
+    p.add(egui::Shape::convex_polygon(
+        vec![c + Vec2::new(-icon * 0.78, -icon), c + Vec2::new(icon, 0.0), c + Vec2::new(-icon * 0.78, icon)],
+        ink,
+        Stroke::NONE,
+    ));
+    let text_x = left + icon * 2.1 + (height * 0.06).clamp(3.0, 8.0);
+    let max_w = (rect.right() - pad_x - text_x).max(8.0);
+    let title_px = (height * 0.32).clamp(10.0, 30.0);
+    let sub_px = (height * 0.18).clamp(8.0, 18.0);
+    let (title_draw, title_font) = fit_button_line(p, title, crate::fonts::title(title_px), ink, max_w);
+    let (sub_draw, sub_font) = fit_button_line(p, sub, egui::FontId::proportional(sub_px), ink, max_w);
+    p.text(egui::pos2(text_x, rect.top() + height * 0.10), egui::Align2::LEFT_TOP, title_draw, title_font, ink);
+    p.text(
+        egui::pos2(text_x, rect.bottom() - height * 0.08),
+        egui::Align2::LEFT_BOTTOM,
+        sub_draw,
+        sub_font,
+        ink.gamma_multiply(0.8),
+    );
     resp
+}
+
+/// Shrink `text` to `max_w`, then cut it only if the smallest size still does not fit.
+fn fit_button_line(p: &egui::Painter, text: &str, mut font: egui::FontId, color: egui::Color32, max_w: f32) -> (String, egui::FontId) {
+    let min = 8.0;
+    while font.size > min && p.layout_no_wrap(text.to_owned(), font.clone(), color).size().x > max_w {
+        font.size = (font.size - 0.5).max(min);
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    let mut shown = text.to_owned();
+    while !chars.is_empty() && p.layout_no_wrap(shown.clone(), font.clone(), color).size().x > max_w {
+        chars.pop();
+        let stem: String = chars.iter().collect();
+        shown = format!("{}…", stem.trim_end());
+        if chars.is_empty() {
+            break;
+        }
+    }
+    (shown, font)
 }
 
 /// An on/off switch.
