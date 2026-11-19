@@ -1896,7 +1896,9 @@ impl App {
         if self.show_overwrites {
             ui.label(RichText::new("Folders run from the top of this list to the bottom. The game checks the bottom folder last.").small().color(WEAK));
             ui.label(RichText::new("If two checked folders contain the same file, the lower folder's copy is the one used. The higher folder's copy is skipped.").small().color(WEAK));
-            ui.label(RichText::new("A note under a folder names the other folder with that file. The same color only joins those two notes. The color is not a mod's name. Rest the pointer on a note to see the file names.").small().color(WEAK));
+            ui.label(RichText::new("A note under a folder names the other folder with that file. Rest the pointer on a note to see the file names.").small().color(WEAK));
+            ui.label(RichText::new("Use the color to find both sides of one shared file. The note that says the copy is used and the note that says it is skipped are the same color.").small().color(WEAK));
+            ui.label(RichText::new("The color does not pick a winner and it does not rank the folders. No color is stronger than another. Place in this list decides it: a lower folder's copy is used, a higher folder's copy is skipped. Drag a folder and that same color still marks the pair.").small().color(WEAK));
             if self.clashes.is_empty() {
                 ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
             }
