@@ -492,7 +492,111 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   both, so the keys are unchanged. Still open after the sky changes below: at 20:00
   looking west the game's sky at 20-45° is (48, 43, 53) and the renderer's (9, 10, 18)
   [observed, diag frame `diag_west_200`]; the renderer is at full night colours there.
-- **Sky colours** [observed 2026-10-09: the four reference frames (tools/capture README
+- **Sky and grade across two worldspaces (2026-11-16; this replaces the fitted items
+  marked below)** [observed: own captures with `tools/capture/capture_frames.py`, the
+  original at 1280 x 720 and our renders at the cameras it recorded; private, in
+  `C:\fnv-private\capture`]. Sets: Tale of Two Wastelands' Capital Wasteland (Springvale
+  and by Vault 101, `WastelandClear`, 07:00 to 23:00, 12 frames); the Mojave at Goodsprings
+  (`NVWastelandClear`, 10 frames); the base game's own `WastelandClear` at Goodsprings by
+  the hour (22 frames) and at five elevations and two headings at 09:09 (10 frames).
+  Before, mean distance between the original's and our mean colours over the sky and
+  ground regions (0-255, over RGB): Capital Wasteland 119.3, Mojave 17.7; the Capital
+  Wasteland's noon sky was (97, 84, 76), dark brown, against the original's (174, 200,
+  173). With the five points below: 32.0 and 14.6; that sky (166, 180, 156).
+  - **Adapter tint.** The weather's adapter (IMAD `TNAM`, time 0: a colour and an alpha)
+    counts as one more tint beside the image space's own: colours averaged by their
+    amounts, the larger amount kept, the rule for several modifiers' tints [documented:
+    GECK wiki "ImageSpace Modifiers"; hypothesis that a weather's adapter is one of them].
+    Fitting the tint amount freely (our render without the grade, our grade formula, one
+    exposure factor) to the original's ground: Capital Wasteland noon 0.31 (base amount 0,
+    adapter 0.314: `WastelandBaseImageSpace`, `WastelandDayISFXDC`), 19:00 0.53, 23:00 0.58
+    (adapters 0.392 and 0.627); Mojave noon 0.36, 16:00 0.31 (base 0.33, adapter 0.392).
+    The same fit on the sky dome gave 0.36 under the base game's `WastelandClear` (rule:
+    0.33). The earlier rule, the base amount times the adapter's alpha, gave 0 and 0.13.
+    The Fallout 3 adapters set every value (multiply 0, add the value), the Mojave's scale
+    the base (multiply, add 0) [observed: `fnvtool esm decode`].
+  - **High noon.** A six-time colour set uses its high-noon column: day at the end of
+    sunrise, high noon at 12:00, day at the start of sunset, linear between, on the stored
+    bytes. FalloutNV.esm's own `WastelandClear` has black high-noon and midnight columns:
+    in the base game the whole picture is black at 12:06, and the sky's blue is 237, 135,
+    52, 19, 0, 18, 39, 84, 142 at 9:06, 10:06, 11:06, 11:36, 12:06, 12:36, 13:06, 14:06,
+    15:06 (climate `NVDefaultClimate`: sunrise 6:00-8:00, sunset 18:00-20:00). The sky is
+    (13, 14, 11) at every hour from 21:06 to 5:06, so the midnight column is not blended
+    in. The weather's high-noon adapter is taken the same way [hypothesis]. In the
+    Mojave's `NVWastelandClear` cloud layers 1 and 2 are white by day and black at high
+    noon, and sky-upper is (72, 91, 159) for (50, 71, 135).
+  - **Dome weights.** `atmosphere.nif`'s vertex colours: red weighs the horizon colour,
+    green sky-lower, blue sky-upper, mixed as display values. Base game `WastelandClear`
+    at 09:09 (upper (40, 46, 255), lower (123, 156, 242), horizon (162, 194, 204), each
+    x 0.71 for the high-noon share), looking away from the sun, grade taken out: red and
+    green at 46, 31 and 25 degrees up are (52, 59), (74, 93), (84, 105); 1.4 x (blue x
+    upper + green x lower) gives (53, 65), (76, 93), (81, 101); with green as the horizon
+    colour (91, 108) at 31 degrees. Near the zenith the original has about (25, 20) more
+    red and green than the model [not explained]. The fitted horizon curve and its
+    twilight factor are gone.
+  - **Sky level** [hypothesis, fitted to two worldspaces]. The sky's display colours
+    (dome and clouds) are scaled by the image space's "LUM Ramp No Tex" with the
+    adapter on it: 0.88 by day in the Mojave (`NVDefaultExterior` 1.1 x `NVWastelandIS`
+    0.8), 1.55 in the Capital Wasteland (`WastelandDayISFXDC` sets it). Scaled by the
+    emissive mult (1.5 and 1.4) the Mojave's noon sky was (189, 181, 170) against the
+    original's (145, 137, 129) and the Capital Wasteland's (156, 169, 146) against (174,
+    200, 173); by this value (151, 143, 133) and (166, 180, 156). What the value means in
+    the original's HDR pass is not known.
+  - **Taken out**: the daytime dimming of the sky to 0.4 with a share of the sunlight
+    colour added, and the sunlight hue in the clouds' and the fog's colour ("Fog colour by
+    day" below). They were fitted in the Mojave under the weak tint and without the
+    high-noon column, and made the Capital Wasteland's teal sky dark brown.
+  - **Cloud layer 0 was never drawn.** Freeside's and the Strip's weathers (`NVUrbanClear`,
+    `NVTheStripWeather`) put their only cloud texture, `sky\NV_WastelandUpperSky2.dds`, on
+    layer 0, which goes on `clouds.nif`'s first shape, `CloudDome`; the Mojave's clear
+    weather uses layer 3 (`LowerLayer`). The original shows scattered clouds over Freeside
+    at noon; ours showed none, in the 3 November build as well. `CloudDome` is 0 to 6 %
+    farther from the centre than `atmosphere.nif`'s dome, and the renderer's sort bias on
+    the blended sky parts also acts as a depth bias of about 14 % of the distance, so the
+    shape failed the depth test against the dome at its own size, at 0.97 and at 0.9 of
+    it; at 0.75 it is drawn. The same texture on layer 3 (`NVWastelandHazy`) always showed
+    [observed: own renders; the bias mechanism is a hypothesis that fits these figures].
+  - **The Strip and Freeside** [observed 2026-11-17, base game, 20 frames]. The Strip's
+    noon sky is a cool grey-purple in the original, (93, 90, 99) in one open patch; ours
+    was (117, 111, 106) in the 3 November build and is (98, 96, 109) now. Freeside's near
+    the noon sun is (141, 139, 123); ours (110, 111, 103), still darker (the sky near the
+    sun, below).
+  - **Sweep of the other worldspaces** [observed 2026-11-17: 112 frames of the original
+    under Tale of Two Wastelands, one worldspace per climate (27), each climate's weather
+    forced, noon and 17:00, level and 45 degrees up; our renders of the 58 noon cameras].
+    Close to the original in colour and look: Sierra Madre (Villa, both towns), Big MT,
+    Zion (clear and rain), the Divide (NVDLC04DivideClimate, LR, HR, the vista), the
+    Citadel, Adams Air Force Base, DC's Mall, Monument top and Mama Dolce's (ours a little
+    lighter), The Pitt's market and uptown (our sky darker than the original's glow),
+    TTW's Lucky 38 climate. Off:
+    - **Point Lookout** (`DLC04PointLookoutBoardwalkWthr`, fog 1 to 14,000 units): the
+      original's sky and distant fog are bright and pale, (214, 227, 202) level; ours
+      (134, 146, 126). Its worldspace's image space is `DefaultImageSpaceExterior`, tint
+      (0.60, 0.54, 0.39) at 0.6; the adapter's tint is (0.02, 1, 1) at 0.078 and its LUM
+      Ramp No Tex 1.5. With the adapter's tint in place of the base's the sky is (166,
+      194, 181): lighter but too blue, and the Mojave's night ground goes from (44, 43,
+      48) to (32, 41, 62) against the original's (48, 47, 51) (mean distance over the
+      Mojave frames 14.6 to 18.1), so the rule above stays. [hypothesis] The sky's
+      colours times 1.5 are past the display range, and the original's grade works on
+      them before they are held to 1: 1.5 x (220, 233, 225) tinted olive at 0.5 gives about
+      (255, 255, 240). Here the sky is held to 1 first and the tint then darkens it. The
+      fog colour gets no such factor here at all.
+    - **Anchorage** (`DLC02AnchWthrClear01`): the original's sky is a bright cyan, (61,
+      104, 120) up and (67, 146, 163) level; ours (57, 75, 79) and (52, 99, 107).
+    - **The Pitt's bridge** (`DLC01PittWthrBridge01`): the original is green fog all
+      round; our frame is black with a pale patch [not looked into: the camera may be
+      under our land there].
+    - **The nuked Divide areas** (`NVDLC04NukedWeather`): our sky is yellow, (253, 238,
+      174) up, where the original's is near white, (255, 255, 232).
+    Not compared: Tranquility Lane and the GNR roof (the original did not travel there
+    with `cow`), and the 17:00 frames (captured, ours not rendered).
+  - **Left open.** The Capital Wasteland's ground is still too bright (ours x 0.79 at
+    noon and x 0.54 at 16:00 would match). Its 07:00 sky is (213, 199, 147) against (246,
+    235, 170). Colours past the display range lose their excess before the grade here
+    (the base game `WastelandClear` sky's blue is 104-123 against 138-149): the
+    original's grade evidently works on values over 1. The original's noon sky near the
+    sun is brighter than the model (glare, not measured).
+- **Sky colours** (its fitted horizon curve, twilight factor and daytime dimming are superseded by the 2026-11-16 item above) [observed 2026-10-09: the four reference frames (tools/capture README
   section 7) and 30 diagnostic screenshots of the original game at Goodsprings
   (07:00-20:30, NVWastelandClear, private), compared region by region with nvforever
   renders of the same cameras; "dark 10%" is the mean of the darkest tenth of a region,
@@ -619,7 +723,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   `nvforever::sky::update_clouds`). The renderer logs `clouds: <weather> layer speeds
   [..] (ONAM), scrolling .. texture repeats/s` when a weather first shows (smoke
   `cloud-scroll-onam`).
-- **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
+- **Fog colour by day** (taken out 2026-11-16, see the item above) [observed 2026-10-21, the eight exterior reference frames against
   renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
   warm haze in the game and into a light blue-grey in the renderer. At
   spring_mountains_east (camera 18,448 up, looking east over the valley) the land rows
@@ -742,9 +846,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   (1.0, 0.44, 0.10) at 0.39; night track 0x12 ×1.2, tint (0.22, 0.47, 0.93) at 0.63
   [observed]. Later keys look like defaults (tint white at 0 or pure blue at 1).
   The renderer grades the tonemapped picture with the base image space × each adapter's
-  time-0 keys (value × mult + add), the adapter tint giving the colour and scaling the
-  base tint amount, blended by time of day like the weather colours [hypothesis, chosen
-  against the owner's screenshots: replacing the amount made night far too blue].
+  time-0 keys (value × mult + add), the adapter tint counting as one more tint beside the
+  base's (colours averaged by amount, the larger amount; "Adapter tint" above, 2026-11-16;
+  before that the adapter's alpha scaled the base amount), blended by time of day like the
+  weather colours.
   Formula on display values: saturation around luminance, tint towards
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in

@@ -498,6 +498,12 @@ fn cacheui_anh_and_the_small_plugins() {
     // The plugin's header version (1.34 here): TTW calls a plugin below 1.3 an
     // unconverted Fallout 3 mod.
     assert_eq!(q(&mut g, "array_var a\narray_var r\nlet a := TTW_GetPlugins\nlet r := a[0]\nSetFunctionValue r[1]"), n(f64::from(1.34f32)));
+    // TTW's radio fix: a switch the engine's radio reads.
+    assert!(!g.small.ttw_radio_fix);
+    q(&mut g, "TTW_EnableRadioFix 1");
+    assert!(g.small.ttw_radio_fix);
+    q(&mut g, "TTW_EnableRadioFix 0");
+    assert!(!g.small.ttw_radio_fix);
     // TTW's gene projector is the race menu, NVForever's character creator.
     q(&mut g, "TTW_ShowGeneProjector");
     assert_eq!(g.open_menu_code(), Some(fnv_game::game::menus::RACE));

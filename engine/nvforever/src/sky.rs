@@ -3,18 +3,15 @@
 //! docs/design/layer3.md).
 //!
 //! The sky is the game's own sky meshes around the camera [observed: `meshes\sky\`]:
-//! - `atmosphere.nif`, a dome coloured by the weather's sky-upper, horizon and sky-lower
-//!   colours: sky-upper weighted by the vertex colours' blue channel, horizon by a fitted
-//!   function of elevation, mixed as display (sRGB) values (`dome_color`) [hypothesis,
-//!   fitted to screenshots of the original game, docs/spec-notes/world.md §6 "Sky
-//!   colours"; reading the green channel as the horizon weight gave the horizon colour far
-//!   too much of the sky].
+//! - `atmosphere.nif`, a dome coloured by the weather's horizon, sky-lower and sky-upper
+//!   colours, weighted by its vertex colours' red, green and blue, mixed as display (sRGB)
+//!   values (`dome_color`) [observed 2026-11-16 against the original's dome at five
+//!   elevations, docs/spec-notes/world.md §6 "Dome weights"].
 //! - `clouds.nif`, four cloud shapes whose vertex alpha fades them towards the horizon.
 //!   The weather's cloud layers 0-3 (WTHR DNAM, CNAM, ANAM, BNAM textures and PNAM
 //!   colours) go on the four shapes in file order [hypothesis: layer 0 is the top dome,
 //!   which the night weather fills with a starfield; layer 3 the low dome, which the
-//!   clear day weather fills with `NVCloudlight.dds`]. By day they take on part of the
-//!   sunlight's hue (`SkyState::cloud_tint`) [hypothesis, fitted].
+//!   clear day weather fills with `NVCloudlight.dds`].
 //! - The sun: the climate's sun texture and glare texture spread over angular squares
 //!   around the sun, coloured by the weather's "sun" colour and drawn into the dome (the
 //!   disc, behind the clouds) and the clouds (the glare) by sky.wesl [hypothesis, fitted].
@@ -30,8 +27,8 @@
 //!
 //! Every sky part uses `SkyMaterial` (sky.wesl): its colour is a display value, mapped
 //! through the inverse of the camera's tonemapper so the image-space grade sees the
-//! weather's colours as the game's grade does; by day the sky is dimmed and warmed
-//! (`SkyLight`) [hypothesis, fitted].
+//! weather's colours as the game's grade does, scaled by the image space's "LUM Ramp No
+//! Tex" (`SkyLight`, `SkyState::sky_scale`) [hypothesis, fitted to two worldspaces].
 //!
 //! Without those meshes the sky falls back to a sphere. The sun lights the world as a
 //! directional light (colour "sunlight"), optionally with cascaded shadow maps. Ambient
@@ -106,6 +103,20 @@ const GAME_HOURS_PER_SECOND: f32 = 30.0 / 3600.0;
 /// sky (centred on the camera) first; blended world meshes write no depth and would
 /// otherwise be painted over. Within the sky, lower biases are drawn first.
 const SKY_SORT_BIAS: f32 = -1.0e6;
+/// The cloud shapes' size against the atmosphere dome's. The dome is opaque and writes
+/// depth, and the blended sky parts carry [`SKY_SORT_BIAS`], which Bevy also applies as the
+/// pipeline's depth bias: with reversed depth that moves a part about 14 % farther off
+/// (10^6 steps of a 2^-23 mantissa, a factor 0.88 on its depth) [hypothesis from the
+/// figures below]. `clouds.nif`'s low shape (100 to 320 units from the centre) and its
+/// horizon shapes (411 to 445) are well inside the dome (250 to 490) and passed; its first
+/// shape, `CloudDome`, is 0 to 6 % *outside* the dome (461 to 446 units at 10 degrees up,
+/// 300 to 284 at 50, 250 to 250 at the top) [observed: `fnvtool nif decode`] and was never
+/// drawn, at 0.97 and 0.9 of its size either. So the urban weathers' clouds (NVUrbanClear,
+/// NVTheStripWeather: cloud layer 0, `NV_WastelandUpperSky2.dds`) were missing, while the
+/// same texture on layer 3 (NVWastelandHazy) showed [observed 2026-11-16/17 against the
+/// original in Freeside]. At 0.75 every cloud shape is under 0.8 of the dome's distance.
+/// The sky is centred on the camera, so the size changes nothing else.
+const CLOUD_INSET: f32 = 0.75;
 
 /// Whether a transparent item's sort key (view distance plus depth bias, as Bevy sorts
 /// them) is one of the sky's blended or additive parts ([`SKY_SORT_BIAS`]: the cloud
@@ -167,13 +178,10 @@ pub struct SkyDisplay {
     pub glare_texture: Option<Handle<Image>>,
 }
 
-/// Daylight on the sky (sky.wesl). By day the original game's sky and clouds are darker
-/// and warmer than the weather colours through the image-space grade would give, while at
-/// dusk and at night they match [observed: screenshots of the original game,
-/// docs/spec-notes/world.md §6 "Sky colours"]. Modelled as: linear colour × `scale` plus
-/// a share of the sunlight colour, both growing as the sun rises [hypothesis, fitted to
-/// those screenshots; the mechanism in the game is not known (eye adaptation and bloom
-/// are candidates)].
+/// What the sky's parts take besides their own colour (sky.wesl): the sky level, linear
+/// colour × `scale` ([`SkyState::sky_scale`]: the image space's "LUM Ramp No Tex")
+/// [hypothesis, fitted to two worldspaces, docs/spec-notes/world.md §6 "Sky level"], and
+/// the sun. `glow` adds nothing to the colour now (its fourth figure is still read).
 ///
 /// The sun is drawn into the same colours, before the tonemapper inverse: the sun texture
 /// and the glare texture spread over angular squares centred on the sun (SUN_SIZE_DEG,
@@ -922,9 +930,6 @@ impl SkyState {
 
     /// How daylight changes the sky's display colours now (see [`SkyLight`]).
     pub fn light(&self) -> SkyLight {
-        let day = self.daylight();
-        let sun = self.color(ColorType::Sunlight);
-        let s = Vec3::from_array(sun);
         // The disc and glare fade out as the sun sets [hypothesis: the game shows no glare
         // once the sun is down].
         let fade = if self.interior.is_some() { 0.0 } else { smoothstep(-2.0, 3.0, self.sun_elevation()) };
@@ -935,46 +940,28 @@ impl SkyState {
         let glare = self.weather.glare_scale();
         let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
         SkyLight {
-            params: Vec4::new(1.0 - SKY_DIM * day, 0.0, 1.0, 0.0),
+            params: Vec4::new(self.sky_scale(), 0.0, 1.0, 0.0),
             // w: 1 when the main view shows display values clipped (lights.rs
             // `display_clip`), so the sky leaves out its inverse of Tony McMapface.
-            glow: (s * SKY_GLOW * day).extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
+            glow: Vec3::ZERO.extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
             sun_dir: dir.extend(0.0),
             sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
             glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
         }
     }
 
-    /// Daylight strength (0..1): grows as the sun rises to `DAYLIGHT_DEG`.
-    pub fn daylight(&self) -> f32 {
+    /// What the sky's display colours are scaled by: the image space's "LUM Ramp No Tex"
+    /// with the weather's adapter on it (1 indoors and where it is not over 0) [hypothesis,
+    /// fitted 2026-11-16 to the original's sky in two worldspaces, world.md §6 "Sky
+    /// level": the sky is 0.88 of the weather's colours by day in the Mojave
+    /// (NVDefaultExterior 1.1 × NVWastelandIS 0.8) and 1.55 in the Capital Wasteland
+    /// (WastelandDayISFXDC sets it); the emissive mult, 1.5 and 1.4 there, does not fit].
+    pub fn sky_scale(&self) -> f32 {
         if self.interior.is_some() {
-            return 0.0;
+            return 1.0;
         }
-        smoothstep(0.0, DAYLIGHT_DEG, self.sun_elevation())
-    }
-
-    /// A cloud colour lit by the sun: by day the game's clouds are warmer than their
-    /// weather colour, by about the sunlight colour's hue [hypothesis fitted to the noon
-    /// reference frames, world.md §6 "Sky colours"].
-    pub fn cloud_tint(&self, c: [f32; 3]) -> [f32; 3] {
-        self.sun_hue(c, CLOUD_SUN)
-    }
-
-    /// The fog colour as distant land fades into it: by day the game's haze is warm where
-    /// the weather's fog colour is a light blue (NVWastelandClear day (150, 168, 190)), so
-    /// the fog takes on the sunlight colour's hue in full daylight [hypothesis, fitted to
-    /// the exterior reference frames, world.md §6 "Fog colour by day"].
-    pub fn fog_color(&self) -> [f32; 3] {
-        self.sun_hue(self.color(ColorType::Fog), FOG_SUN)
-    }
-
-    /// `c` moved towards the sunlight colour's hue (each channel × sunlight / its largest
-    /// channel) by `share` × daylight.
-    fn sun_hue(&self, c: [f32; 3], share: f32) -> [f32; 3] {
-        let s = self.color(ColorType::Sunlight);
-        let m = s.iter().copied().fold(1e-3f32, f32::max);
-        let k = (self.daylight() * share).min(1.0);
-        std::array::from_fn(|i| c[i] * (1.0 + (s[i] / m - 1.0) * k))
+        let v = self.cinematic().hdr.v[fnv_world::imagespace::HDR_LUM_RAMP_NO_TEX];
+        if v > 0.0 && v.is_finite() { v } else { 1.0 }
     }
 
     /// Direction towards the sun, in Bevy's axes (also below the horizon).
@@ -996,18 +983,6 @@ impl SkyState {
     /// Sun elevation above the horizon in degrees.
     pub fn sun_elevation(&self) -> f32 {
         sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
-    }
-
-    /// Twilight (0..1): 1 while the sun is above the horizon, falling to 0 as it sinks to
-    /// `TWILIGHT_END_DEG` (the end of astronomical twilight) [hypothesis fitted 2026-10-23:
-    /// the share of the horizon colour's wide floor that fits the original's sky is about
-    /// 1.1 with the sun at +11° (19:06), 0.6 at −9° (20:30) and 0 at −54° (23:00); world.md
-    /// §6 "Sky colours"]. 1 indoors (no sky).
-    pub fn twilight(&self) -> f32 {
-        if self.interior.is_some() {
-            return 1.0;
-        }
-        smoothstep(TWILIGHT_END_DEG, 0.0, self.sun_elevation())
     }
 
     /// Star and moon visibility (0..1) at this hour.
@@ -1125,10 +1100,11 @@ fn find_weather(world: &WorldData, name: &str) -> Option<u32> {
     })
 }
 
-/// The atmosphere dome, with each vertex's elevation (degrees) and sky-upper weight kept
-/// from creation: the colours are recomputed from these.
+/// The atmosphere dome, with each vertex's weights of the horizon, sky-lower and sky-upper
+/// colours (the mesh's vertex colour: red, green, blue) kept from creation: the colours
+/// are recomputed from these ([`dome_color`]).
 #[derive(Component)]
-pub struct SkyDome(Vec<[f32; 2]>);
+pub struct SkyDome(Vec<[f32; 3]>);
 
 /// One of the four cloud layers (WTHR layer index) in one of two sets: the set showing
 /// the current weather and the one fading out the previous weather.
@@ -1240,9 +1216,10 @@ fn sky_mesh(s: &SkyShape, colors: Vec<[f32; 4]>) -> Mesh {
     m
 }
 
-/// Fallback dome: a sphere (game space, z up) with weights from height [hypothesis,
-/// the earlier interim gradient]: horizon to sky-upper over the lower half of the upper
-/// hemisphere, horizon to sky-lower just below the horizon.
+/// Fallback dome: a sphere (game space, z up) with weights from height, in the sky
+/// mesh's channels (red horizon, green sky-lower, blue sky-upper): sky-lower to sky-upper
+/// over the lower half of the upper hemisphere, sky-lower to the horizon colour just below
+/// the horizon.
 fn fallback_dome() -> SkyShape {
     let mut sphere = Sphere::new(NIF_SKY_RADIUS).mesh().uv(48, 24);
     let pos: Vec<[f32; 3]> = match sphere.attribute(Mesh::ATTRIBUTE_POSITION) {
@@ -1257,6 +1234,7 @@ fn fallback_dome() -> SkyShape {
                 let t = (y / 0.5).clamp(0.0, 1.0).sqrt();
                 [0.0, 1.0 - t, t, 1.0]
             } else {
+                // Sky-lower turns to the horizon colour over the first fifth below the horizon.
                 let t = (-y / 0.2).clamp(0.0, 1.0);
                 [t, 1.0 - t, 0.0, 1.0]
             }
@@ -1290,13 +1268,9 @@ pub fn setup_sky(
     let glare_tex = sky.climate.sun_glare_texture.as_deref().and_then(|t| textures.get(t, true, &data, &mut images, None));
     let atmosphere = sky_shapes(&data, "meshes\\sky\\atmosphere.nif").into_iter().next().unwrap_or_else(fallback_dome);
     let weights = atmosphere.colors.clone();
-    // Per vertex: elevation (degrees) and the sky-upper weight (blue).
-    let dome: Vec<[f32; 2]> = atmosphere
-        .positions
-        .iter()
-        .zip(&weights)
-        .map(|(p, w)| [p[2].atan2(p[0].hypot(p[1])).to_degrees(), w[2]])
-        .collect();
+    // Per vertex: the weights of the horizon, sky-lower and sky-upper colours (red,
+    // green, blue).
+    let dome: Vec<[f32; 3]> = weights.iter().map(|w| [w[0], w[1], w[2]]).collect();
     commands.spawn((
         Name::new("Sky"),
         SkyDome(dome),
@@ -1329,7 +1303,8 @@ pub fn setup_sky(
                     m.extension.glare_texture = glare_tex.clone();
                     m
                 })),
-                sky_transform(Vec3::ZERO),
+                // Inside the atmosphere dome, which writes depth ([`CLOUD_INSET`]).
+                sky_transform(Vec3::ZERO).with_scale(Vec3::splat(DOME_RADIUS / NIF_SKY_RADIUS * CLOUD_INSET)),
                 Visibility::Hidden,
                 NotShadowCaster,
                 NotShadowReceiver,
@@ -1604,7 +1579,7 @@ pub fn update_clouds(
             continue;
         };
         let new_texture = cl.shows != Some(w.form_id);
-        let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
+        let c = w.cloud_color(&sky.climate, cl.layer, sky.hour);
         let color = LinearRgba::new(c[0], c[1], c[2], alpha);
         // Each set scrolls at its own weather's ONAM speeds, so a fade blends the two
         // weathers' layers each moving at its own rate (fnv_world::sky::Weather::cloud_scroll).
@@ -1719,64 +1694,26 @@ pub fn update_night_sky(
 }
 
 /// The dome mesh last coloured and the sky colours it was coloured with.
-type DomeShown = (AssetId<Mesh>, [f32; 10]);
+type DomeShown = (AssetId<Mesh>, [f32; 9]);
 
 /// Whether the dome mesh `mesh` needs colouring for the sky colours `now`: a new dome (a
 /// worldspace change spawns one whose vertex colours are still the atmosphere's weights,
 /// drawn as a green-to-red sky, #1395) or colours that moved noticeably since `shown`.
-fn dome_needs_colour(shown: Option<DomeShown>, mesh: AssetId<Mesh>, now: [f32; 10]) -> bool {
+fn dome_needs_colour(shown: Option<DomeShown>, mesh: AssetId<Mesh>, now: [f32; 9]) -> bool {
     shown.is_none_or(|(was_mesh, was)| was_mesh != mesh || was.iter().zip(now).any(|(a, b)| (a - b).abs() > 1e-3))
 }
 
-/// Colour of an atmosphere vertex at `elevation` (degrees) with sky-upper weight `up_w`
-/// (the vertex colour's blue), linear RGB. Mixed as display (sRGB) values: sky-upper ×
-/// `up_w` plus horizon × `horizon_weight(elevation, twilight)`; below the horizon the
-/// colour turns to sky-lower by 10° down [hypothesis fitted to screenshots of the original
-/// game, docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read
-/// as the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
-pub(crate) fn dome_color(elevation: f32, up_w: f32, twilight: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
+/// Colour of an atmosphere vertex whose colour is `w`, linear RGB: horizon × red plus
+/// sky-lower × green plus sky-upper × blue, mixed as display (sRGB) values [observed
+/// 2026-11-16, base game, FalloutNV.esm's WastelandClear at 09:09 (upper (40, 46, 255),
+/// lower (123, 156, 242), horizon (162, 194, 204)), looking away from the sun: with the
+/// grade taken out the original's red and green at 46°, 31° and 25° up are (52, 59),
+/// (74, 93) and (84, 105); green as sky-lower gives (53, 65), (76, 93) and (81, 101),
+/// green as the horizon colour (91, 108) at 31°. world.md §6 "Dome weights"].
+pub(crate) fn dome_color(w: [f32; 3], lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
     use crate::lodgen::{linear_to_srgb as d, srgb_to_linear as l};
-    let a = horizon_weight(elevation, twilight);
-    let below = smoothstep(0.0, -10.0, elevation);
-    std::array::from_fn(|i| {
-        let above = up_w * d(upper[i]) + a * d(horizon[i]);
-        l(above + (d(lower[i]) - above) * below)
-    })
+    std::array::from_fn(|i| l(w[0] * d(horizon[i]) + w[1] * d(lower[i]) + w[2] * d(upper[i])))
 }
-
-/// Weight of the horizon colour at `elevation` (degrees): 1 at the horizon, about 0.5 at
-/// 15°, 0.3 at 25° at dusk [hypothesis fitted to the dusk reference frame, where the sky
-/// colours are graded without further change; world.md §6]. The wide part (the floor,
-/// `HORIZON_FLOOR`) is scaled by `twilight` (`SkyState::twilight`, 1 while the sun is up,
-/// 0 in full night): the original's night sky keeps under a third of it above 25°
-/// [hypothesis fitted 2026-10-23 to clear Mojave frames at 19:06, 20:30 and 23:00, world.md
-/// §6 "Sky colours"].
-pub(crate) fn horizon_weight(elevation: f32, twilight: f32) -> f32 {
-    let e = elevation.max(0.0);
-    let (near, far) = (HORIZON_NEAR_DEG, HORIZON_FAR_DEG);
-    let fl = HORIZON_FLOOR;
-    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * twilight.clamp(0.0, 1.0) * (-(e / far).powi(2)).exp()
-}
-
-const HORIZON_NEAR_DEG: f32 = 14.0;
-const HORIZON_FAR_DEG: f32 = 60.0;
-const HORIZON_FLOOR: f32 = 0.28;
-/// Sun elevation (degrees) at which the horizon colour's floor is gone (see `twilight`).
-const TWILIGHT_END_DEG: f32 = -18.0;
-
-/// Fitted daylight factors (see `SkyLight`).
-const SKY_DIM: f32 = 0.6;
-const SKY_GLOW: f32 = 0.05;
-/// Share of the sunlight hue in the clouds' colour in full daylight (see `cloud_tint`).
-const CLOUD_SUN: f32 = 0.5;
-/// Share of the sunlight hue in the fog's colour in full daylight (see `fog_color`)
-/// [hypothesis, fitted 2026-10-21]: 1.0 took the mean colour error of the
-/// spring_mountains_east reference frame from 0.077 to 0.013 and of hoover_ridge_lake from
-/// 0.048 to 0.011, but lowered black_mountain_north's SSIM from 0.602 to 0.5996, under the
-/// 0.6 threshold; 0.5 leaves 0.046 and 0.030 and keeps it at 0.60 (world.md §6).
-const FOG_SUN: f32 = 0.5;
-/// Sun elevation (degrees) at which daylight reaches full strength.
-const DAYLIGHT_DEG: f32 = 40.0;
 
 /// Whether an interior's lighting (XCLL, or its template) fogs the view: only when fog far
 /// is beyond fog near. A cell with fog 0..0 (HOTM's Monte Carlo Club, `aaMontecarlo`, which
@@ -1949,10 +1886,9 @@ pub fn update_sky(
     let upper = sky.color(ColorType::SkyUpper);
     let lower = sky.color(ColorType::SkyLower);
     let horizon = sky.color(ColorType::Horizon);
-    let twilight = sky.twilight();
     // The dome is coloured again only when its colours moved noticeably (as the sky
     // materials above): a changed mesh is sent to the GPU again, every frame before (#897).
-    let shown = [upper[0], upper[1], upper[2], lower[0], lower[1], lower[2], horizon[0], horizon[1], horizon[2], twilight];
+    let shown = [upper[0], upper[1], upper[2], lower[0], lower[1], lower[2], horizon[0], horizon[1], horizon[2]];
     if let Some((m, weights, _)) = dome.single().ok().filter(|(m, _, _)| dome_needs_colour(*dome_shown, m.0.id(), shown)) {
         if dome_shown.is_none_or(|(was, _)| was != m.0.id()) {
             info!("sky: a new dome coloured from {}'s sky colours", sky.weather.edid.as_deref().unwrap_or("the weather"));
@@ -1963,7 +1899,7 @@ pub fn update_sky(
                 .0
                 .iter()
                 .map(|wt| {
-                    let c = dome_color(wt[0], wt[1], twilight, lower, horizon, upper);
+                    let c = dome_color(*wt, lower, horizon, upper);
                     [c[0], c[1], c[2], 1.0]
                 })
                 .collect();
@@ -1992,7 +1928,7 @@ pub fn update_sky(
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
-    fog.color = to_color(sky.fog_color()).with_alpha(strength);
+    fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
     let power = sky.fog_power();
     fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale() * emissive_mod);
     // A lightning flash changes the light each frame it lasts: not worth a line each.
@@ -2229,7 +2165,7 @@ mod tests {
     fn a_new_dome_is_coloured_even_when_the_sky_colours_stay() {
         // #1395: on a worldspace change the colours were recorded against the old dome in
         // the frame before the new one spawned; the new one kept its raw weights.
-        let colours = [0.2, 0.4, 0.5, 0.5, 0.6, 0.6, 0.6, 0.7, 0.7, 1.0];
+        let colours = [0.2, 0.4, 0.5, 0.5, 0.6, 0.6, 0.6, 0.7, 0.7];
         let (old, new) = (AssetId::<Mesh>::from(bevy::asset::uuid::Uuid::from_u128(1)), AssetId::<Mesh>::from(bevy::asset::uuid::Uuid::from_u128(2)));
         assert!(dome_needs_colour(None, old, colours));
         assert!(!dome_needs_colour(Some((old, colours)), old, colours));
@@ -2286,42 +2222,15 @@ mod tests {
     }
 
     #[test]
-    fn horizon_weight_falls_with_elevation() {
-        assert!((horizon_weight(0.0, 1.0) - 1.0).abs() < 1e-6);
-        assert!((horizon_weight(-5.0, 1.0) - 1.0).abs() < 1e-6);
-        // The dusk fit (world.md §6 "Sky colours"): about 0.86 at 7°, 0.55 at 15°, 0.3 at 25°.
-        assert!((horizon_weight(6.8, 1.0) - 0.86).abs() < 0.03);
-        assert!((horizon_weight(14.7, 1.0) - 0.55).abs() < 0.05);
-        assert!((horizon_weight(26.6, 1.0) - 0.28).abs() < 0.04);
-        let mut last = 2.0;
-        for e in 0..=90 {
-            let w = horizon_weight(e as f32, 1.0);
-            assert!(w <= last && w >= 0.0);
-            last = w;
-        }
-    }
-
-    #[test]
-    fn night_sky_loses_the_horizon_floor() {
-        // Near the horizon the weight is the same day and night; high up only the floor
-        // differs, and in full night it is gone.
-        assert!((horizon_weight(5.0, 1.0) - horizon_weight(5.0, 0.0)).abs() < 0.3);
-        assert!(horizon_weight(30.0, 0.0) < 0.02);
-        assert!(horizon_weight(30.0, 1.0) > 0.2);
-        assert!(horizon_weight(30.0, 0.5) > horizon_weight(30.0, 0.0) && horizon_weight(30.0, 0.5) < horizon_weight(30.0, 1.0));
-    }
-
-    #[test]
     fn dome_mixes_display_values() {
         let (lower, horizon, upper) = ([0.1, 0.2, 0.3], [0.7, 0.8, 0.9], [0.03, 0.06, 0.25]);
-        // Well below the horizon: sky-lower.
-        let c = dome_color(-20.0, 0.0, 1.0, lower, horizon, upper);
-        assert!(c.iter().zip(lower).all(|(a, b)| (a - b).abs() < 1e-4));
-        // At the horizon with no upper weight: the horizon colour.
-        let c = dome_color(0.0, 0.0, 1.0, lower, horizon, upper);
-        assert!(c.iter().zip(horizon).all(|(a, b)| (a - b).abs() < 1e-4));
+        // Each channel of the vertex colour gives one colour: red the horizon's, green
+        // sky-lower, blue sky-upper.
+        for (w, want) in [([1.0, 0.0, 0.0], horizon), ([0.0, 1.0, 0.0], lower), ([0.0, 0.0, 1.0], upper)] {
+            let c = dome_color(w, lower, horizon, upper);
+            assert!(c.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-4), "{w:?}");
+        }
         // Half of a colour as display values is darker than half in linear light.
-        let half = dome_color(90.0, 0.5, 1.0, lower, horizon, upper)[2];
-        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0, 1.0) * horizon[2]);
+        assert!(dome_color([0.0, 0.0, 0.5], lower, horizon, upper)[2] < 0.5 * upper[2]);
     }
 }
