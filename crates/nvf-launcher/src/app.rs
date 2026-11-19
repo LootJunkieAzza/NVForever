@@ -754,7 +754,6 @@ impl App {
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
-
 fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
     let mods = home.mods();
     let mut found = Vec::new();
@@ -771,7 +770,7 @@ fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
             found.push(name);
         }
     }
-    found.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+    found.sort_by_key(|a| a.to_ascii_lowercase());
     let text = std::fs::read_to_string(home.root.join("mod-order.txt")).unwrap_or_default();
     let mut order = Vec::new();
     for line in text.lines() {

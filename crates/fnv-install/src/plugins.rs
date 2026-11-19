@@ -186,12 +186,6 @@ fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
 }
 
 fn mod_plugin_map(root: &Path) -> std::sync::Arc<std::collections::HashMap<String, PathBuf>> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Arc<std::collections::HashMap<String, PathBuf>>>>> = std::sync::OnceLock::new();
-    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(found) = guard.get(root) {
-        return std::sync::Arc::clone(found);
-    }
     let mut listed = Vec::new();
     if root.is_dir() {
         walk_plugins(root, 8, &mut listed);
@@ -200,9 +194,7 @@ fn mod_plugin_map(root: &Path) -> std::sync::Arc<std::collections::HashMap<Strin
     for (name, path) in listed {
         map.insert(name.to_ascii_lowercase(), path);
     }
-    let map = std::sync::Arc::new(map);
-    guard.insert(root.to_path_buf(), std::sync::Arc::clone(&map));
-    map
+    std::sync::Arc::new(map)
 }
 
 fn skip_outside_dir(name: &str) -> bool {
