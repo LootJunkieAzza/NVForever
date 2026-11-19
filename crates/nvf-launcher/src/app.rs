@@ -131,6 +131,8 @@ pub struct App {
     picked_plugin: Option<String>,
     /// The left list should scroll to that folder once.
     mod_jump: bool,
+    /// The colored file-replacement lines and their key are open.
+    show_overwrites: bool,
     /// How many older copies of the plugin list to keep.
     backup_keep: usize,
     /// Apply is asking before it saves.
@@ -230,6 +232,7 @@ impl App {
             mod_find: String::new(),
             picked_plugin: None,
             mod_jump: false,
+            show_overwrites: false,
             backup_keep: 5,
             apply_ask: false,
             bar_h: 86.0,
@@ -1885,10 +1888,43 @@ impl App {
     }
 
     fn mod_column(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Mod Order").small().color(GOLD));
+        let mods_on = self.mod_rows.iter().filter(|r| r.on).count();
+        let mods_all = self.mod_rows.len();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Mod Order").small().color(GOLD));
+            ui.label(RichText::new(format!("{mods_on} on / {mods_all}")).small().color(WEAK)).on_hover_text("Folders that are on, and folders that exist. There is no limit.");
+            if ui.button(if self.show_overwrites { "Hide replacements" } else { "File replacements" }).clicked() {
+                self.show_overwrites = !self.show_overwrites;
+            }
+        });
         ui.add(egui::TextEdit::singleline(&mut self.mod_find).hint_text("Find a mod").desired_width(ui.available_width()));
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
+        if self.show_overwrites {
+            ui.label(RichText::new("Open dot: that folder's file is not used. Filled dot: that folder's file is used. One color is one pair.").small().color(WEAK));
+            let mut pairs: Vec<(String, String)> = Vec::new();
+            for (name, notes) in &self.clashes {
+                for note in notes {
+                    if note.wins {
+                        pairs.push((note.other.clone(), name.clone()));
+                    }
+                }
+            }
+            pairs.sort();
+            pairs.dedup();
+            if pairs.is_empty() {
+                ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
+            }
+            egui::ScrollArea::vertical().id_salt("overwrite-key").max_height(96.0).show(ui, |ui| {
+                for (loser, winner) in &pairs {
+                    let color = pair_color(loser, winner);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("\u{25cf}").color(color));
+                        ui.label(RichText::new(format!("{winner} replaces {loser}")).small());
+                    });
+                }
+            });
+        }
         egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
             if self.mod_rows.is_empty() {
                 ui.label(RichText::new("No folders in the mods folder.").small().color(WEAK));
@@ -1933,7 +1969,7 @@ impl App {
                                         ui.label(RichText::new("clicked plugin").small().color(GOLD));
                                     }
                                 });
-                                if let Some(notes) = self.clashes.get(&name) {
+                                if self.show_overwrites { if let Some(notes) = self.clashes.get(&name) {
                                     for note in notes {
                                         let n = note.files.len();
                                         let word = if n == 1 { "file" } else { "files" };
@@ -1944,6 +1980,7 @@ impl App {
                                         };
                                         ui.label(RichText::new(line).small().color(color)).on_hover_text(note.files.join("\n"));
                                     }
+                                }
                                 }
                             });
                         });
@@ -1977,6 +2014,7 @@ impl App {
                 let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 rects.push(resp.rect);
             }
+            if self.show_overwrites {
             let at: HashMap<String, usize> = self.mod_rows.iter().enumerate().map(|(n, r)| (r.name.clone(), n)).collect();
             for (i, row) in self.mod_rows.iter().enumerate() {
                 let Some(notes) = self.clashes.get(&row.name) else { continue };
@@ -1996,6 +2034,7 @@ impl App {
                     ui.painter().circle_stroke(egui::pos2(x, lost.center().y), 3.0, Stroke::new(1.5, color));
                     ui.painter().circle_filled(egui::pos2(x, win.center().y), 3.0, color);
                 }
+            }
             }
             if mod_find.is_empty() { if let Some(from) = self.mod_drag {
                 let ctx = ui.ctx().clone();
