@@ -1808,6 +1808,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   known. What NVForever does with each: layer3.md "Distant LOD".
 - How the game hides LOD under loaded cells, and exactly when it switches levels, is not
   known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
+  Nor is how object blocks appear and go at the edge of fBlockLoadDistance; the renderer
+  keeps a margin there and fades them [hypothesis, #3055] (#3055 notes that the game
+  shows the Strip from Goodsprings; to be checked in a capture).
 
 ## 8. Interior lighting and lights
 

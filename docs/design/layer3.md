@@ -149,7 +149,12 @@ What it does now:
   levels switch at once (the game's `fBlockMorphDistanceMult` suggests it morphs between
   levels; not done). Neighbouring chunks share only some edge vertices (world.md §7), so
   every chunk's open edges get skirts hanging 128 units per cell of chunk side.
-  Object blocks are drawn over every 4 × 4-cell square nearer than `--lod-distance`.
+  Object blocks are drawn over every 4 × 4-cell square nearer than `--lod-distance`; a
+  square already drawn stays until it is one cell (4,096 units) farther, and blocks
+  coming into range fade in and blocks leaving it fade out over `--cell-fade` (the
+  cell fade's dither; the first fill appears drawn) instead of switching at once
+  [hypothesis: margin and fade chosen; without them small moves near the edge switched
+  far blocks such as the Strip seen from above Goodsprings on and off, #3055].
   Distant trees (treelod.rs, `--tree-distance`, fTreeLoadDistance 40,000; 0 off): beyond
   the loaded cells every TREE reference is drawn as its billboard, an upright card
   turned towards the camera in the vertex shader, one mesh per cell and TREE base; the

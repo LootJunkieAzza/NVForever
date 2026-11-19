@@ -30,7 +30,15 @@
 //! not at "Medium" and "High" (32,768 against 50,000) [observed: `low.ini` …
 //! `VeryHigh.ini` in the game folder]. The choice is redone when the camera enters another cell; levels switch at once. Object
 //! blocks are drawn over every 4 × 4-cell square nearer than `far`, whatever the terrain
-//! level there.
+//! level there. At that edge a square already drawn is kept until it is [`FAR_MARGIN`]
+//! farther than `far`, and blocks coming into range fade in and blocks leaving it fade
+//! out over the cell fade's seconds (fade.rs) instead of appearing and vanishing at once:
+//! the choice depends on where the camera entered its cell, and without the margin and
+//! the fade small moves near the edge switched far blocks (the Strip seen from the hill
+//! above Goodsprings) on and off [observed: #3055]. The blocks of the first fill (at the
+//! start, after LOD is switched on or the world changes) appear drawn, as the cells
+//! loaded at the start do. How the game treats the edge is not known; the margin and the
+//! fade are [hypothesis].
 //!
 //! Neighbouring chunks do not share their edge vertices, at the same level or across
 //! levels [observed: level4.x8.y8 / x12.y8 share 14 of 16 + 52 edge positions], so every
@@ -121,6 +129,18 @@ impl Default for LodSettings {
     fn default() -> LodSettings {
         LodSettings { far: 125_000.0, near: 50_000.0, split: 1.5, trees: 40_000.0 }
     }
+}
+
+/// How much farther than [`LodSettings::far`] a square whose object block is drawn stays
+/// chosen (game units): a new square is taken only nearer than `far` (module docs, #3055)
+/// [hypothesis: chosen as one cell, the step at which the choice is redone].
+pub const FAR_MARGIN: f32 = CELL_SIZE;
+
+/// Whether a square `d` units from the camera (its closest point) is chosen for an
+/// object block: nearer than `far`, or nearer than `far` + [`FAR_MARGIN`] when its block
+/// is already drawn. Nothing is chosen when `far` is 0 or less.
+fn keep_square(d: f32, far: f32, drawn: bool) -> bool {
+    far > 0.0 && (d < far || (drawn && d < far + FAR_MARGIN))
 }
 
 /// Horizontal distance from `p` (game x, y) to the closest point of the square of
@@ -235,6 +255,163 @@ fn despawn_all(commands: &mut Commands, entities: impl IntoIterator<Item = Entit
     }
 }
 
+fn despawn_block(commands: &mut Commands, b: BlockEntities) {
+    despawn_all(commands, b.entities.into_iter().chain(b.pieces.into_iter().map(|(_, e)| e)));
+}
+
+/// One object block's fade at the far edge (module docs, #3055), by the cell fade's
+/// dither: its whole-block meshes get [`fade::complement`] of the step.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EdgeFade {
+    /// 0 hidden … 1 fully drawn.
+    level: f32,
+    /// Fading out (despawned at 0) rather than in.
+    leaving: bool,
+    /// The complement step last given to the block's meshes (0 fully drawn,
+    /// [`fade::STEPS`] culled).
+    applied: u8,
+}
+
+impl EdgeFade {
+    /// A block just spawned culled, to fade in.
+    fn coming() -> EdgeFade {
+        EdgeFade { level: 0.0, leaving: false, applied: fade::STEPS }
+    }
+
+    /// A fully drawn block starting to fade out.
+    fn going() -> EdgeFade {
+        EdgeFade { level: 1.0, leaving: true, applied: 0 }
+    }
+
+    /// Move on by `dt` seconds of a fade lasting `secs` (0 or less: to the end at once).
+    /// Returns the step to give the block's meshes when it changed, and whether the fade
+    /// is over (faded in: fully drawn; faded out: to be despawned).
+    fn advance(&mut self, dt: f32, secs: f32) -> (Option<u8>, bool) {
+        let rate = if secs > 0.0 { dt / secs } else { 1.0 };
+        self.level = (self.level + if self.leaving { -rate } else { rate }).clamp(0.0, 1.0);
+        let k = fade::STEPS - fade::step(self.level);
+        let changed = (k != self.applied).then_some(k);
+        self.applied = k;
+        let done = if self.leaving { self.level <= 0.0 } else { self.level >= 1.0 };
+        (changed, done)
+    }
+}
+
+/// Object blocks fading in and out at the far edge (module docs, #3055). Only blocks
+/// drawn whole (no loaded cell in their square) fade here; blocks split by cell crossfade
+/// with their cells, and a rebuild ends a square's edge fade.
+#[derive(Default)]
+struct EdgeFades {
+    /// Seconds a fade lasts (the cell fade's, `Streamer::fade_secs`); 0: blocks appear
+    /// and go at once.
+    secs: f32,
+    /// Blocks spawned now appear drawn: the first fill (at the start, after `set_enabled`
+    /// or a world change), when no block was drawn as the squares were chosen.
+    instant: bool,
+    /// Squares whose blocks are fading, in or out.
+    fades: HashMap<Grid, EdgeFade>,
+    /// Blocks of squares no longer chosen, fading out.
+    leaving: HashMap<Grid, BlockEntities>,
+}
+
+impl EdgeFades {
+    /// A block was spawned or rebuilt for `sq` (`new`: the square had none). A rebuild
+    /// ends the square's fade (its loaded cells changed: split by cell, the block
+    /// crossfades with them); a new block drawn whole fades in, unless fades are off or
+    /// this is the first fill. Returns whether its meshes must start culled.
+    fn spawned(&mut self, sq: Grid, b: &BlockEntities, new: bool) -> bool {
+        self.fades.remove(&sq);
+        let fade_in = new && self.secs > 0.0 && !self.instant && b.key.present == 0 && !b.entities.is_empty();
+        if fade_in {
+            self.fades.insert(sq, EdgeFade::coming());
+        }
+        fade_in
+    }
+
+    /// `sq` is no longer chosen. Its block fades out from where it is (`None`), or comes
+    /// back to be despawned now: fades off, split by cell, or nothing drawn.
+    fn leave(&mut self, sq: Grid, b: BlockEntities) -> Option<BlockEntities> {
+        if self.secs <= 0.0 || b.key.present != 0 || b.entities.is_empty() {
+            self.fades.remove(&sq);
+            return Some(b);
+        }
+        self.fades.entry(sq).or_insert_with(EdgeFade::going).leaving = true;
+        self.leaving.insert(sq, b);
+        None
+    }
+
+    /// `sq` is chosen again: its block, if it was fading out, fades back in from where it
+    /// is (no respawn).
+    fn back(&mut self, sq: Grid) -> Option<BlockEntities> {
+        let b = self.leaving.remove(&sq)?;
+        if let Some(f) = self.fades.get_mut(&sq) {
+            f.leaving = false;
+        }
+        Some(b)
+    }
+
+    /// Move every fade on by `dt` seconds (`drawn`: the chosen squares' blocks). Returns
+    /// the steps to give meshes, and the entities of blocks that have faded out (dropped
+    /// here, to be despawned).
+    fn advance(&mut self, dt: f32, drawn: &HashMap<Grid, BlockEntities>) -> (Vec<(Entity, u8)>, Vec<Entity>) {
+        let (mut steps, mut gone) = (Vec::new(), Vec::new());
+        let secs = self.secs;
+        let leaving = &mut self.leaving;
+        self.fades.retain(|sq, f| {
+            let (k, done) = f.advance(dt, secs);
+            if f.leaving && done {
+                if let Some(b) = leaving.remove(sq) {
+                    gone.extend(b.entities.into_iter().chain(b.pieces.into_iter().map(|(_, e)| e)));
+                }
+                return false;
+            }
+            let Some(b) = (if f.leaving { leaving.get(sq) } else { drawn.get(sq) }) else { return false };
+            if let Some(k) = k {
+                steps.extend(b.entities.iter().map(|&e| (e, k)));
+            }
+            !done
+        });
+        (steps, gone)
+    }
+
+    /// Drop every fade (LOD switched off): the fading-out blocks' entities, to despawn.
+    fn clear(&mut self) -> Vec<BlockEntities> {
+        self.fades.clear();
+        self.leaving.drain().map(|(_, b)| b).collect()
+    }
+}
+
+/// Squares no longer chosen lose their blocks (fading out, [`EdgeFades::leave`]); blocks
+/// fading out whose squares are chosen again come back (their key is checked as usual).
+fn leave_squares(commands: &mut Commands, lod: &mut LodState, squares: &HashSet<Grid>) {
+    let gone: Vec<Grid> = lod.block_entities.keys().filter(|sq| !squares.contains(sq)).copied().collect();
+    for sq in gone {
+        if let Some(b) = lod.block_entities.remove(&sq).and_then(|b| lod.edge.leave(sq, b)) {
+            despawn_block(commands, b);
+        }
+    }
+    let back: Vec<Grid> = lod.edge.leaving.keys().filter(|sq| squares.contains(sq)).copied().collect();
+    for sq in back {
+        if let Some(b) = lod.edge.back(sq) {
+            lod.block_entities.insert(sq, b);
+        }
+    }
+}
+
+/// Step the edge fades of object blocks by `dt` seconds ([`EdgeFades::advance`]); a range
+/// is inserted only when a block's step changes, as `fade::fade_cells` does.
+fn step_edge_fades(commands: &mut Commands, lod: &mut LodState, dt: f32) {
+    if lod.edge.fades.is_empty() {
+        return;
+    }
+    let LodState { edge, block_entities, .. } = lod;
+    let (steps, gone) = edge.advance(dt, block_entities);
+    for (e, k) in steps {
+        commands.entity(e).insert(fade::complement(k));
+    }
+    despawn_all(commands, gone);
+}
+
 #[derive(Resource)]
 pub struct LodState {
     pub settings: LodSettings,
@@ -256,6 +433,8 @@ pub struct LodState {
     /// at once left holes in the distant terrain meanwhile (#1052 review).
     outgoing: HashMap<Chunk, TerrainEntities>,
     block_entities: HashMap<Grid, BlockEntities>,
+    /// Object blocks fading in and out at the far edge (#3055).
+    edge: EdgeFades,
     /// Shading-fixed meshes of whole (untrimmed) game terrain chunks, per chunk and shape.
     meshes: HashMap<Chunk, Vec<Option<Handle<Mesh>>>>,
     /// Object blocks split by cell, for squares with loaded cells.
@@ -398,6 +577,7 @@ impl LodState {
             terrain: HashMap::new(),
             outgoing: HashMap::new(),
             block_entities: HashMap::new(),
+            edge: EdgeFades::default(),
             meshes: HashMap::new(),
             pieces: HashMap::new(),
             put_off_runs: HashMap::new(),
@@ -418,6 +598,13 @@ impl LodState {
         self
     }
 
+    /// Object blocks fade in and out at the far edge over `secs` (the cell fade's,
+    /// `Streamer::fade_secs`; 0: at once).
+    pub fn with_edge_fade(mut self, secs: f32) -> LodState {
+        self.edge.secs = secs.max(0.0);
+        self
+    }
+
     /// Generated chunks still baking (0 when generation is off).
     pub fn gen_pending(&self) -> usize {
         self.gen.as_ref().map_or(0, GenState::pending)
@@ -432,6 +619,9 @@ impl LodState {
         }
         for (_, b) in self.block_entities.drain() {
             despawn_all(commands, b.entities.into_iter().chain(b.pieces.into_iter().map(|(_, e)| e)));
+        }
+        for b in self.edge.clear() {
+            despawn_block(commands, b);
         }
         self.trees.clear(commands);
         self.chunks = 0;
@@ -587,6 +777,7 @@ pub fn update_lod(
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
+    time: Res<Time>,
 ) {
     if !lod.enabled {
         return;
@@ -606,11 +797,14 @@ pub fn update_lod(
         let p = g.truncate();
         let s = lod.settings;
         lod.chosen = select_chunks(p, &s, o);
-        let r = lod.radius + 1;
-        lod.squares = (-r..=r)
+        // Squares already drawn are kept a margin past `far` (`keep_square`, #3055).
+        let r = ((s.far + FAR_MARGIN) / (LEVEL as f32 * CELL_SIZE)).ceil().max(0.0) as i32 + 1;
+        let drawn = &lod.block_entities;
+        let squares: Vec<Grid> = (-r..=r)
             .flat_map(|dx| (-r..=r).map(move |dy| (o.0 + (centre_chunk.0 + dx) * LEVEL, o.1 + (centre_chunk.1 + dy) * LEVEL)))
-            .filter(|&sq| square_distance(p, sq, LEVEL) < s.far)
+            .filter(|&sq| keep_square(square_distance(p, sq, LEVEL), s.far, drawn.contains_key(&sq)))
             .collect();
+        lod.squares = squares;
         // Nearest first, so squares put off by the rebuild budget are the far ones.
         lod.squares.sort_by(|&a, &b| square_distance(p, a, LEVEL).total_cmp(&square_distance(p, b, LEVEL)));
         let finest: Vec<Grid> = lod.chosen.iter().filter(|ch| ch.0 == LEVEL).map(|ch| (ch.1, ch.2)).filter(near_gen).collect();
@@ -633,12 +827,8 @@ pub fn update_lod(
                 lod.terrain.insert(ch, t);
             }
         }
-        let gone: Vec<Grid> = lod.block_entities.keys().filter(|sq| !squares.contains(sq)).copied().collect();
-        for sq in gone {
-            if let Some(b) = lod.block_entities.remove(&sq) {
-                despawn_all(&mut commands, b.entities.into_iter().chain(b.pieces.into_iter().map(|(_, e)| e)));
-            }
-        }
+        lod.edge.instant = lod.block_entities.is_empty() && lod.edge.leaving.is_empty();
+        leave_squares(&mut commands, &mut lod, &squares);
     }
     // Which cells are loaded, and which are fully drawn, per level-4 square.
     let full: HashSet<Grid> = streamer.loaded.keys().filter(|c| !streamer.fades.contains_key(c)).copied().collect();
@@ -774,6 +964,12 @@ pub fn update_lod(
                     despawn_all(&mut commands, old.entities.into_iter().chain(old.pieces.into_iter().map(|(_, e)| e)));
                 }
                 let spawned = spawn_block(&mut commands, root, &mut lod, &mut models, model, sq, key, steps);
+                // A new square at the far edge fades in from culled (#3055).
+                if lod.edge.spawned(sq, &spawned, !had) {
+                    for &e in &spawned.entities {
+                        commands.entity(e).insert(fade::complement(fade::STEPS));
+                    }
+                }
                 lod.block_entities.insert(sq, spawned);
                 changed = true;
             }
@@ -795,6 +991,7 @@ pub fn update_lod(
         lod.generated = lod.terrain.values().filter(|t| t.drawn == Some(true)).count();
         lod.blocks = lod.block_entities.values().filter(|b| b.drawn).count();
     }
+    step_edge_fades(&mut commands, &mut lod, time.delta_secs());
 }
 
 fn spawn_entity(commands: &mut Commands, root: Entity, mesh: Handle<Mesh>, material: Handle<NifMaterial>, t: Transform, fade: Option<VisibilityRange>) -> Entity {
@@ -1156,6 +1353,129 @@ mod tests {
         assert_eq!(square_distance(p, (-2, 0), 1), CELL_SIZE + 100.0);
         let d = square_distance(p, (1, 1), 4);
         assert!((d - ((CELL_SIZE - 100.0).powi(2) + (CELL_SIZE - 200.0).powi(2)).sqrt()).abs() < 1e-2);
+    }
+
+    /// A square half the margin past `far` stays chosen while its block is drawn, and is
+    /// not taken when new (#3055).
+    #[test]
+    fn squares_keep_a_margin_past_far() {
+        let far = 125_000.0;
+        let half = far + FAR_MARGIN / 2.0;
+        assert!(keep_square(half, far, true));
+        assert!(!keep_square(half, far, false));
+        assert!(keep_square(far - 1.0, far, false));
+        assert!(!keep_square(far + FAR_MARGIN, far, true));
+        // Distant LOD reaching nowhere keeps nothing.
+        assert!(!keep_square(0.0, 0.0, true));
+    }
+
+    /// A whole block (no loaded cell) with one mesh.
+    fn block(world: &mut World) -> BlockEntities {
+        BlockEntities { entities: vec![world.spawn_empty().id()], drawn: true, ..default() }
+    }
+
+    fn edge(secs: f32) -> EdgeFades {
+        EdgeFades { secs, ..default() }
+    }
+
+    /// The fade's own steps: a second-long fade at quarter seconds goes through levels
+    /// 0.25, 0.5, 0.75 and 1, complement steps 16 - 4, 16 - 8, 16 - 12 and 0.
+    #[test]
+    fn edge_fade_steps() {
+        let mut f = EdgeFade::coming();
+        assert_eq!(f.advance(0.25, 1.0), (Some(12), false));
+        assert_eq!(f.advance(0.25, 1.0), (Some(8), false));
+        assert_eq!(f.advance(0.25, 1.0), (Some(4), false));
+        assert_eq!(f.advance(0.25, 1.0), (Some(0), true));
+        // Turned back half-way, it fades out from where it is.
+        let mut f = EdgeFade::coming();
+        f.advance(0.5, 1.0);
+        f.leaving = true;
+        assert_eq!(f.advance(0.25, 1.0), (Some(12), false));
+        assert_eq!(f.advance(0.25, 1.0), (Some(16), true));
+        // A step too small to move the dither inserts nothing (0.001 of a level rounds
+        // to step 0).
+        let mut f = EdgeFade::coming();
+        assert_eq!(f.advance(0.01, 10.0), (None, false));
+        // 0 seconds: to the end at once.
+        assert_eq!(EdgeFade::going().advance(0.016, 0.0), (Some(16), true));
+        assert_eq!(EdgeFade::coming().advance(0.016, 0.0), (Some(0), true));
+    }
+
+    /// A new block fades in from culled, is left alone once fully drawn, and only when
+    /// fades are on, outside the first fill, for a block drawn whole.
+    #[test]
+    fn edge_blocks_fade_in() {
+        let mut w = World::new();
+        let b = block(&mut w);
+        let e = b.entities[0];
+        let mut fades = edge(1.0);
+        assert!(fades.spawned((0, 0), &b, true));
+        let drawn: HashMap<Grid, BlockEntities> = [((0, 0), b)].into();
+        assert_eq!(fades.advance(0.5, &drawn), (vec![(e, 8)], vec![]));
+        assert_eq!(fades.advance(0.5, &drawn), (vec![(e, 0)], vec![]));
+        assert!(fades.fades.is_empty());
+        assert_eq!(fades.advance(0.5, &drawn), (vec![], vec![]));
+        let b = &drawn[&(0, 0)];
+        // A rebuild (not new) does not fade, and ends a fade under way.
+        let mut fades = edge(1.0);
+        fades.spawned((0, 0), b, true);
+        assert!(!fades.spawned((0, 0), b, false));
+        assert!(fades.fades.is_empty());
+        // Fades off, the first fill, a block split by cell, nothing drawn: no fade.
+        assert!(!edge(0.0).spawned((0, 0), b, true));
+        let mut first = edge(1.0);
+        first.instant = true;
+        assert!(!first.spawned((0, 0), b, true));
+        let split = BlockEntities { key: BlockKey { full: 0, present: 1 }, ..block(&mut w) };
+        assert!(!edge(1.0).spawned((0, 0), &split, true));
+        assert!(!edge(1.0).spawned((0, 0), &BlockEntities::default(), true));
+    }
+
+    /// A block leaving range fades out and is then handed back to despawn; chosen again
+    /// half-way, it fades back in from where it was; with fades off it goes at once.
+    #[test]
+    fn edge_blocks_fade_out() {
+        let mut w = World::new();
+        let none = HashMap::new();
+        let b = block(&mut w);
+        let e = b.entities[0];
+        let mut fades = edge(1.0);
+        assert!(fades.leave((0, 0), b).is_none());
+        assert_eq!(fades.advance(0.5, &none), (vec![(e, 8)], vec![]));
+        assert_eq!(fades.advance(0.5, &none), (vec![], vec![e]));
+        assert!(fades.fades.is_empty() && fades.leaving.is_empty());
+
+        // Back half-way: the same entity fades in again, from step 8.
+        let b = block(&mut w);
+        let e = b.entities[0];
+        let mut fades = edge(1.0);
+        fades.leave((0, 0), b);
+        fades.advance(0.5, &none);
+        let back = fades.back((0, 0)).expect("still fading out");
+        assert_eq!(back.entities, vec![e]);
+        let drawn: HashMap<Grid, BlockEntities> = [((0, 0), back)].into();
+        assert_eq!(fades.advance(0.25, &drawn), (vec![(e, 4)], vec![]));
+        assert_eq!(fades.advance(0.25, &drawn), (vec![(e, 0)], vec![]));
+        assert!(fades.fades.is_empty());
+        assert!(fades.back((0, 0)).is_none());
+
+        // Fading in and then leaving: it fades out from its level.
+        let b = block(&mut w);
+        let e = b.entities[0];
+        let mut fades = edge(1.0);
+        fades.spawned((0, 0), &b, true);
+        let drawn: HashMap<Grid, BlockEntities> = [((0, 0), BlockEntities { entities: vec![e], ..default() })].into();
+        assert_eq!(fades.advance(0.25, &drawn), (vec![(e, 12)], vec![]));
+        assert!(fades.leave((0, 0), b).is_none());
+        assert_eq!(fades.advance(0.25, &none), (vec![], vec![e]));
+
+        // Fades off, or a block split by cell: despawned now.
+        assert!(edge(0.0).leave((0, 0), block(&mut w)).is_some());
+        let split = BlockEntities { key: BlockKey { full: 0, present: 1 }, ..block(&mut w) };
+        let mut fades = edge(1.0);
+        assert!(fades.leave((0, 0), split).is_some());
+        assert!(fades.fades.is_empty() && fades.leaving.is_empty());
     }
 
     /// The chosen chunks tile the ground without overlaps, use level 4 within `near` and
