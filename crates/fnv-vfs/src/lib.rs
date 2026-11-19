@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
+mod casefold;
+
 /// What every [`Vfs`] of the process has read so far (issue #2407): files, stored bytes,
 /// time spent in the reads themselves (the archive's seek and read, a loose file's read;
 /// not inflating) and time spent waiting for another reader's turn on the same archive.
@@ -358,6 +360,7 @@ impl Vfs {
     }
 
     fn index_loose(&mut self, root: &Path) {
+        casefold::fold_mod_tree(root);
         if !self.loose_roots.iter().any(|r| r == root) {
             self.loose_roots.push(root.to_path_buf());
         }

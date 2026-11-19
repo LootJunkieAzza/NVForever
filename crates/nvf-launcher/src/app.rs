@@ -11,7 +11,7 @@ use eframe::egui::{self, load::Bytes, Align, Color32, CornerRadius, Frame, Layou
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use fnv_install::{guard_write, ini_get, ini_pairs, ini_set, plugins, write_whole, Config, EngineHome, GameInstall};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver};
@@ -100,6 +100,14 @@ pub struct App {
     mods_dirty: bool,
     /// The row being dragged on the Mods page.
     mods_drag: Option<usize>,
+    /// Mod folders on the left of the Mods page. A lower row overwrites on Apply.
+    mod_rows: Vec<ModRow>,
+    /// The mod-folder row being dragged.
+    mod_drag: Option<usize>,
+    /// Plugin names found when the Mods page was opened or refreshed.
+    mods_present: HashSet<String>,
+    /// Bottom bar height. Saved when the user lets go of the grip.
+    bar_h: f32,
     /// The displays, for the Resolution and Monitor lists (asked once at start).
     monitors: Vec<crate::display::Monitor>,
     /// The Language list (the language files found at start).
@@ -135,6 +143,11 @@ pub struct App {
     shot: Option<(PathBuf, u32)>,
 }
 
+struct ModRow {
+    name: String,
+    on: bool,
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> App {
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -164,6 +177,10 @@ impl App {
             mods: None,
             mods_dirty: false,
             mods_drag: None,
+            mod_rows: Vec::new(),
+            mod_drag: None,
+            mods_present: HashSet::new(),
+            bar_h: 86.0,
             monitors: crate::display::monitors(),
             languages: crate::display::language_choices(&fnv_util::words::dirs(
                 std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())).as_deref(),
@@ -220,6 +237,7 @@ impl App {
         };
         // The INI first: the mod list's sync needs its game folder.
         app.reload_ini();
+        app.bar_h = ini_get(&app.ini_text, LAUNCHER, "BottomBar").and_then(|s| s.parse::<f32>().ok()).unwrap_or(86.0).clamp(28.0, 280.0);
         if app.page == Page::Mods {
             app.load_mods();
         }
@@ -667,16 +685,31 @@ impl App {
     }
 
     fn bottom_bar(&mut self, root: &mut egui::Ui, ctx: &egui::Context, running: bool) {
-        egui::Panel::bottom("bottom").frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::symmetric(16, 10)).stroke(Stroke::new(1.0, LINE))).show(root, |ui| {
+        let pad_y: i8 = if self.bar_h < 52.0 { 1 } else { 6 };
+        egui::Panel::bottom("bottom").exact_size(self.bar_h.clamp(28.0, 280.0)).resizable(false).frame(Frame::new().fill(theme::PANEL).inner_margin(Margin::symmetric(12, pad_y)).stroke(Stroke::new(1.0, LINE))).show(root, |ui| {
+            let (grip, grip_resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 6.0), Sense::drag());
+            if grip_resp.hovered() || grip_resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            }
+            let mid = grip.center().x;
+            let grip_color = if grip_resp.hovered() || grip_resp.dragged() { GOLD } else { WEAK };
+            ui.painter().line_segment([egui::pos2(mid - 22.0, grip.center().y), egui::pos2(mid + 22.0, grip.center().y)], Stroke::new(3.0, grip_color));
+            if grip_resp.dragged() {
+                self.bar_h = (self.bar_h - grip_resp.drag_delta().y).clamp(28.0, 280.0);
+            }
+            if grip_resp.drag_stopped() {
+                self.set_launcher_key("BottomBar", &format!("{:.0}", self.bar_h));
+            }
+            let bar_h = ui.available_height().clamp(12.0, 240.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("v{}", version())).size(20.0).strong().color(WEAK));
+                ui.label(RichText::new(format!("v{}", version())).size((bar_h * 0.42).clamp(10.0, 22.0)).strong().color(WEAK));
                 if let Some((m, bad)) = &self.message {
                     ui.add_space(16.0);
                     ui.label(RichText::new(m).color(if *bad { BAD } else { GOOD }));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_enabled_ui(!running, |ui| {
-                        ui.menu_button(RichText::new("More").size(15.0), |ui| {
+                        ui.menu_button(RichText::new("More").size((bar_h * 0.26).clamp(10.0, 28.0)), |ui| {
                             if ui.button("New game").clicked() {
                                 self.start(ctx, Start::NewGame);
                                 ui.close();
@@ -700,16 +733,16 @@ impl App {
                             Some(s) => ("Continue".to_string(), format!("{} · {}", s.name, s.detail), Some(Start::Load(s.path.clone()))),
                             None => ("Play".to_string(), "new game from the main menu".to_string(), Some(Start::MainMenu)),
                         };
-                        if big_button(ui, &title, &sub, true).clicked() {
+                        if big_button(ui, &title, &sub, true, bar_h).clicked() {
                             if let Some(s) = start {
                                 self.start(ctx, s);
                             }
                         }
-                        if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false).clicked() {
+                        if self.newest.is_some() && !running && big_button(ui, "Main menu", "load or start a game", false, bar_h).clicked() {
                             self.start(ctx, Start::MainMenu);
                         }
                         if let Some(shot) = self.newest.as_ref().and_then(|s| s.shot.clone()) {
-                            ui.add(egui::Image::from_bytes("bytes://newest-save.png", Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(96.0, 54.0)).corner_radius(3));
+                            ui.add(egui::Image::from_bytes("bytes://newest-save.png", Bytes::Shared(shot)).fit_to_exact_size(Vec2::new(bar_h * 1.7, bar_h * 0.95)).corner_radius(3));
                         }
                     });
                 });
@@ -721,6 +754,101 @@ impl App {
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
+
+fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
+    let mods = home.mods();
+    let mut found = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&mods) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() || !path.is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else { continue };
+            if name.starts_with('.') {
+                continue;
+            }
+            found.push(name);
+        }
+    }
+    found.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+    let text = std::fs::read_to_string(home.root.join("mod-order.txt")).unwrap_or_default();
+    let mut order = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with(';') || t.starts_with('#') {
+            continue;
+        }
+        let (on, name) = match t.strip_prefix('*') {
+            Some(rest) => (true, rest.trim()),
+            None => (false, t),
+        };
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(real) = found.iter().find(|n| n.eq_ignore_ascii_case(name)) {
+            if !order.iter().any(|m: &ModRow| m.name.eq_ignore_ascii_case(real)) {
+                order.push(ModRow { name: real.clone(), on });
+            }
+        }
+    }
+    for name in found {
+        if !order.iter().any(|m| m.name.eq_ignore_ascii_case(&name)) {
+            order.push(ModRow { name, on: true });
+        }
+    }
+    order
+}
+
+fn data_root_of(src: &Path) -> PathBuf {
+    let direct = src.join("Data");
+    if direct.is_dir() {
+        return direct;
+    }
+    if let Ok(rd) = std::fs::read_dir(src) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("Data").is_dir() {
+                return path.join("Data");
+            }
+        }
+    }
+    src.to_path_buf()
+}
+
+fn copy_data_tree(src: &Path, dest: &Path) -> Result<(), String> {
+    let from = data_root_of(src);
+    let mut stack = vec![from.clone()];
+    while let Some(dir) = stack.pop() {
+        let rd = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_symlink() {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with(".esm") || lower.ends_with(".esp") {
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(&from) else { continue };
+            let target = dest.join(rel);
+            if target.starts_with(src) {
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::copy(&path, &target).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn nav_button(ui: &mut egui::Ui, name: &str, on: bool) -> egui::Response {
     let text = RichText::new(name).font(crate::fonts::title(15.0)).color(if on { GOLD } else { theme::TEXT });
     let b = egui::Button::new(text)
@@ -746,8 +874,9 @@ fn gold_button(text: &str, on: bool) -> egui::Button<'static> {
 }
 
 /// A large two-line button (title and a small line under it), gold when `primary`.
-fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool) -> egui::Response {
-    let size = Vec2::new(if primary { 280.0 } else { 190.0 }, 58.0);
+fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool, height: f32) -> egui::Response {
+    let height = height.clamp(12.0, 180.0);
+    let size = Vec2::new(if primary { height * 4.8 } else { height * 3.3 }, height);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     let fill = match (primary, resp.hovered() && enabled) {
@@ -763,8 +892,8 @@ fn big_button(ui: &mut egui::Ui, title: &str, sub: &str, primary: bool) -> egui:
     let left = rect.left() + 18.0;
     let c = egui::pos2(left + 10.0, rect.center().y);
     p.add(egui::Shape::convex_polygon(vec![c + Vec2::new(-7.0, -9.0), c + Vec2::new(9.0, 0.0), c + Vec2::new(-7.0, 9.0)], ink, Stroke::NONE));
-    p.text(egui::pos2(left + 34.0, rect.top() + 10.0), egui::Align2::LEFT_TOP, title, crate::fonts::title(20.0), ink);
-    let sub_font = egui::FontId::proportional(11.5);
+    p.text(egui::pos2(left + 34.0, rect.top() + height * 0.16), egui::Align2::LEFT_TOP, title, crate::fonts::title((height * 0.34).clamp(9.0, 28.0)), ink);
+    let sub_font = egui::FontId::proportional((height * 0.2).clamp(8.0, 16.0));
     let max = rect.right() - left - 44.0;
     let mut s = sub.to_string();
     let mut chars: Vec<char> = sub.chars().collect();
@@ -1445,14 +1574,23 @@ impl App {
 
     fn load_mods(&mut self) {
         self.mods_dirty = false;
+        self.mod_drag = None;
         let Some(home) = self.home.clone() else { return };
-        // Give the plugins new in Data or the mods folder their lines, as the game's start does.
         if let Some(game) = self.game() {
-            if let Err(e) = plugins::sync(&home, &game) {
-                self.message = Some((e.to_string(), true));
+            match plugins::sync(&home, &game) {
+                Ok(synced) => {
+                    self.mods_present = synced.present.into_iter().map(|s| s.to_ascii_lowercase()).collect();
+                }
+                Err(e) => {
+                    self.message = Some((e.to_string(), true));
+                    self.mods_present.clear();
+                }
             }
+        } else {
+            self.mods_present.clear();
         }
         self.mods = std::fs::read_to_string(home.plugins_file()).ok().map(|t| plugins::PluginList::parse(&t));
+        self.mod_rows = load_mod_rows(&home);
     }
 
     fn mods_page(&mut self, ui: &mut egui::Ui) {
@@ -1472,6 +1610,12 @@ impl App {
                 if ui.add_enabled(self.mods_dirty, egui::Button::new("Undo changes")).clicked() {
                     self.load_mods();
                 }
+                if ui.button("Refresh").clicked() {
+                    self.load_mods();
+                    if self.message.as_ref().is_none_or(|(_, bad)| !*bad) {
+                        self.message = Some(("Mods folder refreshed.".into(), false));
+                    }
+                }
                 if let Some(h) = &self.home {
                     if ui.button("Open mods folder").clicked() {
                         let _ = std::fs::create_dir_all(h.mods());
@@ -1485,33 +1629,131 @@ impl App {
                 .small()
                 .color(WEAK),
         );
+        ui.label(RichText::new("Left: every mod folder. Right: the plugin load order.").small().color(WEAK));
         self.start_box(ui);
         ui.separator();
+        let list_h = (ui.available_height() - 40.0).max(80.0);
+        ui.horizontal(|ui| {
+            let left_w = (ui.available_width() * 0.42).max(220.0);
+            ui.allocate_ui_with_layout(Vec2::new(left_w, list_h), Layout::top_down(Align::Min), |ui| {
+                ui.set_min_size(Vec2::new(left_w, list_h));
+                self.mod_column(ui);
+            });
+            let right_w = ui.available_width();
+            ui.allocate_ui_with_layout(Vec2::new(right_w, list_h), Layout::top_down(Align::Min), |ui| {
+                ui.set_min_size(Vec2::new(right_w, list_h));
+                self.plugin_column(ui);
+            });
+        });
+        ui.add_space(6.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if ui.button("Apply").clicked() {
+                match self.apply_mods() {
+                    Ok(n) => self.message = Some((format!("Copied data folders from {n} mods."), false)),
+                    Err(e) => self.message = Some((e, true)),
+                }
+            }
+        });
+    }
+
+    fn mod_column(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("MODS").small().color(GOLD));
+        egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
+            if self.mod_rows.is_empty() {
+                ui.label(RichText::new("No folders in the mods folder.").small().color(WEAK));
+                return;
+            }
+            let n = self.mod_rows.len();
+            let mut moved: Option<(usize, usize)> = None;
+            let mut rects = Vec::with_capacity(n);
+            for i in 0..n {
+                let name = self.mod_rows[i].name.clone();
+                let mut on = self.mod_rows[i].on;
+                let dragged = self.mod_drag == Some(i);
+                let fill = if dragged { theme::SELECTED } else { CARD };
+                let stroke = if dragged { Stroke::new(1.0, theme::GOLD_DIM) } else { Stroke::NONE };
+                let mut box_changed = false;
+                let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-folder", i)).sense(Sense::click_and_drag()), |ui| {
+                    Frame::new().fill(fill).stroke(stroke).corner_radius(4).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let (grip, _) = ui.allocate_exact_size(Vec2::new(14.0, 18.0), Sense::hover());
+                            let c = if dragged { GOLD } else { WEAK };
+                            for k in [-4.0, 0.0, 4.0] {
+                                let y = grip.center().y + k;
+                                ui.painter().line_segment([egui::pos2(grip.left() + 1.0, y), egui::pos2(grip.right() - 1.0, y)], Stroke::new(1.5, c));
+                            }
+                            if ui.checkbox(&mut on, "").changed() {
+                                box_changed = true;
+                            }
+                            ui.label(&name);
+                        });
+                    });
+                });
+                if box_changed {
+                    self.mod_rows[i].on = on;
+                    self.mods_dirty = true;
+                }
+                let resp = row.response;
+                if resp.drag_started() {
+                    self.mod_drag = Some(i);
+                }
+                let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
+                rects.push(resp.rect);
+            }
+            if let Some(from) = self.mod_drag {
+                let ctx = ui.ctx().clone();
+                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                if let Some(pos) = ctx.pointer_latest_pos() {
+                    let centers: Vec<f32> = rects.iter().map(|r| r.center().y).collect();
+                    let gap = insertion_index(&centers, pos.y);
+                    if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
+                        let y = if gap < rects.len() { rects[gap].top() - ui.spacing().item_spacing.y / 2.0 } else { last.bottom() + ui.spacing().item_spacing.y / 2.0 };
+                        ui.painter().line_segment([egui::pos2(first.left(), y), egui::pos2(first.right(), y)], Stroke::new(2.0, GOLD));
+                    }
+                    let clip = ui.clip_rect();
+                    let edge = 36.0;
+                    if pos.y < clip.top() + edge {
+                        ui.scroll_with_delta(Vec2::new(0.0, 8.0));
+                    } else if pos.y > clip.bottom() - edge {
+                        ui.scroll_with_delta(Vec2::new(0.0, -8.0));
+                    }
+                    ctx.request_repaint();
+                    if !ctx.input(|i| i.pointer.any_down()) {
+                        self.mod_drag = None;
+                        let to = move_target(from, gap);
+                        if to != from {
+                            moved = Some((from, to));
+                        }
+                    }
+                }
+            }
+            if let Some((from, to)) = moved {
+                let row = self.mod_rows.remove(from);
+                self.mod_rows.insert(to, row);
+                self.mods_dirty = true;
+            }
+        });
+    }
+
+    fn plugin_column(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("PLUGINS").small().color(GOLD));
         let Some(list) = &mut self.mods else {
             ui.label("No plugin list yet: set the game folder first, or start the game once.");
             return;
         };
-        let present: HashSet<String> = self
-            .home
-            .as_ref()
-            .zip(Config::from_ini(&self.ini_text).game_dir.and_then(|d| GameInstall::open(d).ok()))
-            .and_then(|(h, g)| plugins::present_plugins(&g, &h.mods()).ok())
-            .map(|v| v.into_iter().map(|s| s.to_ascii_lowercase()).collect())
-            .unwrap_or_default();
+        let present = self.mods_present.clone();
         let n = list.entries.len();
         let is_base: Vec<bool> = list.entries.iter().map(|e| e.name.eq_ignore_ascii_case("FalloutNV.esm")).collect();
-        // The rows at the top that stay there (FalloutNV.esm): nothing moves above them.
         let fixed = is_base.iter().take_while(|b| **b).count();
         let mut moved: Option<(usize, usize)> = None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("plugin-rows").auto_shrink([false, false]).show(ui, |ui| {
             let mut rects = Vec::with_capacity(n);
             for (i, e) in list.entries.iter_mut().enumerate() {
                 let base = is_base[i];
                 let dragged = self.mods_drag == Some(i);
                 let fill = if dragged { theme::SELECTED } else { CARD };
                 let stroke = if dragged { Stroke::new(1.0, theme::GOLD_DIM) } else { Stroke::NONE };
-                // The whole row drags (its sense sits below the checkbox's, so the box keeps its
-                // clicks); a click on the name turns the plugin on or off.
                 let sense = if base { Sense::hover() } else { Sense::click_and_drag() };
                 let mut name_rect = egui::Rect::NOTHING;
                 let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-row", i)).sense(sense), |ui| {
@@ -1519,7 +1761,6 @@ impl App {
                     Frame::new().fill(fill).stroke(stroke).corner_radius(4).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            // The grip: three short lines, drawn (the system font has no grip glyph).
                             let (grip, _) = ui.allocate_exact_size(Vec2::new(14.0, 18.0), Sense::hover());
                             if !base {
                                 let c = if hot { GOLD } else { WEAK };
@@ -1558,12 +1799,10 @@ impl App {
             let Some(pos) = ctx.pointer_latest_pos() else { return };
             let centers: Vec<f32> = rects.iter().map(|r| r.center().y).collect();
             let gap = insertion_index(&centers, pos.y).max(fixed);
-            // The gold line where the row will land.
             if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
                 let y = if gap < rects.len() { rects[gap].top() - ui.spacing().item_spacing.y / 2.0 } else { last.bottom() + ui.spacing().item_spacing.y / 2.0 };
                 ui.painter().line_segment([egui::pos2(first.left(), y), egui::pos2(first.right(), y)], Stroke::new(2.0, GOLD));
             }
-            // Near the list's top or bottom edge, scroll.
             let clip = ui.clip_rect();
             let edge = 36.0;
             if pos.y < clip.top() + edge {
@@ -1585,6 +1824,42 @@ impl App {
             list.entries.insert(to, e);
             self.mods_dirty = true;
         }
+    }
+
+    fn write_mod_order(&self) -> Result<(), String> {
+        let home = self.home.as_ref().ok_or("no home folder")?;
+        let path = home.root.join("mod-order.txt");
+        let mut body = String::from("; A star means Apply includes this folder.\n");
+        for row in &self.mod_rows {
+            if row.on {
+                body.push('*');
+            }
+            body.push_str(&row.name);
+            body.push('\n');
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn apply_mods(&mut self) -> Result<usize, String> {
+        let home = self.home.clone().ok_or("no home folder")?;
+        self.write_mod_order()?;
+        let mods = home.mods();
+        let mut n = 0usize;
+        for row in &self.mod_rows {
+            if !row.on {
+                continue;
+            }
+            let src = mods.join(&row.name);
+            if !src.is_dir() {
+                continue;
+            }
+            copy_data_tree(&src, &mods)?;
+            n += 1;
+        }
+        Ok(n)
     }
 
     /// A new game's start (src/start.rs, #2945): the start quest and intro film typed in,
@@ -1651,7 +1926,8 @@ impl App {
         let (Some(home), Some(list)) = (&self.home, &self.mods) else { return Err("no plugin list".into()) };
         let path = home.plugins_file();
         guard_write(&path, self.game().as_ref()).map_err(|e| e.to_string())?;
-        write_whole(&path, list.to_text().as_bytes()).map_err(|e| e.to_string())
+        write_whole(&path, list.to_text().as_bytes()).map_err(|e| e.to_string())?;
+        self.write_mod_order()
     }
 
     fn game_page(&mut self, ui: &mut egui::Ui) {

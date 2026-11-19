@@ -77,6 +77,8 @@ pub struct PluginSync {
     pub base_forced: bool,
     /// The file was written (made, or lines added).
     pub written: bool,
+    /// Every plugin found by this scan. The Mods page keeps it instead of scanning again.
+    pub present: Vec<String>,
 }
 
 fn is_plugin(name: &str) -> bool {
@@ -153,12 +155,176 @@ pub fn data_plugins(game: &GameInstall) -> Result<Vec<String>, InstallError> {
 /// The plugins of `Data` and of the mods folder `mods` together, in [`data_plugins`]'
 /// order; a name in both is listed once, as the mods folder names it. A missing mods
 /// folder has no plugins.
+fn skip_plugin_dir(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.starts_with('.') || matches!(n.as_str(), "meshes" | "textures" | "sound" | "music" | "video" | "menus" | "interface" | "scripts" | "facegen" | "shaders" | "lodsettings" | "trees" | "materials" | "distantlod" | "lsdata" | "fomod" | "meta" | "optional" | "docs" | "source" | "__macosx" | "target")
+}
+
+fn walk_plugins(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
+    if depth == 0 || dir.is_symlink() {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut dirs = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_symlink() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if path.is_dir() {
+            if !skip_plugin_dir(name) {
+                dirs.push(path);
+            }
+        } else if path.is_file() && is_plugin(name) && !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            out.push((name.to_string(), path));
+        }
+    }
+    for child in dirs {
+        walk_plugins(&child, depth - 1, out);
+    }
+}
+
+fn mod_plugin_map(root: &Path) -> std::sync::Arc<std::collections::HashMap<String, PathBuf>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Arc<std::collections::HashMap<String, PathBuf>>>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(found) = guard.get(root) {
+        return std::sync::Arc::clone(found);
+    }
+    let mut listed = Vec::new();
+    if root.is_dir() {
+        walk_plugins(root, 8, &mut listed);
+    }
+    let mut map = std::collections::HashMap::new();
+    for (name, path) in listed {
+        map.insert(name.to_ascii_lowercase(), path);
+    }
+    let map = std::sync::Arc::new(map);
+    guard.insert(root.to_path_buf(), std::sync::Arc::clone(&map));
+    map
+}
+
+fn skip_outside_dir(name: &str) -> bool {
+    skip_plugin_dir(name) || matches!(name, "steamapps" | "NVForever")
+}
+
+fn collect_outside(dir: &Path, depth: u8, out: &mut Vec<(String, PathBuf)>) {
+    if depth == 0 || dir.is_symlink() {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_symlink() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if path.is_dir() {
+            if !skip_outside_dir(name) {
+                collect_outside(&path, depth - 1, out);
+            }
+        } else if path.is_file() && is_plugin(name) && !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            out.push((name.to_string(), path));
+        }
+    }
+}
+
+fn outside_plugins() -> &'static [(String, PathBuf)] {
+    static FOUND: std::sync::OnceLock<Vec<(String, PathBuf)>> = std::sync::OnceLock::new();
+    FOUND.get_or_init(|| {
+        if std::env::var_os("NVFOREVER_NO_PLUGIN_SEARCH").is_some() {
+            return Vec::new();
+        }
+        let mut roots = Vec::new();
+        let media = PathBuf::from("/run/media/original-none");
+        if media.is_dir() {
+            roots.push(media);
+        }
+        if let Some(extra) = std::env::var_os("NVFOREVER_PLUGIN_SEARCH") {
+            for part in extra.to_string_lossy().split(':') {
+                let path = PathBuf::from(part);
+                if path.is_dir() {
+                    roots.push(path);
+                }
+            }
+        }
+        if roots.is_empty() {
+            return Vec::new();
+        }
+        eprintln!("warning: a listed plugin is not in the mods folder or Data. Searching once outside them. The game Data folder is not written.");
+        let mut out = Vec::new();
+        for root in roots {
+            collect_outside(&root, 10, &mut out);
+        }
+        out
+    })
+    .as_slice()
+}
+
+fn crosses_devices(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(18) || err.kind() == std::io::ErrorKind::CrossesDevices
+}
+
+fn symlink_file(src: &Path, dest: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(src, dest)
+    }
+    #[cfg(not(unix))]
+    {
+        std::os::windows::fs::symlink_file(src, dest)
+    }
+}
+
+fn link_into_mods(mods: &Path, data: &Path, src: &Path, name: &str) -> Option<PathBuf> {
+    let dest = mods.join(name);
+    if dest.starts_with(data) || mods.starts_with(data) {
+        eprintln!("warning: plugin {name} was found at {}. Refusing to link or copy it into the game Data folder. That would change the game install.", src.display());
+        return Some(src.to_path_buf());
+    }
+    if dest.is_file() {
+        return Some(dest);
+    }
+    if let Err(err) = std::fs::create_dir_all(mods) {
+        eprintln!("warning: plugin {name} found at {} but {} could not be made: {err}", src.display(), mods.display());
+        return Some(src.to_path_buf());
+    }
+    match std::fs::hard_link(src, &dest) {
+        Ok(()) => {
+            eprintln!("warning: plugin {name} hardlinked into {} from {}. The game Data folder was not written. A later VFS open will not need this link.", mods.display(), src.display());
+            Some(dest)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Some(dest),
+        Err(err) if crosses_devices(&err) => match symlink_file(src, &dest) {
+            Ok(()) => {
+                eprintln!("warning: plugin {name} symlinked into {} from {} because a hard link cannot cross disks. The game Data folder was not written.", mods.display(), src.display());
+                Some(dest)
+            }
+            Err(link_err) if std::env::var_os("NVFOREVER_PLUGIN_COPY").is_some() => match std::fs::copy(src, &dest) {
+                Ok(_) => {
+                    eprintln!("warning: plugin {name} copied into {} because the link failed ({link_err}). The game Data folder was still not written.", mods.display());
+                    Some(dest)
+                }
+                Err(copy_err) => {
+                    eprintln!("warning: plugin {name} found at {} but could not be linked or copied: {copy_err}", src.display());
+                    Some(src.to_path_buf())
+                }
+            },
+            Err(link_err) => {
+                eprintln!("warning: plugin {name} found at {} but could not be linked ({link_err}). Set NVFOREVER_PLUGIN_COPY=1 to copy it into the mods folder.", src.display());
+                Some(src.to_path_buf())
+            }
+        },
+        Err(err) => {
+            eprintln!("warning: plugin {name} found at {} but could not be linked: {err}. It will be read from where it is.", src.display());
+            Some(src.to_path_buf())
+        }
+    }
+}
+
 pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, InstallError> {
-    let mut names = match plugins_in(mods) {
-        Ok(n) => n,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => return Err(InstallError::Io(mods.to_path_buf(), e)),
-    };
+    let mut names: Vec<String> = mod_plugin_map(mods).values().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
     for d in plugins_in(&game.data).map_err(|e| InstallError::Io(game.data.clone(), e))? {
         if !names.iter().any(|n| n.eq_ignore_ascii_case(&d)) {
             names.push(d);
@@ -168,16 +334,36 @@ pub fn present_plugins(game: &GameInstall, mods: &Path) -> Result<Vec<String>, I
     Ok(names)
 }
 
-/// The file to open for plugin `name`: the mods folder's copy when `mods` has one (any
-/// case), else `Data`'s (any case), else `data/name`.
 pub fn plugin_path(data: &Path, mods: Option<&Path>, name: &str) -> PathBuf {
-    mods.and_then(|m| child_ci(m, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
+    if let Some(m) = mods {
+        if let Some(path) = mod_plugin_map(m).get(&name.to_ascii_lowercase()) {
+            return path.clone();
+        }
+    }
+    child_ci(data, name).filter(|p| p.is_file()).unwrap_or_else(|| data.join(name))
 }
 
-/// [`plugin_path`] over the mods folders `roots`, highest precedence first (issue #1526:
-/// an MO2 profile's overwrite folder, then its mods from the highest priority down).
 pub fn plugin_path_in(data: &Path, roots: &[PathBuf], name: &str) -> PathBuf {
-    roots.iter().find_map(|r| child_ci(r, name)).or_else(|| child_ci(data, name)).unwrap_or_else(|| data.join(name))
+    let key = name.to_ascii_lowercase();
+    for root in roots {
+        if let Some(path) = mod_plugin_map(root).get(&key) {
+            return path.clone();
+        }
+        if let Some(path) = child_ci(root, name).filter(|p| p.is_file()) {
+            return path;
+        }
+    }
+    if let Some(path) = child_ci(data, name).filter(|p| p.is_file()) {
+        return path;
+    }
+    if let Some(mods) = roots.first() {
+        if let Some((_, src)) = outside_plugins().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            if let Some(path) = link_into_mods(mods, data, src, name) {
+                return path;
+            }
+        }
+    }
+    data.join(name)
 }
 
 impl PluginList {
@@ -309,8 +495,9 @@ pub fn sync(home: &EngineHome, game: &GameInstall) -> Result<PluginSync, Install
         crate::write_whole(&path, list.to_text().as_bytes())?;
     }
     let (load, missing, base_forced) = list.load_order(&present);
-    let from_mods = load.iter().filter(|n| child_ci(&mods, n).is_some()).cloned().collect();
-    Ok(PluginSync { load, from_mods, added, missing, base_forced, written })
+    let found = mod_plugin_map(&mods);
+    let from_mods = load.iter().filter(|n| found.contains_key(&n.to_ascii_lowercase())).cloned().collect();
+    Ok(PluginSync { load, from_mods, added, missing, base_forced, written, present })
 }
 
 #[cfg(test)]
