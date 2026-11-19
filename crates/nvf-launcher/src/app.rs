@@ -890,6 +890,28 @@ fn mod_file_keys(folder: &Path) -> Vec<String> {
     out
 }
 
+fn pair_color(loser: &str, winner: &str) -> egui::Color32 {
+    const COLORS: [egui::Color32; 6] = [
+        egui::Color32::from_rgb(0xF0, 0xA3, 0x2A),
+        egui::Color32::from_rgb(0x6A, 0xB0, 0xE0),
+        egui::Color32::from_rgb(0x8C, 0xC0, 0x6A),
+        egui::Color32::from_rgb(0xE0, 0x6A, 0x50),
+        egui::Color32::from_rgb(0xC0, 0x84, 0xC8),
+        egui::Color32::from_rgb(0xE0, 0xC0, 0x6A),
+    ];
+    let mut h = 2166136261u32;
+    for b in loser.bytes().chain([0]).chain(winner.bytes()) {
+        h ^= b as u32;
+        h = h.wrapping_mul(16777619);
+    }
+    COLORS[(h as usize) % COLORS.len()]
+}
+
+fn note_files(files: &HashMap<String, Vec<String>>, folder: &str, plugin: &str) -> String {
+    let key = plugin.to_ascii_lowercase();
+    files.get(folder).and_then(|list| list.iter().find(|f| f.rsplit(['/', '\\']).next().unwrap_or(f).eq_ignore_ascii_case(&key)).cloned()).unwrap_or_else(|| plugin.to_string())
+}
+
 fn clash_notes(rows: &[(String, bool)], files: &HashMap<String, Vec<String>>) -> HashMap<String, Vec<Clash>> {
     let mut owners: HashMap<String, Vec<String>> = HashMap::new();
     for (name, on) in rows {
@@ -1884,11 +1906,13 @@ impl App {
                                     }
                                 });
                                 if let Some(notes) = self.clashes.get(&name) {
-                                    for note in notes {
-                                        let (mark, word, color) = if note.wins { ("\u{f0b32}", "overwrites", GOLD) } else { ("\u{f0dc6}", "overwritten by", BAD) };
-                                        let hover = format!("{word} {}\n{}", note.other, note.files.join("\n"));
-                                        ui.label(RichText::new(mark).size(16.0).color(color)).on_hover_text(hover);
-                                    }
+                                    ui.horizontal(|ui| {
+                                        for note in notes {
+                                            let color = if note.wins { pair_color(&note.other, &name) } else { pair_color(&name, &note.other) };
+                                            let mark = if note.wins { "\u{f0737}" } else { "\u{f072e}" };
+                                            ui.label(RichText::new(mark).size(16.0).color(color)).on_hover_text(note.files.join("\n"));
+                                        }
+                                    });
                                 }
                             });
                         });
@@ -1917,6 +1941,26 @@ impl App {
                 }
                 let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 rects.push(resp.rect);
+            }
+            let at: HashMap<String, usize> = self.mod_rows.iter().enumerate().map(|(n, r)| (r.name.clone(), n)).collect();
+            for (i, row) in self.mod_rows.iter().enumerate() {
+                let Some(notes) = self.clashes.get(&row.name) else { continue };
+                for note in notes {
+                    if !note.wins {
+                        continue;
+                    }
+                    let Some(&from) = at.get(&note.other) else { continue };
+                    if from >= rects.len() || i >= rects.len() {
+                        continue;
+                    }
+                    let color = pair_color(&note.other, &row.name);
+                    let lost = rects[from];
+                    let win = rects[i];
+                    let x = lost.right().min(win.right()) - 8.0;
+                    ui.painter().line_segment([egui::pos2(x, lost.center().y), egui::pos2(x, win.center().y)], Stroke::new(2.0, color));
+                    ui.painter().circle_stroke(egui::pos2(x, lost.center().y), 3.0, Stroke::new(1.5, color));
+                    ui.painter().circle_filled(egui::pos2(x, win.center().y), 3.0, color);
+                }
             }
             if let Some(from) = self.mod_drag {
                 let ctx = ui.ctx().clone();
@@ -2020,8 +2064,11 @@ impl App {
                             if let Some(have) = folders.get(&key).filter(|v| v.len() > 1) {
                                 if let Some(win) = have.last() {
                                     let lost: Vec<&str> = have[..have.len() - 1].iter().map(String::as_str).collect();
-                                    ui.label(RichText::new("\u{f0b32}").size(16.0).color(GOLD)).on_hover_text(format!("{win} overwrites this file"));
-                                    ui.label(RichText::new("\u{f0dc6}").size(16.0).color(BAD)).on_hover_text(format!("overwritten by {win}: {}", lost.join(", ")));
+                                    for loser in &lost {
+                                        let color = pair_color(loser, win);
+                                        ui.label(RichText::new("\u{f072e}").size(16.0).color(color)).on_hover_text(note_files(&self.folder_files, loser, &e.name));
+                                        ui.label(RichText::new("\u{f0737}").size(16.0).color(color)).on_hover_text(note_files(&self.folder_files, win, &e.name));
+                                    }
                                 }
                             }
                             if e.active {
