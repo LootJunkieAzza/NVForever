@@ -125,6 +125,12 @@ pub struct App {
     clashes: HashMap<String, Vec<Clash>>,
     /// The find box on the plugin list.
     plugin_find: String,
+    /// The find box on the mod list.
+    mod_find: String,
+    /// Lowercase plugin name last clicked, so its folder is marked on the left.
+    picked_plugin: Option<String>,
+    /// The left list should scroll to that folder once.
+    mod_jump: bool,
     /// How many older copies of the plugin list to keep.
     backup_keep: usize,
     /// Apply is asking before it saves.
@@ -221,6 +227,9 @@ impl App {
             folder_files: HashMap::new(),
             clashes: HashMap::new(),
             plugin_find: String::new(),
+            mod_find: String::new(),
+            picked_plugin: None,
+            mod_jump: false,
             backup_keep: 5,
             apply_ask: false,
             bar_h: 86.0,
@@ -1837,7 +1846,7 @@ impl App {
                 .small()
                 .color(WEAK),
         );
-        ui.label(RichText::new("Left: mod order. A check turns that mod's plugins on. Right: the plugin load order.").small().color(WEAK));
+        ui.label(RichText::new("Left: mod folders. A check turns that folder's plugins on. A lower folder's copy of a file is the one used. Right: plugins. Click one to mark its folder.").small().color(WEAK));
         self.backup_row(ui);
         self.start_box(ui);
         ui.separator();
@@ -1877,6 +1886,9 @@ impl App {
 
     fn mod_column(&mut self, ui: &mut egui::Ui) {
         ui.label(RichText::new("Mod Order").small().color(GOLD));
+        ui.add(egui::TextEdit::singleline(&mut self.mod_find).hint_text("Find a mod").desired_width(ui.available_width()));
+        let mod_find = self.mod_find.trim().to_ascii_lowercase();
+        let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
         egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
             if self.mod_rows.is_empty() {
                 ui.label(RichText::new("No folders in the mods folder.").small().color(WEAK));
@@ -1887,10 +1899,15 @@ impl App {
             let mut rects = Vec::with_capacity(n);
             for i in 0..n {
                 let name = self.mod_rows[i].name.clone();
+                if !mod_find.is_empty() && !name.to_ascii_lowercase().contains(&mod_find) {
+                    rects.push(egui::Rect::NOTHING);
+                    continue;
+                }
                 let mut on = self.mod_rows[i].on;
                 let dragged = self.mod_drag == Some(i);
-                let fill = if dragged { theme::SELECTED } else { CARD };
-                let stroke = if dragged { Stroke::new(1.0, theme::GOLD_DIM) } else { Stroke::NONE };
+                let shown = marked.as_deref() == Some(name.as_str());
+                let fill = if dragged || shown { theme::SELECTED } else { CARD };
+                let stroke = if dragged || shown { Stroke::new(1.0, if shown && !dragged { GOLD } else { theme::GOLD_DIM }) } else { Stroke::NONE };
                 let mut box_changed = false;
                 let row = ui.scope_builder(egui::UiBuilder::new().id_salt(("mod-folder", i)).sense(Sense::click_and_drag()), |ui| {
                     Frame::new().fill(fill).stroke(stroke).corner_radius(4).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
@@ -1910,17 +1927,23 @@ impl App {
                                     ui.label(&name);
                                     let count = self.folder_counts.get(&name).copied().unwrap_or(0);
                                     if count > 0 {
-                                        ui.label(RichText::new(count.to_string()).small().color(WEAK));
+                                        ui.label(RichText::new(count.to_string()).small().color(WEAK)).on_hover_text("Plugins in this folder.");
+                                    }
+                                    if shown {
+                                        ui.label(RichText::new("clicked plugin").small().color(GOLD));
                                     }
                                 });
                                 if let Some(notes) = self.clashes.get(&name) {
-                                    ui.horizontal(|ui| {
-                                        for note in notes {
-                                            let color = if note.wins { pair_color(&note.other, &name) } else { pair_color(&name, &note.other) };
-                                            let mark = if note.wins { "\u{f0737}" } else { "\u{f072e}" };
-                                            ui.label(RichText::new(mark).size(16.0).color(color)).on_hover_text(note.files.join("\n"));
-                                        }
-                                    });
+                                    for note in notes {
+                                        let n = note.files.len();
+                                        let word = if n == 1 { "file" } else { "files" };
+                                        let (color, line) = if note.wins {
+                                            (pair_color(&note.other, &name), format!("Its {n} {word} {} {}", if n == 1 { "replaces" } else { "replace" }, note.other))
+                                        } else {
+                                            (pair_color(&name, &note.other), format!("Its {n} {word} replaced by {}", note.other))
+                                        };
+                                        ui.label(RichText::new(line).small().color(color)).on_hover_text(note.files.join("\n"));
+                                    }
                                 }
                             });
                         });
@@ -1944,8 +1967,12 @@ impl App {
                     self.recompute_clashes();
                 }
                 let resp = row.response;
-                if resp.drag_started() {
+                if resp.drag_started() && mod_find.is_empty() {
                     self.mod_drag = Some(i);
+                }
+                if self.mod_jump && shown {
+                    ui.scroll_to_rect(resp.rect, Some(Align::Center));
+                    self.mod_jump = false;
                 }
                 let _ = resp.clone().on_hover_cursor(egui::CursorIcon::Grab);
                 rects.push(resp.rect);
@@ -1958,7 +1985,7 @@ impl App {
                         continue;
                     }
                     let Some(&from) = at.get(&note.other) else { continue };
-                    if from >= rects.len() || i >= rects.len() {
+                    if from >= rects.len() || i >= rects.len() || rects[from].width() <= 0.0 || rects[i].width() <= 0.0 {
                         continue;
                     }
                     let color = pair_color(&note.other, &row.name);
@@ -1970,7 +1997,7 @@ impl App {
                     ui.painter().circle_filled(egui::pos2(x, win.center().y), 3.0, color);
                 }
             }
-            if let Some(from) = self.mod_drag {
+            if mod_find.is_empty() { if let Some(from) = self.mod_drag {
                 let ctx = ui.ctx().clone();
                 ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
                 if let Some(pos) = ctx.pointer_latest_pos() {
@@ -1996,6 +2023,7 @@ impl App {
                         }
                     }
                 }
+            }
             }
             if let Some((from, to)) = moved {
                 let row = self.mod_rows.remove(from);
@@ -2063,8 +2091,14 @@ impl App {
                             if ui.add_enabled(!base, egui::Checkbox::without_text(&mut e.active)).changed() {
                                 self.mods_dirty = true;
                                 toggled = true;
+                                self.picked_plugin = Some(e.name.to_ascii_lowercase());
+                                self.mod_find.clear();
+                                self.mod_jump = true;
                             }
                             name_rect = ui.label(&e.name).rect;
+                            if let Some(folder) = self.plugin_home.get(&e.name.to_ascii_lowercase()) {
+                                ui.label(RichText::new(format!("in {folder}")).small().color(WEAK));
+                            }
                             let key = e.name.to_ascii_lowercase();
                             if !present.is_empty() && !present.contains(&key) {
                                 ui.label(RichText::new("missing").small().color(BAD));
@@ -2094,6 +2128,11 @@ impl App {
                 if !base {
                     if resp.drag_started() {
                         self.mods_drag = Some(i);
+                    }
+                    if resp.clicked() {
+                        self.picked_plugin = Some(e.name.to_ascii_lowercase());
+                        self.mod_find.clear();
+                        self.mod_jump = true;
                     }
                     if resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| name_rect.contains(p)) {
                         e.active = !e.active;
