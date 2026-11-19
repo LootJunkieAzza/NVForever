@@ -305,9 +305,13 @@ struct EdgeFades {
     /// Seconds a fade lasts (the cell fade's, `Streamer::fade_secs`); 0: blocks appear
     /// and go at once.
     secs: f32,
-    /// Blocks spawned now appear drawn: the first fill (at the start, after `set_enabled`
-    /// or a world change), when no block was drawn as the squares were chosen.
-    instant: bool,
+    /// Squares of the first fill (the first choice after the start, `set_enabled` or a
+    /// world change) still without their block: theirs appear drawn, as the cells loaded
+    /// at the start do, whenever their models are ready. Each leaves the set when its
+    /// block spawns or its square is no longer chosen.
+    first_fill: HashSet<Grid>,
+    /// The first fill's squares were taken.
+    filled: bool,
     /// Squares whose blocks are fading, in or out.
     fades: HashMap<Grid, EdgeFade>,
     /// Blocks of squares no longer chosen, fading out.
@@ -315,13 +319,25 @@ struct EdgeFades {
 }
 
 impl EdgeFades {
+    /// The squares were chosen anew: the first time, they are the first fill; later, the
+    /// first fill's squares no longer chosen leave it (squares chosen later fade in).
+    fn chosen(&mut self, squares: &HashSet<Grid>) {
+        if self.filled {
+            self.first_fill.retain(|sq| squares.contains(sq));
+        } else {
+            self.filled = true;
+            self.first_fill = squares.clone();
+        }
+    }
+
     /// A block was spawned or rebuilt for `sq` (`new`: the square had none). A rebuild
     /// ends the square's fade (its loaded cells changed: split by cell, the block
     /// crossfades with them); a new block drawn whole fades in, unless fades are off or
-    /// this is the first fill. Returns whether its meshes must start culled.
+    /// its square is in the first fill. Returns whether its meshes must start culled.
     fn spawned(&mut self, sq: Grid, b: &BlockEntities, new: bool) -> bool {
         self.fades.remove(&sq);
-        let fade_in = new && self.secs > 0.0 && !self.instant && b.key.present == 0 && !b.entities.is_empty();
+        let first = self.first_fill.remove(&sq);
+        let fade_in = new && self.secs > 0.0 && !first && b.key.present == 0 && !b.entities.is_empty();
         if fade_in {
             self.fades.insert(sq, EdgeFade::coming());
         }
@@ -374,9 +390,12 @@ impl EdgeFades {
         (steps, gone)
     }
 
-    /// Drop every fade (LOD switched off): the fading-out blocks' entities, to despawn.
+    /// Drop every fade (LOD switched off; the next choice is a first fill again): the
+    /// fading-out blocks, to despawn.
     fn clear(&mut self) -> Vec<BlockEntities> {
         self.fades.clear();
+        self.first_fill.clear();
+        self.filled = false;
         self.leaving.drain().map(|(_, b)| b).collect()
     }
 }
@@ -398,14 +417,27 @@ fn leave_squares(commands: &mut Commands, lod: &mut LodState, squares: &HashSet<
     }
 }
 
-/// Step the edge fades of object blocks by `dt` seconds ([`EdgeFades::advance`]); a range
-/// is inserted only when a block's step changes, as `fade::fade_cells` does.
-fn step_edge_fades(commands: &mut Commands, lod: &mut LodState, dt: f32) {
-    if lod.edge.fades.is_empty() {
+/// A block was spawned or rebuilt for `sq` ([`EdgeFades::spawned`]): a new square at the
+/// far edge starts culled, to fade in.
+fn begin_edge_fade(commands: &mut Commands, edge: &mut EdgeFades, sq: Grid, b: &BlockEntities, new: bool) {
+    if edge.spawned(sq, b, new) {
+        for &e in &b.entities {
+            commands.entity(e).insert(fade::complement(fade::STEPS));
+        }
+    }
+}
+
+/// Step the edge fades of object blocks by `dt` seconds ([`EdgeFades::advance`];
+/// `drawn`: the chosen squares' blocks); a range is inserted only when a block's step
+/// changes, as `fade::fade_cells` does. `update_lod` passes real time, not virtual: with
+/// the game paused, a free camera still moves and changes the choice, and blocks started
+/// culled would never fade in, nor leaving ones go (#3055 review). Paused and still, the
+/// choice does not change, so the picture holds.
+fn step_edge_fades(commands: &mut Commands, edge: &mut EdgeFades, drawn: &HashMap<Grid, BlockEntities>, dt: f32) {
+    if edge.fades.is_empty() {
         return;
     }
-    let LodState { edge, block_entities, .. } = lod;
-    let (steps, gone) = edge.advance(dt, block_entities);
+    let (steps, gone) = edge.advance(dt, drawn);
     for (e, k) in steps {
         commands.entity(e).insert(fade::complement(k));
     }
@@ -777,7 +809,8 @@ pub fn update_lod(
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
-    time: Res<Time>,
+    // Real time drives the edge fades (`step_edge_fades`).
+    real: Res<Time<bevy::time::Real>>,
 ) {
     if !lod.enabled {
         return;
@@ -827,7 +860,7 @@ pub fn update_lod(
                 lod.terrain.insert(ch, t);
             }
         }
-        lod.edge.instant = lod.block_entities.is_empty() && lod.edge.leaving.is_empty();
+        lod.edge.chosen(&squares);
         leave_squares(&mut commands, &mut lod, &squares);
     }
     // Which cells are loaded, and which are fully drawn, per level-4 square.
@@ -965,17 +998,16 @@ pub fn update_lod(
                 }
                 let spawned = spawn_block(&mut commands, root, &mut lod, &mut models, model, sq, key, steps);
                 // A new square at the far edge fades in from culled (#3055).
-                if lod.edge.spawned(sq, &spawned, !had) {
-                    for &e in &spawned.entities {
-                        commands.entity(e).insert(fade::complement(fade::STEPS));
-                    }
-                }
+                begin_edge_fade(&mut commands, &mut lod.edge, sq, &spawned, !had);
                 lod.block_entities.insert(sq, spawned);
                 changed = true;
             }
         }
     }
     lod.squares = squares;
+    // Before the timers below, so the fades' cost counts in the block loop's (#3055).
+    let LodState { edge, block_entities, .. } = &mut *lod;
+    step_edge_fades(&mut commands, edge, block_entities, real.delta_secs());
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f32() * 1000.0;
     let (blocks_ms, update_ms) = (ms(blocks_started), ms(update_started));
     let st = &mut lod.block_stats;
@@ -991,7 +1023,6 @@ pub fn update_lod(
         lod.generated = lod.terrain.values().filter(|t| t.drawn == Some(true)).count();
         lod.blocks = lod.block_entities.values().filter(|b| b.drawn).count();
     }
-    step_edge_fades(&mut commands, &mut lod, time.delta_secs());
 }
 
 fn spawn_entity(commands: &mut Commands, root: Entity, mesh: Handle<Mesh>, material: Handle<NifMaterial>, t: Transform, fade: Option<VisibilityRange>) -> Entity {
@@ -1422,14 +1453,71 @@ mod tests {
         fades.spawned((0, 0), b, true);
         assert!(!fades.spawned((0, 0), b, false));
         assert!(fades.fades.is_empty());
-        // Fades off, the first fill, a block split by cell, nothing drawn: no fade.
+        // Fades off, a block split by cell, nothing drawn: no fade.
         assert!(!edge(0.0).spawned((0, 0), b, true));
-        let mut first = edge(1.0);
-        first.instant = true;
-        assert!(!first.spawned((0, 0), b, true));
         let split = BlockEntities { key: BlockKey { full: 0, present: 1 }, ..block(&mut w) };
         assert!(!edge(1.0).spawned((0, 0), &split, true));
         assert!(!edge(1.0).spawned((0, 0), &BlockEntities::default(), true));
+    }
+
+    /// The first fill's squares appear drawn whenever their blocks come, also after later
+    /// choices; squares chosen later, or chosen again after leaving, fade in; switching
+    /// LOD off starts a first fill again (#3055 review).
+    #[test]
+    fn first_fill_squares_appear_drawn() {
+        let mut w = World::new();
+        let b = block(&mut w);
+        let mut fades = edge(1.0);
+        fades.chosen(&[(0, 0), (4, 0), (8, 0)].into());
+        assert!(!fades.spawned((0, 0), &b, true));
+        // The camera crosses a cell before (4, 0)'s model is ready; (8, 0) leaves.
+        fades.chosen(&[(0, 0), (4, 0), (12, 0)].into());
+        assert!(!fades.spawned((4, 0), &b, true));
+        assert!(fades.spawned((12, 0), &b, true));
+        fades.chosen(&[(8, 0)].into());
+        assert!(fades.spawned((8, 0), &b, true));
+        assert!(fades.first_fill.is_empty());
+        // No block ready before the second choice: its new square still fades in.
+        let mut fades = edge(1.0);
+        fades.chosen(&[(0, 0)].into());
+        fades.chosen(&[(0, 0), (4, 0)].into());
+        assert!(fades.spawned((4, 0), &b, true));
+        assert!(!fades.spawned((0, 0), &b, true));
+        // After `clear`, the next choice is a first fill again.
+        fades.clear();
+        fades.chosen(&[(4, 0)].into());
+        assert!(!fades.spawned((4, 0), &b, true));
+    }
+
+    /// The commands side: a new edge block is given the culled step at once, and the
+    /// fade's steps reach its entity; the faded-out block is despawned.
+    #[test]
+    fn edge_fade_commands() {
+        let mut w = World::new();
+        let b = block(&mut w);
+        let e = b.entities[0];
+        let range = |w: &World| w.get::<VisibilityRange>(e).map(|r| (r.start_margin.clone(), r.end_margin.clone()));
+        let at = |k: u8| {
+            let r = fade::complement(k);
+            Some((r.start_margin, r.end_margin))
+        };
+        let mut fades = edge(1.0);
+        begin_edge_fade(&mut w.commands(), &mut fades, (0, 0), &b, true);
+        w.flush();
+        assert_eq!(range(&w), at(fade::STEPS));
+        let mut drawn: HashMap<Grid, BlockEntities> = [((0, 0), b)].into();
+        step_edge_fades(&mut w.commands(), &mut fades, &drawn, 0.5);
+        w.flush();
+        assert_eq!(range(&w), at(8));
+        let b = drawn.remove(&(0, 0)).unwrap();
+        assert!(fades.leave((0, 0), b).is_none());
+        // Out from level 0.5: 0.25 (step 16 - 4), then 0, despawned.
+        step_edge_fades(&mut w.commands(), &mut fades, &drawn, 0.25);
+        w.flush();
+        assert_eq!(range(&w), at(12));
+        step_edge_fades(&mut w.commands(), &mut fades, &drawn, 0.25);
+        w.flush();
+        assert!(w.get_entity(e).is_err());
     }
 
     /// A block leaving range fades out and is then handed back to despawn; chosen again
