@@ -1885,10 +1885,9 @@ impl App {
                                 });
                                 if let Some(notes) = self.clashes.get(&name) {
                                     for note in notes {
-                                        let (mark, word, color) = if note.wins { ("▲", "overwrites", GOLD) } else { ("✕", "overwritten by", BAD) };
-                                        let shown = if note.files.len() == 1 { note.files[0].rsplit(['/', '\\']).next().unwrap_or(&note.files[0]).to_string() } else { format!("{} files", note.files.len()) };
+                                        let (mark, word, color) = if note.wins { ("\u{f0b32}", "overwrites", GOLD) } else { ("\u{f0dc6}", "overwritten by", BAD) };
                                         let hover = format!("{word} {}\n{}", note.other, note.files.join("\n"));
-                                        ui.label(RichText::new(format!("{mark} {word} {} · {shown}", note.other)).small().strong().color(color)).on_hover_text(hover);
+                                        ui.label(RichText::new(mark).size(16.0).color(color)).on_hover_text(hover);
                                     }
                                 }
                             });
@@ -2021,8 +2020,8 @@ impl App {
                             if let Some(have) = folders.get(&key).filter(|v| v.len() > 1) {
                                 if let Some(win) = have.last() {
                                     let lost: Vec<&str> = have[..have.len() - 1].iter().map(String::as_str).collect();
-                                    ui.label(RichText::new(format!("▲ {win}")).small().strong().color(GOLD)).on_hover_text(format!("{win} overwrites this file"));
-                                    ui.label(RichText::new(format!("✕ {}", lost.join(", "))).small().strong().color(BAD)).on_hover_text(format!("overwritten by {win}"));
+                                    ui.label(RichText::new("\u{f0b32}").size(16.0).color(GOLD)).on_hover_text(format!("{win} overwrites this file"));
+                                    ui.label(RichText::new("\u{f0dc6}").size(16.0).color(BAD)).on_hover_text(format!("overwritten by {win}: {}", lost.join(", ")));
                                 }
                             }
                             if e.active {
