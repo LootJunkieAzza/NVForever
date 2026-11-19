@@ -1893,7 +1893,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Mod Order").small().color(GOLD));
             ui.label(RichText::new(format!("{mods_on} on / {mods_all}")).small().color(WEAK)).on_hover_text("Folders that are on, and folders that exist. There is no limit.");
-            if ui.button(if self.show_overwrites { "Hide replacements" } else { "File replacements" }).clicked() {
+            if ui.button(if self.show_overwrites { "Hide overwrites" } else { "Show overwrites" }).clicked() {
                 self.show_overwrites = !self.show_overwrites;
             }
         });
@@ -1901,29 +1901,18 @@ impl App {
         let mod_find = self.mod_find.trim().to_ascii_lowercase();
         let marked = self.picked_plugin.as_ref().and_then(|key| self.plugin_home.get(key)).cloned();
         if self.show_overwrites {
-            ui.label(RichText::new("Open dot: that folder's file is not used. Filled dot: that folder's file is used. One color is one pair.").small().color(WEAK));
-            let mut pairs: Vec<(String, String)> = Vec::new();
-            for (name, notes) in &self.clashes {
-                for note in notes {
-                    if note.wins {
-                        pairs.push((note.other.clone(), name.clone()));
-                    }
-                }
-            }
-            pairs.sort();
-            pairs.dedup();
-            if pairs.is_empty() {
+            ui.label(RichText::new("Open circle: this folder's file is not used.").small().color(WEAK));
+            ui.label(RichText::new("Filled circle: this folder's file is used.").small().color(WEAK));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("\u{25cb}").color(GOLD));
+                ui.label(RichText::new("not used").small().color(WEAK));
+                ui.label(RichText::new("\u{25cf}").color(GOLD));
+                ui.label(RichText::new("used").small().color(WEAK));
+            });
+            ui.label(RichText::new("One color is one shared file. A color is not a mod name.").small().color(WEAK));
+            if self.clashes.is_empty() {
                 ui.label(RichText::new("No two checked folders share a file.").small().color(WEAK));
             }
-            egui::ScrollArea::vertical().id_salt("overwrite-key").max_height(96.0).show(ui, |ui| {
-                for (loser, winner) in &pairs {
-                    let color = pair_color(loser, winner);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("\u{25cf}").color(color));
-                        ui.label(RichText::new(format!("{winner} replaces {loser}")).small());
-                    });
-                }
-            });
         }
         egui::ScrollArea::vertical().id_salt("mod-folders").auto_shrink([false, false]).show(ui, |ui| {
             if self.mod_rows.is_empty() {
