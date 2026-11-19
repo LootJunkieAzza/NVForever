@@ -81,9 +81,57 @@ pub struct PluginSync {
     pub present: Vec<String>,
 }
 
-fn is_plugin(name: &str) -> bool {
+pub fn is_plugin(name: &str) -> bool {
     let l = name.to_ascii_lowercase();
     l.ends_with(".esm") || l.ends_with(".esp")
+}
+
+/// Plugin files under `root`. The first of a name inside this one folder wins.
+pub fn plugins_in_tree(root: &Path) -> Vec<(String, PathBuf)> {
+    let mut listed = Vec::new();
+    if root.is_dir() {
+        walk_plugins(root, 8, &mut listed);
+    }
+    listed
+}
+
+/// Master file names in the plugin header. Empty when the file is not read.
+pub fn master_names(path: &Path) -> Vec<String> {
+    let Ok(mut file) = std::fs::File::open(path) else { return Vec::new() };
+    let mut head = [0u8; 20];
+    if std::io::Read::read_exact(&mut file, &mut head).is_err() || &head[0..4] != b"TES4" {
+        return Vec::new();
+    }
+    let size = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as usize;
+    let flags = u32::from_le_bytes([head[8], head[9], head[10], head[11]]);
+    if flags & 0x0004_0000 != 0 {
+        return Vec::new();
+    }
+    let mut data = vec![0u8; size.min(1_048_576)];
+    if std::io::Read::read_exact(&mut file, &mut data).is_err() {
+        return Vec::new();
+    }
+    let mut i = 0;
+    let mut out = Vec::new();
+    while i + 6 <= data.len() {
+        let kind = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+        let n = u16::from_le_bytes([data[i + 4], data[i + 5]]) as usize;
+        i += 6;
+        if i + n > data.len() {
+            break;
+        }
+        if &kind == b"MAST" {
+            let raw = &data[i..i + n];
+            let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+            if let Ok(name) = std::str::from_utf8(&raw[..end]) {
+                if !name.is_empty() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        i += n;
+    }
+    out
 }
 
 fn is_esm(name: &str) -> bool {
@@ -645,5 +693,33 @@ Edits.esp
         assert_eq!(plugin_path(&data, Some(&home.mods()), "FalloutNV.esm"), data.join("FalloutNV.esm"));
         assert_eq!(plugin_path(&data, None, "Mod.esp"), data.join("Mod.esp"));
         std::fs::remove_dir_all(&t).ok();
+    }
+}
+
+#[cfg(test)]
+mod master_name_tests {
+    use super::master_names;
+
+    #[test]
+    fn reads_master_names_from_the_header() {
+        let raw = b"FalloutNV.esm\0";
+        let mut rec = Vec::new();
+        rec.extend(b"MAST");
+        rec.extend(&(raw.len() as u16).to_le_bytes());
+        rec.extend(raw);
+        let mut file = Vec::new();
+        file.extend(b"TES4");
+        file.extend(&(rec.len() as u32).to_le_bytes());
+        file.extend(&0u32.to_le_bytes());
+        file.extend(&0u32.to_le_bytes());
+        file.extend(&0u32.to_le_bytes());
+        file.extend(&rec);
+        let dir = std::env::temp_dir().join(format!("nvf-mast-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mod.esp");
+        std::fs::write(&path, file).unwrap();
+        assert_eq!(master_names(&path), vec!["FalloutNV.esm".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
