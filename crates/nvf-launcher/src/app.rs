@@ -1952,9 +1952,9 @@ impl App {
                                         let n = note.files.len();
                                         let word = if n == 1 { "file" } else { "files" };
                                         let (color, line) = if note.wins {
-                                            (pair_color(&note.other, &name), format!("{n} shared {word} here {} used. {} is higher in the list, so its copy is skipped.", if n == 1 { "is" } else { "are" }, note.other))
+                                            (pair_color(&note.other, &name), format!("{n} shared {word} here {} used. {} is higher in the list, so this mod's copy is skipped.", if n == 1 { "is" } else { "are" }, note.other))
                                         } else {
-                                            (pair_color(&name, &note.other), format!("{n} shared {word} here {} skipped. {} is lower in the list, so its copy is used.", if n == 1 { "is" } else { "are" }, note.other))
+                                            (pair_color(&name, &note.other), format!("{n} shared {word} here {} skipped. {} is lower in the list, so this mod's copy is used.", if n == 1 { "is" } else { "are" }, note.other))
                                         };
                                         ui.label(RichText::new(line).small().color(color)).on_hover_text(note.files.join("\n"));
                                     }
