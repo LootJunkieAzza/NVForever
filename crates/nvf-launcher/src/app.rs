@@ -406,7 +406,7 @@ impl App {
 
     /// Whether the game would find its folder when started now ([`launch::folder_known`]).
     fn folder_known(&self) -> bool {
-        launch::folder_known(self.game().is_some(), std::env::var_os("NVFOREVER_DATA").as_deref())
+        launch::folder_known(self.game().is_some(), fnv_install::mo2::usvfs_loaded(), std::env::var_os("NVFOREVER_DATA").as_deref())
     }
 
     /// Write `edit` over the INI as it is on disk now (the game may have written it since it
@@ -1851,7 +1851,7 @@ impl App {
             });
         });
         ui.label(
-            RichText::new("NVForever's own load order (plugins.txt in its folder; the original game's list is never read or changed). Top loads first: drag a row to move it. A plugin whose file is gone is taken off this list.")
+            RichText::new("NVForever's own load order (plugins.txt in its folder; the original game's list is never read or changed). Top loads first: drag a row to move it. A plugin whose file is gone is taken off this list. Using Mod Organizer 2? Start NVForever from MO2 instead.")
                 .small()
                 .color(WEAK),
         );

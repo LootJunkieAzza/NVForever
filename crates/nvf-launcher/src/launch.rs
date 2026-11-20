@@ -87,9 +87,10 @@ pub fn user_home() -> Option<PathBuf> {
 }
 
 /// Whether the game would find its folder when started now: the INI names a usable one,
+/// Mod Organizer 2 started the launcher (the game then takes MO2's, `fnv_install::mo2`),
 /// or the development variable `NVFOREVER_DATA` is set (docs/development.md).
-pub fn folder_known(ini_folder_usable: bool, data_var: Option<&std::ffi::OsStr>) -> bool {
-    ini_folder_usable || data_var.is_some_and(|v| !v.is_empty())
+pub fn folder_known(ini_folder_usable: bool, mo2: bool, data_var: Option<&std::ffi::OsStr>) -> bool {
+    ini_folder_usable || mo2 || data_var.is_some_and(|v| !v.is_empty())
 }
 
 /// What to say when the game has ended: nothing for a clean exit, else the exit code and
@@ -186,10 +187,11 @@ mod tests {
     #[test]
     fn folder_known_cases() {
         use std::ffi::OsStr;
-        assert!(!folder_known(false, None));
-        assert!(!folder_known(false, Some(OsStr::new(""))));
-        assert!(folder_known(true, None));
-        assert!(folder_known(false, Some(OsStr::new("/games/fnv/Data"))));
+        assert!(!folder_known(false, false, None));
+        assert!(!folder_known(false, false, Some(OsStr::new(""))));
+        assert!(folder_known(true, false, None));
+        assert!(folder_known(false, true, None));
+        assert!(folder_known(false, false, Some(OsStr::new("/games/fnv/Data"))));
     }
 
     /// #2938: a game that ends with an error is reported.
