@@ -498,7 +498,7 @@ enum Msg {
 
 /// Shared progression (co-op progression, [`Session::send_progress`]). Each is sent
 /// [`HIT_COPIES`] times and taken once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Progress {
     /// The host completed `quest` (FormID in the load order every game runs): each guest
     /// gets its `xp` (as `RewardXP` gives it) and `caps`. Only the host's are taken.
@@ -522,6 +522,23 @@ pub enum Progress {
     /// (a quest completed and failed in one frame: both; item 205). Only the host's are
     /// taken.
     QuestEnded { quest: u32, failed: bool },
+    /// A guest's join choice for joint progression and its character's stable ID
+    /// (`fnv_game::coop_joint`; shared-progression plan §3.7). Guest to host.
+    JointChoice { character: u64, on: bool },
+    /// The host set `stage` of a claimable `quest` (`fnv_game::coop_joint::StageOffer`):
+    /// for the players whose bit is set in `to` (bit = player id). `line` is the INFO
+    /// whose result script set it (0: none), its end script when `line_end`; `prior`
+    /// the host's earlier stages of the quest. Only the host's are taken.
+    Stage { quest: u32, stage: i32, line: u32, line_end: bool, prior: Vec<i32>, to: u8 },
+    /// A guest took or turned down a [`Progress::Stage`] (for the host's log).
+    StageResult { quest: u32, stage: i32, taken: bool },
+    /// Kill credit for player `to` (shared-progression plan §4.2): `xp` of the kill of
+    /// `target`, its `karma`, and whether `to` was the killer (kill count, challenges).
+    /// Only the host's are taken.
+    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool },
+    /// A guest's own hit, for its hit and damage challenges (`weapon`/`part` 0 and
+    /// `u32::MAX` for none). Only the host's are taken.
+    HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
 }
 
 impl Progress {
@@ -534,7 +551,7 @@ impl Progress {
 
     /// Only the host may send it (a guest's is dropped).
     pub fn host_only(&self) -> bool {
-        !matches!(self, Progress::Save { .. })
+        !matches!(self, Progress::Save { .. } | Progress::JointChoice { .. } | Progress::StageResult { .. })
     }
 }
 
@@ -1656,7 +1673,7 @@ impl Session {
                 if what.host_only() || !self.peers.iter().any(|p| p.addr == Some(from) && p.id == id) || !self.progress.first(id, seq) {
                     return;
                 }
-                let msg = Msg::Progress { id, seq, what };
+                let msg = Msg::Progress { id, seq, what: what.clone() };
                 let to: Vec<SocketAddr> = self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr).collect();
                 for addr in to {
                     for _ in 0..HIT_COPIES {
@@ -2471,6 +2488,49 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.extend_from_slice(&quest.to_le_bytes());
                     b.push(*failed as u8);
                 }
+                Progress::JointChoice { character, on } => {
+                    b.push(6);
+                    b.extend_from_slice(&character.to_le_bytes());
+                    b.push(*on as u8);
+                }
+                Progress::Stage { quest, stage, line, line_end, prior, to } => {
+                    b.push(7);
+                    b.extend_from_slice(&quest.to_le_bytes());
+                    b.extend_from_slice(&stage.to_le_bytes());
+                    b.extend_from_slice(&line.to_le_bytes());
+                    b.push(*line_end as u8);
+                    b.push(*to);
+                    let n = prior.len().min(255);
+                    b.push(n as u8);
+                    for s in &prior[..n] {
+                        b.extend_from_slice(&s.to_le_bytes());
+                    }
+                }
+                Progress::StageResult { quest, stage, taken } => {
+                    b.push(8);
+                    b.extend_from_slice(&quest.to_le_bytes());
+                    b.extend_from_slice(&stage.to_le_bytes());
+                    b.push(*taken as u8);
+                }
+                Progress::KillCredit { to, target, target_base, npc, xp, karma, killer } => {
+                    b.push(9);
+                    b.push(*to);
+                    b.extend_from_slice(&target.to_le_bytes());
+                    b.extend_from_slice(&target_base.to_le_bytes());
+                    b.push(*npc as u8);
+                    b.extend_from_slice(&xp.to_le_bytes());
+                    b.extend_from_slice(&karma.to_le_bytes());
+                    b.push(*killer as u8);
+                }
+                Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => {
+                    b.push(10);
+                    b.push(*to);
+                    for v in [target, weapon, part, dealt] {
+                        b.extend_from_slice(&v.to_le_bytes());
+                    }
+                    b.push(*critical as u8);
+                    b.push(*crippled as u8);
+                }
             }
         }
         Msg::Rel { epoch, frame } => {
@@ -2666,6 +2726,16 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: 0, stage: Progress::NO_STAGE },
                 4 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()?, quest: r.u32()?, stage: r.u32()? },
                 5 => Progress::QuestEnded { quest: r.u32()?, failed: r.u8()? != 0 },
+                6 => Progress::JointChoice { character: u64::from(r.u32()?) | (u64::from(r.u32()?) << 32), on: r.u8()? != 0 },
+                7 => {
+                    let (quest, stage, line, line_end, to) = (r.u32()?, r.u32()? as i32, r.u32()?, r.u8()? != 0, r.u8()?);
+                    let n = r.u8()?;
+                    let prior = (0..n).map(|_| r.u32().map(|s| s as i32)).collect::<Option<Vec<_>>>()?;
+                    Progress::Stage { quest, stage, line, line_end, prior, to }
+                }
+                8 => Progress::StageResult { quest: r.u32()?, stage: r.u32()? as i32, taken: r.u8()? != 0 },
+                9 => Progress::KillCredit { to: r.u8()?, target: r.u32()?, target_base: r.u32()?, npc: r.u8()? != 0, xp: r.u32()?, karma: r.u32()? as i32, killer: r.u8()? != 0 },
+                10 => Progress::HitCredit { to: r.u8()?, target: r.u32()?, weapon: r.u32()?, part: r.u32()?, dealt: r.u32()?, critical: r.u8()? != 0, crippled: r.u8()? != 0 },
                 _ => return None,
             };
             Msg::Progress { id, seq, what }
@@ -2928,6 +2998,11 @@ mod tests {
             Msg::Progress { id: 0, seq: 11, what: Progress::Gift { batch: 4, item: 0x0015_9E04, count: 1, quest: 0, stage: Progress::NO_STAGE } },
             Msg::Progress { id: 0, seq: 12, what: Progress::QuestEnded { quest: 0x0010_4C1F, failed: false } },
             Msg::Progress { id: 0, seq: 13, what: Progress::QuestEnded { quest: 0x0010_4C1F, failed: true } },
+            Msg::Progress { id: 2, seq: 14, what: Progress::JointChoice { character: 0x0123_4567_89AB_CDEF, on: true } },
+            Msg::Progress { id: 0, seq: 15, what: Progress::Stage { quest: 0x0011_76B8, stage: 100, line: 0x0013_E51E, line_end: true, prior: vec![1, 10, 20, 50], to: 0b0110 } },
+            Msg::Progress { id: 1, seq: 16, what: Progress::StageResult { quest: 0x0011_76B8, stage: 100, taken: false } },
+            Msg::Progress { id: 0, seq: 17, what: Progress::KillCredit { to: 1, target: 0x0010_4C1D, target_base: 0x0010_4C1E, npc: true, xp: 10, karma: -5, killer: true } },
+            Msg::Progress { id: 0, seq: 18, what: Progress::HitCredit { to: 2, target: 0x0010_4C1D, weapon: 0x0E3778, part: u32::MAX, dealt: 12, critical: true, crippled: false } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {
@@ -3084,7 +3159,7 @@ mod tests {
         assert_eq!(progress(&seen[2]), [saved]);
         assert!(progress(&seen[1]).is_empty(), "not back to its sender");
         let reward = Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 };
-        host.send_progress(reward);
+        host.send_progress(reward.clone());
         host.send_progress(Progress::Reload { stamp: 9 });
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| progress(&seen[1]).len() == 2 && progress(&seen[2]).len() == 2);
         assert_eq!(progress(&seen[1]), [Event::Progress { id: 0, what: reward }, Event::Progress { id: 0, what: Progress::Reload { stamp: 9 } }]);
