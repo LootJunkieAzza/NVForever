@@ -247,12 +247,23 @@ pub struct BoxButton(pub usize);
 /// as the activation prompt's (`crate::reticle`) and the tile HUD's (`fnv_game::ui_hud`)
 /// (`crate::interface::frame_top`; at 100% its top is the view's, as before) [design: #1631].
 fn spawn(mut commands: Commands) {
+    spawn_frame(&mut commands);
+}
+
+/// The subtitles' frame and area, at the HUD's scale ([`spawn`]; made again by [`draw`]
+/// when the HUD's scale changes).
+fn spawn_frame(commands: &mut Commands) {
     let _hud = crate::interface::hud_units();
     commands.spawn((
+        SubtitleFrame,
         Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: crate::interface::frame_top(0.5), justify_content: JustifyContent::Center, ..default() },
         children![(Node { width: u(SUBTITLE_WIDTH), ..default() }, SubtitleArea)],
     ));
 }
+
+/// The subtitles' frame ([`spawn_frame`]).
+#[derive(Component)]
+struct SubtitleFrame;
 
 /// The box's buttons as drawn: its own whose conditions held, or OK for a box without
 /// any.
@@ -409,7 +420,17 @@ fn draw(
     player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
     (creator, creator_menu): (Option<Res<crate::creator::CreatorData>>, Option<Res<crate::creator::CreatorMenu>>),
+    (frames, mut rebuild): (Query<Entity, With<SubtitleFrame>>, crate::interface::HudRebuild),
 ) {
+    // The HUD's scale changed (split screen): the frame made again at it, the lines on
+    // screen drawn into it from the next frame.
+    let rebuilt = rebuild.stale();
+    if rebuilt {
+        for e in &frames {
+            commands.entity(e).try_despawn();
+        }
+        spawn_frame(&mut commands);
+    }
     let (p, front, mut subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
     // No subtitles over the character creator; they are still logged [owner 2026-10-17].
     if creator_menu.is_some_and(|c| c.is_open()) {
@@ -434,7 +455,7 @@ fn draw(
         if let Some(line) = subs.log_change(&shown) {
             info!("{line}");
         }
-        if subs.on_screen != shown.on_screen {
+        if subs.on_screen != shown.on_screen && !rebuilt {
             let _hud = crate::interface::hud_units();
             let face = font.get_or_insert_with(|| face(SUBTITLE_FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
             let lines = subtitle_layout(&subs.on_screen, &face.font);
@@ -447,6 +468,10 @@ fn draw(
             }
         }
         *shown = subs;
+    }
+    if rebuilt {
+        // Drawn into the new area next frame.
+        shown.on_screen.clear();
     }
 }
 

@@ -142,12 +142,21 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     cameras: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
-    mut marks: Query<(&Mark, &mut Node, &mut UiTransform, &mut Visibility)>,
+    mut marks: Query<(Entity, &Mark, &mut Node, &mut UiTransform, &mut Visibility)>,
     mut read: Local<Option<Read>>,
-    mut last: Local<usize>,
+    (mut last, mut rebuild): (Local<usize>, crate::interface::HudRebuild),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
+    // The HUD's scale changed (split screen): the marks are made again at it.
+    if rebuild.stale() {
+        for (e, ..) in &marks {
+            commands.entity(e).try_despawn();
+        }
+        *read = None;
+        *last = 0;
+        return;
+    }
     let places = wanted(&view, combat.as_deref(), sim.as_deref(), script.as_deref(), tweaks.as_deref());
     if read.is_none() {
         if places.is_empty() {
@@ -179,7 +188,7 @@ fn draw(
     let Some(Read::Pool) = read.as_ref() else { return };
     let camera = cameras.single().ok();
     let mut shown = 0;
-    for (mark, mut node, mut turn, mut vis) in &mut marks {
+    for (_, mark, mut node, mut turn, mut vis) in &mut marks {
         let place = places.get(mark.0).zip(camera).and_then(|(p, (cam, t))| {
             let size = cam.logical_viewport_size()?;
             let world = space::to_bevy(*p);

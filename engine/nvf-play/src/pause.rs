@@ -1924,7 +1924,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
     }
     let f = &look.faces;
     // The settings list's place, clear of the categories.
-    let lb = ListBox::of(d.view_w as f32, rail_width(f, &d.rail, d.device.1));
+    let lb = ListBox::of(d.view_w as f32, rail_right(f, &d.column) + rail_width(f, &d.rail, d.device.1));
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
         // The pause screen over the held world.
         if !d.under_main {
@@ -2489,7 +2489,7 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
         } else {
             BoxLook::None
         };
-        right_entry_look(root, &f.title, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
+        right_entry_look(root, &f.title, name, from_right(rail_right(f, &d.column), OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
     }
 }
 
@@ -2534,6 +2534,16 @@ fn note_fit(lines: usize, top: f32) -> usize {
     lines.min(NOTE_LINES).min(((note_bottom() - top) / NOTE_STEP).max(0.0) as usize)
 }
 
+/// The rail's right edge, from the view's right: [`SUB_RIGHT`], or as far left as the
+/// column's widest entry's box reaches when that is further (the pause menu's column with
+/// End Split Screen: its words ran into the rail's NVF Features [observed: the split-screen
+/// UI check, 2026-11-20, `shots-ui\p1\play-128s.png`]), so the two boxes meet at most
+/// and their words keep two boxes' room apart [design].
+fn rail_right(f: &Faces, column: &[(&'static str, bool)]) -> f32 {
+    let widest = column.iter().map(|(label, _)| f.title.font.width(tr_str(label))).fold(0.0, f32::max);
+    SUB_RIGHT.max(RIGHT + (widest + 2.0 * ENTRY_BOX_PAD).min(COLUMN - 5.0))
+}
+
 /// The rail's width: its widest line's, translated ([`rail_column`]).
 fn rail_width(f: &Faces, rail: &[RailItem], controller: bool) -> f32 {
     rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back)).map(|r| SUB_WIDTH.max(f.title.font.width(rail_label(*r, controller)) + 20.0)).fold(SUB_WIDTH, f32::max)
@@ -2558,12 +2568,13 @@ struct ListBox {
 }
 
 impl ListBox {
-    /// The list in a view `view_w` units wide whose rail is `tabs_w` wide: as wide as the room
-    /// left of the rail allows (the band [`LEFT_MARGIN`] from the view's left edge and
-    /// [`TABS_GAP`] clear of the rail), at most [`OPTIONS_MAX`], then centred in that room.
-    /// A narrow view gets a narrow list rather than one that runs under the rail (#1210).
-    fn of(view_w: f32, tabs_w: f32) -> ListBox {
-        let room = (view_w - (SUB_RIGHT + tabs_w + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN).max(0.0);
+    /// The list in a view `view_w` units wide whose rail's left edge is `rail_left` from the
+    /// view's right ([`rail_right`] and the rail's width): as wide as the room left of the
+    /// rail allows (the band [`LEFT_MARGIN`] from the view's left edge and [`TABS_GAP`]
+    /// clear of the rail), at most [`OPTIONS_MAX`], then centred in that room. A narrow
+    /// view gets a narrow list rather than one that runs under the rail (#1210).
+    fn of(view_w: f32, rail_left: f32) -> ListBox {
+        let room = (view_w - (rail_left + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN).max(0.0);
         let width = room.min(OPTIONS_MAX);
         ListBox { left: -view_w / 2.0 + LEFT_MARGIN + BAND_MARGIN + (room - width) / 2.0, width }
     }
@@ -5405,7 +5416,7 @@ fn check_page_text(world: &mut World, f: &Faces) {
         world.init_resource::<SettingsLayout>();
     }
     let rail = world.resource_scope(|_, mut layout: Mut<SettingsLayout>| crate::settings_view::rail(layout.refresh(&list)));
-    let lb = ListBox::of(VIEW_W, rail_width(f, &rail, false));
+    let lb = ListBox::of(VIEW_W, SUB_RIGHT + rail_width(f, &rail, false));
     let x = lb.row();
     let width = |t: &str| f.entry.font.width(t);
     let settings = world.resource::<Settings>();
@@ -5484,7 +5495,8 @@ fn draw(world: &mut World) {
     let settings = world.resource::<Settings>().list().to_vec();
     let glyphs = world.resource::<crate::pad::PadGlyphs>().clone();
     if matches!(now.page, Page::Settings { .. }) {
-        let lb = ListBox::of(now.view_w as f32, rail_width(&world.resource::<PauseLook>().faces, &now.rail, now.device.1));
+        let faces = &world.resource::<PauseLook>().faces;
+        let lb = ListBox::of(now.view_w as f32, rail_right(faces, &now.column) + rail_width(faces, &now.rail, now.device.1));
         log_list_box(&mut world.resource_mut::<PauseView>(), lb, now.view_w);
     }
     world.resource_scope(|world, look: Mut<PauseLook>| {
@@ -5807,7 +5819,7 @@ mod tests {
     fn the_settings_page_fits_the_view() {
         for view_w in VIEW_WIDTHS {
             for tabs_w in [SUB_WIDTH, 220.0] {
-                let lb = ListBox::of(view_w, tabs_w);
+                let lb = ListBox::of(view_w, SUB_RIGHT + tabs_w);
                 let (band_left, band_w) = lb.band();
                 let band_left = view_w / 2.0 + band_left;
                 let band_right = band_left + band_w;
@@ -5824,11 +5836,11 @@ mod tests {
         }
         // 16:9 with a 220-unit rail: the list is about 1036 units wide (820 before #2377),
         // its band from LEFT_MARGIN.
-        let lb = ListBox::of(VIEW_W, 220.0);
+        let lb = ListBox::of(VIEW_W, SUB_RIGHT + 220.0);
         assert!((lb.width - 1035.7).abs() < 0.5, "{}", lb.width);
         assert!((VIEW_W / 2.0 + lb.band().0 - LEFT_MARGIN).abs() < 0.01);
         // 3440x1440: capped at OPTIONS_MAX and centred in the room left of the rail.
-        let lb = ListBox::of(2293.0, 220.0);
+        let lb = ListBox::of(2293.0, SUB_RIGHT + 220.0);
         assert_eq!(lb.width, OPTIONS_MAX);
         let room = 2293.0 - (SUB_RIGHT + 220.0 + TABS_GAP) - (BAR_GAP + BAR_W) - 2.0 * BAND_MARGIN - LEFT_MARGIN;
         assert!((2293.0 / 2.0 + lb.band().0 - (LEFT_MARGIN + (room - OPTIONS_MAX) / 2.0)).abs() < 0.01);
@@ -6521,6 +6533,39 @@ mod tests {
         assert_eq!((view.rail_hover, view.scope), (None, SettingsScope::Tab("Gameplay")));
     }
 
+    /// The settings page's rail keeps clear of the column's widest entry (End Split Screen
+    /// ran into NVF Features, the split-screen UI check of 2026-11-20), the list keeps clear
+    /// of the rail in every view the page is laid out for, and in a side-by-side half (8:9,
+    /// the page across the half at its split menu scale) the list keeps at least the room
+    /// it has in a 4:3 view without split screen.
+    #[test]
+    fn the_rail_keeps_clear_of_the_columns_widest_entry() {
+        let f = Faces::plain();
+        let column = |split| entries_with(false, false, split).iter().map(|e| (e.label(), true)).collect::<Vec<_>>();
+        let tabs_w = SUB_WIDTH.max(f.title.font.width("NVF Features") + 20.0);
+        let label_room = |view_w: f32, split| ListBox::of(view_w, rail_right(&f, &column(split)) + tabs_w).row().value_left() - 10.0;
+        let (hud, menu) = crate::interface::split_ui_factors(Vec2::new(1280.0, 1440.0));
+        let (_, menu, _) = crate::interface::split_scales(1.0, 1.0, Some((hud, menu)));
+        let half_w = 960.0 * (8.0 / 9.0) / menu;
+        for split in [None, Some(false), Some(true)] {
+            let column = column(split);
+            let right = rail_right(&f, &column);
+            for (label, _) in &column {
+                // The entry's box ends where the rail's starts at the nearest.
+                let entry_left = RIGHT + (f.title.font.width(label) + 2.0 * ENTRY_BOX_PAD).min(COLUMN - 5.0);
+                assert!(entry_left <= right + 0.01, "{label:?}: its box to {entry_left}, the rail from {right}");
+            }
+            for view_w in VIEW_WIDTHS.into_iter().chain([half_w]) {
+                let lb = ListBox::of(view_w, right + tabs_w);
+                let (band_left, band_w) = lb.band();
+                assert!(view_w / 2.0 + band_left + band_w + TABS_GAP <= view_w - right - tabs_w + 0.01, "{split:?} {view_w}: the band runs under the rail");
+            }
+            assert!(label_room(half_w, split) >= label_room(1280.0, None) - 0.01, "{split:?}: a side-by-side half's label room {} < 4:3's {}", label_room(half_w, split), label_room(1280.0, None));
+        }
+        // Without a long entry the rail stays where it was.
+        assert_eq!(rail_right(&f, &column(None)), SUB_RIGHT);
+    }
+
     #[test]
     fn split_screens_entry_follows_lobby_in_player_1s_game_only() {
         use crate::split_screen::SplitScreen;
@@ -6656,7 +6701,7 @@ mod tests {
         let values = ["ON", "Off (upscaling active)", "Controlled by another setting entirely, with more words", "Performance", "Ultra Performance mode at a very long name", "50%", "Right Bracket, Middle Mouse", "Left Shift, Right Bracket, Middle Mouse, Mouse Wheel Down"];
         for view_w in VIEW_WIDTHS {
             for tabs_w in [SUB_WIDTH, 220.0] {
-                let lb = ListBox::of(view_w, tabs_w);
+                let lb = ListBox::of(view_w, SUB_RIGHT + tabs_w);
                 let x = lb.row();
                 for value in values {
                     let vw = width(value);
