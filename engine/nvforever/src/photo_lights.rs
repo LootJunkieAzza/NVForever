@@ -85,8 +85,11 @@ fn spot(l: &PhotoLight) -> SpotLight {
     }
 }
 
+/// A drawn photo light's parts.
+type Drawn<'a> = (Entity, &'a PhotoLightSource, &'a mut Transform, Option<&'a mut PointLight>, Option<&'a mut SpotLight>, &'a mut Visibility);
+
 /// Spawn, update and despawn the drawn lights to match photo mode's.
-fn sync(mut commands: Commands, photo: Option<Res<PhotoMode>>, mut drawn: Query<(Entity, &PhotoLightSource, &mut Transform, Option<&mut PointLight>, Option<&mut SpotLight>, &mut Visibility)>) {
+fn sync(mut commands: Commands, photo: Option<Res<PhotoMode>>, mut drawn: Query<Drawn>) {
     let Some(photo) = photo else { return };
     let lights = if photo.on { photo.lights.lights.as_slice() } else { &[] };
     let (_, ch, cp) = photo.camera_view();
