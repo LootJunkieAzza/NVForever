@@ -22,7 +22,10 @@
 //! - **The host's level** comes over the co-op wire: the host sends its player's level and
 //!   XP to every guest (`nvf_coop::net::LevelView`, at once when they change and every
 //!   `LEVEL_EVERY`; coop.rs), and a guest keeps the newest (`Coop::host_level`). Any guest
-//!   may hear it; only split screen's player 2 acts on it.
+//!   may hear it; only split screen's player 2 acts on it. When player 1 is a guest in a
+//!   third player's lobby, player 2 joins that host through player 1 (`nvf_coop::net`
+//!   `Msg::Relayed`) as a guest of the host's own, so the level it hears, and catches up
+//!   to, is that host's, not player 1's [design: the plan's "the host"].
 
 use crate::coop::Coop;
 use bevy::prelude::*;
