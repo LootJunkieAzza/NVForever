@@ -54,9 +54,12 @@ pub fn earned_level(s: Standing, max: i32, total: impl Fn(i32) -> f64) -> i32 {
     l
 }
 
-/// Whether catch-up runs in this game: split screen's player 2, as a co-op guest.
-pub fn active(player_two: bool, role: Role) -> bool {
-    player_two && role == Role::Guest
+/// Whether catch-up runs in this game: split screen's player 2, as a co-op guest, playing
+/// a premade it picked (`premade`) with the main menu down (`at_menu`). Player 2's first
+/// run, the picker on its main menu, is already a guest of the host's game: it is thrown
+/// away once a premade is picked, so it gets no catch-up.
+pub fn active(player_two: bool, role: Role, premade: bool, at_menu: bool) -> bool {
+    player_two && role == Role::Guest && premade && !at_menu
 }
 
 /// The XP player 2 is topped up by now (0: none): [`TOP_UP_AT`] or more levels behind the
@@ -109,7 +112,15 @@ fn heard(l: nvf_coop::net::LevelView) -> Standing {
 }
 
 /// Player 2's game: the top-up and the bonus on each gain ([`top_up`], [`bonus`]).
-fn p2_catch_up(mut st: ResMut<P2Xp>, coop: Option<Res<Coop>>, progress: Option<Res<CoopProgress>>, mut script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>) {
+#[allow(clippy::too_many_arguments)]
+fn p2_catch_up(
+    mut st: ResMut<P2Xp>,
+    coop: Option<Res<Coop>>,
+    progress: Option<Res<CoopProgress>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
+    main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
+) {
     let host = coop.and_then(|c| c.host_level).map(heard);
     if host != st.host {
         if let Some(h) = host {
@@ -121,7 +132,8 @@ fn p2_catch_up(mut st: ResMut<P2Xp>, coop: Option<Res<Coop>>, progress: Option<R
         st.last_xp = None;
         return;
     };
-    if !active(true, progress.map_or(Role::Solo, |p| p.role)) || rt.game.player.in_chargen {
+    let at_menu = main_menu.is_some_and(|m| m.open);
+    if !active(true, progress.map_or(Role::Solo, |p| p.role), crate::split::plays_premade(), at_menu) || rt.game.player.in_chargen {
         st.last_xp = None;
         return;
     }
@@ -234,10 +246,14 @@ mod tests {
     /// An online guest, the host and a game alone never catch up (plan §9).
     #[test]
     fn only_split_screens_player_two_catches_up() {
-        assert!(active(true, Role::Guest));
-        assert!(!active(false, Role::Guest), "an online guest gets no catch-up");
-        assert!(!active(true, Role::Solo));
-        assert!(!active(false, Role::Host));
+        assert!(active(true, Role::Guest, true, false));
+        assert!(!active(false, Role::Guest, true, false), "an online guest gets no catch-up");
+        assert!(!active(true, Role::Solo, true, false));
+        assert!(!active(false, Role::Host, true, false));
+        // Player 2's first run: the picker on its main menu, no premade loaded yet.
+        assert!(!active(true, Role::Guest, false, true), "the picker's throwaway game gets no catch-up");
+        assert!(!active(true, Role::Guest, false, false), "no premade loaded: no catch-up");
+        assert!(!active(true, Role::Guest, true, true), "the main menu up: no catch-up");
     }
 
     #[test]

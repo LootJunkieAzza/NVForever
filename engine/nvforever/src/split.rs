@@ -890,6 +890,14 @@ fn premade_of(stem: &str) -> Option<usize> {
     fnv_game::split_premade::by_name(stem).map(|(n, _)| n)
 }
 
+/// Whether this run plays one of player 2's premades: it was started with `--load
+/// <Premade>.nvfsave` (player 2's picker loads one that way). Player 2's first run, the
+/// picker, plays none.
+pub fn plays_premade() -> bool {
+    static PLAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PLAYS.get_or_init(|| loaded_stem().and_then(|s| premade_of(&s)).is_some())
+}
+
 /// The stem of the save this run was started with (`--load`), if any.
 fn loaded_stem() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
