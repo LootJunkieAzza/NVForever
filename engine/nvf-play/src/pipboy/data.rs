@@ -1610,22 +1610,32 @@ pub fn quest_seen(st: &DataState, quest: u32) -> u64 {
 /// (`HostQuestState::seen`; the laptop's late join listed them by when the guest did).
 fn guest_quests(g: &fnv_game::game::Game) -> Vec<QuestKey> {
     let named = |q: FormId| g.data.quests.get(&q).and_then(|d| d.name.as_deref()).is_some_and(|n| !n.trim().is_empty());
+    host_quest_log(&g.coop_host_story, g.coop_host_quest.as_ref(), &g.coop_host_ended, named, g.tweaks.hide_completed_quests)
+}
+
+/// The host's quest log as a guest's list has it ([`guest_quests`]; split screen's player 2
+/// reads it too, plan split-screen.md §8 "Quests"): every named quest of the host's story
+/// with an objective shown or done, the host's active quest (`host`), and the quests that
+/// ended while this guest played (`ended`); done when completed or failed. In the host's
+/// order. `hide_completed`: this player's own tweak leaves the done ones out, as
+/// [`player_quests`] does with a player's own quests [design: docs/design/tweaks.md].
+fn host_quest_log(story: &fnv_game::coop::HostStory, host: Option<&fnv_game::coop::HostQuest>, ended: &[(FormId, bool)], named: impl Fn(FormId) -> bool, hide_completed: bool) -> Vec<QuestKey> {
     // The host's order (`HostQuestState::seen`); a quest the story has not ordered yet (one
     // that ended a moment ago) is newest, as the host's own newest quest is.
-    let seen = |q: u32| g.coop_host_story.quests.get(&FormId(q)).map(|s| s.seen).filter(|s| *s > 0).unwrap_or(u64::MAX);
+    let seen = |q: u32| story.quests.get(&FormId(q)).map(|s| s.seen).filter(|s| *s > 0).unwrap_or(u64::MAX);
     let mut done: BTreeMap<u32, bool> = BTreeMap::new();
-    for (q, s) in &g.coop_host_story.quests {
+    for (q, s) in &story.quests {
         if named(*q) && !s.objectives.is_empty() {
             done.insert(q.0, s.ended);
         }
     }
-    if let Some(h) = g.coop_host_quest.as_ref().filter(|h| named(h.quest)) {
+    if let Some(h) = host.filter(|h| named(h.quest)) {
         *done.entry(h.quest.0).or_default() |= h.completed || h.failed;
     }
-    for (q, _) in g.coop_host_ended.iter().filter(|(q, _)| named(*q)) {
+    for (q, _) in ended.iter().filter(|(q, _)| named(*q)) {
         done.insert(q.0, true);
     }
-    let mut out: Vec<QuestKey> = done.into_iter().map(|(form, done)| QuestKey { seen: seen(form), form, done }).collect();
+    let mut out: Vec<QuestKey> = done.into_iter().filter(|(_, done)| !(hide_completed && *done)).map(|(form, done)| QuestKey { seen: seen(form), form, done }).collect();
     model::sort_quests(&mut out);
     out
 }
@@ -2180,6 +2190,11 @@ fn drag_bar(st: &mut DataState, held: bool, pointer: Option<Vec2>, pane: &mut Pa
 /// turned off on the one playing [hypothesis: "Tune"].
 fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game) {
     match tab {
+        // A co-op guest's list is the host's log, read only: the host's active quest
+        // stays the marked one (split screen's player 2 too, plan §8 "Quests") [design].
+        QUESTS if game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest) => {
+            info!("pipboy data: the host's quest log is read only here; the host's active quest stays marked");
+        }
         QUESTS => {
             if let Some(q) = l.quests.get(i).filter(|q| !q.done) {
                 st.active_quest = Some(q.form);
@@ -2609,6 +2624,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         quests: !l.quests.is_empty(),
         no_show_location: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location),
         quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
+        quests_read_only: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.coop_guest),
         notes: l.has_notes,
         notes_of_active: st.notes_of_active,
         audio,
@@ -2669,6 +2685,9 @@ struct HintFacts {
     /// Quests are listed, and whether the selected one is done.
     quests: bool,
     quest_done: Option<bool>,
+    /// The list is the host's log, read only (a co-op guest; split screen's player 2): the
+    /// make-active hint is dim, as on a quest done [design].
+    quests_read_only: bool,
     /// The player's tweak drops Show Location [design: docs/design/tweaks.md].
     no_show_location: bool,
     /// The player has a note (whatever the filter keeps); the notes' filter is on; the
@@ -2726,7 +2745,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
     let b = |word, key, dim, kind| Button { hint: Hint::new(word, key, dim), kind };
     let a = match tab {
         WORLD => Some(b(built_in_label("sTravel"), a_key(), !f.marker, ButtonKind::Travel)),
-        QUESTS if f.quests => Some(b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false), ButtonKind::MakeActive)),
+        QUESTS if f.quests => Some(b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false) || f.quests_read_only, ButtonKind::MakeActive)),
         NOTES => f.audio.map(|playing| b(built_in_label(if playing { "sStopAudio" } else { "sPlayAudio" }), a_key(), false, ButtonKind::PlayAudio)),
         RADIO if f.stations => Some(b(built_in_label("sTune"), a_key(), false, ButtonKind::Tune)),
         _ => None,
@@ -6072,5 +6091,42 @@ mod tests {
         let gone = fnv_save::PluginRemap::from_names(&saved, &["FalloutNV.esm".into()]);
         assert_eq!(marker_from_save(&v, Some(&gone)), None);
         assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
+    }
+
+    /// The host's quest log on a guest (split screen's player 2 too, plan split-screen.md
+    /// §8 "Quests"): every named quest of the host's story with an objective shown or done,
+    /// running and done alike, in the host's order (running first, newest first); the
+    /// host's active quest even before the story carries it; a quest that ended a moment
+    /// ago done at once; unnamed quests and quests with no objective shown left out; the
+    /// player's own hide-completed tweak drops the done ones.
+    #[test]
+    fn a_guests_list_is_the_hosts_whole_quest_log() {
+        use fnv_game::coop::{HostQuest, HostQuestState, HostStory};
+        let state = |seen: u64, ended: bool, objectives: &[(i32, bool)]| HostQuestState { stage: 10, running: !ended, ended, done: vec![10], failed: false, objectives: objectives.iter().copied().collect(), seen };
+        let mut story = HostStory::default();
+        story.quests.insert(FormId(0x100), state(1, true, &[(10, true)])); // done, oldest
+        story.quests.insert(FormId(0x200), state(2, false, &[(10, true), (20, false)])); // running
+        story.quests.insert(FormId(0x300), state(3, false, &[(10, false)])); // running, newest
+        story.quests.insert(FormId(0x400), state(4, false, &[])); // started, nothing shown yet
+        story.quests.insert(FormId(0x500), state(5, false, &[(10, false)])); // no name (a quest the list never shows)
+        story.quests.insert(FormId(0x600), state(6, false, &[(10, false)])); // ends a moment ago
+        let named = |q: FormId| q.0 != 0x500;
+        // The host's active quest, which the story has not carried yet.
+        let host = HostQuest { quest: FormId(0x700), objectives: [(10, false)].into(), completed: false, failed: false };
+        let ended = [(FormId(0x600), false)];
+        let rows = |hide| host_quest_log(&story, Some(&host), &ended, named, hide).iter().map(|k| (k.form, k.done)).collect::<Vec<_>>();
+        assert_eq!(rows(false), [(0x700, false), (0x300, false), (0x200, false), (0x600, true), (0x100, true)]);
+        assert_eq!(rows(true), [(0x700, false), (0x300, false), (0x200, false)]);
+        // Nothing heard yet: an empty list, not the guest's own quests.
+        assert!(host_quest_log(&HostStory::default(), None, &[], |_| true, false).is_empty());
+    }
+
+    /// The host's log is read only on a guest: the make-active hint is dim there, as on a
+    /// quest done, and bright on the host's own running quest.
+    #[test]
+    fn a_guests_make_active_hint_is_dim() {
+        let make_active = |f: &HintFacts| tab_buttons(QUESTS, f).into_iter().find(|b| matches!(b.kind, ButtonKind::MakeActive)).map(|b| b.hint.dim);
+        assert_eq!(make_active(&facts(true)), Some(false));
+        assert_eq!(make_active(&HintFacts { quests_read_only: true, ..facts(true) }), Some(true));
     }
 }
