@@ -365,6 +365,7 @@ impl Plugin for CoopPlugin {
             ai_was_off: None,
             joining_held: false,
             clock_heard: None,
+            host_level: None,
             host_quest: None,
             quest_untold: None,
             host_place: None,
@@ -555,6 +556,9 @@ pub(crate) struct Coop {
     /// A guest's: when (seconds of play) the host's clock was last heard, for
     /// [`guest_hours_passed`].
     clock_heard: Option<f32>,
+    /// A guest's: the host's player's level and XP as last heard ([`Event::Level`]; split
+    /// screen's XP catch-up, `split_xp`).
+    pub(crate) host_level: Option<net::LevelView>,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
     /// A guest's: the host's quest as its messages last told it, while messages for a
@@ -839,6 +843,7 @@ impl Coop {
         self.join_code = None;
         self.joining = Joining::Idle;
         self.host = None;
+        self.host_level = None;
         self.host_lost = false;
         std::env::remove_var(JOIN_ENV);
         self.forget_peers(commands, fighters);
@@ -1941,6 +1946,7 @@ fn take_events(
             }
             Event::HostGone => {
                 coop.host = None;
+                coop.host_level = None;
                 coop.ended = true;
                 notes.push("The host's game has ended".into());
             }
@@ -2034,6 +2040,12 @@ fn take_events(
             Event::Campfire { id, reference } => coop.campfires.asked.push((id, reference)),
             Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
             Event::Scene(v) => coop.scene.heard = Some((v, time.elapsed_secs())),
+            Event::Level(l) => {
+                if coop.host_level.is_none_or(|h| h.level != l.level) {
+                    info!("co-op: the host is level {} with {} XP", l.level, l.xp);
+                }
+                coop.host_level = Some(l);
+            }
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
@@ -2379,6 +2391,7 @@ fn stand_ins(
         if let Ok(c) = sim.world.calendar() {
             link.set_clock(net::ClockView { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed });
         }
+        link.set_level(net::LevelView { level: rt.game.player_level().clamp(0.0, f64::from(u16::MAX)) as u16, xp: rt.game.player.xp.clamp(0.0, f64::from(u32::MAX)) as u32 });
         let players: HashMap<FormId, u8> = coop.peers.iter().filter_map(|(&id, p)| Some((p.actor?, id))).collect();
         let said: Vec<fnv_game::game::Speech> = rt.game.speech.iter().cloned().chain(conversation_line(&rt.game)).collect();
         link.set_lines(lines_out(&said, |r| players.get(&r).copied()));

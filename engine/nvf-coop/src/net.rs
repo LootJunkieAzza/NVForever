@@ -18,7 +18,9 @@
 //! applies them in its world; what they do (a fight, a death) comes back in the states.
 //! The NPCs' hits on a guest go the other way ([`Session::send_hit_to`]). The host's
 //! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), so does its game
-//! clock ([`ClockView`], [`CLOCK_EVERY`]: one time of day in every game), and an unlocked
+//! clock ([`ClockView`], [`CLOCK_EVERY`]: one time of day in every game), so do its
+//! player's level and XP ([`LevelView`], every [`LEVEL_EVERY`] and at once when they
+//! change; split screen's XP catch-up reads it), and an unlocked
 //! door or terminal goes to everyone ([`Session::send_unlock`]), and so does a door one
 //! opens or closes ([`Session::send_door`]); the host's world's presence and its doors'
 //! open flags go to the guests as lists ([`Msg::Presence`]). A player another revives
@@ -72,7 +74,9 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// for both): `Effect::Sync` (effect code 8, the syncing screen) and the change log's
 /// `repl::Value::Pose` (comp 9, a dead actor's resting ragdoll pose), which 129 cannot read.
 /// 132 (ship24.2): the lobby takes 6 players (`MAX_GUESTS` 5), so a 131 game (4 players) and
-/// a 132 game never join each other.
+/// a 132 game never join each other. Still 132: [`Msg::Level`] (kind 26, the host's level
+/// and XP) is new in 132 games; one built before it drops the kind (`decode`'s unknown
+/// kind), which costs it nothing but split screen's XP catch-up.
 pub const VERSION: u8 = 132;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
@@ -214,6 +218,8 @@ pub const WEAR_PAGE: usize = 32;
 pub const WEAR_ITEMS: usize = 16;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends its player's [`LevelView`] when it has not changed.
+pub const LEVEL_EVERY: Duration = Duration::from_secs(2);
 /// How often the host sends its [`SceneView`] when it has not changed.
 pub const SCENE_EVERY: Duration = Duration::from_millis(500);
 /// Image space modifiers a [`SceneView`] carries at most.
@@ -454,6 +460,8 @@ enum Msg {
     Unlock { reference: u32, terminal: bool },
     /// The host's game clock.
     Clock(ClockView),
+    /// The host's player's level and XP.
+    Level(LevelView),
     /// What the host's scripts do to the host's player now ([`SceneView`]).
     Scene(SceneView),
     /// The lines the host's NPCs are saying now (the newest `seq` wins).
@@ -558,6 +566,14 @@ pub struct ClockView {
     pub day: f32,
     pub hour: f32,
     pub days_passed: f32,
+}
+
+/// The host's player's level and XP (whole XP, as awards give it): for split screen's XP
+/// catch-up on player 2's game (nvforever `split_xp`); any guest may hear it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LevelView {
+    pub level: u16,
+    pub xp: u32,
 }
 
 /// What the host's scripts do to the host's player now, for the guests to share: the
@@ -667,6 +683,8 @@ pub enum Event {
     Unlocked { id: u8, reference: u32, terminal: bool },
     /// The host's game clock, each time it comes (guests only).
     Clock(ClockView),
+    /// The host's player's level and XP, each time it comes (guests only).
+    Level(LevelView),
     /// The host's [`SceneView`], each time it comes (guests only).
     Scene(SceneView),
     /// The lines the host's NPCs are saying now, each time they come (guests only).
@@ -812,6 +830,9 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// The host's player's level and XP now, and when and what it last sent.
+    level: Option<LevelView>,
+    last_level: Option<(Instant, LevelView)>,
     /// The host's scene now, and when and what it last sent.
     scene: SceneView,
     last_scene: Option<(Instant, SceneView)>,
@@ -889,7 +910,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, level: None, last_level: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, story: StoryPager::default(), last_story: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -926,6 +947,12 @@ impl Session {
     /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
     pub fn set_clock(&mut self, clock: ClockView) {
         self.clock = Some(clock);
+    }
+
+    /// The host's player's level and XP now; [`Session::tick`] sends it when it changes
+    /// and every [`LEVEL_EVERY`].
+    pub fn set_level(&mut self, level: LevelView) {
+        self.level = Some(level);
     }
 
     /// The host's scene now; [`Session::tick`] sends it when it changes and every
@@ -1349,6 +1376,15 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if let (true, Some(l)) = (self.is_host(), self.level) {
+            if !self.peers.is_empty() && self.last_level.is_none_or(|(t, sent)| sent != l || now - t >= LEVEL_EVERY) {
+                let msg = Msg::Level(l);
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+                self.last_level = Some((now, l));
+            }
+        }
         if self.is_host() && !self.peers.is_empty() && self.last_scene.as_ref().is_none_or(|(t, sent)| *sent != self.scene || now - *t >= SCENE_EVERY) {
             let msg = Msg::Scene(self.scene.clone());
             for addr in self.peers.iter().filter_map(|p| p.addr) {
@@ -1679,7 +1715,7 @@ impl Session {
                     self.events.push(Event::Reliable { id, item });
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Story { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Level(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Story { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
         }
     }
 
@@ -1859,6 +1895,7 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Level(l) => self.events.push(Event::Level(l)),
             Msg::Scene(v) => self.events.push(Event::Scene(v)),
             Msg::Presence { list, serial, page, pages, refs } => self.events.push(Event::Presence { list, serial, page, pages, refs }),
             Msg::Story { entries } => self.events.push(Event::Story(entries)),
@@ -2039,6 +2076,10 @@ impl Link {
 
     pub fn set_clock(&self, clock: ClockView) {
         self.with(|s| s.set_clock(clock));
+    }
+
+    pub fn set_level(&self, level: LevelView) {
+        self.with(|s| s.set_level(level));
     }
 
     pub fn set_scene(&self, scene: SceneView) {
@@ -2291,6 +2332,11 @@ fn encode(msg: &Msg) -> Vec<u8> {
             for v in [c.year, c.month, c.day, c.hour, c.days_passed] {
                 b.extend_from_slice(&v.to_le_bytes());
             }
+        }
+        Msg::Level(l) => {
+            b.push(26);
+            b.extend_from_slice(&l.level.to_le_bytes());
+            b.extend_from_slice(&l.xp.to_le_bytes());
         }
         Msg::Scene(v) => {
             let mods = &v.mods[..v.mods.len().min(SCENE_MODS_MAX)];
@@ -2673,6 +2719,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Progress { id, seq, what }
         }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
+        26 => Msg::Level(LevelView { level: r.u16()?, xp: r.u32()? }),
         24 => {
             let locks = r.u8()?;
             let n = r.u8()? as usize;
@@ -2891,6 +2938,9 @@ mod tests {
             Msg::Quest(QuestView::default()),
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
+            Msg::Level(LevelView { level: 20, xp: 23_900 }),
+            Msg::Level(LevelView { level: u16::MAX, xp: u32::MAX }),
+            Msg::Level(LevelView::default()),
             Msg::Scene(SceneView::default()),
             Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/nvdlc01/slide03.dds".into())], waiting: None }),
             Msg::Scene(SceneView { locks: 0, mods: vec![], worn: vec![], swaps: vec![], waiting: Some((0x0100_9E7C, vec![1, 3])) }),
@@ -3436,6 +3486,15 @@ mod tests {
         a.send_unlock(0x0001_2345, false);
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::Unlocked { .. })));
         assert!(seen[0].contains(&Event::Unlocked { id, reference: 0x0001_2345, terminal: false }));
+        // The host's level and XP: at once, again when it changes, and never from a guest.
+        let l = LevelView { level: 20, xp: 23_900 };
+        host.set_level(l);
+        a.set_level(LevelView { level: 1, xp: 0 });
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Level(l)));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Level(_))), "a guest's is never sent");
+        let up = LevelView { level: 21, xp: 26_250 };
+        host.set_level(up);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Level(up)));
     }
 
     /// A door a guest opens reaches the host and the other guest, naming the guest, and

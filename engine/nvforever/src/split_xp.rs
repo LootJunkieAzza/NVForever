@@ -4,11 +4,10 @@
 //!
 //! - **The rule** ([`top_up`], [`bonus`]; numbers [design], for the owner to approve):
 //!   the gap is the host's level minus player 2's, each the level its XP has earned (a
-//!   level-up menu not yet taken counts). More than [`TOP_UP_OVER`] levels behind: player 2
-//!   is topped up at once to the XP that starts level (host − [`TOP_UP_TO_BELOW`]). Up to
-//!   [`TOP_UP_OVER`] levels behind: each XP gain of player 2's earns [`BONUS`] more. Never
-//!   ahead of the host's XP. The plan's "1–2 levels behind" leaves 3 behind with neither;
-//!   here 3 behind earns the bonus too [design: one further behind is never helped less].
+//!   level-up menu not yet taken counts). [`TOP_UP_AT`] or more levels behind: player 2 is
+//!   topped up at once to the XP that starts level (host − [`TOP_UP_TO_BELOW`]). 1 to 2
+//!   levels behind: each XP gain of player 2's earns [`BONUS`] more. Never ahead of the
+//!   host's XP (plan §9).
 //! - **The curve** is the game's (`fnv_game::experience::xp_for_level`, the load order's
 //!   `iXPBase` and `iXPBumpBase`: 25·(3L + 2)·(L − 1) with the defaults [documented: GECK
 //!   wiki Experience Settings]); the level cap is `experience::max_level`'s.
@@ -20,29 +19,23 @@
 //! - **Only split screen's player 2:** the systems run only in a game with
 //!   `nvf_play::split_screen::PlayerTwo` (`--split-p2`, a launch argument, never a lobby
 //!   setting) while it is a co-op guest ([`active`]); an online guest never gets any.
-//! - **The host's level** is not on the co-op wire (`nvf_coop::net`: no player level or XP
-//!   in `PlayerState`, the look, the story or the presence lists [observed]). Both games
-//!   are on one machine, so player 1's game writes it beside split screen's session files
-//!   (`<player 1's home>\split\host-xp.txt`: `pid`, `level`, `xp`, every
-//!   [`WRITE_EVERY`] seconds while split screen is on) and player 2's reads it; it is taken
-//!   only while its `pid` is the one in `p1.txt` (split.rs), so an old file is never read.
+//! - **The host's level** comes over the co-op wire: the host sends its player's level and
+//!   XP to every guest (`nvf_coop::net::LevelView`, at once when they change and every
+//!   `LEVEL_EVERY`; coop.rs), and a guest keeps the newest (`Coop::host_level`). Any guest
+//!   may hear it; only split screen's player 2 acts on it.
 
+use crate::coop::Coop;
 use bevy::prelude::*;
 use nvf_play::coop_progress::{CoopProgress, Role};
 use nvf_play::script::ScriptState;
-use nvf_play::split_screen::{PlayerTwo, SplitScreen};
-use std::path::{Path, PathBuf};
+use nvf_play::split_screen::PlayerTwo;
 
-/// More levels behind than this: topped up at once.
-pub const TOP_UP_OVER: i32 = 3;
+/// This many levels behind or more: topped up at once.
+pub const TOP_UP_AT: i32 = 3;
 /// The top-up reaches the start of the host's level minus this.
 pub const TOP_UP_TO_BELOW: i32 = 2;
-/// Behind by up to [`TOP_UP_OVER`] levels: this share of each gain more.
+/// Behind by 1 to [`TOP_UP_AT`] − 1 levels: this share of each gain more.
 pub const BONUS: f64 = 0.5;
-/// The host's file, in split screen's session folder.
-pub const HOST_FILE: &str = "host-xp.txt";
-/// How often player 1's game writes it and player 2's reads it (seconds).
-pub const WRITE_EVERY: f32 = 1.0;
 
 /// A player's level and XP.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,12 +59,11 @@ pub fn active(player_two: bool, role: Role) -> bool {
     player_two && role == Role::Guest
 }
 
-/// The XP player 2 is topped up by now (0: none): more than [`TOP_UP_OVER`] levels behind
-/// the host, up to the start of level (host − [`TOP_UP_TO_BELOW`]), never past the host's
-/// XP.
+/// The XP player 2 is topped up by now (0: none): [`TOP_UP_AT`] or more levels behind the
+/// host, up to the start of level (host − [`TOP_UP_TO_BELOW`]), never past the host's XP.
 pub fn top_up(host: Standing, p2: Standing, max: i32, total: impl Fn(i32) -> f64) -> f64 {
     let (h, p) = (earned_level(host, max, &total), earned_level(p2, max, &total));
-    if h - p <= TOP_UP_OVER {
+    if h - p < TOP_UP_AT {
         return 0.0;
     }
     let target = total(h - TOP_UP_TO_BELOW).min(host.xp);
@@ -79,109 +71,51 @@ pub fn top_up(host: Standing, p2: Standing, max: i32, total: impl Fn(i32) -> f64
 }
 
 /// The XP player 2 earns more for a gain of `gain` (0: none): `before` is where it stood
-/// before the gain. Behind the host by 1 to [`TOP_UP_OVER`] levels: [`BONUS`] of the
+/// before the gain. Behind the host by 1 to [`TOP_UP_AT`] − 1 levels: [`BONUS`] of the
 /// gain, never past the host's XP.
 pub fn bonus(host: Standing, before: Standing, gain: f64, max: i32, total: impl Fn(i32) -> f64) -> f64 {
     if gain <= 0.0 {
         return 0.0;
     }
     let gap = earned_level(host, max, &total) - earned_level(before, max, &total);
-    if !(1..=TOP_UP_OVER).contains(&gap) {
+    if !(1..TOP_UP_AT).contains(&gap) {
         return 0.0;
     }
     (gain * BONUS).trunc().min(host.xp - (before.xp + gain)).max(0.0)
 }
 
-/// The host's file's text.
-fn host_text(pid: u32, s: Standing) -> String {
-    format!("pid={pid}\nlevel={}\nxp={}\n", s.level, s.xp)
-}
-
-/// A `key=value` line's value.
-fn kv<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('=')).map(str::trim)
-}
-
-/// The host's file read back: its writer's pid and standing.
-fn read_host(text: &str) -> Option<(u32, Standing)> {
-    Some((kv(text, "pid")?.parse().ok()?, Standing { level: kv(text, "level")?.parse().ok()?, xp: kv(text, "xp")?.parse().ok()? }))
-}
-
-/// `--split-p2 <dir>` (main.rs): this game is player 2's, with split screen's session folder.
-pub struct SplitXpPlugin {
-    pub p2_dir: Option<PathBuf>,
-}
+/// Split screen's player 2 (`--split-p2`, main.rs: `PlayerTwo`) runs catch-up; in any
+/// other game its system does nothing.
+pub struct SplitXpPlugin;
 
 impl Plugin for SplitXpPlugin {
     fn build(&self, app: &mut App) {
-        match self.p2_dir.clone() {
-            Some(dir) => {
-                app.insert_resource(P2Xp { dir, read_at: f32::NEG_INFINITY, host: None, last_xp: None }).add_systems(Update, p2_catch_up.run_if(resource_exists::<PlayerTwo>).after(nvf_play::PlaySet::Ui));
-            }
-            None => {
-                app.add_systems(Update, p1_tell);
-            }
-        }
-    }
-}
-
-/// Player 1's game, while split screen is on and it hosts: its level and XP for player 2's.
-fn p1_tell(time: Res<Time>, split: Option<Res<SplitScreen>>, progress: Option<Res<CoopProgress>>, script: Option<Res<ScriptState>>, mut last: Local<(f32, Option<String>)>) {
-    let now = time.elapsed_secs();
-    if now - last.0 < WRITE_EVERY || !split.is_some_and(|s| s.on) || progress.is_none_or(|p| p.role != Role::Host) {
-        return;
-    }
-    last.0 = now;
-    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
-    let text = host_text(std::process::id(), Standing { level: rt.game.player_level() as i32, xp: rt.game.player.xp });
-    if last.1.as_deref() == Some(text.as_str()) {
-        return;
-    }
-    let Some(dir) = fnv_install::EngineHome::default_root().map(|h| h.join("split")) else { return };
-    let tmp = dir.join(format!("{HOST_FILE}.tmp"));
-    let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&tmp, &text)).and_then(|_| std::fs::rename(&tmp, dir.join(HOST_FILE)));
-    match written {
-        Ok(()) => {
-            if last.1.is_none() {
-                info!("split xp: the host's level for player 2: {}", text.replace('\n', " ").trim());
-            }
-            last.1 = Some(text);
-        }
-        Err(e) => warn!("split xp: the host's level could not be written: {e}"),
+        app.init_resource::<P2Xp>().add_systems(Update, p2_catch_up.run_if(resource_exists::<PlayerTwo>).after(nvf_play::PlaySet::Ui));
     }
 }
 
 /// Player 2's catch-up state.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct P2Xp {
-    dir: PathBuf,
-    read_at: f32,
-    /// The host's standing, as its file last said.
+    /// The host's standing, as the wire last told it.
     host: Option<Standing>,
     /// Player 2's XP last seen (its gains are the rises from it).
     last_xp: Option<f64>,
 }
 
-/// The host's standing, from its file, while its writer is player 1's game now.
-fn host_now(dir: &Path) -> Option<Standing> {
-    let p1 = std::fs::read_to_string(dir.join("p1.txt")).ok()?;
-    let p1_pid: u32 = kv(&p1, "pid")?.parse().ok()?;
-    let (pid, s) = read_host(&std::fs::read_to_string(dir.join(HOST_FILE)).ok()?)?;
-    (pid == p1_pid).then_some(s)
+/// The host's standing as the co-op wire told it.
+fn heard(l: nvf_coop::net::LevelView) -> Standing {
+    Standing { level: i32::from(l.level), xp: f64::from(l.xp) }
 }
 
 /// Player 2's game: the top-up and the bonus on each gain ([`top_up`], [`bonus`]).
-fn p2_catch_up(time: Res<Time>, mut st: ResMut<P2Xp>, progress: Option<Res<CoopProgress>>, mut script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>) {
-    let now = time.elapsed_secs();
-    if now - st.read_at >= WRITE_EVERY {
-        st.read_at = now;
-        let host = host_now(&st.dir);
-        if host != st.host {
-            if let Some(h) = host {
-                info!("split xp: the host is level {} with {} XP", h.level, h.xp);
-            }
-            st.host = host;
+fn p2_catch_up(mut st: ResMut<P2Xp>, coop: Option<Res<Coop>>, progress: Option<Res<CoopProgress>>, mut script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>) {
+    let host = coop.and_then(|c| c.host_level).map(heard);
+    if host != st.host {
+        if let Some(h) = host {
+            info!("split xp: heard over the wire: the host is level {} with {} XP", h.level, h.xp);
         }
+        st.host = host;
     }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
         st.last_xp = None;
@@ -255,19 +189,22 @@ mod tests {
     }
 
     #[test]
-    fn more_than_three_behind_tops_up_three_or_less_does_not() {
+    fn three_or_more_behind_tops_up_two_or_less_does_not() {
         assert_eq!(top_up(at(10), at(6), 30, total), total(8) - total(6));
-        assert_eq!(top_up(at(10), at(7), 30, total), 0.0);
+        assert_eq!(top_up(at(10), at(7), 30, total), total(8) - total(7), "exactly 3 behind: topped up");
+        assert_eq!(top_up(at(10), at(8), 30, total), 0.0);
+        assert_eq!(top_up(at(10), at(9), 30, total), 0.0);
         assert_eq!(top_up(at(10), at(10), 30, total), 0.0);
         // XP above a level's start is kept; never taken away.
         assert_eq!(top_up(at(10), Standing { level: 6, xp: total(8) + 10.0 }, 30, total), 0.0);
     }
 
     #[test]
-    fn one_to_three_behind_earns_half_again() {
+    fn one_or_two_behind_earns_half_again() {
         assert_eq!(bonus(at(10), at(9), 100.0, 30, total), 50.0);
         assert_eq!(bonus(at(10), at(8), 25.0, 30, total), 12.0, "whole XP, as awards are");
-        assert_eq!(bonus(at(10), at(7), 100.0, 30, total), 50.0);
+        assert_eq!(bonus(at(10), at(7), 100.0, 30, total), 0.0, "3 behind: the top-up, not the bonus");
+        assert_eq!(bonus(at(10), at(5), 100.0, 30, total), 0.0);
         assert_eq!(bonus(at(10), at(10), 100.0, 30, total), 0.0, "level with the host: none");
         assert_eq!(bonus(at(10), at(12), 100.0, 30, total), 0.0, "ahead: none");
         assert_eq!(bonus(at(10), at(9), 0.0, 30, total), 0.0);
@@ -304,10 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hosts_file_reads_back() {
-        let s = Standing { level: 20, xp: 23_900.0 };
-        assert_eq!(read_host(&host_text(42, s)), Some((42, s)));
-        assert_eq!(read_host("pid=1\nlevel=x\nxp=3\n"), None);
-        assert_eq!(read_host(""), None);
+    fn the_wires_level_is_the_hosts_standing() {
+        assert_eq!(heard(nvf_coop::net::LevelView { level: 20, xp: 23_900 }), Standing { level: 20, xp: 23_900.0 });
     }
 }

@@ -2097,7 +2097,7 @@ fn main() -> AppExit {
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
-            app.add_plugins(split_xp::SplitXpPlugin { p2_dir: args.split_p2.clone() });
+            app.add_plugins(split_xp::SplitXpPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
