@@ -1761,14 +1761,18 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
             c.text_in(p, FontKind::Body, mode, PAD, y + title_h - 14.0, false, dim);
             y += title_h + 30.0;
             // The tabs: the one shown bright and underlined.
-            let tab_w = (PANEL_W - 2.0 * PAD) / Tab::ALL.len() as f32;
-            for (i, t) in Tab::ALL.into_iter().enumerate() {
-                let x = PAD + i as f32 * tab_w;
+            // Spread by their text's widths with even gaps, so four tabs never run together
+            // [observed: at even widths, "CAMERA" met "LOOK", photo lights frames 2026-11-19].
+            let widths: Vec<f32> = Tab::ALL.iter().map(|t| c.text_width(FontKind::Menu, t.label())).collect();
+            let gap = ((PANEL_W - 2.0 * PAD - widths.iter().sum::<f32>()) / (Tab::ALL.len() - 1) as f32).max(8.0);
+            let mut x = PAD;
+            for (t, w) in Tab::ALL.into_iter().zip(widths) {
                 let on = t == tab;
                 c.text_in(p, FontKind::Menu, t.label(), x, y - 6.0, false, if on { bright } else { dim });
                 if on {
-                    c.image(p, "interface\\shared\\line\\solid.dds", at(x, y + 28.0, tab_w - 18.0, 3.0), bright);
+                    c.image(p, "interface\\shared\\line\\solid.dds", at(x, y + 28.0, w, 3.0), bright);
                 }
+                x += w + gap;
             }
             y += tabs_h;
             c.image(p, "interface\\shared\\line\\solid.dds", at(PAD, y - 12.0, PANEL_W - 2.0 * PAD, 2.0), dim);
@@ -1803,12 +1807,14 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
                     }
                     y += ROW_STEP;
                 }
-                let more = |up: bool| if up { "^" } else { "v" };
+                // More rows above or below: a mark in the chooser's column on the first or
+                // last row shown (the chosen row sits in the middle then, so ">" is not
+                // there), clear of the sliders' tracks.
                 if first > 0 {
-                    c.text_in(p, FontKind::Body, more(true), PANEL_W - PAD, y - shown as f32 * ROW_STEP - 26.0, true, dim);
+                    c.text_in(p, FontKind::Menu, "^", PAD - 2.0, y - shown as f32 * ROW_STEP, false, dim);
                 }
                 if first + shown < Row::ALL.len() {
-                    c.text_in(p, FontKind::Body, more(false), PANEL_W - PAD, y - 22.0, true, dim);
+                    c.text_in(p, FontKind::Menu, "v", PAD - 2.0, y - ROW_STEP, false, dim);
                 }
             }
             for (i, &s) in rows.iter().enumerate() {
