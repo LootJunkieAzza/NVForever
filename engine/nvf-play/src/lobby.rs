@@ -42,6 +42,9 @@ const STEP: f32 = 30.0;
 const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
 const EMOTE_ROWS: usize = 10;
+/// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
+/// co-op tests check the two agree).
+pub const LOBBY_PLAYERS: usize = 6;
 /// The longest code typed (12 characters and the dashes, with room for spaces).
 const MAX_TYPED: usize = 26;
 
@@ -654,7 +657,7 @@ fn emote_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, slot: Option<usize>) {
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
 fn players(v: &mut Vec<Piece>, state: &LobbyState) {
-    v.push(Piece::Line("Players:".into(), Shade::Dim));
+    v.push(Piece::Line(format!("Players ({} of {LOBBY_PLAYERS}):", state.players.len()), Shade::Dim));
     for p in &state.players {
         v.push(Piece::Line(format!("  {p}"), Shade::Bright));
     }
@@ -809,6 +812,7 @@ mod tests {
         for n in names {
             assert!(p.contains(&Piece::Line(format!("  {n}"), Shade::Bright)), "{n} listed");
         }
+        assert!(p.contains(&Piece::Line("Players (6 of 6):".into(), Shade::Dim)));
         // The panel's height as `draw` measures it, a long line taken as three lines of
         // small print (the font is not loaded here): it stays inside the 960-unit screen
         // (at 540 px too, since interface units scale with the view's height).

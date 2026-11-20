@@ -860,7 +860,8 @@ mod tests {
 
     #[test]
     fn each_guest_has_its_own_place_beside_the_host() {
-        // Six players: the host and five guests (`MAX_GUESTS`).
+        // Six players: the host and five guests (`MAX_GUESTS`), as the lobby screen says.
+        assert_eq!(nvf_play::lobby::LOBBY_PLAYERS, nvf_coop::net::MAX_GUESTS + 1);
         let spots: Vec<[f32; 3]> = (1..=nvf_coop::net::MAX_GUESTS as u8).map(|k| beside_slot([0.0, 0.0, 0.0], 0.0, k)).collect();
         assert_eq!(spots.len(), 5);
         assert!((spots[0][0] - BESIDE).abs() < 1e-3);
