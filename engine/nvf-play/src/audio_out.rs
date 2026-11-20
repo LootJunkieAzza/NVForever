@@ -1096,12 +1096,11 @@ impl AddAudioSource for App {
 fn play_queued<T: Decodable + Asset>(
     out: Option<Res<AudioOut>>,
     sources: Res<Assets<T>>,
-    global: Res<GlobalVolume>,
+    (global, personal): (Res<GlobalVolume>, Option<Res<PersonalSoundsOnly>>),
     slow: Res<SoundSpeed>,
     queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>), Without<AudioSink>>,
     mut warned: Local<bool>,
     mut commands: Commands,
-    personal: Option<Res<PersonalSoundsOnly>>,
 ) {
     let Some(out) = out else { return };
     for (entity, player, settings, category, keeps) in &queued {
