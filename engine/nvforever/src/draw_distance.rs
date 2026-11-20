@@ -31,7 +31,9 @@
 //! settings while split ... view distance and shadows drop a bit"): while split screen is
 //! on in this game (player 1's while it is on, player 2's always), objects, actors and
 //! items are drawn to [`SPLIT_VIEW`] of what their sliders say and the sun's shadows reach
-//! [`SPLIT_SHADOWS`] of theirs ([`split_profile`]). The sliders, and so the INI, keep the
+//! [`SPLIT_SHADOWS`] of theirs ([`split_profile`]), with the shadow maps one resolution
+//! step down (`graphics::split_map_side`: 2048 -> 1024, 4096 -> 2048). The sliders, the
+//! Shadow resolution row, and so the INI, keep the
 //! player's own values; only the distances in use change, and ending split screen gives
 //! them back. Grass, imposters, distant LOD, terrain and water are not touched.
 
@@ -190,11 +192,13 @@ fn follow_split(mut commands: Commands, distances: Res<DrawDistances>, p1: Optio
 /// does) and the sun's shadows.
 pub fn set_split(world: &mut World, on: bool) {
     world.resource_mut::<DrawDistances>().split = on;
+    crate::graphics::apply_shadow_map(world, on);
     apply_shadows(world);
+    let map = crate::sky::map_side(world.get_resource::<bevy::light::DirectionalLightShadowMap>());
     let d = world.resource::<DrawDistances>();
     let u = d.in_use();
     info!(
-        "split profile: {}; objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units, shadows {:.0}% of {:.0} units (the settings keep their own values)",
+        "split profile: {}; objects {:.0}%, actors {:.0}%, items {:.0}% of {:.0} units, shadows {:.0}% of {:.0} units, shadow maps {map} x {map} (the settings keep their own values)",
         if on { "on" } else { "off" },
         u.objects * 100.0,
         u.actors * 100.0,
