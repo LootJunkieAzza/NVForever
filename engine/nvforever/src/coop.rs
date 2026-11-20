@@ -3897,9 +3897,18 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::Reload { stamp } => Shared::Reload { stamp },
                 net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
                 net::Progress::QuestEnded { quest, failed } => Shared::QuestEnded { quest, failed },
+                net::Progress::JointChoice { character, on } => Shared::JointChoice { character, on },
+                net::Progress::Stage { quest, stage, line, line_end, prior, to } => Shared::Stage { quest, stage, line, line_end, prior, to },
+                net::Progress::StageResult { quest, stage, taken } => Shared::StageResult { quest, stage, taken },
+                net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer },
+                net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             },
         ));
     }
+    // Joint progression (`nvf_play::coop_progress`): this player's id and, on the host,
+    // each player's actor in this world.
+    p.my_id = coop.link.as_ref().and_then(|l| l.id());
+    p.peer_actors = coop.peers.iter().filter_map(|(id, q)| q.actor.map(|a| (*id, a))).collect();
     let out = std::mem::take(&mut p.outbox);
     let Some(link) = coop.link.as_ref() else { return };
     for what in out {
@@ -3907,6 +3916,11 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
             Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
             Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
             Shared::QuestEnded { quest, failed } => net::Progress::QuestEnded { quest, failed },
+            Shared::JointChoice { character, on } => net::Progress::JointChoice { character, on },
+            Shared::Stage { quest, stage, line, line_end, prior, to } => net::Progress::Stage { quest, stage, line, line_end, prior, to },
+            Shared::StageResult { quest, stage, taken } => net::Progress::StageResult { quest, stage, taken },
+            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer },
+            Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } => net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,
                 kind: match kind {
