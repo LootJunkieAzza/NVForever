@@ -25,6 +25,23 @@ are already described in `docs/design/install-layout.md`.
   end, on. Dragging a row changes this order. A check changes the star.
 - Apply writes this file and the plugin list. The page says the files stay in
   their folders. It does not copy them into the game's Data folder.
+- A folder, a loose `.esp`/`.esm`/`.bsa`, or an archive dropped on the launcher
+  (or typed into Add) is copied into `<home>/mods/` under its own name. Archives
+  are `.zip`, `.7z`, `.rar`, `.fomod` (a zip), `.tar`, and `.gz`, and the same
+  formats when the file's bytes say so. An existing folder is not replaced.
+- The archive is opened first. One archive whose only content is another archive
+  is opened too. A `Data` folder, or a single wrapper folder, is the mod. A
+  plugin that sits only in an installer folder such as `optional`, beside a
+  readme, is copied out so it is a real plugin. A folder with no plugin and no
+  game files is not added.
+- `fomod/ModuleConfig.xml` asks, one step at a time, when there is a choice.
+  The window is one step. A group is choose one, at most one, at least one, all,
+  or any. An option is required, optional, recommended, not usable, or could be
+  usable. The chosen files are what land in the mod folder. A higher file
+  `priority` wins. A `fomod/script.cs` installer is not run.
+- Plugins from the new folder are added to the list. A new folder is on, so
+  those plugins are on. Save keeps the list. Dropping used to add the folder
+  and leave the plugin list unchanged.
 
 ## Which copy is used
 

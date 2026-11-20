@@ -137,6 +137,10 @@ pub struct App {
     backup_keep: usize,
     /// Apply is asking before it saves.
     apply_ask: bool,
+    /// Path typed into Add on the Mods page.
+    add_path: String,
+    /// An open archive installer, when a drop needs choices. // nvf-archive-install
+    wizard: Option<crate::fomod::Wizard>,
     /// Bottom bar height. Saved when the user lets go of the grip.
     bar_h: f32,
     /// The displays, for the Resolution and Monitor lists (asked once at start).
@@ -235,6 +239,8 @@ impl App {
             show_overwrites: false,
             backup_keep: 5,
             apply_ask: false,
+            add_path: String::new(),
+            wizard: None,
             bar_h: 86.0,
             monitors: crate::display::monitors(),
             languages: crate::display::language_choices(&fnv_util::words::dirs(
@@ -610,6 +616,8 @@ impl eframe::App for App {
         self.update_window(ctx, running);
         self.reports_window(ctx, running);
         self.dlss_licence_window(ctx);
+        self.installer_window(ctx);
+        self.take_dropped(ctx);
         egui::CentralPanel::default().frame(Frame::new().fill(theme::BG).inner_margin(Margin::symmetric(24, 16))).show(ui, |ui| match self.page {
             Page::Home => self.home_page(ui),
             Page::Settings => self.settings_page(ui),
@@ -835,6 +843,16 @@ impl App {
 }
 
 const REPO: &str = "https://github.com/LootJunkieAzza/NVForever";
+
+/// A drop that did not come with a real path (the name only). The bytes are written
+/// aside and installed from there, so a name alone never becomes an empty mod folder.
+fn write_dropped_bytes(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join(format!("nvforever-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
+}
 
 /// A page button of the left bar; the open page's has a gold edge and mark.
 fn load_mod_rows(home: &EngineHome) -> Vec<ModRow> {
@@ -1838,6 +1856,7 @@ impl App {
                 .color(WEAK),
         );
         ui.label(RichText::new("Left: mod folders. A check turns that folder's plugins on. A lower folder's copy of a file is the one used. Right: plugins. Click one to mark its folder.").small().color(WEAK));
+        self.mod_tools(ui);
         self.backup_row(ui);
         self.start_box(ui);
         ui.separator();
@@ -2201,6 +2220,224 @@ impl App {
             let e = list.entries.remove(from);
             list.entries.insert(to, e);
             self.mods_dirty = true;
+        }
+    }
+
+    // nvf-archive-install: a folder, a loose plugin, or any archive. A FOMOD with a choice opens a window.
+    fn mod_tools(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.add_path).hint_text("Drop a folder or an archive, or type its path").desired_width(ui.available_width() - 52.0));
+            if ui.button("Add").clicked() {
+                let path = PathBuf::from(self.add_path.trim());
+                match self.stage_one(&path) {
+                    Ok(Some(name)) => self.finish_import(Ok(name), true),
+                    Ok(None) => {
+                        self.add_path.clear();
+                        self.page = Page::Mods;
+                        self.message = Some(("Choose what to install.".into(), false));
+                    }
+                    Err(e) => self.finish_import(Err(e), false),
+                }
+            }
+        });
+    }
+
+    fn installer_window(&mut self, ctx: &egui::Context) {
+        let decision = {
+            let Some(w) = self.wizard.as_mut() else { return };
+            crate::fomod::draw(ctx, w)
+        };
+        match decision {
+            Some(crate::fomod::Decision::Cancel) => {
+                if let Some(w) = self.wizard.take() {
+                    w.discard();
+                }
+            }
+            Some(crate::fomod::Decision::Install) => {
+                let Some(home) = self.home.clone() else { return };
+                let mods = home.mods().to_path_buf();
+                let result = self.wizard.as_mut().map(|w| w.install(&mods));
+                match result {
+                    Some(Ok(name)) => {
+                        if let Some(w) = self.wizard.take() {
+                            w.discard();
+                        }
+                        self.finish_import(Ok(name), false);
+                    }
+                    Some(Err(e)) => {
+                        if let Some(w) = self.wizard.as_mut() {
+                            w.error = Some(e);
+                        }
+                    }
+                    None => {}
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn install_facts(&self) -> crate::fomod::FactsInput {
+        let active = self.mods.as_ref().map(|l| l.entries.iter().filter(|e| e.active).map(|e| e.name.clone()).collect()).unwrap_or_default();
+        let mut paths = HashSet::new();
+        for files in self.folder_files.values() {
+            for file in files {
+                paths.insert(file.clone());
+            }
+        }
+        crate::fomod::FactsInput { active, present: self.mods_present.clone(), paths }
+    }
+
+    /// Plugins of a folder just added get a line. A new folder is on, so those plugins are on.
+    /// Without this the folder shows in Mod Order and the plugin list does not change.
+    fn adopt_new_plugins(&mut self) {
+        let Some(home) = self.home.clone() else { return };
+        self.mod_rows = load_mod_rows(&home);
+        let mods = home.mods();
+        let mut found = Vec::new();
+        for row in &self.mod_rows {
+            for (plugin, _) in plugins::plugins_in_tree(&mods.join(&row.name)) {
+                found.push((plugin, row.on));
+            }
+        }
+        if self.mods.is_none() {
+            let text = std::fs::read_to_string(home.plugins_file()).unwrap_or_default();
+            self.mods = Some(plugins::PluginList::parse(&text));
+        }
+        if let Some(list) = &mut self.mods {
+            let names: Vec<String> = found.iter().map(|(n, _)| n.clone()).collect();
+            let added = list.add_new(&names);
+            for (plugin, on) in &found {
+                if *on && added.iter().any(|n| n.eq_ignore_ascii_case(plugin)) {
+                    if let Some(e) = list.entries.iter_mut().find(|e| e.name.eq_ignore_ascii_case(plugin)) {
+                        e.active = true;
+                    }
+                }
+            }
+        }
+        for (plugin, _) in &found {
+            self.mods_present.insert(plugin.to_ascii_lowercase());
+        }
+        self.refresh_plugin_notes();
+        self.mods_dirty = true;
+    }
+
+    fn finish_import(&mut self, result: Result<String, String>, clear_path: bool) {
+        match result {
+            Ok(name) => {
+                if clear_path {
+                    self.add_path.clear();
+                }
+                self.page = Page::Mods;
+                self.adopt_new_plugins();
+                self.message = Some((format!("Added {name}. Its plugins are in the list. Save to keep that."), false));
+            }
+            Err(e) => self.message = Some((e, true)),
+        }
+    }
+
+    fn take_dropped(&mut self, ctx: &egui::Context) {
+        let n = ctx.input(|i| i.raw.dropped_files.len());
+        if n == 0 {
+            return;
+        }
+        if self.wizard.is_some() {
+            self.message = Some(("Finish the open installer first.".into(), true));
+            return;
+        }
+        let mut sources = Vec::new();
+        for i in 0..n {
+            let path = ctx.input(|input| input.raw.dropped_files.get(i).map(|f| f.path().to_path_buf()));
+            let Some(path) = path else { continue };
+            if path.exists() {
+                sources.push(Ok(path));
+                continue;
+            }
+            let loaded = ctx.input(|input| input.raw.dropped_files.get(i).and_then(|f| f.bytes().ok()));
+            match loaded {
+                Some(bytes) if !bytes.is_empty() => {
+                    let name = path.file_name().and_then(|n| n.to_str()).filter(|s| !s.is_empty() && !s.contains("..") && !s.contains('/') && !s.contains('\\')).unwrap_or("dropped.mod");
+                    sources.push(write_dropped_bytes(name, &bytes));
+                }
+                _ => sources.push(Err("That drop had no file path.".into())),
+            }
+        }
+        let mut added = Vec::new();
+        let mut failed = None;
+        let mut asking = false;
+        for source in sources {
+            let path = match source {
+                Ok(path) => path,
+                Err(e) => {
+                    failed = Some(e);
+                    continue;
+                }
+            };
+            match self.stage_one(&path) {
+                Ok(Some(name)) => added.push(name),
+                Ok(None) => {
+                    asking = true;
+                    break;
+                }
+                Err(e) => failed = Some(e),
+            }
+        }
+        if !added.is_empty() {
+            self.page = Page::Mods;
+            self.adopt_new_plugins();
+        }
+        if asking {
+            self.page = Page::Mods;
+        }
+        if let Some(e) = failed {
+            self.message = Some((e, true));
+        } else if asking {
+            self.message = Some(("Choose what to install.".into(), false));
+        } else if !added.is_empty() {
+            self.message = Some((format!("Added {}. Its plugins are in the list. Save to keep that.", added.join(", ")), false));
+        }
+    }
+
+    fn stage_one(&mut self, src: &Path) -> Result<Option<String>, String> {
+        if self.wizard.is_some() {
+            return Err("Finish the open installer first.".into());
+        }
+        if src.as_os_str().is_empty() || !src.exists() {
+            return Err("That path was not found.".into());
+        }
+        let home = self.home.clone().ok_or("no home folder")?;
+        let mods = home.mods().to_path_buf();
+        std::fs::create_dir_all(&mods).map_err(|e| format!("{}: {e}", mods.display()))?;
+        if let Some(game) = self.game() {
+            if let (Ok(s), Ok(g)) = (src.canonicalize(), game.root.canonicalize()) {
+                if s == g || s.starts_with(&g) {
+                    return Err("That path is in the game folder. It is not copied.".into());
+                }
+            }
+        }
+        if let Ok(mods_c) = mods.canonicalize() {
+            if let Ok(s) = src.canonicalize() {
+                if s == mods_c || s.starts_with(&mods_c) {
+                    return Err("That folder is already in the mods folder.".into());
+                }
+            }
+        }
+        let facts = self.install_facts();
+        match crate::fomod::stage(src, facts)? {
+            crate::fomod::Staged::Tree { name, from, temp } => {
+                let result = crate::fomod::place_tree(&mods, &name, &from);
+                crate::fomod::discard(&temp);
+                result.map(Some)
+            }
+            crate::fomod::Staged::Plan(plan) => {
+                let temp = plan.temp.clone();
+                let result = crate::fomod::place_plan(&mods, &plan);
+                crate::fomod::discard(&temp);
+                result.map(Some)
+            }
+            crate::fomod::Staged::Wizard(w) => {
+                self.wizard = Some(w);
+                Ok(None)
+            }
         }
     }
 
