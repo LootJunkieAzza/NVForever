@@ -33,6 +33,11 @@
 //! **Keep limits** ([`nvf_assets::KeepLimits`], read by the release sweep each 2 s) scale
 //! down from five minutes and 2048 unused entries per cache on a machine with less than
 //! [`FULL_RAM_MB`] of RAM or [`FULL_VRAM_MB`] of GPU budget, by the smaller share ([`limits_for`]).
+//! **Player 2 of split screen** (plan `split-screen.md` §6, the RAM cuts): its game keeps
+//! the least ([`limits_for_split`]: unused models and textures 30 s, 128 per cache),
+//! whatever the machine has; it shares the machine with player 1's game, and what it
+//! drops it loads again from the files the first game has already brought into the
+//! system's file cache.
 //! **Pressed** ([`pressed`], checked every 2 s, the GPU budget read again each time so other
 //! programs' use counts): when the process uses over 85 % of the GPU budget, or the machine
 //! has under 10 % of its RAM free, the sweep keeps [`PRESSED`] (unused entries go after
@@ -268,6 +273,16 @@ pub fn limits_for(ram_mb: Option<u64>, vram_mb: Option<u64>) -> KeepLimits {
     let s = share(ram_mb, FULL_RAM_MB).min(share(vram_mb, FULL_VRAM_MB));
     let full = KeepLimits::default();
     KeepLimits { secs: (full.secs * s).round().max(MIN_LIMITS.secs), max: ((full.max as f64 * s).round() as usize).max(MIN_LIMITS.max) }
+}
+
+/// The keep limits for a game: `base` ([`limits_for`]), or the least for player 2's game of
+/// split screen (module notes) [design].
+pub fn limits_for_split(base: KeepLimits, player_two: bool) -> KeepLimits {
+    if player_two {
+        KeepLimits { secs: base.secs.min(MIN_LIMITS.secs), max: base.max.min(MIN_LIMITS.max) }
+    } else {
+        base
+    }
 }
 
 /// Whether the caches are pressed now, from each budget's share used with its
@@ -589,7 +604,7 @@ fn integrated(adapter: Option<&RenderAdapterInfo>) -> bool {
 }
 
 /// Read the budgets, log them and set the keep limits.
-fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapter: Option<Res<RenderAdapterInfo>>, mut budget: ResMut<MemoryBudget>) {
+fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapter: Option<Res<RenderAdapterInfo>>, mut budget: ResMut<MemoryBudget>, player_two: Option<Res<nvf_play::split_screen::PlayerTwo>>) {
     let ram = read_ram();
     let aid_ram = aid_mb("NVF_PLAY_TEST_RAM_MB");
     let ram_mb = capped(ram.map(|r| r.0), aid_ram);
@@ -606,7 +621,7 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         },
         Err(e) => format!("not read: {e}"),
     };
-    let base = limits_for(ram_mb, vram_mb);
+    let base = limits_for_split(limits_for(ram_mb, vram_mb), player_two.is_some());
     let ram_text = match (ram, ram_mb) {
         (Some((t, free)), Some(mb)) if mb < t => format!("RAM {mb} MB (test aid; the machine has {t} MB, {free} free)"),
         (Some((t, free)), _) => format!("RAM {t} MB ({free} free)"),
@@ -618,7 +633,7 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         (_, Some(mb)) => format!("GPU budget {mb} MB ({source})"),
         (_, None) => format!("GPU budget {source}"),
     };
-    info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
+    info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache{}", base.secs, base.max, if player_two.is_some() { " (player 2 of split screen)" } else { "" });
     if let Ok(v) = &vram {
         if let Some(detail) = &v.detail {
             info!("memory budget: {detail}");
@@ -1095,6 +1110,15 @@ mod tests {
         assert_eq!(limits_for(Some(32 * 1024), Some(4 * 1024)), KeepLimits { secs: 150.0, max: 1024 }, "a 4 GB card: half");
         assert_eq!(limits_for(Some(8 * 1024), Some(2 * 1024)), KeepLimits { secs: 75.0, max: 512 }, "the smaller share");
         assert_eq!(limits_for(Some(1024), Some(256)), MIN_LIMITS, "never under the least");
+    }
+
+    #[test]
+    fn player_two_keeps_the_least_whatever_the_machine() {
+        let full = KeepLimits::default();
+        assert_eq!(limits_for_split(full, false), full, "player 1 and a game alone: as the budgets say");
+        assert_eq!(limits_for_split(full, true), MIN_LIMITS);
+        assert_eq!(limits_for_split(MIN_LIMITS, true), MIN_LIMITS);
+        assert!(MIN_LIMITS.secs < full.secs && MIN_LIMITS.max < full.max);
     }
 
     /// The Linux RAM read: `/proc/meminfo`'s two lines, kB as MB; another key that starts the

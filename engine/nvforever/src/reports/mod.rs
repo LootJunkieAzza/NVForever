@@ -5,7 +5,7 @@
 //!   `NVForever.ini` (`fnv_install::reports`). A player's start that has no answer for the
 //!   current [`CONSENT_VERSION`] shows the popup once; the answer is stored at once. Off,
 //!   whatever the INI says, in a developer or smoke run (`--data` / `NVFOREVER_DATA`), a
-//!   run a test aid drives, and with `NVF_REPORTS=0`. A run a load was handed over to
+//!   run a test aid drives, player 2's game of split screen, and with `NVF_REPORTS=0`. A run a load was handed over to
 //!   (handoff.rs: loading a save starts a new process) follows the stored answer and never
 //!   asks; it is where the player plays after a load, so it collects and sends like any. `NVF_REPORTS=1` turns it on without asking (tests; such a run sends
 //!   only to `NVF_REPORTS_ENDPOINT`, never to the project's server).
@@ -190,6 +190,11 @@ fn forced_off(developer_data: bool) -> Option<&'static str> {
     }
     if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
         return Some("a test aid drives this run");
+    }
+    // Player 2's game of split screen: player 1's game reports the session (plan
+    // `split-screen.md` §6: player 2's game does no more than it must).
+    if std::env::var_os(crate::split::P2_ENV).is_some() {
+        return Some("player 2 of split screen (player 1's game reports)");
     }
     developer_data.then_some("a developer or smoke run (--data)")
 }
