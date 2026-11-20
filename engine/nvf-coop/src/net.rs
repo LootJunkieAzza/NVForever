@@ -72,8 +72,10 @@ pub const MAGIC: [u8; 4] = *b"NVCO";
 /// for both): `Effect::Sync` (effect code 8, the syncing screen) and the change log's
 /// `repl::Value::Pose` (comp 9, a dead actor's resting ragdoll pose), which 129 cannot read.
 /// 132 (ship24.2): the lobby takes 6 players (`MAX_GUESTS` 5), so a 131 game (4 players) and
-/// a 132 game never join each other.
-pub const VERSION: u8 = 132;
+/// a 132 game never join each other. 133 (shared progression): `Progress` tags 6-10 (the
+/// join answer, stage offers and results, kill and hit credit; kill credit carries the
+/// guest's infamy), which a 132 game cannot read.
+pub const VERSION: u8 = 133;
 pub const MAX_GUESTS: usize = 5;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).

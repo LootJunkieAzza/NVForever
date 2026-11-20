@@ -6616,14 +6616,18 @@ impl<'a> Game<'a> {
         if let Some(sp) = speaker {
             self.mark_said(sp, info, false);
         }
-        for u in [def.begin, def.end].into_iter().flatten() {
+        for (u, end) in [(def.begin, false), (def.end, true)].into_iter().filter_map(|(u, e)| u.map(|u| (u, e))) {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
+            // The stages it sets name this line, as a conversation's do (joint
+            // progression's replay, `crate::coop_joint::Line`).
+            let outer = self.coop_line.replace((info, end));
             // Said by its speaker, as a conversation runs it (a co-op guest's doctor,
             // `crate::coop_services`).
             match speaker {
                 Some(sp) => self.run_info_result(sp, u, def.quest),
                 None => self.run_result(u, RunCtx { self_ref: speaker, action_ref: None, quest: def.quest }),
             }
+            self.coop_line = outer;
         }
         Ok(pass)
     }
