@@ -106,6 +106,7 @@ mod rigid_head_probe;
 mod idles;
 mod sprint_guard;
 mod lights;
+mod photo_lights;
 mod limbs;
 mod lips;
 mod memory_budget;
@@ -1778,7 +1779,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))

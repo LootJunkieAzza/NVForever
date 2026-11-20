@@ -77,6 +77,7 @@ pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
 pub mod script_camera;
+pub mod photo_lights;
 pub mod photo_mode;
 pub mod shake;
 pub mod sprint;

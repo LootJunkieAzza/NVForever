@@ -106,6 +106,40 @@ description. This page is the summary.
 
 Shift moves the camera three times faster.
 
+## Lights (owner request 2026-11-19)
+
+The **Lights** tab places up to 4 coloured lights for the shot. The mechanics follow GTA VI's
+photo mode lights [design: the owner named it as the model; nothing of its art or assets is
+used]. The settings and state are in `nvf-play/src/photo_lights.rs`; nvforever draws them as
+the engine's dynamic point and spot lights, with the game's attenuation
+(`nvforever/src/photo_lights.rs`, `lights.rs`).
+
+- **Rows** (they scroll, six at a time): Light (which one the rows set), Add Light, Move &
+  Aim, On, Type (Point or Spot), Hue (0-360), Saturation, Brightness, Range, Width (the
+  spot's full cone, 6° tight spot to 170° flood), Direction and Tilt (heading and pitch),
+  Shadows, Pin to Camera, Remove Light. Left/Right change a row or press an action.
+- **Colour**: the Hue slider goes round the colour circle and Saturation mixes it to white
+  (HSV with the value at full). There is no colour wheel (owner).
+- **Placing**: Add Light drops a new light where the camera is, aimed along the view, and
+  starts editing it. Nothing points a light at the camera on its own afterwards; the
+  player sets its direction.
+- **Editing** (Move & Aim, or a new light): the photo camera stands still, and its inputs
+  drive the light instead. The mouse or right stick aims it, WASD or the left stick move
+  it (level with the ground along the camera's heading), Space/E and Ctrl/Q or the
+  triggers raise and lower it, and the wheel, [ ] or LB/RB narrow and widen it. Esc, B or
+  the right mouse button (or Move & Aim again) end editing. The camera is then put back
+  exactly where it stood when editing began, from a kept copy of its place and view.
+- **Pin to Camera** is an option, off by default. A pinned light rides at the camera, and
+  its direction is kept relative to the view. Unpinning sets it down at the camera,
+  pointing where it pointed.
+- **Markers**: a ball in the light's colour and an arrow along its beam for every light,
+  and the cone's rim for the chosen spot. They are drawn through walls while the Lights tab
+  is shown or a light is edited, and never in the photo.
+- **Shadows** use Bevy's shadow maps (a cube map per point light, one map per spot), and
+  carry the sun's render layers so the player's body casts its shadow.
+- The lights exist only while photo mode is open. They are removed when it closes and are
+  never saved.
+
 ## Not in this version
 
 Frames, filters, poses, time of day, and a co-op mark for players in photo mode.
@@ -117,4 +151,8 @@ round, reset, text, tabs, what reaches the grade), the
 FOV conversion, the file name and the place's safe form, unique names, the capture's pixel
 order, PNG writing, the test aid and solo/co-op. The smoke scenario `photo-mode`
 (`NVF_PLAY_TEST_PHOTO`) opens it alone, moves the camera, sets two sliders, saves a photo
-and closes it; `photo-mode-options` flies the free camera and turns the new options on.
+and closes it; `photo-mode-options` flies the free camera and turns the new options on;
+`photo-mode-lights` adds, colours, moves, aims and widens two lights with the camera held,
+saves a photo and checks the lights go on close. Unit tests in `nvf-play/src/photo_lights.rs`
+cover hue/saturation to colour, ranges, the light limit, input routing while editing, the
+camera put back, pinning and clearing.

@@ -71,6 +71,7 @@ use crate::control::{BodyView, PlayerControl, Pov};
 use crate::interface::{amber, at, u};
 use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use crate::phys::PhysState;
+use crate::photo_lights::{CameraHold, Inputs, PhotoLights, Route, Row};
 use crate::player::Player;
 use crate::{space, PlaySet, PlayState, PlayerCamera};
 use bevy::image::CompressedImageFormatSupport;
@@ -139,16 +140,19 @@ pub enum Tab {
     Camera,
     Look,
     Frame,
+    /// Photo lights (`crate::photo_lights`): its rows are [`crate::photo_lights::Row`].
+    Lights,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Camera, Tab::Look, Tab::Frame];
+    pub const ALL: [Tab; 4] = [Tab::Camera, Tab::Look, Tab::Frame, Tab::Lights];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::Camera => "CAMERA",
             Tab::Look => "LOOK",
             Tab::Frame => "FRAME",
+            Tab::Lights => "LIGHTS",
         }
     }
 
@@ -158,6 +162,7 @@ impl Tab {
             Tab::Camera => &[Setting::Camera, Setting::Zoom, Setting::Roll, Setting::Focus, Setting::Blur],
             Tab::Look => &[Setting::Brightness, Setting::Contrast, Setting::Saturation, Setting::Warmth, Setting::Vignette, Setting::Grain],
             Tab::Frame => &[Setting::Letterbox, Setting::Grid, Setting::HidePlayer],
+            Tab::Lights => &[],
         }
     }
 }
@@ -571,6 +576,9 @@ pub struct PhotoMode {
     /// Left/Right held: the direction and for how long.
     held: Option<(f32, f32)>,
     repeat_at: f32,
+    /// The photo lights and the Lights tab's chosen row (`crate::photo_lights::Row::ALL`).
+    pub lights: PhotoLights,
+    pub light_row: usize,
 }
 
 impl PhotoMode {
@@ -627,9 +635,59 @@ impl PhotoMode {
         Tab::ALL[self.tab.min(Tab::ALL.len() - 1)]
     }
 
-    fn setting(&self) -> Setting {
+    fn setting(&self) -> Option<Setting> {
         let rows = self.tab().settings();
-        rows[self.selected.min(rows.len() - 1)]
+        rows.get(self.selected.min(rows.len().saturating_sub(1))).copied()
+    }
+
+    fn light_row(&self) -> Row {
+        Row::ALL[self.light_row.min(Row::ALL.len() - 1)]
+    }
+
+    /// The Lights tab is shown.
+    pub fn lights_tab(&self) -> bool {
+        self.on && self.tab() == Tab::Lights
+    }
+
+    /// The light markers are drawn: the Lights tab shown with the panel, or a light being
+    /// edited; never while a photo is taken.
+    pub fn markers_shown(&self) -> bool {
+        self.on && !self.capturing() && (self.lights.editing.is_some() || (self.lights_tab() && !self.panel_hidden))
+    }
+
+    /// The camera's place (game space) and its heading and pitch (radians), this frame.
+    pub fn camera_view(&self) -> ([f32; 3], f32, f32) {
+        (self.cam_at, self.heading, self.pitch)
+    }
+
+    fn camera_hold(&self) -> CameraHold {
+        CameraHold { heading: self.heading, pitch: self.pitch, dist: self.dist, pan: self.pan, free_at: self.free_at }
+    }
+
+    /// Stop editing a light and put the camera back exactly where it stood.
+    fn end_light_edit(&mut self) {
+        if let Some(h) = self.lights.end_edit() {
+            (self.heading, self.pitch, self.dist, self.pan, self.free_at) = (h.heading, h.pitch, h.dist, h.pan, h.free_at);
+            info!("photo mode: light editing ends; the camera is back at ({:.1}, {:.1}, {:.1}) heading {:.4} pitch {:.4}", self.cam_at[0], self.cam_at[1], self.cam_at[2], h.heading, h.pitch);
+        }
+    }
+
+    fn begin_light_edit(&mut self) {
+        let hold = self.camera_hold();
+        self.lights.begin_edit(hold);
+        if self.lights.editing.is_some() {
+            info!("photo mode: editing light {}; the camera stands at ({:.1}, {:.1}, {:.1}) heading {:.4} pitch {:.4}", self.lights.current + 1, self.cam_at[0], self.cam_at[1], self.cam_at[2], hold.heading, hold.pitch);
+        }
+    }
+
+    fn add_light(&mut self) {
+        let hold = self.camera_hold();
+        if self.lights.add(self.cam_at, hold) {
+            self.light_row = Row::ALL.iter().position(|&r| r == Row::Edit).unwrap_or(0);
+            info!("photo mode: light {} added at the camera ({:.0}, {:.0}, {:.0}); editing it, the camera stands still", self.lights.lights.len(), self.cam_at[0], self.cam_at[1], self.cam_at[2]);
+        } else {
+            info!("photo mode: no more lights (at most {})", crate::photo_lights::MAX_LIGHTS);
+        }
     }
 }
 
@@ -820,7 +878,14 @@ fn toggle(
         if !photo.active || photo.capturing() {
             return;
         }
-        let close = keys.just_pressed(KeyCode::Escape) || pressed || pads.iter().any(|g| g.just_pressed(GamepadButton::East)) || by_aid(&mut aid_actions, "close");
+        let back = keys.just_pressed(KeyCode::Escape) || pads.iter().any(|g| g.just_pressed(GamepadButton::East));
+        // Editing a light: Esc, B or the right button stop editing (the camera comes
+        // back); photo mode stays open.
+        if photo.lights.editing.is_some() && (back || mouse.just_pressed(MouseButton::Right)) {
+            photo.end_light_edit();
+            return;
+        }
+        let close = back || pressed || by_aid(&mut aid_actions, "close");
         if close {
             close_photo(&mut photo, &mut control, &mut next);
         }
@@ -863,7 +928,8 @@ fn toggle(
     let f = &mut *photo;
     (f.on, f.active, f.coop, f.selected, f.panel_hidden, f.shot, f.warning, f.held, f.notice) = (true, true, coop, 0, false, Shot::Idle, None, None, None);
     (f.heading, f.pitch, f.dist, f.pan, f.pov, f.vfov) = (heading, pitch, dist, [0.0; 3], control.pov, vfov);
-    (f.tab, f.free_at, f.auto_focus) = (0, None, dist);
+    (f.tab, f.free_at, f.auto_focus, f.light_row) = (0, None, dist, 0);
+    f.lights.clear();
     f.settings = PhotoSettings::new(game_fov(vfov));
     control.pov = Pov::Third;
     if !coop {
@@ -881,6 +947,11 @@ fn close_photo(photo: &mut PhotoMode, control: &mut PlayerControl, next: &mut Ne
         next.set(PlayState::Playing);
     }
     photo.settings.reset();
+    if !photo.lights.lights.is_empty() {
+        info!("photo mode: {} photo lights removed", photo.lights.lights.len());
+    }
+    photo.lights.clear();
+    photo.light_row = 0;
     info!("photo mode: closed, the view is back on the player");
 }
 
@@ -901,7 +972,7 @@ fn trigger(pads: &crate::pad::ActionPads, b: GamepadButton) -> f32 {
 fn place(
     real: Res<Time<Real>>,
     keys: Res<ButtonInput<KeyCode>>,
-    motion: Res<AccumulatedMouseMotion>,
+    (motion, scroll): (Res<AccumulatedMouseMotion>, Res<AccumulatedMouseScroll>),
     pads: crate::pad::ActionPads,
     player: Option<Res<Player>>,
     body: Res<BodyView>,
@@ -913,7 +984,7 @@ fn place(
 ) {
     // The aid's camera moves (orbit, near), on the aids' clock.
     let aid = aid.get_or_insert_with(|| {
-        std::env::var("NVF_PLAY_TEST_PHOTO").ok().and_then(|v| parse_aid(&v).ok()).unwrap_or_default().into_iter().filter(|(_, a)| a.starts_with("orbit=") || a.starts_with("near=") || a.starts_with("fly=") || a.starts_with("lift=") || a == "face").collect()
+        std::env::var("NVF_PLAY_TEST_PHOTO").ok().and_then(|v| parse_aid(&v).ok()).unwrap_or_default().into_iter().filter(|(_, a)| a.starts_with("orbit=") || a.starts_with("near=") || a.starts_with("fly=") || a.starts_with("lift=") || a.starts_with("light-turn=") || a.starts_with("light-move=") || a == "face").collect()
     });
     if !photo.on {
         return;
@@ -923,6 +994,26 @@ fn place(
     let f = &mut *photo;
     let now = time.elapsed_secs();
     let (mut fly, mut lift, mut face) = (0.0f32, 0.0f32, false);
+    // The aid's light moves: `light-turn=<yaw>:<pitch>` (degrees), `light-move=<ahead>:<side>:<up>`
+    // (game units), on the light being edited, as the camera's inputs would.
+    let mut aid_light: Option<Inputs> = None;
+    aid.retain(|(at, a)| {
+        if *at > now {
+            return true;
+        }
+        let nums = |r: &str| r.split(':').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>();
+        if let Some(v) = a.strip_prefix("light-turn=").map(nums) {
+            let i = aid_light.get_or_insert_with(Inputs::default);
+            i.look += Vec2::new(v.first().copied().unwrap_or(0.0).to_radians(), v.get(1).copied().unwrap_or(0.0).to_radians());
+            return false;
+        }
+        if let Some(v) = a.strip_prefix("light-move=").map(nums) {
+            let i = aid_light.get_or_insert_with(Inputs::default);
+            (i.ahead, i.side, i.up) = (v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0), v.get(2).copied().unwrap_or(0.0));
+            return false;
+        }
+        true
+    });
     aid.retain(|(at, a)| {
         if *at > now {
             return true;
@@ -960,16 +1051,42 @@ fn place(
         };
         [from[0] + d[0] / len * r, from[1] + d[1] / len * r, from[2] + d[2] / len * r]
     };
+    if let (Some(i), Some(e)) = (aid_light, f.lights.editing) {
+        if let Some(l) = f.lights.lights.get_mut(e) {
+            crate::photo_lights::drive(l, i, f.heading, 1.0);
+            info!("test aid NVF_PLAY_TEST_PHOTO: light {} now at ({:.0}, {:.0}, {:.0}) direction {:+.0} tilt {:+.0}", e + 1, l.at[0], l.at[1], l.at[2], l.yaw, l.pitch);
+        }
+    }
+    // The camera's inputs: to the camera, or to the light being edited (the camera then
+    // stands still: `crate::photo_lights::route`).
+    let mut camera_inputs = None;
     if f.active && !f.capturing() {
         let stick_r = crate::pad::stick(&pads, false);
         let stick_l = crate::pad::stick(&pads, true);
-        f.heading += motion.delta.x * LOOK_PER_PIXEL + stick_r.x * STICK_TURN * dt;
-        f.pitch = (f.pitch - motion.delta.y * LOOK_PER_PIXEL + stick_r.y * STICK_TURN * dt).clamp(-MAX_PITCH, MAX_PITCH);
+        let look = Vec2::new(motion.delta.x * LOOK_PER_PIXEL + stick_r.x * STICK_TURN * dt, -motion.delta.y * LOOK_PER_PIXEL + stick_r.y * STICK_TURN * dt);
         let k = |c: KeyCode| if keys.pressed(c) { 1.0f32 } else { 0.0 };
         let fast = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) { 3.0 } else { 1.0 };
         let ahead = k(KeyCode::KeyW) - k(KeyCode::KeyS) + stick_l.y;
         let side = k(KeyCode::KeyD) - k(KeyCode::KeyA) + stick_l.x;
         let up = k(KeyCode::Space) + k(KeyCode::KeyE) - k(KeyCode::ControlLeft) - k(KeyCode::KeyQ) + trigger(&pads, GamepadButton::RightTrigger2) - trigger(&pads, GamepadButton::LeftTrigger2);
+        // Width while editing: the wheel (up narrows, as it zooms in), [ and ], LB and RB.
+        let pad_now = |b: GamepadButton| pads.iter().any(|g| g.just_pressed(b));
+        let notch = if scroll.delta.y > 0.0 { -1.0 } else if scroll.delta.y < 0.0 { 1.0 } else { 0.0 };
+        let widen = notch + k(KeyCode::BracketRight) * 30.0 * dt - k(KeyCode::BracketLeft) * 30.0 * dt + if pad_now(GamepadButton::RightTrigger) { 1.0 } else { 0.0 } - if pad_now(GamepadButton::LeftTrigger) { 1.0 } else { 0.0 };
+        match crate::photo_lights::route(f.lights.editing, f.lights.lights.len(), Inputs { look, ahead, side, up, widen }) {
+            Route::Light { index, inputs } => {
+                let step = crate::photo_lights::MOVE_SPEED * fast * dt;
+                if let Some(l) = f.lights.lights.get_mut(index) {
+                    crate::photo_lights::drive(l, inputs, f.heading, step);
+                }
+            }
+            Route::Camera(i) => camera_inputs = Some((i, fast)),
+        }
+    }
+    if let Some((i, fast)) = camera_inputs {
+        let (ahead, side, up) = (i.ahead, i.side, i.up);
+        f.heading += i.look.x;
+        f.pitch = (f.pitch + i.look.y).clamp(-MAX_PITCH, MAX_PITCH);
         let (sh, ch) = f.heading.sin_cos();
         let right = [ch, -sh, 0.0];
         if free {
@@ -1010,6 +1127,10 @@ fn place(
     }
     // The aid's flight: straight up, then along the view, walls stopping it; `face` turns
     // the free camera to the player.
+    if f.lights.editing.is_some() && (fly != 0.0 || lift != 0.0 || face) {
+        info!("test aid NVF_PLAY_TEST_PHOTO: the camera stands still while a light is edited");
+        (fly, lift, face) = (0.0, 0.0, false);
+    }
     if let Some(at) = f.free_at.filter(|_| free && (fly != 0.0 || lift != 0.0)) {
         let dir = space::look_dir(f.heading, f.pitch);
         let up = reach(at, [at[0], at[1], at[2] + lift]);
@@ -1047,6 +1168,10 @@ fn place(
     let dir = space::look_dir(f.heading, f.pitch);
     f.auto_focus = phys.ray(out, dir, FOCUS_FAR, Filter::default()).map_or(FOCUS_FAR, |h| h.distance);
     f.cam_at = out;
+    // Pinned lights ride the camera.
+    for l in f.lights.lights.iter_mut().filter(|l| l.pinned) {
+        l.at = out;
+    }
     t.translation = space::to_bevy(out);
     t.rotation = space::look_rotation(f.heading, f.pitch) * Quat::from_rotation_z(-f.settings.roll().to_radians());
 }
@@ -1084,6 +1209,38 @@ fn zoom(mut photo: ResMut<PhotoMode>, mut cams: Query<&mut Projection, With<Play
     photo.applied = Some(want);
 }
 
+/// A press on a Lights tab row: Add drops a light at the camera and edits it, Move & Aim
+/// edits the current light (again: stops), Remove takes it away; Pin to Camera pins or
+/// frees it where it points; the rest step their value.
+fn light_row_press(f: &mut PhotoMode, row: Row, dir: f32) {
+    match row {
+        Row::Add => f.add_light(),
+        Row::Edit => {
+            if f.lights.editing.is_some() {
+                f.end_light_edit();
+            } else {
+                f.begin_light_edit();
+            }
+        }
+        Row::Remove => {
+            f.end_light_edit();
+            let before = f.lights.lights.len();
+            f.lights.remove();
+            if f.lights.lights.len() < before {
+                info!("photo mode: light removed, {} left", f.lights.lights.len());
+            }
+        }
+        Row::Pin => {
+            let (cam, h, p) = f.camera_view();
+            if let Some(l) = f.lights.current_mut() {
+                let pin = !l.pinned;
+                l.set_pinned(pin, cam, h, p);
+            }
+        }
+        _ => f.lights.step(row, dir),
+    }
+}
+
 /// The panel's keys and buttons, and the shutter.
 #[allow(clippy::too_many_arguments)]
 fn adjust(
@@ -1119,17 +1276,21 @@ fn adjust(
     // Tab (Shift+Tab back) and the shoulders change the tab.
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let tabs = Tab::ALL.len();
-    if (keys.just_pressed(KeyCode::Tab) && !shift) || pad(GamepadButton::RightTrigger) {
+    // While a light is edited the tab stays on Lights (LB/RB widen the light then).
+    let editing = f.lights.editing.is_some();
+    if !editing && ((keys.just_pressed(KeyCode::Tab) && !shift) || pad(GamepadButton::RightTrigger)) {
         (f.tab, f.selected) = ((f.tab + 1) % tabs, 0);
-    } else if (keys.just_pressed(KeyCode::Tab) && shift) || pad(GamepadButton::LeftTrigger) {
+    } else if !editing && ((keys.just_pressed(KeyCode::Tab) && shift) || pad(GamepadButton::LeftTrigger)) {
         (f.tab, f.selected) = ((f.tab + tabs - 1) % tabs, 0);
     }
-    let n = f.tab().settings().len();
-    f.selected = f.selected.min(n - 1);
+    let lights_tab = f.tab() == Tab::Lights;
+    let n = if lights_tab { Row::ALL.len() } else { f.tab().settings().len() };
+    let row_at = if lights_tab { &mut f.light_row } else { &mut f.selected };
+    *row_at = (*row_at).min(n - 1);
     if keys.just_pressed(KeyCode::ArrowDown) || pad(GamepadButton::DPadDown) {
-        f.selected = (f.selected + 1) % n;
+        *row_at = (*row_at + 1) % n;
     } else if keys.just_pressed(KeyCode::ArrowUp) || pad(GamepadButton::DPadUp) {
-        f.selected = (f.selected + n - 1) % n;
+        *row_at = (*row_at + n - 1) % n;
     }
     // Left/Right: a step, then repeating while held.
     let dir = if keys.pressed(KeyCode::ArrowRight) || pad_held(GamepadButton::DPadRight) {
@@ -1141,8 +1302,10 @@ fn adjust(
     };
     let dt = real.delta_secs();
     let setting = f.setting();
+    let row = f.light_row();
     // A choice changes once a press; a slider repeats while held.
-    let choice = setting.choices().is_some();
+    let choice = if lights_tab { row.slider().is_none() } else { setting.is_some_and(|s| s.choices().is_some()) };
+    let mut press: Option<f32> = None;
     if dir == 0.0 {
         f.held = None;
     } else {
@@ -1154,14 +1317,18 @@ fn adjust(
                     f.repeat_at += dt;
                     while f.repeat_at >= REPEAT_EVERY {
                         f.repeat_at -= REPEAT_EVERY;
-                        f.settings.step(setting, dir);
+                        if lights_tab {
+                            f.lights.step(row, dir);
+                        } else if let Some(setting) = setting {
+                            f.settings.step(setting, dir);
+                        }
                     }
                 }
             }
             _ => {
                 f.held = Some((dir, 0.0));
                 f.repeat_at = 0.0;
-                f.settings.step(setting, dir);
+                press = Some(dir);
             }
         }
     }
@@ -1173,8 +1340,18 @@ fn adjust(
     } else {
         0.0
     };
-    if zoom_steps != 0.0 {
+    if zoom_steps != 0.0 && !editing {
         f.settings.step(Setting::Zoom, zoom_steps);
+    }
+    // One press of Left/Right on a row: a value steps; an action acts.
+    if let Some(dir) = press {
+        if !lights_tab {
+            if let Some(setting) = setting {
+                f.settings.step(setting, dir);
+            }
+        } else {
+            light_row_press(f, row, dir);
+        }
     }
     for a in &acts {
         if let Some(rest) = a.strip_prefix("set=") {
@@ -1182,8 +1359,27 @@ fn adjust(
                 f.settings.set(s, v);
                 info!("test aid NVF_PLAY_TEST_PHOTO: {} {}", s.label(), f.settings.text(s));
             }
+        } else if let Some(rest) = a.strip_prefix("light=") {
+            // `light=<row>=<value>` sets the current light's slider; `light=<row>` presses
+            // the row (an action, or a choice's Right).
+            match rest.split_once('=') {
+                Some((r, v)) => {
+                    if let (Some(r), Ok(v)) = (Row::by_name(r), v.trim().parse::<f32>()) {
+                        f.lights.set(r, v);
+                        info!("test aid NVF_PLAY_TEST_PHOTO: light {} {}", r.label(), f.lights.text(r));
+                    }
+                }
+                None => {
+                    if let Some(r) = Row::by_name(rest) {
+                        light_row_press(f, r, 1.0);
+                        info!("test aid NVF_PLAY_TEST_PHOTO: light {} pressed: {}", r.label(), f.lights.text(r));
+                    }
+                }
+            }
+        } else if a == "light-done" {
+            f.end_light_edit();
         } else if let Some(i) = a.strip_prefix("select=").and_then(|i| i.parse::<usize>().ok()) {
-            f.selected = i.min(f.tab().settings().len() - 1);
+            f.selected = i.min(f.tab().settings().len().saturating_sub(1));
         } else if let Some(i) = a.strip_prefix("tab=").and_then(|i| i.parse::<usize>().ok()) {
             (f.tab, f.selected) = (i.min(tabs - 1), 0);
         }
@@ -1193,7 +1389,7 @@ fn adjust(
         f.panel_hidden = !f.panel_hidden;
         info!("photo mode: panel {}", if f.panel_hidden { "hidden" } else { "shown" });
     }
-    if keys.just_pressed(KeyCode::KeyR) || pad(GamepadButton::West) {
+    if (keys.just_pressed(KeyCode::KeyR) || pad(GamepadButton::West)) && !lights_tab {
         f.settings.reset();
         info!("photo mode: sliders reset");
     }
@@ -1346,7 +1542,7 @@ fn hide_interface(
 }
 
 /// What the held view holds: drawn things, not the cameras or the interface.
-type Drawn = (Without<Camera>, Without<Node>);
+type Drawn = (Without<Camera>, Without<Node>, Without<crate::photo_lights::PhotoLightSource>);
 
 /// Co-op: what is drawn on the frame photo mode opens is kept.
 fn keep_start(photo: Res<PhotoMode>, mut held: ResMut<HeldView>, all: Query<(Entity, &GlobalTransform), Drawn>, cams: Query<Entity, With<PlayerCamera>>, children: Query<&Children>) {
@@ -1439,6 +1635,17 @@ fn glass(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32) {
     p.spawn((at(x, y, w, h), ImageNode { color: Color::srgba(1.0, 1.0, 1.0, SOFT_ALPHA), image_mode: NodeImageMode::Sliced(slicer), ..ImageNode::new(SOFT) }));
 }
 
+/// The help lines on the Lights tab: choosing rows, and while a light is edited, what
+/// moves, aims and widens it.
+pub fn light_help_lines(controller: bool, editing: bool) -> [&'static str; 5] {
+    match (controller, editing) {
+        (true, true) => ["Editing light: camera holds", "R Stick) Aim   L Stick) Move", "LT/RT) Down/Up   LB/RB) Width", "D-Pad) Options   A) Take Photo", "B) Done"],
+        (true, false) => ["A) Take Photo   Y) Hide", "B) Exit   LB/RB) Tabs", "D-Pad Up/Down) Options", "D-Pad Left/Right) Change", "Add Light: then aim it"],
+        (false, true) => ["Editing light: camera holds", "Mouse) Aim   WASD) Move", "Space/Ctrl) Up/Down   Wheel) Width", "Arrows) Options   Enter) Photo", "Esc or Right Click) Done"],
+        (false, false) => ["Enter) Take Photo   H) Hide", "Esc) Exit   Tab) Tabs", "Up/Down) Options", "Left/Right) Change", "Add Light: then aim it"],
+    }
+}
+
 /// The help lines for the device in use and the camera's mode.
 pub fn help_lines(controller: bool, free: bool) -> [&'static str; 5] {
     match (controller, free) {
@@ -1453,7 +1660,8 @@ fn view_key(f: &PhotoMode, controller: bool) -> Option<String> {
     f.on.then(|| {
         let s = &f.settings;
         let values: Vec<String> = Setting::ALL.iter().map(|&x| s.text(x)).collect();
-        format!("{}:{}:{}:{controller}:{:?}:{:?}", f.tab, f.selected, values.join("|"), f.warning.as_ref().map(|w| &w.0), f.notice.as_ref().map(|n| &n.0))
+        let lights: Vec<String> = Row::ALL.iter().map(|&r| f.lights.text(r)).collect();
+        format!("{}:{}:{}:{controller}:{:?}:{:?}:{}:{}", f.tab, f.selected, values.join("|"), f.warning.as_ref().map(|w| &w.0), f.notice.as_ref().map(|n| &n.0), f.light_row, lights.join("|"))
     })
 }
 
@@ -1530,7 +1738,8 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
     let rows = tab.settings();
     // The panel keeps the height of its longest tab, so it does not jump between tabs.
     let most = Tab::ALL.iter().map(|t| t.settings().len()).max().unwrap_or(1) as f32;
-    let help = help_lines(controller, f.settings.free_camera());
+    let lights_tab = tab == Tab::Lights;
+    let help = if lights_tab { light_help_lines(controller, f.lights.editing.is_some()) } else { help_lines(controller, f.settings.free_camera()) };
     let help_step = c.font_size(FontKind::Body) + 4.0;
     let warn_h = if f.warning.is_some() { 48.0 } else { 0.0 };
     let title_h = 56.0;
@@ -1564,6 +1773,44 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
             y += tabs_h;
             c.image(p, "interface\\shared\\line\\solid.dds", at(PAD, y - 12.0, PANEL_W - 2.0 * PAD, 2.0), dim);
             let track_w = PANEL_W - 2.0 * PAD - 24.0;
+            if lights_tab {
+                // The Lights rows scroll: as many as the longest other tab, round the one
+                // chosen.
+                let shown = most as usize;
+                let chosen = f.light_row.min(Row::ALL.len() - 1);
+                let first = chosen.saturating_sub(shown / 2).min(Row::ALL.len() - shown);
+                let none = f.lights.current().is_none();
+                for (i, &r) in Row::ALL.iter().enumerate().skip(first).take(shown) {
+                    let on = i == chosen;
+                    // Rows of a light that is not there yet are dim.
+                    let usable = !none || matches!(r, Row::Light | Row::Add);
+                    let col = if on && usable { bright } else if on || usable { amber(DIM + 50.0) } else { amber(DIM - 50.0) };
+                    let x = PAD + 24.0;
+                    if on {
+                        c.text_in(p, FontKind::Menu, ">", PAD - 2.0, y, false, bright);
+                    }
+                    c.text_in(p, FontKind::Menu, r.label(), x, y, false, col);
+                    let text = f.lights.text(r);
+                    if r.slider().is_some() && !none {
+                        c.text_in(p, FontKind::Menu, &text, PANEL_W - PAD, y, true, col);
+                        let ty = y + TRACK_DROP;
+                        let share = f.lights.share(r);
+                        c.image(p, "interface\\shared\\line\\solid.dds", at(x, ty, track_w, 2.0), dim);
+                        c.image(p, "interface\\shared\\line\\solid.dds", at(x, ty - 1.0, track_w * share, 4.0), col);
+                        c.image(p, "interface\\shared\\line\\solid.dds", at(x + track_w * share - 3.0, ty - 8.0, 6.0, 18.0), col);
+                    } else {
+                        c.text_in(p, FontKind::Menu, &format!("< {text} >"), PANEL_W - PAD, y, true, col);
+                    }
+                    y += ROW_STEP;
+                }
+                let more = |up: bool| if up { "^" } else { "v" };
+                if first > 0 {
+                    c.text_in(p, FontKind::Body, more(true), PANEL_W - PAD, y - shown as f32 * ROW_STEP - 26.0, true, dim);
+                }
+                if first + shown < Row::ALL.len() {
+                    c.text_in(p, FontKind::Body, more(false), PANEL_W - PAD, y - 22.0, true, dim);
+                }
+            }
             for (i, &s) in rows.iter().enumerate() {
                 let on = i == f.selected.min(rows.len() - 1);
                 let col = if on { bright } else { dim };
@@ -1585,7 +1832,8 @@ fn spawn_panel(commands: &mut Commands, c: &mut Ctx, f: &PhotoMode, controller: 
                 }
                 y += ROW_STEP;
             }
-            y += (most - rows.len() as f32) * ROW_STEP + 14.0;
+            let used = if lights_tab { most } else { rows.len() as f32 };
+            y += (most - used) * ROW_STEP + 14.0;
             for line in help {
                 c.text_in(p, FontKind::Body, line, PAD, y, false, dim);
                 y += help_step;

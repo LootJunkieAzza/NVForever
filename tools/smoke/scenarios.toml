@@ -9852,6 +9852,32 @@ expect = [
 forbid = [{ text = "menu pause: the picture stands still (photo mode)", label = "the world paused under co-op photo mode" }]
 
 [[scenario]]
+name = "photo-mode-lights"
+source = "owner request 2026-11-19: photo mode lights after GTA VI's (mechanics only): Hue and Saturation sliders, brightness, range, point or spot, a direction and a width the player sets, shadows; a new light drops at the camera; the camera stands still while a light is edited and comes back exactly; the lights go when photo mode closes (docs/design/photo-mode.md)"
+areas = ["ui"]
+paths = ["engine/nvf-play/src/photo_mode.rs", "engine/nvf-play/src/photo_lights.rs", "engine/nvforever/src/photo_lights.rs"]
+env = { NVF_PLAY_TEST_PHOTO = "8:open,8.5:tab=3,9:light=add,9.3:light=hue=0,9.4:light=sat=1,9.5:light=width=30,9.6:light=bright=3,9.8:light-move=-40:-120:60,10:light-turn=30:-10,10.2:lift=100,11:light-done,11.5:light=add,11.7:light=type,11.8:light=hue=220,11.9:light=sat=1,12:light-move=0:150:0,12.3:light-done,12.6:shot,15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'photo mode: open \(solo: the game pauses\)', label = "photo mode opens" },
+  { re = 'photo mode: light 1 added at the camera \(', label = "a new light drops at the camera" },
+  { re = 'photo mode: editing light 1; the camera stands at', label = "editing it begins with the camera held" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Hue 0",
+  "test aid NVF_PLAY_TEST_PHOTO: light Saturation 100%",
+  "test aid NVF_PLAY_TEST_PHOTO: light Width 30",
+  { re = 'photo lights: light 1 drawn \(Spot', label = "the first light is drawn as a spot" },
+  { re = 'test aid NVF_PLAY_TEST_PHOTO: light 1 now at .* direction [+-]\d+ tilt [+-]\d+', label = "the camera's inputs move and aim the light" },
+  { text = "test aid NVF_PLAY_TEST_PHOTO: the camera stands still while a light is edited", label = "the camera does not move while a light is edited" },
+  { re = 'photo mode: light editing ends; the camera is back at', min = 2, label = "leaving editing gives the camera back" },
+  "test aid NVF_PLAY_TEST_PHOTO: light Type pressed: Point",
+  { re = 'photo lights: light 2 drawn \(Point', label = "the second light is a point light" },
+  { re = 'photo mode: photo saved: .*\.png', label = "the PNG is written" },
+  "photo mode: 2 photo lights removed",
+  "photo mode: closed, the view is back on the player",
+]
+
+[[scenario]]
 name = "photo-mode-options"
 source = "owner request 2026-11-10: photo mode's camera is free (not locked to the player) and it has the options photo modes commonly have: depth of field, warmth, vignette, grain, letterbox, grid, hide player (docs/design/photo-mode.md)"
 areas = ["ui"]
