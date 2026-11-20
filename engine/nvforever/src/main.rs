@@ -145,6 +145,8 @@ mod nav;
 // Co-op prototype (private fork): --host / --join.
 mod coop;
 mod split;
+// Split screen's XP catch-up for player 2 (split_xp.rs).
+mod split_xp;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
 // The drinking contest's win shot: one camera on the dancing winner, lit (drink_stage.rs).
@@ -2095,6 +2097,7 @@ fn main() -> AppExit {
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             app.add_plugins(split::SplitPlugin(split::SplitArgs { start: args.split, p2: args.split_p2.clone() }));
+            app.add_plugins(split_xp::SplitXpPlugin { p2_dir: args.split_p2.clone() });
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).

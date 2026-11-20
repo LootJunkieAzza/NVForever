@@ -322,7 +322,7 @@ fn take_inbox(
     script: Option<ResMut<ScriptState>>,
     mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
     mut load: MessageWriter<LoadRequest>,
-    mates: Option<Res<crate::coop_social::SocialMates>>,
+    (mates, player_two): (Option<Res<crate::coop_social::SocialMates>>, Option<Res<crate::split_screen::PlayerTwo>>),
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
     mut sim: Option<ResMut<crate::sim::SimState>>,
 ) {
@@ -372,9 +372,12 @@ fn take_inbox(
                 let first_card = card && rt.game.player.caravan.cards.is_empty();
                 let gift = fnv_game::coop_rewards::Gift { batch, item: FormId(item), count: count as i32, quest: (quest != 0).then_some(FormId(quest)), stage: (stage != u32::MAX).then_some(stage as i32) };
                 let done_here = rt.game.coop_gift_done_here(&gift);
-                // Into the played world, as the reward above.
+                // Into the played world, as the reward above. Split screen's player 2
+                // gets every item (owner, 2026-11-20: "player 2 gets all items, caps and
+                // XP from quests"; plan split-screen.md §8); an online guest keeps its own.
+                let every = player_two.is_some();
                 let taken = match sim.as_deref_mut() {
-                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift(&gift, &mut p.gift_batch)),
+                    Some(sim) => crate::script::with_world(rt, sim, |rt| rt.game.take_coop_gift_as(&gift, &mut p.gift_batch, every)),
                     None => Err("no simulation world".to_string()),
                 };
                 match taken {
