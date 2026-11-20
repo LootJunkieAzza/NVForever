@@ -74,7 +74,7 @@ pub enum Role {
 }
 
 /// Shared progression between the games (nvf-coop `net::Progress`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Shared {
     Reward { quest: u32, xp: u32, caps: u32 },
     Save { stamp: u32, kind: SaveKind },
@@ -84,6 +84,14 @@ pub enum Shared {
     Gift { batch: u32, item: u32, count: u32, quest: u32, stage: u32 },
     /// The host's quest completed or failed (`nvf_coop::net::Progress::QuestEnded`, item 205).
     QuestEnded { quest: u32, failed: bool },
+    /// Joint progression (`fnv_game::coop_joint`): a guest's join choice and character.
+    JointChoice { character: u64, on: bool },
+    /// The host set a claimable stage, for the players whose bit is set in `to`.
+    Stage { quest: u32, stage: i32, line: u32, line_end: bool, prior: Vec<i32>, to: u8 },
+    StageResult { quest: u32, stage: i32, taken: bool },
+    /// Kill credit for player `to` (shared-progression plan §4.2).
+    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool, infamy: Vec<(u32, i32)> },
+    HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
 }
 
 /// The mailbox between this module and nvforever's `coop`.
@@ -103,6 +111,16 @@ pub struct CoopProgress {
     pub gift_batch: Option<(u32, bool)>,
     /// A guest: hand-outs taken, waiting for their corner lines ([`HandOuts`]).
     pub hand_outs: HandOuts,
+    /// This player's id in the session (nvforever `coop` sets it).
+    pub my_id: Option<u8>,
+    /// A guest: its join choice for joint progression (the join popup, plan §3.7);
+    /// `None` until chosen. Sent to the host once with the character's ID.
+    pub joint_on: Option<bool>,
+    pub joint_sent: bool,
+    /// The host: each guest's character and choice ([`Shared::JointChoice`]), by id.
+    pub joint_peers: std::collections::BTreeMap<u8, (u64, bool)>,
+    /// The host: each other player's actor in this world, by id (nvforever `coop`).
+    pub peer_actors: std::collections::BTreeMap<u8, FormId>,
 }
 
 /// A guest's hand-outs taken and not yet told: their lines ([`gift_lines`]) wait until
@@ -299,7 +317,7 @@ impl Plugin for CoopProgressPlugin {
     fn build(&self, app: &mut App) {
         let mut p = CoopProgress::default();
         p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
-        app.insert_resource(p).add_systems(Update, (take_inbox, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+        app.insert_resource(p).add_systems(Update, (take_inbox, joint_question, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
     }
 }
 
@@ -324,7 +342,7 @@ fn take_inbox(
     mut load: MessageWriter<LoadRequest>,
     (mates, player_two): (Option<Res<crate::coop_social::SocialMates>>, Option<Res<crate::split_screen::PlayerTwo>>),
     mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
-    mut sim: Option<ResMut<crate::sim::SimState>>,
+    (mut sim, solo): (Option<ResMut<crate::sim::SimState>>, Option<Res<crate::save::SoloBase>>),
 ) {
     let p = &mut *p;
     let mut script = script;
@@ -437,6 +455,71 @@ fn take_inbox(
                 }
                 None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),
             },
+            // Joint progression (`fnv_game::coop_joint`; plan §3).
+            Shared::JointChoice { character, on } if p.role == Role::Host && id != 0 => {
+                info!("co-op: player {} shares quest progress: {} (character {character:016x})", id + 1, if on { "yes" } else { "no" });
+                p.joint_peers.insert(id, (character, on));
+            }
+            Shared::StageResult { quest, stage, taken } if p.role == Role::Host => {
+                info!("co-op: player {} {} {} stage {stage}", id + 1, if taken { "claimed" } else { "turned down" }, FormId(quest));
+            }
+            Shared::Stage { quest, stage, line, line_end, prior, to } if p.role == Role::Guest && id == 0 => {
+                if !p.my_id.is_some_and(|m| m < 8 && to & (1 << m) != 0) || p.joint_on != Some(true) {
+                    continue;
+                }
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
+                // The guest's own game as it was at join (`save::SoloBase`): its quests decide.
+                let Some(own) = solo.as_deref().and_then(|s| s.0.as_deref()).map(|s| &s.game.quests) else {
+                    warn!("co-op: the host set {} stage {stage}: this game's own save is not kept, so nothing is claimed", FormId(quest));
+                    continue;
+                };
+                let q = FormId(quest);
+                let offer = fnv_game::coop_joint::StageOffer { quest: q, stage, prior, line: (line != 0).then_some((FormId(line), line_end)), to: Vec::new() };
+                let name = rt.game.data.quests.get(&q).and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty());
+                let taken = rt.game.take_joint_offer(own, &offer);
+                match &taken {
+                    Ok(()) => {
+                        info!("co-op: claimed {} stage {stage} for this character's own game", rt.game.data.name(q));
+                        let first = rt.game.player.claims.stages.get(&q).is_some_and(|s| s.len() == 1);
+                        if let (true, Some(n)) = (first, name) {
+                            say(&mut corner, format!("Shared quest progress: {n}"));
+                        }
+                    }
+                    Err(why) => info!("co-op: the host set {} stage {stage}: not claimed ({why})", rt.game.data.name(q)),
+                }
+                p.outbox.push(Shared::StageResult { quest, stage, taken: taken.is_ok() });
+            }
+            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } if p.role == Role::Guest && id == 0 && p.my_id == Some(to) => {
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
+                let c = fnv_game::coop_kills::KillCredit {
+                    player: FormId::PLAYER_REF,
+                    target: FormId(target),
+                    target_base: (target_base != 0).then_some(FormId(target_base)),
+                    npc,
+                    xp: f64::from(xp),
+                    karma: f64::from(karma),
+                    killer,
+                    infamy: infamy.iter().map(|(r, d)| (FormId(*r), f64::from(*d))).collect(),
+                };
+                let got = rt.game.take_coop_kill_credit(&c);
+                info!("co-op: kill credit for {}: +{got} XP, karma {karma:+}{}", FormId(target), if killer { " (the kill)" } else { "" });
+                if got > 0.0 {
+                    say(&mut corner, format!("+{got} XP"));
+                }
+            }
+            Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } if p.role == Role::Guest && id == 0 && p.my_id == Some(to) => {
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
+                let h = fnv_game::coop_kills::HitCredit {
+                    player: FormId::PLAYER_REF,
+                    target: FormId(target),
+                    weapon: (weapon != 0).then_some(FormId(weapon)),
+                    part: (part != u32::MAX).then_some(part),
+                    dealt: f64::from(dealt),
+                    critical,
+                    crippled,
+                };
+                rt.game.take_coop_hit_credit(&h);
+            }
             other => debug!("co-op: dropped {other:?} from player {}", id + 1),
         }
     }
@@ -463,6 +546,47 @@ fn gift_lines(host: &str, handed: &[(u32, String, i32)]) -> Vec<String> {
     order.into_iter().map(|(_, name, n)| if n > 1 { format!("{host} handed out {name} ({n})") } else { format!("{host} handed out {name}") }).collect()
 }
 
+/// `NVF_COOP_JOINT=1` / `0`: the join question answered without asking (test runs).
+pub const JOINT_ENV: &str = "NVF_COOP_JOINT";
+
+/// A guest's join question for joint progression (plan §3.7): asked once the syncing
+/// screen is down, answered with Y or N (`crate::coop_social`); the answer holds while
+/// this run stays a guest. A host or a solo game forgets it, so the next join asks again.
+/// Split screen's player 2 ([`crate::split_screen::PlayerTwo`]) is never asked: its quests
+/// are always shared [owner 2026-11-20: "Quests are always shared for split-screen
+/// players"; "Shared progression is built in ... There is no opt-in"].
+fn joint_question(mut p: ResMut<CoopProgress>, social: Option<ResMut<crate::coop_social::Social>>, syncing: Option<Res<crate::coop_downed::SyncingScreen>>, player_two: Option<Res<crate::split_screen::PlayerTwo>>) {
+    let Some(mut social) = social else { return };
+    if p.role != Role::Guest {
+        p.joint_on = None;
+        social.joint_ask = false;
+        social.joint_answer = None;
+        return;
+    }
+    if p.joint_on.is_some() {
+        return;
+    }
+    if player_two.is_some() {
+        info!("co-op: share quest progress: yes (split screen's player 2)");
+        p.joint_on = Some(true);
+        social.joint_ask = false;
+        return;
+    }
+    if let Some(v) = std::env::var(JOINT_ENV).ok().filter(|v| v == "0" || v == "1") {
+        info!("co-op: share quest progress: {} ({JOINT_ENV})", if v == "1" { "yes" } else { "no" });
+        p.joint_on = Some(v == "1");
+        return;
+    }
+    if let Some(yes) = social.joint_answer.take() {
+        p.joint_on = Some(yes);
+        return;
+    }
+    if !social.joint_ask && !syncing.is_some_and(|s| s.0) && p.my_id.is_some() {
+        info!("co-op: asking whether to share quest progress this session");
+        social.joint_ask = true;
+    }
+}
+
 /// The host: rewards of the quests it completed, for the guests.
 fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     let Some(mut st) = script else { return };
@@ -472,9 +596,48 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
         rt.game.coop_rewards = fnv_game::coop_rewards::RewardLedger::default();
         rt.game.coop_rewards.on = host;
     }
+    // Joint progression (`fnv_game::coop_joint`): a guest tells the host its choice and
+    // character once; the host keeps the game's guest list current and sends its offers.
+    if p.role != Role::Guest {
+        p.joint_sent = false;
+    }
+    if p.role != Role::Host {
+        p.joint_peers.clear();
+    }
+    rt.game.coop_joint_on = p.role == Role::Guest && p.joint_on == Some(true);
+    if p.role == Role::Guest && !p.joint_sent && p.my_id.is_some() {
+        if let Some(on) = p.joint_on {
+            let character = rt.game.ensure_character_id();
+            p.outbox.push(Shared::JointChoice { character, on });
+            p.joint_sent = true;
+        }
+    }
     if !host {
         return;
     }
+    rt.game.coop_joint_guests = p
+        .joint_peers
+        .iter()
+        .filter_map(|(id, &(character, on))| p.peer_actors.get(id).map(|a| (*a, fnv_game::coop_joint::JointGuest { character, on })))
+        .collect();
+    for o in rt.game.take_joint_offers() {
+        let to = o.to.iter().filter_map(|a| p.peer_actors.iter().find(|(_, x)| *x == a).map(|(id, _)| *id)).filter(|id| *id < 8).fold(0u8, |m, id| m | (1 << id));
+        info!("co-op: {} stage {}: offered to the players sharing quest progress", rt.game.data.name(o.quest), o.stage);
+        let (line, line_end) = o.line.map_or((0, false), |(i, e)| (i.0, e));
+        p.outbox.push(Shared::Stage { quest: o.quest.0, stage: o.stage, line, line_end, prior: o.prior, to });
+    }
+    // Kill and hit credit for the guests (`fnv_game::coop_kills`, plan §4.2).
+    let id_of = |a: FormId| p.peer_actors.iter().find(|(_, x)| **x == a).map(|(id, _)| *id);
+    let mut credits = Vec::new();
+    for c in rt.game.take_coop_kill_credits() {
+        let Some(to) = id_of(c.player) else { continue };
+        credits.push(Shared::KillCredit { to, target: c.target.0, target_base: c.target_base.map_or(0, |b| b.0), npc: c.npc, xp: c.xp.max(0.0).round() as u32, karma: c.karma.round() as i32, killer: c.killer, infamy: c.infamy.iter().map(|(r, d)| (r.0, d.round() as i32)).collect() });
+    }
+    for h in rt.game.take_coop_hit_credits() {
+        let Some(to) = id_of(h.player) else { continue };
+        credits.push(Shared::HitCredit { to, target: h.target.0, weapon: h.weapon.map_or(0, |w| w.0), part: h.part.unwrap_or(u32::MAX), dealt: h.dealt.max(0.0).round() as u32, critical: h.critical, crippled: h.crippled });
+    }
+    p.outbox.extend(credits);
     for g in std::mem::take(&mut rt.game.coop_rewards.gifts) {
         let of = match (g.quest, g.stage) {
             (Some(q), Some(s)) => format!(" by {} stage {s}", rt.game.data.name(q)),
@@ -720,5 +883,54 @@ mod tests {
         assert_eq!(follow_request(SaveKind::Quick, &cfg).name, fnv_save::QUICK_NAME);
         assert_eq!(follow_request(SaveKind::Auto, &cfg).kind, SaveKind::Auto);
         assert_eq!(follow_request(SaveKind::Manual, &cfg).kind, SaveKind::Manual);
+    }
+
+    /// Split screen's player 2 always shares quest progress and is never asked.
+    #[test]
+    fn split_screens_player_two_shares_without_being_asked() {
+        let mut app = App::new();
+        app.insert_resource(CoopProgress { role: Role::Guest, my_id: Some(1), ..default() })
+            .init_resource::<crate::coop_social::Social>()
+            .insert_resource(crate::coop_downed::SyncingScreen(false))
+            .insert_resource(crate::split_screen::PlayerTwo)
+            .add_systems(Update, joint_question);
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, Some(true));
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "never asked");
+    }
+
+    /// The join question waits for the syncing screen, takes the answer, and is asked
+    /// again after the guest has left (plan §3.7).
+    #[test]
+    fn a_guest_is_asked_once_synced_and_again_after_leaving() {
+        if std::env::var(JOINT_ENV).is_ok() {
+            return;
+        }
+        let mut app = App::new();
+        app.insert_resource(CoopProgress { role: Role::Guest, my_id: Some(1), ..default() })
+            .init_resource::<crate::coop_social::Social>()
+            .insert_resource(crate::coop_downed::SyncingScreen(true))
+            .add_systems(Update, joint_question);
+        app.update();
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "not while syncing");
+        app.world_mut().resource_mut::<crate::coop_downed::SyncingScreen>().0 = false;
+        app.update();
+        assert!(app.world().resource::<crate::coop_social::Social>().joint_ask);
+        {
+            let mut s = app.world_mut().resource_mut::<crate::coop_social::Social>();
+            s.joint_ask = false;
+            s.joint_answer = Some(false);
+        }
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, Some(false));
+        app.update();
+        assert!(!app.world().resource::<crate::coop_social::Social>().joint_ask, "answered: not asked again");
+        app.world_mut().resource_mut::<CoopProgress>().role = Role::Solo;
+        app.update();
+        assert_eq!(app.world().resource::<CoopProgress>().joint_on, None);
+        app.world_mut().resource_mut::<CoopProgress>().role = Role::Guest;
+        app.update();
+        assert!(app.world().resource::<crate::coop_social::Social>().joint_ask, "a new join asks again");
     }
 }

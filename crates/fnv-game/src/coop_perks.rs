@@ -219,13 +219,53 @@ pub const COMPANION_PERKS: [&str; 11] = [
     "NVDLC04EDENoMines",
 ];
 
-/// The companion perks the player has now (item 67: the host's go to every guest).
+/// The companion perks the player has now (item 67: every player's go to every other).
 pub fn companion_perks(g: &Game) -> Vec<FormId> {
     COMPANION_PERKS.iter().filter_map(|e| g.data.by_edid(e)).filter(|p| has(g, *p)).collect()
 }
 
-/// Give the player `perk` as the host's companion gives it (item 67), recorded as the
-/// host's story so the guest's own save never keeps it (`crate::coop_story`). False when
+/// What this player tells the others (item 67): the follow perks its own companions give
+/// it now, not the ones it has from another player's companion (`mirrored`), so a perk
+/// never comes back to the player whose companion gave it.
+pub fn own_companion_perks(g: &Game, mirrored: &[FormId]) -> Vec<FormId> {
+    companion_perks(g).into_iter().filter(|p| !mirrored.contains(p)).collect()
+}
+
+/// The follow perks this player gets from the others (item 67; owner 2026-11-20: "While
+/// a companion is in the party, all players get the perk" [design]): every perk any other
+/// player's companion gives now, whoever hired it, once each.
+pub fn party_perks<'a>(others: impl IntoIterator<Item = &'a [FormId]>) -> Vec<FormId> {
+    let mut want: Vec<FormId> = Vec::new();
+    for p in others.into_iter().flatten() {
+        if !want.contains(p) {
+            want.push(*p);
+        }
+    }
+    want
+}
+
+/// Bring the perks this player has from the others' companions (`mirrored`) to `want`:
+/// give the new ones ([`mirror_perk`]) and take back each one no other player's companion
+/// gives any more ([`unmirror_perk`]). A perk the player had of its own is not touched.
+/// Returns the perks given and the perks taken back.
+pub fn sync_party_perks(g: &mut Game, mirrored: &mut Vec<FormId>, want: &[FormId]) -> (Vec<FormId>, Vec<FormId>) {
+    let mut given = Vec::new();
+    for &p in want {
+        if !mirrored.contains(&p) && g.data.perks.contains_key(&p) && mirror_perk(g, p) {
+            mirrored.push(p);
+            given.push(p);
+        }
+    }
+    let taken: Vec<FormId> = mirrored.iter().copied().filter(|p| !want.contains(p)).collect();
+    for &p in &taken {
+        unmirror_perk(g, p);
+    }
+    mirrored.retain(|p| !taken.contains(p));
+    (given, taken)
+}
+
+/// Give the player `perk` as another player's companion gives it (item 67), recorded as
+/// the session's story so the player's own save never keeps it (`crate::coop_story`). False when
 /// the player had it already (then it is not this game's to take back).
 pub fn mirror_perk(g: &mut Game, perk: FormId) -> bool {
     if has(g, perk) {

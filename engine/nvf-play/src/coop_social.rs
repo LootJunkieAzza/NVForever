@@ -154,6 +154,11 @@ pub struct Social {
     pub story: Option<StoryPrompt>,
     /// A far guest pressed Y on its story prompt: taken by `nvforever::coop::scene`.
     pub story_accepted: bool,
+    /// A guest's join question for joint progression (plan §3.7), in the invitation's
+    /// style: set by `crate::coop_progress` once the guest is synced and playing; Y or N
+    /// answers it into [`Social::joint_answer`]. It neither lapses nor is skipped.
+    pub joint_ask: bool,
+    pub joint_answer: Option<bool>,
     pub wheel: Option<Wheel>,
     pub duel: Option<Duel>,
     pub trade: Option<TradeUi>,
@@ -386,6 +391,15 @@ fn input(
     if playing && s.wheel.is_none() && s.invites.shown().is_none() && matches!(s.story, Some(StoryPrompt::Guest { .. })) && keys.just_pressed(KeyCode::KeyY) {
         info!("co-op social: the story wait's teleport to the host accepted");
         s.story_accepted = true;
+    }
+    // The joint-progression question (under an invitation, which goes first).
+    if playing && s.wheel.is_none() && s.invites.shown().is_none() && s.joint_ask {
+        let yes = keys.just_pressed(KeyCode::KeyY);
+        if yes || keys.just_pressed(KeyCode::KeyN) {
+            info!("co-op social: share quest progress this session: {}", if yes { "yes" } else { "no" });
+            s.joint_ask = false;
+            s.joint_answer = Some(yes);
+        }
     }
     // The invitation on screen.
     if playing && s.wheel.is_none() && s.invites.shown().is_some() {

@@ -13,6 +13,11 @@ use rand_core::RngCore;
 /// that showed it), and a message box without buttons waits for its OK, button 0
 /// (#2925). Duration does nothing [documented: GECK wiki ShowMessage notes].
 pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     // SetMessageFlags' Message Box bit (`nvse_jip6`).
@@ -290,6 +295,11 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// McCarran tower needs him to keep his back to the player]. The subtitle flag shows the
 /// subtitle even out of hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
     if g.say_by_script(speaker, Some(target), topic, true).is_some() {
@@ -339,6 +349,10 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// head-track and allow-movement in a conversation with the player (the player's
 /// conversation holds the world anyway).
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {

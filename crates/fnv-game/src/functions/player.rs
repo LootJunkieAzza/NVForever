@@ -6,6 +6,11 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     let n = a.num(0)?.trunc();
     // The revision's XP given back: the experience was never taken (`crate::revision`).
     if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the experience ({n} XP not given again)")) {
@@ -53,7 +58,15 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         tracing::info!("perks: {} gains {} (rank {rank})", g.data.name(r), g.data.name(perk));
         return none();
     }
-    if a.num_or(1, 0.0) != 0.0 {
+    // A companion perk (a personal quest's) is the host's alone: a co-op guest's game never
+    // gives it, nor its own world replaying what it claimed as a guest (owner, 2026-11-20
+    // via parity: "Only host"; `crate::coop_uniques`).
+    let teammates = a.num_or(1, 0.0) != 0.0;
+    if !teammates && (g.coop_guest || g.coop_replaying) && g.coop_uniques().is_companion_perk(perk) {
+        tracing::info!("co-op: {} is a companion perk, the host's alone: not given to this guest", g.data.name(perk));
+        return none();
+    }
+    if teammates {
         g.player.teammate_perks.insert(perk);
     } else {
         let before = g.player.perks.get(&perk).copied().unwrap_or(0);
@@ -144,6 +157,11 @@ pub fn set_player_tag_skill(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 }
 
 pub fn add_achievement(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // Muted while co-op replays claimed stages: given live already, or a scene for a
+    // player who wasn't there (`crate::coop_joint`) [design].
+    if g.coop_replaying {
+        return none();
+    }
     g.player.achievements.insert(a.int(0)?);
     none()
 }

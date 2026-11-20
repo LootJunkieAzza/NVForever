@@ -874,6 +874,9 @@ fn at_main_menu(m: Option<&nvf_play::main_menu::MainMenu>) -> bool {
     m.is_some_and(|m| m.open)
 }
 
+/// What the lobby's list reads besides the link: the tables, the game, the share answers.
+type LobbyReads<'w> = (Option<Res<'w, Tables>>, Option<Res<'w, nvf_play::script::ScriptState>>, Option<Res<'w, nvf_play::coop_progress::CoopProgress>>);
+
 /// The lobby screens' asks, the router's answer, and what the screens show.
 #[allow(clippy::too_many_arguments)]
 fn lobby(
@@ -888,7 +891,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
-    (tables, script): (Option<Res<Tables>>, Option<Res<nvf_play::script::ScriptState>>),
+    (tables, script, progress): LobbyReads,
     handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
@@ -1022,9 +1025,18 @@ fn lobby(
     if coop.link.is_some() {
         // This player by its character's name, as the others call it (item 19).
         let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
-        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you)") });
+        // Who shares quest progress this session (the join question, plan §3.7): a guest
+        // knows its own answer, the host every guest's.
+        let sharing = |id: Option<u8>| -> &'static str {
+            let on = progress.as_deref().is_some_and(|p| match id {
+                None => p.joint_on == Some(true),
+                Some(id) => p.joint_peers.get(&id).is_some_and(|(_, on)| *on),
+            });
+            if on { " (sharing quests)" } else { "" }
+        };
+        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you){}", sharing(None)) });
         for (&id, p) in &coop.peers {
-            let n = label(id, &p.name);
+            let n = format!("{}{}", label(id, &p.name), sharing(Some(id)));
             // The host is player 0 (`nvf_coop`): marked on a guest's list.
             let n = if id == 0 && n != "The host" { format!("{n} (host)") } else { n };
             // A player at a minigame table says so (the others' tables, module notes).
@@ -3948,9 +3960,18 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::Reload { stamp } => Shared::Reload { stamp },
                 net::Progress::Gift { batch, item, count, quest, stage } => Shared::Gift { batch, item, count, quest, stage },
                 net::Progress::QuestEnded { quest, failed } => Shared::QuestEnded { quest, failed },
+                net::Progress::JointChoice { character, on } => Shared::JointChoice { character, on },
+                net::Progress::Stage { quest, stage, line, line_end, prior, to } => Shared::Stage { quest, stage, line, line_end, prior, to },
+                net::Progress::StageResult { quest, stage, taken } => Shared::StageResult { quest, stage, taken },
+                net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
+                net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             },
         ));
     }
+    // Joint progression (`nvf_play::coop_progress`): this player's id and, on the host,
+    // each player's actor in this world.
+    p.my_id = coop.link.as_ref().and_then(|l| l.id());
+    p.peer_actors = coop.peers.iter().filter_map(|(id, q)| q.actor.map(|a| (*id, a))).collect();
     let out = std::mem::take(&mut p.outbox);
     let Some(link) = coop.link.as_ref() else { return };
     for what in out {
@@ -3958,6 +3979,11 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
             Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
             Shared::Gift { batch, item, count, quest, stage } => net::Progress::Gift { batch, item, count, quest, stage },
             Shared::QuestEnded { quest, failed } => net::Progress::QuestEnded { quest, failed },
+            Shared::JointChoice { character, on } => net::Progress::JointChoice { character, on },
+            Shared::Stage { quest, stage, line, line_end, prior, to } => net::Progress::Stage { quest, stage, line, line_end, prior, to },
+            Shared::StageResult { quest, stage, taken } => net::Progress::StageResult { quest, stage, taken },
+            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
+            Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } => net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,
                 kind: match kind {

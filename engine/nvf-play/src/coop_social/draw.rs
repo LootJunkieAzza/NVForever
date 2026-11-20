@@ -197,6 +197,8 @@ enum Lower {
 /// for players, and then give guests only the option to teleport"].
 const STORY_HOST: &str = "WAITING FOR PLAYERS...";
 const STORY_GUEST_KEY: &str = "Y) Teleport to the host";
+/// The join question for joint progression (plan §3.7) [design: our own words].
+const JOINT_ASK: &str = "SHARE QUEST PROGRESS THIS SESSION?";
 
 /// The invitation's keys, as the input reads them (`super::input`).
 const ACCEPT: &str = "Y) Accept";
@@ -232,6 +234,9 @@ fn banner(social: &Social, mates: &SocialMates, now: f32) -> Option<BannerShown>
     if let Some(i) = social.invites.shown() {
         let name = mates.get(i.with).map_or_else(|| format!("Player {}", i.with + 1), |m| m.name.clone());
         return Some(BannerShown { title: super::invite::invite_line(&name, i.kind), lower: Lower::Keys });
+    }
+    if social.joint_ask {
+        return Some(BannerShown { title: JOINT_ASK.into(), lower: Lower::Keys });
     }
     match &social.story {
         Some(super::StoryPrompt::Host) => return Some(BannerShown { title: STORY_HOST.into(), lower: Lower::None }),
