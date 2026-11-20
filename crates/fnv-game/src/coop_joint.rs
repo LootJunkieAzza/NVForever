@@ -74,6 +74,18 @@ pub fn is_main_story(g: &Game, q: FormId) -> bool {
     q.0 >> 24 == 0 && g.data.quests.get(&q).and_then(|d| d.edid.as_deref()).is_some_and(|e| MAIN_STORY.iter().any(|m| m.eq_ignore_ascii_case(e)))
 }
 
+/// Quests whose stages are each player's own, never shared or replayed: Old World Blues'
+/// implant quest, whose stages the Sink's Auto-Doc sets when a player gets Implant GRX
+/// (owner 2026-11-20 via parity: "auto doc should be per player"; each player gets it by
+/// using the Auto-Doc itself) [observed: OldWorldBlues.esm QUST NVDLC03GenericPerkQUEST,
+/// stages 10 and 11 set its rank and its script keeps the implant stocked].
+pub const PER_PLAYER: &[&str] = &["NVDLC03GenericPerkQUEST"];
+
+/// Whether `q`'s stages are each player's own ([`PER_PLAYER`], in any plugin).
+pub fn is_per_player(g: &Game, q: FormId) -> bool {
+    g.data.quests.get(&q).and_then(|d| d.edid.as_deref()).is_some_and(|e| PER_PLAYER.iter().any(|m| m.eq_ignore_ascii_case(e)))
+}
+
 /// A quest's prerequisite as its starting line or script tests it (plan §3.3, §3.8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Prerequisite {
@@ -296,7 +308,7 @@ impl Game<'_> {
     /// The host's hook in [`Game::set_stage`], after the stage is marked done (module
     /// notes). Nothing while no guest has joint progression on.
     pub fn coop_joint_stage(&mut self, q: FormId, stage: i32) {
-        if self.coop_replaying || !self.coop_joint_guests.values().any(|j| j.on) || is_main_story(self, q) {
+        if self.coop_replaying || !self.coop_joint_guests.values().any(|j| j.on) || is_main_story(self, q) || is_per_player(self, q) {
             return;
         }
         let to: Vec<FormId> = self.coop_joint_guests.iter().filter(|(_, j)| j.on).map(|(a, _)| *a).collect();

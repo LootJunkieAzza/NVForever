@@ -73,8 +73,8 @@ pub struct Uniques {
     /// makes or unmakes the player's teammate (`<ref>.SetPlayerTeammate`, or the call in
     /// the actor's own script or in a line it speaks); a line's speaker is its GetIsID
     /// condition's actor, else its ANAM [design]. Not the perks a companion lends while
-    /// it follows (`crate::coop_perks::COMPANION_PERKS`: item 67 still lends the host's to
-    /// every guest). On the masters: Cass's, Raul's, Veronica's (with Elijah's two),
+    /// it follows (`crate::coop_perks::COMPANION_PERKS`: item 67 lends them to every
+    /// player while any player's companion follows; they are no unique reward at all). On the masters: Cass's, Raul's, Veronica's (with Elijah's two),
     /// Christine's, Dean's and Dog's [observed: `fnvtool coop uniques`, 2026-11-20].
     pub companion: BTreeSet<FormId>,
 }
@@ -263,6 +263,16 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
         // start, with no name, stages or objectives: the preorder packs) comes with the
         // game, not from a quest [design].
         let sold = calls.iter().any(|&(w, f)| w == Gives::Takes && f == CAPS);
+        // An item a unit takes from the player and gives back is kept stocked, an
+        // ability's charge (Old World Blues' Implant GRX: NVDLC03GenericPerkQUEST's script
+        // refills it [observed: OldWorldBlues.esm SCPT 0x03009D4C]; the implant comes
+        // from the Sink's Auto-Doc, each player's own, owner 2026-11-20 via parity), not
+        // a quest's reward [design].
+        for &(w, f) in &calls {
+            if w == Gives::Takes && f != CAPS && calls.contains(&(Gives::Item, f)) {
+                elsewhere.insert((Kind::Item, f));
+            }
+        }
         let setup = match (owner, &c.unit.owner) {
             (Owner::Quest(q), UnitOwner::Script { .. }) => data.quests.get(q).is_some_and(|d| d.flags & crate::quest::START_GAME_ENABLED != 0 && d.name.as_deref().is_none_or(|n| n.trim().is_empty()) && d.stages.is_empty() && d.objectives.is_empty()),
             _ => false,
@@ -360,11 +370,13 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
             out.companion.insert(perk);
         }
     }
-    // The perks a companion lends while it follows are not these: the host's go to every
-    // guest while they last (`crate::coop_perks::COMPANION_PERKS`, item 67).
+    // The perks a companion lends while it follows are no quest's reward: every player
+    // has them while any player's companion follows (`crate::coop_perks::COMPANION_PERKS`,
+    // item 67).
     for e in crate::coop_perks::COMPANION_PERKS {
         if let Some(p) = data.by_edid(e) {
             out.companion.remove(&p);
+            out.by_form.remove(&p);
         }
     }
     out

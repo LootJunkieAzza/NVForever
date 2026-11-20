@@ -657,7 +657,16 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             }
             (solo.game.clone().with_character_of(&now), e)
         }
-        None => (game, engine),
+        // The host's (or a solo game's) save: without the follow perks another player's
+        // companion lends it (item 67; on the host the story holds only those).
+        None => {
+            let mut game = game;
+            let undone = story.undo_on(&mut game);
+            if !undone.is_empty() {
+                info!("save: the other players' companions' perks taken off this save: {}", undone.join("; "));
+            }
+            (game, engine)
+        }
     };
     let refs = game.sim.refs.len();
     let body = SaveBody { format: BODY_FORMAT.into(), game, engine };

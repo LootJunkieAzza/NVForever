@@ -8,16 +8,19 @@
 //! A player's own perks never count for itself; a player gone from the session, or not
 //! heard for [`STALE`] seconds, gives nothing; out of a session it is all 0 [design].
 //!
-//! **The host's companions' perks (item 67).** The host also sends the companion perks
-//! it has now (`fnv_game::coop_perks::COMPANION_PERKS`: Boone's Spotting, Cass's Whiskey
-//! Rose ...), which the original gives the player while that companion follows and takes
-//! back when it is dismissed, dies or leaves (the companions' scripts). Each guest has
-//! the same ones ([`fnv_game::coop_perks::mirror_perk`]: the perk itself, so its entries,
-//! abilities and the Pip-Boy's perk page are the original's), and loses each when the
-//! host does, when the host is no longer heard, or when it leaves the session. A guest
-//! that joins while the host has a companion gets its perk with the host's first message.
-//! A perk the guest had before is not touched. They are the host's story's: the guest's
-//! own save never keeps them (`fnv_game::coop_story`).
+//! **The companions' follow perks (item 67).** Each player also sends the follow perks
+//! its own companions give it now (`fnv_game::coop_perks::COMPANION_PERKS`: Boone's
+//! Spotting, Cass's Whiskey Rose ...), which the original gives the player while that
+//! companion follows and takes back when it is dismissed, dies or leaves (the companions'
+//! scripts). Owner 2026-11-20: "While a companion is in the party, all players get the
+//! perk" [design]: whoever hired it, every other player has the same perks
+//! ([`fnv_game::coop_perks::mirror_perk`]: the perk itself, so its entries, abilities and
+//! the Pip-Boy's perk page are the original's), and loses each when no other player's
+//! companion gives it any more, when that player is no longer heard, or when this one
+//! leaves the session. A player that joins while another has a companion gets its perk
+//! with that player's first message. A perk the player had of its own is not touched, and
+//! a lent perk is never sent on. They are the session's: no player's own save keeps them
+//! (`fnv_game::coop_story`; the host's save too, `crate::save`).
 //!
 //! Message: Charisma, Ferocious Loyalty (0/1), the number of companion perks, each
 //! perk's FormID (4 bytes, little-endian; host and guests load the same plugins).
@@ -33,8 +36,6 @@ use std::collections::HashMap;
 const EVERY: f64 = 2.0;
 /// A player not heard for this long gives nothing (real seconds).
 const STALE: f64 = 7.0;
-/// The host's player id in the session.
-const HOST: u8 = 0;
 
 pub struct CoopCompanionsPlugin;
 
@@ -50,11 +51,11 @@ struct Seen {
     last: Option<(u8, bool)>,
     others: HashMap<u8, (u8, bool, f64)>,
     given: fnv_game::coop_perks::FromOthers,
-    /// The companion perks this player sends (the host), as last sent.
+    /// The follow perks this player's own companions give, as last sent.
     last_perks: Vec<u32>,
-    /// The host's companion perks, as last heard, and when.
-    host_perks: Option<(Vec<FormId>, f64)>,
-    /// Companion perks this guest has because the host has them.
+    /// Each other player's companions' follow perks, as last heard.
+    party_perks: HashMap<u8, Vec<FormId>>,
+    /// Follow perks this player has because another player's companion gives them.
     mirrored: Vec<FormId>,
 }
 
@@ -75,9 +76,9 @@ fn exchange(time: Res<Time<Real>>, tables: Option<ResMut<Tables>>, script: Optio
         return;
     };
     let mine = fnv_game::coop_perks::my_side(&mut rt.game);
-    let perks: Vec<u32> = if tables.host { fnv_game::coop_perks::companion_perks(&rt.game).iter().map(|p| p.0).collect() } else { Vec::new() };
-    if tables.host && perks != seen.last_perks {
-        info!("co-op companions: the host's companion perks now: {}", if perks.is_empty() { "none".to_string() } else { perks.iter().map(|p| rt.game.data.name(FormId(*p))).collect::<Vec<_>>().join(", ") });
+    let perks: Vec<u32> = fnv_game::coop_perks::own_companion_perks(&rt.game, &seen.mirrored).iter().map(|p| p.0).collect();
+    if perks != seen.last_perks {
+        info!("co-op companions: this player's companions' perks now: {}", if perks.is_empty() { "none".to_string() } else { perks.iter().map(|p| rt.game.data.name(FormId(*p))).collect::<Vec<_>>().join(", ") });
         seen.sent = f64::NEG_INFINITY;
         seen.last_perks = perks.clone();
     }
@@ -97,33 +98,23 @@ fn exchange(time: Res<Time<Real>>, tables: Option<ResMut<Tables>>, script: Optio
         if let [charisma, loyal, ..] = blob[..] {
             seen.others.insert(from, (charisma, loyal != 0, local));
         }
-        if from == HOST && !tables.host {
-            let n = blob.get(2).copied().unwrap_or(0) as usize;
-            let list: Vec<FormId> = blob.get(3..3 + 4 * n).unwrap_or_default().as_chunks::<4>().0.iter().map(|c| FormId(u32::from_le_bytes(*c))).collect();
-            seen.host_perks = Some((list, local));
-        }
-    }
-    // The host's companion perks on this guest (module notes).
-    if !tables.host {
-        let want: Vec<FormId> = match &seen.host_perks {
-            Some((list, at)) if local - at < STALE && tables.names.contains_key(&HOST) => list.clone(),
-            _ => Vec::new(),
-        };
-        for &p in &want {
-            if !seen.mirrored.contains(&p) && rt.game.data.perks.contains_key(&p) && fnv_game::coop_perks::mirror_perk(&mut rt.game, p) {
-                info!("co-op companions: the host's companion gives {} to this player too", rt.game.data.name(p));
-                seen.mirrored.push(p);
-            }
-        }
-        let gone: Vec<FormId> = seen.mirrored.iter().copied().filter(|p| !want.contains(p)).collect();
-        for p in gone {
-            info!("co-op companions: the host lost {}: this player loses it too", rt.game.data.name(p));
-            fnv_game::coop_perks::unmirror_perk(&mut rt.game, p);
-            seen.mirrored.retain(|&q| q != p);
-        }
+        let n = blob.get(2).copied().unwrap_or(0) as usize;
+        let list: Vec<FormId> = blob.get(3..3 + 4 * n).unwrap_or_default().as_chunks::<4>().0.iter().map(|c| FormId(u32::from_le_bytes(*c))).collect();
+        seen.party_perks.insert(from, list);
     }
     let me = tables.me;
     seen.others.retain(|p, (.., at)| Some(*p) != me && tables.names.contains_key(p) && local - *at < STALE);
+    // The other players' companions' perks on this player (module notes).
+    let s = &mut *seen;
+    s.party_perks.retain(|p, _| s.others.contains_key(p));
+    let want = fnv_game::coop_perks::party_perks(s.party_perks.values().map(Vec::as_slice));
+    let (lent, taken) = fnv_game::coop_perks::sync_party_perks(&mut rt.game, &mut s.mirrored, &want);
+    for p in lent {
+        info!("co-op companions: another player's companion gives {} to this player too", rt.game.data.name(p));
+    }
+    for p in taken {
+        info!("co-op companions: no other player's companion gives {} now: this player loses it", rt.game.data.name(p));
+    }
     let given = fnv_game::coop_perks::from_others(seen.others.values().map(|(c, l, _)| (*c, *l)), fnv_game::coop_perks::loyalty_dr(rt.game.data));
     if given != seen.given {
         info!("co-op companions: from the other players: Companion Nerve {:+.0} %, Damage Resistance {:+.0} (Ferocious Loyalty)", given.nerve * 100.0, given.dr);

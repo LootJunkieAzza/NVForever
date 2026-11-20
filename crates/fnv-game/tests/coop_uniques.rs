@@ -43,6 +43,8 @@ const LINE_ITEM: u32 = 0xA07;
 const SOLD: u32 = 0xA08;
 /// Handed out by a background quest's script (a preorder pack).
 const PACK: u32 = 0xA09;
+/// Given by QA's stage 30, and refilled by its stage 31 (an implant's charge: GRX).
+const CHARGE: u32 = 0xA0A;
 const CAPS: u32 = 0xF;
 const QC: u32 = 0x902;
 const QC_SCRIPT: u32 = 0x912;
@@ -56,8 +58,8 @@ const COMPANION: u32 = 0x701;
 const COMPANION_SCRIPT: u32 = 0x913;
 const LINE3: u32 = 0xE03;
 const COMPANION_PERK: u32 = 0xB02;
-/// A perk a companion lends while it follows (`coop_perks::COMPANION_PERKS`), unique to
-/// the companion's quest here too, but lent to guests (item 67), so no companion perk.
+/// A perk a companion lends while it follows (`coop_perks::COMPANION_PERKS`), given by
+/// the companion's quest only here, but lent to every player (item 67): not unique.
 const FOLLOW_PERK: u32 = 0xB03;
 const QSPELL: u32 = 0xC00;
 const CONT: u32 = 0xD00;
@@ -81,6 +83,7 @@ const NAMES: &[(&str, u32, &[u8; 4])] = &[
     ("TLineItem", LINE_ITEM, b"MISC"),
     ("TSold", SOLD, b"MISC"),
     ("TPack", PACK, b"MISC"),
+    ("TCharge", CHARGE, b"MISC"),
     ("Caps001", CAPS, b"MISC"),
     ("TPackQuest", QC, b"QUST"),
     ("TQuestPerk", QPERK, b"PERK"),
@@ -170,6 +173,7 @@ end
         misc(LINE_ITEM, "TLineItem"),
         misc(SOLD, "TSold"),
         misc(PACK, "TPack"),
+        misc(CHARGE, "TCharge"),
         misc(CAPS, "Caps001"),
     ]
     .concat();
@@ -197,7 +201,7 @@ end
             QA,
             "TQuestA",
             None,
-            &[(10, "player.AddItem TUniqueGun 1\nplayer.AddPerk TQuestPerk\nplayer.AddPerk TPlayablePerk\nplayer.AddSpell TQuestSpell\n"), (20, "player.AddItem TShared 1\n")],
+            &[(10, "player.AddItem TUniqueGun 1\nplayer.AddPerk TQuestPerk\nplayer.AddPerk TPlayablePerk\nplayer.AddSpell TQuestSpell\n"), (20, "player.AddItem TShared 1\n"), (30, "player.AddItem TCharge 5\n"), (31, "player.RemoveItem TCharge 10 1\nplayer.AddItem TCharge 10 1\n")],
         ),
         quest(
             table,
@@ -309,11 +313,10 @@ fn only_what_one_quests_scripts_alone_give_is_unique() {
             (LINE_ITEM, Kind::Item, QB),
             (QPERK, Kind::Perk, QA),
             (COMPANION_PERK, Kind::Perk, QD),
-            (FOLLOW_PERK, Kind::Perk, QD),
             (QSPELL, Kind::Spell, QA),
         ],
         "not unique: given by two quests, a vendor's container, a leveled list, a placed reference, an object's script, a playable perk, \
-         sold for caps, a background quest's hand-out"
+         sold for caps, a background quest's hand-out, a refilled charge, a companion's follow perk"
     );
     assert!(f.data.infos.contains_key(&FormId(LINE2)) && f.data.quests.contains_key(&FormId(QC)), "the sale line and the pack quest are read");
     // The same list the game keeps, computed once.
@@ -378,7 +381,7 @@ fn companion_perks_are_the_hosts_alone() {
     let f = fixture();
     let u = compute(&f.data, &f.forms, &f.refs);
     assert_eq!(u.companion.iter().map(|p| p.0).collect::<Vec<_>>(), vec![COMPANION_PERK], "the companion quest's perk, not the follow perk");
-    assert_eq!(u.quest_of(FormId(FOLLOW_PERK)), Some(FormId(QD)));
+    assert_eq!(u.quest_of(FormId(FOLLOW_PERK)), None, "a follow perk is no unique reward (item 67)");
     assert!(!u.is_companion_perk(FormId(QPERK)), "another quest's unique perk is no companion perk");
     assert!(f.data.infos.get(&FormId(LINE3)).is_some_and(|i| i.speaker == Some(FormId(COMPANION))), "the companion's line is read");
     // A guest that claimed the companion's quest: the perk is still not given.
@@ -403,4 +406,56 @@ fn companion_perks_are_the_hosts_alone() {
     let mut h = game(&f);
     h.set_stage(FormId(QD), 20);
     assert_eq!(h.player.perks.get(&FormId(COMPANION_PERK)), Some(&1));
+}
+
+/// One round of item 67's exchange: each player sends the follow perks its own
+/// companions give, and each takes the others' (`nvf-play` coop_companions).
+fn party_round(players: &mut [(Game, Vec<FormId>)]) {
+    let sent: Vec<Vec<FormId>> = players.iter().map(|(g, m)| fnv_game::coop_perks::own_companion_perks(g, m)).collect();
+    for (i, (g, mirrored)) in players.iter_mut().enumerate() {
+        let want = fnv_game::coop_perks::party_perks(sent.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, l)| l.as_slice()));
+        fnv_game::coop_perks::sync_party_perks(g, mirrored, &want);
+    }
+}
+
+#[test]
+fn a_companions_follow_perk_reaches_every_player_whoever_hired_it() {
+    let f = fixture();
+    let spot = FormId(FOLLOW_PERK);
+    let host = game(&f);
+    let mut g1 = game(&f);
+    g1.coop_guest = true;
+    let mut g2 = game(&f);
+    g2.coop_guest = true;
+    // A guest (not the host) has the companion: its script gave it Spotting.
+    g1.player.perks.insert(spot, 1);
+    let mut party = vec![(host, Vec::new()), (g1, Vec::new()), (g2, Vec::new())];
+    party_round(&mut party);
+    party_round(&mut party);
+    for (i, (g, m)) in party.iter().enumerate() {
+        assert_eq!(g.player.perks.get(&spot), Some(&1), "player {i} has the follow perk");
+        assert_eq!(m.contains(&spot), i != 1, "player {i}: lent, except to the one whose companion gives it");
+    }
+    assert!(fnv_game::coop_perks::own_companion_perks(&party[0].0, &party[0].1).is_empty(), "a lent perk is not sent on");
+    // The host's save does not keep a perk another player's companion lends it.
+    let mut s = party[0].0.snapshot();
+    party[0].0.coop_story_to_undo().undo_on(&mut s);
+    assert!(!s.player.perks.contains_key(&spot), "the host's save is without the lent perk");
+    // The companion leaves the guest (its script takes the perk back): every player loses it.
+    party[1].0.player.perks.remove(&spot);
+    party_round(&mut party);
+    party_round(&mut party);
+    for (i, (g, m)) in party.iter().enumerate() {
+        assert!(!g.player.perks.contains_key(&spot), "player {i} lost the follow perk");
+        assert!(m.is_empty());
+    }
+    // A player's own perk is never taken: the host hires its own, then another's leaves.
+    party[0].0.player.perks.insert(spot, 1);
+    party[2].0.player.perks.insert(spot, 1);
+    party_round(&mut party);
+    assert!(party[0].1.is_empty() && party[2].1.is_empty() && party[1].1 == vec![spot]);
+    party[2].0.player.perks.remove(&spot);
+    party_round(&mut party);
+    assert_eq!(party[0].0.player.perks.get(&spot), Some(&1), "the host's own companion's perk stays");
+    assert_eq!(party[1].0.player.perks.get(&spot), Some(&1), "still lent by the host's companion");
 }

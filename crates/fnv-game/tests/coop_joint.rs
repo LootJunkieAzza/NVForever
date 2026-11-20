@@ -44,6 +44,8 @@ fn catalogue() -> (FunctionTable, serde_json::Value) {
 
 const SIDE: u32 = 0x900;
 const MAIN: u32 = 0x904;
+/// Old World Blues' implant quest (the Auto-Doc's Implant GRX): each player's own.
+const IMPLANT: u32 = 0x905;
 const GUEST: u32 = 0xFF00_0801;
 
 fn quest(fid: u32, edid: &str, stages: &[i16]) -> Vec<u8> {
@@ -60,7 +62,7 @@ fn plugin() -> Vec<u8> {
     let tes4 = record(b"TES4", 1, 0, &[sub(b"HEDR", hedr)]);
     // A side quest and a base-game main-story quest (its editor ID is on the list, and
     // this plugin is load-order index 0, as FalloutNV.esm is).
-    [tes4, top(b"QUST", &[quest(SIDE, "VMS24", &[1, 10, 20, 50, 100]), quest(MAIN, "VMQ01", &[10, 20])].concat())].concat()
+    [tes4, top(b"QUST", &[quest(SIDE, "VMS24", &[1, 10, 20, 50, 100]), quest(MAIN, "VMQ01", &[10, 20]), quest(IMPLANT, "NVDLC03GenericPerkQUEST", &[10, 11])].concat())].concat()
 }
 
 struct Fixture {
@@ -102,8 +104,10 @@ fn the_host_offers_side_stages_to_guests_with_joint_on_and_keeps_presence() {
     host.coop_joint_guests.insert(FormId(GUEST), JointGuest { character: 77, on: true });
     host.set_stage(FormId(SIDE), 10);
     host.set_stage(FormId(MAIN), 10);
+    host.set_stage(FormId(IMPLANT), 10);
     let offers = host.take_joint_offers();
-    assert_eq!(offers.len(), 1, "main story is never offered: {offers:?}");
+    assert_eq!(offers.len(), 1, "main story and a player's own implant are never offered: {offers:?}");
+    assert!(!host.coop_presence.stages.contains_key(&FormId(IMPLANT)));
     assert_eq!((offers[0].quest, offers[0].stage, offers[0].prior.clone(), offers[0].to.clone()), (FormId(SIDE), 10, vec![1], vec![FormId(GUEST)]));
     assert!(host.coop_presence.was_there(FormId(SIDE), 10, 77));
     assert!(!host.coop_presence.was_there(FormId(SIDE), 1, 77));
