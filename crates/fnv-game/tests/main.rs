@@ -36,6 +36,7 @@ mod dead_on_spawn;
 mod death_items;
 mod dialogue_data;
 mod dialogue;
+mod coop_kills;
 mod difficulty;
 mod effect_updates;
 mod experience;

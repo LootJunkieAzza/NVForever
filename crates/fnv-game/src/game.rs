@@ -1914,6 +1914,9 @@ pub struct Game<'a> {
     /// On a co-op host: what its scripts gave the player around each completed quest, for
     /// the guests (`crate::coop_rewards`). Not saved.
     pub coop_rewards: crate::coop_rewards::RewardLedger,
+    /// Co-op kill credit: each player's hits on each target, and the guests' shares of
+    /// kills waiting for the engine (`crate::coop_kills`). Not saved.
+    pub coop_kills: crate::coop_kills::CoopKills,
     /// The lines a guest may choose, found once ([`Game::guest_lines`]).
     pub(crate) guest_lines: std::sync::OnceLock<BTreeSet<FormId>>,
     /// Forms added to form lists at run time.
@@ -2934,6 +2937,7 @@ impl<'a> Game<'a> {
             coop_host_name: None,
             shot_for_player: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
+            coop_kills: crate::coop_kills::CoopKills::default(),
             guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
