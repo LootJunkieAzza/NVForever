@@ -24,6 +24,8 @@ macro_rules! eprintln {
 }
 
 mod activators;
+#[cfg(any(target_os = "ios", test))]
+mod ios_input;
 mod fos_start;
 mod reports;
 mod native_crash;
@@ -1054,6 +1056,17 @@ fn parse_smoothing(value: &str) -> Result<nvf_play::smooth_terrain::Smoothing, S
 static ALLOCATOR: crash::SaysWhenEmpty = crash::SaysWhenEmpty;
 
 fn main() -> AppExit {
+    // [design] iOS has no desktop folder picker. The user's own game files are copied
+    // into Documents/Game; settings and saves stay outside that read-only input tree.
+    #[cfg(target_os = "ios")]
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        if std::env::var_os("NVFOREVER_DATA").is_none() {
+            std::env::set_var("NVFOREVER_DATA", home.join("Documents/Game/Data"));
+        }
+        if std::env::var_os("NVFOREVER_HOME").is_none() {
+            std::env::set_var("NVFOREVER_HOME", home.join("Library/Application Support/NVForever"));
+        }
+    }
     // Started as this run's exit watcher (exit_watch.rs): wait for the game's process, no game.
     if exit_watch::run_if_watcher() {
         return AppExit::Success;
@@ -1686,11 +1699,20 @@ fn main() -> AppExit {
             // The console's lines go to the run log too (crash.rs).
             .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
-                // Scale factor 1 so screenshots are exactly --size pixels on any display.
+                // Desktop captures use exact --size pixels. iOS owns the window's
+                // size and scale; keep its native Retina scale for the full drawable.
                 primary_window: Some(Window {
                     title: "NVForever".into(),
-                    mode: args.window.mode(),
-                    resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                    mode: if cfg!(target_os = "ios") {
+                        bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Primary)
+                    } else {
+                        args.window.mode()
+                    },
+                    resolution: if cfg!(target_os = "ios") {
+                        bevy::window::WindowResolution::new(w, h)
+                    } else {
+                        bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0)
+                    },
                     position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
                     // Taking over a load: shown once its loading screen is up (handoff.rs).
                     visible: args.handoff.is_none(),
@@ -2279,6 +2301,8 @@ fn main() -> AppExit {
             s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
     }
+    #[cfg(target_os = "ios")]
+    app.add_plugins(ios_input::IosInputPlugin);
     let exit = app.run();
     // The app and its renderer are gone; Streamline shut down before the device and instance it
     // used (dlss/, "Shutdown"). Nothing when Streamline was not loaded.

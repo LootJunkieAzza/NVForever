@@ -131,7 +131,7 @@ pub struct ApplyWindowMode;
 
 impl Plugin for WindowModePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FullScreenSize>().init_resource::<MonitorModes>().init_resource::<MonitorChoice>().add_systems(Update, (watch_monitor, apply_display, log_mode).chain().in_set(ApplyWindowMode));
+        app.init_resource::<FullScreenSize>().init_resource::<MonitorModes>().init_resource::<MonitorChoice>().add_systems(Update, (watch_monitor, apply_display.run_if(|| !cfg!(target_os = "ios")), log_mode).chain().in_set(ApplyWindowMode));
     }
 }
 

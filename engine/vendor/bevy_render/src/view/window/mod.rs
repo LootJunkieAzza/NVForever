@@ -443,6 +443,11 @@ impl SurfaceData {
         SharedSurface { surface: self.surface.clone(), state: self.shared.clone(), _window: self.window.clone() }
     }
 
+    /// The present modes of the existing surface, without creating another native surface.
+    pub fn supported_present_modes(&self, adapter: &RenderAdapter) -> Vec<wgpu::PresentMode> {
+        self.surface.get_capabilities(adapter).present_modes
+    }
+
     /// NVForever (2026-11-09): a [`SharedSurface`] holder found the surface outdated.
     fn outdated(&self) -> bool {
         self.shared.outdated.load(core::sync::atomic::Ordering::Relaxed)

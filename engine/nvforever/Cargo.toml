@@ -42,7 +42,6 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 png = "0.18"
-sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
@@ -59,6 +58,11 @@ ash = { version = "0.38", default-features = false }
 # up in memory) and to listen and announce itself on this machine only (`only-localhost`);
 # frame-rate-audit.md §1. MIT/Apache-2.0; the Tracy C++ client in tracy-client-sys is BSD-3-Clause.
 tracy-client = { version = "0.19", optional = true, default-features = false, features = ["ondemand", "only-localhost"] }
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+# [observed] sysinfo 0.39's Apple CPU reader uses macOS-only libc symbols. iOS
+# reports omit these optional hardware fields rather than querying outside the sandbox.
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]

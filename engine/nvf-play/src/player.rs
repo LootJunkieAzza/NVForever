@@ -64,6 +64,11 @@ pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ViewDriven(pub bool);
 
+/// UIKit owns pointer locking on iPad; winit's cursor-grab API is unsupported there.
+#[cfg(target_os = "ios")]
+#[derive(Resource, Default)]
+pub struct IosMouseCapture(pub bool);
+
 /// The console's ToggleCollision (`tcl`, `crate::console`): the character passes through
 /// everything, falls no more and flies where the player looks, by the swimming rule
 /// (forward and back along the view, sideways level) at the walking and running speeds [hypothesis: as the
@@ -345,6 +350,8 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(target_os = "ios")]
+        app.init_resource::<IosMouseCapture>();
         app.init_resource::<MoveIntent>()
             .add_message::<crate::rumble::Landed>()
             .init_resource::<Controls>()
@@ -573,6 +580,7 @@ fn grab_cursor(
     mut wanted_before: Local<Option<(bool, bool)>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
     pad_pointer: Option<Res<crate::pad::pointer::PadPointer>>,
+    #[cfg(target_os = "ios")] mut ios_capture: ResMut<IosMouseCapture>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     // A script's HUD cursor (ToggleHUDCursor, `crate::script_switches`): the pointer shows
@@ -612,11 +620,13 @@ fn grab_cursor(
     }
     let grab = playing && !driven && !boxed && window.focused && !hud_cursor && !targeting;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
-    let mode = match (grab, cfg!(target_os = "windows")) {
+    let mode = match (grab && !cfg!(target_os = "ios"), cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
         (true, true) => CursorGrabMode::Confined,
         (true, false) => CursorGrabMode::Locked,
     };
+    #[cfg(target_os = "ios")]
+    { ios_capture.0 = grab; }
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
     // The player's tweak hides it over a message box, worked with the keys then [design: docs/design/tweaks.md].
@@ -941,7 +951,10 @@ pub(crate) fn mouse_look(
     (pads, time, vats): (crate::pad::ActionPads, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
+    #[cfg(not(target_os = "ios"))]
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+    #[cfg(target_os = "ios")]
+    (cursor, ios_capture): (Query<&CursorOptions, With<PrimaryWindow>>, Res<IosMouseCapture>),
     look: Option<Res<crate::dialogue::FreeLook>>,
     locks: Res<crate::control::ControlLocks>,
     mut control: ResMut<PlayerControl>,
@@ -960,6 +973,8 @@ pub(crate) fn mouse_look(
 ) {
     let dialogue = *state.get() == PlayState::Dialogue;
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    #[cfg(target_os = "ios")]
+    let grabbed = { let _ = grabbed; ios_capture.0 };
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
     // A zoomed conversation locks the view: the mouse moves only the cursor, even if the
