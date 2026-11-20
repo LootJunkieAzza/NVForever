@@ -108,7 +108,8 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Dialogue"), &["dialogue-zoom", "dialogue-look", "dialogue-recentre", "menu-pause", "dialogue-goodbye-hint", "lip-sync"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Bug Reports"), &["send-reports", "reports-delete"]),
-    section("Display", Some("Screen"), &["monitor", "resolution", "borderless"]),
+    // Split screen's layout (plan split-screen.md §2: "under Display"; owner 2026-11-20).
+    section("Display", Some("Screen"), &["monitor", "resolution", "borderless", "split-layout"]),
     section("Display", Some("Frame Rate"), &["display-sync", "frame-cap", "physics-rate"]),
     section("Display", Some("Upscaling and Anti-Aliasing"), &["upscaler", "upscaler-quality", "dlss-model", "fsr-library", "anti-aliasing", "sharpen"]),
     section("Display", Some("Frame Generation and Latency"), &["frame-generation", "frame-generation-frames", "latency-reduction"]),

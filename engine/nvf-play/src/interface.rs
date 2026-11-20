@@ -216,6 +216,53 @@ pub fn fix_ui_scale() {
     info!("interface: UI scale {:.0}% (the HUD drawn at {:.0}%, the menus at {:.0}% of the original's size)", s * 100.0, s * 100.0, menu_scale() * 100.0);
 }
 
+/// The narrowest view the menus are laid out for: 4:3, 1280 of the original's units across
+/// its 960 [observed: the settings page's layout tests go down to 4:3, `pause.rs`
+/// `VIEW_WIDTHS`].
+pub const NARROWEST_MENU_VIEW: f32 = 4.0 / 3.0;
+
+/// How much bigger the HUD is drawn in a split-screen half wider than [`SPLIT_WIDE`]:
+/// the half is half the screen's height, so at the same share of it the HUD's words are
+/// half their full-screen size (12 pixels for "HP" in a 2560x720 half) [design: plan
+/// `split-screen.md` §5, "Split UI scale, default 1.25 for top/bottom"].
+pub const SPLIT_WIDE_HUD: f32 = 1.25;
+
+/// A half wider than this (width over height) is a top-and-bottom half (32:9 on a 16:9
+/// screen; a full 21:9 screen is 2.37, but it is never a half) [design].
+pub const SPLIT_WIDE: f32 = 2.5;
+
+/// The HUD's and the menus' scale factors in a split-screen half of `size` (any pixels),
+/// on top of the HUD scale and menu scale settings [design: plan `split-screen.md` §5]:
+/// - a wide half (top and bottom): the HUD [`SPLIT_WIDE_HUD`] times bigger; the menus as
+///   they are (they already fill the half's height, the most they can);
+/// - a half narrower than [`NARROWEST_MENU_VIEW`] (side by side, 8:9 on a 16:9 screen):
+///   both shrink until the 4:3 view fits across it (2/3 at 8:9), so no menu runs off its
+///   sides and the HUD's corners keep apart;
+/// - otherwise 1.
+pub fn split_ui_factors(size: Vec2) -> (f32, f32) {
+    if !(size.x > 0.0 && size.y > 0.0) {
+        return (1.0, 1.0);
+    }
+    let aspect = size.x / size.y;
+    if aspect > SPLIT_WIDE {
+        (SPLIT_WIDE_HUD, 1.0)
+    } else {
+        let fit = (aspect / NARROWEST_MENU_VIEW).min(1.0);
+        (fit, fit)
+    }
+}
+
+/// Draw this run's HUD and menus `hud` and `menu` times their settings' scales (split
+/// screen, [`split_ui_factors`]): called once at the start, after [`fix_ui_scale`], so
+/// what is drawn keeps one size for the run as the settings' scales do. The HUD may go
+/// to 150% ([`UI_SCALE_RANGE`]), the menus to their original's size.
+pub fn fix_split_ui(hud: f32, menu: f32) {
+    let h = (ui_scale() * hud).clamp(0.25, UI_SCALE_RANGE.1);
+    UI_SCALE.store(h.to_bits(), Ordering::Relaxed);
+    crate::menu_scale::publish(crate::menu_scale::drawing() * menu);
+    info!("interface: split screen: the HUD drawn at {:.0}%, the menus at {:.0}%", h * 100.0, menu_scale() * 100.0);
+}
+
 std::thread_local! {
     /// The scale [`u`] applies on this thread when a scope set one ([`units_at`]); `None`
     /// is the menus' scale ([`menu_scale`]).
@@ -1027,6 +1074,21 @@ mod tga_consumer_tests;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn split_halves_grow_the_hud_when_wide_and_fit_the_menus_when_narrow() {
+        // Top and bottom on a 2560x1440 screen: the HUD 1.25 times, the menus as they are.
+        assert_eq!(split_ui_factors(Vec2::new(2560.0, 720.0)), (SPLIT_WIDE_HUD, 1.0));
+        assert_eq!(split_ui_factors(Vec2::new(1920.0, 540.0)), (SPLIT_WIDE_HUD, 1.0));
+        // Side by side: 8:9, the 4:3 view fits across at 2/3.
+        let (hud, menu) = split_ui_factors(Vec2::new(1280.0, 1440.0));
+        assert!((hud - 2.0 / 3.0).abs() < 1e-6 && hud == menu, "{hud} {menu}");
+        assert!((1280.0 / 1440.0 * 960.0 - NARROWEST_MENU_VIEW * 960.0 * menu).abs() < 1e-3, "the 4:3 view's width is the half's");
+        // A half as wide as 4:3 or a full 16:9 view: nothing changes.
+        assert_eq!(split_ui_factors(Vec2::new(1920.0, 1080.0)), (1.0, 1.0));
+        assert_eq!(split_ui_factors(Vec2::new(1280.0, 960.0)), (1.0, 1.0));
+        assert_eq!(split_ui_factors(Vec2::ZERO), (1.0, 1.0));
+    }
 
     pub(crate) fn authored_rgba_dds(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = vec![0; 128 + width as usize * height as usize * 4];

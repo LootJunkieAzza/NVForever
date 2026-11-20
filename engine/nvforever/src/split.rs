@@ -49,7 +49,10 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use bevy::input::gamepad::{gamepad_connection_system, gamepad_event_processing_system, Gamepad, GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent};
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, Monitor, PrimaryMonitor, PrimaryWindow, RawHandleWrapper, WindowMode};
-use nvf_play::split_screen::SplitScreen;
+use nvf_play::split_screen::{SplitAtStart, SplitLayout, SplitScreen};
+
+// The field of view of a half (view.rs).
+mod view;
 
 /// How the screen is split [owner: a setting, top and bottom by default].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -64,6 +67,19 @@ impl Layout {
         match self {
             Layout::TopBottom => "top-bottom",
             Layout::SideBySide => "side-by-side",
+        }
+    }
+    /// The layout the settings page's Split screen layout row chose.
+    fn of_setting(l: SplitLayout) -> Layout {
+        match l {
+            SplitLayout::TopBottom => Layout::TopBottom,
+            SplitLayout::SideBySide => Layout::SideBySide,
+        }
+    }
+    fn setting(self) -> SplitLayout {
+        match self {
+            Layout::TopBottom => SplitLayout::TopBottom,
+            Layout::SideBySide => SplitLayout::SideBySide,
         }
     }
     fn parse(s: &str) -> Layout {
@@ -217,7 +233,10 @@ pub struct SplitPlugin(pub SplitArgs);
 
 impl Plugin for SplitPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(view::SplitViewPlugin);
         if let Some(dir) = self.0.p2.clone() {
+            // Its HUD and menus are drawn for its half (player 1's file says which).
+            app.insert_resource(at_start(&dir, true));
             let socket = UdpSocket::bind("127.0.0.1:0").and_then(|s| s.set_nonblocking(true).map(|_| s)).map_err(|e| warn!("split: no controller relay: {e}")).ok();
             app.insert_resource(nvf_play::audio_out::PersonalSoundsOnly).insert_resource(nvf_play::split_screen::PlayerTwo).insert_resource(P2 { dir, socket, pad: None, last: PadState::default(), owner: None, placed: None, p1_seen: 0.0, file_at: f32::NEG_INFINITY, premade: loaded_stem().and_then(|s| premade_of(&s)), join_opened: false, restacked: false })
                 .add_systems(PreUpdate, p2_receive.before(gamepad_connection_system))
@@ -225,11 +244,30 @@ impl Plugin for SplitPlugin {
                 .add_systems(Update, (p2_session, p2_keep_character, p2_open_join, p2_back_ends));
         } else {
             // Player 1's game, or one that may become it (the menus' entries).
+            nvf_play::split_screen::register_layout(app, "Display");
+            if self.0.start {
+                if let Some(home) = fnv_install::EngineHome::default_root() {
+                    app.insert_resource(at_start(&home.join("split"), false));
+                }
+            }
             app.insert_resource(SplitScreen { available: true, ask: self.0.start.then_some(true), ..default() })
                 .add_systems(PreUpdate, p1_route_pads.run_if(resource_exists::<P1>).after(gamepad_connection_system).before(gamepad_event_processing_system))
                 .add_systems(Update, (split_asks, p1_session.run_if(resource_exists::<P1>), close_lobby_after).chain());
         }
     }
+}
+
+/// A game starting in split screen: the screen as player 1's file last said (16:9 until
+/// there is one), and the layout from it for player 2's game (player 1's own takes its
+/// setting).
+fn at_start(dir: &Path, p2: bool) -> SplitAtStart {
+    let text = std::fs::read_to_string(dir.join("p1.txt")).unwrap_or_default();
+    let screen = kv(&text, "screen").and_then(|v| {
+        let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        (n.len() == 4 && n[2] > 0.0 && n[3] > 0.0).then(|| Vec2::new(n[2], n[3]))
+    });
+    let layout = kv(&text, "layout").map(|l| Layout::parse(&l).setting());
+    SplitAtStart { screen: screen.unwrap_or(Vec2::new(1920.0, 1080.0)), layout: if p2 { Some(layout.unwrap_or_default()) } else { None } }
 }
 
 // ---- Player 1 -------------------------------------------------------------------------
@@ -327,6 +365,7 @@ fn split_asks(
     mut connections: MessageWriter<GamepadConnectionEvent>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
     mut last_save: Local<Option<Option<String>>>,
+    layout: Res<SplitLayout>,
 ) {
     let last_save = last_save.get_or_insert_with(loaded_stem);
     for d in saved.read().filter(|d| d.result.is_ok()) {
@@ -349,7 +388,7 @@ fn split_asks(
                 commands.remove_resource::<CloseLobbyAfter>();
                 commands.insert_resource(P1 {
                     dir: home.join("split"),
-                    layout: Layout::TopBottom,
+                    layout: Layout::of_setting(*layout),
                     state: P1State::Waiting,
                     socket,
                     p2_at: None,
@@ -506,9 +545,17 @@ fn p1_session(
     monitors: Query<&Monitor, With<PrimaryMonitor>>,
     mut saved: MessageReader<nvf_play::save::SaveDone>,
     (script, play, coop): GameParts,
-    (mut split, mut save_asks): (ResMut<SplitScreen>, MessageWriter<nvf_play::save::SaveRequest>),
+    (mut split, mut save_asks, layout): (ResMut<SplitScreen>, MessageWriter<nvf_play::save::SaveRequest>, Res<SplitLayout>),
 ) {
     let now = time.elapsed_secs();
+    // The settings page's layout, at once: both windows are placed again (player 2's
+    // follows the file, written now).
+    let want = Layout::of_setting(*layout);
+    if p1.layout != want {
+        info!("split: layout {}", want.key());
+        p1.layout = want;
+        p1.file_at = f32::NEG_INFINITY;
+    }
     for d in saved.read().filter(|d| d.result.is_ok()) {
         p1.save = d.path.file_stem().map(|s| s.to_string_lossy().into_owned());
         p1.file_at = f32::NEG_INFINITY;

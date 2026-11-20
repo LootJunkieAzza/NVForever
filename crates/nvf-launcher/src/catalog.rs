@@ -223,6 +223,7 @@ pub fn list_choices() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
         ("kill-camera", &["Last enemy", "Every kill", "Off"][..]),
         ("vats-style", &["Classic", "Mark and Fire"][..]),
+        ("split-layout", &["Top and bottom", "Side by side"][..]),
         // As the INI keeps them (`Smoothing::stored`, #2676); the engine also reads its older 1/0.
         ("smooth-terrain", &["off", "2x2", "4x4", "4x4-near"][..]),
     ])
@@ -387,7 +388,7 @@ mod tests {
     #[test]
     fn list_choices_match_the_engines_names() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/nvf-play/src/");
-        for (key, file) in [("kill-camera", "kill_cam.rs"), ("vats-style", "vats_classic.rs"), ("smooth-terrain", "smooth_terrain.rs")] {
+        for (key, file) in [("kill-camera", "kill_cam.rs"), ("vats-style", "vats_classic.rs"), ("split-layout", "split_screen.rs"), ("smooth-terrain", "smooth_terrain.rs")] {
             let src = std::fs::read_to_string(format!("{root}{file}")).unwrap();
             for name in list_choices()[key] {
                 assert!(src.contains(&format!("=> \"{name}\"")), "{key}: {name} is no longer a choice in {file}");
