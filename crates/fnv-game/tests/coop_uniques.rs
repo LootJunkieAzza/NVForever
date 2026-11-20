@@ -39,6 +39,14 @@ const SCRIPTED: u32 = 0xA05;
 const QB_ITEM: u32 = 0xA06;
 /// Given by a dialogue line of QB only.
 const LINE_ITEM: u32 = 0xA07;
+/// Sold for caps by a dialogue line (the clinic's implants).
+const SOLD: u32 = 0xA08;
+/// Handed out by a background quest's script (a preorder pack).
+const PACK: u32 = 0xA09;
+const CAPS: u32 = 0xF;
+const QC: u32 = 0x902;
+const QC_SCRIPT: u32 = 0x912;
+const LINE2: u32 = 0xE02;
 const QPERK: u32 = 0xB00;
 const PLAYABLE_PERK: u32 = 0xB01;
 const QSPELL: u32 = 0xC00;
@@ -61,6 +69,10 @@ const NAMES: &[(&str, u32, &[u8; 4])] = &[
     ("TScripted", SCRIPTED, b"MISC"),
     ("TQuestBItem", QB_ITEM, b"MISC"),
     ("TLineItem", LINE_ITEM, b"MISC"),
+    ("TSold", SOLD, b"MISC"),
+    ("TPack", PACK, b"MISC"),
+    ("Caps001", CAPS, b"MISC"),
+    ("TPackQuest", QC, b"QUST"),
     ("TQuestPerk", QPERK, b"PERK"),
     ("TPlayablePerk", PLAYABLE_PERK, b"PERK"),
     ("TQuestSpell", QSPELL, b"SPEL"),
@@ -124,6 +136,7 @@ fn quest(table: &FunctionTable, fid: u32, edid: &str, script: Option<u32>, stage
 fn plugin(table: &FunctionTable) -> Vec<u8> {
     let scpt = [
         record(b"SCPT", 0, QB_SCRIPT, &[vec![sub(b"EDID", z("TQuestBScript"))], unit(table, 1, "scn TQuestBScript\nbegin GameMode\n  player.AddItem TQuestBItem 1\nend\n")].concat()),
+        record(b"SCPT", 0, QC_SCRIPT, &[vec![sub(b"EDID", z("TPackScript"))], unit(table, 1, "scn TPackScript\nbegin GameMode\n  player.AddItem TPack 1\nend\n")].concat()),
         record(b"SCPT", 0, LEVER_SCRIPT, &[vec![sub(b"EDID", z("TLeverScript"))], unit(table, 0, "scn TLeverScript\nbegin OnActivate\n  player.AddItem TScripted 1\nend\n")].concat()),
     ]
     .concat();
@@ -136,6 +149,9 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
         misc(SCRIPTED, "TScripted"),
         misc(QB_ITEM, "TQuestBItem"),
         misc(LINE_ITEM, "TLineItem"),
+        misc(SOLD, "TSold"),
+        misc(PACK, "TPack"),
+        misc(CAPS, "Caps001"),
     ]
     .concat();
     // DATA: trait, minimum level, ranks, playable, hidden.
@@ -169,15 +185,23 @@ fn plugin(table: &FunctionTable) -> Vec<u8> {
             Some(QB_SCRIPT),
             &[(10, "player.AddItem TShared 1\nplayer.AddItem TVendor 1\nplayer.AddItem TLeveled 1\nplayer.AddItemHealthPercent TPlaced 1 0.5\nplayer.AddItem TScripted 1\n")],
         ),
+        // A background quest running from the game's start (DATA flags 0x01), no name,
+        // stages or objectives, whose script hands out TPack.
+        record(b"QUST", 0, QC, &[sub(b"EDID", z("TPackQuest")), sub(b"SCRI", QC_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", [vec![1u8, 0, 0, 0], 5.0f32.to_le_bytes().to_vec()].concat())]),
     ]
     .concat();
     // A line of TQuestB whose end script gives TLineItem.
     let trdt = [0u32.to_le_bytes().to_vec(), 50u32.to_le_bytes().to_vec(), vec![0; 4], vec![1, 0, 0, 0], 0u32.to_le_bytes().to_vec(), vec![0; 4]].concat();
-    let mut info = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", QB.to_le_bytes().to_vec()), sub(b"TRDT", trdt), sub(b"NAM1", z("Take this.")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))];
+    let mut info = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", QB.to_le_bytes().to_vec()), sub(b"TRDT", trdt.clone()), sub(b"NAM1", z("Take this.")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))];
     info.push(sub(b"NEXT", vec![]));
     info.extend(unit(table, 0, "player.AddItem TLineItem 1\n"));
     let dial_subs = [sub(b"EDID", z("TTopic")), sub(b"FULL", z("TTopic")), sub(b"QSTI", QB.to_le_bytes().to_vec()), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])];
-    let dial = [record(b"DIAL", 0, TOPIC, &dial_subs), group(TOPIC.to_le_bytes(), 7, &record(b"INFO", 0, LINE, &info))].concat();
+    // A second line of TQuestB that sells TSold for caps.
+    let mut sale = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", QB.to_le_bytes().to_vec()), sub(b"TRDT", trdt.clone()), sub(b"NAM1", z("Sold.")), sub(b"NAM2", z("")), sub(b"NAM3", z(""))];
+    sale.push(sub(b"NEXT", vec![]));
+    sale.extend(unit(table, 0, "player.RemoveItem Caps001 100\nplayer.AddItem TSold 1\n"));
+    let lines = [record(b"INFO", 0, LINE, &info), record(b"INFO", 0, LINE2, &sale)].concat();
+    let dial = [record(b"DIAL", 0, TOPIC, &dial_subs), group(TOPIC.to_le_bytes(), 7, &lines)].concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TCell"))]);
     let placed = record(b"REFR", 0, PLACED_REF, &[sub(b"NAME", PLACED.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &placed));
@@ -251,8 +275,10 @@ fn only_what_one_quests_scripts_alone_give_is_unique() {
             (QPERK, Kind::Perk, QA),
             (QSPELL, Kind::Spell, QA),
         ],
-        "not unique: given by two quests, a vendor's container, a leveled list, a placed reference, an object's script, a playable perk"
+        "not unique: given by two quests, a vendor's container, a leveled list, a placed reference, an object's script, a playable perk, \
+         sold for caps, a background quest's hand-out"
     );
+    assert!(f.data.infos.contains_key(&FormId(LINE2)) && f.data.quests.contains_key(&FormId(QC)), "the sale line and the pack quest are read");
     // The same list the game keeps, computed once.
     let g = game(&f);
     assert_eq!(g.coop_uniques(), &u);

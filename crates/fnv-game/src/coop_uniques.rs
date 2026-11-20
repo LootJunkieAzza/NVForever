@@ -92,7 +92,12 @@ enum Gives {
     ItemSource,
     Perk,
     Spell,
+    /// RemoveItem: with caps (Caps001), the unit is a sale or an exchange.
+    Takes,
 }
+
+/// Caps001 [documented: FalloutNV.esm's caps item, FormID 0x0000000F].
+const CAPS: FormId = FormId(0x0000_000F);
 
 fn gives(data: &GameData, opcode: u16) -> Option<Gives> {
     let name = &data.table.get(opcode)?.name;
@@ -105,6 +110,8 @@ fn gives(data: &GameData, opcode: u16) -> Option<Gives> {
         Some(Gives::Perk)
     } else if is("AddSpell") {
         Some(Gives::Spell)
+    } else if is("RemoveItem") {
+        Some(Gives::Takes)
     } else {
         None
     }
@@ -205,7 +212,20 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
         let Some(owner) = owner else { continue };
         calls.clear();
         unit_gives(data, &c.unit, &c.program, &mut calls);
+        // The owner's rule (2026-11-20, via parity): a unique comes from that one quest.
+        // What a line sells for caps (the clinic's implants, the cashier's chips) is bought,
+        // and what a background quest's own script hands out (running from the game's
+        // start, with no name, stages or objectives: the preorder packs) comes with the
+        // game, not from a quest [design].
+        let sold = calls.iter().any(|&(w, f)| w == Gives::Takes && f == CAPS);
+        let setup = match (owner, &c.unit.owner) {
+            (Owner::Quest(q), UnitOwner::Script { .. }) => data.quests.get(q).is_some_and(|d| d.flags & crate::quest::START_GAME_ENABLED != 0 && d.name.as_deref().is_none_or(|n| n.trim().is_empty()) && d.stages.is_empty() && d.objectives.is_empty()),
+            _ => false,
+        };
         for &(what, f) in &calls {
+            if what == Gives::Takes {
+                continue;
+            }
             // A form list given: its members, from something other than Q (module notes).
             if let Some(list) = data.form_lists.get(&f) {
                 if matches!(what, Gives::Item | Gives::ItemSource) {
@@ -217,13 +237,18 @@ pub fn compute(data: &GameData, forms: &FormStore, refs: &RefTable) -> Uniques {
                 Gives::Item | Gives::ItemSource => Kind::Item,
                 Gives::Perk => Kind::Perk,
                 Gives::Spell => Kind::Spell,
+                Gives::Takes => continue,
             };
+            if sold || setup {
+                elsewhere.insert((kind, f));
+                continue;
+            }
             match (owner, what) {
                 (Owner::Quest(q), Gives::Item | Gives::Perk | Gives::Spell) => {
                     given.entry((kind, f)).or_default().insert(*q);
                 }
                 // A quest's own PlaceAtMe of it is neither a reward nor another source.
-                (Owner::Quest(_), Gives::ItemSource) => {}
+                (Owner::Quest(_), Gives::ItemSource | Gives::Takes) => {}
                 (Owner::Other, _) => {
                     elsewhere.insert((kind, f));
                 }
