@@ -18,6 +18,12 @@
 //! - **How wide** [design]: [`RADIUS_SHARE`] of the bounds' height round that line (22
 //!   units for a person 128 tall, the player's own radius), within [`MIN_RADIUS`] and
 //!   [`MAX_RADIUS`]. The bounds' width is not used: it changes as the actor turns.
+//!   A walking creature's circle instead uses at least its scaled skeleton BBX
+//!   half-width (`walking_radius`), independently of its world capsule [hypothesis:
+//!   capture run15b_b2 spacing, 2026-11-15; design, #2535].
+//!   When it stops and loses its walking character, `hitvol::sync_volumes` keeps
+//!   that wider circle at its root feet instead of reverting to the posed torso
+//!   block [design, #2535].
 //! - **Who is left out**: the dead. An actor the character controller walks
 //!   (`PhysState::npcs`) has its block where its character is, made anew every fixed
 //!   step (`crate::player`), and so has the player for those actors: characters pass
@@ -65,6 +71,13 @@ pub const HELD_SHARE: f32 = 0.5;
 pub const HELD_SECS: f32 = 0.5;
 /// The player as the actor of a [`Block`] or a [`Push`] (its reference's FormID).
 pub const PLAYER: u32 = fnv_sim::FormId::PLAYER_REF.0;
+
+/// Widen only actor blocking, leaving the world capsule and smaller defaults intact
+/// [hypothesis: BBX half-width fits capture run15b_b2 spacing, 2026-11-15; design,
+/// #2535: `hitvol` supplies scaled widths only for creatures].
+pub fn walking_radius(current: f32, bbx: Option<f32>) -> f32 {
+    bbx.filter(|r| r.is_finite()).map_or(current, |r| current.max(r))
+}
 
 /// Where an actor is in the player's way: `radius` round the line `a`–`b` on the ground,
 /// from `bottom` to `top`. Game units.
@@ -322,6 +335,26 @@ mod tests {
         ];
         assert_eq!(torso(&segs), Some(([1.0, 0.0, 70.0], [3.0, 0.0, 110.0])));
         assert_eq!(torso(&segs[..1]), None);
+    }
+
+    #[test]
+    fn creature_walking_blocks_widen_both_sides_but_not_world_capsules() {
+        // Synthetic bound/height; the capsule still follows npc_params [design, #2535].
+        let params = crate::phys::npc_params(Some(128.0));
+        let small = crate::phys::npc_params(Some(30.0));
+        assert_eq!(params.radius, 22.0);
+        assert_eq!(walking_radius(params.radius, None), params.radius);
+        assert_eq!(walking_radius(small.radius, Some(3.0)), small.radius);
+        assert_eq!(walking_radius(params.radius, Some(f32::NAN)), params.radius);
+        let wide = walking_radius(params.radius, Some(70.0));
+        assert_eq!(wide, 70.0);
+        // Each can be the moving actor: creature/creature and player/creature.
+        for (me, other) in [(42.0, wide), (wide, 42.0), (22.0, wide), (wide, 22.0)] {
+            let b = Block::character(7, [300.0, 0.0, 0.0], other, 128.0, false);
+            let v = clip([300.0, 0.0], [0.0; 3], me, 128.0, 1.0, &[b]);
+            assert!((300.0 - v[0] - (me + other)).abs() < 1e-4);
+            assert_eq!(params.radius, 22.0);
+        }
     }
 
     #[test]

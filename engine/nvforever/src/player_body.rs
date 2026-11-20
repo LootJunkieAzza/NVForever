@@ -289,7 +289,7 @@ const ARMS_SHADE_NEAR: f32 = 64.0;
 /// itself, whatever it draws: about 0.75 ms at Novac at 07:00 with 4096² maps for one
 /// caster as for three, against 0.25 ms for none [observed 2026-11-02, #1374].
 #[allow(clippy::type_complexity)]
-fn near_shade_casters(
+pub(crate) fn near_shade_casters(
     mut shade: Query<(&mut bevy::camera::visibility::CascadesVisibleEntities, &GlobalTransform), With<ArmsShade>>,
     views: Query<&GlobalTransform, With<Camera>>,
     casters: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform, Has<crate::terrain::LandMesh>)>,

@@ -218,7 +218,7 @@ impl Game<'_> {
     /// What lasts across a load ([`PpSession`]): handlers of function scripts (a lambda
     /// belongs to the old game [hypothesis, as the event handlers]).
     pub(crate) fn pp_take_session(&mut self) -> PpSession {
-        let script = |f: &XVal| matches!(f, XVal::Ref(id) if *id < crate::game::LAMBDA_BASE);
+        let script = |f: &XVal| self.session_function(f);
         PpSession {
             handlers: self.pp.handlers.iter().filter(|h| script(&h.func)).cloned().collect(),
             mod_handlers: self.pp.mod_handlers.iter().filter(|h| script(&h.func)).cloned().collect(),

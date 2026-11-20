@@ -16,6 +16,7 @@ import bevy_pbr::{
 // sun's highlight, only while the view has the plumbing.
 @if(NVF_SUN_VISIBILITY) import bevy_pbr::render::mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_NVF_OUTDOOR_SUN_BIT;
 @if(NVF_SUN_VISIBILITY) import nvforever::sun_visibility::nvf_sun_visibility;
+import nvforever::caustics::nvf_caustics_filtered;
 
 // During temporal upscaling, the main pass occupies only the render-sized region
 // of full-sized attachments. Geometry UVs and texture UVs are distinct.
@@ -42,6 +43,7 @@ struct WaterParams {
     sky_horizon: vec4<f32>,
     // near, far, amount, 1 when the amount caps the opacity (placed water)
     above_fog: vec4<f32>,
+    // near, far, amount, enhanced depth attenuation enabled.
     under_fog: vec4<f32>,
     // reflectivity, fresnel amount, shininess, wave height (world units)
     surface: vec4<f32>,
@@ -56,6 +58,8 @@ struct WaterParams {
     edge: vec4<f32>,
     // x = Bevy y of the water whose drawn pixels are counted, y = 1 while counting
     seen_plane: vec4<f32>,
+    // xyz = direction toward the sun (Bevy world), w = enabled daylight strength.
+    water_sun: vec4<f32>,
 };
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> water: WaterParams;
@@ -124,6 +128,11 @@ const REFLECTION_SAMPLE_DISTANCE: f32 = 500.0;
 // [tuned by eye; the engine's refraction rule is unknown].
 const REFRACTION_STRENGTH: f32 = 0.08;
 const REFRACTION_DEPTH: f32 = 200.0;
+
+// Water effects: the bed seen from above takes the water's shallow hue, down to this
+// share of its brightness, over this length of ray in the water [design, by eye].
+const SHALLOW_TINT_LENGTH: f32 = 90.0;
+const SHALLOW_TINT_FLOOR: f32 = 0.62;
 
 // The opaque surface behind screen position `fc` (depth prepass): world position, and
 // w = 1 when there is one (0 for the sky or without a prepass).
@@ -207,12 +216,21 @@ fn ssr(pos: vec3<f32>, R: vec3<f32>) -> vec4<f32> {
 // (0..1) times the layer amplitude times the wave height.
 fn layer_slope(g: vec2<f32>, layer: vec4<f32>, mask: vec4<f32>, t: f32) -> vec2<f32> {
     let uv = g * layer.z + layer.xy * t;
-    let e = 1.0 / vec2<f32>(textureDimensions(noise_texture));
-    let h0 = dot(textureSample(noise_texture, noise_sampler, uv), mask);
-    let hu = dot(textureSample(noise_texture, noise_sampler, uv + vec2(e.x, 0.0)), mask);
-    let hv = dot(textureSample(noise_texture, noise_sampler, uv + vec2(0.0, e.y)), mask);
+    // The slope from three taps round the point, a texel apart near the camera and a
+    // pixel's footprint apart beyond (a single texel's step there moved a sharp
+    // reflection several pixels as the waves travelled). A wider span was tried and
+    // flattened the short waves: two texels each side keeps 0.64 of an 8-texel wave.
+    let dx = dpdx(uv);
+    let dy = dpdy(uv);
+    let e = max(1.0 / f32(textureDimensions(noise_texture).x), 0.5 * max(length(dx), length(dy)));
+    let a = vec2(1.0, 0.0);
+    let b = vec2(-0.5, 0.8660254);
+    let c = vec2(-0.5, -0.8660254);
+    let ha = dot(textureSampleGrad(noise_texture, noise_sampler, uv + e * a, dx, dy), mask);
+    let hb = dot(textureSampleGrad(noise_texture, noise_sampler, uv + e * b, dx, dy), mask);
+    let hc = dot(textureSampleGrad(noise_texture, noise_sampler, uv + e * c, dx, dy), mask);
     // d(uv)/d(world) = layer.z
-    return vec2(hu - h0, hv - h0) / e * layer.z * layer.w * water.surface.w;
+    return (2.0 / (3.0 * e)) * (ha * a + hb * b + hc * c) * layer.z * layer.w * water.surface.w;
 }
 
 fn sky_colour(y: f32) -> vec3<f32> {
@@ -275,6 +293,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let size = view.main_pass_viewport.zw;
     let uv0 = frag_coord_to_uv(in.position.xy);
     let behind0 = scene_point(in.position.xy);
+    var receiver = behind0;
     var fog_distance = 1.0e7;
     var fog_depth = 1.0e7;
     if behind0.w > 0.5 {
@@ -286,21 +305,58 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // front of the water (it would bleed into the surface).
     let tilt = (view.view_from_world * vec4(N - up, 0.0)).xy;
     let depth_scale = clamp(min(fog_distance, dist) / REFRACTION_DEPTH, 0.0, 1.0);
-    var uv = clamp(uv0 + vec2(tilt.x, -tilt.y) * REFRACTION_STRENGTH * depth_scale, vec2(0.0), vec2(1.0));
+    let half_pixel = 0.5 / size;
+    var uv = clamp(uv0 + vec2(tilt.x, -tilt.y) * REFRACTION_STRENGTH * depth_scale, half_pixel, 1.0 - half_pixel);
     if above {
-        let behind = scene_point(view.main_pass_viewport.xy + uv * size);
-        if behind.w > 0.5 && distance(behind.xyz, view.world_position.xyz) < dist {
+        var behind = scene_point(view.main_pass_viewport.xy + uv * size);
+        // The offset pixel has its own view ray. Test against the water plane
+        // there. Comparing camera distances on two different rays can refract
+        // a whole patch of dry shore or a building across the surface.
+        if behind.w < 0.5 || behind.y >= pos.y {
+            // Near silhouettes the waves repeatedly carry an offset across the
+            // edge. Keep the last underwater sample along the offset instead of
+            // switching the whole lookup back to its undistorted starting point.
+            var outside = uv;
             uv = uv0;
-        } else if behind.w > 0.5 {
-            fog_distance = distance(behind.xyz, pos);
-            fog_depth = max(pos.y - behind.y, 0.0);
+            behind = behind0;
+            if behind0.w > 0.5 && behind0.y < pos.y {
+                for (var i = 0; i < 3; i += 1) {
+                    let mid = 0.5 * (uv + outside);
+                    let hit = scene_point(view.main_pass_viewport.xy + mid * size);
+                    if hit.w > 0.5 && hit.y < pos.y {
+                        uv = mid;
+                        behind = hit;
+                    } else {
+                        outside = mid;
+                    }
+                }
+            }
+        }
+        if behind.w > 0.5 && behind.y < pos.y {
+            receiver = behind;
+            // Length below the plane on that ray, from its own entry point.
+            fog_depth = pos.y - behind.y;
+            let to_receiver = behind.xyz - view.world_position.xyz;
+            fog_distance = length(to_receiver) * (fog_depth / max(-to_receiver.y, 1e-3));
         }
     }
     if !above {
         fog_distance = dist;
         fog_depth = dist;
     }
-    let refracted = textureSampleLevel(view_transmission_texture, view_transmission_sampler, transmission_uv(uv), 0.0).rgb;
+    var refracted = textureSampleLevel(view_transmission_texture, view_transmission_sampler, transmission_uv(uv), 0.0).rgb;
+    // Brighten the actual refracted opaque receiver, including non-reflective
+    // water types. The existing body opacity/reflection then attenuates the light.
+    if above && receiver.w > 0.5 && water.water_sun.w > 0.0 && dist < 4096.0 {
+        // The projected light loses definition with viewing distance.
+        let fade = 1.0 - smoothstep(2048.0, 4096.0, dist);
+        // A pixel's width on the bed, stretched where the bed is seen at a slant (at most
+        // six times): waves finer than that fade out instead of sparkling.
+        let to_bed = receiver.xyz - view.world_position.xyz;
+        let bed_distance = max(length(to_bed), 0.001);
+        let footprint = 2.0 * bed_distance / (view.clip_from_view[1][1] * size.y) / max(abs(to_bed.y) / bed_distance, 1.0 / 6.0);
+        refracted *= 1.0 + fade * nvf_caustics_filtered(receiver.xyz, pos.y, water.water_sun.xyz, water.water_sun.w, t, footprint);
+    }
     let fog = select(water.under_fog, water.above_fog, above);
     // The colour: shallow to deep by the fog depth (#1787). The opacity: by the length of
     // the view ray in the water over the same near to far ramp, at most the above fog's
@@ -314,7 +370,23 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // 14-unit pool under a 36-unit fog showed its floor where the original is opaque.
     let depth01 = clamp((fog_depth - fog.x) / max(fog.y - fog.x, 1.0), 0.0, 1.0);
     let ray01 = clamp((fog_distance - fog.x) / max(fog.y - fog.x, 1.0), 0.0, 1.0);
-    let body_alpha = select(ray01, ray01 * clamp(water.above_fog.z, 0.0, 1.0), above && water.above_fog.w > 0.5);
+    // As the bed descends, scatter more light along the submerged part of the
+    // ray. Preserve the shallow end, the authored far distance and PWAT opacity cap.
+    var opacity = ray01;
+    if above && water.under_fog.w > 0.5 && fog.y > max(fog.x, 0.0) {
+        let column = smoothstep(max(fog.x, 0.0), fog.y, fog_depth);
+        opacity += (1.0 - ray01) * ray01 * column;
+        // The first stretch of water [design, #2674]: by the ramp alone a wading
+        // depth of NVCleanWater is under a fifth opaque and the shallows cannot be
+        // told from the dry shore. The bed seen through the water takes the water's
+        // own shallow hue and darkens over SHALLOW_TINT_LENGTH of ray, and the body
+        // gathers along the ramp twice as fast at its thin end (the same far end).
+        opacity = 1.0 - (1.0 - opacity) * (1.0 - ray01);
+        let hue = water.shallow.rgb / max(max(water.shallow.r, max(water.shallow.g, water.shallow.b)), 1e-3);
+        let through = exp(-max(fog_distance, 0.0) / SHALLOW_TINT_LENGTH);
+        refracted *= mix(hue * SHALLOW_TINT_FLOOR, vec3(1.0), through);
+    }
+    let body_alpha = select(opacity, opacity * clamp(water.above_fog.z, 0.0, 1.0), above && water.above_fog.w > 0.5);
     let body_colour = mix(water.shallow.rgb, water.deep.rgb, depth01);
 
     // The water body is lit like a diffuse surface facing up (from either side).

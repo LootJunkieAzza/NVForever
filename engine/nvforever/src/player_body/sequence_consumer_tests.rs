@@ -139,6 +139,7 @@ fn authored_rig(world: &mut World, view: View, root_x: f32) -> OwnedRig {
         ]
         .into_iter()
         .collect(),
+        ..Default::default()
     });
     let base = Arc::new(ClipInfo::new(
         "owned-underlying".into(),

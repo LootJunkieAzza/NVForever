@@ -18,12 +18,17 @@ use fnv_game::script_input::MOUSE_BASE;
 
 pub struct ScriptInputPlugin;
 
+/// Physical script input observes acknowledged cursor state before callbacks.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ScriptInputSet;
+
 impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_message::<MouseWheel>()
+            .configure_sets(PreUpdate, ScriptInputSet.after(bevy::input::InputSystems))
             // [design, #2200] Scripts see consumed switching presses as absent too.
-            .add_systems(PreUpdate, (script_input, key_events).chain().after(bevy::input::InputSystems).after(crate::pad::device::automatic).after(crate::pad::update_stick_buttons))
+            .add_systems(PreUpdate, (script_input, key_events).chain().in_set(ScriptInputSet).after(crate::pad::device::automatic).after(crate::pad::update_stick_buttons))
             // The player's state the scripts read (sights up, for the HUD bars' aiming
             // condition) is handed over after combat has updated it this frame and before
             // the scripts run [design]. `tell_magazine` keeps its own place: it also

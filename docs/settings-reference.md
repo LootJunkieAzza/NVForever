@@ -1130,6 +1130,16 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `water-effects`: Water caustics and river flow
+
+Sunlight shifts across shallow beds. Deeper water looks murkier from shore and
+underwater, using each water type's own colours and fog distances. Selected river
+stretches drift downstream. Vanilla leaves the switch off. Enhanced turns it on.
+
+- Command-line switches: `--graphics`, `--graphics-only water-effects`
+- More: docs/design/graphics-enhanced.md
+- Registered in `engine/nvforever/src/settings.rs`
+
 ## Graphics › Detail and Distance
 
 ### `distant-lod`: Distant terrain and objects

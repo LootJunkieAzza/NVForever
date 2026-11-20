@@ -39,10 +39,19 @@
 //! made the shadows shimmer, strongest on the frames a held cascade is drawn again
 //! (docs/design/frame-rate-audit.md §11).
 //!
+//! While multiple active 3D views consume directional shadows, all cascades draw
+//! every frame: the renderer reuses view-local shadow array layers between cameras.
+//! Holding the last camera's maps would pair them with another camera's matrices.
+//! The water mirror (reflection.rs) is the exception: on a schedule it is given the
+//! main camera's cascades every frame, so both views draw the same maps into the same
+//! layers and a held layer is right for either (#2674). Its reflected shadows then
+//! cover what the main camera's cascades cover; past that the reflection is sunlit.
+//!
 //! What it costs and saves: docs/design/frame-rate-audit.md §9 and §10.
 
 use crate::fly::FlyCam;
 use crate::sky::{CascadeLayout, SkyState};
+use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::light::{CascadeShadowConfig, Cascades, DirectionalLight, DirectionalLightShadowMap, NotShadowCaster};
 use bevy::pbr::HoldDirectionalShadowMaps;
@@ -270,16 +279,46 @@ fn staggered() -> bool {
 /// was kept and given back like the others; when it cast again with the same layout a held
 /// frame gave it the cascades of the frame its shadows went off, read against maps drawn
 /// before then, or, with a new shadow texture, drawn with those stale matrices.)
+/// The main camera and the water mirror while the mirror shares the main camera's shadow
+/// maps this frame ([`hold_cascades`]), for [`share_mirror_casters`].
+#[derive(Resource, Default)]
+pub(crate) struct MirrorShadowShare(pub Option<(Entity, Entity)>);
+
+/// The mirror draws the main camera's casters too. The same matrices are not enough for
+/// the same maps: after the light's visibility pass each view's caster lists are cut down
+/// by that view's own outline (`sky::sun_casters_over_slice`) and eye
+/// (`player_body::near_shade_casters`), so the mirror drew other casters into the shared
+/// layers than the main camera draws over them, and a held frame would have shown the
+/// reflection the main camera's set where a drawn frame showed the mirror's. Runs after
+/// both cuts.
+pub(crate) fn share_mirror_casters(share: Res<MirrorShadowShare>, mut lights: Query<&mut bevy::camera::visibility::CascadesVisibleEntities, With<DirectionalLight>>) {
+    let Some((main, mirror)) = share.0 else { return };
+    for mut visible in &mut lights {
+        if !visible.entities.contains_key(&mirror) {
+            continue;
+        }
+        if let Some(lists) = visible.entities.get(&main).cloned() {
+            visible.entities.insert(mirror, lists);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn hold_cascades(
     on: Res<PerformanceShadows>,
     map: Option<Res<DirectionalLightShadowMap>>,
     mut hold: ResMut<HoldDirectionalShadowMaps>,
-    mut all_lights: Query<(Entity, &DirectionalLight, &mut Cascades, Option<&CascadeShadowConfig>)>,
+    mut share: Option<ResMut<MirrorShadowShare>>,
+    mut all_lights: Query<(Entity, &DirectionalLight, &mut Cascades, Option<&CascadeShadowConfig>, Option<&RenderLayers>)>,
+    views: Query<(Entity, &Camera, Option<&RenderLayers>, Has<FlyCam>, Has<crate::reflection::ReflectionCamera>), With<Camera3d>>,
     mut kept: Local<EntityHashMap<Kept>>,
     mut frame: Local<u64>,
     mut said: Local<Option<bool>>,
 ) {
     *frame = frame.wrapping_add(1);
+    if let Some(share) = share.as_mut().filter(|s| s.0.is_some()) {
+        share.0 = None;
+    }
     let schedule: &[(u32, u32)] = if on.0 {
         &PERFORMANCE_SCHEDULE
     } else if staggered() {
@@ -287,7 +326,41 @@ pub(crate) fn hold_cascades(
     } else {
         &[]
     };
-    let lights: Vec<Lit> = all_lights.iter().filter(|(_, l, _, _)| l.shadow_maps_enabled).map(|(e, _, c, config)| (e, c, config)).collect();
+    // The water mirror shares the main camera's maps (module notes) when it has the same
+    // shadowed lights: then the renderer gives each light the same layers in both views.
+    let mut world_views = views.iter().filter(|(_, c, _, fly, mirror)| c.is_active && *fly && !*mirror);
+    let main = world_views.next().filter(|_| world_views.next().is_none());
+    let mirror = views.iter().find(|(_, c, _, _, mirror)| c.is_active && *mirror);
+    let shared = match (main, mirror) {
+        (Some((main, _, main_layers, _, _)), Some((mirror, _, mirror_layers, _, _))) if !schedule.is_empty() => {
+            let same = all_lights.iter().filter(|(_, l, _, _, _)| l.shadow_maps_enabled).all(|(_, _, cascades, _, layers)| {
+                let layers = layers.unwrap_or_default();
+                let lit = layers.intersects(mirror_layers.unwrap_or_default());
+                lit == layers.intersects(main_layers.unwrap_or_default()) && (!lit || cascades.cascades.contains_key(&main))
+            });
+            same.then_some((main, mirror))
+        }
+        _ => None,
+    };
+    // Directional shadow array layers are view-local: each camera redraws the
+    // same layers before consuming them. With multiple shadowed views, the last
+    // camera's maps cannot stand in for another camera next frame. Count the
+    // union across lights, excluding inactive/disjoint cameras, empty lists and a
+    // mirror that shares the main camera's maps.
+    let mut shadowed_views = views.iter().filter(|(entity, camera, layers, _, _)| {
+        camera.is_active && shared.is_none_or(|(_, mirror)| mirror != *entity) && all_lights.iter().any(|(_, light, cascades, _, light_layers)| {
+            light.shadow_maps_enabled && light_layers.unwrap_or_default().intersects(layers.unwrap_or_default())
+                && cascades.cascades.get(entity).is_some_and(|c| !c.is_empty())
+        })
+    });
+    if shadowed_views.nth(1).is_some() {
+        // Forget matrices as well as the hold mask. On return to one view, draw
+        // fresh maps first, even if its layout still matches the old cache.
+        kept.clear();
+        if hold.0 != 0 { hold.0 = 0; }
+        return;
+    }
+    let lights: Vec<Lit> = all_lights.iter().filter(|(_, l, _, _, _)| l.shadow_maps_enabled).map(|(e, _, c, config, _)| (e, c, config)).collect();
     let count = lights.iter().flat_map(|(_, c, _)| c.cascades.values().map(Vec::len)).max().unwrap_or(0);
     // A new map size makes new maps: nothing to keep.
     let same_maps = !map.is_some_and(|m| m.is_changed());
@@ -305,7 +378,7 @@ pub(crate) fn hold_cascades(
         if kept.len() != lights.len() {
             kept.retain(|e, _| lights.iter().any(|(l, _, _)| l == e));
         }
-        for (light, directional, mut cascades, _) in &mut all_lights {
+        for (light, directional, mut cascades, _, _) in &mut all_lights {
             if !directional.shadow_maps_enabled {
                 continue;
             }
@@ -318,6 +391,20 @@ pub(crate) fn hold_cascades(
                     } else {
                         *kc = c.clone();
                     }
+                }
+            }
+        }
+    }
+    // Every frame, drawn or held, so the reflection's shadows do not change fit with the
+    // schedule: the mirror draws (on drawn frames) and reads the main camera's maps.
+    if let Some((main, mirror)) = shared {
+        if let Some(share) = share.as_mut() {
+            share.0 = shared;
+        }
+        for (_, directional, mut cascades, _, _) in &mut all_lights {
+            if directional.shadow_maps_enabled && cascades.cascades.contains_key(&mirror) {
+                if let Some(list) = cascades.cascades.get(&main).cloned() {
+                    cascades.cascades.insert(mirror, list);
                 }
             }
         }
@@ -351,6 +438,7 @@ impl Plugin for ShadowRatePlugin {
         app.insert_resource(PerformanceShadows(self.performance))
             .insert_resource(CascadesBeforePerformance(self.performance.then_some(CascadeLayout::Quality)))
             .init_resource::<HoldDirectionalShadowMaps>()
+            .init_resource::<MirrorShadowShare>()
             .add_plugins(ExtractResourcePlugin::<HoldDirectionalShadowMaps>::default())
             // `hold_cascades` runs with the other edits of the cascades, in their order
             // (shadow_anchor.rs `cascade_edits`).
@@ -513,6 +601,130 @@ mod tests {
         assert_eq!(run(&mut world, 7, true), (0, vec![7.0, 7.0]));
         assert_eq!(run(&mut world, 8, true), (0, vec![8.0, 8.0]));
         assert_eq!(run(&mut world, 9, true), (0b11, vec![8.0, 8.0]));
+    }
+
+    #[test]
+    fn multiple_shadowed_views_draw_fresh_and_single_view_cache_recovers() {
+        let mut world = World::new();
+        world.insert_resource(PerformanceShadows(true));
+        world.init_resource::<HoldDirectionalShadowMaps>();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(hold_cascades);
+        let main = world.spawn((Camera3d::default(), Camera::default())).id();
+        let second = world.spawn((Camera3d::default(), Camera::default(), RenderLayers::layer(2))).id();
+        let ui = world.spawn(Camera::default()).id(); // A UI-only view has no Camera3d.
+        let empty = world.spawn((Camera3d::default(), Camera::default())).id();
+        let light = world.spawn(DirectionalLight { shadow_maps_enabled: true, ..default() }).id();
+        let mut run = |world: &mut World, k: u32| {
+            let mut built = Cascades::default();
+            for view in [main, second, ui] {
+                built.cascades.insert(view, vec![Cascade { texel_size: k as f32, ..default() }; 2]);
+            }
+            built.cascades.insert(empty, Vec::new());
+            world.entity_mut(light).insert(built);
+            schedule.run(world);
+            let texels: Vec<f32> = world.get::<Cascades>(light).unwrap().cascades[&main].iter().map(|c| c.texel_size).collect();
+            (world.resource::<HoldDirectionalShadowMaps>().0, texels)
+        };
+        // Disjoint layers, a 2D/UI camera, and an empty cascade list do not disable holding.
+        assert_eq!(run(&mut world, 1), (0, vec![1.0; 2]));
+        assert_eq!(run(&mut world, 2), (0, vec![2.0; 2]));
+        assert_eq!(run(&mut world, 3), (0b11, vec![2.0; 2]));
+        // A second shadowed 3D view: no old matrices restored, even on held frames.
+        world.entity_mut(second).insert(RenderLayers::default());
+        for k in 4..=6 {
+            assert_eq!(run(&mut world, k), (0, vec![k as f32; 2]));
+        }
+        // Its old cascades can still be present when the camera switches off.
+        world.get_mut::<Camera>(second).unwrap().is_active = false;
+        assert_eq!(run(&mut world, 7), (0, vec![7.0; 2]), "return on held frame must draw fresh");
+        assert_eq!(run(&mut world, 8), (0, vec![8.0; 2]));
+        assert_eq!(run(&mut world, 9), (0b11, vec![8.0; 2]));
+    }
+
+    #[test]
+    fn shadowed_view_count_is_union_across_directional_lights() {
+        let mut world = World::new();
+        world.insert_resource(PerformanceShadows(true));
+        world.init_resource::<HoldDirectionalShadowMaps>();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(hold_cascades);
+        let main = world.spawn((Camera3d::default(), Camera::default())).id();
+        let other = world.spawn((Camera3d::default(), Camera::default(), RenderLayers::layer(2))).id();
+        world.spawn((DirectionalLight { shadow_maps_enabled: true, ..default() }, cascades(main, 2)));
+        let separate = world.spawn((DirectionalLight { shadow_maps_enabled: true, ..default() }, cascades(other, 2), RenderLayers::layer(2))).id();
+        // Neither light has two views, but their view-local layers still share storage.
+        for _ in 0..2 {
+            schedule.run(&mut world);
+            assert_eq!(world.resource::<HoldDirectionalShadowMaps>().0, 0);
+        }
+        world.get_mut::<DirectionalLight>(separate).unwrap().shadow_maps_enabled = false;
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<HoldDirectionalShadowMaps>().0, 0, "fresh draw before resuming single-view holds");
+        schedule.run(&mut world);
+        schedule.run(&mut world);
+        assert_eq!(world.resource::<HoldDirectionalShadowMaps>().0, 0b11);
+    }
+
+    /// The mirror takes the main camera's final caster lists while it shares its maps.
+    #[test]
+    fn the_sharing_mirror_draws_the_main_cameras_casters() {
+        use bevy::camera::visibility::{CascadesVisibleEntities, VisibleMeshEntities};
+        let mut world = World::new();
+        let (main, mirror, other) = (world.spawn_empty().id(), world.spawn_empty().id(), world.spawn_empty().id());
+        let (a, b) = (world.spawn_empty().id(), world.spawn_empty().id());
+        let list = |e: &[Entity]| vec![VisibleMeshEntities { entities: e.to_vec() }];
+        let mut visible = CascadesVisibleEntities::default();
+        visible.entities.insert(main, list(&[a]));
+        visible.entities.insert(mirror, list(&[a, b]));
+        visible.entities.insert(other, list(&[b]));
+        let light = world.spawn((DirectionalLight::default(), visible)).id();
+        world.insert_resource(MirrorShadowShare(None));
+        let mut schedule = Schedule::default();
+        schedule.add_systems(share_mirror_casters);
+        let lists = |world: &World, view: Entity| world.get::<CascadesVisibleEntities>(light).unwrap().entities[&view][0].entities.clone();
+        schedule.run(&mut world);
+        assert_eq!(lists(&world, mirror), vec![a, b], "not sharing: the mirror's own list");
+        world.insert_resource(MirrorShadowShare(Some((main, mirror))));
+        schedule.run(&mut world);
+        assert_eq!((lists(&world, mirror), lists(&world, main), lists(&world, other)), (vec![a], vec![a], vec![b]));
+    }
+
+    /// The water mirror is given the main camera's cascades, held ones included, every
+    /// frame: both draw the same maps into the same layers, so the schedule keeps holding.
+    #[test]
+    fn the_water_mirror_shares_the_main_cameras_cascades_and_holds() {
+        let mut world = World::new();
+        world.insert_resource(PerformanceShadows(true));
+        world.init_resource::<HoldDirectionalShadowMaps>();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(hold_cascades);
+        let fly = FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 };
+        let main = world.spawn((Camera3d::default(), Camera::default(), fly, RenderLayers::from_layers(&[0, 1]))).id();
+        let mirror = world.spawn((Camera3d::default(), Camera::default(), crate::reflection::ReflectionCamera, RenderLayers::layer(0))).id();
+        let light = world.spawn(DirectionalLight { shadow_maps_enabled: true, ..default() }).id();
+        let mut run = |world: &mut World, k: u32| {
+            let mut built = Cascades::default();
+            built.cascades.insert(main, vec![Cascade { texel_size: k as f32, ..default() }; 2]);
+            built.cascades.insert(mirror, vec![Cascade { texel_size: 100.0 + k as f32, ..default() }; 2]);
+            world.entity_mut(light).insert(built);
+            schedule.run(world);
+            let c = world.get::<Cascades>(light).unwrap();
+            let texels = |view: Entity| c.cascades[&view].iter().map(|c| c.texel_size).collect::<Vec<f32>>();
+            assert_eq!(texels(mirror), texels(main), "frame {k}: the mirror reads the main camera's maps");
+            (world.resource::<HoldDirectionalShadowMaps>().0, texels(main))
+        };
+        assert_eq!(run(&mut world, 1), (0, vec![1.0; 2]));
+        assert_eq!(run(&mut world, 2), (0, vec![2.0; 2]));
+        assert_eq!(run(&mut world, 3), (0b11, vec![2.0; 2]), "held with the mirror on");
+        assert_eq!(run(&mut world, 4), (0, vec![4.0; 2]));
+        // A shadowed light the main camera sees and the mirror does not: the layers differ
+        // between the views, so nothing is held.
+        world.spawn((DirectionalLight { shadow_maps_enabled: true, ..default() }, cascades(main, 2), RenderLayers::layer(1)));
+        for _ in 0..3 {
+            schedule.run(&mut world);
+            assert_eq!(world.resource::<HoldDirectionalShadowMaps>().0, 0);
+        }
     }
 
     #[test]

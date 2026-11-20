@@ -1104,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 19] = [
+    let switches: [Switch; 20] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1237,6 +1237,14 @@ fn register_graphics(app: &mut App) {
             |w, on| w.resource_mut::<Graphics>().water_reflections = on,
         ),
         (
+            "water-effects",
+            "Water caustics and river flow",
+            "Sunlight shifts across shallow beds. Deeper water looks murkier from shore and underwater. Selected rivers drift downstream.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().water_effects,
+            |w, on| w.resource_mut::<Graphics>().water_effects = on,
+        ),
+        (
             "water-mirror",
             "Mirrored reflections",
             "On: water mirrors the world above it, as in the original, drawing the scene a second time. Off: it reflects the sky.",
@@ -1285,7 +1293,7 @@ fn register_pipeline_waits(app: &mut App) {
     for key in [
         "anti-aliasing", "shadow-filter", "upscaler", "upscaler-quality", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
-        "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
+        "light-shafts", "water-reflections", "water-effects", "water-mirror", "sun-shadows", "grade",
         "terrain-height-blend", "terrain-anti-tiling", "cloud-shadows", "terrain-shadows", "heat-haze", MESH_BLEND_KEY,
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
@@ -2642,6 +2650,7 @@ dlss-model=Preset K
             ("heat-haze", &["--graphics-only"]),
             ("desert-haze", &["--graphics", "--graphics-only"]),
             ("water-reflections", &["--graphics"]),
+            ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),
             (MESH_BLEND_KEY, &["--graphics-only"]),
         ];

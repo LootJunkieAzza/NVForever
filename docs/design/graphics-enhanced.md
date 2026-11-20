@@ -603,6 +603,135 @@ its own set of the sun's cascades (Bevy's renderer needs them for every view the
 emptying their caster lists was tried and saved 0.12 ms of shadow-pass GPU time and nothing of
 the frame, so the reflected world keeps its shadows.
 
+### 3.8.2 Water caustics and river flow (`water-effects`)
+
+[design, #2674] Graphics > Water offers this switch on its own. The enhanced look enables
+it. From above the surface, the water shader reconstructs the position of the opaque
+object visible through refraction. Sunlight projected through the surface draws a moving
+network of bright focused lines there, attenuated by the water body's opacity. The surface
+is modelled as eight travelling sine waves (wavelengths 41 to 239 game units, crests
+moving 33 to 81 units/s). The light at a receiver is the inverse of the Jacobian
+determinant of the refraction displacement, evaluated analytically. Shallow water shows
+a fine sharp web and deeper water a broader, softer one. The bright lines add up to
+about 1.1 times the receiver's colour, and the gaps between them lose at most 0.15, so
+the bed's mean brightness barely changes. Waves narrower than a few pixels on the
+receiver fade out in both views. A submerged
+outdoor camera uses its depth prepass to project the same pattern on receivers in nearby
+loaded cells with water at the same level. First-person geometry and the sky are excluded.
+The pattern fades with water depth, the sun's elevation and the weather's sunlight.
+The submerged pass attenuates the added light by the camera's remaining visibility.
+Local shadowing is approximate. Projection through a water surface and attenuation with depth
+are described in [GPU Gems, chapter 2, section 2.2](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-2-rendering-water-caustics).
+The wave set, the focusing model's tuning and the band limit are NVForever's.
+
+[design] From shore, the water scatters more light as the bed drops through its WATR
+above-fog range. The shallow end, deep colour and placed-water opacity cap remain
+authored by the water type. Underwater, the existing distance fog thickens as the camera
+descends. At one above-fog depth range below the surface its visibility distance is
+halved. The density increase is capped at 2.5 times the surface density. The effect
+works at night and uses the water type's own colour in both views.
+
+[design] The shallows: by the WATR ramp alone a wading depth of NVCleanWater is under a
+fifth opaque, and at Boulder Beach the near water could not be told from the dry shore.
+With the switch on, the bed seen from above takes the water's shallow hue and darkens to
+0.62 of its brightness over the first 90 units of ray in the water, and the body gathers
+along the same ramp twice as fast at its thin end (the far end is unchanged). `vanilla`
+keeps the ramp as it is.
+
+[design] Wave normals come from three height taps round each point, one texel apart
+near the camera and a pixel's footprint apart beyond, which limits shimmer as the waves
+travel (in every look). A span of two texels each side was tried first: it removed
+4-texel waves and kept 0.64 of 8-texel ones, flattening the surface, and took twelve
+taps a pixel for nine. The water mirror is given the main camera's cascades every frame
+(`shadow_rate.rs`): the renderer numbers each view's shadow-map layers from zero, so a
+held layer holds the main camera's map, and the mirror reading it with matrices of its
+own made whole patches of reflected riverbank flash at Cottonwood Cove. With the same
+matrices in both views the staggered schedule keeps holding near water. The mirror also takes the main camera's caster lists after each view's own cuts (`sky::sun_casters_over_slice`, `player_body::near_shade_casters`): with the matrices alone the two views drew different casters into the same layers. Drawing every
+cascade of both views every frame was the first fix and doubled the cascade passes near
+water for every player. Reflected shadows reach as far as the main camera's cascades;
+past that the reflection is sunlit. The submerged pass is ordered after ambient
+occlusion and before temporal anti-aliasing: each of the three swaps the view's two
+pictures, and unordered they could record on two threads, one reading a stale picture
+for a frame [hypothesis for the flicker reported under water, from the code].
+
+[design] River currents animate the noise layers on selected exterior reaches: the
+Colorado below Hoover Dam through Cottonwood Cove, and the western channel in Zion
+Canyon. No record names a flow, so the downstream directions and the speed (110 units a
+second, each noise layer at 1.0, 0.75 and 1.3 of it so the surface changes shape as it
+travels; at 40 the river moved slower than the wind moves Lake Mead's first layer, 65)
+are this project's choices.
+
+[observed, 2026-11-18: a private script of the change's author over their own
+FalloutNV.esm and HonestHearts.esm, read-only; its output is not in the repository] The
+table (`river_flow.rs`) selects cells at the worldspaces' default water heights (WRLD
+DNAM: WastelandNV -2300, NVDLC02ZionCanyon 5000). Which cells: for each exterior cell
+with the "has water" flag, the script read the LAND heights (VHGT) along the row a
+quarter of the way up the cell and listed the stretches lying more than 12 units under
+the cell's water height. On the Colorado they run between cells x 17 and 24 from row y 6
+down to -31 (north of that the water is Lake Mead's, at 2600); in Zion the western stream
+runs from cell (1, 8) to (-3, -9). The table's rectangles cover the cells those
+stretches cross.
+
+[design] A locally placed surface at the same elevation can share the cell's current. Each noise layer retains a share of its
+water type's wind, bounded so its crests travel downstream. Actor ripples keep their
+world position. The current changes surface appearance only.
+
+[observed, 2026-11-18, the first pattern (two noise octaves) and a current of 40 units a
+second; not repeated since] Fixed-camera captures show the light pattern on the Goodsprings
+Source trough floor and the Boulder Beach bed above and below water at noon. At midnight
+the submerged pass stayed off. At Cottonwood Cove the surface texture travelled south
+in all 40 successive frame pairs measured on a patch projected back onto the water plane.
+
+[observed, 2026-11-18, the first shadow fix (every cascade drawn every frame) and the
+first wave normals; not repeated with the shared cascades] Two fixed 1920×1080 play views at Cottonwood Cove were
+sampled 32 times each, 80 ms apart. In the view facing the opposite bank, the
+largest frame-to-frame brightness change in the water after spatial smoothing
+(Gaussian σ = 16 pixels) fell from 24.3 to 2.6 on a 0–255 scale. The buildings
+at the cove also showed less fine shimmer. Forcing the original build to redraw
+its shadow maps each frame stabilized the bank while retaining sun shadows.
+
+[observed, 2026-11-18, the first shadow fix, since replaced] Four 1920×1080 release runs at the opposite-bank view on an
+RTX 5070 Ti used Quality sun shadows, mirrored water and Water effects. The original
+and revised binaries ran in A/B/B/A order. Median GPU time reported for the shadow
+pass across warm four-second windows was 0.08–0.09 ms on the original and
+0.22–0.26 ms on the revision. Whole-frame times varied enough that the two pairs
+gave opposite signs for the difference.
+
+[observed, 2026-11-18, the mirror sharing the main camera's cascades] Release explorer,
+RTX 5070 Ti, 1920x1080, `--graphics enhanced --sun-shadows`, Cottonwood Cove looking
+across the river, four 32-second runs in A/B/B/A order with `--log-frame-times 5`; B set
+`NVF_PLAY_TEST_SHADOW_STAGGER=0`, which draws every cascade of both views every frame as
+the first fix did. Warm five-second windows: 5.93 to 6.28 ms a frame with the schedule
+holding (A), 6.78 to 7.05 ms without (B; two of B's first windows read 5.18 and 5.41);
+the shadow pass's GPU time 0.10 to 0.20 ms against 0.20 to 0.30 ms. At Boulder Beach
+(`--play`, 09:00, twelve frames 0.2 s apart, 1280x720) the largest frame-to-frame
+brightness change after the same smoothing was the same with the schedule holding and
+without (5 to 7 of 255 once the start's fades were over): no flash of the reflected shore.
+
+[observed, 2026-11-18, the mirror sharing the main camera's cascades and caster lists]
+Cottonwood Cove, the player in the river facing the opposite bank (`--play --pos=69300,-90750,-1700`,
+09:00, 1920x1080, `--graphics enhanced`), eleven frames between 10 s and 12.3 s of two runs,
+one with the schedule holding and one with `NVF_PLAY_TEST_SHADOW_STAGGER=0`: frame for
+frame the two runs differ by at most 4 of 255 in any pixel. A held shadow map shows the
+reflected bank what a fresh one does.
+
+[observed, 2026-11-18, the pattern of eight waves and the shallows' tint] Release explorer,
+RTX 5070 Ti, 1920x1080, `--sun-shadows --log-frame-times 5 --graphics-cycle
+"vanilla;water-effects;water-effects;vanilla"`, 86 seconds a view, the first window left
+out. Mean frame time with the switch on against off, over eight five-second windows
+each: 2.90 against 2.86 ms at the Boulder Beach shallows, 2.50 against 2.47 ms submerged
+there, 2.95 against 2.94 ms at Cottonwood Cove. The windows of either state range over
+0.2 ms, so the cost is within the run's noise, under 0.05 ms.
+
+[observed, 2026-11-18, initial water effect before the depth and pattern revision] Release explorer, RTX 5070 Ti, Vulkan, 1280x720, desktop streaming
+active. At each fixed camera `--log-frame-times 5 --graphics-cycle
+"vanilla;water-effects;water-effects;vanilla"` alternated five-second periods. After the
+first block, the median paired changes in mean frame time over four complete blocks were
+0.00 ms at the Boulder Beach shallows, +0.02 ms submerged and +0.02 ms at Cottonwood
+Cove (the four river differences ranged from -0.02 to +0.11 ms). The submerged pass
+itself measured 0.02 ms GPU. At Cottonwood the transmissive pass measured 0.03 ms off
+and 0.04 ms on.
+
 ### 3.9 Shadow filtering (`shadow-filter`; not part of `enhanced`)
 
 How the sun's shadow maps are sampled at a shadow's edge, Bevy's `ShadowFilteringMethod` on the

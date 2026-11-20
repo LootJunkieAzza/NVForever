@@ -943,6 +943,7 @@ mod tests {
             locals,
             bind_world: vec![Affine3A::IDENTITY; 4],
             by_name: names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect::<HashMap<_, _>>(),
+            ..Default::default()
         })
     }
 

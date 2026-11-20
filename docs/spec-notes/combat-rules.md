@@ -730,6 +730,76 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     has passed), playing the group the key names, so the fists alternate right and left.
     A press after the swing has ended starts again from the weapon's own attack group
     (`AttackRight` by default) [design: when the original resets a run is not known].
+  - **Creature melee cadence (#2535).** **Creatures only** (the maintainer's decision
+    of 2026-11-18 on #2971): a creature's next attack decision waits for its playing
+    clip's `a:` key, even when later than the 1.2 s base timer; without a key it waits
+    for the clip's end as well as the base timer. An earlier key still brings the
+    decision forward for combos. A creature's power attack publishes its clip's timing
+    the same way. Clip times use the existing playback clock
+    (`attack_anims::CombatPose::layers`, `attack_anims::SwingClip::ready_in`) [design].
+    The key, the combo window and the clip's end are divided by the blow's attack speed,
+    in the manner of the semi-automatic guns' `a:` key (§4, §4.1; guns also divide by
+    the Animation Mult, melee does not); the `Hit` key stays at the clip's own time
+    [documented: GECK wiki Weapons page, Attack Multiplier "speeds up or slows down just
+    the attack animation"; design, #2535 review]. In ordinary combat a creature's
+    attack speed is 1, so its clip's own times hold [design: `npc_combat::fight`].
+    **People and NPCs keep the base timing** until their pace is measured in the
+    original (observer check 244): the next decision after 1.2 s ÷ the attack speed
+    (Attack Mult × the teammate rate), brought forward to the clip's `a:` key at the
+    clip's own time when that is sooner, never held for a later key or a keyless
+    clip's end; the combo window is the clip's own key-to-end span; a power attack
+    waits for its clip's length and lands at its `Hit` key [design; owner request
+    2026-10-16; `attack_anims::SwingClip::person_ready_in`]. A creature here is a
+    fighter striking with its own attack (`npc_combat::Arm::Creature`: a CREA base with
+    no weapon drawn, `Game::creature_attack`), as for creature spacing; a fighter with
+    a melee weapon or fists, a CREA with a weapon drawn included, keeps the base timing
+    [design].
+    Ordinary combat uses this boundary calculation. Scripted melee has the shared
+    calculation available, but plays no attack clip yet: `attack_anims::start`
+    requires a fighter pitch or existing attack pose, and `npc_combat::fight`
+    clears poses and skips actors controlled by UseWeapon. Clip-bound scripted
+    cadence remains open; without a published clip its base timer and volley
+    pauses retain upstream main's behavior, and a person's scripted blows keep it
+    with a clip too [design: `use_weapon::Swinger::advance`,
+    docs/design/use-weapon.md §3.1, #2535].
+    The key's interrupt meaning is [documented: GECK wiki NiTextKeyExtraData, above];
+    the lower bound is [observed: capture run15b_b2, 2026-11-15] for radscorpions,
+    and [hypothesis] for other creatures' ordinary and power swings. Attack-chance rolls, style
+    hold timers and attacks on the run (#2163) are unchanged [design].
+
+    [observed: FalloutNV.esm and Fallout - Meshes.bsa, fnvtool esm decode / nif decode,
+    main session 2026-11-15] VCrTier2RadscorpionMed 0x0014F403 (Radscorpion,
+    template CrRadscorpion1Small, BNAM 0.6) and VCrTier3GiantRadscorpionMed
+    0x0014F401 (Giant Radscorpion, template CrRadscorpion2Large, BNAM 1.0) both
+    use `Creatures\Radscorpion\Skeleton.nif`, RNAM 64, OBND x -70..70,
+    y -125..125, z 0..60. CSRadscorpion / CSGiantRadscorpion have attack chance
+    70 and power attack chance 50. Their clips (seconds):
+
+    | clips | end | Hit | `a:` |
+    |---|---|---|---|
+    | `h2hattackleft_high/_low/_mid` | 1.500 | 0.700 | R 1.267 |
+    | `h2hattackright_hight/_low/_mid` | 1.500 | 0.700 | L 1.300 |
+    | `h2hattackpower` | 1.667 | 0.933 | R 1.533 |
+    | `h2hattackforwardpower` (sting) | 1.267 | 1.100 | none |
+
+    [observed: main session's measured Searchlight runway run on 63db0209c,
+    2026-11-15] NVForever started each attack 1.20–1.21 s apart; 23 of 39 were
+    power attacks. Every clip, including the 1.267 s sting, was cut by the next
+    start. For creatures, the min-only key adjustment and ordinary-only timing
+    publication are replaced by the clip boundary above; people keep the min-only
+    adjustment [design: `npc_combat`, `attack_anims`].
+
+    [observed: capture run15b_b2, 2026-11-15; xNVSE 6.4.9, JIP LN 57.30]
+    On Searchlight Airport's runway against a standing god-mode player, each of
+    this pair entered GetAnimAction 2 seven times in about 13 s. Start gaps were
+    2.82, 1.47, 1.39, 2.20, 2.67, 1.28 and 2.05, 3.74, 1.93, 2.15, 1.37,
+    2.00 s (median 2.0, minimum 1.28). Action 2 lasted 0.77–1.18 s, followed
+    by action 4 for 0.44–1.10 s. No new attack began during action 2; the shortest
+    gaps sit just past the ordinary clips' keys and the sting's end. The subsequent
+    pause is not implemented: three of fourteen attacks followed action 4 at once,
+    the others after 0.1–2.1 s. Against a player backing away for 10 s, one attacked
+    three times (3.5 s apart), the other never. Extra pauses and backing-away parity
+    remain open (observer check 244) [design].
   - **Variants.** The melee clips come as `_a` and `_b` (`h2hattackleft_a.kf`,
     `…_b.kf`; `h2hattack5` only `_a`, `h2hattack6`/`7` neither) [observed]; each swing
     picks one at random [hypothesis], falling back to the plain and `_a` forms.
@@ -770,6 +840,12 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   fix belongs to the AI's walk (swing on the way in, or end the walk at the stop). The player's fan of rays
   runs from the eye out to the reach plus the player's capsule radius (22: a knife 75.5,
   as long as with the old 150 × 0.5).
+  [design, #2535: `projectile::swing_reaching`, `nvf_play::combat::PhysView`]
+  The player's ground-reach fallback adds a target margin of max(24, its published
+  scaled skeleton BBX half-width), using the same width as actor blocking. Ordinary
+  targets retain 24; widened low creatures can be hit with a short weapon at the
+  blocking stop, looking level or down. Candidate lookup expands by the same margin;
+  the arc, height limits and first-hit obstruction rays remain unchanged.
   Measured 2026-11-01 (campaign o14_reach, `nvfairport` runway, god-mode player standing
   still, NCR troopers of the leveled list given one weapon each, every game loop) [observed]:
   the centre-to-centre distance at which a swing starts (GetAnimAction entering 2 or 3;

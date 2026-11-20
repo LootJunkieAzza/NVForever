@@ -120,7 +120,7 @@ mod tests {
             Transform::from_xyz(30.0, 0.0, 0.0),
         ];
         let by_name: HashMap<String, usize> = names.iter().enumerate().map(|(i, n)| (n.clone().unwrap(), i)).collect();
-        PreparedSkeleton { names, parents: vec![None, Some(0), Some(1), Some(2)], locals, bind_world: vec![Default::default(); 4], by_name }
+        PreparedSkeleton { names, parents: vec![None, Some(0), Some(1), Some(2)], locals, bind_world: vec![Default::default(); 4], by_name, ..Default::default() }
     }
 
     const RAG: [Option<&str>; 2] = [Some("Pelvis"), Some("Thigh")];

@@ -13,7 +13,8 @@
 //! [`LobbyRequest`] and shows what [`LobbyState`] says.
 //!
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
-//! `code=<code>` types a code, `join`, `create`, `close`, `back`, `pick=<n>` (the n-th
+//! `code=<code>` types a code, `join`, `open` (the lobby as the pause menu opens it),
+//! `create`, `close`, `back`, `pick=<n>` (the n-th
 //! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
 //! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
 //! by key, in the slot chosen), `empty` (empty it).
@@ -42,6 +43,9 @@ const STEP: f32 = 30.0;
 const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
 const EMOTE_ROWS: usize = 10;
+/// Players a lobby takes: the host and `nvf_coop::net::MAX_GUESTS` guests (nvforever's
+/// co-op tests check the two agree).
+pub const LOBBY_PLAYERS: usize = 6;
 /// The longest code typed (12 characters and the dashes, with room for spaces).
 const MAX_TYPED: usize = 26;
 
@@ -315,6 +319,13 @@ fn input(
         } else {
             let act = match a.as_str() {
                 "join" => Some(Act::Join),
+                // The pause menu's Co-op Lobby entry: the lobby as it stands.
+                "open" => {
+                    if screen.mode.is_none() {
+                        screen.open(Mode::Host);
+                    }
+                    None
+                }
                 "create" => {
                     if screen.mode.is_none() {
                         screen.open(Mode::Host);
@@ -654,7 +665,7 @@ fn emote_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, slot: Option<usize>) {
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
 fn players(v: &mut Vec<Piece>, state: &LobbyState) {
-    v.push(Piece::Line("Players:".into(), Shade::Dim));
+    v.push(Piece::Line(format!("Players ({} of {LOBBY_PLAYERS}):", state.players.len()), Shade::Dim));
     for p in &state.players {
         v.push(Piece::Line(format!("  {p}"), Shade::Bright));
     }
@@ -797,6 +808,31 @@ mod tests {
         assert!(p.contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: Off".into())));
         let on = LobbyState { friendly_fire: true, ..state };
         assert!(pieces(&screen, &on).contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: On".into())));
+    }
+
+    #[test]
+    fn a_full_lobby_of_six_lists_every_player_and_fits_the_screen() {
+        // The lobby takes the host and `nvf_coop::net::MAX_GUESTS` (5) guests.
+        let screen = opened(Mode::Host);
+        let names = ["Veronica (host, you)", "Cass", "Boone", "Arcade", "Lily", "Raul"];
+        let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: names.iter().map(|n| n.to_string()).collect(), ..default() };
+        let p = pieces(&screen, &state);
+        for n in names {
+            assert!(p.contains(&Piece::Line(format!("  {n}"), Shade::Bright)), "{n} listed");
+        }
+        assert!(p.contains(&Piece::Line("Players (6 of 6):".into(), Shade::Dim)));
+        // The panel's height as `draw` measures it, a long line taken as three lines of
+        // small print (the font is not loaded here): it stays inside the 960-unit screen
+        // (at 540 px too, since interface units scale with the view's height).
+        let height = |p: &Piece| match p {
+            Piece::Title(_) => ITEM + 8.0,
+            Piece::Line(t, _) => (if t.len() > 50 { 3.0 } else { 1.0 }) * STEP + 6.0,
+            Piece::Big(_) => ITEM + 16.0,
+            Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
+            Piece::Row(..) => ITEM,
+        };
+        let total: f32 = p.iter().map(height).sum::<f32>() + 2.0 * PAD;
+        assert!(TOP + total <= 960.0, "the six-player lobby reaches {}", TOP + total);
     }
 
     #[test]

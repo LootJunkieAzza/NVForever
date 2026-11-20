@@ -6,7 +6,7 @@ members = ["nvf-assets", "nvf-play", "nvf-viewer", "nvforever", "nvf-coop", "nvf
 exclude = ["vendor/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx", "vendor/wgpu-ffx/wgpu-ffx-shaders-spv"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
@@ -73,9 +73,11 @@ opt-level = 3
 
 # Patched dependencies (engine/vendor/README.md says what was changed and why).
 [patch.crates-io]
+bevy_winit = { path = "vendor/bevy_winit" }
 gpu-allocator = { path = "vendor/gpu-allocator" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
 bevy_post_process = { path = "vendor/bevy_post_process" }
 bevy_render = { path = "vendor/bevy_render" }
+bevy_shader = { path = "vendor/bevy_shader" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 naga = { path = "vendor/naga" }

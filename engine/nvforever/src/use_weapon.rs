@@ -30,11 +30,19 @@
 //! melee fighters (`npc_combat`): the reach and spacing of `npc_combat::melee_spacing` /
 //! `creature_spacing`, which this sets on the game's use (`WeaponUse::reach`) for the AI
 //! to close in by (a script's use; a package's swings from where it stands); a blow every
-//! `npc_combat::STRIKE_SECONDS` over the weapon's attack speed, sooner at a clip's `a:`
-//! key (a combo, `attack_anims::SwingPick`), landing at its clip's `Hit` key while the
+//! `npc_combat::STRIKE_SECONDS` over the weapon's attack speed. Scripted swings do not
+//! establish an attack pose yet (`attack_anims::start` requires a fighter pitch or an
+//! existing attack), so no clip timing reaches them in play [design, #2535: open].
+//! If a clip is published, a creature's next blow waits for its boundary
+//! (`SwingClip::ready_in`) [design, #2535]; a person's keeps the base wait, brought
+//! forward by an earlier `a:` key (`SwingClip::person_ready_in`; the maintainer's
+//! decision of 2026-11-18 on #2971). Volley pauses also hold the next blow, on their own
+//! clock for a creature [design: Swinger::advance, Swinger::pause]. With a published
+//! clip a combo uses `attack_anims::SwingPick` and its `Hit` key; otherwise the blow
+//! keeps the existing Hit delay (fallback `DEFAULT_HIT`) [design: swing]. It lands while the
 //! target is within reach. No block or attack-chance roll: the script wants the blows
 //! [hypothesis]. **Always Hit**: a blow lands even when the target stepped out of reach
-//! [hypothesis]. **Do No Damage**: the swing plays, its blow strikes nothing [design: a
+//! [hypothesis]. **Do No Damage**: the blow strikes nothing [design: a
 //! harmless blow has no sound or impact yet]. Hold Fire When Blocked and the target's
 //! place hold the swings as they hold shots; Crouch To Reload has nothing to reload.
 //! Thrown weapons fire their projectile as guns do (`is_gun`: they have one).
@@ -43,7 +51,7 @@ use crate::attack_anims::{AttackTimes, Move, PlayAttack, SwingClip, SwingPick, D
 use crate::combat_tactics as tactics;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
-use crate::npc_combat::{creature_reach, creature_spacing, engage, facing_off, is_gun, melee_spacing, next_unit, CHEST, CREATURE_REACH, MUZZLE_AHEAD, STRIKE_SECONDS};
+use crate::npc_combat::{creature_reach, creature_spacing, engage, facing_off, is_gun, melee_spacing, next_unit, CombatBodies, CHEST, CREATURE_REACH, MUZZLE_AHEAD, STRIKE_SECONDS};
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -175,8 +183,12 @@ fn pull_wait(ws: &WeaponStats, mult: (f32, f32), u: f32) -> f32 {
 /// One actor carrying out a melee weapon use (module notes).
 struct Swinger {
     seq: u64,
-    /// Seconds before its next blow may begin.
+    /// Seconds before its next blow may begin (a person's volley pause included, as
+    /// before #2535).
     strike_in: f32,
+    /// A creature's volley pause, independent of its clip's keys [design:
+    /// WeaponUse::shot volley pauses, #2535]; 0 for a person.
+    pause_in: f32,
     /// Blows begun, with the seconds until each lands.
     blows: Vec<(f32, ActorStrike)>,
     /// Its last blow's swing, for a combo.
@@ -186,6 +198,51 @@ struct Swinger {
     spent: bool,
 }
 
+impl Swinger {
+    /// Advance the actual clip and volley clocks, retaining Hit scheduling
+    /// [design: swing, AttackTimes, #2535]. A creature's next blow waits for its clip
+    /// (`SwingClip::ready_in`); a person's keeps the base wait, brought forward once by an
+    /// earlier `a:` key when the clip arrives (`SwingClip::person_ready_in`; the
+    /// maintainer's decision of 2026-11-18 on #2971).
+    fn advance(&mut self, dt: f32, clip: Option<SwingClip>) {
+        self.strike_in = (self.strike_in - dt).max(0.0);
+        self.pause_in = (self.pause_in - dt).max(0.0);
+        if let Some(sg) = self.swing.as_mut() {
+            sg.t += dt;
+            if let Some(clip) = clip.filter(|_| sg.clip.is_none()) {
+                sg.clip = Some(clip);
+                if let Some(b) = self.blows.last_mut() {
+                    b.0 = (clip.hit - sg.t + dt).max(0.0);
+                }
+                if !sg.creature {
+                    self.strike_in = clip.person_ready_in(sg.t, self.strike_in);
+                }
+            }
+            if let Some(clip) = sg.clip.filter(|_| sg.creature) {
+                self.strike_in = clip.ready_in(sg.t, self.strike_in, sg.speed);
+            }
+            if sg.t > sg.clip.map_or(STRIKE_SECONDS * 2.0, |c| c.end_at(sg.rate())) {
+                self.swing = None;
+            }
+        }
+    }
+
+    /// The volley pause after a blow: its own clock for a creature (its clip's key must not
+    /// cut it), within the base wait for a person (as before #2535).
+    fn pause(&mut self, p: f32, creature: bool) {
+        if creature {
+            self.pause_in = p;
+        } else {
+            self.strike_in = self.strike_in.max(p);
+        }
+    }
+
+    /// Both clocks must expire before starting a blow [design, #2535].
+    fn ready(&self) -> bool {
+        self.strike_in <= 0.0 && self.pause_in <= 0.0
+    }
+}
+
 /// A use's last melee blow: seconds since it began, its clip once `attack_anims` started
 /// it, and the blows of its combo so far.
 #[derive(Clone, Copy)]
@@ -193,14 +250,26 @@ struct Swing {
     t: f32,
     clip: Option<SwingClip>,
     run: u32,
+    /// The blow's attack speed (the weapon's Attack Mult): a creature's clip key and end
+    /// are divided by it (`SwingClip::ready_in`, #2535 review); a person's clip keeps its
+    /// own times.
+    speed: f32,
+    /// A creature's own attack (`Arm::Creature`): its next blow waits for its clip.
+    creature: bool,
 }
 
 impl Swing {
+    /// The clock its clip's times are divided by: the attack speed for a creature, 1 for
+    /// a person (as `npc_combat::NpcSwing`).
+    fn rate(&self) -> f32 {
+        if self.creature { self.speed } else { 1.0 }
+    }
+
     /// What a blow begun now goes on with: the group its clip's `a:` key named, between
-    /// that key and the clip's end (as `npc_combat`'s fighters).
+    /// that key and the clip's end, both at the blow's rate (as `npc_combat`'s fighters;
+    /// `SwingClip::next_at`).
     fn next(&self) -> Option<fnv_combat::melee::NextAttack> {
-        let c = self.clip?;
-        c.chain.filter(|(at, _)| self.t >= *at && self.t <= c.len).map(|(_, n)| n)
+        self.clip?.next_at(self.t, self.rate())
     }
 }
 
@@ -325,20 +394,9 @@ pub(crate) fn shoot(
     if let Some(p) = player.as_deref() {
         places.insert(FormId::PLAYER_REF.0, (p.feet, p.eye()));
     }
-    // The gap between an actor's body and its target's, when both are known (as
-    // `npc_combat` measures it).
-    let player_radius = phys.as_deref().and_then(|p| p.player.as_ref()).map(|c| c.params.radius);
-    let body = |id: u32| blocks.as_deref().and_then(|b| b.list.iter().find(|x| x.actor == id).cloned());
-    let gap = |me: u32, target: u32, tfeet: V3| -> Option<f32> {
-        let mine = body(me)?;
-        let radius = if target == FormId::PLAYER_REF.0 { player_radius? } else { body(target)?.radius };
-        Some(mine.room([tfeet[0], tfeet[1]], radius))
-    };
-    // The two bodies' radii summed (`npc_combat::melee_spacing`).
-    let radii = |me: u32, target: u32| -> Option<f32> {
-        let radius = if target == FormId::PLAYER_REF.0 { player_radius? } else { body(target)?.radius };
-        Some(body(me)?.radius + radius)
-    };
+    // Share walking and standing body lookup with ordinary combat
+    // [design: npc_combat::CombatBodies, #2535].
+    let bodies = CombatBodies::new(phys.as_deref(), blocks.as_deref());
     let s = &mut *shooters;
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
@@ -391,8 +449,7 @@ pub(crate) fn shoot(
                 melee => {
                     still.push(id);
                     let x = MeleeCtx { c, me, name: &name, target_name: &target_name, global, hold, feet, eyes, tfeet, teyes, places: &places, dt, scale };
-                    let room = gap(id, w.target.0, tfeet).zip(radii(id, w.target.0));
-                    swing(g, s, &mut times, &x, &w, melee, room, (&mut strike, &mut anims));
+                    swing(g, s, &mut times, &x, &w, melee, &bodies, (&mut strike, &mut anims));
                     continue;
                 }
             };
@@ -632,6 +689,18 @@ struct MeleeCtx<'a> {
     scale: f32,
 }
 
+/// Scripted melee uses the same body gap and radii as ordinary combat, even
+/// when a widened creature stops or resumes walking [design: CombatBodies, #2535].
+fn melee_range(bodies: &CombatBodies, me: u32, target: u32, feet: V3, tfeet: V3, creature: bool, reach: f32) -> (f32, f32) {
+    let away = (feet[0] - tfeet[0]).hypot(feet[1] - tfeet[1]);
+    let room = bodies.gap(me, target, tfeet).zip(bodies.radii(me, target));
+    match (creature, room) {
+        (true, room) => creature_spacing(room.map(|(gap, _)| away - gap), reach),
+        (false, Some((gap, radii))) => melee_spacing(away - gap, radii, reach),
+        (false, None) => engage(Some(reach), None),
+    }
+}
+
 /// A melee weapon use this frame (module notes): its reach for the AI, its blows
 /// landing, and the next blow when it may strike.
 #[allow(clippy::too_many_arguments)]
@@ -642,7 +711,7 @@ fn swing(
     x: &MeleeCtx,
     w: &fnv_game::use_weapon::WeaponUse,
     arm: Arm,
-    room: Option<(f32, f32)>,
+    bodies: &CombatBodies,
     (strike, anims): (&mut MessageWriter<ActorStrike>, &mut MessageWriter<PlayAttack>),
 ) {
     let (c, me, id) = (x.c, x.me, x.me.0);
@@ -652,18 +721,13 @@ fn swing(
         Arm::Gun(_) => return,
     };
     let away = (x.feet[0] - x.tfeet[0]).hypot(x.feet[1] - x.tfeet[1]);
-    // How near it closes, and within what its blows land (`npc_combat`'s spacing).
-    let (stop, within) = match (creature_damage, room) {
-        (Some(_), room) => creature_spacing(room.map(|(r, _)| away - r), reach),
-        (None, Some((r, radii))) => melee_spacing(away - r, radii, reach),
-        (None, None) => engage(Some(reach), None),
-    };
+    let (stop, within) = melee_range(bodies, id, w.target.0, x.feet, x.tfeet, creature_damage.is_some(), reach);
     if let Some(u) = g.weapon_uses.get_mut(&me) {
         u.reach = Some([stop, within]);
     }
     let near = away <= within;
     if s.swingers.get(&id).is_none_or(|x| x.seq != w.seq) {
-        s.swingers.insert(id, Swinger { seq: w.seq, strike_in: 0.0, blows: Vec::new(), swing: None, held: None, spent: false });
+        s.swingers.insert(id, Swinger { seq: w.seq, strike_in: 0.0, pause_in: 0.0, blows: Vec::new(), swing: None, held: None, spent: false });
         s.stats.actors.insert(id, x.name.to_string());
         match w.source {
             Source::Script => s.stats.from_scripts += 1,
@@ -688,24 +752,7 @@ fn swing(
         info!("use weapon: {} {me} uses {with} (melee, reach {within:.0}) on {} ({from}): {blows}{flags}", x.name, x.target_name);
     }
     let sw = s.swingers.get_mut(&id).expect("inserted");
-    sw.strike_in = (sw.strike_in - x.dt).max(0.0);
-    // The last blow's clip, once started: its blow lands at its own `Hit` key, and the
-    // next may begin at its `a:` key (as `npc_combat`'s fighters).
-    if let Some(sg) = sw.swing.as_mut() {
-        sg.t += x.dt;
-        if let Some(clip) = times.swings.remove(&id).filter(|_| sg.clip.is_none()) {
-            sg.clip = Some(clip);
-            if let Some(b) = sw.blows.last_mut() {
-                b.0 = (clip.hit - sg.t + x.dt).max(0.0);
-            }
-            if let Some((at, _)) = clip.chain {
-                sw.strike_in = sw.strike_in.min((at - sg.t).max(0.0));
-            }
-        }
-        if sg.t > sg.clip.map_or(STRIKE_SECONDS * 2.0, |c| c.len) {
-            sw.swing = None;
-        }
-    }
+    sw.advance(x.dt, times.swings.remove(&id));
     let tchest = [x.tfeet[0], x.tfeet[1], x.tfeet[2] + (x.teyes[2] - x.tfeet[2]) * CHEST];
     // Blows whose clip reached its `Hit` key land: within reach, or always with Always
     // Hit.
@@ -770,7 +817,7 @@ fn swing(
     }
     let drawn = x.hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
     let facing = facing_off(x.global, x.feet, x.tfeet) <= USE_FACING;
-    if why.is_some() || !drawn || !facing || !near || sw.strike_in > 0.0 || (x.feet[2] - x.tfeet[2]).abs() >= 128.0 {
+    if why.is_some() || !drawn || !facing || !near || !sw.ready() || (x.feet[2] - x.tfeet[2]).abs() >= 128.0 {
         return;
     }
     // A blow: on a combo when the last clip's `a:` key has passed.
@@ -780,14 +827,14 @@ fn swing(
         s.stats.chained += 1;
     }
     times.swings.remove(&id);
-    sw.swing = Some(Swing { t: 0.0, clip: None, run });
+    let speed = weapon.or(c.fists_id()).and_then(|f| c.forms.weapons.get(&f)).map_or(1.0, |ws| ws.attack_mult.max(0.25));
+    sw.swing = Some(Swing { t: 0.0, clip: None, run, speed, creature: creature_damage.is_some() });
     let delay = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
     let dir = vec::normalize(vec::sub(tchest, x.eyes));
     sw.blows.push((delay, ActorStrike { attacker: me, target: w.target, weapon, creature_damage, point: tchest, dir, anim: None }));
     let pick = SwingPick { next, rolls: [next_unit(&mut s.rng), next_unit(&mut s.rng)] };
     anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack, power: None, swing: Some(pick) });
     s.stats.blows += 1;
-    let speed = weapon.or(c.fists_id()).and_then(|f| c.forms.weapons.get(&f)).map_or(1.0, |ws| ws.attack_mult.max(0.25));
     sw.strike_in = STRIKE_SECONDS / speed;
     let roll = next_unit(&mut s.rng);
     let Some(u) = g.weapon_uses.get_mut(&me) else { return };
@@ -796,7 +843,7 @@ fn swing(
     info!("use weapon: {} {me} swings at {} from {away:.0} units (blow {}{combo})", x.name, x.target_name, u.fired);
     match after {
         After::More => {}
-        After::Pause(p) => sw.strike_in = sw.strike_in.max(p),
+        After::Pause(p) => sw.pause(p, creature_damage.is_some()),
         After::Done => sw.spent = true,
     }
 }
@@ -839,7 +886,7 @@ fn report(mut exit: MessageReader<AppExit>, shooters: Res<Shooters>, stats: Opti
 
 #[cfg(test)]
 mod tests {
-    use super::acts_on;
+    use super::*;
 
     /// #2725: a use's shooter fires within the combat gunmen's arc, not the 30° its blows
     /// keep: 3°, or the weapon's own Aim Arc.
@@ -893,6 +940,217 @@ mod tests {
         assert_eq!(pull_wait(&ws, (1.0, 1.0), 0.5), 0.15);
         assert_eq!(pull_wait(&ws, (1.0, 2.0), 1.0), 0.6);
         assert_eq!(pull_wait(&WeaponStats { automatic: true, ..ws.clone() }, (1.0, 1.0), 0.5), 0.0);
+    }
+
+    #[test]
+    fn scripted_knife_reaches_a_creature_that_walks_stops_and_resumes() {
+        use nvf_play::blocking::{clip_pushing_nobody, Block};
+        use nvf_play::phys::NpcBody;
+        // Synthetic pair/weapon [design, #2535]; widths and scales supplied in
+        // #2535 [observed: FalloutNV.esm and Fallout - Meshes.bsa, fnvtool esm
+        // decode / nif decode, main session 2026-11-15].
+        let (person, creature) = (123, 456);
+        let rules = fnv_combat::tuning::Rules { combat_distance: 107.0, ..fnv_combat::tuning::Rules::defaults() };
+        let weapon = fnv_combat::data::WeaponStats { reach: 0.5, ..Default::default() };
+        let reach = fnv_combat::damage::melee_reach(&rules, &weapon, 1.0);
+        assert_eq!(reach, 53.5);
+        for scale in [0.6, 1.0] {
+            let mut phys = PhysState::default();
+            let width = 70.56 * scale;
+            let combined = 22.0 + width;
+            let height = fnv_phys::CharacterParams::default().height;
+            phys.actor_block_radii.insert(creature, width);
+            phys.actor_heights.insert(creature, height);
+            let mut blocks = ActorBlocks::default();
+            for (step, standing) in [false, true, false].into_iter().enumerate() {
+                // Move both roots on every transition [design: synthetic fixture].
+                let offset = step as f32 * 20.0;
+                let start = [offset, 0.0, 0.0];
+                let tfeet = [offset + 200.0, 0.0, 0.0];
+                let block = Block::character(creature, tfeet, width, height, false);
+                let v = clip_pushing_nobody(person, [240.0, 0.0], start, 22.0, height, 1.0, &mut [block]);
+                let feet = [start[0] + v[0], 0.0, 0.0];
+                let away = tfeet[0] - feet[0];
+                assert!((away - combined).abs() < 1e-4);
+                phys.remove_npc(person);
+                phys.remove_npc(creature);
+                blocks.list.clear();
+                for (id, at) in [(person, feet), (creature, tfeet)] {
+                    if id == creature && standing {
+                        blocks.list.push(block);
+                    } else {
+                        let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), at);
+                        phys.npcs.insert(id, NpcBody { ch, prev_feet: at, velocity: [25.0, 0.0], jump: false, sink: 0.0, lift: Default::default() });
+                    }
+                }
+                let bodies = CombatBodies::new(Some(&phys), Some(&blocks));
+                assert!(bodies.gap(person, creature, tfeet).unwrap().abs() < 1e-4);
+                assert!((bodies.radii(person, creature).unwrap() - combined).abs() < 1e-4);
+                let (stop, within) = melee_range(&bodies, person, creature, feet, tfeet, false, reach);
+                assert!((within - (combined + reach)).abs() < 1e-4);
+                assert!(away <= stop && stop < within, "standing={standing}");
+                assert!(away <= within, "scripted blow must start and land at the blocking stop");
+                for (distance, near) in [(within - 0.01, true), (within + 0.01, false)] {
+                    let moved_feet = [tfeet[0] - distance, 0.0, 0.0];
+                    phys.npcs.get_mut(&person).unwrap().ch.feet = moved_feet;
+                    let bodies = CombatBodies::new(Some(&phys), Some(&blocks));
+                    let within = melee_range(&bodies, person, creature, moved_feet, tfeet, false, reach).1;
+                    assert_eq!(distance <= within, near);
+                }
+                let creature_reach = creature_reach(Some(64.0), Some(r"Creatures\Radscorpion\Skeleton.nif"), scale);
+                assert!(away <= melee_range(&bodies, creature, person, tfeet, feet, true, creature_reach).1);
+                assert_eq!(phys.npcs[&person].ch.params.radius, 22.0);
+            }
+        }
+    }
+
+    #[test]
+    fn scripted_melee_without_a_clip_keeps_upstream_timer_and_volley_pauses() {
+        // Compare the production gate with upstream 63db0209c's single clock:
+        // max(base interval, volley pause), then decrement [design, #2535]. People and
+        // creatures alike.
+        for creature in [false, true] {
+            for speed in [0.25, 0.5, 1.0, 2.0, 4.0] {
+                for pause in [0.0_f32, 0.4, 1.2, 3.0, 6.0] {
+                    let base = STRIKE_SECONDS / speed;
+                    for dt in [0.01, 0.125, 0.7] {
+                        let mut old = base.max(pause);
+                        let mut sw = Swinger {
+                            seq: 1, strike_in: base, pause_in: 0.0, blows: Vec::new(),
+                            swing: Some(Swing { t: 0.0, clip: None, run: 1, speed, creature }), held: None, spent: false,
+                        };
+                        sw.pause(pause, creature);
+                        // Include frames after the no-clip swing's expiry [design].
+                        for _ in 0..(8.0 / dt) as usize {
+                            old = (old - dt).max(0.0);
+                            sw.advance(dt, None);
+                            assert_eq!(sw.ready(), old <= 0.0, "creature={creature}, speed={speed}, pause={pause}, dt={dt}");
+                            assert_eq!(sw.strike_in.max(sw.pause_in), old);
+                            assert!(sw.swing.is_none_or(|s| s.clip.is_none() && s.next().is_none()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The maintainer's decision of 2026-11-18 on #2971: a person's scripted blows keep
+    /// upstream's timing with a clip too, bit for bit: the base wait over the attack speed
+    /// (with the volley pause in it), brought forward once to an earlier `a:` key when the
+    /// clip arrives; the combo window and the swing's end at the clip's own times.
+    #[test]
+    fn scripted_person_melee_keeps_upstream_timing_with_clips() {
+        use fnv_combat::melee::NextAttack;
+        // Upstream's clock (main before #2535), restated for the comparison [design].
+        #[derive(Clone, Copy)]
+        struct Upstream {
+            strike_in: f32,
+            t: f32,
+            clip: Option<SwingClip>,
+            live: bool,
+        }
+        impl Upstream {
+            fn advance(&mut self, dt: f32, clip: Option<SwingClip>) {
+                self.strike_in = (self.strike_in - dt).max(0.0);
+                if self.live {
+                    self.t += dt;
+                    if let Some(c) = clip.filter(|_| self.clip.is_none()) {
+                        self.clip = Some(c);
+                        if let Some((at, _)) = c.chain {
+                            self.strike_in = self.strike_in.min((at - self.t).max(0.0));
+                        }
+                    }
+                    if self.t > self.clip.map_or(STRIKE_SECONDS * 2.0, |c| c.len) {
+                        self.live = false;
+                    }
+                }
+            }
+            fn next(&self) -> Option<NextAttack> {
+                let c = self.clip.filter(|_| self.live)?;
+                c.chain.filter(|(at, _)| self.t >= *at && self.t <= c.len).map(|(_, n)| n)
+            }
+        }
+        // Synthetic clips: late, early and no keys [design].
+        for (key, len) in [(Some(1.3), 1.5), (Some(1.55), 1.7), (Some(0.6), 1.5), (Some(0.63), 1.43), (None, 1.5), (None, 0.8)] {
+            let clip = SwingClip { hit: 0.4, chain: key.map(|at| (at, NextAttack::Left)), len };
+            for speed in [0.25, 0.5, 1.0, 2.0, 4.0] {
+                for pause in [0.0_f32, 0.4, 2.0] {
+                    for (arrival, dt) in [(1, 0.01), (2, 0.0166), (5, 0.05), (1, 0.125)] {
+                        let base = STRIKE_SECONDS / speed;
+                        let mut up = Upstream { strike_in: base.max(pause), t: 0.0, clip: None, live: true };
+                        let mut sw = Swinger {
+                            seq: 1, strike_in: base, pause_in: 0.0, blows: Vec::new(),
+                            swing: Some(Swing { t: 0.0, clip: None, run: 1, speed, creature: false }), held: None, spent: false,
+                        };
+                        sw.pause(pause, false);
+                        for frame in 0..(6.0 / dt) as usize {
+                            let published = (frame + 1 == arrival).then_some(clip);
+                            up.advance(dt, published);
+                            sw.advance(dt, published);
+                            let at = format!("key={key:?}, len={len}, x{speed}, pause={pause}, dt={dt}, frame={frame}");
+                            assert_eq!(sw.strike_in, up.strike_in, "{at}");
+                            assert_eq!(sw.pause_in, 0.0, "{at}");
+                            assert_eq!(sw.ready(), up.strike_in <= 0.0, "{at}");
+                            assert_eq!(sw.swing.is_some(), up.live, "{at}");
+                            assert_eq!(sw.swing.and_then(|s| s.next()), up.next(), "{at}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scripted_melee_waits_for_clip_boundaries_and_volley_pauses() {
+        use fnv_combat::melee::NextAttack;
+        // A creature's scripted blows (#2971: creatures only). Synthetic clips, clocks and
+        // pauses [design, #2535], the clips published at their own speed as `attack_anims`
+        // publishes them; the swing carries the attack speed. Exercise the same
+        // advancement and readiness gate used by swing, including late timing.
+        for (key, len, earliest) in [(Some(1.267), 1.5, 1.267), (Some(1.3), 1.5, 1.3), (None, 1.5, 1.5), (None, 0.8, STRIKE_SECONDS), (Some(0.6), 1.5, 0.6)] {
+            for speed in [0.5, 1.0, 2.0] {
+                let clip = SwingClip { hit: 0.4, chain: key.map(|at| (at, NextAttack::Left)), len };
+                for pause in [0.0_f32, 0.4, 2.0] {
+                    for arrival in [0.02, 0.1] {
+                        let mut sw = Swinger {
+                            seq: 1, strike_in: STRIKE_SECONDS / speed, pause_in: 0.0,
+                            blows: Vec::new(), swing: Some(Swing { t: 0.0, clip: None, run: 1, speed, creature: true }), held: None, spent: false,
+                        };
+                        sw.pause(pause / speed, true);
+                        let expected = earliest.max(pause) / speed;
+                        sw.advance(arrival / 2.0, None);
+                        assert!(!sw.ready());
+                        sw.advance(arrival / 2.0, Some(clip));
+                        assert!((sw.strike_in - (earliest / speed - arrival)).abs() < 1e-5);
+                        let mut elapsed = arrival;
+                        // Small frames cross clip end while a longer pause remains
+                        // [design: synthetic clock].
+                        while elapsed < expected - 0.01 {
+                            let dt = 0.01_f32.min(expected - 0.01 - elapsed);
+                            sw.advance(dt, None);
+                            elapsed += dt;
+                            assert!(!sw.ready(), "key={key:?}, len={len}, speed={speed}, pause={pause}, t={elapsed}");
+                        }
+                        sw.advance(0.02, None);
+                        elapsed += 0.02;
+                        assert!(sw.ready(), "key={key:?}, len={len}, speed={speed}, pause={pause}");
+                        // The combo window and the swing's end are at the attack speed, as
+                        // the decision is [design: SwingClip::next_at, end_at]: a decision at
+                        // the key goes on the combo at every speed.
+                        match sw.swing {
+                            Some(s) => {
+                                assert!(elapsed <= len / speed, "key={key:?}, len={len}, speed={speed}, pause={pause}");
+                                assert_eq!(s.next(), key.filter(|&at| elapsed >= at / speed).map(|_| NextAttack::Left));
+                                if pause == 0.0 {
+                                    assert_eq!(s.next(), key.map(|_| NextAttack::Left), "key={key:?}, len={len}, speed={speed}: chains");
+                                }
+                            }
+                            None => assert!(elapsed > len / speed, "key={key:?}, len={len}, speed={speed}, pause={pause}"),
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// [design, #2652] Eligibility needs an aim point, including placed objects/markers;

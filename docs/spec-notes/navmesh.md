@@ -176,6 +176,20 @@ the actor jumps or drops over them (actor-jumps.md §3).
   overlaps the bounds. The door requires a key (XLOC 255), has no key or owner, and is
   opened by `VFSMickTravelToLinkedPackage` (0x00127920)'s end script after Mick arrives;
   that script sets `VFreeformFreeside.MickHoldoutWeapons` to 4 and evaluates his package.
+- **In-place doors not in the world** [hypothesis, #2405]: a door that opens in place
+  and is disabled (placed Initially Disabled, or disabled by a script; enable parents
+  followed) or deleted bars nothing and gets no door stop, as a disabled load door is no
+  way through (#2566). Both are `NavGraph::disabled_doors`, built from the load order's
+  enable state and brought in line with the game's (`fnv_ai::Ai::apply_door_presence`).
+  The case [observed: `fnvtool esm decode`, `nav path`, `script decompile`, TTW load
+  order]: Point Lookout's mansion (`DLC04Mansion01`) has two doors of base
+  `DLC04MDoorBig01` in one doorway at (-1408, -1664, 1024), the quest's spawn door
+  `DLC04MQ02LDSeq01Spawn01aDoor` (0x0E0035BB, locked 255; `DLC04MQ02LD` stage 10
+  `SetOpenState 1`s it) and `DLC04SideDoubleDoor02REF` (0x0E00DE2E, locked 255,
+  Initially Disabled; SCPT 0x0E00B786 enables it and disables the spawn door later).
+  Before, the disabled one closed `nav path` from Desmond to his
+  `DLC04ManDesmondWaitForPlayerREF` even with the spawn door open; now that path is
+  1,368 units.
 - **Open in-place doors** [hypothesis, #2716]: an open door does not refuse triangles
   to any actor, even while locked or previously refused by its activation script.
   [documented: GECK wiki SetOpenState, offline snapshot 2026-10-28,

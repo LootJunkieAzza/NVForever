@@ -112,6 +112,8 @@ mod lips;
 mod memory_budget;
 mod gpu_poll;
 mod pipeline_gate;
+mod pipeline_disk_cache;
+mod pipeline_prewarm;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
@@ -239,7 +241,9 @@ mod effect_shaders;
 mod vats_highlight;
 mod tree;
 mod treelod;
+mod river_flow;
 mod underwater;
+mod underwater_caustics;
 mod vigor_view;
 mod walk_probe;
 mod water;
@@ -592,7 +596,7 @@ struct Args {
     dlss_model: Option<upscaler::DlssModel>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
     /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
-    /// water-reflections, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
+    /// water-reflections, water-effects, terrain-height-blend, terrain-anti-tiling, cloud-shadows, terrain-shadows, heat-haze, desert-haze, and
     /// mesh-terrain-blend, which no look turns on) and choices (fxaa, smaa or taa instead of --msaa;
     /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
@@ -620,7 +624,7 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
-    /// Co-op prototype (private fork, coop.rs): host a game for up to three guests on
+    /// Co-op prototype (private fork, coop.rs): host a game for up to five guests on
     /// this UDP port.
     #[arg(long, requires = "play", conflicts_with = "join")]
     host: Option<u16>,
@@ -1781,7 +1785,7 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin, photo_lights::PhotoLightsPlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, haze::HazePlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, underwater_caustics::UnderwaterCausticsPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, cloud_shadows::CloudShadowsPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times), minimap_render::MinimapRenderPlugin))
     // The sun visibility factor: cloud and terrain shadows on the sun (off until a producer sets it).
     .add_plugins(sun_visibility::SunVisibilityPlugin)
@@ -1798,6 +1802,8 @@ fn main() -> AppExit {
     // Defaults snapshots this command-line/default choice before apply_stored reads the INI.
     .add_plugins(frame_gen::FrameGenPlugin(args.frame_generation.unwrap_or_default()))
     .add_plugins(blit_warm::BlitWarmPlugin)
+    // The driver's pipeline cache kept on disk (pipeline_disk_cache.rs).
+    .add_plugins(pipeline_disk_cache::PipelineDiskCachePlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
     // memory made and freed every frame behind the night stalls (#897; wgpu trace,
@@ -1897,6 +1903,8 @@ fn main() -> AppExit {
     .add_plugins(terrain_shadows::TerrainShadowsPlugin)
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
+    // The start's cells read ahead under its picture hold, before `stream` may run.
+    .add_systems(Update, world::read_ahead_under_hold.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
     // Actors of the next ring of cells read and prepared before they come into range.
     .insert_resource(readahead::ReadAhead::from_env())
@@ -1937,6 +1945,7 @@ fn main() -> AppExit {
     // Placed models' and effect models' billboard nodes face the camera (#2549).
     .add_systems(PostUpdate, world::face_camera.before(bevy::transform::TransformSystems::Propagate))
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
+    .add_systems(PostUpdate, shadow_rate::share_mirror_casters.after(sky::sun_casters_over_slice).after(player_body::near_shade_casters))
     // The sun's cascades' far bounds and texel sizes, logged when they change.
     .add_systems(PostUpdate, sky::log_sun_cascades.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(shadow_anchor::anchor_cascades))
     .add_systems(Startup, (crash::report_start, report_archives))
@@ -1995,6 +2004,8 @@ fn main() -> AppExit {
         app.add_plugins(nvf_play::PlayPlugin(data))
             .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space, world::cell_lighting).chain().after(nvf_play::PlaySet::Input).before(world::stream).before(sky::weather_region))
             .add_plugins(pipeline_gate::PipelineGatePlugin)
+            // Meshes drawn unculled under the loading screen (pipeline_prewarm.rs).
+            .add_plugins(pipeline_prewarm::PipelinePrewarmPlugin)
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
@@ -2317,10 +2328,12 @@ fn main() -> AppExit {
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!(
-                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured, {} shapes tinted in the shader ({:.1} ms making offsets, {:.1} ms reading .egt files), {} EGMs not matching their shape",
+                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured ({} offsets made ahead on a worker thread, {} of them drawn), {} shapes tinted in the shader ({:.1} ms making offsets, {:.1} ms reading .egt files), {} EGMs not matching their shape",
                         fg.morphed_shapes,
                         fg.faces_tinted,
                         fg.skins_tinted,
+                        fg.offsets_ahead,
+                        fg.offsets_ahead_used,
                         fg.shapes_tinted,
                         fg.offset_time.as_secs_f64() * 1e3,
                         fg.egt_time.as_secs_f64() * 1e3,

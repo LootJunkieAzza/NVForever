@@ -11,7 +11,8 @@ Code: `fnv_game::talking_activators` (who speaks, IsActorTalkingThroughActivator
 `fnv_game::dialogue` (`Conversation::through`), `Game::say` (`Speech::through`), `fnv_sim::World::activate` (a TACT's
 default action is Talk); the engine's `dialogue_look.rs` (the view turns to the
 activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs` (Say and SayTo through one:
-`a_talking_activator_says_its_talking_actors_lines_by_script`). Smoke:
+`a_talking_activator_says_its_talking_actors_lines_by_script`; an actor's Dialogue
+package aimed at one: `a_dialogue_package_aimed_at_a_talking_activator_talks_to_its_talking_actor`). Smoke:
 `talking-activator-intercom`. Capture job: `tools/capture/probes/actor_changes.toml` ac6
 (run 2026-10-18 on nvftest: every answer the same as ours).
 
@@ -126,6 +127,26 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   still not heard], and its SayToDone blocks run on the activator
   [hypothesis: the script that said it waits there]. The line's result scripts run on the
   actor, as in a conversation through the activator [hypothesis].
+- **A talking activator as the listener** with a talking actor (as above) is that actor
+  for the line's conditions run on the target: an actor's Say To Dialogue package or
+  conversation aimed at the activator talks to the actor on the other end, so GetIsID,
+  faction and every other condition run on the target test the actor, and the
+  activator's replies are said as the actor through it (the "Who speaks" rule above)
+  [hypothesis, issue #3020; documented: SetTalkingActivatorActor "makes a talking
+  activator use the dialogue of a given actor"]. Tale of Two Wastelands needs it: in
+  Growing Up Fast (CG02), stage 35 makes Vault 101's diner intercom
+  (CG02DinerIntercomREF) speak for Jonas, and Dad's Dialogue package
+  CG02DadTalkToJonasOnIntercom, aimed at the intercom, says CG02IntercomConv, whose
+  first line (INFO 0x0A031D3C) tests GetIsID CG02Dad on the subject and GetIsID
+  CG02Jonas on the target, Jonas's reply (0x0A031D3D) GetIsID CG02Jonas on the subject
+  and GetIsID CG02Dad on the target [observed: `fnvtool dialogue lines --topic
+  CG02IntercomConv`, TTW load order]. With the activator itself as the target Dad had
+  no line, and stages 36 and 38, set by the exchange's lines, never came [observed
+  headless, the quest pilot's chain ttw-vault101-cg01-cg04]. Conditions on the target
+  that read where it is (GetDistance and the like) read the actor too, who is
+  elsewhere [design: one rule for every condition; none of the masters' intercom lines
+  is known to need otherwise]. Without a talking actor the activator is the target, as
+  before. Code: `Game::conditions_target`, applied in `Game::line_verdict`.
 - Distance attenuation is not an issue in a conversation (heard whole).
 
 ## 3. The bunker intercom in the original (2026-10-19) [observed]

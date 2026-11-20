@@ -45,6 +45,8 @@ pub(crate) fn objective_teleport_links(g: &mut Game, flat: bool) -> XVal {
 /// "changes are NOT savebaked" [documented]; the rest [hypothesis]).
 #[derive(Debug, Default)]
 pub struct OtherState {
+    /// Bounded SetMaxAniso request; last call wins until the renderer consumes it. Not saved.
+    pub(crate) texture_filter_level: Option<u16>,
     /// The immutable placed-door graph, built lazily; run-time lock state is read
     /// for every route. Not persisted or rebuilt on each minimap callback.
     pub objective_doors: Option<crate::quest_targets::DoorGraph>,
@@ -381,7 +383,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // (actor-behaviour.md §2.4). Missing/nonactor zero is a selected portable
         // convention matching neighboring queries; native invalid behavior is unknown.
         "isactordetected" => {
-            let target = subject.filter(|&r| matches!(g.data.sig(base(g, r)), Some(sig) if sig == *b"NPC_" || sig == *b"CREA"));
+            let target = subject.filter(|&r| g.def_following(r, |_| false).is_some()
+                || matches!(g.data.sig(base(g, r)), Some(sig) if sig == *b"NPC_" || sig == *b"CREA"));
             yes(target.is_some_and(|target| target != FormId::PLAYER_REF
                 && g.detection.pairs.iter().any(|(&(detector, seen), (d, _))|
                     seen == target && detector != target && detector != FormId::PLAYER_REF

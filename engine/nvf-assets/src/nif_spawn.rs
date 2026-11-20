@@ -9,6 +9,7 @@
 
 use crate::data::GameData;
 use crate::nif_material::{display_emissive, emissive_in_display, nif_material, Falloff, NifMaterial};
+use crate::tangents::{StoredArrays, Tangents};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -935,7 +936,7 @@ pub(crate) fn shape_material(
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
-    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats })
+    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Generate)
 }
 
 /// [`shape_material`] for a copy of a mesh that went through it before (an actor part's
@@ -951,21 +952,20 @@ pub(crate) fn shape_material_reusing_tangents(
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
-    shape_material_inner(props, mesh, &mut StoreTextures { textures, data, images, formats }, true)
+    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats }, Tangents::Keep)
 }
 
-/// [`shape_material`] with its textures from `textures`.
-pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource) -> (NifMaterial, Option<String>) {
-    shape_material_inner(props, mesh, textures, false)
-}
-
-fn shape_material_inner(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, keep_tangents: bool) -> (NifMaterial, Option<String>) {
+/// [`shape_material`] with its textures from `textures` and the normal map's tangents from
+/// `tangents`: the static models (`crate::model`) give the ones stored in the shape's data
+/// block ([`crate::tangents`]); every other caller generates them (or keeps them,
+/// [`shape_material_reusing_tangents`]).
+pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource, tangents: Tangents) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
     let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, true));
     let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.normal(t));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
-    let normal = normal.filter(|_| has_uv && ((keep_tangents && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some()) || mesh.generate_tangents().is_ok()));
+    let normal = normal.filter(|_| has_uv && tangents.add_to(mesh));
     let (normal, unmasked) = normal.map_or((None, false), |(h, unmasked)| (Some(h), unmasked));
     let cut = blend_cut(props, mesh);
     let mut alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
@@ -1248,7 +1248,9 @@ pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_perio
     material.extension.depth_write = false;
 }
 
-pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
+/// The mesh of a shape-data block, its triangle count, and the tangent arrays it stores
+/// (for [`Tangents::Stored`]; empty when it stores none).
+pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize, StoredArrays)> {
     let md = mesh_data(data);
     if md.positions.is_empty() || md.triangles.is_empty() {
         return None;
@@ -1273,7 +1275,7 @@ pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
     if !has_normals {
         mesh.compute_normals();
     }
-    Some((mesh, tris))
+    Some((mesh, tris, StoredArrays { tangents: md.tangents, bitangents: md.bitangents }))
 }
 
 /// Per-vertex joint indices and normalised weights (four influences per vertex).
@@ -1451,7 +1453,7 @@ impl SpawnCtx<'_, '_> {
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data_ref) = shape.block_ref("data") else { continue };
             let Some(data) = dec.get(data_ref) else { continue };
-            let Some((mut mesh, tris)) = build_mesh(data) else { continue };
+            let Some((mut mesh, tris, _)) = build_mesh(data) else { continue };
 
             let props = shape_props(&file, &dec, o, &by_block);
             let (material, missing) = shape_material(
@@ -1529,15 +1531,15 @@ mod tests {
     fn a_lit_additive_shape_adds_linear_light_and_an_unlit_one_the_display_sum() {
         // The Think Tank screens' glass: lit, ONE / ONE (0x1001).
         let glass = Props { alpha: Some((0x1001, 0)), specular: true, glossiness: Some(200.0), shader: true, has_properties: true, textures: vec!["NVDLC03_BrainBotScrn.dds".into()], ..Default::default() };
-        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&glass, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Add);
         assert!(m.extension.add_linear);
         // The static over it: unlit, ONE / ONE, keeps the display-value sum.
-        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { unlit: true, emissive: Some([0.568; 3]), emissive_mult: Some(5.0), ..glass.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Add);
         assert!(!m.extension.add_linear);
         // A lit blended shape is not additive.
-        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x10ED, 0)), ..glass }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.add_linear);
     }
 
@@ -1600,10 +1602,10 @@ mod tests {
         // `upperbody.nif` `bodycaps`: NiAlphaProperty 0x12EC (test GREATER 127), no stencil;
         // actor.rs sets `double_sided` on shapes with cap partitions.
         let cap = Props { alpha: Some((0x12EC, 127)), textures: vec![r"gore\meatcapgore01.dds".into()], double_sided: true, ..Default::default() };
-        let (m, _) = shape_material_with(&cap, &mut tri.clone(), &mut NoTextures);
+        let (m, _) = shape_material_with(&cap, &mut tri.clone(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Mask(_)));
         assert!(m.base.double_sided && m.base.cull_mode.is_none());
-        let (m, _) = shape_material_with(&Props { double_sided: false, ..cap }, &mut tri, &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { double_sided: false, ..cap }, &mut tri, &mut NoTextures, Tangents::Generate);
         assert!(!m.base.double_sided && m.base.cull_mode.is_some());
     }
 
@@ -1617,7 +1619,7 @@ mod tests {
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
         let stored = vec![[0.34f32, 0.32, 0.27, 1.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]];
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, stored.clone());
-        let (m, _) = shape_material_with(&glow, &mut mesh, &mut NoTextures);
+        let (m, _) = shape_material_with(&glow, &mut mesh, &mut NoTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Add);
         assert!(m.base.unlit);
         // The mesh keeps the stored display values; the shader makes them linear.
@@ -1636,7 +1638,7 @@ mod tests {
         assert!((display_to_linear(0.34) - Color::srgb(0.34, 0.0, 0.0).to_linear().red).abs() < 1e-6);
         // A lit shape's vertex colours stay linear factors.
         let lit = Props { textures: vec![String::new()], ..Default::default() };
-        let (m, _) = shape_material_with(&lit, &mut Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()), &mut NoTextures);
+        let (m, _) = shape_material_with(&lit, &mut Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.extension.emissive_rule.z, 0.0);
     }
 
@@ -1649,11 +1651,11 @@ mod tests {
         };
         // The corn rows: blend SRC_ALPHA / INV_SRC_ALPHA, test GREATER 0 (0x12ED), lit.
         let corn = Props { alpha: Some((0x12ED, 0)), textures: vec![r"landscape\plants\maize_mask.dds".into()], ..Default::default() };
-        let (m, _) = shape_material_with(&corn, &mut quad(), &mut MaskTextures);
+        let (m, _) = shape_material_with(&corn, &mut quad(), &mut MaskTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend), "drawn blended until FSR asks");
         assert_eq!(m.extension.blended_cutout, Some(BLENDED_CUTOUT_CUT));
         // Translucent texture alpha (dirty glass), or no texture: stays blended only.
-        assert_eq!(shape_material_with(&corn, &mut quad(), &mut NoTextures).0.extension.blended_cutout, None);
+        assert_eq!(shape_material_with(&corn, &mut quad(), &mut NoTextures, Tangents::Generate).0.extension.blended_cutout, None);
         // Anything else that sets alpha keeps it a real blend.
         for props in [
             Props { material_alpha: Some(0.5), ..corn.clone() },
@@ -1667,7 +1669,7 @@ mod tests {
             Props { alpha: Some((0x12ED & !(0xF << 5), 0)), ..corn.clone() },
             Props { alpha: Some((0x12ED, 128)), ..corn.clone() },
         ] {
-            assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures).0.extension.blended_cutout, None, "{props:?}");
+            assert_eq!(shape_material_with(&props, &mut quad(), &mut MaskTextures, Tangents::Generate).0.extension.blended_cutout, None, "{props:?}");
         }
     }
 
@@ -1679,14 +1681,14 @@ mod tests {
     #[test]
     fn blended_hair_writes_depth_above_its_cut() {
         let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
-        let (m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, HAIR_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "hair still casts no shadow");
         // Other blended shapes (smoke, glass) without ZBuffer_Write write none and drop
         // nothing.
-        let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
     }
@@ -1697,14 +1699,14 @@ mod tests {
     #[test]
     fn lit_blended_shapes_with_zbuffer_write_write_depth() {
         let vend = Props { alpha: Some((4333, 0)), zbuffer_write: true, ..Default::default() };
-        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "glass still casts no shadow");
-        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
-        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(!m.extension.depth_write);
     }
 
@@ -1716,23 +1718,23 @@ mod tests {
     fn blended_shapes_that_test_drop_what_the_test_drops() {
         let weed = Props { alpha: Some((0x12ED, 50)), zbuffer_write: true, ..Default::default() };
         assert_eq!(blended_test_cut(&weed), Some(50.5 / 255.0));
-        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 50.5 / 255.0);
         assert!(crate::nif_material::see_through(&m), "casts no shadow, as before");
         // The marquee glass: threshold 0, nothing to drop beyond the depth cut.
-        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
         assert_eq!(blended_test_cut(&Props { vertex_alpha: true, ..weed.clone() }), None);
         assert_eq!(blended_test_cut(&Props { alpha: Some((0x10ED, 50)), ..weed.clone() }), None, "no test");
         assert_eq!(blended_test_cut(&Props { alpha: Some((0x12ED, 64)), ..weed.clone() }), None, "alpha-tested from 64");
-        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures, Tangents::Generate);
         assert_eq!(m.extension.alpha_cut, 0.0, "no depth written: as before");
         // Its texture is a mask with opaque texels: a solid cut-out at the test threshold,
         // casting a shadow, with nothing for FSR to switch.
         let masked = Props { textures: vec![r"trees\leaves\tumbleweed_mask.dds".into()], ..weed.clone() };
-        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures);
+        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures, Tangents::Generate);
         assert_eq!(m.base.alpha_mode, AlphaMode::Mask(50.5 / 255.0));
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
@@ -1746,7 +1748,7 @@ mod tests {
             (Props { zbuffer_write: false, ..masked.clone() }, "no depth written"),
             (Props { alpha: Some((0x12ED, 0)), ..masked.clone() }, "threshold 0"),
         ] {
-            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures);
+            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures, Tangents::Generate);
             assert_eq!(m.base.alpha_mode, AlphaMode::Blend, "{why}");
         }
     }
@@ -1756,7 +1758,7 @@ mod tests {
     #[test]
     fn hair_models_are_a_core_and_a_layer() {
         let hair = Props { hair: true, alpha: Some((4333, 0)), ..Default::default() };
-        let (blended, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures);
+        let (blended, _) = shape_material_with(&hair, &mut triangle(), &mut NoTextures, Tangents::Generate);
         let mut m = blended.clone();
         hair_model_cut_out(&mut m);
         assert_eq!(m.base.alpha_mode, AlphaMode::Mask(HAIR_MODEL_CUT));

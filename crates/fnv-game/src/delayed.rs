@@ -117,7 +117,7 @@ impl Game<'_> {
         let frame = self.frame;
         self.delayed
             .iter()
-            .filter(|d| d.keep_on_load && matches!(d.func, XVal::Ref(f) if f < crate::game::LAMBDA_BASE))
+            .filter(|d| d.keep_on_load && self.session_function(&d.func))
             .filter_map(|d| match d.when {
                 When::AfterFrames(f) => Some(Delayed { when: When::AfterFrames(f.saturating_sub(frame)), ..d.clone() }),
                 _ => None,

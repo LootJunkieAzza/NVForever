@@ -812,6 +812,7 @@ mod tests {
     #[test]
     fn a_close_bone_shrinks_the_thigh_only_for_itself() {
         let skel = PreparedSkeleton {
+            bbx_half_width: None,
             names: vec![Some("Bip01 L Thigh".into()), Some("Bip01 L Calf".into())],
             parents: vec![None, Some(0)],
             locals: vec![Transform::IDENTITY; 2],
