@@ -311,8 +311,18 @@ pub fn bevy_to_game(p: Vec3) -> Vec3 {
     Vec3::new(p.x, -p.z, p.y)
 }
 
+/// `World`, with a parent above it (issue #1387). Bevy assigns the `GlobalTransform` of a root
+/// whose tree is dirty, which marks it changed even with the same value, and then has to
+/// recompute every direct child; a child's goes through `set_if_neq`, so with this parent
+/// `World`'s stays unchanged when only something under it moves, and its clean direct
+/// children stop at their test [design: bevy_transform 0.20.1 `src/systems.rs` :529, :707-718].
+///
+/// The parent has only `World` under it and stays identity: particles.rs and shot_fx.rs read
+/// `World`'s local matrix as the game-to-Bevy conversion. What is directly under `World` stays
+/// so (nav.rs `show_actor` finds a driven body by its parent being `World`).
 pub fn setup_root(mut commands: Commands) {
-    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default()));
+    let parent = commands.spawn((Name::new("World parent"), Transform::IDENTITY, Visibility::default())).id();
+    commands.spawn((Name::new("World"), WorldRoot, game_to_bevy(), Visibility::default(), ChildOf(parent)));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -338,6 +348,10 @@ pub fn stream(
     streamer.stats.frames += 1;
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();
+    // Under the start's screen the cells wait for their read-ahead on the read pool
+    // ([`start_pool_prep`]), unless a travel has gone out under it ([`start_pool_cells`]).
+    let pool_prep = start_pool_prep();
+    let pool_start = loading.as_deref().is_some_and(|l| start_pool_cells(pool_prep, l.starting(), l.travelling()));
     let behind_screen = loading.is_some_and(|l| l.unseen_frames());
     let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts, sim.as_deref().map(|s| &s.world), &mut *ahead));
     despawn_dying(&mut commands, &mut streamer.dying, &children);
@@ -451,10 +465,14 @@ pub fn stream(
         // Drawn once its models are prepared (read ahead), or after waiting long enough.
         let ready = cell_ready(&world, &mut streamer.ahead, c, &mut models);
         let since = *streamer.ahead.waiting.entry(c).or_insert(now);
-        let forced = !ready && (!budgeted || now - since >= MAX_WAIT_SECS);
+        let pool_wait = (pool_start && !budgeted).then(|| streamer.ahead.start.waited(frame_start));
+        let forced = !ready && wait_over(budgeted, now - since, pool_wait);
         if !ready && !forced {
             // Nearer cells first: a farther one does not jump the queue.
             break;
+        }
+        if pool_wait.is_some() {
+            streamer.ahead.start.drawn(ready);
         }
         streamer.ahead.waiting.remove(&c);
         streamer.stats.cells_waited += usize::from(now > since);
@@ -480,6 +498,9 @@ pub fn stream(
     if !streamer.settled && want.iter().all(|c| streamer.loaded.contains_key(c)) {
         streamer.settled = true;
         streamer.arrival = None;
+        if let Some(line) = streamer.ahead.start.settled_line() {
+            info!("{line}");
+        }
     }
     crate::profile::actor_spawns(streamer.stats.actors.equipment_spawns - before.0, streamer.stats.actors.record_spawns - before.1);
 }
@@ -492,6 +513,29 @@ const SPAWN_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
 /// Seconds a cell waits for its read-ahead before it is drawn anyway, preparing what is
 /// missing on the main thread [engineering choice].
 const MAX_WAIT_SECS: f64 = 1.5;
+
+/// Whether a cell whose models are not all prepared is drawn now, the rest prepared on the
+/// main thread: in play once it has waited [`MAX_WAIT_SECS`] (`waited`, game seconds);
+/// before the start square is in or behind a screen at once, except under the start's
+/// screen ([`start_pool_prep`]: `pool_wait`, the real seconds the start's cells have
+/// waited for the read pool so far), where the cells wait for the pool up to
+/// [`MAX_WAIT_SECS`] too. The start's screen stays up until they are all drawn either way.
+fn wait_over(budgeted: bool, waited: f64, pool_wait: Option<f64>) -> bool {
+    if budgeted {
+        waited >= MAX_WAIT_SECS
+    } else {
+        pool_wait.is_none_or(|w| w >= MAX_WAIT_SECS)
+    }
+}
+
+/// Whether the cells asked for this frame are the start's, which wait for the read pool
+/// ([`wait_over`]) and are counted in the start's line ([`StartPrep`]): with the pool
+/// preparation `on` ([`start_pool_prep`]), under the start's screen, and not for a travel
+/// that went out under it, whose cells are drawn at once as behind any travel's screen and
+/// would otherwise share the start's `StartPrep::since` and counts.
+fn start_pool_cells(on: bool, starting: bool, travelling: bool) -> bool {
+    on && starting && !travelling
+}
 
 /// Direct children of retired cells despawned per frame (each with everything below it)
 /// [engineering choice: a town cell's references go in a few frames].
@@ -586,6 +630,57 @@ pub struct ReadAhead {
     listed: HashMap<(i32, i32), CellAhead>,
     /// When each cell wanted for drawing was first found not ready (seconds).
     waiting: HashMap<(i32, i32), f64>,
+    /// The start's cells read ahead on the read pool ([`start_pool_prep`]).
+    start: StartPrep,
+}
+
+/// How the start's cells came in ([`start_pool_prep`]), for the line logged when they are
+/// all drawn.
+#[derive(Default)]
+struct StartPrep {
+    /// Cells read ahead under the picture hold ([`read_ahead_under_hold`]).
+    held: usize,
+    /// When the start's cells were first asked for, after the hold (real time).
+    since: Option<std::time::Instant>,
+    /// Cells drawn with every model prepared, and drawn before (the rest prepared on the
+    /// main thread).
+    ready: usize,
+    forced: usize,
+    /// The real seconds from `since` to the last cell drawn.
+    waited: f64,
+    /// The line has been logged.
+    logged: bool,
+}
+
+impl StartPrep {
+    /// The real seconds the start's cells have waited for the read pool by `now`.
+    fn waited(&mut self, now: std::time::Instant) -> f64 {
+        now.saturating_duration_since(*self.since.get_or_insert(now)).as_secs_f64()
+    }
+
+    /// One of the start's cells is drawn, its models all `ready` or not.
+    fn drawn(&mut self, ready: bool) {
+        if ready {
+            self.ready += 1;
+        } else {
+            self.forced += 1;
+        }
+        if let Some(since) = self.since {
+            self.waited = since.elapsed().as_secs_f64();
+        }
+    }
+
+    /// The line logged once the start's cells are all drawn, the first time only.
+    fn settled_line(&mut self) -> Option<String> {
+        if self.logged || self.since.is_none() {
+            return None;
+        }
+        self.logged = true;
+        Some(format!(
+            "world: the start's cells drawn: {} with their models prepared on the read pool, {} before (the rest prepared on the main thread); {} cells read ahead under the picture hold, {:.2} s from the first cell to the last",
+            self.ready, self.forced, self.held, self.waited
+        ))
+    }
 }
 
 /// Start reading ahead the cells within `ring` steps of `centre` that are not drawn or
@@ -598,7 +693,16 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
     }
     let steps = |c: &(i32, i32)| (c.0 - centre.0).abs().max((c.1 - centre.1).abs());
     ahead.listing.retain(|c, _| steps(c) <= ring + 1);
-    ahead.listed.retain(|c, _| steps(c) <= ring + 1);
+    // [design] #3082: what a cell left behind was read ahead for (its landscape, the
+    // smoothed surface and every quadrant's meshes, all CPU data, no asset handles) is
+    // freed on a worker thread. A crossing leaves a row of the outer ring's cells, mostly
+    // never loaded; freeing them here took 9-16 ms of the frame [observed 2026-11-19,
+    // `profile hitch` spans, stress tour Goodsprings-Primm at --step 2048].
+    let far: Vec<(i32, i32)> = ahead.listed.keys().filter(|c| steps(c) > ring + 1).copied().collect();
+    let left: Vec<CellAhead> = far.iter().filter_map(|c| ahead.listed.remove(c)).collect();
+    if !left.is_empty() {
+        nvf_assets::read_pool::read_pool().spawn(async move { drop(left) }).detach();
+    }
     ahead.waiting.retain(|c, _| steps(c) <= ring);
     for dx in -ring..=ring {
         for dy in -ring..=ring {
@@ -781,6 +885,7 @@ pub fn report(mut exit: MessageReader<AppExit>, streamer: Res<Streamer>, models:
         "streaming summary: {} cells loaded ({:.0} ms on the main thread), spread over {} frames; {} waited for their read-ahead, {} drawn before it was done; {} models cached, {} in flight; {} late-mesh marks",
         s.cells_loaded, s.load_ms, s.spawn_frames, s.cells_waited, s.cells_forced, models.held(), models.in_flight(), late.marked
     );
+    info!("{}", nvf_assets::tangents::summary());
     // The smoke scenario `terrain-smoothing` reads it (#2149).
     if let Some(t) = terrain {
         // Cell draws counted over the run (a cell drawn again after it unloaded counts
@@ -804,6 +909,54 @@ const LOADING_SCREEN_FRAME: std::time::Duration = std::time::Duration::from_mill
 /// screen is only asked for.
 pub fn world_not_held(loading: Option<Res<nvf_play::loading::Loading>>, cover: Option<Res<nvf_play::loading::StartCover>>) -> bool {
     cover.is_none() && !loading.is_some_and(|l| l.world_held())
+}
+
+/// Whether the start's models are prepared on the read pool (docs/design/loading-screen.md
+/// §1a): the cells around the camera are read ahead under the picture hold
+/// ([`read_ahead_under_hold`]) and, under the start's screen, wait for that read-ahead
+/// ([`wait_over`]) instead of having their models prepared on the main thread in the first
+/// frame after the hold. Test aid `NVF_START_POOL_PREP=0`: as before, nothing read under
+/// the hold and the start's cells drawn at once.
+pub fn start_pool_prep() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("NVF_START_POOL_PREP").ok().as_deref().map(str::trim) != Some("0");
+        if !on {
+            info!("test aid NVF_START_POOL_PREP=0: the start's cells are read ahead after the picture hold and drawn at once, their models prepared on the main thread");
+        }
+        on
+    })
+}
+
+/// Under the start's picture hold ([`world_not_held`], so [`stream`] does not run yet),
+/// read ahead the cells around the camera as [`stream`] would in its first frame: their
+/// lists, landscape and models are prepared on the read pool while the screen's picture
+/// comes up, and [`take_cell_work`] takes the models in, so the cells find them ready
+/// once the hold is let go [design] ([`start_pool_prep`]; not for an interior, which is
+/// one cell drawn whole).
+pub fn read_ahead_under_hold(
+    world: Res<WorldData>,
+    mut streamer: ResMut<Streamer>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
+    mut models: ModelCtx,
+    terrain: Option<Res<crate::terrain::TerrainSettings>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+) {
+    let held = loading.is_some_and(|l| l.starting() && l.world_held());
+    let (Some(terrain), Ok(cam)) = (terrain, camera.single()) else { return };
+    if !held || streamer.interior.is_some() || !start_pool_prep() {
+        return;
+    }
+    let g = bevy_to_game(cam.translation());
+    let centre = streamer.arrival.unwrap_or_else(|| cell_of(g.x, g.y));
+    let ring = streamer.radius + 1;
+    read_ahead(&world, &mut streamer, centre, ring, terrain.tile, &mut models);
+    let ahead = &mut streamer.ahead;
+    let cells = ahead.listing.len() + ahead.listed.len();
+    if ahead.start.held == 0 && cells > 0 {
+        info!("world: the start's read-ahead begins under the loading screen's picture hold: {cells} cells around ({}, {}) read on the read pool", centre.0, centre.1);
+    }
+    ahead.start.held = ahead.start.held.max(cells);
 }
 
 /// Tell the loading screen whether cells around the camera are still to be drawn (runs
@@ -1881,6 +2034,52 @@ mod tests {
         assert!((bevy_to_game(b) - g).length() < 1e-5);
         // Game up (z) is Bevy up (y).
         assert!((t.transform_point(Vec3::Z) - Vec3::Y).length() < 1e-5);
+    }
+
+    /// A cell not ready: in play it waits `MAX_WAIT_SECS`; before the start square is in it
+    /// is drawn at once, unless under the start's screen with the pool preparation on
+    /// (`start_pool_prep`), where it waits for the read pool up to `MAX_WAIT_SECS` of real
+    /// time.
+    #[test]
+    fn cells_wait_for_the_read_pool_under_the_start_screen_only() {
+        assert!(!wait_over(true, 0.5, None));
+        assert!(wait_over(true, MAX_WAIT_SECS, None));
+        // In play the pool wait plays no part.
+        assert!(!wait_over(true, 0.5, Some(9.0)));
+        // Behind a travel's screen, or with NVF_START_POOL_PREP=0: at once.
+        assert!(wait_over(false, 0.0, None));
+        // Under the start's screen: waits for the pool, then is drawn anyway.
+        assert!(!wait_over(false, 0.0, Some(0.0)));
+        assert!(!wait_over(false, 0.0, Some(MAX_WAIT_SECS - 0.01)));
+        assert!(wait_over(false, 0.0, Some(MAX_WAIT_SECS)));
+    }
+
+    /// Only the start's own cells wait for the read pool and are counted: not with the aid
+    /// off, not behind a travel's screen, and not for a travel sent under the start's.
+    #[test]
+    fn a_travel_under_the_start_screen_is_not_the_starts() {
+        assert!(start_pool_cells(true, true, false));
+        assert!(!start_pool_cells(false, true, false), "NVF_START_POOL_PREP=0");
+        assert!(!start_pool_cells(true, false, true), "a travel's screen");
+        assert!(!start_pool_cells(true, true, true), "a travel under the start's screen");
+        assert!(!start_pool_cells(true, false, false), "in play");
+    }
+
+    /// The start's line: once, after its cells were counted, with how they came in.
+    #[test]
+    fn the_start_line_counts_its_cells_once() {
+        let mut s = StartPrep { held: 34, ..default() };
+        assert_eq!(s.settled_line(), None, "no start cell counted (a travel's screen, or the aid off)");
+        let t0 = std::time::Instant::now();
+        assert_eq!(s.waited(t0), 0.0);
+        assert!(s.waited(t0 + std::time::Duration::from_millis(250)) >= 0.25);
+        s.drawn(true);
+        s.drawn(true);
+        s.drawn(false);
+        let line = s.settled_line().unwrap();
+        assert!(line.starts_with("world: the start's cells drawn: 2 with their models prepared on the read pool, 1 before"), "{line}");
+        assert!(line.contains("34 cells read ahead under the picture hold"), "{line}");
+        assert_eq!(s.settled_line(), None, "once");
     }
 
     /// Issue #1753: with a menu's own `Camera3d` beside the main view's (and the water

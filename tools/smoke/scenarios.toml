@@ -277,6 +277,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipeline-cache-write"
+source = "perf/pipeline-cache (2026-11-19): pipelines compile on their own pool, the start's screen draws every mesh unculled to ask for their pipelines, and the composed shaders and the driver's pipeline cache are saved in the home once the pipelines are quiet (engine/nvforever/src/pipeline_disk_cache.rs, pipeline_prewarm.rs; vendor bevy_shader nvf_composed.rs, bevy_render pipeline_cache.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/pipeline_disk_cache.rs", "engine/nvforever/src/pipeline_prewarm.rs", "engine/vendor/bevy_shader/**", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs", "engine/vendor/bevy_render/src/render_resource/nvf_manifest.rs"]
+# The home may hold what an earlier smoke run saved: only the saving is checked here, the reading in pipeline-cache-read.
+env = { NVFOREVER_HOME = "pipeline-cache-home" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'pipeline compile pool: (?P<n>\d+) threads', range = [2, 8], label = "pipelines compile on a pool of their own" },
+  { re = 'pipeline prewarm: (?P<n>\d+) meshes drawn unculled under the screen', range = [50, 100000], label = "the start's screen drew the cell's meshes unculled" },
+  { re = 'composed shaders: saved (?P<n>\d+) ', range = [20, 100000], label = "the compositions are kept in the home" },
+  { re = 'pipeline list: saved (?P<n>\d+) ', range = [20, 100000], label = "the pipelines asked are listed in the home" },
+]
+forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
+
+[[scenario]]
+name = "pipeline-cache-read"
+source = "perf/pipeline-cache (2026-11-19): the run after pipeline-cache-write in the same home composes (almost) nothing again: the compositions it kept are used while their sources are the same (vendor bevy_shader nvf_composed.rs); the pipelines it listed are built from its start and handed to the game (vendor bevy_render nvf_manifest.rs)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/pipeline_disk_cache.rs", "engine/vendor/bevy_shader/**", "engine/vendor/bevy_render/src/render_resource/pipeline_cache.rs", "engine/vendor/bevy_render/src/render_resource/nvf_manifest.rs"]
+env = { NVFOREVER_HOME = "pipeline-cache-home" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'composed shaders: (?P<n>\d+) kept at ', range = [20, 100000], label = "the compositions of the run before are read" },
+  { re = 'composed shaders: saved \d+ \(\d+ bytes; (?P<n>\d+) used again', range = [20, 100000], label = "they are used again" },
+  { re = 'composed shaders: saved \d+ \(\d+ bytes; \d+ used again and (?P<n>\d+) composed this run\)', range = [0, 10], label = "little is composed again" },
+  { re = 'pipeline list: (?P<n>\d+) pipelines from earlier runs', range = [20, 100000], label = "the pipelines the run before asked are read" },
+  { re = 'pipeline list: \d+ listed; by the screen.s end \d+ built from it, (?P<n>\d+) of the', range = [1, 100000], label = "the start's screen takes pipelines built from the list" },
+]
+forbid = ["composed shaders: not saved", "pipeline cache: not saved", "pipeline list: not saved", "Caught rendering error", "Mismatched pop_error_scope"]
+
+[[scenario]]
 name = "memory-budget-capped"
 source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
@@ -9314,6 +9348,46 @@ expect = [
 ]
 
 [[scenario]]
+name = "start-pool-prep"
+source = "docs/design/loading-screen.md §1a (2026-11-19): the start's cells are read ahead under the picture hold and wait for that read-ahead, so their models are prepared on the read pool instead of on the main thread in the first frame after the hold; static models take the tangents their files store (docs/spec-notes/nif.md §6 \"Stored tangents\", docs/design/streaming-hitches.md §2)"
+note = "Passed 2026-11-20 (GTX 1050, a build of this change with the other open performance PRs). At Novac 22:00 the start draws 25 cells and about 230 static models [observed: NVF_LOADING_PROBE, a local probe, 2026-11-19]. The twin start-pool-prep-off runs with both test aids off"
+areas = ["loading", "streaming"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-assets/src/tangents.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+order = [[
+  { re = "world: the start's read-ahead begins under the loading screen's picture hold: (?P<n>\\d+) cells", range = [9, 100], label = "the cells around the start are read ahead under the picture hold" },
+  "loading screen: the world starts loading",
+  { re = "world: the start's cells drawn: (?P<n>\\d+) with their models prepared on the read pool", range = [1, 100], label = "the start's cells come in with their models prepared on the read pool" },
+  "loading screen down after",
+]]
+expect = [
+  { re = 'models: normal-map tangents of (?P<n>\d+) shapes read from their files', range = [100, 1000000], label = "the static models' normal maps use the tangents their files store" },
+]
+forbid = ["test aid NVF_START_POOL_PREP=0", "test aid NVF_STORED_TANGENTS=0"]
+
+[[scenario]]
+name = "start-pool-prep-off"
+source = "the test aids NVF_START_POOL_PREP=0 and NVF_STORED_TANGENTS=0 put the start and the static models' tangents back as they were before 2026-11-19 (docs/design/loading-screen.md §1a, docs/spec-notes/nif.md §6 \"Stored tangents\")"
+note = "Passed 2026-11-20 (as start-pool-prep); start-pool-prep's twin"
+areas = ["loading", "streaming"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvf-assets/src/tangents.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/nif_spawn.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_START_POOL_PREP = "0", NVF_STORED_TANGENTS = "0" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+order = [[
+  "test aid NVF_START_POOL_PREP=0",
+  "loading screen: the world starts loading",
+  "loading screen down after",
+]]
+expect = [
+  "test aid NVF_STORED_TANGENTS=0",
+  { re = 'models: normal-map tangents of 0 shapes read from their files .*test aid (?P<n>\d+)\)', range = [100, 1000000], label = "every static model's tangents generated" },
+]
+forbid = ["world: the start's read-ahead begins under", "world: the start's cells drawn:"]
+
+[[scenario]]
 name = "holmes-comes-from-far"
 source = "owner 2026-10-24 (actors heading for the player from outside the loaded area): Malcolm Holmes after the first star cap, as the original's observer capture holmes_far_travel showed (fnv_ai::process, docs/spec-notes/ai-observer.md §13)"
 note = "the player stands on Holmes's observed route, about 15,000 units west of SSHQMalcolmHolmesMarker; at 1 s AddItem gives the first star cap, whose OnAdd script (NVStarBottleCapScript) moves him to the marker out of the loaded area and enables him. His Dialogue package (Always Run, the player) walks him at the Low level, every 120 s, and the walk stops at the edge of the loaded area; from there he runs in and talks"
@@ -15374,7 +15448,7 @@ name = "actor-read-ahead"
 source = "docs/design/streaming-hitches.md §2: the actors of the ring of cells just outside the loaded grid are read and prepared ahead, so they are drawn at once when they come into range"
 note = "the camera flies north into Goodsprings from four cells south; the town's residents are listed in the ring before their cells load"
 areas = ["actors", "residents"]
-paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs", "engine/nvforever/src/facegen.rs"]
 args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--npc-packages", "all", "--hour", "12", "--auto-fly", "700"]
 run_seconds = 35
 expect = [
@@ -15382,6 +15456,8 @@ expect = [
   { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "residents drawn at once when they came into range" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) skeletons. clip sets loaded ahead', range = [1, 1000], label = "clip sets loaded ahead on a worker thread" },
+  { re = 'FaceGen: .*\((?P<n>\d+) offsets made ahead on a worker thread', range = [1, 5000], label = "the residents' FaceGen offset images made ahead on a worker thread (#3057)" },
+  { re = 'FaceGen: .*offsets made ahead on a worker thread, (?P<n>\d+) of them drawn', range = [1, 5000], label = "residents drawn with offset images made ahead" },
 ]
 
 [[scenario]]
@@ -33198,6 +33274,46 @@ order = [[
 ]]
 expect = [
   { re = 'loading screen down after (?P<n>[\d.]+) s$', range = [0, 20], all = true, label = "the door's load stays under the 20 s slow-load limit" },
+]
+
+[[scenario]]
+name = "start-residents-under-screen"
+source = "a Novac start at 22:00 drew its 15-17 residents in view after the start's loading screen, three a frame (residents.rs SPAWNS_PER_FRAME): a frame of 65-106 ms and about a second of 20-54 ms frames after it [observed 2026-11-19, 0.1 s frame windows]. They are drawn under the screen now, which waits for them; their first package is still chosen on the first frame of play (docs/design/loading-screen.md §1a)"
+note = "passed on #3081's first revision (99ae69440, its description); the count's floor is a third of the 15-17 seen in Novac's start at 22:00. The read-ahead line under the start's screen came with the review fix and is written without running the game"
+areas = ["loading", "ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/loading.rs", "engine/nvforever/src/readahead.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 6
+order = [[
+  { re = 'ai: the start.s screen waits for (?P<n>\d+) residents in view to be drawn under it', range = [5, 1000], label = "the residents in view are drawn under the start's screen" },
+  { re = 'loading screen: start residents: (?P<n>\d+) drawn under the screen, 0 in view left for after it$', range = [5, 1000], label = "all of them drawn before it came down" },
+  { re = 'loading screen phases: up [\d.]+ s; .*actors to place [\d.]+ s', label = "the phases name the wait for them" },
+  { re = 'ai \[22:\d\d\] .*: (walks|runs) to ', label = "their packages are chosen after it, on the first frame of play" },
+]]
+expect = [
+  { re = 'actor read-ahead: under the start.s screen, (?P<n>\d+) actors of the \d+ loaded cells listed', range = [5, 10000], label = "the loaded cells' actors are read from when the cells are in, not from when the scripts are made" },
+]
+forbid = [
+  { text = "residents in view still not drawn after", label = "the screen's cap for them" },
+]
+
+[[scenario]]
+name = "start-residents-after-screen-aid"
+source = "test aid NVF_START_ACTORS_UNDER_SCREEN=0 draws the start's residents after its loading screen, three a frame, as before they were drawn under it (docs/design/loading-screen.md §1a): the twin of start-residents-under-screen"
+note = "passed on #3081's first revision (99ae69440, its description)"
+areas = ["loading", "ai"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/loading.rs"]
+env = { NVF_START_ACTORS_UNDER_SCREEN = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Novac", "--play", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 6
+expect = [
+  { text = "test aid NVF_START_ACTORS_UNDER_SCREEN=0: the start's residents are drawn after its loading screen", label = "the aid is on" },
+  { re = 'loading screen: start residents: 0 drawn under the screen, (?P<n>\d+) in view left for after it \(test aid', range = [5, 1000], label = "none drawn under the screen, all left for after it" },
+]
+forbid = [
+  { re = 'loading screen phases: .*actors to place', label = "the screen does not wait for them" },
+  { text = "ai: the start's screen waits for", label = "nobody is drawn under it" },
 ]
 
 [[scenario]]

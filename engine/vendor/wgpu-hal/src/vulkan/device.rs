@@ -672,6 +672,19 @@ impl super::Device {
         spv: &[u32],
         label: &crate::Label<'_>,
     ) -> Result<vk::ShaderModule, crate::DeviceError> {
+        // NVForever (2026-11-19) SPIR-V salt test aid (vendor/README.md).
+        let salted;
+        let spv = match super::spirv_salt() {
+            Some(salt) if spv.len() > 2 => {
+                salted = {
+                    let mut words = spv.to_vec();
+                    words[2] ^= salt;
+                    words
+                };
+                &salted[..]
+            }
+            _ => spv,
+        };
         let vk_info = vk::ShaderModuleCreateInfo::default()
             .flags(vk::ShaderModuleCreateFlags::empty())
             .code(spv);

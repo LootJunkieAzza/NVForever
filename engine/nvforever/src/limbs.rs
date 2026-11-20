@@ -38,7 +38,7 @@ use nvf_assets::actor::PreparedSkeleton;
 use nvf_play::combat::Combat;
 use nvf_play::hitvol::{ActorParts, PartSegment, PosedParts, WEAPON_PART};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::weapons::{HeldWeapon, OnBack, WeaponHold};
 
@@ -276,7 +276,7 @@ pub fn weapon_segment(shapes: &[ShapeBox]) -> Option<(Vec3, Vec3)> {
 }
 
 /// Match spawned actors' skeletons to their body part data, once.
-fn rig_limbs(mut commands: Commands, combat: Res<Combat>, data: Option<Res<nvf_assets::GameData>>, mut radii: ResMut<BoneRadii>, rigs: Query<(Entity, &ActorRig), Without<LimbRig>>) {
+fn rig_limbs(mut commands: Commands, combat: Res<Combat>, data: Option<Res<nvf_assets::GameData>>, radii: Res<BoneRadii>, rigs: Query<(Entity, &ActorRig), Without<LimbRig>>) {
     for (e, rig) in &rigs {
         let mut limb = LimbRig { data: FormId(0), chains: Vec::new(), radii: Vec::new() };
         let widths = data.as_deref().map(|d| radii.of(d, &rig.skeleton));
@@ -317,35 +317,53 @@ fn rig_limbs(mut commands: Commands, combat: Res<Combat>, data: Option<Res<nvf_a
 /// capsule's or sphere's radius, a box's middle half-extent [design: the box's second
 /// side, so a flat plate does not count as its length]. A file that breaks the reader
 /// has none.
-#[derive(Resource, Default)]
-pub struct BoneRadii(HashMap<String, Arc<HashMap<String, f32>>>);
+///
+/// Shared with the actor read-ahead (`readahead.rs`), which reads a skeleton's widths on a
+/// worker thread before its first actor is drawn. [design] #3072: parsing the skeleton
+/// here when a kind of creature was first drawn was 12-15 ms of that frame [observed
+/// 2026-11-19, `profile hitch`, stress tour Goodsprings → Primm].
+#[derive(Resource, Default, Clone)]
+pub struct BoneRadii(Arc<Mutex<HashMap<String, Widths>>>);
+
+/// One skeleton's widths: lower-case bone name → game units.
+type Widths = Arc<HashMap<String, f32>>;
 
 impl BoneRadii {
-    fn of(&mut self, data: &nvf_assets::GameData, skeleton: &str) -> Arc<HashMap<String, f32>> {
+    /// The widths of `skeleton`, read now if no one has read them yet.
+    fn of(&self, data: &nvf_assets::GameData, skeleton: &str) -> Arc<HashMap<String, f32>> {
         let key = fnv_vfs::normalize(skeleton);
-        self.0
-            .entry(key.clone())
-            .or_insert_with(|| {
-                let read = data.read(&key).and_then(|bytes| {
-                    nvf_assets::guard::guarded(|| {
-                        let file = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)).map_err(|e| e.to_string())?;
-                        let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
-                        Ok(fnv_collide::ragdoll::ragdoll(&file, &dec))
-                    })
-                    .ok()
-                });
-                let mut out = HashMap::new();
-                for b in read.map(|r| r.bodies).unwrap_or_default() {
-                    let Some(bone) = b.object.node.as_deref() else { continue };
-                    if let Some(w) = shape_width(&b.object.shape) {
-                        let e = out.entry(bone.to_ascii_lowercase()).or_insert(0.0f32);
-                        *e = e.max(w);
-                    }
-                }
-                debug!("limbs: {key}: ragdoll widths {out:?}");
-                Arc::new(out)
+        if let Some(w) = self.0.lock().expect("bone radii").get(&key) {
+            return w.clone();
+        }
+        // Read without the lock held, so a worker reading another skeleton does not wait.
+        let widths = Arc::new(Self::read(data, &key));
+        self.0.lock().expect("bone radii").entry(key).or_insert(widths).clone()
+    }
+
+    /// Read the widths of `skeleton` ahead of its first actor (a worker thread).
+    pub fn warm(&self, data: &nvf_assets::GameData, skeleton: &str) {
+        self.of(data, skeleton);
+    }
+
+    fn read(data: &nvf_assets::GameData, key: &str) -> HashMap<String, f32> {
+        let read = data.read(key).and_then(|bytes| {
+            nvf_assets::guard::guarded(|| {
+                let file = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)).map_err(|e| e.to_string())?;
+                let dec = fnv_nif::scene::Decoded::new(&file, &bytes, &data.schema);
+                Ok(fnv_collide::ragdoll::ragdoll(&file, &dec))
             })
-            .clone()
+            .ok()
+        });
+        let mut out = HashMap::new();
+        for b in read.map(|r| r.bodies).unwrap_or_default() {
+            let Some(bone) = b.object.node.as_deref() else { continue };
+            if let Some(w) = shape_width(&b.object.shape) {
+                let e = out.entry(bone.to_ascii_lowercase()).or_insert(0.0f32);
+                *e = e.max(w);
+            }
+        }
+        debug!("limbs: {key}: ragdoll widths {out:?}");
+        out
     }
 }
 
