@@ -5121,7 +5121,7 @@ fn actor_attacks(
     mut hud: Option<ResMut<HudMessage>>,
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
     (mut fired, mut sounds, mut messages, mut pushes, mut scaled): ActorAttackOut,
-    sfx: Option<Res<Sfx>>,
+    (sfx, second): (Option<Res<Sfx>>, Option<Res<crate::sfx::SecondListener>>),
     (mut impacts, mut broken, mut knocks): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>, MessageWriter<Knockback>),
     (control, anim, player): Guard,
     mut dm: ResMut<crate::dismember::Dismemberment>,
@@ -5176,7 +5176,8 @@ fn actor_attacks(
             let silenced = mods != 0 && c.forms.weapons.get(&s.weapon).is_some_and(|w| w.sound_mod_on(mods));
             let shoot = fx.shoot_sounds(silenced);
             let near_max = shoot.near.and_then(|n| sfx.as_deref().and_then(|x| x.forms.sounds.get(&n))).map_or(0.0, |n| n.max_distance);
-            let distance = player.as_deref().map_or(0.0, |p| vec::len(vec::sub(p.eye(), seen_from)));
+            // From the nearer listener (split screen's player 2 too, `crate::sfx::heard_distance`).
+            let distance = player.as_deref().map_or(0.0, |p| crate::sfx::heard_distance(p.eye(), second.as_deref(), seen_from));
             let (sound, far) = shoot.heard_at(distance, near_max);
             if let Some(sound) = sound {
                 debug!("combat: npc {} shot sound {} ({}, {})", s.shooter, sound_edid(sfx.as_deref(), sound), if shoot.silenced { "silenced" } else { "plain" }, if far { "distant" } else { "3D" });

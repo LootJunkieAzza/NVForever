@@ -167,7 +167,7 @@ use nvf_play::loading::{Loading, TravelRequest};
 use nvf_play::lobby::{Hosting, Joining, LobbyRequest, LobbyState};
 use nvf_play::coop_tables::Tables;
 use nvf_play::player::Player;
-use nvf_play::sfx::{PlaySound, Sfx};
+use nvf_play::sfx::{Ear, PlaySound, SecondListener, Sfx};
 use nvf_play::{Location, PlayState, RefVisual, Travel};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -433,7 +433,7 @@ impl Plugin for CoopPlugin {
             .add_systems(Last, leave::host_ends)
             .add_systems(Update, story::share_story.after(take_events).after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
-            .add_systems(Update, (stand_ins, draw, scene::hide_players_in_scene, peer_lights, pipboy_share, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, second_listener, draw, scene::hide_players_in_scene, peer_lights, pipboy_share, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -2167,7 +2167,7 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
-    (sfx, listener, mut sounds, lying, seats, arm): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>, Option<Res<nvf_play::armwrestle_coop::ArmBodies>>),
+    (sfx, listener, mut sounds, lying, seats, arm, second): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>, Option<Res<nvf_play::armwrestle_coop::ArmBodies>>, Option<Res<SecondListener>>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -2276,12 +2276,46 @@ fn draw(
         }
         if let Some(weapon) = act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks) {
             shots.write(PuppetShot { shooter: FormId(reference), weapon });
-            if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), weapon, feet) {
+            if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), second.as_deref(), weapon, feet) {
                 debug!("co-op: {} fires {weapon}: sound {}", label(id, &p.name), s.sound);
                 sounds.write(s);
             }
         }
     }
+}
+
+/// Split screen's player 1 (the host; nvforever `split.rs` sets `NVF_SPLIT_P1=1` and
+/// inserts `SecondListener`): player 2, the guest, hears from its stand-in's place in
+/// this world, as [`stand_ins`] puts it (the peer's feet, `DELAY` behind), while it is in
+/// the host's place, in touch and not at the main menu; its game plays only interface
+/// sounds, so this game plays the world's for it (`nvf_play::sfx::SecondListener`).
+/// Without the resource, or without `NVF_SPLIT_P1=1` (solo, online co-op): nothing.
+fn second_listener(time: Res<Time>, coop: Res<Coop>, loc: Option<Res<Location>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, second: Option<ResMut<SecondListener>>) {
+    let Some(mut second) = second else { return };
+    let ear = if split_p1() && !at_main_menu(main_menu.as_deref()) { split_ear(&coop, loc.as_deref(), time.elapsed_secs()) } else { None };
+    second.set_if_neq(SecondListener(ear));
+}
+
+/// Whether this game is split screen's player 1 (`NVF_SPLIT_P1=1`, set by `split.rs`).
+fn split_p1() -> bool {
+    std::env::var_os("NVF_SPLIT_P1").is_some_and(|v| v == "1")
+}
+
+/// Where the first other player in this place hears from, on the host ([`second_listener`]).
+fn split_ear(coop: &Coop, loc: Option<&Location>, now: f32) -> Option<Ear> {
+    if !coop.link.as_ref().is_some_and(|l| l.is_host()) {
+        return None;
+    }
+    let here = place_of(loc?);
+    coop.peers.values().filter(|p| !p.lost).filter_map(|p| p.pose(now - DELAY)).find(|(place, ..)| *place == here).map(|(_, feet, yaw, _)| ear_at(feet, yaw))
+}
+
+/// Where a player standing at `feet` facing `yaw` (the compass heading it sends, its
+/// `Player::heading`) hears from: the standing eye height above its feet
+/// (`nvf_play::player::EYE_HEIGHT`) [design: a crouching or downed player 2 is heard
+/// for as standing].
+fn ear_at(feet: [f32; 3], yaw: f32) -> Ear {
+    Ear { eye: [feet[0], feet[1], feet[2] + nvf_play::player::EYE_HEIGHT], heading: yaw }
 }
 
 /// The host: each other player as an actor of this world (module notes), made when it
@@ -2806,7 +2840,7 @@ fn follow_npcs(
     (mut attacks, mut hits, mut fired, combat): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ShotFired>, Option<Res<nvf_play::combat::Combat>>),
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
-    (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
+    (sfx, listener, mut sounds, mut sim, loc, second): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>, Option<Res<SecondListener>>),
     solo: Option<Res<nvf_play::save::SoloBase>>,
     mut knocked: Local<HashSet<u32>>,
     mut streamed_since: Local<Option<f32>>,
@@ -3077,7 +3111,7 @@ fn follow_npcs(
             let melee = is_melee(actor_world.as_deref(), weapon);
             attacks.write(PlayAttack { actor: r, weapon, melee, sights: sights && !melee, kind: Move::Attack, power: None, swing: melee.then(SwingPick::default) });
             // Its shot, heard as the host's NPC's is there (no shot is fired here).
-            if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), w, s.feet)) {
+            if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), second.as_deref(), w, s.feet)) {
                 sounds.write(snd);
             }
             // And its muzzle flash at its gun's muzzle (`shot_fx`; item 176: Boone's shot
@@ -3139,15 +3173,13 @@ fn follow_npcs(
 /// A shot of `weapon` fired by someone standing at `feet`, heard here: its 3D shoot sound,
 /// or its distant one beyond the 3D sound's reach, as `nvf_play::combat` plays an NPC's
 /// (a puppet's gun mods are not known: the plain sound).
-fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, weapon: FormId, feet: [f32; 3]) -> Option<PlaySound> {
+fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, second: Option<&SecondListener>, weapon: FormId, feet: [f32; 3]) -> Option<PlaySound> {
     let sfx = sfx?;
     let shoot = sfx.forms.weapons.get(&weapon)?.shoot_sounds(false);
     let near_max = shoot.near.and_then(|n| sfx.forms.sounds.get(&n)).map_or(0.0, |n| n.max_distance);
     let at = [feet[0], feet[1], feet[2] + GUN_HEIGHT];
-    let distance = listener.map_or(0.0, |p| {
-        let e = p.eye();
-        ((e[0] - at[0]).powi(2) + (e[1] - at[1]).powi(2) + (e[2] - at[2]).powi(2)).sqrt()
-    });
+    // From the nearer listener (split screen's player 2 too).
+    let distance = listener.map_or(0.0, |p| nvf_play::sfx::heard_distance(p.eye(), second, at));
     let (sound, _) = shoot.heard_at(distance, near_max);
     Some(PlaySound { sound: sound?, at: Some(at) })
 }

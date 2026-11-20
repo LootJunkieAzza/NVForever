@@ -36,7 +36,7 @@ use crate::coop_tables::{game, Tables, R, W};
 use crate::player::Player;
 use crate::player_voice::{QuipSwitches, VoiceSets};
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned};
+use crate::sfx::{heard_by, heard_distance, heard_pan, Pan, Panned, SecondListener};
 use crate::sim::SimState;
 use crate::voice::{voice_gain, VoiceSettings, VoiceSound, VoiceState, DIALOG_MAX_DISTANCE, MOUTH_HEIGHT};
 use crate::PlaySet;
@@ -167,7 +167,7 @@ fn hear(
     (sets, switches, settings): (Res<VoiceSets>, Res<QuipSwitches>, Res<VoiceSettings>),
     voice: Res<VoiceState>,
     mut script: ResMut<ScriptState>,
-    player: Option<Res<Player>>,
+    (player, second): (Option<Res<Player>>, Option<Res<SecondListener>>),
     mut panned: Option<ResMut<Assets<Panned<AudioSource>>>>,
     mut hud: ResMut<crate::script_hud::ScriptHud>,
     (mut party, play): (ResMut<PartyQuips>, Option<Res<crate::PlayWorld>>),
@@ -209,11 +209,12 @@ fn hear(
         let heard = match (mate, player.as_deref()) {
             (Some(m), Some(p)) if m.here => {
                 let at = [m.feet[0], m.feet[1], m.feet[2] + MOUTH_HEIGHT];
-                let eye = p.eye();
-                let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
+                // Heard by the nearer listener (split screen's player 2 too).
+                let (eye, second) = (p.eye(), second.as_deref());
+                let d = heard_distance(eye, second, at);
                 (d < DIALOG_MAX_DISTANCE).then(|| {
-                    let [l, r] = pan_gains(eye, p.heading, at);
-                    let gain = voice_gain(d);
+                    let [l, r] = heard_pan(eye, p.heading, second, at);
+                    let gain = heard_by(eye, second, at, voice_gain);
                     (d, [l * gain, r * gain])
                 })
             }

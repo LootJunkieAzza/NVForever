@@ -77,7 +77,7 @@
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
+use crate::sfx::{heard_by, heard_distance, heard_pan, Pan, Panned, PcmSound, PlaySound, SecondListener};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
@@ -502,13 +502,14 @@ fn hook(state: Res<VoiceState>, settings: Res<VoiceSettings>, mut script: ResMut
 }
 
 /// The left and right gains of a line heard from where its speaker is now (0 out of
-/// hearing).
-fn placed_gains(sim: &SimState, player: Option<&Player>, speaker: FormId, through: bool) -> [f32; 2] {
+/// hearing), for the nearer listener (split screen's player 2 too:
+/// `crate::sfx::SecondListener`).
+fn placed_gains(sim: &SimState, player: Option<&Player>, second: Option<&SecondListener>, speaker: FormId, through: bool) -> [f32; 2] {
     let Some(p) = player else { return [1.0, 1.0] };
     match hearing(sim, p, speaker) {
-        Some((at, d)) => {
-            let g = line_gain(d, through);
-            let [l, r] = pan_gains(p.eye(), p.heading, at);
+        Some((at, _)) => {
+            let g = heard_by(p.eye(), second, at, |d| line_gain(d, through));
+            let [l, r] = heard_pan(p.eye(), p.heading, second, at);
             [l * g, r * g]
         }
         None => [0.0, 0.0],
@@ -530,9 +531,9 @@ fn play(
     mut effects: MessageWriter<PlaySound>,
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
     mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
-    mut cover: Option<ResMut<crate::sound_cover::SoundCover>>,
+    (mut cover, second): (Option<ResMut<crate::sound_cover::SoundCover>>, Option<Res<SecondListener>>),
 ) {
-    let player = player.as_deref();
+    let (player, second) = (player.as_deref(), second.as_deref());
     let st = &mut *state;
     let (Some(bank), Some(rt)) = (st.bank.clone(), script.rt.as_ref()) else { return };
     let g = &rt.game;
@@ -557,7 +558,7 @@ fn play(
     let cover_now = std::time::Instant::now();
     for (speaker, p) in st.playing.iter() {
         if let Some(pan) = &p.pan {
-            pan.set(placed_gains(&sim, player, p.place, p.through));
+            pan.set(placed_gains(&sim, player, second, p.place, p.through));
             // Heard at the listener while it plays, by the voice's fall-off
             // (`crate::sound_cover`); a held line makes no sound.
             let heard = player.filter(|_| p.entity.is_some() && !p.held && now < p.ends_at && *speaker != FormId::PLAYER_REF).and_then(|pl| hearing(&sim, pl, p.place));
@@ -628,7 +629,8 @@ fn play(
         let file = own_file.or_else(|| base.and_then(|b| bank.file(s.info.0, k, b.0))).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0))).or_else(|| carried_file(g, &bank, s.info));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
-        let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.place))) };
+        // How far: from the nearer listener (`crate::sfx::heard_distance`).
+        let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.place).map(|(at, _)| (at, heard_distance(p.eye(), second, at))))) };
         let out_of_hearing = match heard {
             Some(Some((_, d))) if !in_reach(d, s.through, None) => Some(format!("{d:.0} units away")),
             Some(None) if player.is_some() => {
@@ -637,7 +639,7 @@ fn play(
             }
             _ => None,
         };
-        let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, s.place, s.through)));
+        let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, second, s.place, s.through)));
         // A response with a sound of its own plays it instead of the voice (creatures'
         // and robots' combat lines; docs/spec-notes/combat-dialogue.md §3).
         let own_sound = g.data.infos.get(&s.info).and_then(|d| d.responses.get(k)).and_then(|r| r.sound);
