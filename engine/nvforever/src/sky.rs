@@ -1263,6 +1263,14 @@ fn find_weather(world: &WorldData, name: &str) -> Option<u32> {
 #[derive(Component)]
 pub struct SkyDome(Vec<[f32; 3]>);
 
+impl SkyDome {
+    /// The weights per vertex, in the mesh's vertex order (aerial.rs reads the dome's own
+    /// weights by elevation).
+    pub fn weights(&self) -> &[[f32; 3]] {
+        &self.0
+    }
+}
+
 /// One of the four cloud layers (WTHR layer index) in one of two sets: the set showing
 /// the current weather and the one fading out the previous weather.
 #[derive(Component)]

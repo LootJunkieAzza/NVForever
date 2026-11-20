@@ -53,6 +53,9 @@
 //! - **Desert haze** (`desert-haze`, off in every preset): a thin dust haze added to the
 //!   weather's own distance fog, thicker with distance and toward the ground, warmer toward
 //!   the sun, as far as the weather's fog leaves room for it (haze.rs, #2675).
+//! - **Aerial perspective** (`aerial-perspective`, off in every preset): far scenery takes on
+//!   the weather's sky colours with distance, per colour channel and toward the sun, inside the
+//!   weather's own fog (aerial.rs, #2993).
 //!
 //! Another switch is off in both looks and not part of `enhanced`: **Blend meshes into
 //! ground** (`mesh-terrain-blend`, `mesh_terrain_blend.rs`), outdoor roads, rocks and
@@ -209,11 +212,14 @@ pub struct Graphics {
     pub heat_haze: bool,
     /// A dust haze in the weather's fog (haze.rs; off in every preset) [design, #2675].
     pub desert_haze: bool,
+    /// Far scenery takes on the sky's colours in the weather's fog (aerial.rs; off in every
+    /// preset) [design, #2993].
+    pub aerial_perspective: bool,
 }
 
 /// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
 /// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 20] = [
+pub const KEYS: [&str; 21] = [
     "ambient-occlusion",
     "fine-shadows",
     "bloom",
@@ -234,6 +240,7 @@ pub const KEYS: [&str; 20] = [
     "terrain-shadows",
     "heat-haze",
     "desert-haze",
+    "aerial-perspective",
 ];
 
 impl Graphics {
@@ -290,6 +297,8 @@ impl Graphics {
             heat_haze: false,
             // Off in every preset: an addition of our own [design, #2675].
             desert_haze: false,
+            // Off in every preset: an addition of our own [design, #2993].
+            aerial_perspective: false,
         }
     }
 
@@ -315,6 +324,7 @@ impl Graphics {
             "terrain-shadows" => &mut self.terrain_shadows,
             "heat-haze" => &mut self.heat_haze,
             "desert-haze" => &mut self.desert_haze,
+            "aerial-perspective" => &mut self.aerial_perspective,
             _ => return None,
         })
     }
@@ -370,6 +380,7 @@ impl Graphics {
             (self.terrain_shadows, "terrain shadows"),
             (self.heat_haze, "heat haze"),
             (self.desert_haze, "desert haze"),
+            (self.aerial_perspective, "aerial perspective"),
         ];
         let mut on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if self.fsr().is_some() {
@@ -1586,6 +1597,18 @@ mod tests {
         *g.switch("desert-haze").expect("settings key") = true;
         assert_eq!(g, on);
         assert!(!Graphics::preset(Preset::Enhanced).describe().contains("haze"));
+    }
+
+    #[test]
+    fn aerial_perspective_is_off_in_both_looks_and_has_its_own_key() {
+        assert!(!Graphics::preset(Preset::Vanilla).aerial_perspective && !Graphics::preset(Preset::Enhanced).aerial_perspective);
+        let on = Graphics::only(&["aerial-perspective".into()]).expect("aerial-perspective");
+        assert!(on.aerial_perspective);
+        assert_eq!(on.describe(), "light glow, aerial perspective");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("aerial-perspective").expect("settings key") = true;
+        assert_eq!(g, on);
+        assert!(!Graphics::preset(Preset::Enhanced).describe().contains("aerial"));
     }
 
     // The guard alone: repeated requests and an earlier registration. Both callers

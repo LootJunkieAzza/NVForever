@@ -1065,6 +1065,20 @@ below cover them all.
 - More: docs/design/graphics-enhanced.md §3.16
 - Registered in `engine/nvforever/src/settings.rs`
 
+### `aerial-perspective`: Aerial perspective (experimental)
+
+- On the page: On: far land takes on the sky's colours with distance, bluer at noon, warmer
+  at dusk, brighter toward the sun, inside the weather's fog. Not in the original.
+- In full: On: the weather's own distance fog fades far land toward the sky colour behind it
+  (its horizon and lower-sky colours) instead of the one fog colour, each colour channel at
+  its own pace set by the sky's hue (a blue sky fogs blue in first, a dusk sky warm), and
+  toward the weather's sun colour looking into the sun by day. The amount of fog stays the
+  weather's; a short or dense fog (a hazy weather, a dust storm) is left as it is. Off in
+  every preset; not in the original. Outdoors only.
+- Command-line switches: `--graphics`, `--graphics-only`
+- More: docs/design/graphics-enhanced.md §3.17
+- Registered in `engine/nvforever/src/settings.rs`
+
 ### `bloom`: Bloom
 
 - On the page: On: light brighter than a sunlit white wall (the sun, lamps, windows) glows

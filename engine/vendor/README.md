@@ -235,6 +235,23 @@ component; without it the layouts and shader defs are upstream's, and the pipeli
 the same keys numbered differently (the packed fields above the new bit moved up by one).
 As for the sun visibility, a meshlet view must not get the component.
 
+Another change (fog parameters, #2993, docs/design/graphics-enhanced.md §3.17), each part
+marked `NVForever fog parameters`, for nvforever's `aerial.rs`:
+
+- `src/fog.rs`: `DistanceFog::nvf_params`, three `Vec4`s, zero by default.
+- `src/render/fog.rs`: `GpuFog::nvf_params`, copied from the component in `prepare_fog` for
+  every fog mode (the Atmospheric arm now ends in `..Default::default()` like the others).
+- `src/render/mesh_view_types.wesl`: `Fog::nvf_params: array<vec4<f32>, 3>` after `mode`
+  (offset 64, the struct 112 bytes; nvforever's `aerial.rs` tests the Rust and the WGSL
+  layout).
+
+Bevy's fog functions never read the new field, so with it zero (Bevy's default, and every
+NVForever view while the Aerial perspective row is off) the fog is upstream's. The fog
+uniform grows by 48 bytes; the mesh view bind group keeps its entries. nvforever's own edits
+of `fog.wesl` and `pbr_functions.wesl` (fog.rs, haze.rs, aerial.rs, at run time) read it.
+Upstream has no way for an application to hand its own values to the fog shader (the
+uniform's free fields were used up by the desert haze, §3.16).
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 [documented: `src/render_resource/pipeline_cache.rs::create_pipeline_task`, #2317]

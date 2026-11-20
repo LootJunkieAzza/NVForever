@@ -1104,7 +1104,7 @@ fn register_graphics(app: &mut App) {
         },
     );
     nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
-    let switches: [Switch; 19] = [
+    let switches: [Switch; 20] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -1227,6 +1227,14 @@ fn register_graphics(app: &mut App) {
             "--graphics, --graphics-only",
             |w| w.resource::<Graphics>().desert_haze,
             |w, on| w.resource_mut::<Graphics>().desert_haze = on,
+        ),
+        (
+            "aerial-perspective",
+            "Aerial perspective (experimental)",
+            "On: far land takes on the sky's colours with distance, bluer at noon, warmer at dusk, brighter toward the sun, inside the weather's fog. Not in the original.",
+            "--graphics, --graphics-only",
+            |w| w.resource::<Graphics>().aerial_perspective,
+            |w, on| w.resource_mut::<Graphics>().aerial_perspective = on,
         ),
         (
             "water-reflections",
@@ -2641,6 +2649,7 @@ dlss-model=Preset K
             ("light-shafts", &["--graphics"]),
             ("heat-haze", &["--graphics-only"]),
             ("desert-haze", &["--graphics", "--graphics-only"]),
+            ("aerial-perspective", &["--graphics", "--graphics-only"]),
             ("water-reflections", &["--graphics"]),
             ("water-effects", &["--graphics", "--graphics-only"]),
             ("water-mirror", &["--graphics-only"]),

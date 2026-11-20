@@ -2210,6 +2210,64 @@ forbid = [
 ]
 
 [[scenario]]
+name = "aerial-perspective"
+source = "[design, #2993] engine/nvforever/src/aerial.rs, fog.rs GAME_FOG, docs/design/graphics-enhanced.md §3.17: the Aerial perspective switch (off by default and in every preset) turned on while the game runs outdoors at Goodsprings at noon writes its figures, worked from the shown weather, into the fog uniform and logs them; turned off it logs off; the shader edits it rides on (pbr_functions.wesl nvf_aerial around the desert haze's fog call, fog.wesl GAME_FOG, the vendored Fog struct's nvf_params) are in place and every world pipeline compiles, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/aerial.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/haze.rs",
+  "engine/vendor/bevy_pbr/src/render/pbr_functions.wesl", "engine/vendor/bevy_pbr/src/render/fog.wesl",
+  "engine/vendor/bevy_pbr/src/render/fog.rs", "engine/vendor/bevy_pbr/src/fog.rs",
+  "engine/vendor/bevy_pbr/src/render/mesh_view_types.wesl",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:aerial-perspective,13:aerial-perspective" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+expect = [
+  "fog: the game's fog curve installed",
+  { re = 'aerial: aerial perspective on: .*?: weight (\d+\.\d+), channel weights \d+\.\d+/\d+\.\d+/\d+\.\d+, sky share', range = [0.2, 1.0], label = "Goodsprings' weather leaves room for the aerial terms at noon: a weight above 0 and channel weights" },
+]
+order = [
+  [
+    "settings: aerial-perspective on",
+    { text = "aerial: aerial perspective on: ", label = "the line once the switch is on, outdoors" },
+    "settings: aerial-perspective off",
+    { text = "aerial: aerial perspective off", label = "and off again" },
+  ],
+  [
+    { re = 'graphics: light glow, aerial perspective$' },
+    { re = 'graphics: light glow$', label = "off again" },
+  ],
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the aerial perspective" },
+  { re = '(?i)failed to process shader', label = "a world shader that does not compile with the edits (pbr_functions.wesl nvf_aerial and nvf_haze, fog.wesl GAME_FOG, the Fog struct's nvf_params)" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "apply_fog not as expected", label = "the haze's edit of Bevy's fog call (which the aerial edit wraps) not made" },
+  { text = "the desert haze's fog call not as expected", label = "the aerial edit of the haze's fog call not made" },
+  { text = "the aerial perspective's shader edit is not in place", label = "the switch on without its shader edit" },
+]
+
+[[scenario]]
+name = "aerial-perspective-with-haze"
+source = "[design, #2993, #2675] engine/nvforever/src/aerial.rs, haze.rs, fog.rs GAME_FOG, docs/design/graphics-enhanced.md §3.17: started with --graphics-only desert-haze,aerial-perspective at Goodsprings at noon under a pinned clear weather (NVWastelandClear, whose fog leaves full room: weight 1), both the desert haze and the aerial perspective turn on from the shown weather and every world pipeline compiles with both in the fog path, without a rendering error. The look is checked in pictures by hand"
+areas = ["renderer", "graphics", "weather"]
+paths = ["engine/nvforever/src/aerial.rs", "engine/nvforever/src/haze.rs", "engine/nvforever/src/fog.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--weather", "NVWastelandClear", "--graphics-only", "desert-haze,aerial-perspective"]
+run_seconds = 14
+expect = [
+  { re = 'graphics: light glow, desert haze, aerial perspective$', label = "both switches on from the start" },
+  { text = "haze: desert haze on: ", label = "the haze on outdoors" },
+  { re = 'aerial: aerial perspective on: .*?: weight (\d+\.\d+), channel weights', range = [0.95, 1.0], label = "a clear weather's fog leaves full room for the aerial terms" },
+]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error with the haze and the aerial perspective together" },
+  { re = '(?i)failed to process shader', label = "a world shader that does not compile with both in the fog path" },
+  { text = "failed and will not be tried again", label = "a pipeline that failed for good" },
+  { text = "the aerial perspective's shader edit is not in place", label = "the switch on without its shader edit" },
+]
+
+[[scenario]]
 name = "terrain-height-blend-local-start"
 source = "[design, #2550] engine/nvforever/src/terrain.rs \"Height blending\": started with local height reference (0.10:4:local) and --graphics-only terrain-height-blend, the folded materials are made with it and their TERRAIN_HEIGHT_BLEND pipeline compiles and is ready, without a rendering or pipeline error"
 areas = ["renderer", "graphics", "terrain"]

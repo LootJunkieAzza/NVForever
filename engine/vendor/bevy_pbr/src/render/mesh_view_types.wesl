@@ -105,6 +105,9 @@ struct Fog {
     directional_light_exponent: f32,
     bi: vec3<f32>,
     mode: u32,
+    /// NVForever fog parameters (`fog.rs` `GpuFog::nvf_params`; nvforever `aerial.rs`): zero
+    /// unless the application sets them; Bevy's fog functions do not read them.
+    nvf_params: array<vec4<f32>, 3>,
 }
 
 // Important: These must be kept in sync with `fog.rs`
