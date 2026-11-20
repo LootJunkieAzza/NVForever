@@ -630,7 +630,8 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         // Handling], before the state is taken.
         crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.checked_snapshot().map(|g| (g, rt.game.coop_story.clone()))
+            // The story to undo keeps the unique rewards of claimed quests (P5).
+            rt.game.checked_snapshot().map(|g| (g, rt.game.coop_story_to_undo()))
         })
     })?;
     // Test aid: this save reads as one from a later version (smoke `save-refused-load`).
@@ -1113,6 +1114,15 @@ fn replay_claims(world: &mut World) {
         for l in lines {
             corner.push(l.into());
         }
+    }
+    // The map markers found in another player's world (plan P7): found here too, as a
+    // save's own are (no notice, no XP).
+    let markers = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()).map(|rt| std::mem::take(&mut rt.game.player.claims.markers)).unwrap_or_default();
+    if !markers.is_empty() {
+        info!("co-op: {} map marker(s) found in co-op are found here too", markers.len());
+        let mut found = world.get_resource::<crate::pipboy::data::DataState>().map(|s| s.discovered().clone()).unwrap_or_default();
+        found.extend(markers.iter().map(|m| m.0));
+        crate::pipboy::data::DataState::restore_discovered(world, found);
     }
 }
 

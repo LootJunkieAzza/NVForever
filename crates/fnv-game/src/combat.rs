@@ -428,8 +428,16 @@ impl Game<'_> {
         if killer == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
             match raw_killer.filter(|&k| self.is_coop_actor(k)) {
                 Some(guest) => {
+                    let from = self.crimes.notes.len();
                     let karma = self.player_kills_karma(r, false);
-                    self.coop_guest_killed(r, guest, karma);
+                    let infamy = self.crimes.notes[from.min(self.crimes.notes.len())..]
+                        .iter()
+                        .filter_map(|n| match n {
+                            crate::crime::Note::Infamy { reputation, before, after } if after != before => Some((*reputation, after - before)),
+                            _ => None,
+                        })
+                        .collect();
+                    self.coop_guest_killed(r, guest, karma, infamy);
                 }
                 None => {
                     self.player_kills(r);

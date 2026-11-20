@@ -90,7 +90,7 @@ pub enum Shared {
     Stage { quest: u32, stage: i32, line: u32, line_end: bool, prior: Vec<i32>, to: u8 },
     StageResult { quest: u32, stage: i32, taken: bool },
     /// Kill credit for player `to` (shared-progression plan §4.2).
-    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool },
+    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool, infamy: Vec<(u32, i32)> },
     HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
 }
 
@@ -486,7 +486,7 @@ fn take_inbox(
                 }
                 p.outbox.push(Shared::StageResult { quest, stage, taken: taken.is_ok() });
             }
-            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer } if p.role == Role::Guest && id == 0 && p.my_id == Some(to) => {
+            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } if p.role == Role::Guest && id == 0 && p.my_id == Some(to) => {
                 let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { continue };
                 let c = fnv_game::coop_kills::KillCredit {
                     player: FormId::PLAYER_REF,
@@ -496,6 +496,7 @@ fn take_inbox(
                     xp: f64::from(xp),
                     karma: f64::from(karma),
                     killer,
+                    infamy: infamy.iter().map(|(r, d)| (FormId(*r), f64::from(*d))).collect(),
                 };
                 let got = rt.game.take_coop_kill_credit(&c);
                 info!("co-op: kill credit for {}: +{got} XP, karma {karma:+}{}", FormId(target), if killer { " (the kill)" } else { "" });
@@ -591,6 +592,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     if p.role != Role::Host {
         p.joint_peers.clear();
     }
+    rt.game.coop_joint_on = p.role == Role::Guest && p.joint_on == Some(true);
     if p.role == Role::Guest && !p.joint_sent && p.my_id.is_some() {
         if let Some(on) = p.joint_on {
             let character = rt.game.ensure_character_id();
@@ -617,7 +619,7 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     let mut credits = Vec::new();
     for c in rt.game.take_coop_kill_credits() {
         let Some(to) = id_of(c.player) else { continue };
-        credits.push(Shared::KillCredit { to, target: c.target.0, target_base: c.target_base.map_or(0, |b| b.0), npc: c.npc, xp: c.xp.max(0.0).round() as u32, karma: c.karma.round() as i32, killer: c.killer });
+        credits.push(Shared::KillCredit { to, target: c.target.0, target_base: c.target_base.map_or(0, |b| b.0), npc: c.npc, xp: c.xp.max(0.0).round() as u32, karma: c.karma.round() as i32, killer: c.killer, infamy: c.infamy.iter().map(|(r, d)| (r.0, d.round() as i32)).collect() });
     }
     for h in rt.game.take_coop_hit_credits() {
         let Some(to) = id_of(h.player) else { continue };

@@ -159,25 +159,37 @@ fn a_guest_claims_into_its_character_and_its_own_world_replays_once() {
     assert_ne!(id, 0);
     assert_eq!(guest.ensure_character_id(), id, "the ID is stable");
     let own = guest.quests.clone();
+    // No claim open yet: a guest's infamy in the host's world stays there.
+    const REP: FormId = FormId(0x0000_0900);
+    guest.coop_note_reputation(&[(REP, 30.0)]);
+    assert!(guest.player.claims.reputation.is_empty());
     for (s, prior) in [(1, vec![]), (10, vec![1]), (20, vec![1, 10])] {
         guest.take_joint_offer(&own, &offer(s, &prior)).unwrap();
     }
     assert_eq!(guest.take_joint_offer(&own, &offer(100, &[1, 10, 20, 50])), Err(TurnedDown::Missed(50)));
+    // With a claim open, its own acts' infamy goes into the ledger (plan §3.6).
+    guest.coop_note_reputation(&[(REP, 30.0)]);
+    assert_eq!(guest.player.claims.reputation.get(&REP), Some(&[30.0, 0.0]));
     // The debug console's view (`coop.ledger`).
     let ledger = guest.coop_ledger_lines();
     assert!(ledger[0].contains("1 quest(s) waiting") && ledger[1].contains("1, 10, 20"), "{ledger:?}");
+    // A map marker found in the host's world (plan P7).
+    guest.player.claims.markers.insert(FormId(0x0000_0A00));
     // The ledger travels with the character into its own save.
     let c = fnv_game::coop::Character::of(&guest.player);
     assert_eq!(c.character_id, id);
     let mut own_world = game(&f);
     c.put_on(&mut own_world.player);
     let xp = own_world.player.xp;
+    assert!(own_world.player.claims.markers.contains(&FormId(0x0000_0A00)), "markers carry over for the engine's load");
     let lines = own_world.replay_claims();
     assert_eq!(lines.len(), 1, "{lines:?}");
     let q = own_world.quests.get(&FormId(SIDE)).unwrap();
     assert!([1, 10, 20].iter().all(|s| q.stages_done.contains(s)), "{:?}", q.stages_done);
     assert!(!q.stages_done.contains(&50));
     assert_eq!(own_world.player.xp, xp);
+    assert_eq!(own_world.player.reputation.get(&REP).map(|v| v[0]), Some(30.0), "the infamy is replayed");
+    assert!(own_world.player.claims.reputation.is_empty());
     assert!(!own_world.coop_replaying);
     // Replayed once: a second load replays nothing, and the claims stay known.
     assert!(own_world.replay_claims().is_empty());

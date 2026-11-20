@@ -537,7 +537,8 @@ pub enum Progress {
     /// Kill credit for player `to` (shared-progression plan §4.2): `xp` of the kill of
     /// `target`, its `karma`, and whether `to` was the killer (kill count, challenges).
     /// Only the host's are taken.
-    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool },
+    /// `infamy`: the guest's own seen-murder infamy by reputation (whole points).
+    KillCredit { to: u8, target: u32, target_base: u32, npc: bool, xp: u32, karma: i32, killer: bool, infamy: Vec<(u32, i32)> },
     /// A guest's own hit, for its hit and damage challenges (`weapon`/`part` 0 and
     /// `u32::MAX` for none). Only the host's are taken.
     HitCredit { to: u8, target: u32, weapon: u32, part: u32, dealt: u32, critical: bool, crippled: bool },
@@ -2514,7 +2515,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.extend_from_slice(&stage.to_le_bytes());
                     b.push(*taken as u8);
                 }
-                Progress::KillCredit { to, target, target_base, npc, xp, karma, killer } => {
+                Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => {
                     b.push(9);
                     b.push(*to);
                     b.extend_from_slice(&target.to_le_bytes());
@@ -2523,6 +2524,12 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.extend_from_slice(&xp.to_le_bytes());
                     b.extend_from_slice(&karma.to_le_bytes());
                     b.push(*killer as u8);
+                    let n = infamy.len().min(255);
+                    b.push(n as u8);
+                    for (r, d) in &infamy[..n] {
+                        b.extend_from_slice(&r.to_le_bytes());
+                        b.extend_from_slice(&d.to_le_bytes());
+                    }
                 }
                 Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => {
                     b.push(10);
@@ -2736,7 +2743,12 @@ fn decode(b: &[u8]) -> Option<Msg> {
                     Progress::Stage { quest, stage, line, line_end, prior, to }
                 }
                 8 => Progress::StageResult { quest: r.u32()?, stage: r.u32()? as i32, taken: r.u8()? != 0 },
-                9 => Progress::KillCredit { to: r.u8()?, target: r.u32()?, target_base: r.u32()?, npc: r.u8()? != 0, xp: r.u32()?, karma: r.u32()? as i32, killer: r.u8()? != 0 },
+                9 => {
+                    let (to, target, target_base, npc, xp, karma, killer) = (r.u8()?, r.u32()?, r.u32()?, r.u8()? != 0, r.u32()?, r.u32()? as i32, r.u8()? != 0);
+                    let n = r.u8()?;
+                    let infamy = (0..n).map(|_| Some((r.u32()?, r.u32()? as i32))).collect::<Option<Vec<_>>>()?;
+                    Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy }
+                }
                 10 => Progress::HitCredit { to: r.u8()?, target: r.u32()?, weapon: r.u32()?, part: r.u32()?, dealt: r.u32()?, critical: r.u8()? != 0, crippled: r.u8()? != 0 },
                 _ => return None,
             };
@@ -3003,7 +3015,7 @@ mod tests {
             Msg::Progress { id: 2, seq: 14, what: Progress::JointChoice { character: 0x0123_4567_89AB_CDEF, on: true } },
             Msg::Progress { id: 0, seq: 15, what: Progress::Stage { quest: 0x0011_76B8, stage: 100, line: 0x0013_E51E, line_end: true, prior: vec![1, 10, 20, 50], to: 0b0110 } },
             Msg::Progress { id: 1, seq: 16, what: Progress::StageResult { quest: 0x0011_76B8, stage: 100, taken: false } },
-            Msg::Progress { id: 0, seq: 17, what: Progress::KillCredit { to: 1, target: 0x0010_4C1D, target_base: 0x0010_4C1E, npc: true, xp: 10, karma: -5, killer: true } },
+            Msg::Progress { id: 0, seq: 17, what: Progress::KillCredit { to: 1, target: 0x0010_4C1D, target_base: 0x0010_4C1E, npc: true, xp: 10, karma: -5, killer: true, infamy: vec![(0x0010_4C2A, 30)] } },
             Msg::Progress { id: 0, seq: 18, what: Progress::HitCredit { to: 2, target: 0x0010_4C1D, weapon: 0x0E3778, part: u32::MAX, dealt: 12, critical: true, crippled: false } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },

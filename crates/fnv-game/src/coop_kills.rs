@@ -49,6 +49,11 @@ pub struct KillCredit {
     pub karma: f64,
     /// Whether the guest killed it (the kill count and kill challenges are the killer's).
     pub killer: bool,
+    /// The infamy the host's world gave for this kill (a seen murder), by reputation: the
+    /// guest's own act, kept for its own save while it has a claimed quest open (plan
+    /// §3.6, `crate::coop_joint`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub infamy: Vec<(FormId, f64)>,
 }
 
 /// A guest's hit on the host, for the guest's hit and damage challenges.
@@ -107,10 +112,10 @@ impl Game<'_> {
 
     /// A guest's actor killed `target` (`Game::die`, while it still lives): its karma
     /// change and its kill go to the guest's queue, not to the host's player.
-    pub(crate) fn coop_guest_killed(&mut self, target: FormId, guest: FormId, karma: f64) {
+    pub(crate) fn coop_guest_killed(&mut self, target: FormId, guest: FormId, karma: f64, infamy: Vec<(FormId, f64)>) {
         let base = crate::functions::base_of(self, target);
         let npc = base.and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_");
-        self.coop_kills.credits.push(KillCredit { player: guest, target, target_base: base, npc, xp: 0.0, karma, killer: true });
+        self.coop_kills.credits.push(KillCredit { player: guest, target, target_base: base, npc, xp: 0.0, karma, killer: true, infamy });
     }
 
     /// `target` died by `killer`'s hand (a hit or an effect): the kill's XP for every
@@ -147,10 +152,10 @@ impl Game<'_> {
                 // Its kill's credit was queued by `Game::die`, with the karma.
                 match self.coop_kills.credits.iter_mut().rev().find(|c| c.player == g && c.target == target && c.killer) {
                     Some(c) => c.xp = xp,
-                    None => self.coop_kills.credits.push(KillCredit { player: g, target, target_base: base, npc, xp, karma: 0.0, killer: true }),
+                    None => self.coop_kills.credits.push(KillCredit { player: g, target, target_base: base, npc, xp, karma: 0.0, killer: true, infamy: Vec::new() }),
                 }
             } else if share > 0.0 && self.in_combat_with(g, target) {
-                self.coop_kills.credits.push(KillCredit { player: g, target, target_base: base, npc, xp: share, karma: 0.0, killer: false });
+                self.coop_kills.credits.push(KillCredit { player: g, target, target_base: base, npc, xp: share, karma: 0.0, killer: false, infamy: Vec::new() });
             }
         }
         crate::experience::award(self, crate::experience::Source::Kill, host)
@@ -182,6 +187,9 @@ impl Game<'_> {
             // The target is a reference of the same world; one only the host has (spawned
             // there) still counts by the challenges that ask for no form [hypothesis].
             self.challenge_kill(c.target);
+        }
+        if c.killer {
+            self.coop_note_reputation(&c.infamy);
         }
         gained
     }

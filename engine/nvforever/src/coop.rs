@@ -3900,7 +3900,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::JointChoice { character, on } => Shared::JointChoice { character, on },
                 net::Progress::Stage { quest, stage, line, line_end, prior, to } => Shared::Stage { quest, stage, line, line_end, prior, to },
                 net::Progress::StageResult { quest, stage, taken } => Shared::StageResult { quest, stage, taken },
-                net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer },
+                net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
                 net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled } => Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             },
         ));
@@ -3919,7 +3919,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
             Shared::JointChoice { character, on } => net::Progress::JointChoice { character, on },
             Shared::Stage { quest, stage, line, line_end, prior, to } => net::Progress::Stage { quest, stage, line, line_end, prior, to },
             Shared::StageResult { quest, stage, taken } => net::Progress::StageResult { quest, stage, taken },
-            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer },
+            Shared::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy } => net::Progress::KillCredit { to, target, target_base, npc, xp, karma, killer, infamy },
             Shared::HitCredit { to, target, weapon, part, dealt, critical, crippled } => net::Progress::HitCredit { to, target, weapon, part, dealt, critical, crippled },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,

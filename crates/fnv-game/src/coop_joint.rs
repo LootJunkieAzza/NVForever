@@ -139,17 +139,26 @@ pub struct ClaimedStage {
 /// A character's claimed stages, by quest in claim order (plan §3.5): written as each is
 /// taken, replayed in its own world and then cleared. `done` keeps what was replayed,
 /// for the Pip-Boy and the logs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClaimLedger {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub stages: BTreeMap<FormId, Vec<ClaimedStage>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub done: BTreeMap<FormId, BTreeSet<i32>>,
+    /// Reputation this character's own acts changed in another player's world while it
+    /// had a claimed quest open (a seen murder's infamy: plan §3.6), by reputation and
+    /// axis (0 the one `crate::functions::crime_infamy` moves); replayed with the stages.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reputation: BTreeMap<FormId, [f64; 2]>,
+    /// Map markers this character found in another player's world while sharing quest
+    /// progress (plan P7): found in its own save at its next load, without the notice.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub markers: BTreeSet<FormId>,
 }
 
 impl ClaimLedger {
     pub fn is_empty(&self) -> bool {
-        self.stages.is_empty() && self.done.is_empty()
+        self.stages.is_empty() && self.done.is_empty() && self.reputation.is_empty() && self.markers.is_empty()
     }
     pub fn claimed(&self, q: FormId, stage: i32) -> bool {
         self.stages.get(&q).is_some_and(|s| s.iter().any(|c| c.stage == stage)) || self.done.get(&q).is_some_and(|s| s.contains(&stage))
@@ -241,6 +250,24 @@ pub fn prerequisites_hold(g: &Game, own: &BTreeMap<FormId, QuestState>, list: &[
 }
 
 impl Game<'_> {
+    /// Whether this character has a claimed quest still running here: its acts then count
+    /// in its own save too (plan §3.6). A simplification [design]: any open claim, not
+    /// only the quest the act belongs to (no data ties a kill to a quest).
+    pub fn coop_claim_open(&self) -> bool {
+        self.player.claims.stages.keys().any(|q| self.quests.get(q).is_none_or(|s| !s.completed && !s.failed))
+    }
+
+    /// A guest's own act changed reputations in the host's world (`crate::coop_kills`):
+    /// kept in the ledger for its own save while a claim is open.
+    pub fn coop_note_reputation(&mut self, changes: &[(FormId, f64)]) {
+        if changes.is_empty() || !self.coop_claim_open() {
+            return;
+        }
+        for (r, d) in changes {
+            self.player.claims.reputation.entry(*r).or_default()[0] += d;
+        }
+    }
+
     /// Debug console `coop.presence <quest>`: who this host's world saw at each stage of
     /// `q` (character IDs; plan P3).
     pub fn coop_presence_lines(&self, q: FormId) -> Vec<String> {
@@ -309,10 +336,11 @@ impl Game<'_> {
     /// Rewards were given live, so `RewardXP`, caps and items to the player and
     /// achievements are muted while it runs ([`Game::coop_replaying`]).
     pub fn replay_claims(&mut self) -> Vec<String> {
-        if self.player.claims.stages.is_empty() {
+        if self.player.claims.stages.is_empty() && self.player.claims.reputation.is_empty() {
             return Vec::new();
         }
         let claims = std::mem::take(&mut self.player.claims.stages);
+        let reputation = std::mem::take(&mut self.player.claims.reputation);
         let mut lines = Vec::new();
         self.coop_replaying = true;
         for (q, stages) in claims {
@@ -339,6 +367,13 @@ impl Game<'_> {
                 let name = self.data.quests.get(&q).and_then(|d| d.name.clone().or_else(|| d.edid.clone())).unwrap_or_else(|| format!("{q}"));
                 tracing::info!("co-op: replayed {applied} claimed stage(s) of {name}");
                 lines.push(format!("From co-op: {name}"));
+            }
+        }
+        // The character's own acts' reputation in claimed quests (plan §3.6).
+        for (r, axes) in reputation {
+            for (axis, d) in axes.into_iter().enumerate().filter(|(_, d)| *d != 0.0) {
+                crate::functions::reputation_change(self, r, axis, d);
+                tracing::info!("co-op: replayed reputation {} axis {axis} {d:+}", self.data.name(r));
             }
         }
         self.coop_replaying = false;

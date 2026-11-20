@@ -358,6 +358,10 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     if found.is_empty() {
         return;
     }
+    // A co-op guest sharing quest progress keeps what it found for its own save (plan P7).
+    if rt.game.coop_guest && rt.game.coop_joint_on {
+        rt.game.player.claims.markers.extend(found.iter().map(|(f, _)| FormId(*f)));
+    }
     let mut messages = messages;
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
