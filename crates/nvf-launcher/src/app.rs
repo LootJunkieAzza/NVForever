@@ -1810,14 +1810,6 @@ impl App {
                         launch::open_folder(&h.mods());
                     }
                 }
-                let can_backup = self.backup_keep > 0 && self.mods.is_some();
-                let tip = if self.backup_keep == 0 { "Set Max backups kept above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
-                if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
-                    match self.save_order_backup() {
-                        Ok(said) => self.message = Some((said.into(), false)),
-                        Err(e) => self.message = Some((e, true)),
-                    }
-                }
             });
         });
         ui.label(
@@ -2403,6 +2395,14 @@ impl App {
                         }
                         Err(e) => self.message = Some((e.to_string(), true)),
                     }
+                }
+            }
+            let can_backup = self.backup_keep > 0 && self.mods.is_some();
+            let tip = if self.backup_keep == 0 { "Set Max backups kept above 0." } else { "Stores this mod order and plugin list. The lists the game uses stay as they are." };
+            if ui.add_enabled(can_backup, egui::Button::new("Save backup")).on_hover_text(tip).clicked() {
+                match self.save_order_backup() {
+                    Ok(said) => self.message = Some((said.into(), false)),
+                    Err(e) => self.message = Some((e, true)),
                 }
             }
         });
